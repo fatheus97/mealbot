@@ -1,0 +1,108 @@
+{
+  "scenario": {
+    "need_to_use": "tempeh",
+    "avoid": "soy"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "tempeh",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "soy"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 10,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Pan-Seared Chicken with Garlicky Spinach and Rice",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "chicken breast",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 200.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 10.0
+              },
+              {
+                "name": "olive oil",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "salt",
+                "quantity_grams": 2.0
+              },
+              {
+                "name": "black pepper",
+                "quantity_grams": 1.0
+              }
+            ],
+            "steps": [
+              "Rinse rice thoroughly and cook according to package instructions. For 100g rice, typically use 200ml water and simmer until water is absorbed.",
+              "Pat the chicken breast dry and season generously with salt and pepper.",
+              "Heat half of the olive oil in a non-stick pan over medium-high heat. Add the chicken breast and sear for 5-7 minutes per side, or until cooked through and golden brown.",
+              "Remove chicken from the pan and set aside to rest. Slice into strips or cubes.",
+              "Add the remaining olive oil to the same pan. Mince the garlic and add it to the pan, sautéing for about 30 seconds until fragrant.",
+              "Add the spinach to the pan. Cook, stirring occasionally, until the spinach has wilted completely, about 3-5 minutes.",
+              "Season the spinach with a pinch of salt and pepper.",
+              "Serve the cooked rice in a bowl, top with the garlicky spinach and sliced pan-seared chicken."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "chicken breast",
+        "quantity_grams": 150.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 10.0
+      },
+      {
+        "name": "olive oil",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "salt",
+        "quantity_grams": 2.0
+      },
+      {
+        "name": "black pepper",
+        "quantity_grams": 1.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "scenario": {
+    "need_to_use": "lentil",
+    "avoid": "legume"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "lentil",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "legume"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 6,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Chicken and Spinach Rice Bowl",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "chicken breast",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 10.0
+              },
+              {
+                "name": "onion",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "olive oil",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "soy sauce",
+                "quantity_grams": 10.0
+              },
+              {
+                "name": "salt",
+                "quantity_grams": 3.0
+              },
+              {
+                "name": "black pepper",
+                "quantity_grams": 1.0
+              }
+            ],
+            "steps": [
+              "Cook 100g of rice according to package instructions.",
+              "While rice cooks, dice 150g chicken breast into bite-sized pieces. Season with salt and pepper.",
+              "Chop 10g garlic and 50g onion.",
+              "Heat 15g olive oil in a pan over medium-high heat. Add chicken and cook until browned and cooked through. Remove chicken and set aside.",
+              "In the same pan, add onion and cook until softened, about 3-5 minutes. Add garlic and cook for another minute until fragrant.",
+              "Add 100g spinach to the pan and cook until wilted, about 2-3 minutes.",
+              "Return cooked chicken to the pan. Add cooked rice and 10g soy sauce. Toss everything together until well combined and heated through.",
+              "Serve immediately."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "chicken breast",
+        "quantity_grams": 150.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 10.0
+      },
+      {
+        "name": "onion",
+        "quantity_grams": 50.0
+      },
+      {
+        "name": "olive oil",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "soy sauce",
+        "quantity_grams": 10.0
+      },
+      {
+        "name": "salt",
+        "quantity_grams": 3.0
+      },
+      {
+        "name": "black pepper",
+        "quantity_grams": 1.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "scenario": {
+    "need_to_use": "crab",
+    "avoid": "shellfish"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "crab",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "shellfish"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 18,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Spinach and Garlic Rice",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "Garlic",
+                "quantity_grams": 10.0
+              },
+              {
+                "name": "Onion",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "Vegetable broth",
+                "quantity_grams": 200.0
+              },
+              {
+                "name": "Olive oil",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "Salt",
+                "quantity_grams": 3.0
+              },
+              {
+                "name": "Black pepper",
+                "quantity_grams": 1.0
+              }
+            ],
+            "steps": [
+              "Rinse the rice thoroughly under cold water.",
+              "Chop the onion and mince the garlic. Wash and roughly chop the spinach.",
+              "Heat olive oil in a pot over medium heat. Add chopped onion and sauté until softened, about 3-5 minutes.",
+              "Add minced garlic and cook for another minute until fragrant.",
+              "Stir in the rice and cook for 2-3 minutes, ensuring it's coated with oil.",
+              "Pour in the vegetable broth, add salt and pepper. Bring to a boil, then reduce heat to low, cover, and simmer for 15-20 minutes, or until all liquid is absorbed and rice is tender.",
+              "Stir in the chopped spinach during the last 5 minutes of cooking, or immediately after turning off the heat, covering the pot to allow the spinach to wilt.",
+              "Fluff the rice with a fork and serve hot."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "garlic",
+        "quantity_grams": 10.0
+      },
+      {
+        "name": "onion",
+        "quantity_grams": 50.0
+      },
+      {
+        "name": "vegetable broth",
+        "quantity_grams": 200.0
+      },
+      {
+        "name": "olive oil",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "salt",
+        "quantity_grams": 3.0
+      },
+      {
+        "name": "black pepper",
+        "quantity_grams": 1.0
+      }
+    ]
+  }
+}

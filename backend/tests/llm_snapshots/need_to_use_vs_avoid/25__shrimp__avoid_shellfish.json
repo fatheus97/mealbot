@@ -1,0 +1,116 @@
+{
+  "scenario": {
+    "need_to_use": "shrimp",
+    "avoid": "shellfish"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "shrimp",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "shellfish"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 17,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Chicken and Spinach Rice Bowl",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "chicken breast",
+                "quantity_grams": 180.0
+              },
+              {
+                "name": "rice",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "onion",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 10.0
+              },
+              {
+                "name": "soy sauce",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "sesame oil",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "cooking oil",
+                "quantity_grams": 10.0
+              }
+            ],
+            "steps": [
+              "Cook rice according to package instructions.",
+              "Dice chicken breast into bite-sized pieces.",
+              "Chop onion and mince garlic.",
+              "Heat cooking oil in a pan over medium-high heat. Add chicken and cook until browned and cooked through.",
+              "Add onion and garlic to the pan and sauté until fragrant, about 2-3 minutes.",
+              "Add spinach and cook until wilted.",
+              "Stir in soy sauce and sesame oil.",
+              "Serve the chicken and spinach mixture over the cooked rice."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "chicken breast",
+        "quantity_grams": 180.0
+      },
+      {
+        "name": "onion",
+        "quantity_grams": 50.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 10.0
+      },
+      {
+        "name": "soy sauce",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "sesame oil",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "cooking oil",
+        "quantity_grams": 10.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "scenario": {
+    "need_to_use": "kidney beans",
+    "avoid": "legume"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "kidney beans",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "legume"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 8,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Garlic Spinach Rice Bowl",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "onion",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 10.0
+              },
+              {
+                "name": "olive oil",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "vegetable broth",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "salt",
+                "quantity_grams": 2.0
+              },
+              {
+                "name": "black pepper",
+                "quantity_grams": 1.0
+              }
+            ],
+            "steps": [
+              "Rinse 100g of rice thoroughly. Cook the rice according to package directions, using 200g water or vegetable broth.",
+              "While rice cooks, finely chop 50g of onion and 10g of garlic.",
+              "Heat 15g of olive oil in a pan over medium heat. Add chopped onion and sauté until softened, about 3-5 minutes.",
+              "Add chopped garlic and cook for another minute until fragrant.",
+              "Add 100g of spinach to the pan. Sauté until the spinach wilts, about 2-3 minutes. Season with 2g salt and 1g black pepper.",
+              "Once the rice is cooked, add it to the pan with the spinach and onion mixture. Stir everything together until well combined.",
+              "Serve hot."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "onion",
+        "quantity_grams": 50.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 10.0
+      },
+      {
+        "name": "olive oil",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "vegetable broth",
+        "quantity_grams": 100.0
+      },
+      {
+        "name": "salt",
+        "quantity_grams": 2.0
+      },
+      {
+        "name": "black pepper",
+        "quantity_grams": 1.0
+      }
+    ]
+  }
+}

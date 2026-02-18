@@ -1,0 +1,107 @@
+{
+  "scenario": {
+    "need_to_use": "tuna",
+    "avoid": "fish"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "tuna",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "fish"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 15,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Chicken and Spinach Rice Bowl",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "chicken breast",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "soy sauce",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "ginger",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "sesame oil",
+                "quantity_grams": 5.0
+              }
+            ],
+            "steps": [
+              "Cook 100g of rice according to package instructions.",
+              "While rice cooks, cut 150g of chicken breast into bite-sized pieces. Mince 5g garlic and 5g ginger.",
+              "Heat 5g sesame oil in a pan or wok over medium-high heat. Add chicken breast and cook until browned and cooked through.",
+              "Add minced garlic and ginger to the pan, stir-fry for 1 minute until fragrant.",
+              "Add 100g spinach to the pan and stir-fry until wilted, about 2-3 minutes.",
+              "Stir in 15g soy sauce.",
+              "Serve the chicken and spinach stir-fry over the cooked rice."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "chicken breast",
+        "quantity_grams": 150.0
+      },
+      {
+        "name": "soy sauce",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "ginger",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "sesame oil",
+        "quantity_grams": 5.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+# Prerequisites
+.env
+.env.local
+
+# Python (Backend)
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+backend/mealbot.db
+
+# Node (Frontend)
+**/node_modules/
+**/dist/
+frontend/.next/
+
+# IDEs
+**/.idea/
+**/.vscode/
+**/.DS_Store

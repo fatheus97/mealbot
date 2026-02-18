@@ -1,0 +1,123 @@
+{
+  "scenario": {
+    "need_to_use": "butter",
+    "avoid": "dairy"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "butter",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "dairy"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 14,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Spinach & Chickpea Rice Bowl",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "chickpeas",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "onion",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 10.0
+              },
+              {
+                "name": "vegetable broth",
+                "quantity_grams": 200.0
+              },
+              {
+                "name": "olive oil",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "salt",
+                "quantity_grams": 2.0
+              },
+              {
+                "name": "black pepper",
+                "quantity_grams": 1.0
+              }
+            ],
+            "steps": [
+              "Rinse the rice thoroughly under cold water.",
+              "Heat the olive oil in a medium pot or saucepan over medium heat. Add the chopped onion and sauté until softened, about 3-5 minutes.",
+              "Add the minced garlic and cook for another minute until fragrant.",
+              "Stir in the rinsed rice and cook for 1 minute, ensuring it's well coated.",
+              "Pour in the vegetable broth and add salt. Bring the mixture to a boil, then reduce the heat to low, cover the pot, and simmer for 15-20 minutes, or until the rice is cooked and the liquid is absorbed.",
+              "Once the rice is nearly cooked, stir in the drained chickpeas and fresh spinach. Cover the pot again and allow the spinach to wilt, about 2-3 minutes.",
+              "Fluff the rice with a fork. Season with black pepper and any desired additional spices (e.g., cumin, turmeric). Serve warm."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "chickpeas",
+        "quantity_grams": 150.0
+      },
+      {
+        "name": "onion",
+        "quantity_grams": 50.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 10.0
+      },
+      {
+        "name": "vegetable broth",
+        "quantity_grams": 200.0
+      },
+      {
+        "name": "olive oil",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "salt",
+        "quantity_grams": 2.0
+      },
+      {
+        "name": "black pepper",
+        "quantity_grams": 1.0
+      }
+    ]
+  }
+}

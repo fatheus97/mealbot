@@ -1,0 +1,116 @@
+{
+  "scenario": {
+    "need_to_use": "mussels",
+    "avoid": "shellfish"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "mussels",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "shellfish"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 19,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Spinach and Egg Fried Rice",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "eggs",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "soy sauce",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "sesame oil",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "onion",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "cooking oil",
+                "quantity_grams": 10.0
+              }
+            ],
+            "steps": [
+              "Cook the rice according to package instructions and let it cool.",
+              "Heat cooking oil in a pan or wok over medium-high heat.",
+              "Add chopped garlic and onion, and stir-fry until fragrant.",
+              "Push the aromatics to one side of the pan. Crack eggs into the empty side and scramble until just set.",
+              "Add the cooked rice to the pan and break up any clumps. Stir-fry for 3-5 minutes, ensuring the rice is heated through and slightly crispy.",
+              "Add the spinach and continue to stir-fry until it wilts.",
+              "Pour in soy sauce and sesame oil. Toss everything together until well combined.",
+              "Serve hot."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "eggs",
+        "quantity_grams": 100.0
+      },
+      {
+        "name": "soy sauce",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "sesame oil",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "onion",
+        "quantity_grams": 50.0
+      },
+      {
+        "name": "cooking oil",
+        "quantity_grams": 10.0
+      }
+    ]
+  }
+}

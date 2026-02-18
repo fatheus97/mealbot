@@ -1,0 +1,748 @@
+[
+  {
+    "title": "Spicy Chicken Rice Bowl",
+    "ingredients": [
+      "chicken breast",
+      "cooked rice",
+      "soy sauce",
+      "garlic",
+      "ginger",
+      "chili flakes",
+      "spring onion",
+      "cooking oil"
+    ],
+    "steps": [
+      "Dice chicken breast into bite-sized pieces.",
+      "Heat oil in a pan and sauté minced garlic and ginger until fragrant.",
+      "Add chicken, cook until browned, then stir in soy sauce and chili flakes.",
+      "Serve chicken over warm cooked rice and sprinkle with sliced spring onion."
+    ],
+    "cuisine": "asian",
+    "tags": [
+      "spicy",
+      "high_protein",
+      "quick"
+    ]
+  },
+  {
+    "title": "Lemon Herb Chicken with Roasted Vegetables",
+    "ingredients": [
+      "chicken thighs",
+      "carrots",
+      "potatoes",
+      "broccoli",
+      "olive oil",
+      "lemon",
+      "garlic",
+      "dried thyme",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Preheat oven to 200°C.",
+      "Toss chopped vegetables with olive oil, salt and pepper on a baking tray.",
+      "Mix lemon juice, minced garlic and thyme, coat chicken thighs with the mixture and place on top of vegetables.",
+      "Roast for 30–35 minutes until chicken is cooked through and vegetables are tender."
+    ],
+    "cuisine": "european",
+    "tags": [
+      "one_pan",
+      "family",
+      "balanced"
+    ]
+  },
+  {
+    "title": "Creamy Mushroom Pasta",
+    "ingredients": [
+      "pasta",
+      "mushrooms",
+      "onion",
+      "garlic",
+      "butter",
+      "cream",
+      "parmesan cheese",
+      "black pepper",
+      "parsley"
+    ],
+    "steps": [
+      "Cook pasta according to package instructions.",
+      "Sauté diced onion and sliced mushrooms in butter until browned.",
+      "Add minced garlic, cook briefly, then pour in cream and simmer until slightly thickened.",
+      "Stir in cooked pasta and grated parmesan, season with pepper and garnish with chopped parsley."
+    ],
+    "cuisine": "italian",
+    "tags": [
+      "comfort",
+      "vegetarian",
+      "creamy"
+    ]
+  },
+  {
+    "title": "Mediterranean Chickpea Salad",
+    "ingredients": [
+      "canned chickpeas",
+      "cucumber",
+      "tomatoes",
+      "red onion",
+      "feta cheese",
+      "olive oil",
+      "lemon juice",
+      "dried oregano",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Rinse and drain chickpeas.",
+      "Chop cucumber, tomatoes and red onion into small pieces.",
+      "Whisk together olive oil, lemon juice, oregano, salt and pepper.",
+      "Combine vegetables and chickpeas, toss with dressing and crumble feta on top."
+    ],
+    "cuisine": "mediterranean",
+    "tags": [
+      "vegetarian",
+      "no_cook",
+      "light"
+    ]
+  },
+  {
+    "title": "Beef and Broccoli Stir-Fry",
+    "ingredients": [
+      "beef strips",
+      "broccoli florets",
+      "soy sauce",
+      "cornstarch",
+      "garlic",
+      "ginger",
+      "brown sugar",
+      "water",
+      "cooking oil"
+    ],
+    "steps": [
+      "Whisk soy sauce, water, brown sugar and cornstarch to make a sauce.",
+      "Stir-fry beef strips in hot oil until browned, then remove from pan.",
+      "Add broccoli, garlic and ginger to the pan and cook until broccoli is bright green and tender-crisp.",
+      "Return beef to the pan, pour in sauce and cook until thickened."
+    ],
+    "cuisine": "asian",
+    "tags": [
+      "quick",
+      "high_protein"
+    ]
+  },
+  {
+    "title": "Vegetable Fried Rice",
+    "ingredients": [
+      "cooked rice",
+      "carrots",
+      "peas",
+      "spring onion",
+      "egg",
+      "soy sauce",
+      "sesame oil",
+      "cooking oil"
+    ],
+    "steps": [
+      "Scramble egg in a hot oiled pan, then remove and set aside.",
+      "Add diced carrots and peas to the pan and cook until tender.",
+      "Stir in cooked rice, soy sauce and sesame oil and fry for a few minutes.",
+      "Add chopped spring onion and scrambled egg back to the pan and mix well."
+    ],
+    "cuisine": "asian",
+    "tags": [
+      "vegetarian",
+      "uses_leftovers",
+      "quick"
+    ]
+  },
+  {
+    "title": "Tomato Basil Soup",
+    "ingredients": [
+      "canned tomatoes",
+      "onion",
+      "garlic",
+      "vegetable broth",
+      "olive oil",
+      "basil",
+      "salt",
+      "pepper",
+      "cream"
+    ],
+    "steps": [
+      "Sauté chopped onion and minced garlic in olive oil until soft.",
+      "Add canned tomatoes and vegetable broth, bring to a simmer for 15 minutes.",
+      "Blend the soup until smooth, then stir in chopped basil and a splash of cream.",
+      "Season with salt and pepper to taste."
+    ],
+    "cuisine": "italian",
+    "tags": [
+      "soup",
+      "vegetarian",
+      "comfort"
+    ]
+  },
+  {
+    "title": "Baked Salmon with Dill Potatoes",
+    "ingredients": [
+      "salmon fillets",
+      "baby potatoes",
+      "olive oil",
+      "dill",
+      "lemon",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Preheat oven to 200°C.",
+      "Toss halved baby potatoes with olive oil, salt and pepper, roast for 20 minutes.",
+      "Place salmon on the tray, season with salt, pepper, lemon slices and chopped dill, then bake another 10–12 minutes.",
+      "Serve salmon with roasted potatoes and extra lemon wedges."
+    ],
+    "cuisine": "european",
+    "tags": [
+      "fish",
+      "balanced",
+      "simple"
+    ]
+  },
+  {
+    "title": "Tofu Peanut Stir-Fry",
+    "ingredients": [
+      "firm tofu",
+      "bell pepper",
+      "broccoli",
+      "carrot",
+      "peanuts",
+      "soy sauce",
+      "peanut butter",
+      "garlic",
+      "ginger",
+      "cooking oil"
+    ],
+    "steps": [
+      "Press tofu to remove excess moisture, then cut into cubes.",
+      "Whisk soy sauce, peanut butter, minced garlic and ginger with a bit of water to make a sauce.",
+      "Stir-fry tofu in oil until golden, then add sliced vegetables.",
+      "Pour in sauce and cook until vegetables are tender and sauce thickens, sprinkle with peanuts before serving."
+    ],
+    "cuisine": "asian",
+    "tags": [
+      "vegan",
+      "high_protein",
+      "spicy_optional"
+    ]
+  },
+  {
+    "title": "Red Lentil Coconut Curry",
+    "ingredients": [
+      "red lentils",
+      "onion",
+      "garlic",
+      "ginger",
+      "curry powder",
+      "coconut milk",
+      "tomato paste",
+      "vegetable broth",
+      "spinach",
+      "oil"
+    ],
+    "steps": [
+      "Rinse red lentils under cold water.",
+      "Sauté chopped onion, garlic and ginger in oil until soft, then stir in curry powder and tomato paste.",
+      "Add lentils, coconut milk and vegetable broth, simmer 15–20 minutes until lentils are tender.",
+      "Stir in spinach until wilted and season with salt to taste."
+    ],
+    "cuisine": "indian",
+    "tags": [
+      "vegan",
+      "one_pot",
+      "high_protein"
+    ]
+  },
+  {
+    "title": "Spinach Scrambled Eggs",
+    "ingredients": [
+      "eggs",
+      "spinach",
+      "milk",
+      "butter",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Whisk eggs with a splash of milk, salt and pepper.",
+      "Melt butter in a pan and sauté spinach until wilted.",
+      "Pour egg mixture over spinach and cook gently, stirring, until softly set."
+    ],
+    "cuisine": "breakfast",
+    "tags": [
+      "quick",
+      "high_protein",
+      "low_carb"
+    ]
+  },
+  {
+    "title": "Overnight Berry Oats",
+    "ingredients": [
+      "rolled oats",
+      "milk",
+      "yogurt",
+      "chia seeds",
+      "honey",
+      "mixed berries"
+    ],
+    "steps": [
+      "Combine oats, milk, yogurt, chia seeds and honey in a jar.",
+      "Stir well, then top with berries.",
+      "Refrigerate overnight and eat cold in the morning."
+    ],
+    "cuisine": "breakfast",
+    "tags": [
+      "prep_ahead",
+      "vegetarian"
+    ]
+  },
+  {
+    "title": "Turkey Bean Chili",
+    "ingredients": [
+      "ground turkey",
+      "kidney beans",
+      "onion",
+      "garlic",
+      "tomato sauce",
+      "chili powder",
+      "cumin",
+      "olive oil",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Sauté diced onion and minced garlic in oil until soft.",
+      "Add ground turkey and cook until browned.",
+      "Stir in tomato sauce, drained beans, chili powder and cumin.",
+      "Simmer 20–30 minutes, then season with salt and pepper."
+    ],
+    "cuisine": "american",
+    "tags": [
+      "high_protein",
+      "spicy",
+      "one_pot"
+    ]
+  },
+  {
+    "title": "Garlic Shrimp Pasta",
+    "ingredients": [
+      "pasta",
+      "shrimp",
+      "garlic",
+      "olive oil",
+      "chili flakes",
+      "lemon",
+      "parsley",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Cook pasta according to package instructions.",
+      "Sauté minced garlic and chili flakes in olive oil, then add shrimp and cook until pink.",
+      "Toss cooked pasta with shrimp, lemon juice and chopped parsley.",
+      "Season with salt and pepper."
+    ],
+    "cuisine": "italian",
+    "tags": [
+      "seafood",
+      "quick"
+    ]
+  },
+  {
+    "title": "Margherita Flatbread Pizza",
+    "ingredients": [
+      "flatbread",
+      "tomato sauce",
+      "mozzarella cheese",
+      "cherry tomatoes",
+      "basil",
+      "olive oil",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Preheat oven to 220°C.",
+      "Spread tomato sauce over flatbread and top with sliced mozzarella and halved cherry tomatoes.",
+      "Bake 8–10 minutes until cheese is melted and edges are crisp.",
+      "Top with fresh basil, drizzle of olive oil, salt and pepper."
+    ],
+    "cuisine": "italian",
+    "tags": [
+      "vegetarian",
+      "quick"
+    ]
+  },
+  {
+    "title": "Greek Yogurt Parfait",
+    "ingredients": [
+      "greek yogurt",
+      "granola",
+      "honey",
+      "berries",
+      "nuts"
+    ],
+    "steps": [
+      "Layer yogurt, granola and berries in a glass.",
+      "Drizzle with honey and sprinkle with chopped nuts.",
+      "Serve immediately or chill briefly."
+    ],
+    "cuisine": "breakfast",
+    "tags": [
+      "no_cook",
+      "high_protein"
+    ]
+  },
+  {
+    "title": "Roasted Veggie Quinoa Bowl",
+    "ingredients": [
+      "quinoa",
+      "sweet potato",
+      "broccoli",
+      "red onion",
+      "olive oil",
+      "salt",
+      "pepper",
+      "lemon",
+      "feta cheese"
+    ],
+    "steps": [
+      "Cook quinoa according to package instructions.",
+      "Toss diced sweet potato, broccoli florets and sliced red onion with olive oil, salt and pepper, then roast at 200°C until tender.",
+      "Serve roasted vegetables over quinoa, squeeze lemon on top and crumble feta cheese over the bowl."
+    ],
+    "cuisine": "mediterranean",
+    "tags": [
+      "vegetarian",
+      "meal_prep"
+    ]
+  },
+  {
+    "title": "Chicken Fajita Bowl",
+    "ingredients": [
+      "chicken breast",
+      "bell peppers",
+      "onion",
+      "fajita seasoning",
+      "rice",
+      "olive oil",
+      "lime",
+      "cilantro"
+    ],
+    "steps": [
+      "Cook rice according to package instructions.",
+      "Slice chicken, peppers and onion into strips.",
+      "Sauté chicken in oil with fajita seasoning until cooked, then add vegetables and cook until softened.",
+      "Serve over rice with lime juice and chopped cilantro."
+    ],
+    "cuisine": "mexican",
+    "tags": [
+      "high_protein",
+      "spicy_optional"
+    ]
+  },
+  {
+    "title": "Black Bean Tacos",
+    "ingredients": [
+      "taco shells",
+      "canned black beans",
+      "onion",
+      "garlic",
+      "cumin",
+      "chili powder",
+      "lettuce",
+      "tomato",
+      "cheese"
+    ],
+    "steps": [
+      "Sauté chopped onion and minced garlic until soft.",
+      "Add drained black beans, cumin and chili powder, cook until heated through and lightly mash.",
+      "Fill taco shells with bean mixture, shredded lettuce, diced tomato and cheese."
+    ],
+    "cuisine": "mexican",
+    "tags": [
+      "vegetarian",
+      "budget"
+    ]
+  },
+  {
+    "title": "Teriyaki Salmon Rice Bowl",
+    "ingredients": [
+      "salmon fillets",
+      "soy sauce",
+      "brown sugar",
+      "garlic",
+      "ginger",
+      "rice",
+      "spring onion",
+      "sesame seeds"
+    ],
+    "steps": [
+      "Cook rice according to package instructions.",
+      "Mix soy sauce, brown sugar, minced garlic and ginger to make teriyaki sauce.",
+      "Bake or pan-sear salmon while brushing with sauce until cooked and glazed.",
+      "Serve salmon over rice with extra sauce, sliced spring onion and sesame seeds."
+    ],
+    "cuisine": "asian",
+    "tags": [
+      "fish",
+      "sweet_savoury"
+    ]
+  },
+  {
+    "title": "Peanut Butter Banana Smoothie",
+    "ingredients": [
+      "banana",
+      "peanut butter",
+      "milk",
+      "yogurt",
+      "honey",
+      "ice cubes"
+    ],
+    "steps": [
+      "Add banana, peanut butter, milk, yogurt, honey and ice cubes to a blender.",
+      "Blend until smooth and creamy.",
+      "Serve immediately."
+    ],
+    "cuisine": "drink",
+    "tags": [
+      "high_protein",
+      "breakfast"
+    ]
+  },
+  {
+    "title": "Pesto Pasta with Cherry Tomatoes",
+    "ingredients": [
+      "pasta",
+      "basil pesto",
+      "cherry tomatoes",
+      "parmesan cheese",
+      "olive oil",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Cook pasta according to package instructions.",
+      "Halve cherry tomatoes and sauté briefly in olive oil.",
+      "Toss hot pasta with pesto and tomatoes.",
+      "Top with grated parmesan, salt and pepper."
+    ],
+    "cuisine": "italian",
+    "tags": [
+      "quick",
+      "vegetarian"
+    ]
+  },
+  {
+    "title": "Cauliflower Chickpea Traybake",
+    "ingredients": [
+      "cauliflower florets",
+      "canned chickpeas",
+      "red onion",
+      "olive oil",
+      "paprika",
+      "cumin",
+      "salt",
+      "pepper",
+      "parsley"
+    ],
+    "steps": [
+      "Preheat oven to 200°C.",
+      "Toss cauliflower, drained chickpeas and sliced red onion with olive oil, paprika, cumin, salt and pepper.",
+      "Spread on a baking tray and roast 25–30 minutes until golden.",
+      "Garnish with chopped parsley before serving."
+    ],
+    "cuisine": "middle_eastern",
+    "tags": [
+      "vegan",
+      "sheet_pan"
+    ]
+  },
+  {
+    "title": "Thai Basil Chicken",
+    "ingredients": [
+      "ground chicken",
+      "garlic",
+      "chili",
+      "soy sauce",
+      "fish sauce",
+      "sugar",
+      "basil leaves",
+      "cooking oil",
+      "rice"
+    ],
+    "steps": [
+      "Cook rice according to package instructions.",
+      "Sauté minced garlic and chopped chili in oil, then add ground chicken and cook until browned.",
+      "Stir in soy sauce, fish sauce and a pinch of sugar, cook a few more minutes.",
+      "Turn off heat and fold in fresh basil leaves until wilted."
+    ],
+    "cuisine": "thai",
+    "tags": [
+      "spicy",
+      "high_protein"
+    ]
+  },
+  {
+    "title": "Shakshuka",
+    "ingredients": [
+      "eggs",
+      "onion",
+      "bell pepper",
+      "garlic",
+      "canned tomatoes",
+      "paprika",
+      "cumin",
+      "olive oil",
+      "salt",
+      "pepper",
+      "parsley"
+    ],
+    "steps": [
+      "Sauté chopped onion, bell pepper and garlic in olive oil until soft.",
+      "Add canned tomatoes, paprika and cumin, simmer 10–15 minutes.",
+      "Make small wells in the sauce and crack eggs into them.",
+      "Cover and cook until eggs are set to your liking, then garnish with parsley."
+    ],
+    "cuisine": "middle_eastern",
+    "tags": [
+      "breakfast",
+      "vegetarian",
+      "one_pan"
+    ]
+  },
+  {
+    "title": "Mushroom Risotto",
+    "ingredients": [
+      "risotto rice",
+      "mushrooms",
+      "onion",
+      "garlic",
+      "vegetable broth",
+      "white wine",
+      "butter",
+      "parmesan cheese",
+      "olive oil",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Heat broth in a pot and keep warm.",
+      "Sauté chopped onion and sliced mushrooms in olive oil and butter until softened, then add minced garlic.",
+      "Stir in rice and toast for 1–2 minutes, then pour in white wine and cook until absorbed.",
+      "Add warm broth a ladle at a time, stirring until absorbed before adding more, until rice is creamy and al dente.",
+      "Stir in grated parmesan, salt and pepper to taste."
+    ],
+    "cuisine": "italian",
+    "tags": [
+      "comfort",
+      "vegetarian"
+    ]
+  },
+  {
+    "title": "Chicken Noodle Soup",
+    "ingredients": [
+      "chicken breast",
+      "carrots",
+      "celery",
+      "onion",
+      "garlic",
+      "chicken broth",
+      "egg noodles",
+      "bay leaf",
+      "parsley",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Sauté chopped onion, carrots, celery and garlic in a pot until softened.",
+      "Add chicken breast, broth and bay leaf, bring to a simmer until chicken is cooked.",
+      "Remove chicken, shred, then return to the pot with egg noodles.",
+      "Simmer until noodles are tender, then season with salt, pepper and parsley."
+    ],
+    "cuisine": "american",
+    "tags": [
+      "soup",
+      "comfort",
+      "high_protein"
+    ]
+  },
+  {
+    "title": "Cheese and Veggie Omelette",
+    "ingredients": [
+      "eggs",
+      "milk",
+      "bell pepper",
+      "spinach",
+      "cheddar cheese",
+      "butter",
+      "salt",
+      "pepper"
+    ],
+    "steps": [
+      "Whisk eggs with milk, salt and pepper.",
+      "Sauté diced bell pepper and spinach in butter until softened.",
+      "Pour egg mixture into pan, cook until almost set, then sprinkle with cheese and fold.",
+      "Cook briefly until cheese melts."
+    ],
+    "cuisine": "breakfast",
+    "tags": [
+      "high_protein",
+      "vegetarian"
+    ]
+  },
+  {
+    "title": "Falafel Wrap with Tahini Sauce",
+    "ingredients": [
+      "falafel balls",
+      "flatbread",
+      "lettuce",
+      "tomato",
+      "cucumber",
+      "red onion",
+      "tahini",
+      "lemon juice",
+      "garlic",
+      "water",
+      "salt"
+    ],
+    "steps": [
+      "Whisk tahini, lemon juice, minced garlic, water and salt into a smooth sauce.",
+      "Warm flatbreads and cook or heat falafel according to package or recipe.",
+      "Fill flatbreads with lettuce, sliced tomato, cucumber, red onion and falafel.",
+      "Drizzle with tahini sauce and wrap."
+    ],
+    "cuisine": "middle_eastern",
+    "tags": [
+      "vegetarian",
+      "street_food"
+    ]
+  },
+  {
+    "title": "Apple Cinnamon Oatmeal",
+    "ingredients": [
+      "rolled oats",
+      "milk or water",
+      "apple",
+      "cinnamon",
+      "honey",
+      "nuts",
+      "salt"
+    ],
+    "steps": [
+      "Dice apple into small cubes.",
+      "Bring milk or water with a pinch of salt to a simmer, then add oats and apple.",
+      "Cook, stirring, until oats are creamy and apple is tender.",
+      "Stir in cinnamon and honey, then top with chopped nuts."
+    ],
+    "cuisine": "breakfast",
+    "tags": [
+      "warm",
+      "vegetarian"
+    ]
+  }
+]

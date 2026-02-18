@@ -1,0 +1,116 @@
+{
+  "scenario": {
+    "need_to_use": "chickpeas",
+    "avoid": "legume"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "chickpeas",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "legume"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 7,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Chicken and Spinach Stir-fry with Rice",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "chicken breast",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "soy sauce",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "ginger",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "sesame oil",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "vegetable oil",
+                "quantity_grams": 10.0
+              }
+            ],
+            "steps": [
+              "Cook rice according to package instructions.",
+              "Cut chicken breast into bite-sized pieces.",
+              "Heat vegetable oil in a pan or wok over medium-high heat.",
+              "Add chicken and stir-fry until cooked through and lightly browned.",
+              "Add minced garlic and grated ginger, stir-fry for 1 minute until fragrant.",
+              "Add spinach and stir-fry until wilted.",
+              "Pour in soy sauce and sesame oil, toss to coat everything evenly.",
+              "Serve the stir-fry immediately over the cooked rice."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "chicken breast",
+        "quantity_grams": 150.0
+      },
+      {
+        "name": "soy sauce",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "ginger",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "sesame oil",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "vegetable oil",
+        "quantity_grams": 10.0
+      }
+    ]
+  }
+}

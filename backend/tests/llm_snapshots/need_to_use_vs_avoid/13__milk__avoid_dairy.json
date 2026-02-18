@@ -1,0 +1,108 @@
+{
+  "scenario": {
+    "need_to_use": "milk",
+    "avoid": "dairy"
+  },
+  "request": {
+    "ingredients": [
+      {
+        "name": "milk",
+        "quantity_grams": 200,
+        "need_to_use": true
+      },
+      {
+        "name": "rice",
+        "quantity_grams": 600,
+        "need_to_use": false
+      },
+      {
+        "name": "spinach",
+        "quantity_grams": 200,
+        "need_to_use": false
+      }
+    ],
+    "taste_preferences": [],
+    "avoid_ingredients": [
+      "dairy"
+    ],
+    "diet_type": null,
+    "meals_per_day": 1,
+    "people_count": 1,
+    "past_meals": []
+  },
+  "response": {
+    "plan_id": 12,
+    "days": [
+      {
+        "meals": [
+          {
+            "name": "Spinach and Chickpea Rice Bowl",
+            "meal_type": "dinner",
+            "ingredients": [
+              {
+                "name": "rice",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "spinach",
+                "quantity_grams": 100.0
+              },
+              {
+                "name": "chickpeas, canned",
+                "quantity_grams": 150.0
+              },
+              {
+                "name": "onion",
+                "quantity_grams": 50.0
+              },
+              {
+                "name": "garlic",
+                "quantity_grams": 5.0
+              },
+              {
+                "name": "olive oil",
+                "quantity_grams": 15.0
+              },
+              {
+                "name": "lemon juice",
+                "quantity_grams": 10.0
+              }
+            ],
+            "steps": [
+              "Cook 100g of rice according to package instructions.",
+              "While rice is cooking, finely chop the onion and mince the garlic.",
+              "Heat olive oil in a pan over medium heat. Add onion and sauté until softened, about 5 minutes.",
+              "Add minced garlic and sauté for another minute until fragrant.",
+              "Add the drained and rinsed chickpeas to the pan and cook for 3-5 minutes, allowing them to warm through and slightly crisp.",
+              "Stir in the spinach and cook until just wilted, about 2-3 minutes.",
+              "Season with salt, pepper, and lemon juice to taste.",
+              "Serve the chickpea and spinach mixture over the cooked rice."
+            ]
+          }
+        ]
+      }
+    ],
+    "shopping_list": [
+      {
+        "name": "chickpeas, canned",
+        "quantity_grams": 150.0
+      },
+      {
+        "name": "onion",
+        "quantity_grams": 50.0
+      },
+      {
+        "name": "garlic",
+        "quantity_grams": 5.0
+      },
+      {
+        "name": "olive oil",
+        "quantity_grams": 15.0
+      },
+      {
+        "name": "lemon juice",
+        "quantity_grams": 10.0
+      }
+    ]
+  }
+}
