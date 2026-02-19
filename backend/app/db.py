@@ -1,30 +1,33 @@
-from typing import Generator
-from pathlib import Path
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from app.core.config import settings
 
-from sqlmodel import SQLModel, create_engine, Session
+# Strict separation of concern: Database URL must be injected via environment
+# format: postgresql+asyncpg://user:password@host:port/dbname
+DATABASE_URL = settings.database_url
 
-# For local development; for Postgres later:
-# DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/mealbot"
+# The Async Engine: The heart of the persistence layer
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=settings.db_echo,      # False in production to prevent SQL injection logs
+    pool_size=20,               # Minimum connections to keep open
+    max_overflow=10,            # Burst capacity
+    pool_timeout=30,            # Fast failure if DB is overwhelmed
+    pool_recycle=1800,          # Recycle connections to prevent stale handles
+    pool_pre_ping=True          # Health check connections before handing them out
+)
 
-BASE_DIR = Path(__file__).resolve().parents[1]  # -> .../mealbot-backend
-DB_PATH = BASE_DIR / "mealbot.db"
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+# The Factory: Generates sessions for each request
+async_session_factory = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,     # Critical for async: prevents implicit IO attributes access
+    autoflush=False
+)
 
-engine = create_engine(DATABASE_URL, echo=False)
-
-
-def get_session() -> Generator[Session, None, None]:
+async def get_session() -> AsyncSession:
     """
-    FastAPI dependency that provides a SQLModel Session.
+    Dependency for FastAPI Routes.
+    Yields a transactional session that auto-closes on exit.
     """
-    with Session(engine) as session:
+    async with async_session_factory() as session:
         yield session
-
-
-def init_db() -> None:
-    """
-    Create all tables. Call this once on startup.
-    """
-    # important: import models so they are registered in metadata
-    from app.models import db_models  # noqa: F401
-    SQLModel.metadata.create_all(engine)

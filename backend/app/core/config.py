@@ -27,10 +27,15 @@ class Settings(BaseSettings):
 
     run_llm_tests: bool = False
 
+    database_url: str = "sqlite:///./test.db"
+
+    db_echo: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
     )
+
 
 
 settings = Settings()

@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
-
+import instructor
+from litellm import completion
 from app.models.plan_models import MealPlanRequest, SingleDayResponse
 from app.llm.client import llm_client
 from app.services.recipe_retriever import retrieve_recipes
@@ -11,8 +12,30 @@ _prompts_env = Environment(
     autoescape=False,
 )
 
+# Initialize Instructor with LiteLLM.
+# mode=instructor.Mode.JSON utilizes the provider's native JSON mode where available.
+client = instructor.from_litellm(completion, mode=instructor.Mode.MD_JSON)
+
 SYSTEM_PROMPT = "You are a careful and realistic meal planner. ALWAYS return ONLY valid JSON."
 
+async def generate_single_day(req: MealPlanRequest) -> SingleDayResponse:
+    """
+    Generates a meal plan for a single day with strict schema enforcement.
+    """
+    try:
+        resp = await client.chat.completions.create(
+            model=settings.LLM_MODEL,  # e.g., "gemini/gemini-pro", "gpt-4o"
+            messages=,
+            response_model=SingleDayResponse,
+            max_retries=3,
+        )
+        return resp
+    except instructor.InstructorRetryException as e:
+        # This catches failures after all retries have been exhausted.
+        # Log the complete validation history for debugging.
+        logger.error(f"LLM failed to produce valid JSON: {e}")
+        logger.error(f"Last validation errors: {e.last_completion.choices.message.content}")
+        raise HTTPException(status_code=502, detail="The AI model failed to generate a valid plan. Please try again.")
 
 async def generate_single_day(req: MealPlanRequest) -> SingleDayResponse:
     template = _prompts_env.get_template("meal_plan.jinja")

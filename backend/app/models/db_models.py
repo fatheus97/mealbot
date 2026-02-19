@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 
 from sqlmodel import SQLModel, Field, Relationship, Column, String
-from sqlalchemy.dialects.sqlite import BLOB
+# from pgvector.sqlalchemy import Vector
 
 
 class User(SQLModel, table=True):
@@ -85,5 +85,5 @@ class RecipeRow(SQLModel, table=True):
     cuisine: Optional[str] = Field(default=None, index=True)
     tags_text: str = Field(default="")  # "asian; spicy"
 
-    # embedding uložíme jako binární blob (np.ndarray.tobytes())
-    embedding: bytes = Field(sa_column=Column(BLOB))
+    # 384 dimensions matches the all-MiniLM-L6-v2 model used in ingestion scripts
+    # embedding: list[float] = Field(sa_column=Column(Vector(384)))

@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+pydantic-settings
+jinja2
+google-genai
+httpx
+python-multipart
+# For Postgres
+psycopg[binary]
+# For RAG features
+# sentence-transformers
+# numpy
+pytest
+pytest-asyncio
+litellm
+instructor

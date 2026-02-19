@@ -2,6 +2,7 @@ import numpy as np
 from typing import List
 
 from sentence_transformers import SentenceTransformer, util
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Session, select
 
 from app.db import engine
@@ -29,32 +30,11 @@ def _row_to_recipe(row: RecipeRow) -> Recipe:
     )
 
 
-def retrieve_recipes(query: str, k: int = 5) -> List[Recipe]:
-    """
-    Retrieve top-k recipes most relevant to the query using cosine similarity.
-    """
+async def retrieve_recipes(session: AsyncSession, query_embedding: list[float], k: int = 5):
+    # The <=> operator represents cosine distance in pgvector
+    stmt = select(RecipeRow).order_by(
+        RecipeRow.embedding.cosine_distance(query_embedding)
+    ).limit(k)
 
-    model = get_embedding_model()
-    query_emb = model.encode(query, normalize_embeddings=True)
-
-    with Session(engine) as session:
-        rows = session.exec(select(RecipeRow)).all()
-
-    if not rows:
-        return []
-
-    # Stack embeddings into matrix
-    emb_dim_guess = len(query_emb)
-    mat = np.stack(
-        [
-            np.frombuffer(r.embedding, dtype=np.float32)[:emb_dim_guess]
-            for r in rows
-        ]
-    )  # shape (N, D)
-
-    scores = util.cos_sim(query_emb, mat)[0].cpu().numpy()  # shape (N,)
-
-    # top-k indices
-    idx = np.argsort(-scores)[:k]
-
-    return [_row_to_recipe(rows[i]) for i in idx]
+    result = await session.execute(stmt)
+    return result.scalars().all()
