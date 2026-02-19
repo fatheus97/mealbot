@@ -8,6 +8,18 @@ from app.api.history import router as history_router
 from app.api.user import router as user_router
 from app.db import init_db
 
+import logging
+import sys
+
+# Configure the root logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout) # Logs to Docker/Console
+    ]
+)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup

@@ -7,10 +7,9 @@ from sqlmodel import Session, select
 from app.api.fridge import get_fridge_items, replace_fridge_items
 from app.models.db_models import User, StockItem, MealPlan, MealEntry
 from app.models.plan_models import MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO, IngredientAmount
-from app.services.meal_planner import generate_single_day, generate_single_day_rag
+from app.services.meal_planner import generate_single_day
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
 from app.db import get_session
-from app.core.config import settings
 
 router = APIRouter()
 MeasurementSystem = Literal["none", "metric", "imperial"]
@@ -63,10 +62,7 @@ async def plan_meals_for_user(
         day_req.stock_items = remaining_ingredients
         day_req.past_meals = past_meals
 
-        if settings.use_rag:
-            single_day = await generate_single_day_rag(day_req)
-        else:
-            single_day = await generate_single_day(day_req)
+        single_day = await generate_single_day(day_req)
         meal_plan.append(single_day)
 
         remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)

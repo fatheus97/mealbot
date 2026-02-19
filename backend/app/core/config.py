@@ -27,13 +27,14 @@ class Settings(BaseSettings):
 
     run_llm_tests: bool = False
 
-    database_url: str = "sqlite:///./test.db"
+    database_url: str = "postgresql+asyncpg://user:password@db:5432/mealbot"
 
     db_echo: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore"  # Good practice to ignore extra env vars
     )
 
 

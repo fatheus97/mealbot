@@ -1,5 +1,6 @@
+import re
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 
 
@@ -63,14 +64,36 @@ class MealPlanRequest(BaseModel):
         description="Whether spices/seasonings should appear in ingredients & shopping list.",
     )
 
+    @field_validator("taste_preferences", check_fields=False)
+    def sanitize_input(self, v):
+        cleaned_list = []
+        for item in v:
+            # Enforce length limit per tag
+            if len(item) > 50:
+                raise ValueError("Preference tag too long")
+
+            # Whitelist: Allow only alphanumeric, spaces, and hyphens.
+            # Remove any special characters that could be used for injection syntax.
+            cleaned = re.sub(r'[^a-zA-Z0-9\s-]', '', item).strip()
+            if cleaned:
+                cleaned_list.append(cleaned)
+        return cleaned_list
+
 
 class IngredientAmount(BaseModel):
     """Amount of a single ingredient, expressed in grams."""
-    name: str = Field(description="Canonical ingredient name, e.g. 'chicken breast'.")
-    quantity_grams: float = Field(
-        ge=0,
-        description="Amount in grams for this ingredient (total for all people).",
-    )
+    name: str = Field(..., description="The canonical name of the ingredient (e.g., 'chicken breast').")
+    quantity_grams: float = Field(...,
+                                  description="The weight in grams. If the recipe uses volume (cups), estimate the weight.")
+
+    @field_validator("quantity_grams")
+    @classmethod
+    def validate_realistic_amount(cls, v):
+        if v <= 0:
+            raise ValueError("Quantity must be positive.")
+        if v > 10000:
+            raise ValueError("Quantity is unrealistically high (>10kg). Verify units.")
+        return v
 
 
 class PlannedMeal(BaseModel):
