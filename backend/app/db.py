@@ -1,41 +1,26 @@
+from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from app.core.config import settings
 
-# Strict separation of concern: Database URL must be injected via environment
-# format: postgresql+asyncpg://user:password@host:port/dbname
-DATABASE_URL = settings.database_url
-
 # The Async Engine: The heart of the persistence layer
 engine = create_async_engine(
-    DATABASE_URL,
+    settings.database_url,      # The dialect MUST be postgresql+psycopg to utilise the new async driver.
     echo=settings.db_echo,      # False in production to prevent SQL injection logs
-    pool_size=20,               # Minimum connections to keep open
-    max_overflow=10,            # Burst capacity
-    pool_timeout=30,            # Fast failure if DB is overwhelmed
-    pool_recycle=1800,          # Recycle connections to prevent stale handles
+    pool_size=10,               # Minimum connections to keep open
+    max_overflow=20,            # Burst capacity
+    pool_recycle=3600,          # Recycle connections to prevent stale handles
     pool_pre_ping=True          # Health check connections before handing them out
 )
 
 # The Factory: Generates sessions for each request
 async_session_factory = async_sessionmaker(
     engine,
-    class_=AsyncSession,
-    expire_on_commit=False,     # Critical for async: prevents implicit IO attributes access
-    autoflush=False
+    expire_on_commit=False     # Critical for async: prevents implicit IO attributes access
 )
 
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """
-    Dependency for FastAPI Routes.
-    Yields a transactional session that auto-closes on exit.
+    Dependency to be injected into FastAPI routes.
     """
     async with async_session_factory() as session:
         yield session
-
-async def init_db() -> None:
-    """
-    Async version of table creation.
-    """
-    from app.models import db_models
-    async with engine.begin() as conn:
-        await conn.run_sync(db_models.SQLModel.metadata.create_all)

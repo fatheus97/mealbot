@@ -65,7 +65,8 @@ class MealPlanRequest(BaseModel):
     )
 
     @field_validator("taste_preferences", check_fields=False)
-    def sanitize_input(self, v):
+    @classmethod
+    def sanitize_input(cls, v):
         cleaned_list = []
         for item in v:
             # Enforce length limit per tag

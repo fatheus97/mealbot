@@ -1,18 +1,24 @@
 fastapi
 uvicorn[standard]
-sqlmodel
 pydantic-settings
 jinja2
-google-genai
 httpx
 python-multipart
-# For Postgres
-psycopg[binary]
-# For RAG features
-# sentence-transformers
-# numpy
 pytest
 pytest-asyncio
+
+# For LLM
 litellm
 instructor
+openai
+google-genai
+
+#For DB
 asyncpg
+sqlmodel
+psycopg[binary, pool]
+alembic
+
+# For RAG features
+pgvector
+fastembed

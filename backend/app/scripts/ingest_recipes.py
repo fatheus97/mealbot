@@ -1,22 +1,18 @@
 # scripts/ingest_recipes.py
 import json
 from pathlib import Path
-
-import numpy as np
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from sqlmodel import Session
 
-from app.db import engine, init_db
+from app.db import engine
 from app.models.db_models import RecipeRow
 
 DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "recipes.json"
 
 
 def main():
-    # ensure all tables, including RecipeRow, exist
-    init_db()
 
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
     with open(DATA_PATH, "r", encoding="utf-8") as f:
         recipes = json.load(f)
@@ -28,14 +24,14 @@ def main():
                 f"Ingredients: {', '.join(r['ingredients'])}\n\n"
                 f"Steps: {' '.join(r['steps'])}"
             )
-            emb = model.encode(text_for_embedding, normalize_embeddings=True)
+            emb = list(model.embed([text_for_embedding]))[0]
             row = RecipeRow(
                 title=r["title"],
                 ingredients_text="; ".join(r["ingredients"]),
                 steps_text="\n".join(r["steps"]),
                 cuisine=r.get("cuisine"),
                 tags_text="; ".join(r.get("tags", [])),
-                embedding=emb.tobytes(),
+                embedding=emb.tolist(),
             )
             session.add(row)
         session.commit()

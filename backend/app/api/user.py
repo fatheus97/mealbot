@@ -1,6 +1,7 @@
 from typing import Optional
 from fastapi import Depends, HTTPException, APIRouter
-from sqlmodel import SQLModel, Session, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import SQLModel, select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import get_session
@@ -11,12 +12,13 @@ router = APIRouter()
 _ALLOWED_MEASUREMENT = {"none", "metric", "imperial"}
 _ALLOWED_VARIABILITY = {"traditional", "experimental"}
 
+#TODO move somewhere else??
 class AuthResponse(SQLModel):
     user_id: int
     created: bool
     onboarding_completed: bool
 
-
+#TODO move somewhere else??
 class UserRead(SQLModel):
     id: int
     email: str
@@ -27,6 +29,7 @@ class UserRead(SQLModel):
     onboarding_completed: bool
 
 
+#TODO move somewhere else??
 class UserUpdate(SQLModel):
     country: Optional[str] = None
     measurement_system: Optional[str] = None
@@ -34,7 +37,7 @@ class UserUpdate(SQLModel):
     include_spices: Optional[bool] = None
     onboarding_completed: Optional[bool] = None
 
-
+#TODO move somewhere else??
 def _to_read(u: User) -> UserRead:
     return UserRead(
         id=u.id,
@@ -48,9 +51,9 @@ def _to_read(u: User) -> UserRead:
 
 
 @router.post(path="/users/", response_model=AuthResponse)
-def create_or_login_user(
+async def create_or_login_user(
     email: str | None = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> AuthResponse:
     """
     If email exists => login.
@@ -62,7 +65,8 @@ def create_or_login_user(
 
     normalized = email.strip().lower()
 
-    existing = session.exec(select(User).where(User.email == normalized)).first()
+    result = await session.execute(select(User).where(User.email == normalized))
+    existing = result.scalars().first()
     if existing:
         return AuthResponse(
             user_id=existing.id,
@@ -74,8 +78,8 @@ def create_or_login_user(
 
     try:
         session.add(user)
-        session.commit()
-        session.refresh(user)
+        await session.commit()
+        await session.refresh(user)
         return AuthResponse(
             user_id=user.id,
             created=True,
@@ -83,8 +87,9 @@ def create_or_login_user(
         )
     except IntegrityError:
         # Handles race condition if two requests created the same email concurrently
-        session.rollback()
-        existing = session.exec(select(User).where(User.email == normalized)).first()
+        await session.rollback()
+        result = await session.execute(select(User).where(User.email == normalized))
+        existing = result.scalars().first()
         if existing:
             return AuthResponse(
                 user_id=existing.id,
@@ -95,23 +100,23 @@ def create_or_login_user(
 
 
 @router.get(path="/users/{user_id}", response_model=UserRead)
-def get_user(
+async def get_user(
     user_id: int,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> UserRead:
-    user: User | None = session.get(User, user_id)
+    user: User | None = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return _to_read(user)
 
 
 @router.patch(path="/users/{user_id}", response_model=UserRead)
-def update_user(
+async def update_user(
     user_id: int,
     patch: UserUpdate,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> UserRead:
-    user: User | None = session.get(User, user_id)
+    user: User | None = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -137,6 +142,6 @@ def update_user(
         user.onboarding_completed = bool(patch.onboarding_completed)
 
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
     return _to_read(user)

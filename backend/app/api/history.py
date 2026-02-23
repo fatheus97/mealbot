@@ -1,7 +1,8 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc
-from sqlmodel import Session, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.db import get_session
 from app.models.db_models import User, MealEntry
@@ -11,23 +12,23 @@ router = APIRouter()
 
 
 @router.get("/users/{user_id}/meals", response_model=List[MealHistoryItem])
-def get_meal_history(
+async def get_meal_history(
     user_id: int,
     limit: int = 20,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[MealHistoryItem]:
-    user = session.get(User, user_id)
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     stmt = (
         select(MealEntry)
         .where(MealEntry.user_id == user_id)
-        .order_by(desc(MealEntry.created_at))
+        .order_by(desc(MealEntry.created_at)) # type: ignore[call-overload]
         .limit(limit)
     )
-    entries = session.exec(stmt).all()
-
+    result = await session.execute(stmt)
+    entries = result.scalars().all()
     return [
         MealHistoryItem(
             meal_entry_id=e.id,

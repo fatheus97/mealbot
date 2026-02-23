@@ -6,7 +6,6 @@ from app.api.plan import router as plan_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
 from app.api.user import router as user_router
-from app.db import init_db
 
 import logging
 import sys
@@ -21,11 +20,9 @@ logging.basicConfig(
 )
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # startup
-    init_db()
+async def lifespan(fastAPI: FastAPI):
     yield
-    # shutdown – tady bys zavřel spojení apod., teď nepotřebujeme nic
+    # shutdown
 
 app = FastAPI(title="Meal Planner LLM API", lifespan=lifespan)
 

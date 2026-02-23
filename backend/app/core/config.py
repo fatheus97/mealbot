@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     run_llm_tests: bool = False
 
-    database_url: str = "postgresql+asyncpg://user:password@db:5432/mealbot"
+    database_url: str = "postgresql+psycopg://user:password@localhost:5432/mealbot"
 
     db_echo: bool = False
 

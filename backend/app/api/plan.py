@@ -2,7 +2,8 @@ from collections import defaultdict
 from datetime import datetime
 from typing import List, Dict, cast, Literal
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.api.fridge import get_fridge_items, replace_fridge_items
 from app.models.db_models import User, StockItem, MealPlan, MealEntry
@@ -21,9 +22,9 @@ async def plan_meals_for_user(
     user_id: int,
     days: int,
     payload: MealPlanRequest,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> MealPlanResponse:
-    user = session.get(User, user_id)
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -42,9 +43,11 @@ async def plan_meals_for_user(
     payload.include_spices = bool(user.include_spices)
 
     # Load fridge from DB
-    db_items = session.exec(
+    result = await session.execute(
         select(StockItem).where(StockItem.user_id == user_id)
-    ).all()
+    )
+    db_items = result.scalars().all()
+
     remaining_ingredients: List[StockItemDTO] = [
         StockItemDTO(name=item.name, quantity_grams=item.quantity_grams, need_to_use=item.need_to_use)
         for item in db_items
@@ -86,32 +89,32 @@ async def plan_meals_for_user(
         response_json=response_obj.model_dump_json(),
     )
     session.add(plan)
-    session.commit()
-    session.refresh(plan)
+    await session.commit()
+    await session.refresh(plan)
     response_obj.plan_id = plan.id
 
     return response_obj
 
 @router.post("/users/{user_id}/plans/{plan_id}/confirm", response_model=List[StockItemDTO])
-def confirm_plan(
+async def confirm_plan(
     user_id: int,
     plan_id: int,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
     # 1) Validate user
-    user = session.get(User, user_id)
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     # 2) Load plan & ownership check
-    plan = session.get(MealPlan, plan_id)
+    plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != user_id:
         raise HTTPException(status_code=404, detail="Plan not found")
 
     # 3) Idempotence guard (do not subtract twice)
     if hasattr(plan, "confirmed_at") and getattr(plan, "confirmed_at"):
-        # Do nothing, just return current fridge
-        return get_fridge_items(session, user_id)
+        # Do nothing, just return the current fridge
+        return await get_fridge_items(session, user_id)
 
     # 4) Parse stored plan response
     try:
@@ -125,7 +128,7 @@ def confirm_plan(
     needed = _extract_needed_grams(plan_obj)
 
     # 5) Load current fridge and subtract
-    fridge = get_fridge_items(session, user_id)
+    fridge = await get_fridge_items(session, user_id)
     by_name: Dict[str, StockItemDTO] = {_norm(x.name): x for x in fridge if _norm(x.name)}
 
     for ing_name, need_qty in needed.items():
@@ -139,7 +142,7 @@ def confirm_plan(
     updated_fridge = [x for x in fridge if float(x.quantity_grams or 0.0) > 0.0]
 
     # 6) Persist fridge via shared helper
-    updated_fridge = replace_fridge_items(session, user_id, updated_fridge)
+    updated_fridge = await replace_fridge_items(session, user_id, updated_fridge)
 
     # 7) Persist meal history entries (one row per meal)
     _persist_meal_entries(session, user_id=user_id, plan_id=plan_id, plan_obj=plan_obj)
@@ -147,10 +150,11 @@ def confirm_plan(
     plan.confirmed_at = datetime.now()
 
     session.add(plan)
-    session.commit()
+    await session.commit()
 
     return updated_fridge
 
+#TODO move to utils
 def _norm(name: str) -> str:
     return " ".join((name or "").strip().lower().split())
 
@@ -173,7 +177,7 @@ def _extract_needed_grams(plan: MealPlanResponse) -> Dict[str, float]:
     return dict(totals)
 
 def _persist_meal_entries(
-    session: Session,
+    session: AsyncSession,
     user_id: int,
     plan_id: int,
     plan_obj: MealPlanResponse,

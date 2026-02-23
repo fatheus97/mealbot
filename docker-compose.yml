@@ -1,7 +1,6 @@
 services:
   db:
-    image: postgres:15
-    # image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:pg15
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -13,6 +12,14 @@ services:
     build:
       context: ./backend  # This tells Docker to look INSIDE the backend folder
       dockerfile: Dockerfile
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000" # Assuming you need to reach FastAPI from your host
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql+psycopg://user:password@db:5432/mealbot
 
   frontend:
     build: ./frontend

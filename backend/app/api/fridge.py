@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select, delete
 
 from app.db import get_session
 from app.models.db_models import User, StockItem
@@ -9,32 +10,34 @@ from app.models.plan_models import StockItemDTO
 router = APIRouter()
 
 @router.get("/users/{user_id}/fridge", response_model=List[StockItemDTO])
-def get_fridge(
+async def get_fridge(
     user_id: int,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
-    user = session.get(User, user_id)
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return get_fridge_items(session, user_id)
+    return await get_fridge_items(session, user_id)
 
 
 @router.put("/users/{user_id}/fridge", response_model=List[StockItemDTO])
-def put_fridge(
+async def put_fridge(
     user_id: int,
     payload: List[StockItemDTO],
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
-    user = session.get(User, user_id)
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return replace_fridge_items(session, user_id, payload)
+    return await replace_fridge_items(session, user_id, payload)
 
-def get_fridge_items(session: Session, user_id: int) -> List[StockItemDTO]:
-    """Return fridge items for the user in API schema form."""
-    rows = session.exec(select(StockItem).where(StockItem.user_id == user_id)).all()
+async def get_fridge_items(session: AsyncSession, user_id: int) -> List[StockItemDTO]:
+    """Return fridge items to the user in API schema form."""
+    result = await session.execute(select(StockItem).where(StockItem.user_id == user_id))
+    rows = result.scalars().all()
+
     return [
         StockItemDTO(
             name=r.name,
@@ -45,12 +48,12 @@ def get_fridge_items(session: Session, user_id: int) -> List[StockItemDTO]:
     ]
 
 
-def replace_fridge_items(session: Session, user_id: int, items: List[StockItemDTO]) -> List[StockItemDTO]:
+async def replace_fridge_items(session: AsyncSession, user_id: int, items: List[StockItemDTO]) -> List[StockItemDTO]:
     """
     Replace fridge items for a user (delete old, insert new).
     Shared by PUT /fridge and plan confirm endpoint.
     """
-    session.exec(delete(StockItem).where(StockItem.user_id == user_id)) # type: ignore[call-overload]
+    await session.execute(delete(StockItem).where(StockItem.user_id == user_id)) # type: ignore[call-overload]
 
     for it in items:
         qty = float(it.quantity_grams or 0.0)
@@ -66,5 +69,5 @@ def replace_fridge_items(session: Session, user_id: int, items: List[StockItemDT
             )
         )
 
-    session.commit()
-    return get_fridge_items(session, user_id)
+    await session.commit()
+    return await get_fridge_items(session, user_id)
