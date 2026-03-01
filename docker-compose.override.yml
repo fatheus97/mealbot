@@ -1,0 +1,13 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      target: build-stage  # Intercept the Dockerfile before it builds Nginx
+    command: npm run dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # Anonymous volume to protect container dependencies
+    ports:
+      - "5174:5173"        # Override the 5173:80 mapping from the base compose file
+    environment:
+      - NODE_ENV=development

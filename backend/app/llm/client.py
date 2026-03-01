@@ -2,6 +2,7 @@ from typing import TypeVar, Type
 import instructor
 from fastapi import HTTPException
 from google import genai
+from google.genai.types import HttpOptionsDict
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
 from pydantic import BaseModel
@@ -27,7 +28,8 @@ class LLMClient:
         if settings.gemini_api_key:
             # Instructor seamlessly wraps the new google-genai client
             self.gemini_client = instructor.from_genai(
-                genai.Client(api_key=settings.gemini_api_key)
+                genai.Client(api_key=settings.gemini_api_key),
+                use_async = True,
             )
 
 
@@ -90,6 +92,8 @@ class LLMClient:
                 messages=messages
             )
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             raise HTTPException(status_code=502, detail=f"Gemini error: {e}") from e
 
     @staticmethod

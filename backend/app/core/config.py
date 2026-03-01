@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Gemini config
     gemini_api_key: str | None = None
     # You can change this to e.g. "gemini-2.5-pro" later
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.0-flash"
 
     # When True, LLMClient will return a deterministic fake JSON response
     llm_mock: bool = False

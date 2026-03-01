@@ -12,6 +12,7 @@ litellm
 instructor
 openai
 google-genai
+jsonref
 
 #For DB
 asyncpg
