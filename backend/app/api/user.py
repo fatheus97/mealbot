@@ -1,43 +1,20 @@
-from typing import Optional
-from fastapi import Depends, HTTPException, APIRouter
+from fastapi import Depends, HTTPException, APIRouter, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import SQLModel, select
-from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
 
 from app.db import get_session
-from app.models.db_models import User  # adjust import to your project
+from app.models.db_models import User
+from app.models.user_schemas import UserCreate, UserRead, UserUpdate, Token
+from app.core.security import verify_password, get_password_hash, create_access_token
+from app.api.deps import get_current_user
 
-router = APIRouter()
+router = APIRouter(prefix="/users", tags=["users"])
 
 _ALLOWED_MEASUREMENT = {"none", "metric", "imperial"}
 _ALLOWED_VARIABILITY = {"traditional", "experimental"}
 
-#TODO move somewhere else??
-class AuthResponse(SQLModel):
-    user_id: int
-    created: bool
-    onboarding_completed: bool
 
-#TODO move somewhere else??
-class UserRead(SQLModel):
-    id: int
-    email: str
-    country: Optional[str] = None
-    measurement_system: str
-    variability: str
-    include_spices: bool
-    onboarding_completed: bool
-
-
-#TODO move somewhere else??
-class UserUpdate(SQLModel):
-    country: Optional[str] = None
-    measurement_system: Optional[str] = None
-    variability: Optional[str] = None
-    include_spices: Optional[bool] = None
-    onboarding_completed: Optional[bool] = None
-
-#TODO move somewhere else??
 def _to_read(u: User) -> UserRead:
     return UserRead(
         id=u.id,
@@ -50,98 +27,104 @@ def _to_read(u: User) -> UserRead:
     )
 
 
-@router.post(path="/users/", response_model=AuthResponse)
-async def create_or_login_user(
-    email: str | None = None,
-    session: AsyncSession = Depends(get_session),
-) -> AuthResponse:
-    """
-    If email exists => login.
-    Otherwise => register.
-    Returns metadata so frontend can show onboarding on registration.
-    """
-    if email is None or not email.strip():
-        raise HTTPException(status_code=400, detail="Email is required.")
+# //api/users/register
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register_user(
+        user: UserCreate,
+        session: AsyncSession = Depends(get_session)
+):
+    # 1. Check if a user already exists
+    statement = select(User).where(User.email == user.email)
+    result = await session.execute(statement)
+    existing_user = result.scalars().first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
 
-    normalized = email.strip().lower()
+    # 2. Hash the password and save the user
+    hashed_pw = get_password_hash(user.password)
+    db_user = User(email=user.email, hashed_password=hashed_pw)
+    session.add(db_user)
+    await session.commit()
+    await session.refresh(db_user)
 
-    result = await session.execute(select(User).where(User.email == normalized))
-    existing = result.scalars().first()
-    if existing:
-        return AuthResponse(
-            user_id=existing.id,
-            created=False,
-            onboarding_completed=bool(existing.onboarding_completed),
+    return {"message": "User created successfully. Please log in."}
+
+
+# //api/users/login
+@router.post("/login", response_model=Token,)
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: AsyncSession = Depends(get_session)
+) -> Token:
+    """
+    Standard OAuth2 Login endpoint.
+    Expects 'username' (which we map to email) and 'password' as form data.
+    """
+    # 1. Find the user by email (OAuth2 uses the 'username' field)
+    statement = select(User).where(User.email == form_data.username)
+    result = await session.execute(statement)
+    user = result.scalars().first()
+
+    # 2. Verify existence and password
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = User(email=normalized)
+    # 3. Generate the JWT
+    access_token = create_access_token(subject=user.id)
 
-    try:
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
-        return AuthResponse(
-            user_id=user.id,
-            created=True,
-            onboarding_completed=bool(user.onboarding_completed),
-        )
-    except IntegrityError:
-        # Handles race condition if two requests created the same email concurrently
-        await session.rollback()
-        result = await session.execute(select(User).where(User.email == normalized))
-        existing = result.scalars().first()
-        if existing:
-            return AuthResponse(
-                user_id=existing.id,
-                created=False,
-                onboarding_completed=bool(existing.onboarding_completed),
-            )
-        raise
+    # 4. Return the Token schema
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        user_id=user.id,
+        email=user.email,
+        onboarding_completed=bool(user.onboarding_completed)
+    )
 
 
-@router.get(path="/users/{user_id}", response_model=UserRead)
+@router.get(path="", response_model=UserRead)
 async def get_user(
-    user_id: int,
-    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user)
 ) -> UserRead:
-    user: User | None = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return _to_read(user)
+    """
+        Returns the profile of the user identified by the JWT.
+    """
+    return _to_read(current_user)
 
 
-@router.patch(path="/users/{user_id}", response_model=UserRead)
+@router.patch(path="", response_model=UserRead)
 async def update_user(
-    user_id: int,
     patch: UserUpdate,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> UserRead:
-    user: User | None = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
     if patch.country is not None:
-        user.country = patch.country.strip() or None
+        current_user.country = patch.country.strip() or None
 
     if patch.measurement_system is not None:
         ms = patch.measurement_system.strip().lower()
         if ms not in _ALLOWED_MEASUREMENT:
             raise HTTPException(status_code=400, detail=f"Invalid measurement_system: {ms}")
-        user.measurement_system = ms
+        current_user.measurement_system = ms
 
     if patch.variability is not None:
         v = patch.variability.strip().lower()
         if v not in _ALLOWED_VARIABILITY:
             raise HTTPException(status_code=400, detail=f"Invalid variability: {v}")
-        user.variability = v
+        current_user.variability = v
 
     if patch.include_spices is not None:
-        user.include_spices = bool(patch.include_spices)
+        current_user.include_spices = bool(patch.include_spices)
 
     if patch.onboarding_completed is not None:
-        user.onboarding_completed = bool(patch.onboarding_completed)
+        current_user.onboarding_completed = bool(patch.onboarding_completed)
 
-    session.add(user)
+    session.add(current_user)
     await session.commit()
-    await session.refresh(user)
-    return _to_read(user)
+    await session.refresh(current_user)
+    return _to_read(current_user)

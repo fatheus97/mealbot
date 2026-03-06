@@ -48,23 +48,23 @@ export function Fridge() {
     setFridge(updated);
   };
 
-  const handleSaveFridge = () => {
+  const handleSaveFridge = async () => {
     if (!userId) return;
 
     const cleanedFridge = fridge.filter((item) => item.name.trim() !== "");
 
-    updateFridgeMutation.mutate(
-      { userId, items: cleanedFridge },
-      {
-        onSuccess: () => {
-          setNotice("Fridge saved successfully!");
-          setTimeout(() => setNotice(""), 3000);
-        },
-        onError: (err: Error) => {
-          setNotice(`Failed to save: ${err.message}`);
-        }
+    try {
+      await updateFridgeMutation.mutateAsync({ userId, items: cleanedFridge });
+
+      setNotice("Fridge saved successfully!");
+      setTimeout(() => setNotice(""), 3000);
+    } catch (err) {
+      if (err instanceof Error) {
+        setNotice(`Failed to save: ${err.message}`);
+      } else {
+        setNotice("Failed to save: Unknown error occurred.");
       }
-    );
+    }
   };
 
   if (!userId) {

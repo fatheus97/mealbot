@@ -8,6 +8,9 @@ from pgvector.sqlalchemy import Vector
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
+    
+    hashed_password: str = Field(nullable=False)
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Used for ingredient availability + local recipes

@@ -53,10 +53,21 @@ export interface StockItem {
   need_to_use: boolean;
 }
 
-export interface AuthResponse {
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
   user_id: number;
-  created: boolean;
+  email: string;
   onboarding_completed: boolean;
+}
+
+export interface AuthState {
+  userId: number | null;
+  token: string | null; // <-- NEW: Added token to state
+  email: string;
+  onboardingCompleted: boolean; // <-- NEW: Track onboarding state
+  login: (email: string, password: string) => Promise<LoginResponse>;
+  logout: () => void;
 }
 
 export interface UserProfile {

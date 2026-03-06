@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StockItem, MealPlanRequest, MealPlanResponse } from '../types';
-
-const API_BASE = "http://localhost:8000/api";
+import { authFetch } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -9,12 +8,12 @@ export function useFridge(userId: number | null) {
   return useQuery({
     queryKey: ['fridge', userId],
     queryFn: async (): Promise<StockItem[]> => {
-      const res = await fetch(`${API_BASE}/users/${userId}/fridge`);
+      const res = await authFetch(`/fridge`);
       if (res.status === 404) return [];
       if (!res.ok) throw new Error(`Fridge fetch failed: ${res.status}`);
       return res.json();
     },
-    enabled: userId !== null, // Only fetch if we have a valid user
+    enabled: userId !== null,
   });
 }
 
@@ -24,10 +23,9 @@ export function useUpdateFridge() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ userId, items }: { userId: number; items: StockItem[] }) => {
-      const res = await fetch(`${API_BASE}/users/${userId}/fridge`, {
+    mutationFn: async ({ items }: { userId: number; items: StockItem[] }) => {
+      const res = await authFetch(`/fridge`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(items),
       });
       if (!res.ok) throw new Error(`Fridge update failed: ${res.status}`);
@@ -41,10 +39,9 @@ export function useUpdateFridge() {
 
 export function useGeneratePlan() {
   return useMutation({
-    mutationFn: async ({ userId, days, request }: { userId: number; days: number; request: MealPlanRequest }): Promise<MealPlanResponse> => {
-      const res = await fetch(`${API_BASE}/users/${userId}/plan?days=${days}`, {
+    mutationFn: async ({ days, request }: { userId: number; days: number; request: MealPlanRequest }): Promise<MealPlanResponse> => {
+      const res = await authFetch(`/plan?days=${days}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
       if (!res.ok) {

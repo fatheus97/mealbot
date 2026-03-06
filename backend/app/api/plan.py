@@ -11,40 +11,39 @@ from app.models.plan_models import MealPlanRequest, MealPlanResponse, SingleDayR
 from app.services.meal_planner import generate_single_day
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
 from app.db import get_session
+from app.api.deps import get_current_user
 
-router = APIRouter()
+router = APIRouter(prefix="/plan", tags=["plan"])
 MeasurementSystem = Literal["none", "metric", "imperial"]
 Variability = Literal["traditional", "experimental"]
 
 
-@router.post("/users/{user_id}/plan", response_model=MealPlanResponse)
+# //api/plan
+@router.post("", response_model=MealPlanResponse)
 async def plan_meals_for_user(
-    user_id: int,
     days: int,
     payload: MealPlanRequest,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> MealPlanResponse:
-    user = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
-    payload.country = user.country
+    payload.country = current_user.country
 
-    ms_raw = (user.measurement_system or "metric").strip().lower()
+    ms_raw = (current_user.measurement_system or "metric").strip().lower()
     if ms_raw not in ("none", "metric", "imperial"):
         ms_raw = "metric"
     payload.measurement_system = cast(MeasurementSystem, ms_raw)
 
-    var_raw = (user.variability or "traditional").strip().lower()
+    var_raw = (current_user.variability or "traditional").strip().lower()
     if var_raw not in ("traditional", "experimental"):
         var_raw = "traditional"
     payload.variability = cast(Variability, var_raw)
 
-    payload.include_spices = bool(user.include_spices)
+    payload.include_spices = bool(current_user.include_spices)
 
     # Load fridge from DB
     result = await session.execute(
-        select(StockItem).where(StockItem.user_id == user_id)
+        select(StockItem).where(StockItem.user_id == current_user.id)
     )
     db_items = result.scalars().all()
 
@@ -81,7 +80,7 @@ async def plan_meals_for_user(
 
     # Save MealPlan to DB
     plan = MealPlan(
-        user_id=user_id,
+        user_id=current_user.id,
         days=days,
         meals_per_day=payload.meals_per_day,
         people_count=payload.people_count,
@@ -95,26 +94,24 @@ async def plan_meals_for_user(
 
     return response_obj
 
-@router.post("/users/{user_id}/plans/{plan_id}/confirm", response_model=List[StockItemDTO])
+
+# //api/plan/{plan_id}/confirm
+@router.post("/{plan_id}/confirm", response_model=List[StockItemDTO])
 async def confirm_plan(
-    user_id: int,
     plan_id: int,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
-    # 1) Validate user
-    user = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
     # 2) Load plan & ownership check
     plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != user_id:
+    if not plan or plan.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Plan not found")
 
     # 3) Idempotence guard (do not subtract twice)
     if hasattr(plan, "confirmed_at") and getattr(plan, "confirmed_at"):
         # Do nothing, just return the current fridge
-        return await get_fridge_items(session, user_id)
+        return await get_fridge_items(session, current_user.id)
 
     # 4) Parse stored plan response
     try:
@@ -128,13 +125,13 @@ async def confirm_plan(
     needed = _extract_needed_grams(plan_obj)
 
     # 5) Load current fridge and subtract
-    fridge = await get_fridge_items(session, user_id)
+    fridge = await get_fridge_items(session, current_user.id)
     by_name: Dict[str, StockItemDTO] = {_norm(x.name): x for x in fridge if _norm(x.name)}
 
     for ing_name, need_qty in needed.items():
         item = by_name.get(ing_name)
         if not item:
-            continue  # ingredient not in fridge => nothing to subtract
+            continue  # ingredient not in the fridge => nothing to subtract
         have = float(item.quantity_grams or 0.0)
         item.quantity_grams = max(0.0, have - need_qty)
 
@@ -142,10 +139,10 @@ async def confirm_plan(
     updated_fridge = [x for x in fridge if float(x.quantity_grams or 0.0) > 0.0]
 
     # 6) Persist fridge via shared helper
-    updated_fridge = await replace_fridge_items(session, user_id, updated_fridge)
+    updated_fridge = await replace_fridge_items(session, current_user.id, updated_fridge)
 
     # 7) Persist meal history entries (one row per meal)
-    _persist_meal_entries(session, user_id=user_id, plan_id=plan_id, plan_obj=plan_obj)
+    _persist_meal_entries(session, user_id=current_user.id, plan_id=plan_id, plan_obj=plan_obj)
 
     plan.confirmed_at = datetime.now()
 

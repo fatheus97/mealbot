@@ -18,10 +18,12 @@ class MealPlanRequest(BaseModel):
     )
     taste_preferences: List[str] = Field(
         default_factory=list,
+        max_length=20,
         description="Tags like 'spicy', 'asian', 'comfort', 'light', 'vegetarian'.",
     )
     avoid_ingredients: List[str] = Field(
         default_factory=list,
+        max_length=50,
         description="Ingredients that must not be used (allergies, dislikes).",
     )
     diet_type: Optional[
@@ -64,21 +66,26 @@ class MealPlanRequest(BaseModel):
         description="Whether spices/seasonings should appear in ingredients & shopping list.",
     )
 
-    @field_validator("taste_preferences", check_fields=False)
+    @field_validator("taste_preferences", "avoid_ingredients", "past_meals", mode="before")
     @classmethod
     def sanitize_input(cls, v):
+        # Handle cases where the input might be None
+        if not v:
+            return []
+
         cleaned_list = []
         for item in v:
-            # Enforce length limit per tag
+            # Enforce length limit per tag (drop it if it's too long instead of crashing the whole request)
             if len(item) > 50:
-                raise ValueError("Preference tag too long")
+                continue
 
-            # Whitelist: Allow only alphanumeric, spaces, and hyphens.
-            # Remove any special characters that could be used for injection syntax.
+                # Whitelist: Allow only alphanumeric, spaces, and hyphens.
             cleaned = re.sub(r'[^a-zA-Z0-9\s-]', '', item).strip()
             if cleaned:
                 cleaned_list.append(cleaned)
-        return cleaned_list
+
+        # Optional: Limit the total number of items to prevent prompt stuffing
+        return cleaned_list[:20]
 
 
 class IngredientAmount(BaseModel):

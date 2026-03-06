@@ -1,9 +1,10 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.api.deps import get_current_user
 from app.db import get_session
 from app.models.db_models import User, MealEntry
 from app.models.plan_models import MealHistoryItem
@@ -11,19 +12,17 @@ from app.models.plan_models import MealHistoryItem
 router = APIRouter()
 
 
-@router.get("/users/{user_id}/meals", response_model=List[MealHistoryItem])
+# //api/meals
+@router.get("/meals", response_model=List[MealHistoryItem])
 async def get_meal_history(
-    user_id: int,
     limit: int = 20,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[MealHistoryItem]:
-    user = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
     stmt = (
         select(MealEntry)
-        .where(MealEntry.user_id == user_id)
+        .where(MealEntry.user_id == current_user.id)
         .order_by(desc(MealEntry.created_at)) # type: ignore[call-overload]
         .limit(limit)
     )

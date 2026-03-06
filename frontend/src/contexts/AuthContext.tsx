@@ -1,48 +1,57 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
-import type { AuthResponse } from "../types";
-
-const API_BASE = "http://localhost:8000/api";
-
-interface AuthState {
-  userId: number | null;
-  email: string;
-  login: (email: string) => Promise<AuthResponse>;
-  logout: () => void;
-}
+import { createContext, useContext, useState, type ReactNode} from "react";
+import type { LoginResponse, AuthState } from "../types";
+import {authFetch} from "../api.ts";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [token, setToken] = useState<string | null>(() => window.localStorage.getItem("mealbot_token"));
   const [userId, setUserId] = useState<number | null>(() => {
     const stored = window.localStorage.getItem("mealbot_user_id");
     return stored ? Number(stored) : null;
   });
+  const [email, setEmail] = useState<string>(() => window.localStorage.getItem("mealbot_user_email") || "");
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(false);
 
-  const [email, setEmail] = useState<string>(() => {
-    return window.localStorage.getItem("mealbot_user_email") || "";
-  });
+  const login = async (newEmail: string, password: string): Promise<LoginResponse> => {
+    const formData = new URLSearchParams();
+    formData.append("username", newEmail); // OAuth2 spec uses 'username' for email
+    formData.append("password", password);
 
-  const login = async (newEmail: string): Promise<AuthResponse> => {
-    const resp = await fetch(`${API_BASE}/users/?email=${encodeURIComponent(newEmail)}`, { method: "POST" });
+    const resp = await authFetch(`/users/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" }, // NEW: Form content type
+      body: formData
+    });
+
     if (!resp.ok) throw new Error(`Login failed: ${resp.status}`);
 
-    const auth = (await resp.json()) as AuthResponse;
-    setUserId(auth.user_id);
-    setEmail(newEmail);
-    window.localStorage.setItem("mealbot_user_id", String(auth.user_id));
-    window.localStorage.setItem("mealbot_user_email", newEmail);
-    return auth;
+    const data = (await resp.json()) as LoginResponse;
+
+    setToken(data.access_token);
+    setUserId(data.user_id);
+    setEmail(data.email);
+    setOnboardingCompleted(data.onboarding_completed);
+
+    window.localStorage.setItem("mealbot_token", data.access_token);
+    window.localStorage.setItem("mealbot_user_id", String(data.user_id));
+    window.localStorage.setItem("mealbot_user_email", data.email);
+
+    return data;
   };
 
   const logout = () => {
     setUserId(null);
+    setToken(null);
     setEmail("");
+    setOnboardingCompleted(false);
+    window.localStorage.removeItem("mealbot_token");
     window.localStorage.removeItem("mealbot_user_id");
     window.localStorage.removeItem("mealbot_user_email");
   };
 
   return (
-    <AuthContext.Provider value={{ userId, email, login, logout }}>
+    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

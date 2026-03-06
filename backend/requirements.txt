@@ -19,7 +19,12 @@ asyncpg
 sqlmodel
 psycopg[binary, pool]
 alembic
+pydantic[email]
 
 # For RAG features
 pgvector
 fastembed
+
+#Security
+bcrypt
+PyJWT

@@ -1,37 +1,35 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, delete
 
+from app.api.deps import get_current_user
 from app.db import get_session
 from app.models.db_models import User, StockItem
 from app.models.plan_models import StockItemDTO
 
-router = APIRouter()
+router = APIRouter(prefix="/fridge", tags=["fridge"])
 
-@router.get("/users/{user_id}/fridge", response_model=List[StockItemDTO])
+
+# //api/fridge
+@router.get("", response_model=List[StockItemDTO])
 async def get_fridge(
-    user_id: int,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
-    user = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
-    return await get_fridge_items(session, user_id)
+    return await get_fridge_items(session, current_user.id)
 
 
-@router.put("/users/{user_id}/fridge", response_model=List[StockItemDTO])
+# //api/fridge
+@router.put("", response_model=List[StockItemDTO])
 async def put_fridge(
-    user_id: int,
     payload: List[StockItemDTO],
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
-    user = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
-    return await replace_fridge_items(session, user_id, payload)
+    return await replace_fridge_items(session, current_user.id, payload)
 
 async def get_fridge_items(session: AsyncSession, user_id: int) -> List[StockItemDTO]:
     """Return fridge items to the user in API schema form."""

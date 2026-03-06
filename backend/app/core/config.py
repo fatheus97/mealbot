@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Gemini config
     gemini_api_key: str | None = None
     # You can change this to e.g. "gemini-2.5-pro" later
-    gemini_model: str = "gemini-3.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
 
     # When True, LLMClient will return a deterministic fake JSON response
     llm_mock: bool = False
@@ -27,16 +27,20 @@ class Settings(BaseSettings):
 
     run_llm_tests: bool = False
 
-    database_url: str = "postgresql+psycopg://user:password@localhost:5432/mealbot"
 
     db_echo: bool = False
 
+    secret_key: str
+    database_url: str
+
+    allowed_origins: str = "http://localhost:5173,http://localhost:5174"
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
-        extra="ignore"  # Good practice to ignore extra env vars
+        extra="ignore"
     )
 
 
-
+# noinspection PyArgumentList
 settings = Settings()
