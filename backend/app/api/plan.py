@@ -7,8 +7,11 @@ from sqlmodel import select
 
 from app.api.fridge import get_fridge_items, replace_fridge_items
 from app.models.db_models import User, StockItem, MealPlan, MealEntry
-from app.models.plan_models import MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO, IngredientAmount
-from app.services.meal_planner import generate_single_day
+from app.models.plan_models import (
+    MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO,
+    IngredientAmount, RegeneratePlanRequest,
+)
+from app.services.meal_planner import generate_single_day, generate_partial_day
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
 from app.db import get_session
 from app.api.deps import get_current_user
@@ -91,6 +94,134 @@ async def plan_meals_for_user(
     await session.commit()
     await session.refresh(plan)
     response_obj.plan_id = plan.id
+
+    return response_obj
+
+
+# //api/plan/{plan_id}/regenerate
+@router.post("/{plan_id}/regenerate", response_model=MealPlanResponse)
+async def regenerate_plan(
+    plan_id: int,
+    body: RegeneratePlanRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MealPlanResponse:
+    """Regenerate unfrozen meals in an existing plan, keeping frozen meals intact."""
+
+    # 1) Load plan & ownership check
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    if hasattr(plan, "confirmed_at") and getattr(plan, "confirmed_at"):
+        raise HTTPException(status_code=409, detail="Cannot regenerate a confirmed plan")
+
+    # 2) Deserialize stored request & response
+    try:
+        original_req = MealPlanRequest.model_validate_json(plan.request_json)
+        original_resp = MealPlanResponse.model_validate_json(plan.response_json)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stored plan data is invalid: {e}")
+
+    # 3) Build frozen set for fast lookup
+    frozen_set: set[tuple[int, int]] = {
+        (fm.day_index, fm.meal_index) for fm in body.frozen_meals
+    }
+
+    # Validate indices are in bounds
+    for fm in body.frozen_meals:
+        if fm.day_index >= len(original_resp.days):
+            raise HTTPException(status_code=422, detail=f"day_index {fm.day_index} out of bounds")
+        day_meals = original_resp.days[fm.day_index].meals
+        if fm.meal_index >= len(day_meals):
+            raise HTTPException(
+                status_code=422,
+                detail=f"meal_index {fm.meal_index} out of bounds for day {fm.day_index}",
+            )
+
+    # 4) If all meals are frozen, return existing plan unchanged
+    total_meals = sum(len(d.meals) for d in original_resp.days)
+    if len(frozen_set) >= total_meals:
+        return original_resp
+
+    # 5) Re-load current fridge from DB
+    result = await session.execute(
+        select(StockItem).where(StockItem.user_id == current_user.id)
+    )
+    db_items = result.scalars().all()
+
+    remaining_ingredients: List[StockItemDTO] = [
+        StockItemDTO(name=item.name, quantity_grams=item.quantity_grams, need_to_use=item.need_to_use)
+        for item in db_items
+    ]
+    initial_fridge: List[StockItemDTO] = [ing.model_copy() for ing in remaining_ingredients]
+
+    past_meals: List[str] = list(original_req.past_meals)
+    new_days: List[SingleDayResponse] = []
+
+    # 6) Loop day-by-day
+    for day_index, day in enumerate(original_resp.days):
+        frozen_meals_this_day = []
+        unfrozen_indices = []
+
+        for meal_index, meal in enumerate(day.meals):
+            if (day_index, meal_index) in frozen_set:
+                frozen_meals_this_day.append((meal_index, meal))
+            else:
+                unfrozen_indices.append(meal_index)
+
+        if not unfrozen_indices:
+            # All meals frozen — keep day as-is
+            new_days.append(day)
+            remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, day.meals)
+            past_meals.extend(m.name for m in day.meals)
+            continue
+
+        # Subtract frozen meals from fridge first
+        frozen_only = [m for _, m in frozen_meals_this_day]
+        remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, frozen_only)
+        past_meals.extend(m.name for m in frozen_only)
+
+        # Determine which meal_type slots to regenerate
+        slots_to_generate = [day.meals[i].meal_type for i in unfrozen_indices]
+
+        # Build request for partial generation
+        day_req = original_req.model_copy()
+        day_req.stock_items = remaining_ingredients
+        day_req.past_meals = past_meals
+
+        new_meals_response = await generate_partial_day(day_req, frozen_only, slots_to_generate)
+
+        # Merge: frozen meals at their original positions, new meals fill unfrozen slots
+        merged_meals = list(day.meals)  # copy original order
+        new_meal_iter = iter(new_meals_response.meals)
+        for idx in unfrozen_indices:
+            try:
+                merged_meals[idx] = next(new_meal_iter)
+            except StopIteration:
+                break
+
+        merged_day = SingleDayResponse(meals=merged_meals)
+        new_days.append(merged_day)
+
+        # Update fridge and past_meals with newly generated meals
+        new_only = [merged_meals[i] for i in unfrozen_indices]
+        remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, new_only)
+        past_meals.extend(m.name for m in new_only)
+
+    # 7) Recompute shopping list
+    shopping_items: List[IngredientAmount] = compute_shopping_list_from_plan(new_days, initial_fridge)
+
+    response_obj = MealPlanResponse(
+        plan_id=plan.id,
+        days=new_days,
+        shopping_list=shopping_items,
+    )
+
+    # 8) Persist updated response
+    plan.response_json = response_obj.model_dump_json()
+    session.add(plan)
+    await session.commit()
 
     return response_obj
 

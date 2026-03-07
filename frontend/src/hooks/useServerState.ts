@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, UserProfile } from '../types';
+import type { StockItem, MealPlanRequest, MealPlanResponse, RegeneratePlanRequest, UserProfile } from '../types';
 import { authFetch, fetchUserProfile, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
@@ -70,5 +70,27 @@ export function useGeneratePlan() {
       }
       return res.json();
     }
+  });
+}
+
+export function useRegeneratePlan() {
+  return useMutation({
+    mutationFn: async ({
+      planId,
+      request,
+    }: {
+      planId: number;
+      request: RegeneratePlanRequest;
+    }): Promise<MealPlanResponse> => {
+      const res = await authFetch(`/plan/${planId}/regenerate`, {
+        method: "POST",
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Regeneration failed: ${res.status} - ${txt}`);
+      }
+      return res.json();
+    },
   });
 }

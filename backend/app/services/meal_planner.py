@@ -3,7 +3,7 @@ from jinja2.sandbox import SandboxedEnvironment
 from jinja2 import FileSystemLoader
 
 from app.llm.client import llm_client
-from app.models.plan_models import MealPlanRequest, SingleDayResponse
+from app.models.plan_models import MealPlanRequest, PlannedMeal, SingleDayResponse
 from app.services.recipe_retriever import retrieve_recipes
 
 import logging
@@ -29,6 +29,39 @@ async def generate_single_day(req: MealPlanRequest) -> SingleDayResponse:
         user_prompt=user_prompt,
         response_model=SingleDayResponse
     )
+
+    return response
+
+
+async def generate_partial_day(
+    req: MealPlanRequest,
+    frozen_meals: list[PlannedMeal],
+    slots_to_generate: list[str],
+) -> SingleDayResponse:
+    """
+    Generates only the unfrozen meal slots for a single day,
+    using frozen meals as context so the LLM complements them.
+    """
+    template = _prompts_env.get_template("meal_plan_partial.jinja")
+    user_prompt = template.render(
+        **req.model_dump(),
+        frozen_meals=[m.model_dump() for m in frozen_meals],
+        slots_to_generate=slots_to_generate,
+    )
+
+    response = await llm_client.chat_json(
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        response_model=SingleDayResponse,
+    )
+
+    # Validate that returned meals match requested slots
+    returned_types = [m.meal_type for m in response.meals]
+    if sorted(returned_types) != sorted(slots_to_generate):
+        logger.warning(
+            "LLM returned meal_types %s but expected %s — using response as-is",
+            returned_types, slots_to_generate,
+        )
 
     return response
 
