@@ -1,45 +1,54 @@
-# tests/test_fridge_api.py
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 
 
-def test_fridge_roundtrip(client: TestClient):
-    """
-    Full lifecycle:
-    - create user
-    - put fridge contents
-    - get fridge contents back and compare
-    """
+class TestFridgeCRUD:
+    async def test_get_empty_fridge(self, client: AsyncClient, auth_headers: dict):
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json() == []
 
-    # 1) Create user
-    create_resp = client.post("/api/users/", params={"email": "fridge@example.com"})
-    assert create_resp.status_code == 200
-    user_id = create_resp.json()
-    assert isinstance(user_id, int)
+    async def test_put_then_get(self, client: AsyncClient, auth_headers: dict):
+        payload = [
+            {"name": "chicken breast", "quantity_grams": 600, "need_to_use": True},
+            {"name": "rice", "quantity_grams": 500, "need_to_use": False},
+        ]
+        put_resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert put_resp.status_code == 200
 
-    # 2) Put fridge contents for that user
-    fridge_payload = [
-        {"name": "chicken breast", "quantity_grams": 600.0, "need_to_use": True},
-        {"name": "rice", "quantity_grams": 500.0, "need_to_use": False},
-    ]
+        get_resp = await client.get("/api/fridge", headers=auth_headers)
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+        by_name = {x["name"]: x for x in data}
+        assert by_name["chicken breast"]["quantity_grams"] == 600.0
+        assert by_name["chicken breast"]["need_to_use"] is True
+        assert by_name["rice"]["quantity_grams"] == 500.0
 
-    put_resp = client.put(f"/api/users/{user_id}/fridge", json=fridge_payload)
-    assert put_resp.status_code == 200
+    async def test_put_replaces_not_appends(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        first = [{"name": "chicken", "quantity_grams": 600}]
+        await client.put("/api/fridge", headers=auth_headers, json=first)
 
-    get_resp = client.get(f"/api/users/{user_id}/fridge")
-    assert get_resp.status_code == 200
-    data = get_resp.json()
+        second = [{"name": "rice", "quantity_grams": 300}]
+        await client.put("/api/fridge", headers=auth_headers, json=second)
 
-    by_name = {x["name"]: x for x in data}
-    assert by_name["chicken breast"]["need_to_use"] is True
-    assert by_name["rice"]["need_to_use"] is False
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        data = resp.json()
+        names = [x["name"] for x in data]
+        assert "rice" in names
+        assert "chicken" not in names
 
+    async def test_put_negative_quantity_ignored(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [
+            {"name": "rice", "quantity_grams": 300},
+            {"name": "bad_item", "quantity_grams": -100},
+        ]
+        await client.put("/api/fridge", headers=auth_headers, json=payload)
 
-def test_fridge_nonexistent_user(client: TestClient):
-    """
-    GET /fridge pro neexistujícího usera by měl vrátit 404.
-    """
-
-    resp = client.get("/api/users/999999/fridge")
-    assert resp.status_code == 404
-    body = resp.json()
-    assert body["detail"] == "User not found"
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        data = resp.json()
+        names = [x["name"] for x in data]
+        assert "rice" in names
+        assert "bad_item" not in names
