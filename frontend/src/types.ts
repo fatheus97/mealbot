@@ -68,20 +68,16 @@ export interface AuthState {
   onboardingCompleted: boolean; // <-- NEW: Track onboarding state
   login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => void;
+  setOnboardingCompleted: (value: boolean) => void;
 }
 
 export interface UserProfile {
   id: number;
   email: string;
-
-  name: string | null;
-  description: string | null;
   country: string | null;
-
   measurement_system: MeasurementSystem;
   variability: Variability;
   include_spices: boolean;
-
   onboarding_completed: boolean;
 }
 

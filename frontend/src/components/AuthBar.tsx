@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import {authFetch} from "../api.ts";
+import { SettingsPopup } from "./SettingsPopup";
 
 export function AuthBar() {
   const { userId, email, login, logout } = useAuth();
@@ -8,6 +9,7 @@ export function AuthBar() {
   const [inputPassword, setInputPassword] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const handleAuth = async () => {
     setLoading(true);
@@ -56,9 +58,18 @@ export function AuthBar() {
           </>
         )}
         {userId && (
-          <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "1rem", alignItems: "center", position: "relative" }}>
              <span>✅ {email}</span>
+             <button
+               onClick={() => setShowSettings(!showSettings)}
+               style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", padding: "0.25rem" }}
+               aria-label="Settings"
+               title="Settings"
+             >
+               ⚙️
+             </button>
              <button onClick={logout} style={{ padding: "0.5rem 1rem", backgroundColor: "#ff4d4d", color: "white", border: "none", borderRadius: "4px" }}>Logout</button>
+             {showSettings && <SettingsPopup onClose={() => setShowSettings(false)} />}
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse } from '../types';
-import { authFetch } from '../api';
+import type { StockItem, MealPlanRequest, MealPlanResponse, UserProfile } from '../types';
+import { authFetch, fetchUserProfile, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -17,7 +17,27 @@ export function useFridge(userId: number | null) {
   });
 }
 
+export function useUserProfile(userId: number | null) {
+  return useQuery({
+    queryKey: ['userProfile', userId],
+    queryFn: fetchUserProfile,
+    enabled: userId !== null,
+  });
+}
+
 // --- Mutations (Data Manipulation) ---
+
+export function useUpdateUserProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: Partial<Pick<UserProfile, "country" | "measurement_system" | "variability" | "include_spices" | "onboarding_completed">>) =>
+      updateUserProfile(data),
+    onSuccess: () => {
+      return queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+    },
+  });
+}
 
 export function useUpdateFridge() {
   const queryClient = useQueryClient();

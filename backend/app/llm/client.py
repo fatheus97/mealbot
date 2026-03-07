@@ -23,12 +23,15 @@ class LLMClient:
 
         if settings.openai_api_key:
             self.openai_client = instructor.from_openai(
-                AsyncOpenAI(api_key=settings.openai_api_key)
+                AsyncOpenAI(api_key=settings.openai_api_key, timeout=60.0)
             )
         if settings.gemini_api_key:
             # Instructor seamlessly wraps the new google-genai client
             self.gemini_client = instructor.from_genai(
-                genai.Client(api_key=settings.gemini_api_key),
+                genai.Client(
+                    api_key=settings.gemini_api_key,
+                    http_options=HttpOptionsDict(timeout=60_000),
+                ),
                 use_async = True,
             )
 
@@ -89,7 +92,7 @@ class LLMClient:
                 model=settings.gemini_model,
                 response_model=response_model,
                 max_retries=MAX_LLM_RETRIES,
-                messages=messages
+                messages=messages,
             )
         except Exception as e:
             import traceback

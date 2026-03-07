@@ -2,9 +2,9 @@ services:
   db:
     image: pgvector/pgvector:pg15
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: mealbot
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-mealbot}
     ports:
       - "5432:5432"
     volumes:
@@ -23,7 +23,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+psycopg://user:password@db:5432/mealbot
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-mealbot}
 
   frontend:
     build: ./frontend

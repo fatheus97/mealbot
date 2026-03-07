@@ -47,7 +47,7 @@ export function MealPlanner() {
     <section style={{ marginBottom: "2rem", borderTop: "2px solid #eee", paddingTop: "2rem" }}>
       <h2>Meal Planner</h2>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", maxWidth: "600px", marginBottom: "1rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
         <label>
           Days to plan:
           <input type="number" value={days} onChange={(e) => setDays(Number(e.target.value) || 1)} min={1} max={7} style={{ width: "100%", marginTop: "0.25rem" }} />
@@ -102,7 +102,7 @@ export function MealPlanner() {
 
       {/* Plan Render Output */}
       {generatePlanMutation.data && (
-        <div style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f9f9f9", color: "#111", borderRadius: "8px" }}>
+        <div style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f9f9f9", color: "#111", borderRadius: "8px", overflowX: "auto", wordBreak: "break-word" }}>
           <h3>Your Generated Plan</h3>
           {generatePlanMutation.data.days.map((dayPlan, idx) => (
              <div key={idx} style={{ marginBottom: "1.5rem" }}>

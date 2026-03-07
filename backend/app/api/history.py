@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -15,7 +15,7 @@ router = APIRouter()
 # //api/meals
 @router.get("/meals", response_model=List[MealHistoryItem])
 async def get_meal_history(
-    limit: int = 20,
+    limit: int = Query(default=20, ge=1, le=100, description="Max entries to return (1-100)"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[MealHistoryItem]:

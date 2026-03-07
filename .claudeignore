@@ -1,0 +1,12 @@
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+backend/mealbot.db
+**/node_modules/
+**/dist/
+frontend/.next/
+**/.idea/
+**/.vscode/
+**/.DS_Store
+.env
+.env.local

@@ -1,7 +1,7 @@
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, cast, Literal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -21,8 +21,8 @@ Variability = Literal["traditional", "experimental"]
 # //api/plan
 @router.post("", response_model=MealPlanResponse)
 async def plan_meals_for_user(
-    days: int,
-    payload: MealPlanRequest,
+    days: int = Query(ge=1, le=7, description="Number of days to plan (1-7)"),
+    payload: MealPlanRequest = ...,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> MealPlanResponse:
@@ -144,7 +144,7 @@ async def confirm_plan(
     # 7) Persist meal history entries (one row per meal)
     _persist_meal_entries(session, user_id=current_user.id, plan_id=plan_id, plan_obj=plan_obj)
 
-    plan.confirmed_at = datetime.now()
+    plan.confirmed_at = datetime.now(timezone.utc)
 
     session.add(plan)
     await session.commit()
@@ -179,6 +179,7 @@ def _persist_meal_entries(
     plan_id: int,
     plan_obj: MealPlanResponse,
 ) -> None:
+    """Stage meal entries into the session. Caller must await session.commit()."""
     entries: List[MealEntry] = []
 
     for day_index, day in enumerate(plan_obj.days, start=1):

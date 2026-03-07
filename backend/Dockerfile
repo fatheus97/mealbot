@@ -19,8 +19,14 @@ COPY requirements.txt .
 # 4. Install dependencies with high retry/timeout
 RUN pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 
-# 5. Copy the rest of the code
+# 5. Create a non-root user
+RUN adduser --disabled-password --no-create-home appuser
+
+# 6. Copy the rest of the code
 COPY . .
+
+# 7. Switch to non-root user
+USER appuser
 
 EXPOSE 8000
 

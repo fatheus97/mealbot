@@ -1,6 +1,8 @@
-from fastapi import Depends, HTTPException, APIRouter, status
+from fastapi import Depends, HTTPException, APIRouter, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlmodel import select
 
 from app.db import get_session
@@ -10,6 +12,7 @@ from app.core.security import verify_password, get_password_hash, create_access_
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
+limiter = Limiter(key_func=get_remote_address)
 
 _ALLOWED_MEASUREMENT = {"none", "metric", "imperial"}
 _ALLOWED_VARIABILITY = {"traditional", "experimental"}
@@ -29,7 +32,9 @@ def _to_read(u: User) -> UserRead:
 
 # //api/users/register
 @router.post("/register", status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def register_user(
+        request: Request,
         user: UserCreate,
         session: AsyncSession = Depends(get_session)
 ):
@@ -52,7 +57,9 @@ async def register_user(
 
 # //api/users/login
 @router.post("/login", response_model=Token,)
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_session)
 ) -> Token:

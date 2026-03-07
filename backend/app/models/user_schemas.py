@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlmodel import SQLModel
 
 # These are pure Pydantic/SQLModel schemas for API communication
@@ -9,7 +9,7 @@ class UserBase(SQLModel):
     email: EmailStr
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=8, max_length=128)
 
 class UserRead(UserBase):
     id: int

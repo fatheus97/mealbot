@@ -4,6 +4,9 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.plan import router as plan_router
 from app.api.fridge import router as fridge_router
@@ -28,27 +31,25 @@ async def lifespan(fastAPI: FastAPI):
     yield
     # shutdown
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="Meal Planner LLM API", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 
 @app.middleware("http")
-async def add_process_time_header_and_log(request: Request, call_next):
+async def log_request_latency(request: Request, call_next):
     start_time = time.time()
 
-    # Let the request pass through to the routers
     response = await call_next(request)
 
-    # Stop the stopwatch
     process_time = time.time() - start_time
 
-    # Log the exact latency
     logger.info(
         f"{request.method} {request.url.path} - "
         f"Status: {response.status_code} - "
         f"Latency: {process_time:.4f}s"
     )
-
-    # Standard production practice: attach it to the response headers
-    response.headers["X-Process-Time"] = str(process_time)
 
     return response
 
@@ -56,9 +57,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins.split(","),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 #routers

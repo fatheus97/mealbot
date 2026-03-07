@@ -11,7 +11,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return stored ? Number(stored) : null;
   });
   const [email, setEmail] = useState<string>(() => window.localStorage.getItem("mealbot_user_email") || "");
-  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(false);
+  const [onboardingCompleted, setOnboardingCompletedState] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_onboarding") === "true"
+  );
+
+  const setOnboardingCompleted = (value: boolean) => {
+    setOnboardingCompletedState(value);
+    if (value) {
+      window.localStorage.setItem("mealbot_onboarding", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_onboarding");
+    }
+  };
 
   const login = async (newEmail: string, password: string): Promise<LoginResponse> => {
     const formData = new URLSearchParams();
@@ -31,11 +42,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(data.access_token);
     setUserId(data.user_id);
     setEmail(data.email);
-    setOnboardingCompleted(data.onboarding_completed);
+    setOnboardingCompletedState(data.onboarding_completed);
 
     window.localStorage.setItem("mealbot_token", data.access_token);
     window.localStorage.setItem("mealbot_user_id", String(data.user_id));
     window.localStorage.setItem("mealbot_user_email", data.email);
+    if (data.onboarding_completed) {
+      window.localStorage.setItem("mealbot_onboarding", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_onboarding");
+    }
 
     return data;
   };
@@ -44,14 +60,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserId(null);
     setToken(null);
     setEmail("");
-    setOnboardingCompleted(false);
+    setOnboardingCompletedState(false);
     window.localStorage.removeItem("mealbot_token");
     window.localStorage.removeItem("mealbot_user_id");
     window.localStorage.removeItem("mealbot_user_email");
+    window.localStorage.removeItem("mealbot_onboarding");
   };
 
   return (
-    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, login, logout }}>
+    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, login, logout, setOnboardingCompleted }}>
       {children}
     </AuthContext.Provider>
   );
