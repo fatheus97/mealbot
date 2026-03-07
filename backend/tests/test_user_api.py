@@ -1,6 +1,11 @@
+from datetime import datetime, timedelta, timezone
+
+import jwt
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import settings
+from app.core.security import ALGORITHM
 from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 
@@ -69,3 +74,21 @@ class TestProfile:
             json={"measurement_system": "invalid_value"},
         )
         assert resp.status_code == 400
+
+
+class TestExpiredToken:
+    async def test_expired_jwt_returns_401(
+        self, unauthed_client: AsyncClient, test_user
+    ):
+        expired_payload = {
+            "sub": str(test_user.id),
+            "exp": datetime.now(timezone.utc) - timedelta(hours=1),
+        }
+        expired_token = jwt.encode(
+            expired_payload, settings.secret_key, algorithm=ALGORITHM
+        )
+        resp = await unauthed_client.get(
+            "/api/users",
+            headers={"Authorization": f"Bearer {expired_token}"},
+        )
+        assert resp.status_code == 401

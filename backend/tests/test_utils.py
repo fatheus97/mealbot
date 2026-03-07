@@ -1,3 +1,5 @@
+import pytest
+
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -44,7 +46,7 @@ class TestComputeShoppingList:
         result = compute_shopping_list_from_plan(days, fridge)
         assert len(result) == 1
         assert result[0].name == "rice"
-        assert abs(result[0].quantity_grams - 200.0) < 0.01
+        assert result[0].quantity_grams == pytest.approx(200.0)
 
     def test_case_insensitive_matching(self):
         fridge = [StockItemDTO(name="Chicken Breast", quantity_grams=500)]
@@ -59,7 +61,7 @@ class TestComputeShoppingList:
         ]
         result = compute_shopping_list_from_plan(days, [])
         assert len(result) == 1
-        assert abs(result[0].quantity_grams - 500.0) < 0.01
+        assert result[0].quantity_grams == pytest.approx(500.0)
 
     def test_no_fridge_item_needed(self):
         fridge = [StockItemDTO(name="butter", quantity_grams=100)]
@@ -84,7 +86,7 @@ class TestSubtractUsedFromFridge:
         meals = [_meal([("rice", 200)])]
         result = subtract_used_from_fridge(fridge, meals)
         assert len(result) == 1
-        assert abs(result[0].quantity_grams - 300.0) < 0.01
+        assert result[0].quantity_grams == pytest.approx(300.0)
 
     def test_unused_items_preserved(self):
         fridge = [
@@ -95,7 +97,7 @@ class TestSubtractUsedFromFridge:
         result = subtract_used_from_fridge(fridge, meals)
         by_name = {r.name: r for r in result}
         assert "butter" in by_name
-        assert abs(by_name["butter"].quantity_grams - 100.0) < 0.01
+        assert by_name["butter"].quantity_grams == pytest.approx(100.0)
 
 
 # --- merge_shopping_lists ---
@@ -109,7 +111,7 @@ class TestMergeShoppingLists:
         ]
         result = merge_shopping_lists(items)
         assert len(result) == 1
-        assert abs(result[0].quantity_grams - 500.0) < 0.01
+        assert result[0].quantity_grams == pytest.approx(500.0)
 
     def test_no_duplicates(self):
         items = [

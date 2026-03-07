@@ -37,3 +37,18 @@ class TestFridgeCRUD:
         names = [x["name"] for x in data]
         assert "rice" in names
         assert "chicken" not in names
+
+    async def test_put_negative_quantity_ignored(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [
+            {"name": "rice", "quantity_grams": 300},
+            {"name": "bad_item", "quantity_grams": -100},
+        ]
+        await client.put("/api/fridge", headers=auth_headers, json=payload)
+
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        data = resp.json()
+        names = [x["name"] for x in data]
+        assert "rice" in names
+        assert "bad_item" not in names

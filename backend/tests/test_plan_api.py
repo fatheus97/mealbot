@@ -123,6 +123,14 @@ class TestPlanConfirm:
         # Should only subtract once, not twice
         assert by_name["chicken breast"]["quantity_grams"] == 300.0
 
+    async def test_confirm_nonexistent_plan(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        resp = await client.post(
+            "/api/plan/99999/confirm", headers=auth_headers
+        )
+        assert resp.status_code == 404
+
 
 class TestPlanRegenerate:
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
@@ -181,3 +189,26 @@ class TestPlanRegenerate:
         assert body["days"][0]["meals"][0]["name"] == "Original Lunch"
         # Unfrozen meal replaced
         assert body["days"][0]["meals"][1]["name"] == "New Dinner"
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_regenerate_confirmed_plan_rejected(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        mock_gen.return_value = _fake_day()
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        # Confirm the plan first
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        # Attempt to regenerate a confirmed plan
+        regen_resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate",
+            headers=auth_headers,
+            json={"frozen_meals": []},
+        )
+        assert regen_resp.status_code == 409

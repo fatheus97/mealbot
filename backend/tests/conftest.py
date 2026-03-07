@@ -3,12 +3,7 @@ from typing import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import (
-    create_async_engine,
-    async_sessionmaker,
-    AsyncSession,
-    AsyncConnection,
-)
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy import event, text
 from sqlmodel import SQLModel
 
