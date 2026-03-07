@@ -1,115 +1,183 @@
-# tests/test_plan_api.py
-from fastapi.testclient import TestClient
-import pytest
+from unittest.mock import AsyncMock, patch
 
-from app.models.meal_plan import (
+from httpx import AsyncClient
+
+from app.models.plan_models import (
+    IngredientAmount,
     PlannedMeal,
     SingleDayResponse,
-    IngredientAmount,
     MealPlanResponse,
 )
 
 
-@pytest.fixture
-def sample_single_day_response() -> SingleDayResponse:
-    """Fake SingleDayResponse using IngredientAmount, aligned with current models."""
-    meal = PlannedMeal(
-        name="Test Meal",
-        meal_type="lunch",
-        ingredients=[
-            IngredientAmount(name="chicken breast", quantity_grams=400),
-            IngredientAmount(name="rice", quantity_grams=100),
-        ],
-        steps=["Step 1"],
+def _fake_day() -> SingleDayResponse:
+    return SingleDayResponse(
+        meals=[
+            PlannedMeal(
+                name="Test Lunch",
+                meal_type="lunch",
+                ingredients=[
+                    IngredientAmount(name="chicken breast", quantity_grams=300),
+                    IngredientAmount(name="rice", quantity_grams=200),
+                ],
+                steps=["Cook chicken", "Serve with rice"],
+            )
+        ]
     )
-    return SingleDayResponse(meals=[meal])
 
 
-def test_plan_for_user_multiple_days(
-    client: TestClient,
-    monkeypatch,
-    sample_single_day_response: SingleDayResponse,
-):
-    """
-    End-to-end-ish test:
-    - create a user,
-    - plan meals for that user for N days (using fake generate_single_day),
-    - check that we get N days and shopping list with soy sauce.
-    """
+class TestPlanGeneration:
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_generate_one_day(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        mock_gen.return_value = _fake_day()
 
-    # 1) Create user
-    create_user_resp = client.post("/api/users/", params={"email": "test@example.com"})
-    assert create_user_resp.status_code == 200
-    user_id = create_user_resp.json()
-    assert isinstance(user_id, int)
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        result = MealPlanResponse(**body)
 
-    # 2) Set fridge for this user – to mirror real usage
-    fridge_payload = [
-        {"name": "chicken breast", "quantity_grams": 600},
-        {"name": "rice", "quantity_grams": 500},
-        {"name": "spinach", "quantity_grams": 200},
-    ]
-    put_resp = client.put(f"/api/users/{user_id}/fridge", json=fridge_payload)
-    assert put_resp.status_code == 200
+        assert len(result.days) == 1
+        assert result.days[0].meals[0].name == "Test Lunch"
+        assert result.plan_id is not None
+        mock_gen.assert_awaited_once()
 
-    # 3) Prepare fake generate_single_day so we don't call LLM
-    call_counter = {"count": 0}
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_multi_day_calls_per_day(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        mock_gen.return_value = _fake_day()
 
-    async def fake_generate_single_day(req):
-        call_counter["count"] += 1
-        return sample_single_day_response
+        resp = await client.post(
+            "/api/plan?days=3",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["days"]) == 3
+        assert mock_gen.await_count == 3
 
-    monkeypatch.setattr(
-        "app.api.plan.generate_single_day",
-        fake_generate_single_day,
-    )
-    payload = {
-        "ingredients": [
-            {"name": "chicken breast", "quantity_grams": 600},
-            {"name": "rice", "quantity_grams": 500},
-            {"name": "button mushroom", "quantity_grams": 200}
-        ],
-        "taste_preferences": ["spicy"],
-        "avoid_ingredients": ["mushrooms"],
-        "diet_type": "high_protein",
-        "meals_per_day": 2,
-        "people_count": 2,
-        "past_meals": []
-    }
 
-    days = 3
-    url = f"/api/users/{user_id}/plan?days={days}"
-    response = client.post(url, json=payload)
-    assert response.status_code == 200
+class TestPlanConfirm:
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_confirm_decrements_fridge(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        # Stock fridge with enough chicken
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 600}],
+        )
 
-    data = response.json()
-    result = MealPlanResponse(**data)
+        mock_gen.return_value = _fake_day()
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
 
-    # generate_single_day must be called once per day
-    assert call_counter["count"] == days
+        confirm_resp = await client.post(
+            f"/api/plan/{plan_id}/confirm", headers=auth_headers
+        )
+        assert confirm_resp.status_code == 200
 
-    assert len(result.days) == days
-    for day in result.days:
-        assert isinstance(day, SingleDayResponse)
-        assert len(day.meals) == 1
-        assert day.meals[0].name == "Test Meal"
-        # ingredients is List[IngredientAmount]
-        assert any(ing.name == "chicken breast" for ing in day.meals[0].ingredients)
+        fridge = confirm_resp.json()
+        by_name = {x["name"]: x for x in fridge}
+        assert by_name["chicken breast"]["quantity_grams"] == 300.0
 
-    # test if fridge ingredients are subtracted from a shopping list
-    for ing in result.shopping_list:
-        if ing.name == "chicken breast":
-            assert ing.quantity_grams == 600
-        if ing.name == "rice":
-            assert ing.quantity_grams == 400
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_confirm_idempotent(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 600}],
+        )
 
-    # test if db fridge updated
-    fridge = client.get(f"/api/users/{user_id}/fridge").json()
-    assert len(fridge) == 2
+        mock_gen.return_value = _fake_day()
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
 
-    for ing in fridge:
-        print(ing)
-        if ing["name"] == "chicken breast":
-            assert False, "chicken breast should have been fully consumed"
-        if ing["name"] == "rice":
-            assert ing["quantity_grams"] == 200.0
+        # Confirm twice
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        second = await client.post(
+            f"/api/plan/{plan_id}/confirm", headers=auth_headers
+        )
+        assert second.status_code == 200
+
+        fridge = second.json()
+        by_name = {x["name"]: x for x in fridge}
+        # Should only subtract once, not twice
+        assert by_name["chicken breast"]["quantity_grams"] == 300.0
+
+
+class TestPlanRegenerate:
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_frozen_meals_unchanged(
+        self,
+        mock_gen: AsyncMock,
+        mock_partial: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+    ):
+        original_meal = PlannedMeal(
+            name="Original Lunch",
+            meal_type="lunch",
+            ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+            steps=["Cook rice"],
+        )
+        mock_gen.return_value = SingleDayResponse(
+            meals=[
+                original_meal,
+                PlannedMeal(
+                    name="Original Dinner",
+                    meal_type="dinner",
+                    ingredients=[IngredientAmount(name="pasta", quantity_grams=300)],
+                    steps=["Boil pasta"],
+                ),
+            ]
+        )
+
+        # Generate initial plan with 2 meals
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        # Regenerate with lunch frozen (index 0)
+        new_dinner = PlannedMeal(
+            name="New Dinner",
+            meal_type="dinner",
+            ingredients=[IngredientAmount(name="tofu", quantity_grams=250)],
+            steps=["Fry tofu"],
+        )
+        mock_partial.return_value = SingleDayResponse(meals=[new_dinner])
+
+        regen_resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate",
+            headers=auth_headers,
+            json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
+        )
+        assert regen_resp.status_code == 200
+        body = regen_resp.json()
+
+        # Frozen meal unchanged
+        assert body["days"][0]["meals"][0]["name"] == "Original Lunch"
+        # Unfrozen meal replaced
+        assert body["days"][0]["meals"][1]["name"] == "New Dinner"

@@ -10,6 +10,15 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  test-db:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpassword
+      POSTGRES_DB: mealbot_test
+    ports:
+      - "5433:5432"
+
   backend:
     build:
       context: ./backend  # This tells Docker to look INSIDE the backend folder
