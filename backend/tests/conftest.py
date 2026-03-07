@@ -81,6 +81,7 @@ async def test_user(db_session: AsyncSession) -> User:
 
 @pytest.fixture
 async def auth_headers(test_user: User) -> dict[str, str]:
+    assert test_user.id is not None
     token = create_access_token(subject=test_user.id)
     return {"Authorization": f"Bearer {token}"}
 
