@@ -17,3 +17,6 @@ frontend/.next/
 **/.idea/
 **/.vscode/
 **/.DS_Store
+
+# Claude Code local settings (user-specific permissions)
+.claude/settings.local.json
