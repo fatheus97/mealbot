@@ -37,6 +37,15 @@ export interface MealPlanResponse {
   shopping_list: IngredientAmount[];
 }
 
+export interface FrozenMeal {
+  day_index: number;
+  meal_index: number;
+}
+
+export interface RegeneratePlanRequest {
+  frozen_meals: FrozenMeal[];
+}
+
 export interface MealHistoryItem {
   meal_entry_id: number;
   meal_plan_id: number;

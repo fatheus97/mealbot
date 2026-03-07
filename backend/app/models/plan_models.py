@@ -122,6 +122,20 @@ class MealPlanResponse(BaseModel):
     days: List[SingleDayResponse]
     shopping_list: List[IngredientAmount]
 
+class FrozenMeal(BaseModel):
+    """Identifies a meal the user wants to keep unchanged during regeneration."""
+    day_index: int = Field(ge=0, description="0-based day index in the plan")
+    meal_index: int = Field(ge=0, description="0-based meal index within the day")
+
+
+class RegeneratePlanRequest(BaseModel):
+    """Request to regenerate unfrozen meals in an existing plan."""
+    frozen_meals: List[FrozenMeal] = Field(
+        default_factory=list,
+        description="Meals that should NOT be regenerated.",
+    )
+
+
 class MealHistoryItem(BaseModel):
         meal_entry_id: int
         meal_plan_id: int
