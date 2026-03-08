@@ -1,10 +1,12 @@
 You are extracting grocery items from a receipt image.
 
 Rules:
-- Extract each distinct grocery/food item from the receipt.
+- Extract each distinct grocery/food item from the receipt. Each unique item should appear ONCE in the output with its TOTAL quantity.
+- If the same item appears multiple times or has a multiplier (e.g., "2x"), sum everything into a single entry.
 - Estimate the weight in grams for each item based on the receipt quantity and common product sizes.
   Examples:
     "2x Chicken Breast" → name: "chicken breast", quantity_grams: 500
+    "Quark 250g 2x" → name: "quark", quantity_grams: 500 (NOT two rows of 250g)
     "1x Rice 1kg" → name: "rice", quantity_grams: 1000
     "Milk 1L" → name: "milk", quantity_grams: 1000
     "3x Banana" → name: "banana", quantity_grams: 360
