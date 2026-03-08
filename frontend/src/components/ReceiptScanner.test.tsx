@@ -52,8 +52,8 @@ describe('ReceiptScanner', () => {
 
   it('shows review table after successful scan with new items', async () => {
     mockedScanReceipt.mockResolvedValue([
-      { name: 'chicken breast', quantity_grams: 500, need_to_use: false },
-      { name: 'rice', quantity_grams: 1000, need_to_use: false },
+      { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
     ]);
 
     const user = userEvent.setup();
@@ -79,7 +79,7 @@ describe('ReceiptScanner', () => {
 
   it('shows delta for existing fridge items', async () => {
     mockedScanReceipt.mockResolvedValue([
-      { name: 'chicken breast', quantity_grams: 500, need_to_use: false },
+      { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
     ]);
 
     const currentFridge = [
@@ -101,10 +101,10 @@ describe('ReceiptScanner', () => {
 
   it('calls merge on confirm and shows success', async () => {
     mockedScanReceipt.mockResolvedValue([
-      { name: 'olive oil', quantity_grams: 500, need_to_use: false },
+      { name: 'olive oil', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
     ]);
     mockedMergeFridge.mockResolvedValue([
-      { name: 'olive oil', quantity_grams: 500, need_to_use: false },
+      { name: 'olive oil', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
     ]);
 
     const user = userEvent.setup();
@@ -145,7 +145,7 @@ describe('ReceiptScanner', () => {
 
   it('cancel returns to idle state', async () => {
     mockedScanReceipt.mockResolvedValue([
-      { name: 'rice', quantity_grams: 1000, need_to_use: false },
+      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
     ]);
 
     const user = userEvent.setup();
@@ -168,8 +168,8 @@ describe('ReceiptScanner', () => {
 
   it('allows removing items from review', async () => {
     mockedScanReceipt.mockResolvedValue([
-      { name: 'chicken', quantity_grams: 500, need_to_use: false },
-      { name: 'rice', quantity_grams: 1000, need_to_use: false },
+      { name: 'chicken', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
     ]);
 
     const user = userEvent.setup();

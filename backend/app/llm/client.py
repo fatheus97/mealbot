@@ -268,10 +268,10 @@ class LLMClient:
         """Deterministic fake response for vision/receipt scanning in development."""
         return response_model.model_validate({
             "items": [
-                {"name": "chicken breast", "quantity_grams": 500},
-                {"name": "rice", "quantity_grams": 1000},
-                {"name": "olive oil", "quantity_grams": 500},
-                {"name": "onion", "quantity_grams": 300},
+                {"name": "chicken breast", "quantity_grams": 500, "item_type": "ingredient"},
+                {"name": "rice", "quantity_grams": 1000, "item_type": "ingredient"},
+                {"name": "olive oil", "quantity_grams": 500, "item_type": "ingredient"},
+                {"name": "chocolate bar", "quantity_grams": 100, "item_type": "ready_to_eat"},
             ]
         })
 

@@ -24,6 +24,7 @@ def _to_read(u: User) -> UserRead:
         measurement_system=u.measurement_system,
         variability=u.variability,
         include_spices=u.include_spices,
+        track_snacks=u.track_snacks,
         onboarding_completed=u.onboarding_completed,
     )
 
@@ -125,6 +126,9 @@ async def update_user(
 
     if patch.include_spices is not None:
         current_user.include_spices = bool(patch.include_spices)
+
+    if patch.track_snacks is not None:
+        current_user.track_snacks = bool(patch.track_snacks)
 
     if patch.onboarding_completed is not None:
         current_user.onboarding_completed = bool(patch.onboarding_completed)

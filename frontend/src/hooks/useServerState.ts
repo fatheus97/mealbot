@@ -31,7 +31,7 @@ export function useUpdateUserProfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: Partial<Pick<UserProfile, "country" | "measurement_system" | "variability" | "include_spices" | "onboarding_completed">>) =>
+    mutationFn: (data: Partial<Pick<UserProfile, "country" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "onboarding_completed">>) =>
       updateUserProfile(data),
     onSuccess: () => {
       return queryClient.invalidateQueries({ queryKey: ['userProfile'] });

@@ -10,7 +10,7 @@ from app.api.deps import get_current_user
 from app.core.rate_limit import limiter
 from app.db import get_session
 from app.models.db_models import User, StockItem
-from app.models.plan_models import StockItemDTO
+from app.models.plan_models import ScannedItemDTO, StockItemDTO
 from app.services.receipt_scanner import extract_items_from_receipt
 
 logger = logging.getLogger(__name__)
@@ -42,13 +42,13 @@ async def put_fridge(
     return await replace_fridge_items(session, current_user.id, payload)
 
 
-@router.post("/scan", response_model=List[StockItemDTO])
+@router.post("/scan", response_model=List[ScannedItemDTO])
 @limiter.limit("5/minute")
 async def scan_receipt(
     request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
-) -> List[StockItemDTO]:
+) -> List[ScannedItemDTO]:
     """Upload a receipt image and extract grocery items via LLM vision."""
     # Validate content type
     if file.content_type not in ALLOWED_IMAGE_TYPES:
@@ -74,13 +74,20 @@ async def scan_receipt(
         image_media_type=file.content_type,
     )
 
+    items = scan_result.items
+
+    # Filter out ready_to_eat items if user doesn't track snacks
+    if not current_user.track_snacks:
+        items = [item for item in items if item.item_type == "ingredient"]
+
     return [
-        StockItemDTO(
+        ScannedItemDTO(
             name=item.name,
             quantity_grams=item.quantity_grams,
             need_to_use=False,
+            item_type=item.item_type,
         )
-        for item in scan_result.items
+        for item in items
     ]
 
 

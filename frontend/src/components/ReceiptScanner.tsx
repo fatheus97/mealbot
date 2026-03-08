@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
-import type { StockItem } from "../types";
+import type { ScannedItemType, StockItem } from "../types";
 
 type ScannerState = "idle" | "scanning" | "review" | "error";
 
@@ -13,6 +13,7 @@ interface ReviewItem {
   addedQty: number;
   existingQty: number;
   needToUse: boolean;
+  itemType?: ScannedItemType;
 }
 
 export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
@@ -50,6 +51,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
           addedQty: scanned.quantity_grams,
           existingQty: existing?.quantity_grams ?? 0,
           needToUse: existing?.need_to_use ?? false,
+          itemType: scanned.item_type,
         };
       });
 
@@ -145,6 +147,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               <thead>
                 <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
                   <th>Ingredient</th>
+                  <th>Type</th>
                   <th>Added Qty (g)</th>
                   <th>Result</th>
                   <th>Need to use?</th>
@@ -163,6 +166,17 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                           value={item.name}
                           onChange={(e) => updateReviewItem(index, "name", e.target.value)}
                         />
+                      </td>
+                      <td>
+                        <span style={{
+                          fontSize: "0.75rem",
+                          padding: "0.15rem 0.4rem",
+                          borderRadius: "4px",
+                          backgroundColor: item.itemType === "ingredient" ? "#1e3a2f" : "#3b1e2f",
+                          color: item.itemType === "ingredient" ? "#4ade80" : "#f9a8d4",
+                        }}>
+                          {item.itemType === "ingredient" ? "ingredient" : "snack"}
+                        </span>
                       </td>
                       <td>
                         <input

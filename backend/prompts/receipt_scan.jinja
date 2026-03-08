@@ -8,7 +8,26 @@ Rules:
     "1x Rice 1kg" → name: "rice", quantity_grams: 1000
     "Milk 1L" → name: "milk", quantity_grams: 1000
     "3x Banana" → name: "banana", quantity_grams: 360
-- Use canonical, lowercase ingredient names (e.g. "chicken breast" not "CHKN BRST").
+
+Name generalization (IMPORTANT):
+- Simplify product names to their base ingredient. Drop brand names, variety details, and marketing descriptions.
+  Examples:
+    "Tomato on the vine" → "tomato"
+    "Muesli with nuts and almonds" → "muesli"
+    "Free-range chicken thigh fillets" → "chicken thigh"
+    "Organic whole milk 3.5%" → "whole milk"
+    "San Marzano peeled tomatoes 400g" → "canned tomatoes"
+    "Basmati rice long grain" → "rice"
+- Keep distinctions that matter for cooking: "chicken breast" vs "chicken thigh", "whole milk" vs "cream", "canned tomatoes" vs "tomato".
+
+Item categorization:
+- Classify each item as either "ingredient" or "ready_to_eat":
+  - "ingredient": raw or basic items you cook with (meat, vegetables, dairy, grains, oils, canned goods, pasta, flour, eggs, etc.)
+  - "ready_to_eat": pre-made snacks, desserts, drinks, and convenience foods that are consumed as-is and not used in cooking.
+    Examples: yogurt desserts, chocolate bars, chips, cookies, ice cream, soft drinks, juice, energy bars, ready meals, puddings.
+
+Other rules:
+- Use canonical, lowercase ingredient names.
 - Ignore non-food items (bags, cleaning products, discounts, totals, tax lines, loyalty points).
 - If a quantity or weight is unclear, make a reasonable estimate based on typical grocery sizes.
 - All quantities MUST be in grams.

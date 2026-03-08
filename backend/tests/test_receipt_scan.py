@@ -10,9 +10,9 @@ from app.models.plan_models import ReceiptScanResponse, ScannedReceiptItem
 
 MOCK_SCAN_RESULT = ReceiptScanResponse(
     items=[
-        ScannedReceiptItem(name="chicken breast", quantity_grams=500),
-        ScannedReceiptItem(name="rice", quantity_grams=1000),
-        ScannedReceiptItem(name="olive oil", quantity_grams=500),
+        ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient"),
+        ScannedReceiptItem(name="rice", quantity_grams=1000, item_type="ingredient"),
+        ScannedReceiptItem(name="chocolate bar", quantity_grams=100, item_type="ready_to_eat"),
     ]
 )
 
@@ -42,10 +42,14 @@ class TestScanEndpoint:
         names = [item["name"] for item in data]
         assert "chicken breast" in names
         assert "rice" in names
-        assert "olive oil" in names
+        assert "chocolate bar" in names
         # All items should default to need_to_use=False
         for item in data:
             assert item["need_to_use"] is False
+        # Check item_type is present
+        by_name = {item["name"]: item for item in data}
+        assert by_name["chicken breast"]["item_type"] == "ingredient"
+        assert by_name["chocolate bar"]["item_type"] == "ready_to_eat"
         mock_extract.assert_awaited_once()
 
     async def test_scan_invalid_file_type(self, client: AsyncClient):
@@ -212,20 +216,70 @@ class TestLLMVisionMock:
             assert len(item.name) > 0
 
 
+class TestSnackFiltering:
+    @patch(
+        "app.api.fridge.extract_items_from_receipt",
+        new_callable=AsyncMock,
+        return_value=MOCK_SCAN_RESULT,
+    )
+    async def test_snacks_included_when_track_snacks_true(
+        self, mock_extract: AsyncMock, client: AsyncClient, test_user,
+    ):
+        """By default track_snacks=True, so ready_to_eat items are included."""
+        buf = _fake_jpeg()
+        resp = await client.post(
+            "/api/fridge/scan",
+            files={"file": ("receipt.jpg", buf, "image/jpeg")},
+        )
+        assert resp.status_code == 200
+        names = [item["name"] for item in resp.json()]
+        assert "chocolate bar" in names
+
+    @patch(
+        "app.api.fridge.extract_items_from_receipt",
+        new_callable=AsyncMock,
+        return_value=MOCK_SCAN_RESULT,
+    )
+    async def test_snacks_excluded_when_track_snacks_false(
+        self, mock_extract: AsyncMock, client: AsyncClient, test_user, db_session,
+    ):
+        """When track_snacks=False, ready_to_eat items are filtered out."""
+        test_user.track_snacks = False
+        db_session.add(test_user)
+        await db_session.flush()
+
+        buf = _fake_jpeg()
+        resp = await client.post(
+            "/api/fridge/scan",
+            files={"file": ("receipt.jpg", buf, "image/jpeg")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        names = [item["name"] for item in data]
+        assert "chocolate bar" not in names
+        assert "chicken breast" in names
+        assert "rice" in names
+
+
 class TestScannedReceiptItemValidation:
     def test_valid_item(self):
-        item = ScannedReceiptItem(name="chicken breast", quantity_grams=500)
+        item = ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient")
         assert item.name == "chicken breast"
         assert item.quantity_grams == 500
+        assert item.item_type == "ingredient"
+
+    def test_ready_to_eat_item(self):
+        item = ScannedReceiptItem(name="chocolate bar", quantity_grams=100, item_type="ready_to_eat")
+        assert item.item_type == "ready_to_eat"
 
     def test_zero_quantity_rejected(self):
         with pytest.raises(ValueError, match="positive"):
-            ScannedReceiptItem(name="chicken", quantity_grams=0)
+            ScannedReceiptItem(name="chicken", quantity_grams=0, item_type="ingredient")
 
     def test_negative_quantity_rejected(self):
         with pytest.raises(ValueError, match="positive"):
-            ScannedReceiptItem(name="chicken", quantity_grams=-100)
+            ScannedReceiptItem(name="chicken", quantity_grams=-100, item_type="ingredient")
 
     def test_unrealistic_quantity_rejected(self):
         with pytest.raises(ValueError, match="50kg"):
-            ScannedReceiptItem(name="chicken", quantity_grams=60_000)
+            ScannedReceiptItem(name="chicken", quantity_grams=60_000, item_type="ingredient")

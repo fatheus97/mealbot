@@ -94,6 +94,7 @@ describe('OnboardingModal', () => {
         country: 'Germany',
         variability: 'traditional',
         include_spices: true,
+        track_snacks: true,
         onboarding_completed: true,
       });
     });
