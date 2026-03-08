@@ -233,11 +233,14 @@ class LLMClient:
                 settings.gemini_model,
                 response_model.__name__,
             )
+            # Pass safety_settings as an explicit list to prevent Instructor
+            # from auto-injecting unsupported HARM_CATEGORY_IMAGE_* categories.
             result = await self.gemini_client.chat.completions.create(
                 model=settings.gemini_model,
                 response_model=response_model,
                 max_retries=MAX_LLM_RETRIES,
                 messages=messages,
+                safety_settings=[],
             )
             logger.info("LLM vision call completed: provider=gemini model=%s", settings.gemini_model)
             return result
