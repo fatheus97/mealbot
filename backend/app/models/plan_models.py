@@ -168,6 +168,17 @@ class ScannedItemDTO(BaseModel):
     item_type: Literal["ingredient", "ready_to_eat"]
 
 
+class NormalizedName(BaseModel):
+    """Maps a scanned item name to its canonical normalized form."""
+    original: str
+    normalized: str
+
+
+class NormalizationResponse(BaseModel):
+    """LLM response model for ingredient name normalization."""
+    items: List[NormalizedName]
+
+
 class MealHistoryItem(BaseModel):
         meal_entry_id: int
         meal_plan_id: int

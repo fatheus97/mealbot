@@ -1,0 +1,26 @@
+You are normalizing grocery item names to prevent duplicates.
+
+The user's fridge already contains these items:
+{% if fridge_names %}
+{% for name in fridge_names %}
+- {{ name }}
+{% endfor %}
+{% else %}
+(empty fridge)
+{% endif %}
+
+The following items were just scanned from a receipt:
+{% for name in scanned_names %}
+- {{ name }}
+{% endfor %}
+
+Rules:
+- If a scanned name refers to the same real-world item as a fridge name, use the fridge name EXACTLY (same spelling, same casing).
+  Examples: "ground mixed meat" + fridge has "minced meat" → use "minced meat"
+            "low-fat milk 1.5%" + fridge has "milk" → use "milk"
+- If multiple scanned names refer to the same item but no fridge match exists, pick ONE canonical name and use it for all of them.
+  Example: ["minced meat", "ground meat"] → both become "minced meat"
+- Preserve meaningful distinctions. Different cuts, types, or products must stay separate.
+  Examples: "chicken breast" ≠ "chicken thigh", "whole milk" ≠ "cream", "canned tomatoes" ≠ "tomato"
+- Use lowercase canonical names.
+- Return exactly one entry per scanned item, mapping its original name to the normalized name.

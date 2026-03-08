@@ -11,7 +11,7 @@ from app.core.rate_limit import limiter
 from app.db import get_session
 from app.models.db_models import User, StockItem
 from app.models.plan_models import ScannedItemDTO, StockItemDTO
-from app.services.receipt_scanner import extract_items_from_receipt
+from app.services.receipt_scanner import extract_items_from_receipt, normalize_item_names
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ async def scan_receipt(
     request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> List[ScannedItemDTO]:
     """Upload a receipt image and extract grocery items via LLM vision."""
     # Validate content type
@@ -74,7 +75,12 @@ async def scan_receipt(
         image_media_type=file.content_type,
     )
 
-    items = scan_result.items
+    # Normalize scanned names against existing fridge items
+    fridge_items = await get_fridge_items(session, current_user.id)
+    items = await normalize_item_names(
+        scan_result.items,
+        [i.name for i in fridge_items],
+    )
 
     # Filter out ready_to_eat items if user doesn't track snacks
     if not current_user.track_snacks:
