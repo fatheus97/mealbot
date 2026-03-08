@@ -104,7 +104,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   };
 
   return (
-    <div style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#f0f8ff", borderRadius: "8px" }}>
+    <div style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#1e293b", borderRadius: "8px", color: "rgba(255, 255, 255, 0.87)" }}>
       <h3 style={{ marginTop: 0 }}>Scan Receipt</h3>
 
       {/* File input — always visible in idle/error states */}
@@ -135,7 +135,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       {/* Review state */}
       {state === "review" && (
         <>
-          <p style={{ color: "#666", marginBottom: "0.5rem" }}>
+          <p style={{ color: "#94a3b8", marginBottom: "0.5rem" }}>
             Review the extracted items before adding to your fridge.
           </p>
           {reviewItems.length === 0 ? (
@@ -172,7 +172,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                           style={{ width: "80px" }}
                         />
                       </td>
-                      <td style={{ color: isNew ? "#2563eb" : "#333" }}>
+                      <td style={{ color: isNew ? "#4ade80" : "inherit" }}>
                         {isNew
                           ? `${item.addedQty}g (new)`
                           : `+${item.addedQty} → ${resultQty}g`}
