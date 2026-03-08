@@ -3,6 +3,7 @@ from typing import TypeVar, Type
 import instructor
 from fastapi import HTTPException
 from google import genai
+from google.genai import types as genai_types
 from google.genai.types import HttpOptionsDict
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
@@ -205,20 +206,25 @@ class LLMClient:
             logger.error("Gemini API key is not configured")
             raise HTTPException(status_code=500, detail="Receipt scanning service is misconfigured.")
 
+        import base64
+        image_bytes = base64.b64decode(image_base64)
+
+        # Gemini's Instructor wrapper requires native genai Content/Part objects
+        # for multimodal input — OpenAI-style dicts with image_url are not supported.
         messages = [
             ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{image_media_type};base64,{image_base64}",
-                        },
-                    },
+            genai_types.Content(
+                role="user",
+                parts=[
+                    genai_types.Part(text=user_prompt),
+                    genai_types.Part(
+                        inline_data=genai_types.Blob(
+                            mime_type=image_media_type,
+                            data=image_bytes,
+                        )
+                    ),
                 ],
-            },
+            ),
         ]
 
         try:
