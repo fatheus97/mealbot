@@ -1,3 +1,4 @@
+import logging
 from typing import TypeVar, Type
 import instructor
 from fastapi import HTTPException
@@ -8,6 +9,8 @@ from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUs
 from pydantic import BaseModel
 
 from app.core.config import settings, LLMProvider
+
+logger = logging.getLogger(__name__)
 
 # Define a generic type variable bound to Pydantic models
 T = TypeVar('T', bound=BaseModel)
@@ -54,12 +57,14 @@ class LLMClient:
         if settings.llm_provider == LLMProvider.GEMINI:
             return await self._chat_json_gemini(system_prompt, user_prompt, response_model)
 
-        raise HTTPException(status_code=500, detail=f"Unsupported LLM provider: {settings.llm_provider}")
+        logger.error("Unsupported LLM provider: %s", settings.llm_provider)
+        raise HTTPException(status_code=500, detail="Meal planning service is misconfigured.")
 
 
     async def _chat_json_openai(self, system_prompt: str, user_prompt: str, response_model: Type[T]) -> T:
         if not self.openai_client:
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
+            logger.error("OpenAI API key is not configured")
+            raise HTTPException(status_code=500, detail="Meal planning service is misconfigured.")
 
         # Explicitly define the list type
         messages = [
@@ -75,12 +80,14 @@ class LLMClient:
                 messages=messages,
             )
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"OpenAI error: {e}") from e
+            logger.exception("OpenAI API call failed")
+            raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e
 
 
     async def _chat_json_gemini(self, system_prompt: str, user_prompt: str, response_model: Type[T]) -> T:
         if not self.gemini_client:
-            raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not set.")
+            logger.error("Gemini API key is not configured")
+            raise HTTPException(status_code=500, detail="Meal planning service is misconfigured.")
 
         messages = [
             ChatCompletionSystemMessageParam(role="system", content=system_prompt),
@@ -95,9 +102,8 @@ class LLMClient:
                 messages=messages,
             )
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise HTTPException(status_code=502, detail=f"Gemini error: {e}") from e
+            logger.exception("Gemini API call failed")
+            raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e
 
     @staticmethod
     def _mock_response(response_model: Type[T]) -> T:

@@ -1,8 +1,6 @@
 from fastapi import Depends, HTTPException, APIRouter, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlmodel import select
 
 from app.db import get_session
@@ -10,9 +8,9 @@ from app.models.db_models import User
 from app.models.user_schemas import UserCreate, UserRead, UserUpdate, Token
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.api.deps import get_current_user
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/users", tags=["users"])
-limiter = Limiter(key_func=get_remote_address)
 
 _ALLOWED_MEASUREMENT = {"none", "metric", "imperial"}
 _ALLOWED_VARIABILITY = {"traditional", "experimental"}
