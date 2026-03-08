@@ -4,8 +4,6 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.plan import router as plan_router
@@ -13,6 +11,7 @@ from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
 from app.api.user import router as user_router
 from app.core.config import settings
+from app.core.rate_limit import limiter
 
 # Configure the root logger
 logging.basicConfig(
@@ -31,11 +30,25 @@ async def lifespan(fastAPI: FastAPI):
     yield
     # shutdown
 
-limiter = Limiter(key_func=get_remote_address)
-
 app = FastAPI(title="Meal Planner LLM API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 
 @app.middleware("http")
 async def log_request_latency(request: Request, call_next):

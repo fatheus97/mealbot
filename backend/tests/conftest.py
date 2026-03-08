@@ -9,6 +9,7 @@ from sqlmodel import SQLModel
 
 from app.models.db_models import User
 from app.core.security import get_password_hash, create_access_token
+from app.core.rate_limit import limiter
 from app.db import get_session
 from app.api.deps import get_current_user
 
@@ -36,6 +37,14 @@ async def test_engine():
         await conn.run_sync(SQLModel.metadata.drop_all)
 
     await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limiting():
+    """Disable rate limiting for all tests to prevent cross-test interference."""
+    limiter.enabled = False
+    yield
+    limiter.enabled = True
 
 
 @pytest.fixture

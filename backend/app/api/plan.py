@@ -1,11 +1,13 @@
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import List, Dict, cast, Literal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.api.fridge import get_fridge_items, replace_fridge_items
+from app.core.rate_limit import limiter
 from app.models.db_models import User, StockItem, MealPlan, MealEntry
 from app.models.plan_models import (
     MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO,
@@ -16,6 +18,8 @@ from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
 from app.db import get_session
 from app.api.deps import get_current_user
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/plan", tags=["plan"])
 MeasurementSystem = Literal["none", "metric", "imperial"]
 Variability = Literal["traditional", "experimental"]
@@ -23,7 +27,9 @@ Variability = Literal["traditional", "experimental"]
 
 # //api/plan
 @router.post("", response_model=MealPlanResponse)
+@limiter.limit("3/minute")
 async def plan_meals_for_user(
+    request: Request,
     days: int = Query(ge=1, le=7, description="Number of days to plan (1-7)"),
     payload: MealPlanRequest = ...,
     current_user: User = Depends(get_current_user),
@@ -62,16 +68,25 @@ async def plan_meals_for_user(
     past_meals: List[str] = list(payload.past_meals)
     meal_plan: List[SingleDayResponse] = []
 
-    for day_index in range(1, days + 1):
-        day_req = payload.model_copy()
-        day_req.stock_items = remaining_ingredients
-        day_req.past_meals = past_meals
+    try:
+        for day_index in range(1, days + 1):
+            day_req = payload.model_copy()
+            day_req.stock_items = remaining_ingredients
+            day_req.past_meals = past_meals
 
-        single_day = await generate_single_day(day_req)
-        meal_plan.append(single_day)
+            single_day = await generate_single_day(day_req)
+            meal_plan.append(single_day)
 
-        remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
-        past_meals.extend(m.name for m in single_day.meals)
+            remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
+            past_meals.extend(m.name for m in single_day.meals)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Plan generation failed at day %d", day_index)
+        raise HTTPException(
+            status_code=502,
+            detail="Meal plan generation failed. Please try again.",
+        ) from e
 
     shopping_items: List[IngredientAmount] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
 
@@ -100,7 +115,9 @@ async def plan_meals_for_user(
 
 # //api/plan/{plan_id}/regenerate
 @router.post("/{plan_id}/regenerate", response_model=MealPlanResponse)
+@limiter.limit("3/minute")
 async def regenerate_plan(
+    request: Request,
     plan_id: int,
     body: RegeneratePlanRequest,
     current_user: User = Depends(get_current_user),
@@ -190,7 +207,16 @@ async def regenerate_plan(
         day_req.stock_items = remaining_ingredients
         day_req.past_meals = past_meals
 
-        new_meals_response = await generate_partial_day(day_req, frozen_only, slots_to_generate)
+        try:
+            new_meals_response = await generate_partial_day(day_req, frozen_only, slots_to_generate)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("Regeneration failed at day %d", day_index)
+            raise HTTPException(
+                status_code=502,
+                detail="Meal plan regeneration failed. Please try again.",
+            ) from e
 
         # Merge: frozen meals at their original positions, new meals fill unfrozen slots
         merged_meals = list(day.meals)  # copy original order
@@ -228,7 +254,9 @@ async def regenerate_plan(
 
 # //api/plan/{plan_id}/confirm
 @router.post("/{plan_id}/confirm", response_model=List[StockItemDTO])
+@limiter.limit("10/minute")
 async def confirm_plan(
+    request: Request,
     plan_id: int,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),

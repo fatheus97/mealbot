@@ -58,7 +58,7 @@ class TestUnsupportedProvider:
                 response_model=SingleDayResponse,
             )
         assert exc_info.value.status_code == 500
-        assert "Unsupported LLM provider" in exc_info.value.detail
+        assert "misconfigured" in exc_info.value.detail
 
 
 class TestOpenAIErrorHandling:
@@ -73,7 +73,7 @@ class TestOpenAIErrorHandling:
         with pytest.raises(HTTPException) as exc_info:
             await client._chat_json_openai("sys", "usr", SingleDayResponse)
         assert exc_info.value.status_code == 500
-        assert "OPENAI_API_KEY" in exc_info.value.detail
+        assert "misconfigured" in exc_info.value.detail
 
     @patch("app.llm.client.settings")
     async def test_openai_api_error_raises_502(self, mock_settings: MagicMock):
@@ -94,7 +94,7 @@ class TestOpenAIErrorHandling:
         with pytest.raises(HTTPException) as exc_info:
             await client._chat_json_openai("sys", "usr", SingleDayResponse)
         assert exc_info.value.status_code == 502
-        assert "OpenAI error" in exc_info.value.detail
+        assert "temporarily unavailable" in exc_info.value.detail
 
 
 class TestGeminiErrorHandling:
@@ -109,7 +109,7 @@ class TestGeminiErrorHandling:
         with pytest.raises(HTTPException) as exc_info:
             await client._chat_json_gemini("sys", "usr", SingleDayResponse)
         assert exc_info.value.status_code == 500
-        assert "GEMINI_API_KEY" in exc_info.value.detail
+        assert "misconfigured" in exc_info.value.detail
 
     @patch("app.llm.client.settings")
     async def test_gemini_api_error_raises_502(self, mock_settings: MagicMock):
@@ -129,4 +129,4 @@ class TestGeminiErrorHandling:
         with pytest.raises(HTTPException) as exc_info:
             await client._chat_json_gemini("sys", "usr", SingleDayResponse)
         assert exc_info.value.status_code == 502
-        assert "Gemini error" in exc_info.value.detail
+        assert "temporarily unavailable" in exc_info.value.detail
