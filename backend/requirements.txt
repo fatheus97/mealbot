@@ -1,26 +1,26 @@
-fastapi>=0.115,<1.0
-uvicorn[standard]>=0.34,<1.0
-pydantic-settings>=2.7,<3.0
-jinja2>=3.1,<4.0
-python-multipart>=0.0.18,<1.0
+fastapi~=0.115
+uvicorn[standard]~=0.34
+pydantic-settings~=2.7
+jinja2~=3.1
+python-multipart~=0.0.18
 
 # For LLM
-instructor>=1.14.5,<2.0
-openai>=2.0,<3.0
-google-genai>=1.14,<2.0
-jsonref>=1.1,<2.0
+instructor~=1.14
+openai~=2.0
+google-genai~=1.14
+jsonref~=1.1
 
 #For DB
-sqlmodel>=0.0.22,<1.0
-psycopg[binary,pool]>=3.2,<4.0
-alembic>=1.15,<2.0
-pydantic[email]>=2.11,<3.0
+sqlmodel~=0.0.22
+psycopg[binary,pool]~=3.2
+alembic~=1.15
+pydantic[email]~=2.11
 
 # For RAG features
-pgvector>=0.3,<1.0
-fastembed>=0.6,<1.0
+pgvector~=0.3
+fastembed~=0.6
 
 #Security
-bcrypt>=4.3,<6.0
-PyJWT>=2.10,<3.0
-slowapi>=0.1.9,<1.0
+bcrypt~=4.3
+PyJWT~=2.10
+slowapi~=0.1.9

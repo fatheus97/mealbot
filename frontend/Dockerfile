@@ -8,6 +8,7 @@ RUN npm run build
 
 # Stage 2: Serve with Nginx
 FROM nginx:stable-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 # Default Vite port is 5173, but Nginx usually uses 80.
 # We'll stick to 80 and map it in docker-compose.

@@ -28,10 +28,18 @@ export function AuthBar() {
            setLoading(false);
            return;
         }
-        alert("Registered! Now logging you in...");
+        try {
+          await login(inputEmail, inputPassword);
+        } catch {
+          alert("Account created! Please sign in manually.");
+          setIsRegistering(false);
+          setLoading(false);
+          return;
+        }
+      } else {
+        await login(inputEmail, inputPassword);
       }
 
-      await login(inputEmail, inputPassword);
       setInputPassword("");
     } catch (error) {
       console.error(error);

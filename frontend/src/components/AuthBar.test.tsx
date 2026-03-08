@@ -33,16 +33,6 @@ function createWrapper() {
 
 beforeEach(() => {
   vi.stubGlobal('alert', vi.fn());
-  vi.stubGlobal(
-    'location',
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(window.location),
-        reload: { configurable: true, value: vi.fn() },
-      },
-    ),
-  );
 });
 
 describe('AuthBar', () => {
@@ -123,6 +113,36 @@ describe('AuthBar', () => {
 
     await waitFor(() => {
       expect(localStorage.getItem('mealbot_token')).toBe('new-jwt');
+    });
+  });
+
+  it('shows manual login message when login fails after register', async () => {
+    // Register succeeds
+    mockedAuthFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({}),
+      })
+      // Login fails
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({}),
+      });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.click(screen.getByText(/need an account/i));
+    await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'password123');
+    await user.click(screen.getByRole('button', { name: /sign up/i }));
+
+    await waitFor(() => {
+      expect(window.alert).toHaveBeenCalledWith(
+        'Account created! Please sign in manually.',
+      );
     });
   });
 
