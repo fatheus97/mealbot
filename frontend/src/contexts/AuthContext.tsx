@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode} from "react";
+import { createContext, useContext, useState, useEffect, type ReactNode} from "react";
 import type { LoginResponse, AuthState } from "../types";
 import {authFetch} from "../api.ts";
 
@@ -66,6 +66,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.localStorage.removeItem("mealbot_user_email");
     window.localStorage.removeItem("mealbot_onboarding");
   };
+
+  useEffect(() => {
+    const handleForceLogout = () => logout();
+    window.addEventListener("mealbot:logout", handleForceLogout);
+    return () => window.removeEventListener("mealbot:logout", handleForceLogout);
+  });
 
   return (
     <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, login, logout, setOnboardingCompleted }}>

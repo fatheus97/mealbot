@@ -73,12 +73,19 @@ class LLMClient:
         ]
 
         try:
-            return await self.openai_client.chat.completions.create(
+            logger.info(
+                "LLM call: provider=openai model=%s response_model=%s",
+                settings.openai_model,
+                response_model.__name__,
+            )
+            result = await self.openai_client.chat.completions.create(
                 model=settings.openai_model,
                 response_model=response_model,
                 max_retries=MAX_LLM_RETRIES,
                 messages=messages,
             )
+            logger.info("LLM call completed: provider=openai model=%s", settings.openai_model)
+            return result
         except Exception as e:
             logger.exception("OpenAI API call failed")
             raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e
@@ -95,12 +102,19 @@ class LLMClient:
         ]
 
         try:
-            return await self.gemini_client.chat.completions.create(
+            logger.info(
+                "LLM call: provider=gemini model=%s response_model=%s",
+                settings.gemini_model,
+                response_model.__name__,
+            )
+            result = await self.gemini_client.chat.completions.create(
                 model=settings.gemini_model,
                 response_model=response_model,
                 max_retries=MAX_LLM_RETRIES,
                 messages=messages,
             )
+            logger.info("LLM call completed: provider=gemini model=%s", settings.gemini_model)
+            return result
         except Exception as e:
             logger.exception("Gemini API call failed")
             raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e

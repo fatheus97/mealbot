@@ -5,16 +5,6 @@ const MOCK_BASE = 'http://localhost:8000/api';
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
-  vi.stubGlobal(
-    'location',
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(window.location),
-        reload: { configurable: true, value: vi.fn() },
-      },
-    ),
-  );
 });
 
 function mockFetch(status: number, body: unknown = {}) {
@@ -47,18 +37,23 @@ describe('authFetch', () => {
     expect(call[1].headers['Authorization']).toBeUndefined();
   });
 
-  it('clears localStorage and reloads on 401', async () => {
+  it('clears localStorage and dispatches mealbot:logout on 401', async () => {
     localStorage.setItem('mealbot_token', 'expired');
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'a@b.com');
     mockFetch(401);
+
+    const logoutHandler = vi.fn();
+    window.addEventListener('mealbot:logout', logoutHandler);
 
     await authFetch('/test');
 
     expect(localStorage.getItem('mealbot_token')).toBeNull();
     expect(localStorage.getItem('mealbot_user_id')).toBeNull();
     expect(localStorage.getItem('mealbot_user_email')).toBeNull();
-    expect(window.location.reload).toHaveBeenCalled();
+    expect(logoutHandler).toHaveBeenCalled();
+
+    window.removeEventListener('mealbot:logout', logoutHandler);
   });
 
   it('returns response for non-401 errors without clearing storage', async () => {

@@ -29,7 +29,7 @@ export async function authFetch(endpoint: string, options: RequestInit = {}) {
     localStorage.removeItem("mealbot_token");
     localStorage.removeItem("mealbot_user_id");
     localStorage.removeItem("mealbot_user_email");
-    window.location.reload();
+    window.dispatchEvent(new Event("mealbot:logout"));
   }
 
   return response;

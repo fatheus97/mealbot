@@ -9,16 +9,6 @@ function wrapper({ children }: { children: ReactNode }) {
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
-  vi.stubGlobal(
-    'location',
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(window.location),
-        reload: { configurable: true, value: vi.fn() },
-      },
-    ),
-  );
 });
 
 describe('AuthContext', () => {
@@ -118,6 +108,24 @@ describe('AuthContext', () => {
 
     expect(result.current.onboardingCompleted).toBe(false);
     expect(localStorage.getItem('mealbot_onboarding')).toBeNull();
+  });
+
+  it('listens for mealbot:logout event and clears state', () => {
+    localStorage.setItem('mealbot_token', 'tok');
+    localStorage.setItem('mealbot_user_id', '1');
+    localStorage.setItem('mealbot_user_email', 'a@b.com');
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    expect(result.current.userId).toBe(1);
+
+    act(() => {
+      window.dispatchEvent(new Event('mealbot:logout'));
+    });
+
+    expect(result.current.userId).toBeNull();
+    expect(result.current.token).toBeNull();
+    expect(localStorage.getItem('mealbot_token')).toBeNull();
   });
 
   it('useAuth throws outside provider', () => {
