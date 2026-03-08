@@ -136,6 +136,26 @@ class RegeneratePlanRequest(BaseModel):
     )
 
 
+class ScannedReceiptItem(BaseModel):
+    """Single item extracted from a receipt by the LLM."""
+    name: str = Field(..., description="Canonical grocery item name, e.g. 'chicken breast'")
+    quantity_grams: float = Field(..., description="Estimated weight in grams")
+
+    @field_validator("quantity_grams")
+    @classmethod
+    def validate_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("Quantity must be positive.")
+        if v > 50_000:
+            raise ValueError("Quantity unrealistically high (>50kg).")
+        return v
+
+
+class ReceiptScanResponse(BaseModel):
+    """LLM response model for receipt extraction."""
+    items: List[ScannedReceiptItem]
+
+
 class MealHistoryItem(BaseModel):
         meal_entry_id: int
         meal_plan_id: int

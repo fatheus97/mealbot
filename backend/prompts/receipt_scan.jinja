@@ -1,0 +1,15 @@
+You are extracting grocery items from a receipt image.
+
+Rules:
+- Extract each distinct grocery/food item from the receipt.
+- Estimate the weight in grams for each item based on the receipt quantity and common product sizes.
+  Examples:
+    "2x Chicken Breast" → name: "chicken breast", quantity_grams: 500
+    "1x Rice 1kg" → name: "rice", quantity_grams: 1000
+    "Milk 1L" → name: "milk", quantity_grams: 1000
+    "3x Banana" → name: "banana", quantity_grams: 360
+- Use canonical, lowercase ingredient names (e.g. "chicken breast" not "CHKN BRST").
+- Ignore non-food items (bags, cleaning products, discounts, totals, tax lines, loyalty points).
+- If a quantity or weight is unclear, make a reasonable estimate based on typical grocery sizes.
+- All quantities MUST be in grams.
+- If the image is not a receipt or contains no food items, return an empty items list.

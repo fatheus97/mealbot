@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StockItem, MealPlanRequest, MealPlanResponse, RegeneratePlanRequest, UserProfile } from '../types';
-import { authFetch, fetchUserProfile, updateUserProfile } from '../api';
+import { authFetch, fetchUserProfile, mergeFridgeItems, scanReceipt, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -53,6 +53,23 @@ export function useUpdateFridge() {
     },
     onSuccess: (_, variables) => {
       return queryClient.invalidateQueries({ queryKey: ['fridge', variables.userId] });
+    },
+  });
+}
+
+export function useScanReceipt() {
+  return useMutation({
+    mutationFn: (file: File) => scanReceipt(file),
+  });
+}
+
+export function useMergeFridge() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (items: StockItem[]) => mergeFridgeItems(items),
+    onSuccess: () => {
+      return queryClient.invalidateQueries({ queryKey: ['fridge'] });
     },
   });
 }
