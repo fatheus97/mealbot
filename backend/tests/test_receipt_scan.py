@@ -469,7 +469,7 @@ class TestPdfExtractText:
         with pytest.raises(HTTPException) as exc_info:
             _extract_pdf_text(b"this is not a pdf at all")
         assert exc_info.value.status_code == 422
-        assert "Could not read PDF" in str(exc_info.value.detail)
+        assert "Could not read PDF" in exc_info.value.detail
 
     def test_too_many_pages_raises_422(self):
         from app.services.receipt_scanner import _extract_pdf_text

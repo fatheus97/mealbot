@@ -57,9 +57,10 @@ def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
     try:
         reader = PdfReader(io.BytesIO(pdf_bytes))
     except PdfReadError as exc:
+        logger.warning("PDF parsing failed: %s", exc)
         raise HTTPException(
             status_code=422,
-            detail=f"Could not read PDF: {exc}",
+            detail="Could not read PDF. The file may be corrupted or password-protected.",
         )
 
     if len(reader.pages) > max_pages:
