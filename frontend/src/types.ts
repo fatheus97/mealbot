@@ -56,10 +56,13 @@ export interface MealHistoryItem {
   created_at: string;
 }
 
+export type ScannedItemType = "ingredient" | "ready_to_eat";
+
 export interface StockItem {
   name: string;
   quantity_grams: number;
   need_to_use: boolean;
+  item_type?: ScannedItemType;
 }
 
 export interface LoginResponse {
@@ -87,6 +90,7 @@ export interface UserProfile {
   measurement_system: MeasurementSystem;
   variability: Variability;
   include_spices: boolean;
+  track_snacks: boolean;
   onboarding_completed: boolean;
 }
 

@@ -6,6 +6,7 @@ export interface PreferencesFormValues {
   country: string;
   variability: Variability;
   include_spices: boolean;
+  track_snacks: boolean;
 }
 
 interface PreferencesFormProps {
@@ -19,10 +20,11 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [country, setCountry] = useState(initialValues.country);
   const [variability, setVariability] = useState<Variability>(initialValues.variability);
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
+  const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ country, variability, include_spices: includeSpices });
+    onSubmit({ country, variability, include_spices: includeSpices, track_snacks: trackSnacks });
   };
 
   return (
@@ -89,6 +91,22 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           <br />
           <span style={{ fontSize: "0.85rem", color: "#666" }}>
             If off, spices won't appear in stock/shopping lists (they'll still be in recipe steps)
+          </span>
+        </span>
+      </label>
+
+      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={trackSnacks}
+          onChange={(e) => setTrackSnacks(e.target.checked)}
+          style={{ width: "18px", height: "18px" }}
+        />
+        <span>
+          <span style={{ fontWeight: 600 }}>Track snacks from receipts</span>
+          <br />
+          <span style={{ fontSize: "0.85rem", color: "#666" }}>
+            If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts
           </span>
         </span>
       </label>

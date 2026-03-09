@@ -1,6 +1,8 @@
 Before this PR is ready to merge, verify:
 
 1. **Tests:** New/changed code has test coverage (happy path + error cases)
+   - pytest and other test tools are in requirements-dev.txt, NOT requirements.txt
+   - The default docker backend container does NOT have test dependencies installed
 2. **Types:** Run mypy, fix any type errors
 3. **Lint:** Code follows project conventions
 4. **Security:** No hardcoded secrets, input is validated

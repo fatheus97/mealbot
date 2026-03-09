@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useFridge, useUpdateFridge } from "../hooks/useServerState";
 import type { StockItem } from "../types";
+import { ReceiptScanner } from "./ReceiptScanner";
 
 export function Fridge() {
   const { userId } = useAuth();
@@ -79,6 +80,8 @@ export function Fridge() {
   return (
     <section style={{ marginBottom: "2rem" }}>
       <h2>Fridge</h2>
+
+      <ReceiptScanner currentFridge={fridge} />
 
       {isLoading && <p>Loading inventory...</p>}
       {fetchError && <p style={{ color: "red" }}>Error: {fetchError.message}</p>}

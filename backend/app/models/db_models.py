@@ -25,6 +25,9 @@ class User(SQLModel, table=True):
     # include spices in shopping list + stock
     include_spices: bool = Field(default=True)
 
+    # include snacks/ready-to-eat items from receipt scans
+    track_snacks: bool = Field(default=True)
+
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)
 

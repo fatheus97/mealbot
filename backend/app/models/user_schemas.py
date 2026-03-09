@@ -17,6 +17,7 @@ class UserRead(UserBase):
     measurement_system: str
     variability: str
     include_spices: bool
+    track_snacks: bool
     onboarding_completed: bool
 
 class UserUpdate(SQLModel):
@@ -24,6 +25,7 @@ class UserUpdate(SQLModel):
     measurement_system: Optional[str] = None
     variability: Optional[str] = None
     include_spices: Optional[bool] = None
+    track_snacks: Optional[bool] = None
     onboarding_completed: Optional[bool] = None
 
 class Token(BaseModel):

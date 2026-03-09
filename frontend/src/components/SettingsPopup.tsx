@@ -18,6 +18,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         country: values.country || null,
         variability: values.variability,
         include_spices: values.include_spices,
+        track_snacks: values.track_snacks,
       });
       onClose();
     } catch {
@@ -79,6 +80,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             country: profile.country ?? "",
             variability: profile.variability,
             include_spices: profile.include_spices,
+            track_snacks: profile.track_snacks,
           }}
           onSubmit={handleSubmit}
           submitLabel="Save"

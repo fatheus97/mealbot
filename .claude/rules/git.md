@@ -2,7 +2,11 @@
 - Use conventional commits: feat/fix/refactor/chore/docs/test
 - Write clear commit messages explaining WHY, not just what
 - One logical change per commit
-- Always create feature branches, never commit to main directly
+- main branch is protected — no direct pushes
+- All changes go through PRs with squash merge
+- Claude Code must NEVER force push or push directly to main
+- Claude Code must NEVER merge PRs without explicit approval from me
+- Always create feature branches for any changes
 ```
 
 ## The Full Cycle as a Diagram

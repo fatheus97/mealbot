@@ -8,6 +8,7 @@ const defaultValues: PreferencesFormValues = {
   country: '',
   variability: 'traditional',
   include_spices: true,
+  track_snacks: true,
 };
 
 describe('PreferencesForm', () => {
@@ -58,9 +59,9 @@ describe('PreferencesForm', () => {
     // Select experimental
     await user.click(screen.getByLabelText(/experimental/i));
 
-    // Uncheck spices
-    const spiceCheckbox = screen.getByRole('checkbox');
-    await user.click(spiceCheckbox);
+    // Uncheck spices (first checkbox)
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]); // include_spices
 
     // Submit
     await user.click(screen.getByRole('button', { name: /save/i }));
@@ -69,6 +70,7 @@ describe('PreferencesForm', () => {
       country: 'Germany',
       variability: 'experimental',
       include_spices: false,
+      track_snacks: true,
     });
   });
 
@@ -82,6 +84,7 @@ describe('PreferencesForm', () => {
           country: 'France',
           variability: 'traditional',
           include_spices: true,
+          track_snacks: true,
         }}
         onSubmit={onSubmit}
         submitLabel="Save"
@@ -94,6 +97,7 @@ describe('PreferencesForm', () => {
       country: 'France',
       variability: 'traditional',
       include_spices: true,
+      track_snacks: true,
     });
   });
 
