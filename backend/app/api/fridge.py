@@ -76,6 +76,7 @@ async def scan_receipt(
     )
 
     # Normalize scanned names against existing fridge items
+    assert current_user.id is not None
     fridge_items = await get_fridge_items(session, current_user.id)
     items = await normalize_item_names(
         scan_result.items,
@@ -106,6 +107,7 @@ async def merge_fridge_items(
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
     """Merge scanned items into the existing fridge (auto-sum matching names)."""
+    assert current_user.id is not None
     existing = await get_fridge_items(session, current_user.id)
 
     # Build a lookup by lowercase name for case-insensitive matching
@@ -138,7 +140,7 @@ async def get_fridge_items(session: AsyncSession, user_id: int) -> List[StockIte
         StockItemDTO(
             name=r.name,
             quantity_grams=float(r.quantity_grams),
-            need_to_use=bool(getattr(r, "need_to_use", False)),
+            need_to_use=r.need_to_use,
         )
         for r in rows
     ]
@@ -161,7 +163,7 @@ async def replace_fridge_items(session: AsyncSession, user_id: int, items: List[
                 user_id=user_id,
                 name=it.name,
                 quantity_grams=qty,
-                need_to_use=bool(getattr(it, "need_to_use", False)),
+                need_to_use=it.need_to_use,
             )
         )
 
