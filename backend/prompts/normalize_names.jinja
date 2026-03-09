@@ -16,11 +16,14 @@ The following items were just scanned from a receipt:
 
 Rules:
 - If a scanned name refers to the same real-world item as a fridge name, use the fridge name EXACTLY (same spelling, same casing).
-  Examples: "ground mixed meat" + fridge has "minced meat" → use "minced meat"
+  Examples: "ground mixed meat" + fridge has "ground pork and beef" → use "ground pork and beef"
+            "minced meat" + fridge has "ground pork and beef" → use "ground pork and beef"
             "low-fat milk 1.5%" + fridge has "milk" → use "milk"
+            "prague ham" + fridge has "ham" → use "ham"
 - If multiple scanned names refer to the same item but no fridge match exists, pick ONE canonical name and use it for all of them.
-  Example: ["minced meat", "ground meat"] → both become "minced meat"
-- Preserve meaningful distinctions. Different cuts, types, or products must stay separate.
-  Examples: "chicken breast" ≠ "chicken thigh", "whole milk" ≠ "cream", "canned tomatoes" ≠ "tomato"
+  Example: ["minced meat", "ground meat"] → both become "ground pork and beef" (or whatever the animal actually is)
+- Deli/cold cuts with regional prefixes are the same product: "prague ham" = "ham", "hungarian salami" = "salami".
+- Preserve meaningful distinctions. Different cuts, types, animals, or products must stay separate.
+  Examples: "chicken breast" ≠ "chicken thigh", "whole milk" ≠ "cream", "canned tomatoes" ≠ "tomato", "ground beef" ≠ "ground pork"
 - Use lowercase canonical names.
 - Return exactly one entry per scanned item, mapping its original name to the normalized name.
