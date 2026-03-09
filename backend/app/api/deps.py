@@ -23,7 +23,7 @@ async def get_current_user(
     try:
         # 1. Decode the JWT
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
-        user_id_str: str = payload.get("sub")
+        user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
             raise credentials_exception
         user_id = int(user_id_str)
