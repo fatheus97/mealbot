@@ -4,6 +4,7 @@ import instructor
 from fastapi import HTTPException
 from google import genai
 from google.genai import types as genai_types
+from google.genai.errors import ClientError as GeminiClientError
 from google.genai.types import HttpOptionsDict
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
@@ -120,6 +121,16 @@ class LLMClient:
             raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e
 
 
+    @staticmethod
+    def _is_quota_error(exc: Exception) -> bool:
+        """Check if an exception (or its cause chain) is a Gemini 429 rate-limit error."""
+        current: BaseException | None = exc
+        while current is not None:
+            if isinstance(current, GeminiClientError) and getattr(current, "code", None) == 429:
+                return True
+            current = current.__cause__
+        return False
+
     async def _chat_json_gemini(self, system_prompt: str, user_prompt: str, response_model: Type[T]) -> T:
         if not self.gemini_client:
             logger.error("Gemini API key is not configured")
@@ -145,6 +156,27 @@ class LLMClient:
             logger.info("LLM call completed: provider=gemini model=%s", settings.gemini_model)
             return result
         except Exception as e:
+            if self._is_quota_error(e) and settings.gemini_fallback_model:
+                logger.warning(
+                    "Gemini quota exceeded on %s, retrying with fallback %s",
+                    settings.gemini_model,
+                    settings.gemini_fallback_model,
+                )
+                try:
+                    result = await self.gemini_client.chat.completions.create(
+                        model=settings.gemini_fallback_model,
+                        response_model=response_model,
+                        max_retries=MAX_LLM_RETRIES,
+                        messages=messages,
+                    )
+                    logger.info("Fallback LLM call completed: model=%s", settings.gemini_fallback_model)
+                    return result
+                except Exception as fallback_e:
+                    logger.exception("Fallback model %s also failed", settings.gemini_fallback_model)
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Meal planning service is temporarily unavailable.",
+                    ) from fallback_e
             logger.exception("Gemini API call failed")
             raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e
 
@@ -245,6 +277,28 @@ class LLMClient:
             logger.info("LLM vision call completed: provider=gemini model=%s", settings.gemini_model)
             return result
         except Exception as e:
+            if self._is_quota_error(e) and settings.gemini_fallback_model:
+                logger.warning(
+                    "Gemini vision quota exceeded on %s, retrying with fallback %s",
+                    settings.gemini_model,
+                    settings.gemini_fallback_model,
+                )
+                try:
+                    result = await self.gemini_client.chat.completions.create(
+                        model=settings.gemini_fallback_model,
+                        response_model=response_model,
+                        max_retries=MAX_LLM_RETRIES,
+                        messages=messages,
+                        safety_settings=[],
+                    )
+                    logger.info("Fallback vision call completed: model=%s", settings.gemini_fallback_model)
+                    return result
+                except Exception as fallback_e:
+                    logger.exception("Fallback model %s also failed", settings.gemini_fallback_model)
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Receipt scanning service is temporarily unavailable.",
+                    ) from fallback_e
             logger.exception("Gemini vision API call failed")
             raise HTTPException(status_code=502, detail="Receipt scanning service is temporarily unavailable.") from e
 
