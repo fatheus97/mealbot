@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     # You can change this to e.g. "gemini-2.5-pro" later
     gemini_model: str = "gemini-2.5-flash"
+    # Fallback model used when primary hits quota/rate limits (429). Empty string disables.
+    gemini_fallback_model: str = "gemini-2.5-flash-lite"
 
     # When True, LLMClient will return a deterministic fake JSON response
     llm_mock: bool = False
