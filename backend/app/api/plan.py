@@ -1,17 +1,22 @@
 import logging
-from collections import defaultdict
 from datetime import datetime, timezone
-from typing import List, Dict, cast, Literal
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from typing import List, cast, Literal
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.api.fridge import get_fridge_items, replace_fridge_items
+from app.api.fridge import (
+    add_ingredients_to_fridge,
+    get_fridge_items,
+    subtract_ingredients_from_fridge,
+)
 from app.core.rate_limit import limiter
 from app.models.db_models import User, StockItem, MealPlan, MealEntry
 from app.models.plan_models import (
-    MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO,
-    IngredientAmount, RegeneratePlanRequest,
+    MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO, PlannedMeal,
+    IngredientAmount, RegeneratePlanRequest, MealPlanSummary, MealEntrySummary,
+    FinishPlanResponse,
 )
 from app.services.meal_planner import generate_single_day, generate_partial_day
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
@@ -25,7 +30,115 @@ MeasurementSystem = Literal["none", "metric", "imperial"]
 Variability = Literal["traditional", "experimental"]
 
 
-# //api/plan
+def _derive_status(
+    total: int, cooked: int, finished_at: datetime | None = None,
+) -> Literal["planned", "active", "cooked", "finished"]:
+    """Derive plan status from meal entry counts and finished_at."""
+    if finished_at is not None:
+        return "finished"
+    if total == 0 or cooked == 0:
+        return "planned"
+    if cooked >= total:
+        return "cooked"
+    return "active"
+
+
+# GET /api/plan — List user's plans
+@router.get("", response_model=List[MealPlanSummary])
+async def list_plans(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> List[MealPlanSummary]:
+    """List all plans for the current user with cooking status."""
+    result = await session.execute(
+        select(MealPlan)
+        .where(MealPlan.user_id == current_user.id, MealPlan.confirmed_at.is_not(None))  # type: ignore[union-attr]
+        .order_by(MealPlan.created_at.desc())
+    )
+    plans = result.scalars().all()
+
+    summaries: List[MealPlanSummary] = []
+    for plan in plans:
+        # Count total and cooked meal entries
+        total_result = await session.execute(
+            select(func.count()).where(MealEntry.meal_plan_id == plan.id)
+        )
+        total_meals = total_result.scalar() or 0
+
+        cooked_result = await session.execute(
+            select(func.count()).where(
+                MealEntry.meal_plan_id == plan.id,
+                MealEntry.cooked_at.is_not(None),
+            )
+        )
+        cooked_meals = cooked_result.scalar() or 0
+
+        summaries.append(MealPlanSummary(
+            id=plan.id,
+            created_at=plan.created_at,
+            days=plan.days,
+            meals_per_day=plan.meals_per_day,
+            people_count=plan.people_count,
+            status=_derive_status(total_meals, cooked_meals, plan.finished_at),
+            total_meals=total_meals,
+            cooked_meals=cooked_meals,
+            finished_at=plan.finished_at,
+        ))
+
+    return summaries
+
+
+# GET /api/plan/{plan_id} — Get full plan detail
+@router.get("/{plan_id}", response_model=MealPlanResponse)
+async def get_plan_detail(
+    request: Request,
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MealPlanResponse:
+    """Get the full plan detail (parsed from response_json)."""
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    try:
+        plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Plan response_json is not valid: {e}",
+        )
+
+    plan_obj.plan_id = plan.id
+    return plan_obj
+
+
+# DELETE /api/plan/{plan_id}
+@router.delete("/{plan_id}", status_code=204)
+@limiter.limit("10/minute")
+async def delete_plan(
+    request: Request,
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Delete a plan and its associated meal entries."""
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    # Delete meal entries first (no cascade in SQLModel by default)
+    await session.execute(
+        delete(MealEntry).where(MealEntry.meal_plan_id == plan_id)
+    )
+    await session.delete(plan)
+    await session.commit()
+
+    return Response(status_code=204)
+
+
+# POST /api/plan — Create plan (MealEntry rows created on confirm, not here)
 @router.post("", response_model=MealPlanResponse)
 @limiter.limit("3/minute")
 async def plan_meals_for_user(
@@ -96,7 +209,26 @@ async def plan_meals_for_user(
         shopping_list=shopping_items,
     )
 
-    # Save MealPlan to DB
+    # Clean up old unconfirmed plans before saving a new one
+    await session.execute(
+        delete(MealEntry).where(
+            MealEntry.user_id == current_user.id,
+            MealEntry.meal_plan_id.in_(  # type: ignore[union-attr]
+                select(MealPlan.id).where(
+                    MealPlan.user_id == current_user.id,
+                    MealPlan.confirmed_at.is_(None),  # type: ignore[union-attr]
+                )
+            ),
+        )
+    )
+    await session.execute(
+        delete(MealPlan).where(
+            MealPlan.user_id == current_user.id,
+            MealPlan.confirmed_at.is_(None),  # type: ignore[union-attr]
+        )
+    )
+
+    # Save MealPlan to DB (no MealEntry rows yet — created on confirm)
     plan = MealPlan(
         user_id=current_user.id,
         days=days,
@@ -113,7 +245,7 @@ async def plan_meals_for_user(
     return response_obj
 
 
-# //api/plan/{plan_id}/regenerate
+# POST /api/plan/{plan_id}/regenerate
 @router.post("/{plan_id}/regenerate", response_model=MealPlanResponse)
 @limiter.limit("3/minute")
 async def regenerate_plan(
@@ -244,7 +376,7 @@ async def regenerate_plan(
         shopping_list=shopping_items,
     )
 
-    # 8) Persist updated response
+    # 8) Persist updated response (no MealEntry rows pre-confirm)
     plan.response_json = response_obj.model_dump_json()
     session.add(plan)
     await session.commit()
@@ -252,7 +384,7 @@ async def regenerate_plan(
     return response_obj
 
 
-# //api/plan/{plan_id}/confirm
+# POST /api/plan/{plan_id}/confirm
 @router.post("/{plan_id}/confirm", response_model=List[StockItemDTO])
 @limiter.limit("10/minute")
 async def confirm_plan(
@@ -262,17 +394,16 @@ async def confirm_plan(
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
 
-    # 2) Load plan & ownership check
+    # Load plan & ownership check
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    # 3) Idempotence guard (do not subtract twice)
+    # Idempotence guard (do not subtract twice)
     if hasattr(plan, "confirmed_at") and getattr(plan, "confirmed_at"):
-        # Do nothing, just return the current fridge
         return await get_fridge_items(session, current_user.id)
 
-    # 4) Parse stored plan response
+    # Parse stored plan response
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
     except Exception as e:
@@ -281,62 +412,221 @@ async def confirm_plan(
             detail=f"Plan response_json is not valid for MealPlanResponse: {e}",
         )
 
-    needed = _extract_needed_grams(plan_obj)
+    # Extract all ingredients and subtract from fridge
+    all_ingredients = _extract_all_ingredients(plan_obj)
+    await subtract_ingredients_from_fridge(session, current_user.id, all_ingredients)
 
-    # 5) Load current fridge and subtract
-    fridge = await get_fridge_items(session, current_user.id)
-    by_name: Dict[str, StockItemDTO] = {_norm(x.name): x for x in fridge if _norm(x.name)}
+    # Create meal entries — all start UNCOOKED (ingredients already reserved via fridge subtraction)
+    now = datetime.now(timezone.utc)
+    _persist_meal_entries(
+        session, user_id=current_user.id, plan_id=plan_id,
+        plan_obj=plan_obj, cooked_at=None,
+    )
 
-    for ing_name, need_qty in needed.items():
-        item = by_name.get(ing_name)
-        if not item:
-            continue  # ingredient not in the fridge => nothing to subtract
-        have = float(item.quantity_grams or 0.0)
-        item.quantity_grams = max(0.0, have - need_qty)
-
-    # Remove depleted items
-    updated_fridge = [x for x in fridge if float(x.quantity_grams or 0.0) > 0.0]
-
-    # 6) Persist fridge via shared helper
-    updated_fridge = await replace_fridge_items(session, current_user.id, updated_fridge)
-
-    # 7) Persist meal history entries (one row per meal)
-    _persist_meal_entries(session, user_id=current_user.id, plan_id=plan_id, plan_obj=plan_obj)
-
-    plan.confirmed_at = datetime.now(timezone.utc)
-
+    plan.confirmed_at = now
     session.add(plan)
     await session.commit()
 
-    return updated_fridge
-
-#TODO move to utils
-def _norm(name: str) -> str:
-    return " ".join((name or "").strip().lower().split())
+    return await get_fridge_items(session, current_user.id)
 
 
-def _extract_needed_grams(plan: MealPlanResponse) -> Dict[str, float]:
-    """
-    Sum ingredient usage across all days/meals.
-    Assumes each meal has ingredients: List[{name, quantity_grams}].
-    """
-    totals: Dict[str, float] = defaultdict(float)
+# POST /api/plan/{plan_id}/meals/{meal_entry_id}/cook
+@router.post("/{plan_id}/meals/{meal_entry_id}/cook", response_model=MealEntrySummary)
+@limiter.limit("10/minute")
+async def cook_meal(
+    request: Request,
+    plan_id: int,
+    meal_entry_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MealEntrySummary:
+    """Mark a single meal as cooked (cosmetic only — no fridge changes). Idempotent."""
+    entry = await session.get(MealEntry, meal_entry_id)
+    if (
+        not entry
+        or entry.meal_plan_id != plan_id
+        or entry.user_id != current_user.id
+    ):
+        raise HTTPException(status_code=404, detail="Meal entry not found")
 
+    # Guard: cannot cook meals on a finished plan
+    plan = await session.get(MealPlan, plan_id)
+    if plan and plan.finished_at is not None:
+        raise HTTPException(status_code=409, detail="Plan is finished.")
+
+    # Idempotent: if already cooked, return as-is
+    if entry.cooked_at is None:
+        entry.cooked_at = datetime.now(timezone.utc)
+        session.add(entry)
+        await session.commit()
+        await session.refresh(entry)
+
+    return MealEntrySummary(
+        id=entry.id,
+        day_index=entry.day_index,
+        meal_index=entry.meal_index,
+        name=entry.name,
+        meal_type=entry.meal_type,
+        cooked_at=entry.cooked_at,
+    )
+
+
+# POST /api/plan/{plan_id}/meals/{meal_entry_id}/uncook
+@router.post("/{plan_id}/meals/{meal_entry_id}/uncook", response_model=MealEntrySummary)
+@limiter.limit("10/minute")
+async def uncook_meal(
+    request: Request,
+    plan_id: int,
+    meal_entry_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MealEntrySummary:
+    """Unmark a meal as cooked (cosmetic only — no fridge changes). Idempotent."""
+    entry = await session.get(MealEntry, meal_entry_id)
+    if (
+        not entry
+        or entry.meal_plan_id != plan_id
+        or entry.user_id != current_user.id
+    ):
+        raise HTTPException(status_code=404, detail="Meal entry not found")
+
+    # Guard: cannot uncook meals on a finished plan
+    plan = await session.get(MealPlan, plan_id)
+    if plan and plan.finished_at is not None:
+        raise HTTPException(status_code=409, detail="Plan is finished.")
+
+    # Idempotent: if already uncooked, return as-is
+    if entry.cooked_at is not None:
+        entry.cooked_at = None
+        session.add(entry)
+        await session.commit()
+        await session.refresh(entry)
+
+    return MealEntrySummary(
+        id=entry.id,
+        day_index=entry.day_index,
+        meal_index=entry.meal_index,
+        name=entry.name,
+        meal_type=entry.meal_type,
+        cooked_at=entry.cooked_at,
+    )
+
+
+# GET /api/plan/{plan_id}/meals — List meal entries for a plan
+@router.get("/{plan_id}/meals", response_model=List[MealEntrySummary])
+async def list_meal_entries(
+    request: Request,
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> List[MealEntrySummary]:
+    """List all meal entries for a plan (for cook/uncook UI)."""
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    result = await session.execute(
+        select(MealEntry)
+        .where(MealEntry.meal_plan_id == plan_id)
+        .order_by(MealEntry.day_index, MealEntry.meal_index)
+    )
+    entries = result.scalars().all()
+
+    return [
+        MealEntrySummary(
+            id=entry.id,
+            day_index=entry.day_index,
+            meal_index=entry.meal_index,
+            name=entry.name,
+            meal_type=entry.meal_type,
+            cooked_at=entry.cooked_at,
+        )
+        for entry in entries
+    ]
+
+
+# POST /api/plan/{plan_id}/finish
+@router.post("/{plan_id}/finish", response_model=FinishPlanResponse)
+@limiter.limit("10/minute")
+async def finish_plan(
+    request: Request,
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> FinishPlanResponse:
+    """Finish a plan: return ingredients for uncooked meals to fridge."""
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    if not plan.confirmed_at:
+        raise HTTPException(status_code=409, detail="Plan is not confirmed.")
+
+    # Idempotence: if already finished, return existing state
+    if plan.finished_at is not None:
+        uncooked_result = await session.execute(
+            select(func.count()).where(
+                MealEntry.meal_plan_id == plan_id,
+                MealEntry.cooked_at.is_(None),  # type: ignore[union-attr]
+            )
+        )
+        uncooked_count = uncooked_result.scalar() or 0
+        return FinishPlanResponse(
+            status="finished",
+            finished_at=plan.finished_at,
+            returned_meals=uncooked_count,
+        )
+
+    # Collect ingredients from uncooked meals
+    result = await session.execute(
+        select(MealEntry).where(
+            MealEntry.meal_plan_id == plan_id,
+            MealEntry.cooked_at.is_(None),  # type: ignore[union-attr]
+        )
+    )
+    uncooked_entries = result.scalars().all()
+
+    all_ingredients: List[IngredientAmount] = []
+    for entry in uncooked_entries:
+        all_ingredients.extend(_parse_meal_ingredients(entry))
+
+    # Return uncooked ingredients to fridge
+    if all_ingredients:
+        await add_ingredients_to_fridge(session, current_user.id, all_ingredients)
+
+    now = datetime.now(timezone.utc)
+    plan.finished_at = now
+    session.add(plan)
+    await session.commit()
+
+    return FinishPlanResponse(
+        status="finished",
+        finished_at=now,
+        returned_meals=len(uncooked_entries),
+    )
+
+
+def _extract_all_ingredients(plan: MealPlanResponse) -> List[IngredientAmount]:
+    """Collect all ingredients from every meal in the plan."""
+    result: List[IngredientAmount] = []
     for day in plan.days:
         for meal in day.meals:
-            for ing in meal.ingredients:
-                key = _norm(ing.name)
-                qty = float(getattr(ing, "quantity_grams", 0.0) or 0.0)
-                if key and qty > 0:
-                    totals[key] += qty
+            result.extend(meal.ingredients)
+    return result
 
-    return dict(totals)
+
+def _parse_meal_ingredients(entry: MealEntry) -> List[IngredientAmount]:
+    """Parse a MealEntry's JSON back into ingredient list."""
+    meal = PlannedMeal.model_validate_json(entry.meal_json)
+    return meal.ingredients
+
 
 def _persist_meal_entries(
     session: AsyncSession,
     user_id: int,
     plan_id: int,
     plan_obj: MealPlanResponse,
+    cooked_at: datetime | None = None,
 ) -> None:
     """Stage meal entries into the session. Caller must await session.commit()."""
     entries: List[MealEntry] = []
@@ -351,7 +641,8 @@ def _persist_meal_entries(
                     meal_index=meal_index,
                     name=meal.name,
                     meal_type=meal.meal_type,
-                    meal_json=meal.model_dump_json(),  # full PlannedMeal JSON
+                    meal_json=meal.model_dump_json(),
+                    cooked_at=cooked_at,
                 )
             )
 
