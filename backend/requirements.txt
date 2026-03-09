@@ -20,6 +20,9 @@ pydantic[email]~=2.11
 pgvector~=0.3
 fastembed~=0.6
 
+# PDF parsing
+pypdf~=5.0
+
 #Security
 bcrypt~=4.3
 PyJWT~=2.10

@@ -115,8 +115,8 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png"
-            aria-label="Select receipt image"
+            accept="image/jpeg,image/png,application/pdf,.pdf"
+            aria-label="Select receipt image or PDF"
           />
           <button onClick={handleScan} disabled={scanMutation.isPending}>
             Scan Receipt
