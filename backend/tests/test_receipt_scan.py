@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from pypdf import PdfWriter
 
 from app.models.plan_models import (
     NormalizationResponse,
@@ -414,3 +415,127 @@ class TestNameNormalization:
             mock_settings.llm_mock = False
             result = await normalize_item_names([], ["minced meat"])
         assert result == []
+
+
+def _make_pdf_bytes(text: str, num_pages: int = 1) -> bytes:
+    """Build a minimal PDF with extractable text content using pypdf."""
+    from pypdf.generic import (
+        DecodedStreamObject,
+        DictionaryObject,
+        NameObject,
+    )
+
+    writer = PdfWriter()
+    for i in range(num_pages):
+        writer.add_blank_page(width=612, height=792)
+        page = writer.pages[i]
+        page_text = text if i == 0 else f"Page {i + 1}"
+
+        # Escape parentheses for PDF text operator
+        escaped = page_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        stream = DecodedStreamObject()
+        stream.set_data(f"BT /F1 12 Tf 50 700 Td ({escaped}) Tj ET".encode())
+
+        font = DictionaryObject()
+        font[NameObject("/Type")] = NameObject("/Font")
+        font[NameObject("/Subtype")] = NameObject("/Type1")
+        font[NameObject("/BaseFont")] = NameObject("/Helvetica")
+
+        resources = DictionaryObject()
+        fonts = DictionaryObject()
+        fonts[NameObject("/F1")] = font
+        resources[NameObject("/Font")] = fonts
+
+        page[NameObject("/Resources")] = resources
+        page[NameObject("/Contents")] = writer._add_object(stream)
+
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+class TestPdfExtractText:
+    """Unit tests for _extract_pdf_text helper."""
+
+    def test_extract_text_from_valid_pdf(self):
+        from app.services.receipt_scanner import _extract_pdf_text
+        long_text = "Chicken Breast 2x  4.99\n" * 5  # >50 chars
+        pdf_bytes = _make_pdf_bytes(long_text)
+        result = _extract_pdf_text(pdf_bytes)
+        assert "Chicken" in result
+
+    def test_corrupt_pdf_raises_422(self):
+        from app.services.receipt_scanner import _extract_pdf_text
+        with pytest.raises(HTTPException) as exc_info:
+            _extract_pdf_text(b"this is not a pdf at all")
+        assert exc_info.value.status_code == 422
+        assert "Could not read PDF" in exc_info.value.detail
+
+    def test_too_many_pages_raises_422(self):
+        from app.services.receipt_scanner import _extract_pdf_text
+        pdf_bytes = _make_pdf_bytes("item line " * 10, num_pages=11)
+        with pytest.raises(HTTPException) as exc_info:
+            _extract_pdf_text(pdf_bytes, max_pages=10)
+        assert exc_info.value.status_code == 422
+        assert "11 pages" in str(exc_info.value.detail)
+
+    def test_no_extractable_text_raises_422(self):
+        from app.services.receipt_scanner import _extract_pdf_text
+        # Blank page PDF — no text
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        buf = io.BytesIO()
+        writer.write(buf)
+
+        with pytest.raises(HTTPException) as exc_info:
+            _extract_pdf_text(buf.getvalue())
+        assert exc_info.value.status_code == 422
+        assert "no extractable text" in str(exc_info.value.detail)
+
+
+class TestPdfScanEndpoint:
+    """Integration tests for PDF upload via /api/fridge/scan."""
+
+    @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
+    @patch(
+        "app.api.fridge.extract_items_from_pdf",
+        new_callable=AsyncMock,
+        return_value=MOCK_SCAN_RESULT,
+    )
+    async def test_pdf_happy_path(
+        self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
+    ):
+        pdf_bytes = _make_pdf_bytes("Chicken Breast 2x  4.99\n" * 5)
+        resp = await client.post(
+            "/api/fridge/scan",
+            files={"file": ("receipt.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 3
+        mock_extract.assert_awaited_once()
+
+    @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
+    async def test_pdf_corrupt_returns_422(
+        self, mock_normalize: AsyncMock, client: AsyncClient,
+    ):
+        resp = await client.post(
+            "/api/fridge/scan",
+            files={"file": ("receipt.pdf", io.BytesIO(b"not a pdf"), "application/pdf")},
+        )
+        assert resp.status_code == 422
+
+    @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
+    async def test_pdf_no_text_returns_422(
+        self, mock_normalize: AsyncMock, client: AsyncClient,
+    ):
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        buf = io.BytesIO()
+        writer.write(buf)
+
+        resp = await client.post(
+            "/api/fridge/scan",
+            files={"file": ("receipt.pdf", io.BytesIO(buf.getvalue()), "application/pdf")},
+        )
+        assert resp.status_code == 422

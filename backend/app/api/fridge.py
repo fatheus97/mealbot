@@ -11,14 +11,14 @@ from app.core.rate_limit import limiter
 from app.db import get_session
 from app.models.db_models import User, StockItem
 from app.models.plan_models import ScannedItemDTO, StockItemDTO
-from app.services.receipt_scanner import extract_items_from_receipt, normalize_item_names
+from app.services.receipt_scanner import extract_items_from_receipt, extract_items_from_pdf, normalize_item_names
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/fridge", tags=["fridge"])
 
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png"}
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 # //api/fridge
@@ -50,30 +50,36 @@ async def scan_receipt(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[ScannedItemDTO]:
-    """Upload a receipt image and extract grocery items via LLM vision."""
+    """Upload a receipt image or PDF and extract grocery items via LLM."""
     # Validate content type
-    if file.content_type not in ALLOWED_IMAGE_TYPES:
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid file type '{file.content_type}'. Only JPEG and PNG are accepted.",
+            detail=f"Invalid file type '{file.content_type}'. Accepted: JPEG, PNG, PDF.",
         )
 
     # Read and validate size
-    image_bytes = await file.read()
-    if len(image_bytes) > MAX_IMAGE_SIZE:
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=413,
-            detail=f"Image too large ({len(image_bytes)} bytes). Maximum is {MAX_IMAGE_SIZE} bytes.",
+            detail=f"File too large ({len(file_bytes)} bytes). Maximum is {MAX_FILE_SIZE} bytes.",
         )
 
-    image_base64 = base64.b64encode(image_bytes).decode("ascii")
-
-    logger.info("Receipt scan requested by user_id=%s, size=%d bytes", current_user.id, len(image_bytes))
-
-    scan_result = await extract_items_from_receipt(
-        image_base64=image_base64,
-        image_media_type=file.content_type,
+    is_pdf = file.content_type == "application/pdf"
+    logger.info(
+        "Receipt scan requested by user_id=%s, size=%d bytes, method=%s",
+        current_user.id, len(file_bytes), "pdf_text" if is_pdf else "image_vision",
     )
+
+    if is_pdf:
+        scan_result = await extract_items_from_pdf(pdf_bytes=file_bytes)
+    else:
+        image_base64 = base64.b64encode(file_bytes).decode("ascii")
+        scan_result = await extract_items_from_receipt(
+            image_base64=image_base64,
+            image_media_type=file.content_type,
+        )
 
     # Normalize scanned names against existing fridge items
     assert current_user.id is not None

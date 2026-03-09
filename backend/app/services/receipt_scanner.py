@@ -1,7 +1,11 @@
+import io
 from pathlib import Path
 
+from fastapi import HTTPException
 from jinja2 import FileSystemLoader
 from jinja2.sandbox import SandboxedEnvironment
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from app.core.config import settings
 from app.llm.client import llm_client
@@ -15,6 +19,9 @@ import logging
 from typing import List
 
 logger = logging.getLogger(__name__)
+
+MAX_PDF_PAGES = 10
+MIN_EXTRACTABLE_CHARS = 50
 
 _prompts_env = SandboxedEnvironment(
     loader=FileSystemLoader(str(Path(__file__).resolve().parents[2] / "prompts")),
@@ -41,6 +48,64 @@ async def extract_items_from_receipt(
         user_prompt=user_prompt,
         image_base64=image_base64,
         image_media_type=image_media_type,
+        response_model=ReceiptScanResponse,
+    )
+
+
+def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
+    """Extract text from a PDF. Raises 422 if corrupt, too many pages, or no text."""
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+    except PdfReadError as exc:
+        logger.warning("PDF parsing failed: %s", exc)
+        raise HTTPException(
+            status_code=422,
+            detail="Could not read PDF. The file may be corrupted or password-protected.",
+        )
+
+    if len(reader.pages) > max_pages:
+        raise HTTPException(
+            status_code=422,
+            detail=f"PDF has {len(reader.pages)} pages — maximum is {max_pages}.",
+        )
+
+    text_parts: list[str] = []
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text_parts.append(page_text)
+
+    full_text = "\n".join(text_parts).strip()
+
+    if len(full_text) < MIN_EXTRACTABLE_CHARS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This PDF has no extractable text (likely a scanned image). "
+                "Please take a photo of the receipt and upload the image instead."
+            ),
+        )
+
+    return full_text
+
+
+PDF_SYSTEM_PROMPT = (
+    "You are an expert at reading grocery receipts. "
+    "Extract all food items with estimated gram weights from the provided receipt text. "
+    "Return ONLY valid JSON."
+)
+
+
+async def extract_items_from_pdf(pdf_bytes: bytes) -> ReceiptScanResponse:
+    """Extract grocery items from a PDF receipt using text extraction + LLM."""
+    receipt_text = _extract_pdf_text(pdf_bytes)
+
+    template = _prompts_env.get_template("receipt_scan_text.jinja")
+    user_prompt = template.render(receipt_text=receipt_text)
+
+    return await llm_client.chat_json(
+        system_prompt=PDF_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
         response_model=ReceiptScanResponse,
     )
 
