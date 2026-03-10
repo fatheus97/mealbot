@@ -132,3 +132,44 @@ class TestGeneratePartialDay:
 
         assert result.meals[0].meal_type == "breakfast"
         assert "expected" in caplog.text.lower() or len(caplog.records) > 0
+
+
+class TestStockOnlyPrompt:
+    @patch("app.services.meal_planner.llm_client")
+    async def test_stock_only_constraint_in_prompt(self, mock_llm: MagicMock):
+        """When stock_only=True, the rendered prompt must contain the stock-only constraint."""
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+
+        await generate_single_day(_make_request(stock_only=True))
+
+        call_kwargs = mock_llm.chat_json.call_args
+        user_prompt = call_kwargs.kwargs["user_prompt"]
+        assert "STOCK-ONLY MODE" in user_prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_stock_only_false_no_constraint(self, mock_llm: MagicMock):
+        """When stock_only=False (default), no stock-only constraint in prompt."""
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+
+        await generate_single_day(_make_request(stock_only=False))
+
+        call_kwargs = mock_llm.chat_json.call_args
+        user_prompt = call_kwargs.kwargs["user_prompt"]
+        assert "STOCK-ONLY MODE" not in user_prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_partial_day_stock_only_constraint(self, mock_llm: MagicMock):
+        """Partial regeneration prompt also contains stock-only constraint."""
+        mock_llm.chat_json = AsyncMock(
+            return_value=_make_single_day_response("Dinner", "dinner")
+        )
+
+        await generate_partial_day(
+            _make_request(stock_only=True),
+            frozen_meals=[],
+            slots_to_generate=["dinner"],
+        )
+
+        call_kwargs = mock_llm.chat_json.call_args
+        user_prompt = call_kwargs.kwargs["user_prompt"]
+        assert "STOCK-ONLY MODE" in user_prompt
