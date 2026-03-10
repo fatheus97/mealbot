@@ -45,7 +45,8 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
     mealsPerDay, setMealsPerDay,
     peopleCount, setPeopleCount,
     tastePreferences, setTastePreferences,
-    avoidIngredients, setAvoidIngredients
+    avoidIngredients, setAvoidIngredients,
+    stockOnly, setStockOnly,
   } = usePreferencesStore();
 
   const toggleFreeze = useCallback((dayIdx: number, mealIdx: number) => {
@@ -76,6 +77,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
       meals_per_day: mealsPerDay,
       people_count: peopleCount,
       past_meals: [],
+      stock_only: stockOnly,
     };
 
     setCurrentPlan(null);
@@ -181,6 +183,15 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
         <label>
           People count:
           <input type="number" value={peopleCount} onChange={(e) => setPeopleCount(Number(e.target.value) || 1)} min={1} max={10} style={{ width: "100%", marginTop: "0.25rem" }} />
+        </label>
+
+        <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={stockOnly}
+            onChange={(e) => setStockOnly(e.target.checked)}
+          />
+          Use only stock ingredients (no shopping)
         </label>
 
         <label style={{ gridColumn: "span 2" }}>

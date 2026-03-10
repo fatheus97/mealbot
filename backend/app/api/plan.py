@@ -202,6 +202,14 @@ async def plan_meals_for_user(
         ) from e
 
     shopping_items: List[IngredientAmount] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
+    if payload.stock_only:
+        if shopping_items:
+            logger.warning(
+                "stock_only plan produced %d non-stock items — LLM hallucinated ingredients: %s",
+                len(shopping_items),
+                [item.name for item in shopping_items],
+            )
+        shopping_items = []
 
     response_obj = MealPlanResponse(
         plan_id=None,
@@ -369,6 +377,14 @@ async def regenerate_plan(
 
     # 7) Recompute shopping list
     shopping_items: List[IngredientAmount] = compute_shopping_list_from_plan(new_days, initial_fridge)
+    if original_req.stock_only:
+        if shopping_items:
+            logger.warning(
+                "stock_only regenerate produced %d non-stock items — LLM hallucinated ingredients: %s",
+                len(shopping_items),
+                [item.name for item in shopping_items],
+            )
+        shopping_items = []
 
     response_obj = MealPlanResponse(
         plan_id=plan.id,

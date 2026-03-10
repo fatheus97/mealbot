@@ -66,6 +66,11 @@ class MealPlanRequest(BaseModel):
         description="Whether spices/seasonings should appear in ingredients & shopping list.",
     )
 
+    stock_only: bool = Field(
+        default=False,
+        description="When true, only fridge/pantry ingredients may be used — no shopping.",
+    )
+
     @field_validator("taste_preferences", "avoid_ingredients", "past_meals", mode="before")
     @classmethod
     def sanitize_input(cls, v):

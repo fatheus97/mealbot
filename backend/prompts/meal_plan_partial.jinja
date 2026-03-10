@@ -45,11 +45,20 @@ The output JSON must contain EXACTLY {{ slots_to_generate | length }} meal(s) wi
 Your priorities, IN THIS ORDER, are:
 1) AVOID ALL ingredients listed in "Ingredients to avoid" and theirs synonyms and hyponyms.
 2) Respect diet type.
+{% if stock_only %}
+3) STOCK-ONLY MODE: You MUST use ONLY ingredients from the fridge lists above (URGENT + NON-URGENT). Do NOT introduce ANY new ingredients that are not listed above. If you cannot make a full meal, make a simpler one with what is available. Never add items to buy.
+4) Use URGENT stock ingredients so nothing goes to waste.
+5) Keep meals realistic and simple enough for a home cook.
+6) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
+7) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
+8) Use NON-URGENT stock ingredients.
+{% else %}
 3) Use URGENT stock ingredients so nothing goes to waste.
 4) Keep meals realistic and simple enough for a home cook.
 5) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
 6) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
 7) Use NON-URGENT stock ingredients.
+{% endif %}
 
 Rules about ingredients:
 — Never use a different form of an ingredient that is already available.
@@ -62,7 +71,11 @@ Rules about ingredients:
 {% if country %}
 — Prefer recipes and non-stock ingredients that are commonly available in {{ country }}.
 {% endif %}
+{% if stock_only %}
+— Do NOT use any ingredients that are not in the fridge list above. Adapt recipes to work with available stock only.
+{% else %}
 — Feel free to use non-stock ingredients to reach realistic and meaningful recipes.
+{% endif %}
 
 Rules about variety:
 — It is OK to use the same ingredient on multiple meals, but ONLY if you
