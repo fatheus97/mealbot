@@ -37,7 +37,8 @@ class LLMClient:
                     api_key=settings.gemini_api_key,
                     http_options=HttpOptionsDict(timeout=60_000),
                 ),
-                use_async = True,
+                use_async=True,
+                mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
             )
 
 
