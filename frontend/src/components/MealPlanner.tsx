@@ -78,6 +78,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
       past_meals: [],
     };
 
+    setCurrentPlan(null);
     setFrozenMeals(new Set());
     setIsConfirmed(false);
     setIsFinished(false);
