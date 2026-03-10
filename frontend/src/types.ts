@@ -56,6 +56,35 @@ export interface MealHistoryItem {
   created_at: string;
 }
 
+export type PlanStatus = "planned" | "active" | "cooked" | "finished";
+
+export interface MealPlanSummary {
+  id: number;
+  created_at: string;
+  days: number;
+  meals_per_day: number;
+  people_count: number;
+  status: PlanStatus;
+  total_meals: number;
+  cooked_meals: number;
+  finished_at: string | null;
+}
+
+export interface FinishPlanResponse {
+  status: "finished";
+  finished_at: string;
+  returned_meals: number;
+}
+
+export interface MealEntrySummary {
+  id: number;
+  day_index: number;
+  meal_index: number;
+  name: string;
+  meal_type: string;
+  cooked_at: string | null;
+}
+
 export type ScannedItemType = "ingredient" | "ready_to_eat";
 
 export interface StockItem {

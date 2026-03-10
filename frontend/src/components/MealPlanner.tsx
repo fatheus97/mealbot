@@ -1,16 +1,40 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useGeneratePlan, useRegeneratePlan } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan } from "../hooks/useServerState";
 import { usePreferencesStore } from "../store/usePreferencesStore";
-import type { MealPlanRequest, MealPlanResponse, FrozenMeal, DietType } from "../types";
+import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType } from "../types";
 
-export function MealPlanner() {
+interface MealPlannerProps {
+  initialPlan?: MealPlanResponse | null;
+  initialSummary?: MealPlanSummary;
+}
+
+export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
   const { userId } = useAuth();
   const generatePlanMutation = useGeneratePlan();
   const regenerateMutation = useRegeneratePlan();
+  const confirmMutation = useConfirmPlan();
+  const cookMutation = useCookMeal();
+  const uncookMutation = useUncookMeal();
+  const finishMutation = useFinishPlan();
 
   const [currentPlan, setCurrentPlan] = useState<MealPlanResponse | null>(null);
   const [frozenMeals, setFrozenMeals] = useState<Set<string>>(new Set());
+  const [isConfirmed, setIsConfirmed] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
+
+  // Sync initialPlan prop to currentPlan state (catalog plans are always confirmed)
+  useEffect(() => {
+    if (initialPlan) {
+      setCurrentPlan(initialPlan);
+      setFrozenMeals(new Set());
+      setIsConfirmed(true);
+      setIsFinished(initialSummary?.finished_at != null);
+    }
+  }, [initialPlan, initialSummary]);
+
+  const planId = currentPlan?.plan_id ?? null;
+  const { data: mealEntries } = useMealEntries(isConfirmed ? planId : null);
 
   // Bind to Global Zustand Store
   const {
@@ -53,6 +77,8 @@ export function MealPlanner() {
     };
 
     setFrozenMeals(new Set());
+    setIsConfirmed(false);
+    setIsFinished(false);
     generatePlanMutation.mutate({ userId, days, request }, {
       onSuccess: (data) => setCurrentPlan(data),
     });
@@ -71,6 +97,40 @@ export function MealPlanner() {
       { planId: currentPlan.plan_id, request: { frozen_meals: frozen } },
       { onSuccess: (data) => setCurrentPlan(data) },
     );
+  };
+
+  const handleConfirm = () => {
+    if (!currentPlan?.plan_id) return;
+    confirmMutation.mutate(currentPlan.plan_id, {
+      onSuccess: () => setIsConfirmed(true),
+    });
+  };
+
+  const handleFinish = () => {
+    if (!planId) return;
+    finishMutation.mutate(planId, {
+      onSuccess: () => setIsFinished(true),
+    });
+  };
+
+  // Find the meal entry for a given day/meal index (1-based in entries, 0-based in UI)
+  const findEntry = (dayIdx: number, mealIdx: number) => {
+    if (!mealEntries) return null;
+    return mealEntries.find(
+      (e) => e.day_index === dayIdx + 1 && e.meal_index === mealIdx + 1
+    ) ?? null;
+  };
+
+  const handleCookToggle = (dayIdx: number, mealIdx: number) => {
+    if (!planId) return;
+    const entry = findEntry(dayIdx, mealIdx);
+    if (!entry) return;
+
+    if (entry.cooked_at) {
+      uncookMutation.mutate({ planId, mealEntryId: entry.id });
+    } else {
+      cookMutation.mutate({ planId, mealEntryId: entry.id });
+    }
   };
 
   if (!userId) {
@@ -138,18 +198,50 @@ export function MealPlanner() {
       {currentPlan && (
         <div style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f9f9f9", color: "#111", borderRadius: "8px", overflowX: "auto", wordBreak: "break-word" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-            <h3 style={{ margin: 0 }}>Your Generated Plan</h3>
-            {frozenMeals.size > 0 && (
-              <button
-                onClick={handleRegenerate}
-                disabled={regenerateMutation.isPending}
-                style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#4a90d9", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
-              >
-                {regenerateMutation.isPending ? "Regenerating..." : "Regenerate Unfrozen"}
-              </button>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <h3 style={{ margin: 0 }}>
+                {isFinished ? "Finished Plan" : isConfirmed ? "Confirmed Plan" : "Your Generated Plan"}
+              </h3>
+              {isFinished && (
+                <span style={{
+                  padding: "0.15rem 0.6rem", borderRadius: "12px", fontSize: "0.8rem",
+                  fontWeight: 600, backgroundColor: "#f3e8ff", color: "#7c3aed",
+                }}>
+                  Finished
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              {!isConfirmed && frozenMeals.size > 0 && (
+                <button
+                  onClick={handleRegenerate}
+                  disabled={regenerateMutation.isPending}
+                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#4a90d9", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                >
+                  {regenerateMutation.isPending ? "Regenerating..." : "Regenerate Unfrozen"}
+                </button>
+              )}
+              {!isConfirmed && (
+                <button
+                  onClick={handleConfirm}
+                  disabled={confirmMutation.isPending}
+                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#16a34a", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                >
+                  {confirmMutation.isPending ? "Confirming..." : "Confirm Plan"}
+                </button>
+              )}
+              {isConfirmed && !isFinished && (
+                <button
+                  onClick={handleFinish}
+                  disabled={finishMutation.isPending}
+                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#7c3aed", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                >
+                  {finishMutation.isPending ? "Finishing..." : "Finish Plan"}
+                </button>
+              )}
+            </div>
           </div>
-          {frozenMeals.size > 0 && (
+          {!isConfirmed && frozenMeals.size > 0 && (
             <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>
               {frozenMeals.size} meal(s) frozen. Unfrozen meals will be regenerated.
             </p>
@@ -159,6 +251,8 @@ export function MealPlanner() {
                <h4 style={{ borderBottom: "1px solid #ddd", paddingBottom: "0.5rem" }}>Day {idx + 1}</h4>
                {dayPlan.meals.map((meal, mealIdx) => {
                  const isFrozen = frozenMeals.has(`${idx}-${mealIdx}`);
+                 const entry = findEntry(idx, mealIdx);
+                 const isCooked = entry?.cooked_at != null;
                  return (
                    <div
                      key={mealIdx}
@@ -166,27 +260,56 @@ export function MealPlanner() {
                        marginLeft: "1rem",
                        marginBottom: "1rem",
                        padding: "0.5rem",
-                       borderLeft: isFrozen ? "3px solid #4a90d9" : "3px solid transparent",
-                       backgroundColor: isFrozen ? "#eef4fb" : "transparent",
+                       borderLeft: isFrozen ? "3px solid #4a90d9" : isCooked ? "3px solid #16a34a" : "3px solid transparent",
+                       backgroundColor: isFrozen ? "#eef4fb" : isCooked ? "#f0fdf4" : "transparent",
                        borderRadius: "4px",
                      }}
                    >
                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                       <button
-                         onClick={() => toggleFreeze(idx, mealIdx)}
-                         title={isFrozen ? "Unfreeze this meal" : "Freeze this meal"}
-                         style={{
-                           background: "none",
-                           border: "1px solid #ccc",
-                           borderRadius: "4px",
-                           padding: "0.15rem 0.4rem",
-                           cursor: "pointer",
+                       {!isConfirmed && (
+                         <button
+                           onClick={() => toggleFreeze(idx, mealIdx)}
+                           title={isFrozen ? "Unfreeze this meal" : "Freeze this meal"}
+                           style={{
+                             background: "none",
+                             border: "1px solid #ccc",
+                             borderRadius: "4px",
+                             padding: "0.15rem 0.4rem",
+                             cursor: "pointer",
+                             fontSize: "0.85rem",
+                             color: isFrozen ? "#4a90d9" : "#888",
+                           }}
+                         >
+                           {isFrozen ? "Frozen" : "Freeze"}
+                         </button>
+                       )}
+                       {isConfirmed && !isFinished && entry && (
+                         <button
+                           onClick={() => handleCookToggle(idx, mealIdx)}
+                           disabled={cookMutation.isPending || uncookMutation.isPending}
+                           title={isCooked ? "Mark as not cooked" : "Mark as cooked"}
+                           style={{
+                             background: "none",
+                             border: `1px solid ${isCooked ? "#16a34a" : "#ccc"}`,
+                             borderRadius: "4px",
+                             padding: "0.15rem 0.4rem",
+                             cursor: "pointer",
+                             fontSize: "0.85rem",
+                             color: isCooked ? "#16a34a" : "#888",
+                           }}
+                         >
+                           {isCooked ? "Cooked" : "Cook"}
+                         </button>
+                       )}
+                       {isFinished && entry && (
+                         <span style={{
                            fontSize: "0.85rem",
-                           color: isFrozen ? "#4a90d9" : "#888",
-                         }}
-                       >
-                         {isFrozen ? "Frozen" : "Freeze"}
-                       </button>
+                           color: isCooked ? "#16a34a" : "#888",
+                           fontStyle: "italic",
+                         }}>
+                           {isCooked ? "Cooked" : "Not cooked"}
+                         </span>
+                       )}
                        <strong>{meal.meal_type.toUpperCase()}:</strong> {meal.name}
                      </div>
 

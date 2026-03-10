@@ -10,7 +10,7 @@ from app.api.deps import get_current_user
 from app.core.rate_limit import limiter
 from app.db import get_session
 from app.models.db_models import User, StockItem
-from app.models.plan_models import ScannedItemDTO, StockItemDTO
+from app.models.plan_models import IngredientAmount, ScannedItemDTO, StockItemDTO
 from app.services.receipt_scanner import extract_items_from_receipt, extract_items_from_pdf, normalize_item_names
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,9 @@ async def get_fridge_items(session: AsyncSession, user_id: int) -> List[StockIte
     ]
 
 
-async def replace_fridge_items(session: AsyncSession, user_id: int, items: List[StockItemDTO]) -> List[StockItemDTO]:
+async def replace_fridge_items(
+    session: AsyncSession, user_id: int, items: List[StockItemDTO], commit: bool = True,
+) -> List[StockItemDTO]:
     """
     Replace fridge items for a user (delete old, insert new).
     Shared by PUT /fridge and plan confirm endpoint.
@@ -173,5 +175,46 @@ async def replace_fridge_items(session: AsyncSession, user_id: int, items: List[
             )
         )
 
-    await session.commit()
+    if commit:
+        await session.commit()
     return await get_fridge_items(session, user_id)
+
+
+async def add_ingredients_to_fridge(
+    session: AsyncSession, user_id: int, ingredients: List["IngredientAmount"],
+) -> List[StockItemDTO]:
+    """Add ingredient amounts back to fridge (merge by normalized name)."""
+    existing = await get_fridge_items(session, user_id)
+    merged: dict[str, StockItemDTO] = {i.name.strip().lower(): i for i in existing}
+    for ing in ingredients:
+        key = ing.name.strip().lower()
+        if key in merged:
+            merged[key] = StockItemDTO(
+                name=merged[key].name,
+                quantity_grams=merged[key].quantity_grams + ing.quantity_grams,
+                need_to_use=merged[key].need_to_use,
+            )
+        else:
+            merged[key] = StockItemDTO(
+                name=ing.name, quantity_grams=ing.quantity_grams, need_to_use=False,
+            )
+    return await replace_fridge_items(session, user_id, list(merged.values()), commit=False)
+
+
+async def subtract_ingredients_from_fridge(
+    session: AsyncSession, user_id: int, ingredients: List["IngredientAmount"],
+) -> List[StockItemDTO]:
+    """Subtract ingredient amounts from fridge. Floor at 0, remove zeroed items."""
+    existing = await get_fridge_items(session, user_id)
+    by_name: dict[str, StockItemDTO] = {i.name.strip().lower(): i for i in existing}
+    for ing in ingredients:
+        key = ing.name.strip().lower()
+        item = by_name.get(key)
+        if item:
+            by_name[key] = StockItemDTO(
+                name=item.name,
+                quantity_grams=max(0.0, item.quantity_grams - ing.quantity_grams),
+                need_to_use=item.need_to_use,
+            )
+    updated = [i for i in by_name.values() if i.quantity_grams > 0]
+    return await replace_fridge_items(session, user_id, updated, commit=False)

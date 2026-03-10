@@ -114,3 +114,8 @@ See `.env.example` for all options. Key variables:
 | `GEMINI_API_KEY` | If using Gemini | Google AI Studio key |
 | `OPENAI_API_KEY` | If using OpenAI | OpenAI platform key |
 | `LLM_MOCK` | No | `true` to bypass LLM calls with fake data |
+
+## License
+
+This project is proprietary software. Source code is publicly available 
+for portfolio and review purposes only. See [LICENSE](LICENSE) for details.

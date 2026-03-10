@@ -187,3 +187,32 @@ class MealHistoryItem(BaseModel):
         name: str
         meal_type: str
         created_at: datetime
+
+
+class MealPlanSummary(BaseModel):
+    """List item for the plan catalog."""
+    id: int
+    created_at: datetime
+    days: int
+    meals_per_day: int
+    people_count: int
+    status: Literal["planned", "active", "cooked", "finished"]
+    total_meals: int
+    cooked_meals: int
+    finished_at: datetime | None = None
+
+
+class FinishPlanResponse(BaseModel):
+    status: Literal["finished"]
+    finished_at: datetime
+    returned_meals: int
+
+
+class MealEntrySummary(BaseModel):
+    """Single meal within a plan detail view."""
+    id: int
+    day_index: int
+    meal_index: int
+    name: str
+    meal_type: str
+    cooked_at: datetime | None

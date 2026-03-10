@@ -58,6 +58,7 @@ class MealPlan(SQLModel, table=True):
     request_json: str  # store MealPlanRequest.model_dump_json()
     response_json: str  # store MealPlanResponse.model_dump_json()
     confirmed_at: datetime | None = Field(default=None)
+    finished_at: datetime | None = Field(default=None)
     stock_after_json: str | None = Field(default=None)
 
     user: "User" = Relationship(back_populates="meal_plans")
@@ -74,6 +75,7 @@ class MealEntry(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    cooked_at: datetime | None = Field(default=None)
     # Keep details as JSON for now (ingredients, steps, etc.)
     meal_json: str = Field(
         description="Full PlannedMeal JSON (ingredients, steps, etc.)."
