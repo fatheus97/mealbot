@@ -33,7 +33,7 @@ cp .env.example .env
 ```
 
 Edit `.env` and set at minimum:
-- `GEMINI_API_KEY` (or `OPENAI_API_KEY` + `LLM_PROVIDER=openai`)
+- `GEMINI_API_KEY` (or `OPENAI_API_KEY` if using OpenAI models)
 - `SECRET_KEY` — generate with `openssl rand -hex 32`
 
 ### 2. Start
@@ -110,7 +110,7 @@ See `.env.example` for all options. Key variables:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SECRET_KEY` | Yes | JWT signing key |
-| `LLM_PROVIDER` | No | `gemini` (default) or `openai` |
+| `LLM_MODELS` | No | Ordered fallback chain, e.g. `gemini/gemini-2.5-flash,gemini/gemini-2.5-flash-lite` |
 | `GEMINI_API_KEY` | If using Gemini | Google AI Studio key |
 | `OPENAI_API_KEY` | If using OpenAI | OpenAI platform key |
 | `LLM_MOCK` | No | `true` to bypass LLM calls with fake data |
