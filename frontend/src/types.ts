@@ -17,6 +17,7 @@ export interface MealPlanRequest {
   meals_per_day: number;
   people_count: number;
   past_meals: string[];
+  stock_only?: boolean;
 }
 
 export interface PlannedMeal {

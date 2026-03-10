@@ -10,7 +10,8 @@ interface PreferencesState {
   peopleCount: number;
   tastePreferences: string;
   avoidIngredients: string;
-  
+  stockOnly: boolean;
+
   // Actions
   setDays: (days: number) => void;
   setDietType: (diet: DietType | "") => void;
@@ -18,6 +19,7 @@ interface PreferencesState {
   setPeopleCount: (count: number) => void;
   setTastePreferences: (tastes: string) => void;
   setAvoidIngredients: (avoids: string) => void;
+  setStockOnly: (stockOnly: boolean) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -29,13 +31,15 @@ export const usePreferencesStore = create<PreferencesState>()(
       peopleCount: 2,
       tastePreferences: "",
       avoidIngredients: "",
-      
+      stockOnly: false,
+
       setDays: (days) => set({ days }),
       setDietType: (dietType) => set({ dietType }),
       setMealsPerDay: (mealsPerDay) => set({ mealsPerDay }),
       setPeopleCount: (peopleCount) => set({ peopleCount }),
       setTastePreferences: (tastePreferences) => set({ tastePreferences }),
       setAvoidIngredients: (avoidIngredients) => set({ avoidIngredients }),
+      setStockOnly: (stockOnly) => set({ stockOnly }),
     }),
     {
       name: 'mealbot-preferences', // The key used in localStorage

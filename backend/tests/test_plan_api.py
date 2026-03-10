@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
@@ -212,3 +213,92 @@ class TestPlanRegenerate:
             json={"frozen_meals": []},
         )
         assert regen_resp.status_code == 409
+
+
+def _fake_day_with_non_stock_ingredient() -> SingleDayResponse:
+    """A day whose meals include an ingredient NOT in the fridge."""
+    return SingleDayResponse(
+        meals=[
+            PlannedMeal(
+                name="Fancy Salad",
+                meal_type="lunch",
+                ingredients=[
+                    IngredientAmount(name="chicken breast", quantity_grams=200),
+                    IngredientAmount(name="avocado", quantity_grams=150),
+                ],
+                steps=["Slice avocado", "Serve with chicken"],
+            )
+        ]
+    )
+
+
+class TestStockOnlyPlan:
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_stock_only_empties_shopping_list(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        """stock_only=true should force an empty shopping list."""
+        mock_gen.return_value = _fake_day_with_non_stock_ingredient()
+
+        # Seed fridge with chicken only (avocado is non-stock)
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 500}],
+        )
+
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2, "stock_only": True},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["shopping_list"] == []
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_stock_only_logs_warning_on_hallucinated_ingredients(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, caplog
+    ):
+        """When LLM hallucinates non-stock items in stock_only mode, a warning is logged."""
+        mock_gen.return_value = _fake_day_with_non_stock_ingredient()
+
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 500}],
+        )
+
+        with caplog.at_level(logging.WARNING, logger="app.api.plan"):
+            resp = await client.post(
+                "/api/plan?days=1",
+                headers=auth_headers,
+                json={"meals_per_day": 1, "people_count": 2, "stock_only": True},
+            )
+
+        assert resp.status_code == 200
+        assert any("stock_only" in r.message for r in caplog.records)
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_stock_only_false_keeps_shopping_list(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        """Default behavior (stock_only=false) should produce a non-empty shopping list."""
+        mock_gen.return_value = _fake_day_with_non_stock_ingredient()
+
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 500}],
+        )
+
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # avocado is not in fridge, should appear in shopping list
+        assert len(body["shopping_list"]) > 0
+        assert any(item["name"] == "avocado" for item in body["shopping_list"])
