@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal } from "../hooks/useServerState";
+import { StarRating } from "./StarRating";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType } from "../types";
 
@@ -17,6 +18,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
   const cookMutation = useCookMeal();
   const uncookMutation = useUncookMeal();
   const finishMutation = useFinishPlan();
+  const rateMutation = useRateMeal();
 
   const [currentPlan, setCurrentPlan] = useState<MealPlanResponse | null>(null);
   const [frozenMeals, setFrozenMeals] = useState<Set<string>>(new Set());
@@ -119,6 +121,13 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
     return mealEntries.find(
       (e) => e.day_index === dayIdx + 1 && e.meal_index === mealIdx + 1
     ) ?? null;
+  };
+
+  const handleRate = (dayIdx: number, mealIdx: number, rating: number) => {
+    if (!planId) return;
+    const entry = findEntry(dayIdx, mealIdx);
+    if (!entry) return;
+    rateMutation.mutate({ planId, mealEntryId: entry.id, rating });
   };
 
   const handleCookToggle = (dayIdx: number, mealIdx: number) => {
@@ -311,6 +320,13 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
                          </span>
                        )}
                        <strong>{meal.meal_type.toUpperCase()}:</strong> {meal.name}
+                       {(isConfirmed || isFinished) && entry && (
+                         <StarRating
+                           rating={entry.rating}
+                           onRate={(r) => handleRate(idx, mealIdx, r)}
+                           disabled={isFinished}
+                         />
+                       )}
                      </div>
 
                      <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>

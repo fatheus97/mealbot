@@ -208,6 +208,11 @@ class FinishPlanResponse(BaseModel):
     returned_meals: int
 
 
+class RateMealRequest(BaseModel):
+    """Request body for rating a meal (1-5 stars)."""
+    rating: int = Field(ge=1, le=5)
+
+
 class MealEntrySummary(BaseModel):
     """Single meal within a plan detail view."""
     id: int
@@ -216,3 +221,4 @@ class MealEntrySummary(BaseModel):
     name: str
     meal_type: str
     cooked_at: datetime | None
+    rating: int | None = None

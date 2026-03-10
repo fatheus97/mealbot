@@ -164,6 +164,25 @@ export function useUncookMeal() {
   });
 }
 
+export function useRateMeal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ planId, mealEntryId, rating }: { planId: number; mealEntryId: number; rating: number }): Promise<MealEntrySummary> => {
+      const res = await authFetch(`/plan/${planId}/meals/${mealEntryId}/rate`, {
+        method: "POST",
+        body: JSON.stringify({ rating }),
+      });
+      if (!res.ok) throw new Error(`Rate meal failed: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['planList'] });
+      queryClient.invalidateQueries({ queryKey: ['mealEntries', variables.planId] });
+    },
+  });
+}
+
 export function useFinishPlan() {
   const queryClient = useQueryClient();
 

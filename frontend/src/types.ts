@@ -83,6 +83,7 @@ export interface MealEntrySummary {
   name: string;
   meal_type: string;
   cooked_at: string | null;
+  rating: number | null;
 }
 
 export type ScannedItemType = "ingredient" | "ready_to_eat";

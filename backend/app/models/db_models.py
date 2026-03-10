@@ -76,6 +76,7 @@ class MealEntry(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc)
     )
     cooked_at: datetime | None = Field(default=None)
+    rating: int | None = Field(default=None)
     # Keep details as JSON for now (ingredients, steps, etc.)
     meal_json: str = Field(
         description="Full PlannedMeal JSON (ingredients, steps, etc.)."

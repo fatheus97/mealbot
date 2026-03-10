@@ -16,7 +16,7 @@ from app.models.db_models import User, StockItem, MealPlan, MealEntry
 from app.models.plan_models import (
     MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO, PlannedMeal,
     IngredientAmount, RegeneratePlanRequest, MealPlanSummary, MealEntrySummary,
-    FinishPlanResponse,
+    FinishPlanResponse, RateMealRequest,
 )
 from app.services.meal_planner import generate_single_day, generate_partial_day
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
@@ -468,6 +468,51 @@ async def cook_meal(
         name=entry.name,
         meal_type=entry.meal_type,
         cooked_at=entry.cooked_at,
+        rating=entry.rating,
+    )
+
+
+# POST /api/plan/{plan_id}/meals/{meal_entry_id}/rate
+@router.post("/{plan_id}/meals/{meal_entry_id}/rate", response_model=MealEntrySummary)
+@limiter.limit("10/minute")
+async def rate_meal(
+    request: Request,
+    plan_id: int,
+    meal_entry_id: int,
+    body: RateMealRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MealEntrySummary:
+    """Rate a meal 1-5 stars. Auto-marks as cooked if not already."""
+    entry = await session.get(MealEntry, meal_entry_id)
+    if (
+        not entry
+        or entry.meal_plan_id != plan_id
+        or entry.user_id != current_user.id
+    ):
+        raise HTTPException(status_code=404, detail="Meal entry not found")
+
+    plan = await session.get(MealPlan, plan_id)
+    if plan and plan.finished_at is not None:
+        raise HTTPException(status_code=409, detail="Plan is finished.")
+
+    entry.rating = body.rating
+    # Auto-cook if not already cooked
+    if entry.cooked_at is None:
+        entry.cooked_at = datetime.now(timezone.utc)
+
+    session.add(entry)
+    await session.commit()
+    await session.refresh(entry)
+
+    return MealEntrySummary(
+        id=entry.id,
+        day_index=entry.day_index,
+        meal_index=entry.meal_index,
+        name=entry.name,
+        meal_type=entry.meal_type,
+        cooked_at=entry.cooked_at,
+        rating=entry.rating,
     )
 
 
@@ -498,6 +543,7 @@ async def uncook_meal(
     # Idempotent: if already uncooked, return as-is
     if entry.cooked_at is not None:
         entry.cooked_at = None
+        entry.rating = None
         session.add(entry)
         await session.commit()
         await session.refresh(entry)
@@ -509,6 +555,7 @@ async def uncook_meal(
         name=entry.name,
         meal_type=entry.meal_type,
         cooked_at=entry.cooked_at,
+        rating=entry.rating,
     )
 
 
@@ -540,6 +587,7 @@ async def list_meal_entries(
             name=entry.name,
             meal_type=entry.meal_type,
             cooked_at=entry.cooked_at,
+            rating=entry.rating,
         )
         for entry in entries
     ]
