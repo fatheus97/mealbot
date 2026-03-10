@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useFridge, useUpdateFridge } from "../hooks/useServerState";
 import type { StockItem } from "../types";
@@ -12,6 +12,8 @@ export function Fridge() {
 
   const [fridge, setFridge] = useState<StockItem[]>([]);
   const [notice, setNotice] = useState<string>("");
+  const [sortKey, setSortKey] = useState<"name" | "quantity" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     if (serverFridge) {
@@ -48,6 +50,30 @@ export function Fridge() {
     updated[index] = { ...updated[index], [field]: value };
     setFridge(updated);
   };
+
+  const toggleSort = (key: "name" | "quantity") => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedFridge = useMemo(() => {
+    const indexed = fridge.map((item, originalIndex) => ({ item, originalIndex }));
+    if (sortKey === null) return indexed;
+
+    return [...indexed].sort((a, b) => {
+      let cmp: number;
+      if (sortKey === "name") {
+        cmp = a.item.name.localeCompare(b.item.name);
+      } else {
+        cmp = a.item.quantity_grams - b.item.quantity_grams;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [fridge, sortKey, sortDir]);
 
   const handleSaveFridge = async () => {
     if (!userId) return;
@@ -89,20 +115,24 @@ export function Fridge() {
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
-            <th>Ingredient</th>
-            <th>Qty (g)</th>
+            <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("name")}>
+              Ingredient{sortKey === "name" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+            </th>
+            <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("quantity")}>
+              Qty (g){sortKey === "quantity" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+            </th>
             <th>Need to use?</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
-          {fridge.map((item, index) => (
-            <tr key={index} style={{ borderBottom: "1px solid #eee" }}>
+          {sortedFridge.map(({ item, originalIndex }) => (
+            <tr key={originalIndex} style={{ borderBottom: "1px solid #eee" }}>
               <td>
                 <input
                   type="text"
                   value={item.name}
-                  onChange={(e) => updateFridgeItem(index, "name", e.target.value)}
+                  onChange={(e) => updateFridgeItem(originalIndex, "name", e.target.value)}
                   placeholder="e.g. Chicken breast"
                 />
               </td>
@@ -110,7 +140,7 @@ export function Fridge() {
                 <input
                   type="number"
                   value={item.quantity_grams}
-                  onChange={(e) => updateFridgeItem(index, "quantity_grams", parseInt(e.target.value) || 0)}
+                  onChange={(e) => updateFridgeItem(originalIndex, "quantity_grams", parseInt(e.target.value) || 0)}
                   style={{ width: "60px" }}
                 />
               </td>
@@ -118,11 +148,11 @@ export function Fridge() {
                 <input
                   type="checkbox"
                   checked={item.need_to_use}
-                  onChange={() => toggleNeedToUse(index)}
+                  onChange={() => toggleNeedToUse(originalIndex)}
                 />
               </td>
               <td>
-                <button onClick={() => removeFridgeItem(index)}>Remove</button>
+                <button onClick={() => removeFridgeItem(originalIndex)}>Remove</button>
               </td>
             </tr>
           ))}
