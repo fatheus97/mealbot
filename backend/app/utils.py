@@ -27,11 +27,11 @@ def compute_shopping_list_from_plan(
     # Initial fridge amounts
     available: dict[str, float] = {}
     pretty_name: dict[str, str] = {}
-    for ing in initial_fridge:
-        key = ing.name.lower()
-        available[key] = available.get(key, 0.0) + ing.quantity_grams
+    for item in initial_fridge:
+        key = item.name.lower()
+        available[key] = available.get(key, 0.0) + item.quantity_grams
         # remember original casing
-        pretty_name.setdefault(key, ing.name)
+        pretty_name.setdefault(key, item.name)
 
     # Compute what we actually need to buy
     shopping: List[IngredientAmount] = []
@@ -60,7 +60,7 @@ def subtract_used_from_fridge(
     uses_existing_ingredients for each meal.
     """
     # Aggregate how much of each fridge ingredient was used
-    used_grams = defaultdict(float)  # name_lower -> grams used
+    used_grams: defaultdict[str, float] = defaultdict(float)
 
     for meal in meals:
         for ing in meal.ingredients:

@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
+from typing import Any, Literal
+
 from app.models.plan_models import (
     MealPlanRequest,
     SingleDayResponse,
@@ -14,8 +16,8 @@ from app.models.plan_models import (
 from app.services.meal_planner import generate_single_day, generate_partial_day
 
 
-def _make_request(**overrides) -> MealPlanRequest:
-    defaults = {
+def _make_request(**overrides: Any) -> MealPlanRequest:
+    defaults: dict[str, Any] = {
         "stock_items": [StockItemDTO(name="chicken", quantity_grams=500)],
         "taste_preferences": ["spicy"],
         "avoid_ingredients": [],
@@ -31,7 +33,10 @@ def _make_request(**overrides) -> MealPlanRequest:
     return MealPlanRequest(**defaults)
 
 
-def _make_single_day_response(meal_name: str = "Test Meal", meal_type: str = "lunch") -> SingleDayResponse:
+MealType = Literal["breakfast", "lunch", "dinner", "snack"]
+
+
+def _make_single_day_response(meal_name: str = "Test Meal", meal_type: MealType = "lunch") -> SingleDayResponse:
     return SingleDayResponse(
         meals=[
             PlannedMeal(

@@ -1,7 +1,7 @@
 import re
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class StockItemDTO(BaseModel):
@@ -206,11 +206,26 @@ class MealPlanSummary(BaseModel):
     cooked_meals: int
     finished_at: datetime | None = None
 
+    @field_validator("created_at", "finished_at", mode="before")
+    @classmethod
+    def ensure_utc(cls, v: datetime | None) -> datetime | None:
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
 
 class FinishPlanResponse(BaseModel):
     status: Literal["finished"]
     finished_at: datetime
     returned_meals: int
+
+    @field_validator("finished_at", mode="before")
+    @classmethod
+    def ensure_utc(cls, v: datetime) -> datetime:
+        """DB may return naive datetimes — attach UTC so serialization is consistent."""
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class RateMealRequest(BaseModel):

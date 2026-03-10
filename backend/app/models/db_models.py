@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import Index
 from sqlmodel import SQLModel, Field, Relationship, Column, String
-from pgvector.sqlalchemy import Vector
+from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 
 
 class User(SQLModel, table=True):
