@@ -1,16 +1,18 @@
+import base64
 import logging
-from typing import TypeVar, Type
+from typing import Any, TypeVar, Type, Callable
+
 import instructor
 from fastapi import HTTPException
 from google import genai
 from google.genai import types as genai_types
 from google.genai.errors import ClientError as GeminiClientError
 from google.genai.types import HttpOptionsDict
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
+from openai import AsyncOpenAI, RateLimitError as OpenAIRateLimitError, APIStatusError as OpenAIAPIStatusError
+from openai.types.chat import ChatCompletionSystemMessageParam
 from pydantic import BaseModel
 
-from app.core.config import settings, LLMProvider
+from app.core.config import settings, LLMProvider, ModelEntry
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +24,9 @@ MAX_LLM_RETRIES = 3
 class LLMClient:
     """Thin wrapper utilising Instructor for strict JSON schema enforcement."""
 
-    def __init__(self):
-        self.openai_client = None
-        self.gemini_client = None
+    def __init__(self) -> None:
+        self.openai_client: instructor.AsyncInstructor | None = None
+        self.gemini_client: instructor.AsyncInstructor | None = None
 
         if settings.openai_api_key:
             self.openai_client = instructor.from_openai(
@@ -41,6 +43,73 @@ class LLMClient:
                 mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
             )
 
+    def _get_client(self, provider: LLMProvider) -> instructor.AsyncInstructor:
+        if provider == LLMProvider.GEMINI:
+            if not self.gemini_client:
+                raise HTTPException(500, "Gemini API key not configured")
+            return self.gemini_client
+        if provider == LLMProvider.OPENAI:
+            if not self.openai_client:
+                raise HTTPException(500, "OpenAI API key not configured")
+            return self.openai_client
+        raise HTTPException(500, "Unsupported provider")
+
+    @staticmethod
+    def _is_quota_error(exc: Exception) -> bool:
+        """Check if an exception (or its cause chain) is a 429 rate-limit error."""
+        current: BaseException | None = exc
+        while current is not None:
+            if isinstance(current, GeminiClientError) and getattr(current, "code", None) == 429:
+                return True
+            if isinstance(current, OpenAIRateLimitError):
+                return True
+            if isinstance(current, OpenAIAPIStatusError) and current.status_code == 429:
+                return True
+            current = current.__cause__
+        return False
+
+    async def _call_with_fallback(
+        self,
+        build_kwargs: Callable[[ModelEntry], dict[str, Any]],
+        response_model: Type[T],
+        error_context: str,
+    ) -> T:
+        """Try each model in settings.model_chain; fall back on 429."""
+        last_exc: Exception | None = None
+        for entry in settings.model_chain:
+            client = self._get_client(entry.provider)
+            kwargs = build_kwargs(entry)
+            try:
+                logger.info(
+                    "LLM call: provider=%s model=%s response_model=%s",
+                    entry.provider.value,
+                    entry.model,
+                    response_model.__name__,
+                )
+                result = await client.chat.completions.create(
+                    model=entry.model,
+                    response_model=response_model,
+                    max_retries=MAX_LLM_RETRIES,
+                    **kwargs,
+                )
+                logger.info(
+                    "LLM call completed: provider=%s model=%s",
+                    entry.provider.value,
+                    entry.model,
+                )
+                return result  # type: ignore[return-value]
+            except Exception as e:
+                last_exc = e
+                if self._is_quota_error(e):
+                    logger.warning(
+                        "Quota exceeded on %s/%s, trying next",
+                        entry.provider.value,
+                        entry.model,
+                    )
+                    continue
+                # Non-429 → stop immediately
+                break
+        raise HTTPException(502, f"{error_context} is temporarily unavailable.") from last_exc
 
     async def chat_json(
         self,
@@ -54,14 +123,15 @@ class LLMClient:
         if settings.llm_mock:
             return self._mock_response(response_model)
 
-        if settings.llm_provider == LLMProvider.OPENAI:
-            return await self._chat_json_openai(system_prompt, user_prompt, response_model)
+        messages: list[object] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
 
-        if settings.llm_provider == LLMProvider.GEMINI:
-            return await self._chat_json_gemini(system_prompt, user_prompt, response_model)
+        def build_kwargs(entry: ModelEntry) -> dict[str, Any]:
+            return {"messages": messages}
 
-        logger.error("Unsupported LLM provider: %s", settings.llm_provider)
-        raise HTTPException(status_code=500, detail="Meal planning service is misconfigured.")
+        return await self._call_with_fallback(build_kwargs, response_model, "Meal planning service")
 
     async def chat_vision_json(
         self,
@@ -78,230 +148,48 @@ class LLMClient:
         if settings.llm_mock:
             return self._mock_vision_response(response_model)
 
-        if settings.llm_provider == LLMProvider.OPENAI:
-            return await self._chat_vision_openai(
-                system_prompt, user_prompt, image_base64, image_media_type, response_model,
-            )
-
-        if settings.llm_provider == LLMProvider.GEMINI:
-            return await self._chat_vision_gemini(
-                system_prompt, user_prompt, image_base64, image_media_type, response_model,
-            )
-
-        logger.error("Unsupported LLM provider: %s", settings.llm_provider)
-        raise HTTPException(status_code=500, detail="Receipt scanning service is misconfigured.")
-
-
-    async def _chat_json_openai(self, system_prompt: str, user_prompt: str, response_model: Type[T]) -> T:
-        if not self.openai_client:
-            logger.error("OpenAI API key is not configured")
-            raise HTTPException(status_code=500, detail="Meal planning service is misconfigured.")
-
-        # Explicitly define the list type
-        messages = [
-            ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-            ChatCompletionUserMessageParam(role="user", content=user_prompt),
-        ]
-
-        try:
-            logger.info(
-                "LLM call: provider=openai model=%s response_model=%s",
-                settings.openai_model,
-                response_model.__name__,
-            )
-            result = await self.openai_client.chat.completions.create(
-                model=settings.openai_model,
-                response_model=response_model,
-                max_retries=MAX_LLM_RETRIES,
-                messages=messages,
-            )
-            logger.info("LLM call completed: provider=openai model=%s", settings.openai_model)
-            return result
-        except Exception as e:
-            logger.exception("OpenAI API call failed")
-            raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e
-
-
-    @staticmethod
-    def _is_quota_error(exc: Exception) -> bool:
-        """Check if an exception (or its cause chain) is a Gemini 429 rate-limit error."""
-        current: BaseException | None = exc
-        while current is not None:
-            if isinstance(current, GeminiClientError) and getattr(current, "code", None) == 429:
-                return True
-            current = current.__cause__
-        return False
-
-    async def _chat_json_gemini(self, system_prompt: str, user_prompt: str, response_model: Type[T]) -> T:
-        if not self.gemini_client:
-            logger.error("Gemini API key is not configured")
-            raise HTTPException(status_code=500, detail="Meal planning service is misconfigured.")
-
-        messages = [
-            ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-            ChatCompletionUserMessageParam(role="user", content=user_prompt),
-        ]
-
-        try:
-            logger.info(
-                "LLM call: provider=gemini model=%s response_model=%s",
-                settings.gemini_model,
-                response_model.__name__,
-            )
-            result = await self.gemini_client.chat.completions.create(
-                model=settings.gemini_model,
-                response_model=response_model,
-                max_retries=MAX_LLM_RETRIES,
-                messages=messages,
-            )
-            logger.info("LLM call completed: provider=gemini model=%s", settings.gemini_model)
-            return result
-        except Exception as e:
-            if self._is_quota_error(e) and settings.gemini_fallback_model:
-                logger.warning(
-                    "Gemini quota exceeded on %s, retrying with fallback %s",
-                    settings.gemini_model,
-                    settings.gemini_fallback_model,
-                )
-                try:
-                    result = await self.gemini_client.chat.completions.create(
-                        model=settings.gemini_fallback_model,
-                        response_model=response_model,
-                        max_retries=MAX_LLM_RETRIES,
-                        messages=messages,
-                    )
-                    logger.info("Fallback LLM call completed: model=%s", settings.gemini_fallback_model)
-                    return result
-                except Exception as fallback_e:
-                    logger.exception("Fallback model %s also failed", settings.gemini_fallback_model)
-                    raise HTTPException(
-                        status_code=502,
-                        detail="Meal planning service is temporarily unavailable.",
-                    ) from fallback_e
-            logger.exception("Gemini API call failed")
-            raise HTTPException(status_code=502, detail="Meal planning service is temporarily unavailable.") from e
-
-    async def _chat_vision_openai(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        image_base64: str,
-        image_media_type: str,
-        response_model: Type[T],
-    ) -> T:
-        if not self.openai_client:
-            logger.error("OpenAI API key is not configured")
-            raise HTTPException(status_code=500, detail="Receipt scanning service is misconfigured.")
-
-        messages = [
-            ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{image_media_type};base64,{image_base64}",
-                        },
-                    },
-                ],
-            },
-        ]
-
-        try:
-            logger.info(
-                "LLM vision call: provider=openai model=%s response_model=%s",
-                settings.openai_model,
-                response_model.__name__,
-            )
-            result = await self.openai_client.chat.completions.create(
-                model=settings.openai_model,
-                response_model=response_model,
-                max_retries=MAX_LLM_RETRIES,
-                messages=messages,
-            )
-            logger.info("LLM vision call completed: provider=openai model=%s", settings.openai_model)
-            return result
-        except Exception as e:
-            logger.exception("OpenAI vision API call failed")
-            raise HTTPException(status_code=502, detail="Receipt scanning service is temporarily unavailable.") from e
-
-    async def _chat_vision_gemini(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        image_base64: str,
-        image_media_type: str,
-        response_model: Type[T],
-    ) -> T:
-        if not self.gemini_client:
-            logger.error("Gemini API key is not configured")
-            raise HTTPException(status_code=500, detail="Receipt scanning service is misconfigured.")
-
-        import base64
         image_bytes = base64.b64decode(image_base64)
 
-        # Gemini's Instructor wrapper requires native genai Content/Part objects
-        # for multimodal input — OpenAI-style dicts with image_url are not supported.
-        messages = [
-            ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-            genai_types.Content(
-                role="user",
-                parts=[
-                    genai_types.Part(text=user_prompt),
-                    genai_types.Part(
-                        inline_data=genai_types.Blob(
-                            mime_type=image_media_type,
-                            data=image_bytes,
-                        )
+        def build_kwargs(entry: ModelEntry) -> dict[str, Any]:
+            if entry.provider == LLMProvider.OPENAI:
+                return {
+                    "messages": [
+                        ChatCompletionSystemMessageParam(role="system", content=system_prompt),
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": user_prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{image_media_type};base64,{image_base64}",
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }
+            # Gemini: native genai Content/Part objects for multimodal input
+            return {
+                "messages": [
+                    ChatCompletionSystemMessageParam(role="system", content=system_prompt),
+                    genai_types.Content(
+                        role="user",
+                        parts=[
+                            genai_types.Part(text=user_prompt),
+                            genai_types.Part(
+                                inline_data=genai_types.Blob(
+                                    mime_type=image_media_type,
+                                    data=image_bytes,
+                                )
+                            ),
+                        ],
                     ),
                 ],
-            ),
-        ]
+                "safety_settings": [],
+            }
 
-        try:
-            logger.info(
-                "LLM vision call: provider=gemini model=%s response_model=%s",
-                settings.gemini_model,
-                response_model.__name__,
-            )
-            # Pass safety_settings as an explicit list to prevent Instructor
-            # from auto-injecting unsupported HARM_CATEGORY_IMAGE_* categories.
-            result = await self.gemini_client.chat.completions.create(
-                model=settings.gemini_model,
-                response_model=response_model,
-                max_retries=MAX_LLM_RETRIES,
-                messages=messages,
-                safety_settings=[],
-            )
-            logger.info("LLM vision call completed: provider=gemini model=%s", settings.gemini_model)
-            return result
-        except Exception as e:
-            if self._is_quota_error(e) and settings.gemini_fallback_model:
-                logger.warning(
-                    "Gemini vision quota exceeded on %s, retrying with fallback %s",
-                    settings.gemini_model,
-                    settings.gemini_fallback_model,
-                )
-                try:
-                    result = await self.gemini_client.chat.completions.create(
-                        model=settings.gemini_fallback_model,
-                        response_model=response_model,
-                        max_retries=MAX_LLM_RETRIES,
-                        messages=messages,
-                        safety_settings=[],
-                    )
-                    logger.info("Fallback vision call completed: model=%s", settings.gemini_fallback_model)
-                    return result
-                except Exception as fallback_e:
-                    logger.exception("Fallback model %s also failed", settings.gemini_fallback_model)
-                    raise HTTPException(
-                        status_code=502,
-                        detail="Receipt scanning service is temporarily unavailable.",
-                    ) from fallback_e
-            logger.exception("Gemini vision API call failed")
-            raise HTTPException(status_code=502, detail="Receipt scanning service is temporarily unavailable.") from e
+        return await self._call_with_fallback(build_kwargs, response_model, "Receipt scanning service")
 
     @staticmethod
     def _mock_response(response_model: Type[T]) -> T:
