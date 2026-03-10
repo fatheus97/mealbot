@@ -1,3 +1,4 @@
+from typing import Literal
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
@@ -10,10 +11,12 @@ from app.models.plan_models import (
     StockItemDTO,
 )
 
+MealType = Literal["breakfast", "lunch", "dinner", "snack"]
+
 
 def _fake_day(num_meals: int = 1) -> SingleDayResponse:
     """Create a fake day with the given number of meals."""
-    meal_types = ["breakfast", "lunch", "dinner"]
+    meal_types: list[MealType] = ["breakfast", "lunch", "dinner"]
     meals = []
     for i in range(num_meals):
         meals.append(

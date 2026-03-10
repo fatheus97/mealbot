@@ -54,7 +54,7 @@ async def list_plans(
     result = await session.execute(
         select(MealPlan)
         .where(MealPlan.user_id == current_user.id, MealPlan.confirmed_at.is_not(None))  # type: ignore[union-attr]
-        .order_by(MealPlan.created_at.desc())
+        .order_by(MealPlan.created_at.desc())  # type: ignore[attr-defined]
     )
     plans = result.scalars().all()
 
@@ -62,20 +62,20 @@ async def list_plans(
     for plan in plans:
         # Count total and cooked meal entries
         total_result = await session.execute(
-            select(func.count()).where(MealEntry.meal_plan_id == plan.id)
+            select(func.count()).where(MealEntry.meal_plan_id == plan.id)  # type: ignore[arg-type]
         )
         total_meals = total_result.scalar() or 0
 
         cooked_result = await session.execute(
             select(func.count()).where(
-                MealEntry.meal_plan_id == plan.id,
-                MealEntry.cooked_at.is_not(None),
+                MealEntry.meal_plan_id == plan.id,  # type: ignore[arg-type]
+                MealEntry.cooked_at.is_not(None),  # type: ignore[union-attr]
             )
         )
         cooked_meals = cooked_result.scalar() or 0
 
         summaries.append(MealPlanSummary(
-            id=plan.id,
+            id=plan.id,  # type: ignore[arg-type]
             created_at=plan.created_at,
             days=plan.days,
             meals_per_day=plan.meals_per_day,
@@ -130,7 +130,7 @@ async def delete_plan(
 
     # Delete meal entries first (no cascade in SQLModel by default)
     await session.execute(
-        delete(MealEntry).where(MealEntry.meal_plan_id == plan_id)
+        delete(MealEntry).where(MealEntry.meal_plan_id == plan_id)  # type: ignore[arg-type]
     )
     await session.delete(plan)
     await session.commit()
@@ -144,7 +144,7 @@ async def delete_plan(
 async def plan_meals_for_user(
     request: Request,
     days: int = Query(ge=1, le=7, description="Number of days to plan (1-7)"),
-    payload: MealPlanRequest = ...,
+    payload: MealPlanRequest = ...,  # type: ignore[assignment]
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> MealPlanResponse:
@@ -220,8 +220,8 @@ async def plan_meals_for_user(
     # Clean up old unconfirmed plans before saving a new one
     await session.execute(
         delete(MealEntry).where(
-            MealEntry.user_id == current_user.id,
-            MealEntry.meal_plan_id.in_(  # type: ignore[union-attr]
+            MealEntry.user_id == current_user.id,  # type: ignore[arg-type]
+            MealEntry.meal_plan_id.in_(  # type: ignore[union-attr,attr-defined]
                 select(MealPlan.id).where(
                     MealPlan.user_id == current_user.id,
                     MealPlan.confirmed_at.is_(None),  # type: ignore[union-attr]
@@ -231,7 +231,7 @@ async def plan_meals_for_user(
     )
     await session.execute(
         delete(MealPlan).where(
-            MealPlan.user_id == current_user.id,
+            MealPlan.user_id == current_user.id,  # type: ignore[arg-type]
             MealPlan.confirmed_at.is_(None),  # type: ignore[union-attr]
         )
     )
@@ -340,7 +340,7 @@ async def regenerate_plan(
         past_meals.extend(m.name for m in frozen_only)
 
         # Determine which meal_type slots to regenerate
-        slots_to_generate = [day.meals[i].meal_type for i in unfrozen_indices]
+        slots_to_generate: list[str] = [day.meals[i].meal_type for i in unfrozen_indices]
 
         # Build request for partial generation
         day_req = original_req.model_copy()
@@ -478,7 +478,7 @@ async def cook_meal(
         await session.refresh(entry)
 
     return MealEntrySummary(
-        id=entry.id,
+        id=entry.id,  # type: ignore[arg-type]
         day_index=entry.day_index,
         meal_index=entry.meal_index,
         name=entry.name,
@@ -522,7 +522,7 @@ async def rate_meal(
     await session.refresh(entry)
 
     return MealEntrySummary(
-        id=entry.id,
+        id=entry.id,  # type: ignore[arg-type]
         day_index=entry.day_index,
         meal_index=entry.meal_index,
         name=entry.name,
@@ -565,7 +565,7 @@ async def uncook_meal(
         await session.refresh(entry)
 
     return MealEntrySummary(
-        id=entry.id,
+        id=entry.id,  # type: ignore[arg-type]
         day_index=entry.day_index,
         meal_index=entry.meal_index,
         name=entry.name,
@@ -591,13 +591,13 @@ async def list_meal_entries(
     result = await session.execute(
         select(MealEntry)
         .where(MealEntry.meal_plan_id == plan_id)
-        .order_by(MealEntry.day_index, MealEntry.meal_index)
+        .order_by(MealEntry.day_index, MealEntry.meal_index)  # type: ignore[arg-type]
     )
     entries = result.scalars().all()
 
     return [
         MealEntrySummary(
-            id=entry.id,
+            id=entry.id,  # type: ignore[arg-type]
             day_index=entry.day_index,
             meal_index=entry.meal_index,
             name=entry.name,

@@ -19,7 +19,7 @@ def get_embedding_model() -> TextEmbedding:
 
 def _row_to_recipe(row: RecipeRow) -> Recipe:
     return Recipe(
-        id=row.id,
+        id=row.id,  # type: ignore[arg-type]
         title=row.title,
         ingredients=[p.strip() for p in row.ingredients_text.split(";") if p.strip()],
         steps=[s for s in row.steps_text.splitlines() if s.strip()],

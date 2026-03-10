@@ -1,4 +1,9 @@
+from __future__ import annotations
+
+import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 from jinja2.sandbox import SandboxedEnvironment
 from jinja2 import FileSystemLoader
 
@@ -6,7 +11,8 @@ from app.llm.client import llm_client
 from app.models.plan_models import MealPlanRequest, PlannedMeal, SingleDayResponse
 from app.services.recipe_retriever import retrieve_recipes
 
-import logging
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 _prompts_env = SandboxedEnvironment(
@@ -66,9 +72,7 @@ async def generate_partial_day(
     return response
 
 
-async def generate_single_day_rag(req: MealPlanRequest, session: "AsyncSession") -> SingleDayResponse:
-    from sqlalchemy.ext.asyncio import AsyncSession  # noqa: F811
-
+async def generate_single_day_rag(req: MealPlanRequest, session: AsyncSession) -> SingleDayResponse:
     # Build retrieval query
     query_parts = []
     if req.taste_preferences:

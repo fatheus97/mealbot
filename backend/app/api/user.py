@@ -79,7 +79,8 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 3. Generate the JWT
+    # 3. Generate the JWT (user exists and was fetched from DB, so id is always set)
+    assert user.id is not None
     access_token = create_access_token(subject=user.id)
 
     # 4. Return the Token schema

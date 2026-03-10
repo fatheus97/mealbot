@@ -23,14 +23,14 @@ async def get_meal_history(
     stmt = (
         select(MealEntry)
         .where(MealEntry.user_id == current_user.id)
-        .order_by(desc(MealEntry.created_at)) # type: ignore[call-overload]
+        .order_by(desc(MealEntry.created_at))  # type: ignore[arg-type]
         .limit(limit)
     )
     result = await session.execute(stmt)
     entries = result.scalars().all()
     return [
         MealHistoryItem(
-            meal_entry_id=e.id,
+            meal_entry_id=e.id,  # type: ignore[arg-type]
             meal_plan_id=e.meal_plan_id,
             day_index=e.day_index,
             meal_index=e.meal_index,
