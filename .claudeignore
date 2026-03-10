@@ -10,3 +10,16 @@ frontend/.next/
 **/.DS_Store
 .env
 .env.local
+
+# Add these
+**/.git/
+**/build/
+**/*.log
+**/*.sqlite3
+**/htmlcov/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.coverage
+**/package-lock.json
+**/poetry.lock
+**/*.egg-info/

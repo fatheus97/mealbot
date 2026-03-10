@@ -28,7 +28,9 @@ You are allergic to "happy path" programming, spaghetti code, and over-engineeri
 - `docker compose logs -f backend` — tail backend logs
 
 ## Code Standards
-- **Type Safety:** Strict type hints everywhere. No `Any` types. Use Pydantic models.
+- **Type Safety:** 
+  - All new code must pass mypy strict mode.
+  - No `Any` types. Use Pydantic models.
 - **Error Handling:** Every external call (API, DB, LLM) needs try/except with specific exceptions.
 - **Security:** All user input is assumed malicious. Validate and sanitize everything.
 - **Async:** Use async/await correctly. Never block the event loop.
