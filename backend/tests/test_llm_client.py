@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from fastapi import HTTPException
 from google.genai.errors import ClientError as GeminiClientError
-from openai import RateLimitError as OpenAIRateLimitError
+from openai import APIStatusError as OpenAIAPIStatusError, RateLimitError as OpenAIRateLimitError
 from pydantic import BaseModel
 
 from app.core.config import ModelEntry, LLMProvider
@@ -27,6 +27,15 @@ def _quota_error_openai() -> OpenAIRateLimitError:
     return OpenAIRateLimitError(
         message="Rate limit exceeded",
         response=MagicMock(status_code=429, headers={}),
+        body=None,
+    )
+
+
+def _payment_required_error() -> OpenAIAPIStatusError:
+    """Create an OpenAI-compatible 402 Payment Required error (e.g. DeepSeek insufficient balance)."""
+    return OpenAIAPIStatusError(
+        message="Insufficient balance",
+        response=MagicMock(status_code=402, headers={}),
         body=None,
     )
 
@@ -58,6 +67,9 @@ class TestMockMode:
     @patch("app.llm.client.settings")
     def test_mock_returns_valid_single_day(self, mock_settings: MagicMock) -> None:
         mock_settings.llm_mock = True
+        mock_settings.openai_api_key = None
+        mock_settings.gemini_api_key = None
+        mock_settings.deepseek_api_key = None
         client = LLMClient()
         result = client._mock_response(SingleDayResponse)
 
@@ -71,6 +83,7 @@ class TestMockMode:
         mock_settings.llm_mock = True
         mock_settings.openai_api_key = None
         mock_settings.gemini_api_key = None
+        mock_settings.deepseek_api_key = None
         client = LLMClient()
 
         result = await client.chat_json(
@@ -115,6 +128,16 @@ class TestIsQuotaError:
         wrapper.__cause__ = _quota_error_openai()
         assert client._is_quota_error(wrapper) is True
 
+    def test_direct_402_payment_required(self) -> None:
+        client = LLMClient()
+        assert client._is_quota_error(_payment_required_error()) is True
+
+    def test_wrapped_402_payment_required(self) -> None:
+        client = LLMClient()
+        wrapper = Exception("Instructor retry exhausted")
+        wrapper.__cause__ = _payment_required_error()
+        assert client._is_quota_error(wrapper) is True
+
 
 class TestFallbackChain:
     """Tests for the unified _call_with_fallback loop."""
@@ -126,6 +149,7 @@ class TestFallbackChain:
         mock_settings.model_chain = _chain("gemini/gemini-2.5-flash", "gemini/gemini-2.5-flash-lite")
         mock_settings.gemini_api_key = "fake-key"
         mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
         expected = _mock_single_day()
@@ -145,6 +169,7 @@ class TestFallbackChain:
         mock_settings.model_chain = _chain("gemini/gemini-2.5-flash", "gemini/gemini-2.5-flash-lite")
         mock_settings.gemini_api_key = "fake-key"
         mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
         expected = _mock_single_day()
@@ -169,6 +194,7 @@ class TestFallbackChain:
         )
         mock_settings.gemini_api_key = "fake-key"
         mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
         expected = _mock_single_day()
@@ -189,6 +215,7 @@ class TestFallbackChain:
         mock_settings.model_chain = _chain("gemini/model-a", "gemini/model-b")
         mock_settings.gemini_api_key = "fake-key"
         mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
         mock_gemini = MagicMock()
@@ -208,6 +235,7 @@ class TestFallbackChain:
         mock_settings.model_chain = _chain("gemini/model-a", "gemini/model-b")
         mock_settings.gemini_api_key = "fake-key"
         mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
         mock_gemini = MagicMock()
@@ -228,6 +256,7 @@ class TestFallbackChain:
         mock_settings.model_chain = _chain("gemini/gemini-2.5-flash", "openai/gpt-4o-mini")
         mock_settings.gemini_api_key = "fake-key"
         mock_settings.openai_api_key = "fake-key"
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
         expected = _mock_single_day()
@@ -245,6 +274,31 @@ class TestFallbackChain:
         assert mock_gemini.chat.completions.create.await_count == 1
         assert mock_openai.chat.completions.create.await_count == 1
 
+    @patch("app.llm.client.settings")
+    async def test_deepseek_402_gemini_fallback(self, mock_settings: MagicMock) -> None:
+        """DeepSeek 402 (insufficient balance) → Gemini succeeds."""
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain("deepseek/deepseek-chat", "gemini/gemini-2.5-flash")
+        mock_settings.gemini_api_key = "fake-key"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = "fake-key"
+
+        client = LLMClient()
+        expected = _mock_single_day()
+
+        mock_deepseek = MagicMock()
+        mock_deepseek.chat.completions.create = AsyncMock(side_effect=_payment_required_error())
+        client.deepseek_client = mock_deepseek
+
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create = AsyncMock(return_value=expected)
+        client.gemini_client = mock_gemini
+
+        result = await client.chat_json("sys", "usr", SingleDayResponse)
+        assert result == expected
+        assert mock_deepseek.chat.completions.create.await_count == 1
+        assert mock_gemini.chat.completions.create.await_count == 1
+
 
 class TestMissingApiKey:
     """Provider in chain but no API key configured → 500."""
@@ -255,6 +309,7 @@ class TestMissingApiKey:
         mock_settings.model_chain = _chain("gemini/gemini-2.5-flash")
         mock_settings.gemini_api_key = None
         mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
 
@@ -269,6 +324,7 @@ class TestMissingApiKey:
         mock_settings.model_chain = _chain("openai/gpt-4o-mini")
         mock_settings.gemini_api_key = None
         mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
 
         client = LLMClient()
 
@@ -276,3 +332,18 @@ class TestMissingApiKey:
             await client.chat_json("sys", "usr", SingleDayResponse)
         assert exc_info.value.status_code == 500
         assert "OpenAI API key" in exc_info.value.detail
+
+    @patch("app.llm.client.settings")
+    async def test_missing_deepseek_key(self, mock_settings: MagicMock) -> None:
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain("deepseek/deepseek-chat")
+        mock_settings.gemini_api_key = None
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        client = LLMClient()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        assert exc_info.value.status_code == 500
+        assert "DeepSeek API key" in exc_info.value.detail

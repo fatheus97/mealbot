@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMProvider(str, Enum):
     OPENAI = "openai"
     GEMINI = "gemini"
+    DEEPSEEK = "deepseek"
 
 
 class ModelEntry(BaseModel):
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     # API keys (still per-provider)
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
+    deepseek_api_key: str | None = None
 
     # When True, LLMClient will return a deterministic fake JSON response
     llm_mock: bool = False

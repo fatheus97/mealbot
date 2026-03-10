@@ -27,10 +27,19 @@ class LLMClient:
     def __init__(self) -> None:
         self.openai_client: instructor.AsyncInstructor | None = None
         self.gemini_client: instructor.AsyncInstructor | None = None
+        self.deepseek_client: instructor.AsyncInstructor | None = None
 
         if settings.openai_api_key:
             self.openai_client = instructor.from_openai(
                 AsyncOpenAI(api_key=settings.openai_api_key, timeout=60.0)
+            )
+        if settings.deepseek_api_key:
+            self.deepseek_client = instructor.from_openai(
+                AsyncOpenAI(
+                    api_key=settings.deepseek_api_key,
+                    base_url="https://api.deepseek.com",
+                    timeout=60.0,
+                )
             )
         if settings.gemini_api_key:
             # Instructor seamlessly wraps the new google-genai client
@@ -52,18 +61,26 @@ class LLMClient:
             if not self.openai_client:
                 raise HTTPException(500, "OpenAI API key not configured")
             return self.openai_client
+        if provider == LLMProvider.DEEPSEEK:
+            if not self.deepseek_client:
+                raise HTTPException(500, "DeepSeek API key not configured")
+            return self.deepseek_client
         raise HTTPException(500, "Unsupported provider")
+
+    # HTTP status codes that indicate quota/billing exhaustion and should
+    # trigger fallback to the next provider in the chain.
+    _FALLBACK_STATUS_CODES = {429, 402}
 
     @staticmethod
     def _is_quota_error(exc: Exception) -> bool:
-        """Check if an exception (or its cause chain) is a 429 rate-limit error."""
+        """Check if an exception (or its cause chain) is a quota/billing error (429 or 402)."""
         current: BaseException | None = exc
         while current is not None:
-            if isinstance(current, GeminiClientError) and getattr(current, "code", None) == 429:
+            if isinstance(current, GeminiClientError) and getattr(current, "code", None) in LLMClient._FALLBACK_STATUS_CODES:
                 return True
             if isinstance(current, OpenAIRateLimitError):
                 return True
-            if isinstance(current, OpenAIAPIStatusError) and current.status_code == 429:
+            if isinstance(current, OpenAIAPIStatusError) and current.status_code in LLMClient._FALLBACK_STATUS_CODES:
                 return True
             current = current.__cause__
         return False
@@ -102,9 +119,10 @@ class LLMClient:
                 last_exc = e
                 if self._is_quota_error(e):
                     logger.warning(
-                        "Quota exceeded on %s/%s, trying next",
+                        "Quota/billing error on %s/%s, trying next: %s",
                         entry.provider.value,
                         entry.model,
+                        e,
                     )
                     continue
                 # Non-429 → stop immediately
@@ -151,7 +169,7 @@ class LLMClient:
         image_bytes = base64.b64decode(image_base64)
 
         def build_kwargs(entry: ModelEntry) -> dict[str, Any]:
-            if entry.provider == LLMProvider.OPENAI:
+            if entry.provider in (LLMProvider.OPENAI, LLMProvider.DEEPSEEK):
                 return {
                     "messages": [
                         ChatCompletionSystemMessageParam(role="system", content=system_prompt),
