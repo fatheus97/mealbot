@@ -228,9 +228,9 @@ async def subtract_ingredients_from_fridge(
         key = item.name.strip().lower()
         by_name.setdefault(key, []).append(item)
 
-    # Sort each group: earliest expiration first, None last
+    # Sort each group: earliest expiration first, None last; smaller qty first for same date
     for batches in by_name.values():
-        batches.sort(key=lambda x: (x.expiration_date is None, x.expiration_date or date.max))
+        batches.sort(key=lambda x: (x.expiration_date is None, x.expiration_date or date.max, x.quantity_grams))
 
     for ing in ingredients:
         key = ing.name.strip().lower()

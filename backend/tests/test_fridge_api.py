@@ -209,3 +209,54 @@ class TestFIFOSubtraction:
         assert len(result) == 1  # first batch removed (qty=0)
         assert result[0].quantity_grams == 350
         assert result[0].expiration_date == date(2026, 3, 20)
+
+    async def test_fifo_same_date_consumes_smaller_batch_first(
+        self, client: AsyncClient, auth_headers: dict, test_user, db_session
+    ):
+        """FIFO: same expiration date → smaller batch consumed first."""
+        from app.api.fridge import subtract_ingredients_from_fridge, replace_fridge_items
+        from app.models.plan_models import StockItemDTO, IngredientAmount
+
+        assert test_user.id is not None
+        user_id = test_user.id
+        # Insert larger batch first to prove sorting picks the smaller one
+        items = [
+            StockItemDTO(name="milk", quantity_grams=300, expiration_date=date(2026, 3, 15)),
+            StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 15)),
+        ]
+        await replace_fridge_items(db_session, user_id, items)
+
+        # Deduct 250: should exhaust smaller batch (200) first, then take 50 from larger (300 → 250)
+        result = await subtract_ingredients_from_fridge(
+            db_session, user_id,
+            [IngredientAmount(name="milk", quantity_grams=250)],
+        )
+        assert len(result) == 1
+        assert result[0].quantity_grams == 250
+        assert result[0].expiration_date == date(2026, 3, 15)
+
+    async def test_fifo_same_date_partial_deduction(
+        self, client: AsyncClient, auth_headers: dict, test_user, db_session
+    ):
+        """FIFO: partial deduction from same-date batches takes from smaller batch."""
+        from app.api.fridge import subtract_ingredients_from_fridge, replace_fridge_items
+        from app.models.plan_models import StockItemDTO, IngredientAmount
+
+        assert test_user.id is not None
+        user_id = test_user.id
+        # Insert larger batch first to prove sorting picks the smaller one
+        items = [
+            StockItemDTO(name="milk", quantity_grams=300, expiration_date=date(2026, 3, 15)),
+            StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 15)),
+        ]
+        await replace_fridge_items(db_session, user_id, items)
+
+        # Deduct 100: should reduce smaller batch (200 → 100), larger untouched (300)
+        result = await subtract_ingredients_from_fridge(
+            db_session, user_id,
+            [IngredientAmount(name="milk", quantity_grams=100)],
+        )
+        milk_items = sorted(result, key=lambda x: x.quantity_grams)
+        assert len(milk_items) == 2
+        assert milk_items[0].quantity_grams == 100  # smaller batch reduced
+        assert milk_items[1].quantity_grams == 300  # larger batch untouched
