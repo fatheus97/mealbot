@@ -1,13 +1,14 @@
 import re
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 
 class StockItemDTO(BaseModel):
     name: str
     quantity_grams: float
     need_to_use: bool = Field(default=False)
+    expiration_date: date | None = None
 
 
 class MealPlanRequest(BaseModel):
@@ -149,6 +150,12 @@ class ScannedReceiptItem(BaseModel):
         ...,
         description="'ingredient' for items you cook with, 'ready_to_eat' for snacks/desserts/drinks",
     )
+    shelf_life_days: int = Field(
+        ...,
+        ge=0,
+        le=730,
+        description="Estimated days from purchase until typical expiration when stored properly",
+    )
 
     @field_validator("quantity_grams")
     @classmethod
@@ -162,6 +169,10 @@ class ScannedReceiptItem(BaseModel):
 
 class ReceiptScanResponse(BaseModel):
     """LLM response model for receipt extraction."""
+    purchase_date: date | None = Field(
+        default=None,
+        description="Transaction date from the receipt (YYYY-MM-DD). None if not visible.",
+    )
     items: List[ScannedReceiptItem]
 
 
@@ -171,6 +182,7 @@ class ScannedItemDTO(BaseModel):
     quantity_grams: float
     need_to_use: bool = False
     item_type: Literal["ingredient", "ready_to_eat"]
+    expiration_date: date | None = None
 
 
 class NormalizedName(BaseModel):

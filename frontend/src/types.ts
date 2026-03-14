@@ -94,6 +94,7 @@ export interface StockItem {
   quantity_grams: number;
   need_to_use: boolean;
   item_type?: ScannedItemType;
+  expiration_date?: string | null;
 }
 
 export interface LoginResponse {

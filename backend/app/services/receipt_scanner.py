@@ -159,6 +159,7 @@ async def normalize_item_names(
             name=name_map.get(item.name, item.name),
             quantity_grams=item.quantity_grams,
             item_type=item.item_type,
+            shelf_life_days=item.shelf_life_days,
         )
         for item in scanned_items
     ]

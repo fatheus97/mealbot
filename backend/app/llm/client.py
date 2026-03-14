@@ -228,11 +228,12 @@ class LLMClient:
     def _mock_vision_response(response_model: Type[T]) -> T:
         """Deterministic fake response for vision/receipt scanning in development."""
         return response_model.model_validate({
+            "purchase_date": "2026-03-10",
             "items": [
-                {"name": "chicken breast", "quantity_grams": 500, "item_type": "ingredient"},
-                {"name": "rice", "quantity_grams": 1000, "item_type": "ingredient"},
-                {"name": "olive oil", "quantity_grams": 500, "item_type": "ingredient"},
-                {"name": "chocolate bar", "quantity_grams": 100, "item_type": "ready_to_eat"},
+                {"name": "chicken breast", "quantity_grams": 500, "item_type": "ingredient", "shelf_life_days": 3},
+                {"name": "rice", "quantity_grams": 1000, "item_type": "ingredient", "shelf_life_days": 365},
+                {"name": "olive oil", "quantity_grams": 500, "item_type": "ingredient", "shelf_life_days": 540},
+                {"name": "chocolate bar", "quantity_grams": 100, "item_type": "ready_to_eat", "shelf_life_days": 180},
             ]
         })
 
