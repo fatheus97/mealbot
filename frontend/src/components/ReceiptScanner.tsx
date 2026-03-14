@@ -14,6 +14,7 @@ interface ReviewItem {
   existingQty: number;
   needToUse: boolean;
   itemType?: ScannedItemType;
+  expirationDate: string | null;
 }
 
 export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
@@ -36,22 +37,25 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     try {
       const scannedItems = await scanMutation.mutateAsync(file);
 
-      // Build lookup from current fridge (case-insensitive)
+      // Build lookup from current fridge by (name, expiration_date) compound key
       const fridgeLookup = new Map<string, StockItem>();
       for (const item of currentFridge) {
-        fridgeLookup.set(item.name.trim().toLowerCase(), item);
+        const compoundKey = `${item.name.trim().toLowerCase()}|${item.expiration_date ?? ""}`;
+        fridgeLookup.set(compoundKey, item);
       }
 
       // Build review items with delta info
       const items: ReviewItem[] = scannedItems.map((scanned) => {
-        const key = scanned.name.trim().toLowerCase();
-        const existing = fridgeLookup.get(key);
+        const expDate = scanned.expiration_date ?? null;
+        const compoundKey = `${scanned.name.trim().toLowerCase()}|${expDate ?? ""}`;
+        const existing = fridgeLookup.get(compoundKey);
         return {
           name: scanned.name,
           addedQty: scanned.quantity_grams,
           existingQty: existing?.quantity_grams ?? 0,
           needToUse: existing?.need_to_use ?? false,
           itemType: scanned.item_type,
+          expirationDate: expDate,
         };
       });
 
@@ -68,6 +72,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       name: item.name,
       quantity_grams: item.addedQty,
       need_to_use: item.needToUse,
+      expiration_date: item.expirationDate,
     }));
 
     try {
@@ -149,6 +154,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                   <th>Ingredient</th>
                   <th>Type</th>
                   <th>Added Qty (g)</th>
+                  <th>Expires</th>
                   <th>Result</th>
                   <th>Need to use?</th>
                   <th>Action</th>
@@ -184,6 +190,14 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                           value={item.addedQty}
                           onChange={(e) => updateReviewItem(index, "addedQty", parseInt(e.target.value) || 0)}
                           style={{ width: "80px" }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          value={item.expirationDate ?? ""}
+                          onChange={(e) => updateReviewItem(index, "expirationDate", e.target.value || null)}
+                          style={{ width: "130px" }}
                         />
                       </td>
                       <td style={{ color: isNew ? "#4ade80" : "inherit" }}>

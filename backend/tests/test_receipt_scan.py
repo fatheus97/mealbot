@@ -1,4 +1,5 @@
 import io
+from datetime import date, timedelta
 from typing import List
 from unittest.mock import AsyncMock, patch
 
@@ -16,10 +17,11 @@ from app.models.plan_models import (
 
 
 MOCK_SCAN_RESULT = ReceiptScanResponse(
+    purchase_date=date(2026, 3, 10),
     items=[
-        ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient"),
-        ScannedReceiptItem(name="rice", quantity_grams=1000, item_type="ingredient"),
-        ScannedReceiptItem(name="chocolate bar", quantity_grams=100, item_type="ready_to_eat"),
+        ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
+        ScannedReceiptItem(name="rice", quantity_grams=1000, item_type="ingredient", shelf_life_days=365),
+        ScannedReceiptItem(name="chocolate bar", quantity_grams=100, item_type="ready_to_eat", shelf_life_days=180),
     ]
 )
 
@@ -68,7 +70,34 @@ class TestScanEndpoint:
         by_name = {item["name"]: item for item in data}
         assert by_name["chicken breast"]["item_type"] == "ingredient"
         assert by_name["chocolate bar"]["item_type"] == "ready_to_eat"
+        # Verify expiration_date = purchase_date + shelf_life_days
+        assert by_name["chicken breast"]["expiration_date"] == "2026-03-13"  # +3 days
+        assert by_name["rice"]["expiration_date"] == "2027-03-10"  # +365 days
         mock_extract.assert_awaited_once()
+
+    @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
+    @patch(
+        "app.api.fridge.extract_items_from_receipt",
+        new_callable=AsyncMock,
+        return_value=ReceiptScanResponse(
+            purchase_date=None,
+            items=[
+                ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
+            ],
+        ),
+    )
+    async def test_scan_no_purchase_date_defaults_to_today(
+        self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
+    ):
+        buf = _fake_jpeg()
+        resp = await client.post(
+            "/api/fridge/scan",
+            files={"file": ("receipt.jpg", buf, "image/jpeg")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        expected_date = (date.today() + timedelta(days=3)).isoformat()
+        assert data[0]["expiration_date"] == expected_date
 
     async def test_scan_invalid_file_type(self, client: AsyncClient):
         buf = io.BytesIO(b"plain text content")
@@ -294,26 +323,33 @@ class TestSnackFiltering:
 
 class TestScannedReceiptItemValidation:
     def test_valid_item(self):
-        item = ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient")
+        item = ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3)
         assert item.name == "chicken breast"
         assert item.quantity_grams == 500
         assert item.item_type == "ingredient"
+        assert item.shelf_life_days == 3
 
     def test_ready_to_eat_item(self):
-        item = ScannedReceiptItem(name="chocolate bar", quantity_grams=100, item_type="ready_to_eat")
+        item = ScannedReceiptItem(name="chocolate bar", quantity_grams=100, item_type="ready_to_eat", shelf_life_days=180)
         assert item.item_type == "ready_to_eat"
 
     def test_zero_quantity_rejected(self):
         with pytest.raises(ValueError, match="positive"):
-            ScannedReceiptItem(name="chicken", quantity_grams=0, item_type="ingredient")
+            ScannedReceiptItem(name="chicken", quantity_grams=0, item_type="ingredient", shelf_life_days=3)
 
     def test_negative_quantity_rejected(self):
         with pytest.raises(ValueError, match="positive"):
-            ScannedReceiptItem(name="chicken", quantity_grams=-100, item_type="ingredient")
+            ScannedReceiptItem(name="chicken", quantity_grams=-100, item_type="ingredient", shelf_life_days=3)
 
     def test_unrealistic_quantity_rejected(self):
         with pytest.raises(ValueError, match="50kg"):
-            ScannedReceiptItem(name="chicken", quantity_grams=60_000, item_type="ingredient")
+            ScannedReceiptItem(name="chicken", quantity_grams=60_000, item_type="ingredient", shelf_life_days=3)
+
+    def test_shelf_life_days_bounds(self):
+        with pytest.raises(ValueError):
+            ScannedReceiptItem(name="chicken", quantity_grams=500, item_type="ingredient", shelf_life_days=-1)
+        with pytest.raises(ValueError):
+            ScannedReceiptItem(name="chicken", quantity_grams=500, item_type="ingredient", shelf_life_days=731)
 
 
 class TestNameNormalization:
@@ -322,7 +358,7 @@ class TestNameNormalization:
     async def test_mock_mode_returns_unchanged(self):
         """When llm_mock=True, items are returned as-is."""
         items = [
-            ScannedReceiptItem(name="ground mixed meat", quantity_grams=500, item_type="ingredient"),
+            ScannedReceiptItem(name="ground mixed meat", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
         ]
         with patch("app.services.receipt_scanner.settings") as mock_settings:
             mock_settings.llm_mock = True
@@ -334,7 +370,7 @@ class TestNameNormalization:
     async def test_normalizes_to_fridge_name(self):
         """Scanned 'ground mixed meat' with fridge 'minced meat' → normalized to 'minced meat'."""
         items = [
-            ScannedReceiptItem(name="ground mixed meat", quantity_grams=500, item_type="ingredient"),
+            ScannedReceiptItem(name="ground mixed meat", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
         ]
         mock_response = NormalizationResponse(items=[
             NormalizedName(original="ground mixed meat", normalized="minced meat"),
@@ -348,12 +384,13 @@ class TestNameNormalization:
         assert len(result) == 1
         assert result[0].name == "minced meat"
         assert result[0].quantity_grams == 500
+        assert result[0].shelf_life_days == 3  # preserved through normalization
 
     async def test_self_dedup_same_canonical(self):
         """Multiple scanned synonyms without fridge match → same canonical name."""
         items = [
-            ScannedReceiptItem(name="minced meat", quantity_grams=300, item_type="ingredient"),
-            ScannedReceiptItem(name="ground meat", quantity_grams=500, item_type="ingredient"),
+            ScannedReceiptItem(name="minced meat", quantity_grams=300, item_type="ingredient", shelf_life_days=3),
+            ScannedReceiptItem(name="ground meat", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
         ]
         mock_response = NormalizationResponse(items=[
             NormalizedName(original="minced meat", normalized="minced meat"),
@@ -372,8 +409,8 @@ class TestNameNormalization:
     async def test_different_items_preserved(self):
         """Distinct items like chicken breast vs chicken thigh stay separate."""
         items = [
-            ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient"),
-            ScannedReceiptItem(name="chicken thigh", quantity_grams=400, item_type="ingredient"),
+            ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
+            ScannedReceiptItem(name="chicken thigh", quantity_grams=400, item_type="ingredient", shelf_life_days=3),
         ]
         mock_response = NormalizationResponse(items=[
             NormalizedName(original="chicken breast", normalized="chicken breast"),
@@ -391,8 +428,8 @@ class TestNameNormalization:
     async def test_missing_mapping_keeps_original(self):
         """If LLM drops an item from its response, original name is preserved."""
         items = [
-            ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient"),
-            ScannedReceiptItem(name="rice", quantity_grams=1000, item_type="ingredient"),
+            ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
+            ScannedReceiptItem(name="rice", quantity_grams=1000, item_type="ingredient", shelf_life_days=365),
         ]
         # LLM only returns mapping for chicken breast, drops rice
         mock_response = NormalizationResponse(items=[

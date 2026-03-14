@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional, List
 from sqlalchemy import Index
 from sqlmodel import SQLModel, Field, Relationship, Column, String
@@ -42,6 +42,7 @@ class StockItem(SQLModel, table=True):
     name: str = Field(index=True)
     quantity_grams: float = Field(ge=0)
     need_to_use: bool = Field(default=False, index=True)
+    expiration_date: date | None = Field(default=None, index=True)
 
     user: "User" = Relationship(back_populates="fridge_items")
 

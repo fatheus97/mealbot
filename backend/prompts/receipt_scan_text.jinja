@@ -58,6 +58,11 @@ Other rules:
 - All quantities MUST be in grams.
 - If the text contains no food items, return an empty items list.
 
+Expiration estimation:
+- Extract the purchase/transaction date if visible in the receipt text. Return as `purchase_date` (YYYY-MM-DD format). If not visible, return null.
+- For each item, estimate `shelf_life_days`: the number of days from purchase until typical expiration when stored properly at home (refrigerated for perishables, room temperature for shelf-stable).
+  Examples: chicken breast → 3, whole milk → 7, eggs → 21, fresh spinach → 5, butter → 30, rice → 365, canned tomatoes → 730, ground beef → 3, yogurt → 14, bread → 5, pasta → 365, olive oil → 540, cheese → 21, fresh herbs → 7, frozen vegetables → 180.
+
 Here is the receipt text:
 
 {{ receipt_text }}
