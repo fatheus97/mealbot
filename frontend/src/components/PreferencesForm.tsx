@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { COUNTRIES } from "../data/countries";
+import { LANGUAGES } from "../data/languages";
 import type { Variability } from "../types";
 
 export interface PreferencesFormValues {
   country: string;
+  language: string;
   variability: Variability;
   include_spices: boolean;
   track_snacks: boolean;
@@ -18,13 +20,14 @@ interface PreferencesFormProps {
 
 export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading }: PreferencesFormProps) {
   const [country, setCountry] = useState(initialValues.country);
+  const [language, setLanguage] = useState(initialValues.language);
   const [variability, setVariability] = useState<Variability>(initialValues.variability);
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ country, variability, include_spices: includeSpices, track_snacks: trackSnacks });
+    onSubmit({ country, language, variability, include_spices: includeSpices, track_snacks: trackSnacks });
   };
 
   return (
@@ -44,6 +47,25 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
         <datalist id="country-list">
           {COUNTRIES.map((c) => (
             <option key={c} value={c} />
+          ))}
+        </datalist>
+      </label>
+
+      <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        <span style={{ fontWeight: 600 }}>Language</span>
+        <span style={{ fontSize: "0.85rem", color: "#666" }}>
+          Meal plans, recipes, and ingredient names will be generated in this language
+        </span>
+        <input
+          list="language-list"
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          placeholder="e.g. English, Czech, Spanish..."
+          style={{ padding: "0.5rem", fontSize: "1rem", border: "1px solid #ccc", borderRadius: "4px" }}
+        />
+        <datalist id="language-list">
+          {LANGUAGES.map((l) => (
+            <option key={l} value={l} />
           ))}
         </datalist>
       </label>

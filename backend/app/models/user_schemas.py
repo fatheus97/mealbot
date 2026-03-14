@@ -14,6 +14,7 @@ class UserCreate(UserBase):
 class UserRead(UserBase):
     id: int
     country: Optional[str] = None
+    language: str
     measurement_system: str
     variability: str
     include_spices: bool
@@ -22,6 +23,7 @@ class UserRead(UserBase):
 
 class UserUpdate(SQLModel):
     country: Optional[str] = None
+    language: Optional[str] = None
     measurement_system: Optional[str] = None
     variability: Optional[str] = None
     include_spices: Optional[bool] = None

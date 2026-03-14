@@ -47,6 +47,11 @@ class MealPlanRequest(BaseModel):
         description="Meal names eaten recently (to avoid similar dishes).",
     )
 
+    language: str = Field(
+        default="English",
+        description="Language for all LLM output (meal names, steps, ingredient names).",
+    )
+
     country: Optional[str] = Field(
         default=None,
         description="User country for ingredient availability and local recipes.",

@@ -73,13 +73,16 @@ async def scan_receipt(
         current_user.id, len(file_bytes), "pdf_text" if is_pdf else "image_vision",
     )
 
+    user_language = current_user.language or "English"
+
     if is_pdf:
-        scan_result = await extract_items_from_pdf(pdf_bytes=file_bytes)
+        scan_result = await extract_items_from_pdf(pdf_bytes=file_bytes, language=user_language)
     else:
         image_base64 = base64.b64encode(file_bytes).decode("ascii")
         scan_result = await extract_items_from_receipt(
             image_base64=image_base64,
             image_media_type=file.content_type,
+            language=user_language,
         )
 
     # Normalize scanned names against existing fridge items

@@ -21,6 +21,7 @@ def _to_read(u: User) -> UserRead:
         id=u.id,
         email=u.email,
         country=u.country,
+        language=u.language,
         measurement_system=u.measurement_system,
         variability=u.variability,
         include_spices=u.include_spices,
@@ -112,6 +113,12 @@ async def update_user(
 
     if patch.country is not None:
         current_user.country = patch.country.strip() or None
+
+    if patch.language is not None:
+        lang = patch.language.strip()
+        if not lang or len(lang) > 50:
+            raise HTTPException(status_code=400, detail="Invalid language: must be 1-50 characters")
+        current_user.language = lang
 
     if patch.measurement_system is not None:
         ms = patch.measurement_system.strip().lower()

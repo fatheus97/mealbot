@@ -119,6 +119,7 @@ export interface UserProfile {
   id: number;
   email: string;
   country: string | null;
+  language: string;
   measurement_system: MeasurementSystem;
   variability: Variability;
   include_spices: boolean;

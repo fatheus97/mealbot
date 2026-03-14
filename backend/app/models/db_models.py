@@ -25,6 +25,9 @@ class User(SQLModel, table=True):
     # include spices in shopping list + stock
     include_spices: bool = Field(default=True)
 
+    # preferred output language for LLM responses
+    language: str = Field(default="English")
+
     # include snacks/ready-to-eat items from receipt scans
     track_snacks: bool = Field(default=True)
 
