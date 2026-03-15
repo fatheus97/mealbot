@@ -28,7 +28,8 @@ async def get_fridge(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
-    assert current_user.id is not None
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
     return await get_fridge_items(session, current_user.id)
 
 
@@ -39,7 +40,8 @@ async def put_fridge(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
-    assert current_user.id is not None
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
     return await replace_fridge_items(session, current_user.id, payload)
 
 
@@ -59,7 +61,14 @@ async def scan_receipt(
             detail=f"Invalid file type '{file.content_type}'. Accepted: JPEG, PNG, PDF.",
         )
 
-    # Read and validate size
+    # Early reject based on Content-Length header (avoids reading entire file into RAM)
+    if file.size is not None and file.size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({file.size} bytes). Maximum is {MAX_FILE_SIZE} bytes.",
+        )
+
+    # Read and validate actual size (Content-Length can be spoofed)
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(
@@ -86,7 +95,8 @@ async def scan_receipt(
         )
 
     # Normalize scanned names against existing fridge items
-    assert current_user.id is not None
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
     fridge_items = await get_fridge_items(session, current_user.id)
     items = await normalize_item_names(
         scan_result.items,
@@ -120,7 +130,8 @@ async def merge_fridge_items(
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
     """Merge scanned items into the existing fridge (auto-sum matching names + expiration)."""
-    assert current_user.id is not None
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
     existing = await get_fridge_items(session, current_user.id)
 
     # Build a lookup by (lowercase name, expiration_date) compound key

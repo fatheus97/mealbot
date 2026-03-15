@@ -1,3 +1,4 @@
+import asyncio
 import io
 from pathlib import Path
 
@@ -99,7 +100,7 @@ PDF_SYSTEM_PROMPT = (
 
 async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English") -> ReceiptScanResponse:
     """Extract grocery items from a PDF receipt using text extraction + LLM."""
-    receipt_text = _extract_pdf_text(pdf_bytes)
+    receipt_text = await asyncio.to_thread(_extract_pdf_text, pdf_bytes)
 
     template = _prompts_env.get_template("receipt_scan_text.jinja")
     user_prompt = template.render(receipt_text=receipt_text, language=language)

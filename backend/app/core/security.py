@@ -1,8 +1,12 @@
+import logging
+
 import jwt
 import bcrypt
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 ALGORITHM = "HS256"
 # In a real production app, access tokens expire in 15 minutes.
@@ -13,9 +17,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Checks the plain text password against the stored hash.
     """
-    password_bytes = plain_password.encode('utf-8')
-    hashed_bytes = hashed_password.encode('utf-8')
-    return bcrypt.checkpw(password_bytes, hashed_bytes)
+    try:
+        password_bytes = plain_password.encode('utf-8')
+        hashed_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except (ValueError, TypeError) as exc:
+        logger.warning("Password verification failed due to corrupted hash: %s", exc)
+        return False
 
 def get_password_hash(password: str) -> str:
     """
