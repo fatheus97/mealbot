@@ -41,27 +41,22 @@ Your priorities, IN THIS ORDER, are:
 6) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
 7) Use NON-URGENT stock ingredients.
 {% else %}
-3) Use URGENT stock ingredients so nothing goes to waste.
-4) Keep meals realistic and simple enough for a home cook.
-5) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
-6) Use NON-URGENT stock ingredients.
+3) Keep meals realistic, delicious, and simple for a home cook. Use ANY ingredients you need — you are NOT limited to stock.
+4) Prefer URGENT stock ingredients where they fit naturally. Never force them into a recipe.
+5) Variety and creativity: avoid past meals, repeated ingredients, and samey flavour profiles.
+6) Use NON-URGENT stock ingredients when they make sense.
 {% endif %}
 
 Rules about ingredients:
-— Never use a different form of an ingredient that is already available.
-  EXAMPLE: if the fridge contains "chicken breast", do NOT buy "ground chicken".
-  Instead, either:
-    a) choose a recipe that uses a chicken breast, or
-    b) adapt a recipe that uses ground chicken so it works with a chopped chicken breast.
-— If you use an available ingredient, use the EXACT ingredient name string as given in the fridge list
-  (to support exact matching in downstream logic). Avoid synonyms and pluralisation.
+— If stock has "chicken breast", never buy "ground chicken" — adapt the recipe to use what's available.
+— Use the EXACT ingredient name string from the fridge list (no synonyms, no pluralisation).
 {% if country %}
 — Prefer recipes and non-stock ingredients that are commonly available in {{ country }}.
 {% endif %}
 {% if stock_only %}
 — Do NOT use any ingredients that are not in the fridge list above. Adapt recipes to work with available stock only.
 {% else %}
-— Feel free to use non-stock ingredients to reach realistic and meaningful recipes.
+— Use non-stock ingredients freely. Stock is a nice-to-use, not a constraint.
 {% endif %}
 
 Rules about variety:
@@ -86,11 +81,7 @@ Other rules:
 {% endif %}
 — Create a realistic plan for exactly one day with {{ meals_per_day }} meals
     for exactly {{ people_count }} people.
-— All ingredient amounts MUST be expressed in grams, as numeric values in the
-    field "quantity_grams".
-— Do not write units like "g" in the ingredient name or quantity.
-— Avoid previously eaten meals.
-— Avoid similarity between meals in the plan.
+— All ingredient amounts in grams as numeric "quantity_grams". No units in name or quantity.
 — Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
 
 Output JSON schema (must match exactly):
@@ -113,6 +104,6 @@ Output JSON schema (must match exactly):
 }
 
 — ALL output text (meal names, ingredient names, cooking steps, meal_type_label) MUST be written in {{ language or "English" }}.
-— "meal_type" must ALWAYS be one of the English enum values above. "meal_type_label" is the translated display name (e.g. "Snídaně" for breakfast in Czech).
+— "meal_type" must ALWAYS be one of the English enum values above. "meal_type_label" is the display name in {{ language or "English" }}.
 
 ALWAYS Return ONLY minified JSON. No explanations.

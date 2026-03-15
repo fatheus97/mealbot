@@ -153,7 +153,7 @@ class TestStockOnlyPrompt:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_stock_only_false_no_constraint(self, mock_llm: MagicMock):
-        """When stock_only=False (default), no stock-only constraint in prompt."""
+        """When stock_only=False (default), prompt encourages non-stock ingredients."""
         mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
 
         await generate_single_day(_make_request(stock_only=False))
@@ -161,6 +161,8 @@ class TestStockOnlyPrompt:
         call_kwargs = mock_llm.chat_json.call_args
         user_prompt = call_kwargs.kwargs["user_prompt"]
         assert "STOCK-ONLY MODE" not in user_prompt
+        assert "NOT limited to stock" in user_prompt
+        assert "nice-to-use, not a constraint" in user_prompt
 
     @patch("app.services.meal_planner.llm_client")
     async def test_partial_day_stock_only_constraint(self, mock_llm: MagicMock):
