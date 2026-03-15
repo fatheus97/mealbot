@@ -43,7 +43,7 @@ export async function fetchUserProfile(): Promise<UserProfile> {
 }
 
 export async function updateUserProfile(
-  data: Partial<Pick<UserProfile, "country" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "onboarding_completed">>
+  data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "onboarding_completed">>
 ): Promise<UserProfile> {
   const res = await authFetch("/users", {
     method: "PATCH",

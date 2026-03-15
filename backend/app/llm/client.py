@@ -216,6 +216,7 @@ class LLMClient:
             "meals": [{
                 "name": "Mock spicy chicken with rice",
                 "meal_type": "lunch",
+                "meal_type_label": "Lunch",
                 "ingredients": [
                     {"name": "chicken breast", "quantity_grams": 200},
                     {"name": "rice", "quantity_grams": 100},

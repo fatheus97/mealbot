@@ -118,6 +118,7 @@ class IngredientAmount(BaseModel):
 class PlannedMeal(BaseModel):
     name: str
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
+    meal_type_label: str = ""
     ingredients: List[IngredientAmount]
     steps: List[str]
 

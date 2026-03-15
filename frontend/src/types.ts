@@ -23,6 +23,7 @@ export interface MealPlanRequest {
 export interface PlannedMeal {
   name: string;
   meal_type: "breakfast" | "lunch" | "dinner" | "snack" | string;
+  meal_type_label?: string;
   uses_existing_ingredients: string[];
   ingredients: IngredientAmount[];
   steps: string[];
