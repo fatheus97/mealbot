@@ -81,7 +81,8 @@ async def login(
         )
 
     # 3. Generate the JWT (user exists and was fetched from DB, so id is always set)
-    assert user.id is not None
+    if user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
     access_token = create_access_token(subject=user.id)
 
     # 4. Return the Token schema

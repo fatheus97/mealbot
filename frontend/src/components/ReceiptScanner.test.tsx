@@ -122,7 +122,7 @@ describe('ReceiptScanner', () => {
 
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
-        { name: 'olive oil', quantity_grams: 500, need_to_use: false },
+        { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null },
       ]);
       expect(screen.getByText(/items added to fridge/i)).toBeInTheDocument();
     });

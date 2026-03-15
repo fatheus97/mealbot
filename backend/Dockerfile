@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir --default-timeout=100 -r requirements-dev.txt
 RUN adduser --disabled-password --no-create-home appuser
 
 # 6. Copy the rest of the code
-COPY . .
+COPY --chown=appuser:appuser . .
 
 # 7. Switch to non-root user
 USER appuser

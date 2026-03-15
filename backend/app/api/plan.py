@@ -50,31 +50,29 @@ async def list_plans(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[MealPlanSummary]:
-    """List all plans for the current user with cooking status."""
-    result = await session.execute(
-        select(MealPlan)
-        .where(MealPlan.user_id == current_user.id, MealPlan.confirmed_at.is_not(None))  # type: ignore[union-attr]
+    """List all plans for the current user with cooking status (single query)."""
+    total_count = func.count(MealEntry.id).label("total_meals")  # type: ignore[arg-type]
+    cooked_count = func.count(MealEntry.cooked_at).label("cooked_meals")  # type: ignore[arg-type]
+
+    stmt = (
+        select(
+            MealPlan,
+            total_count,
+            cooked_count,
+        )
+        .outerjoin(MealEntry, MealEntry.meal_plan_id == MealPlan.id)  # type: ignore[arg-type]
+        .where(
+            MealPlan.user_id == current_user.id,
+            MealPlan.confirmed_at.is_not(None),  # type: ignore[union-attr]
+        )
+        .group_by(MealPlan.id)  # type: ignore[arg-type]
         .order_by(MealPlan.created_at.desc())  # type: ignore[attr-defined]
     )
-    plans = result.scalars().all()
+    result = await session.execute(stmt)
+    rows = result.all()
 
-    summaries: List[MealPlanSummary] = []
-    for plan in plans:
-        # Count total and cooked meal entries
-        total_result = await session.execute(
-            select(func.count()).where(MealEntry.meal_plan_id == plan.id)  # type: ignore[arg-type]
-        )
-        total_meals = total_result.scalar() or 0
-
-        cooked_result = await session.execute(
-            select(func.count()).where(
-                MealEntry.meal_plan_id == plan.id,  # type: ignore[arg-type]
-                MealEntry.cooked_at.is_not(None),  # type: ignore[union-attr]
-            )
-        )
-        cooked_meals = cooked_result.scalar() or 0
-
-        summaries.append(MealPlanSummary(
+    return [
+        MealPlanSummary(
             id=plan.id,  # type: ignore[arg-type]
             created_at=plan.created_at,
             days=plan.days,
@@ -84,9 +82,9 @@ async def list_plans(
             total_meals=total_meals,
             cooked_meals=cooked_meals,
             finished_at=plan.finished_at,
-        ))
-
-    return summaries
+        )
+        for plan, total_meals, cooked_meals in rows
+    ]
 
 
 # GET /api/plan/{plan_id} — Get full plan detail

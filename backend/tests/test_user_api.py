@@ -95,6 +95,45 @@ class TestProfile:
         )
         assert resp.status_code == 400
 
+    async def test_patch_onboarding_completed(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"onboarding_completed": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["onboarding_completed"] is True
+
+        # Toggle back
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"onboarding_completed": False},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["onboarding_completed"] is False
+
+    async def test_patch_track_snacks(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"track_snacks": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["track_snacks"] is True
+
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"track_snacks": False},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["track_snacks"] is False
+
     async def test_patch_invalid_measurement(
         self, client: AsyncClient, auth_headers: dict
     ):
