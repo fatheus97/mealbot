@@ -1,8 +1,13 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useFridge, useUpdateFridge } from "../hooks/useServerState";
 import type { StockItem } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
+
+/** StockItem extended with a stable identity for edit-safe rendering. */
+interface EditableStockItem extends StockItem {
+  _editId: number;
+}
 
 interface GroupedItem {
   key: string;
@@ -38,7 +43,9 @@ export function Fridge() {
   const { data: serverFridge, isLoading, error: fetchError } = useFridge(userId);
   const updateFridgeMutation = useUpdateFridge();
 
-  const [fridge, setFridge] = useState<StockItem[]>([]);
+  const nextEditId = useRef(0);
+  const assignId = (): number => nextEditId.current++;
+  const [fridge, setFridge] = useState<EditableStockItem[]>([]);
   const [notice, setNotice] = useState<string>("");
   const [expanded, setExpanded] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -48,14 +55,16 @@ export function Fridge() {
   const [groupOrder, setGroupOrder] = useState<string[]>([]);
 
   /** Build grouped items from the flat fridge array. */
-  const buildGroups = useCallback((items: StockItem[]): GroupedItem[] => {
+  const buildGroups = useCallback((items: EditableStockItem[]): GroupedItem[] => {
     const groups = new Map<string, GroupedItem>();
 
     items.forEach((item, index) => {
       const trimmed = item.name.trim().toLowerCase();
       if (!trimmed) {
-        groups.set(`__blank_${index}`, {
-          key: `__blank_${index}`,
+        // Blank items get a stable key from their _editId
+        const stableKey = `__blank_${item._editId}`;
+        groups.set(stableKey, {
+          key: stableKey,
           displayName: "",
           totalQuantity: item.quantity_grams,
           earliestExpiration: item.expiration_date ?? null,
@@ -68,6 +77,10 @@ export function Fridge() {
 
       const existing = groups.get(trimmed);
       if (existing) {
+        // Merging into a multi-batch group: switch GroupedItem.key to name-based
+        if (existing.batchCount === 1 && existing.key !== trimmed) {
+          existing.key = trimmed;
+        }
         existing.totalQuantity += item.quantity_grams;
         existing.flatIndices.push(index);
         existing.batchCount++;
@@ -81,8 +94,10 @@ export function Fridge() {
           existing.needToUse = true;
         }
       } else {
+        // Single item: use stable _editId key so edits don't change position
+        const stableKey = `__item_${item._editId}`;
         groups.set(trimmed, {
-          key: trimmed,
+          key: stableKey,
           displayName: item.name,
           totalQuantity: item.quantity_grams,
           earliestExpiration: item.expiration_date ?? null,
@@ -119,14 +134,17 @@ export function Fridge() {
   }, []);
 
   /** Recompute and freeze group order from the current fridge state. */
-  const refreshGroupOrder = useCallback((items: StockItem[], key: SortKey, dir: "asc" | "desc") => {
+  const refreshGroupOrder = useCallback((items: EditableStockItem[], key: SortKey, dir: "asc" | "desc") => {
     const groups = buildGroups(items);
     setGroupOrder(sortGroups(groups, key, dir));
   }, [buildGroups, sortGroups]);
 
   useEffect(() => {
     if (serverFridge) {
-      const copy: StockItem[] = JSON.parse(JSON.stringify(serverFridge));
+      const copy: EditableStockItem[] = serverFridge.map(item => ({
+        ...JSON.parse(JSON.stringify(item)),
+        _editId: assignId(),
+      }));
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFridge(copy);
       refreshGroupOrder(copy, sortKey, sortDir);
@@ -155,9 +173,9 @@ export function Fridge() {
   }, [groupedItems, groupOrder]);
 
   const addFridgeItem = () => {
-    const updated = [
+    const updated: EditableStockItem[] = [
       ...fridge,
-      { name: "", quantity_grams: 100, need_to_use: false, expiration_date: null }
+      { name: "", quantity_grams: 100, need_to_use: false, expiration_date: null, _editId: assignId() }
     ];
     setFridge(updated);
     refreshGroupOrder(updated, sortKey, sortDir);
@@ -217,7 +235,9 @@ export function Fridge() {
   const handleSaveFridge = async () => {
     if (!userId) return;
 
-    const cleanedFridge = fridge.filter((item) => item.name.trim() !== "");
+    const cleanedFridge: StockItem[] = fridge
+      .filter((item) => item.name.trim() !== "")
+      .map(({ _editId: _, ...rest }) => rest);
 
     try {
       await updateFridgeMutation.mutateAsync({ userId, items: cleanedFridge });
@@ -246,7 +266,7 @@ export function Fridge() {
     const idx = group.flatIndices[0];
     const item = fridge[idx];
     return (
-      <tr key={group.key} style={{ borderBottom: "1px solid #eee" }}>
+      <tr key={item._editId} style={{ borderBottom: "1px solid #eee" }}>
         <td>
           <input
             type="text"
