@@ -55,6 +55,11 @@ class TestProfile:
         assert body["email"] == TEST_EMAIL
         assert "id" in body
 
+    async def test_get_profile_includes_language(self, client: AsyncClient, auth_headers: dict):
+        resp = await client.get("/api/users", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["language"] == "English"  # default
+
     async def test_patch_profile(self, client: AsyncClient, auth_headers: dict):
         resp = await client.patch(
             "/api/users",
@@ -64,6 +69,31 @@ class TestProfile:
         assert resp.status_code == 200
         assert resp.json()["country"] == "CZ"
         assert resp.json()["measurement_system"] == "metric"
+
+    async def test_patch_language(self, client: AsyncClient, auth_headers: dict):
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"language": "Czech"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["language"] == "Czech"
+
+    async def test_patch_language_empty_rejected(self, client: AsyncClient, auth_headers: dict):
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"language": "   "},
+        )
+        assert resp.status_code == 400
+
+    async def test_patch_language_too_long_rejected(self, client: AsyncClient, auth_headers: dict):
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"language": "A" * 51},
+        )
+        assert resp.status_code == 400
 
     async def test_patch_invalid_measurement(
         self, client: AsyncClient, auth_headers: dict
