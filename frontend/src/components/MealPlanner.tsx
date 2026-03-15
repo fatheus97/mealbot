@@ -331,7 +331,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
                            {isCooked ? "Cooked" : "Not cooked"}
                          </span>
                        )}
-                       <strong>{meal.meal_type.toUpperCase()}:</strong> {meal.name}
+                       <strong>{(meal.meal_type_label || meal.meal_type).toUpperCase()}:</strong> {meal.name}
                        {(isConfirmed || isFinished) && entry && (
                          <StarRating
                            rating={entry.rating}

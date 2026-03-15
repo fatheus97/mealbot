@@ -23,6 +23,7 @@ export interface MealPlanRequest {
 export interface PlannedMeal {
   name: string;
   meal_type: "breakfast" | "lunch" | "dinner" | "snack" | string;
+  meal_type_label?: string;
   uses_existing_ingredients: string[];
   ingredients: IngredientAmount[];
   steps: string[];
@@ -119,6 +120,7 @@ export interface UserProfile {
   id: number;
   email: string;
   country: string | null;
+  language: string;
   measurement_system: MeasurementSystem;
   variability: Variability;
   include_spices: boolean;

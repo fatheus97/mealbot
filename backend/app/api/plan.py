@@ -150,6 +150,7 @@ async def plan_meals_for_user(
 ) -> MealPlanResponse:
 
     payload.country = current_user.country
+    payload.language = current_user.language
 
     ms_raw = (current_user.measurement_system or "metric").strip().lower()
     if ms_raw not in ("none", "metric", "imperial"):

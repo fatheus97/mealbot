@@ -6,6 +6,7 @@ import type { PreferencesFormValues } from './PreferencesForm';
 
 const defaultValues: PreferencesFormValues = {
   country: '',
+  language: 'English',
   variability: 'traditional',
   include_spices: true,
   track_snacks: true,
@@ -21,7 +22,7 @@ describe('PreferencesForm', () => {
       />,
     );
 
-    expect(screen.getByPlaceholderText(/start typing/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/start typing to search/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/traditional/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/experimental/i)).toBeInTheDocument();
     expect(screen.getByText(/include spices/i)).toBeInTheDocument();
@@ -53,7 +54,7 @@ describe('PreferencesForm', () => {
     );
 
     // Type a country
-    const countryInput = screen.getByPlaceholderText(/start typing/i);
+    const countryInput = screen.getByPlaceholderText(/start typing to search/i);
     await user.type(countryInput, 'Germany');
 
     // Select experimental
@@ -68,6 +69,7 @@ describe('PreferencesForm', () => {
 
     expect(onSubmit).toHaveBeenCalledWith({
       country: 'Germany',
+      language: 'English',
       variability: 'experimental',
       include_spices: false,
       track_snacks: true,
@@ -82,6 +84,7 @@ describe('PreferencesForm', () => {
       <PreferencesForm
         initialValues={{
           country: 'France',
+          language: 'English',
           variability: 'traditional',
           include_spices: true,
           track_snacks: true,
@@ -95,6 +98,7 @@ describe('PreferencesForm', () => {
 
     expect(onSubmit).toHaveBeenCalledWith({
       country: 'France',
+      language: 'English',
       variability: 'traditional',
       include_spices: true,
       track_snacks: true,

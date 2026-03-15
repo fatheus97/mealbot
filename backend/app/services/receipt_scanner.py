@@ -38,10 +38,11 @@ SYSTEM_PROMPT = (
 async def extract_items_from_receipt(
     image_base64: str,
     image_media_type: str,
+    language: str = "English",
 ) -> ReceiptScanResponse:
     """Send a receipt image to the LLM and return structured grocery items."""
     template = _prompts_env.get_template("receipt_scan.jinja")
-    user_prompt = template.render()
+    user_prompt = template.render(language=language)
 
     return await llm_client.chat_vision_json(
         system_prompt=SYSTEM_PROMPT,
@@ -96,12 +97,12 @@ PDF_SYSTEM_PROMPT = (
 )
 
 
-async def extract_items_from_pdf(pdf_bytes: bytes) -> ReceiptScanResponse:
+async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English") -> ReceiptScanResponse:
     """Extract grocery items from a PDF receipt using text extraction + LLM."""
     receipt_text = _extract_pdf_text(pdf_bytes)
 
     template = _prompts_env.get_template("receipt_scan_text.jinja")
-    user_prompt = template.render(receipt_text=receipt_text)
+    user_prompt = template.render(receipt_text=receipt_text, language=language)
 
     return await llm_client.chat_json(
         system_prompt=PDF_SYSTEM_PROMPT,

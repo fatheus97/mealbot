@@ -64,7 +64,7 @@ describe('OnboardingModal', () => {
     loginUser();
     render(<OnboardingModal />, { wrapper: createWrapper() });
 
-    expect(screen.getByPlaceholderText(/start typing/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/start typing to search/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/traditional/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/experimental/i)).toBeInTheDocument();
   });
@@ -84,7 +84,7 @@ describe('OnboardingModal', () => {
 
     render(<OnboardingModal />, { wrapper: createWrapper() });
 
-    const countryInput = screen.getByPlaceholderText(/start typing/i);
+    const countryInput = screen.getByPlaceholderText(/start typing to search/i);
     await user.type(countryInput, 'Germany');
 
     await user.click(screen.getByRole('button', { name: /get started/i }));
@@ -92,6 +92,7 @@ describe('OnboardingModal', () => {
     await waitFor(() => {
       expect(mockedUpdateProfile).toHaveBeenCalledWith({
         country: 'Germany',
+        language: 'English',
         variability: 'traditional',
         include_spices: true,
         track_snacks: true,

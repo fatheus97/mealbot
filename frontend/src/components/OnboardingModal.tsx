@@ -11,6 +11,7 @@ export function OnboardingModal() {
     try {
       await mutation.mutateAsync({
         country: values.country || null,
+        language: values.language,
         variability: values.variability,
         include_spices: values.include_spices,
         track_snacks: values.track_snacks,
@@ -52,7 +53,7 @@ export function OnboardingModal() {
           These help us generate meal plans tailored to you.
         </p>
         <PreferencesForm
-          initialValues={{ country: "", variability: "traditional", include_spices: true, track_snacks: true }}
+          initialValues={{ country: "", language: "English", variability: "traditional", include_spices: true, track_snacks: true }}
           onSubmit={handleSubmit}
           submitLabel="Get Started"
           loading={mutation.isPending}

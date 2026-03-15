@@ -148,4 +148,17 @@ class TestMealPlanResponseSerialization:
         assert restored.plan_id == 1
         assert len(restored.days) == 1
         assert restored.days[0].meals[0].name == "Lunch"
+        assert restored.days[0].meals[0].meal_type_label == ""  # default
         assert len(restored.shopping_list) == 1
+
+    def test_meal_type_label_roundtrip(self):
+        meal = PlannedMeal(
+            name="Snídaně s ovocem",
+            meal_type="breakfast",
+            meal_type_label="Snídaně",
+            ingredients=[IngredientAmount(name="ovesné mléko", quantity_grams=500)],
+            steps=["Připravte mléko"],
+        )
+        restored = PlannedMeal.model_validate_json(meal.model_dump_json())
+        assert restored.meal_type == "breakfast"
+        assert restored.meal_type_label == "Snídaně"

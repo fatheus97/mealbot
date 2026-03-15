@@ -16,6 +16,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
     try {
       await mutation.mutateAsync({
         country: values.country || null,
+        language: values.language,
         variability: values.variability,
         include_spices: values.include_spices,
         track_snacks: values.track_snacks,
@@ -78,6 +79,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         <PreferencesForm
           initialValues={{
             country: profile.country ?? "",
+            language: profile.language,
             variability: profile.variability,
             include_spices: profile.include_spices,
             track_snacks: profile.track_snacks,
