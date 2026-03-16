@@ -1,6 +1,6 @@
 import base64
 import logging
-from typing import Any, TypeVar, Type, Callable
+from typing import Any, TypeVar, Type, Callable  # Any: instructor kwargs are inherently untyped
 
 import instructor
 from fastapi import HTTPException

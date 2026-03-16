@@ -691,7 +691,11 @@ def _persist_meal_entries(
     plan_obj: MealPlanResponse,
     cooked_at: datetime | None = None,
 ) -> None:
-    """Stage meal entries into the session. Caller must await session.commit()."""
+    """Stage meal entries into the session. Caller must await session.commit().
+
+    This function is intentionally synchronous. session.add_all() only stages
+    objects in memory — no I/O occurs until the caller awaits session.commit().
+    """
     entries: List[MealEntry] = []
 
     for day_index, day in enumerate(plan_obj.days, start=1):

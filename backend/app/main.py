@@ -4,6 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.plan import router as plan_router
@@ -59,9 +60,13 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+class HealthResponse(BaseModel):
+    status: str
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 #routers

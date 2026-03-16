@@ -5,7 +5,7 @@ from sqlmodel import select
 
 from app.db import get_session
 from app.models.db_models import User
-from app.models.user_schemas import UserCreate, UserRead, UserUpdate, Token
+from app.models.user_schemas import UserCreate, UserRead, UserUpdate, Token, MessageResponse
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.api.deps import get_current_user
 from app.core.rate_limit import limiter
@@ -31,13 +31,13 @@ def _to_read(u: User) -> UserRead:
 
 
 # //api/users/register
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED, response_model=MessageResponse)
 @limiter.limit("5/minute")
 async def register_user(
         request: Request,
         user: UserCreate,
         session: AsyncSession = Depends(get_session)
-):
+) -> MessageResponse:
     # 1. Check if a user already exists
     statement = select(User).where(User.email == user.email)
     result = await session.execute(statement)
@@ -52,7 +52,7 @@ async def register_user(
     await session.commit()
     await session.refresh(db_user)
 
-    return {"message": "User created successfully. Please log in."}
+    return MessageResponse(message="User created successfully. Please log in.")
 
 
 # //api/users/login

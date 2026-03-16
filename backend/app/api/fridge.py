@@ -55,6 +55,11 @@ async def scan_receipt(
 ) -> List[ScannedItemDTO]:
     """Upload a receipt image or PDF and extract grocery items via LLM."""
     # Validate content type
+    if file.content_type is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing Content-Type header. Accepted: JPEG, PNG, PDF.",
+        )
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=422,
