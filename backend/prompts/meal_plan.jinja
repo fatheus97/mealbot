@@ -76,8 +76,9 @@ Other rules:
 {% if include_spices %}
 — Include spices/herbs/seasonings in the JSON ingredient lists when used (e.g. salt, pepper, cumin, paprika, dried herbs, spice blends).
 {% else %}
-— Do NOT include spices/herbs/seasonings in the JSON ingredient lists (and therefore not in the shopping list).
-— Still use them in steps and prefer 'spoon' or 'teaspoon' over grams, e.g. “Use one spoon of salt”.
+— Include spices/herbs/seasonings in the JSON ingredient lists with “is_spice”: true and “quantity_grams”: 1. They are display-only and will be excluded from the shopping list automatically.
+— List all spice ingredients AFTER all non-spice ingredients in each meal's ingredients array.
+— Still prefer 'spoon' or 'teaspoon' over grams in steps, e.g. “Use one spoon of salt”.
 {% endif %}
 — Create a realistic plan for exactly one day with {{ meals_per_day }} meals
     for exactly {{ people_count }} people.
@@ -95,7 +96,8 @@ Output JSON schema (must match exactly):
       "ingredients": [
         {
           "name": <string>,
-          "quantity_grams": <number>
+          "quantity_grams": <number>,
+          "is_spice": <boolean>
         }
       ],
       "steps": [<string>]
@@ -103,6 +105,7 @@ Output JSON schema (must match exactly):
   ]
 }
 
+— Set "is_spice" to true for spices/herbs/seasonings, false for all other ingredients.
 — ALL output text (meal names, ingredient names, cooking steps, meal_type_label) MUST be written in {{ language or "English" }}.
 — "meal_type" must ALWAYS be one of the English enum values above. "meal_type_label" is the display name in {{ language or "English" }}.
 

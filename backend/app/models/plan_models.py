@@ -104,6 +104,7 @@ class IngredientAmount(BaseModel):
     name: str = Field(..., description="The canonical name of the ingredient (e.g., 'chicken breast').")
     quantity_grams: float = Field(...,
                                   description="The weight in grams. If the recipe uses volume (cups), estimate the weight.")
+    is_spice: bool = Field(default=False, description="True for spices/herbs/seasonings when include_spices is off.")
 
     @field_validator("quantity_grams")
     @classmethod

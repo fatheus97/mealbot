@@ -124,3 +124,57 @@ class TestMergeShoppingLists:
     def test_empty_list(self):
         result = merge_shopping_lists([])
         assert result == []
+
+
+# --- spice filtering ---
+
+
+def _spice_meal(ingredients: list[tuple[str, float, bool]]) -> PlannedMeal:
+    """Helper that accepts (name, grams, is_spice) tuples."""
+    return PlannedMeal(
+        name="Test",
+        meal_type="lunch",
+        ingredients=[
+            IngredientAmount(name=n, quantity_grams=g, is_spice=s)
+            for n, g, s in ingredients
+        ],
+        steps=["cook"],
+    )
+
+
+class TestSpiceExclusion:
+    def test_shopping_list_excludes_spices(self):
+        days = [_day([_spice_meal([
+            ("chicken", 300, False),
+            ("cumin", 1, True),
+            ("paprika", 1, True),
+        ])])]
+        result = compute_shopping_list_from_plan(days, [])
+        names = [r.name for r in result]
+        assert "chicken" in names
+        assert "cumin" not in names
+        assert "paprika" not in names
+
+    def test_fridge_subtraction_excludes_spices(self):
+        fridge = [
+            StockItemDTO(name="chicken", quantity_grams=500),
+            StockItemDTO(name="cumin", quantity_grams=50),
+        ]
+        meals = [_spice_meal([
+            ("chicken", 300, False),
+            ("cumin", 1, True),
+        ])]
+        result = subtract_used_from_fridge(fridge, meals)
+        by_name = {r.name: r for r in result}
+        assert by_name["chicken"].quantity_grams == pytest.approx(200.0)
+        # cumin should be untouched — spice flag means it's not subtracted
+        assert by_name["cumin"].quantity_grams == pytest.approx(50.0)
+
+    def test_merge_shopping_lists_excludes_spices(self):
+        items = [
+            IngredientAmount(name="rice", quantity_grams=200),
+            IngredientAmount(name="salt", quantity_grams=1, is_spice=True),
+        ]
+        result = merge_shopping_lists(items)
+        assert len(result) == 1
+        assert result[0].name == "rice"

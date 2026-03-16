@@ -670,18 +670,18 @@ async def finish_plan(
 
 
 def _extract_all_ingredients(plan: MealPlanResponse) -> List[IngredientAmount]:
-    """Collect all ingredients from every meal in the plan."""
+    """Collect all non-spice ingredients from every meal in the plan."""
     result: List[IngredientAmount] = []
     for day in plan.days:
         for meal in day.meals:
-            result.extend(meal.ingredients)
+            result.extend(ing for ing in meal.ingredients if not ing.is_spice)
     return result
 
 
 def _parse_meal_ingredients(entry: MealEntry) -> List[IngredientAmount]:
-    """Parse a MealEntry's JSON back into ingredient list."""
+    """Parse a MealEntry's JSON back into ingredient list (excluding spices)."""
     meal = PlannedMeal.model_validate_json(entry.meal_json)
-    return meal.ingredients
+    return [ing for ing in meal.ingredients if not ing.is_spice]
 
 
 def _persist_meal_entries(

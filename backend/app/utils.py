@@ -16,11 +16,13 @@ def compute_shopping_list_from_plan(
     Any ingredient that is fully covered by the fridge will not appear
     in the shopping list.
     """
-    # Sum required grams per ingredient over all days and meals
+    # Sum required grams per ingredient over all days and meals (skip spices)
     required: dict[str, float] = defaultdict(float)
     for day in days:
         for meal in day.meals:
             for ing in meal.ingredients:
+                if ing.is_spice:
+                    continue
                 key = ing.name.lower()
                 required[key] += ing.quantity_grams
 
@@ -64,6 +66,8 @@ def subtract_used_from_fridge(
 
     for meal in meals:
         for ing in meal.ingredients:
+            if ing.is_spice:
+                continue
             key = ing.name.lower()
             used_grams[key] += ing.quantity_grams
 
@@ -86,6 +90,8 @@ def merge_shopping_lists(items: List[IngredientAmount]) -> List[IngredientAmount
     totals: dict[str, float] = {}
 
     for ing in items:
+        if ing.is_spice:
+            continue
         key = ing.name.lower()
         totals[key] = totals.get(key, 0.0) + ing.quantity_grams
 

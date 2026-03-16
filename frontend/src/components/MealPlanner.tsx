@@ -342,7 +342,17 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
                      </div>
 
                      <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
-                       <em>Ingredients:</em> {meal.ingredients?.map(ing => `${ing.name} (${ing.quantity_grams}g)`).join(", ")}
+                       <em>Ingredients:</em>{" "}
+                       {[...(meal.ingredients ?? [])]
+                         .sort((a, b) => (a.is_spice ? 1 : 0) - (b.is_spice ? 1 : 0))
+                         .map((ing, i, arr) => (
+                           <span key={i}>
+                             {ing.is_spice
+                               ? <span style={{ fontStyle: "italic" }}>{ing.name}</span>
+                               : <span>{ing.name} ({ing.quantity_grams}g)</span>}
+                             {i < arr.length - 1 ? ", " : ""}
+                           </span>
+                         ))}
                      </div>
 
                      <ol style={{ marginTop: "0.25rem", fontSize: "0.9em", paddingLeft: "1.2rem" }}>

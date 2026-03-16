@@ -7,6 +7,7 @@ export type DietType = "balanced" | "high_protein" | "low_carb" | "vegetarian" |
 export interface IngredientAmount {
   name: string;
   quantity_grams: number;
+  is_spice?: boolean;
 }
 
 export interface MealPlanRequest {

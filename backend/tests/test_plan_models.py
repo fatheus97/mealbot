@@ -151,6 +151,45 @@ class TestMealPlanResponseSerialization:
         assert restored.days[0].meals[0].meal_type_label == ""  # default
         assert len(restored.shopping_list) == 1
 
+    def test_is_spice_defaults_to_false(self):
+        ing = IngredientAmount(name="chicken", quantity_grams=200)
+        assert ing.is_spice is False
+
+    def test_is_spice_true(self):
+        ing = IngredientAmount(name="cumin", quantity_grams=1, is_spice=True)
+        assert ing.is_spice is True
+
+    def test_backward_compat_old_json_without_is_spice(self):
+        """Old stored plans without is_spice should deserialize with default False."""
+        old_json = '{"name":"rice","quantity_grams":200}'
+        ing = IngredientAmount.model_validate_json(old_json)
+        assert ing.is_spice is False
+
+    def test_roundtrip_with_is_spice(self):
+        response = MealPlanResponse(
+            plan_id=1,
+            days=[
+                SingleDayResponse(
+                    meals=[
+                        PlannedMeal(
+                            name="Curry",
+                            meal_type="dinner",
+                            ingredients=[
+                                IngredientAmount(name="chicken", quantity_grams=300),
+                                IngredientAmount(name="cumin", quantity_grams=1, is_spice=True),
+                            ],
+                            steps=["Cook"],
+                        )
+                    ]
+                )
+            ],
+            shopping_list=[IngredientAmount(name="chicken", quantity_grams=300)],
+        )
+        restored = MealPlanResponse.model_validate_json(response.model_dump_json())
+        ings = restored.days[0].meals[0].ingredients
+        assert ings[0].is_spice is False
+        assert ings[1].is_spice is True
+
     def test_meal_type_label_roundtrip(self):
         meal = PlannedMeal(
             name="Snídaně s ovocem",
