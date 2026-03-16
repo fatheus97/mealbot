@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import jwt
 import pytest
@@ -11,43 +12,57 @@ from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 class TestRegister:
     async def test_register_success(self, unauthed_client: AsyncClient):
-        resp = await unauthed_client.post(
-            "/api/users/register",
-            json={"email": "new@example.com", "password": "NewPassword123"},
-        )
+        with patch.object(settings, "registration_enabled", True):
+            resp = await unauthed_client.post(
+                "/api/users/register",
+                json={"email": "new@example.com", "password": "NewPassword123"},
+            )
         assert resp.status_code == 201
 
     async def test_register_duplicate_email(
         self, unauthed_client: AsyncClient, test_user
     ):
-        resp = await unauthed_client.post(
-            "/api/users/register",
-            json={"email": TEST_EMAIL, "password": "AnotherPass123"},
-        )
+        with patch.object(settings, "registration_enabled", True):
+            resp = await unauthed_client.post(
+                "/api/users/register",
+                json={"email": TEST_EMAIL, "password": "AnotherPass123"},
+            )
         assert resp.status_code == 400
         assert "already registered" in resp.json()["detail"].lower()
+
+    async def test_register_blocked_when_disabled(self, unauthed_client: AsyncClient):
+        with patch.object(settings, "registration_enabled", False):
+            resp = await unauthed_client.post(
+                "/api/users/register",
+                json={"email": "blocked@example.com", "password": "ValidPass123"},
+            )
+        assert resp.status_code == 403
+        assert "closed" in resp.json()["detail"].lower()
 
 
 class TestPasswordComplexity:
     async def test_register_missing_uppercase_rejected(self, unauthed_client: AsyncClient):
-        resp = await unauthed_client.post(
-            "/api/users/register",
-            json={"email": "pw1@example.com", "password": "alllowercase1"},
-        )
+        with patch.object(settings, "registration_enabled", True):
+            resp = await unauthed_client.post(
+                "/api/users/register",
+                json={"email": "pw1@example.com", "password": "alllowercase1"},
+            )
         assert resp.status_code == 422
 
     async def test_register_missing_lowercase_rejected(self, unauthed_client: AsyncClient):
-        resp = await unauthed_client.post(
-            "/api/users/register",
-            json={"email": "pw2@example.com", "password": "ALLUPPERCASE1"},
-        )
+        with patch.object(settings, "registration_enabled", True):
+            resp = await unauthed_client.post(
+                "/api/users/register",
+                json={"email": "pw2@example.com", "password": "ALLUPPERCASE1"},
+            )
         assert resp.status_code == 422
 
     async def test_register_missing_digit_rejected(self, unauthed_client: AsyncClient):
-        resp = await unauthed_client.post(
-            "/api/users/register",
-            json={"email": "pw3@example.com", "password": "NoDigitsHere"},
-        )
+        with patch.object(settings, "registration_enabled", True):
+            resp = await unauthed_client.post(
+                "/api/users/register",
+                json={"email": "pw3@example.com", "password": "NoDigitsHere"},
+            )
         assert resp.status_code == 422
 
 

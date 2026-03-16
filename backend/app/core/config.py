@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     run_llm_tests: bool = False
 
 
+    registration_enabled: bool = False
+
+    access_token_expire_minutes: int = 60 * 24  # 24 hours
+
     db_echo: bool = False
 
     secret_key: str

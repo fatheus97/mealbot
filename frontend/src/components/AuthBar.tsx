@@ -1,49 +1,22 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import {authFetch} from "../api.ts";
 import { SettingsPopup } from "./SettingsPopup";
 
 export function AuthBar() {
   const { userId, email, login, logout } = useAuth();
   const [inputEmail, setInputEmail] = useState(email);
   const [inputPassword, setInputPassword] = useState("");
-  const [isRegistering, setIsRegistering] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  const handleAuth = async () => {
+  const handleLogin = async () => {
     setLoading(true);
     try {
-      // FIX: Use the 'endpoint' variable in the fetch call below
-      const endpoint = isRegistering ? "register" : "login";
-
-      if (isRegistering) {
-        const regResp = await authFetch(`/users/${endpoint}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: inputEmail, password: inputPassword })
-        });
-        if (!regResp.ok) {
-           alert("Registration failed. Email might already be in use.");
-           setLoading(false);
-           return;
-        }
-        try {
-          await login(inputEmail, inputPassword);
-        } catch {
-          alert("Account created! Please sign in manually.");
-          setIsRegistering(false);
-          setLoading(false);
-          return;
-        }
-      } else {
-        await login(inputEmail, inputPassword);
-      }
-
+      await login(inputEmail, inputPassword);
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      alert("Auth failed. Check credentials.");
+      alert("Login failed. Check your credentials.");
     } finally {
       setLoading(false);
     }
@@ -51,17 +24,14 @@ export function AuthBar() {
 
   return (
     <section style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#f0f8ff", color: "#111", borderRadius: "8px" }}>
-      <h2>{userId ? "Welcome" : isRegistering ? "Create Account" : "Login"}</h2>
+      <h2>{userId ? "Welcome" : "Login"}</h2>
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
         {!userId && (
           <>
             <input value={inputEmail} onChange={e => setInputEmail(e.target.value)} placeholder="Email" style={{ padding: "0.5rem" }} />
             <input type="password" value={inputPassword} onChange={e => setInputPassword(e.target.value)} placeholder="Password" style={{ padding: "0.5rem" }} />
-            <button onClick={handleAuth} disabled={loading} style={{ padding: "0.5rem 1rem" }}>
-              {loading ? "..." : isRegistering ? "Sign Up" : "Sign In"}
-            </button>
-            <button onClick={() => setIsRegistering(!isRegistering)} style={{ fontSize: "0.8rem", color: "#111", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-              {isRegistering ? "Back to Login" : "Need an Account?"}
+            <button onClick={handleLogin} disabled={loading} style={{ padding: "0.5rem 1rem" }}>
+              {loading ? "..." : "Sign In"}
             </button>
           </>
         )}
@@ -81,6 +51,11 @@ export function AuthBar() {
           </div>
         )}
       </div>
+      {!userId && (
+        <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "#555" }}>
+          This is a closed alpha. For access, contact the admin.
+        </p>
+      )}
     </section>
   );
 }

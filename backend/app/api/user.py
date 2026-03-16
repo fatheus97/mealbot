@@ -7,6 +7,7 @@ from app.db import get_session
 from app.models.db_models import User
 from app.models.user_schemas import UserCreate, UserRead, UserUpdate, Token, MessageResponse
 from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.config import settings
 from app.api.deps import get_current_user
 from app.core.rate_limit import limiter
 
@@ -38,6 +39,12 @@ async def register_user(
         user: UserCreate,
         session: AsyncSession = Depends(get_session)
 ) -> MessageResponse:
+    if not settings.registration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is closed. This is a private alpha — contact the admin for access.",
+        )
+
     # 1. Check if a user already exists
     statement = select(User).where(User.email == user.email)
     result = await session.execute(statement)

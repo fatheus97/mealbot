@@ -9,9 +9,6 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 ALGORITHM = "HS256"
-# In a real production app, access tokens expire in 15 minutes.
-# For your prototype, 7 days is fine so you don't have to keep logging in.
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
@@ -40,7 +37,7 @@ def create_access_token(subject: int | str) -> str:
     """
         Generates a JWT token containing the user's ID as the 'sub' (subject).
     """
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode = {"exp": expire, "sub": str(subject)}
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
     return encoded_jwt
