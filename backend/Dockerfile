@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Upgrade pip and set a longer timeout for heavy ML packages
+ENV PIP_ROOT_USER_ACTION=ignore
 RUN pip install --no-cache-dir --upgrade pip && \
     pip config set global.timeout 1000
 
