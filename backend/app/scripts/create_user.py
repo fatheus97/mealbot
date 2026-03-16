@@ -2,7 +2,7 @@
 
 Usage:
     docker compose exec backend python -m app.scripts.create_user \
-        --email user@example.com --password "SecurePass1"
+        --email user@example.com --password '<their-password>'
 """
 import argparse
 import asyncio
