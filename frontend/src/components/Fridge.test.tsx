@@ -56,7 +56,7 @@ describe('Fridge', () => {
     expect(screen.getByText(/please log in/i)).toBeInTheDocument();
   });
 
-  it('renders server items', async () => {
+  it('renders server items as read-only text', async () => {
     loginUser();
     const items = [
       { name: 'Chicken', quantity_grams: 500, need_to_use: false },
@@ -72,22 +72,25 @@ describe('Fridge', () => {
     render(<Fridge />, { wrapper: createWrapper() });
 
     await waitFor(() => {
-      const inputs = screen.getAllByPlaceholderText(/chicken breast/i);
-      expect(inputs).toHaveLength(2);
+      expect(screen.getByText('Chicken')).toBeInTheDocument();
     });
 
-    // Verify the input values
-    const nameInputs = screen.getAllByPlaceholderText(/chicken breast/i);
-    expect(nameInputs[0]).toHaveValue('Chicken');
-    expect(nameInputs[1]).toHaveValue('Rice');
+    expect(screen.getByText('Rice')).toBeInTheDocument();
   });
 
-  it('adds a new item', async () => {
+  it('adds a new item via modal and auto-saves', async () => {
     loginUser();
+    // Load empty fridge
     mockedAuthFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: () => Promise.resolve([]),
+    });
+    // Response for auto-save PUT
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ name: 'Butter', quantity_grams: 100, need_to_use: false }]),
     });
 
     const user = userEvent.setup();
@@ -98,66 +101,57 @@ describe('Fridge', () => {
     });
 
     await user.click(screen.getByRole('button', { name: /add ingredient/i }));
+    expect(screen.getByText('Add Ingredient')).toBeInTheDocument();
 
-    expect(screen.getAllByPlaceholderText(/chicken breast/i)).toHaveLength(1);
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), 'Butter');
+    await user.click(screen.getByRole('button', { name: /ok/i }));
+
+    expect(screen.getByText('Butter')).toBeInTheDocument();
+
+    // Verify auto-save PUT was called
+    await waitFor(() => {
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', {
+        method: 'PUT',
+        body: JSON.stringify([{ name: 'Butter', quantity_grams: 100, need_to_use: false, expiration_date: null }]),
+      });
+    });
   });
 
-  it('removes an item', async () => {
+  it('removes an item and auto-saves', async () => {
     loginUser();
     mockedAuthFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: () => Promise.resolve([{ name: 'Milk', quantity_grams: 500, need_to_use: false }]),
     });
+    // Response for auto-save PUT (empty fridge after removal)
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([]),
+    });
 
     const user = userEvent.setup();
     render(<Fridge />, { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue('Milk')).toBeInTheDocument();
+      expect(screen.getByText('Milk')).toBeInTheDocument();
     });
 
     await user.click(screen.getByRole('button', { name: /remove/i }));
 
-    expect(screen.queryByDisplayValue('Milk')).not.toBeInTheDocument();
-  });
+    expect(screen.queryByText('Milk')).not.toBeInTheDocument();
 
-  it('filters empty names on save', async () => {
-    loginUser();
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve([
-        { name: 'Eggs', quantity_grams: 200, need_to_use: false },
-        { name: '', quantity_grams: 100, need_to_use: false },
-      ]),
-    });
-
-    // Response for save
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve([{ name: 'Eggs', quantity_grams: 200, need_to_use: false }]),
-    });
-
-    const user = userEvent.setup();
-    render(<Fridge />, { wrapper: createWrapper() });
-
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('Eggs')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /save fridge/i }));
-
+    // Verify auto-save PUT was called with empty array
     await waitFor(() => {
       expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', {
         method: 'PUT',
-        body: JSON.stringify([{ name: 'Eggs', quantity_grams: 200, need_to_use: false }]),
+        body: JSON.stringify([]),
       });
     });
   });
 
-  it('shows success notice after save', async () => {
+  it('shows error notice on auto-save failure', async () => {
     loginUser();
     mockedAuthFetch.mockResolvedValueOnce({
       ok: true,
@@ -165,34 +159,7 @@ describe('Fridge', () => {
       json: () => Promise.resolve([{ name: 'Eggs', quantity_grams: 200, need_to_use: false }]),
     });
 
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve([{ name: 'Eggs', quantity_grams: 200, need_to_use: false }]),
-    });
-
-    const user = userEvent.setup();
-    render(<Fridge />, { wrapper: createWrapper() });
-
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('Eggs')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /save fridge/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/saved successfully/i)).toBeInTheDocument();
-    });
-  });
-
-  it('shows error notice on save failure', async () => {
-    loginUser();
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve([{ name: 'Eggs', quantity_grams: 200, need_to_use: false }]),
-    });
-
+    // Auto-save PUT fails
     mockedAuthFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -203,13 +170,56 @@ describe('Fridge', () => {
     render(<Fridge />, { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue('Eggs')).toBeInTheDocument();
+      expect(screen.getByText('Eggs')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /save fridge/i }));
+    await user.click(screen.getByRole('button', { name: /remove/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/failed to save/i)).toBeInTheDocument();
+    });
+  });
+
+  it('edits an existing item via modal and auto-saves', async () => {
+    loginUser();
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ name: 'Milk', quantity_grams: 500, need_to_use: false }]),
+    });
+    // Response for auto-save PUT
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ name: 'Cream', quantity_grams: 500, need_to_use: false }]),
+    });
+
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Milk')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /edit/i }));
+
+    expect(screen.getByText('Edit Ingredient')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Milk')).toBeInTheDocument();
+
+    const nameInput = screen.getByDisplayValue('Milk');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Cream');
+    await user.click(screen.getByRole('button', { name: /ok/i }));
+
+    expect(screen.getByText('Cream')).toBeInTheDocument();
+    expect(screen.queryByText('Milk')).not.toBeInTheDocument();
+
+    // Verify auto-save PUT was called
+    await waitFor(() => {
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', {
+        method: 'PUT',
+        body: JSON.stringify([{ name: 'Cream', quantity_grams: 500, need_to_use: false, expiration_date: null }]),
+      });
     });
   });
 });
