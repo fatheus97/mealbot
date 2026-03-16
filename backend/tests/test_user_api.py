@@ -39,6 +39,15 @@ class TestRegister:
         assert resp.status_code == 403
         assert "closed" in resp.json()["detail"].lower()
 
+    async def test_register_disabled_skips_body_validation(self, unauthed_client: AsyncClient):
+        """When registration is off, return 403 even if the body is invalid."""
+        with patch.object(settings, "registration_enabled", False):
+            resp = await unauthed_client.post(
+                "/api/users/register",
+                json={"email": "bad", "password": "x"},
+            )
+        assert resp.status_code == 403
+
 
 class TestPasswordComplexity:
     async def test_register_missing_uppercase_rejected(self, unauthed_client: AsyncClient):
