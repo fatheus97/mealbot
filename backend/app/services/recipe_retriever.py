@@ -1,4 +1,6 @@
+import asyncio
 from typing import List
+
 from fastembed import TextEmbedding
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -31,8 +33,7 @@ async def retrieve_recipes(session: AsyncSession, query: str, k: int = 5) -> Lis
     Retrieve top-k recipes natively using PostgreSQL pgvector.
     """
     model = get_embedding_model()
-    query_emb_generator = model.embed([query])
-    query_emb = list(query_emb_generator)[0].tolist()
+    query_emb = (await asyncio.to_thread(lambda: list(model.embed([query]))))[0].tolist()
 
     stmt = (
         select(RecipeRow)

@@ -102,10 +102,11 @@ async def get_plan_detail(
 
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to parse response_json for plan %d", plan_id)
         raise HTTPException(
             status_code=500,
-            detail=f"Plan response_json is not valid: {e}",
+            detail="Stored plan data could not be loaded.",
         )
 
     plan_obj.plan_id = plan.id
@@ -276,8 +277,9 @@ async def regenerate_plan(
     try:
         original_req = MealPlanRequest.model_validate_json(plan.request_json)
         original_resp = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Stored plan data is invalid: {e}")
+    except Exception:
+        logger.exception("Failed to parse stored data for plan %d", plan_id)
+        raise HTTPException(status_code=500, detail="Stored plan data could not be loaded.")
 
     # 3) Build frozen set for fast lookup
     frozen_set: set[tuple[int, int]] = {
@@ -421,10 +423,11 @@ async def confirm_plan(
     # Parse stored plan response
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to parse response_json for plan %d during confirm", plan_id)
         raise HTTPException(
             status_code=500,
-            detail=f"Plan response_json is not valid for MealPlanResponse: {e}",
+            detail="Stored plan data could not be loaded.",
         )
 
     # Extract all ingredients and subtract from fridge
