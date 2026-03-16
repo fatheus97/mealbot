@@ -115,6 +115,11 @@ export function Fridge() {
   const sortGroups = useCallback((groups: GroupedItem[], key: SortKey, dir: "asc" | "desc"): string[] => {
     const sorted = [...groups];
     sorted.sort((a, b) => {
+      // Blank items always sort to the end so new ingredients appear at the bottom
+      const aBlank = a.displayName.trim() === "";
+      const bBlank = b.displayName.trim() === "";
+      if (aBlank !== bBlank) return aBlank ? 1 : -1;
+
       let cmp: number;
       if (key === "name") {
         cmp = a.displayName.localeCompare(b.displayName);
