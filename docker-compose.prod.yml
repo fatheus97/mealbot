@@ -30,8 +30,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    env_file:
-      - .env
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
     depends_on:
       - frontend
       - backend
