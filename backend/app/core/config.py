@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,6 +42,16 @@ class Settings(BaseSettings):
 
     secret_key: str
     database_url: str
+
+    @field_validator("secret_key")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if v == "CHANGE_ME" or len(v) < 32:
+            raise ValueError(
+                "SECRET_KEY is insecure. Generate a proper key with: "
+                "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+            )
+        return v
 
     allowed_origins: str = "http://localhost:5173,http://localhost:5174"
 
