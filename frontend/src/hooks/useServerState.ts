@@ -51,8 +51,8 @@ export function useUpdateFridge() {
       if (!res.ok) throw new Error(`Fridge update failed: ${res.status}`);
       return res.json();
     },
-    onSuccess: (_, variables) => {
-      return queryClient.invalidateQueries({ queryKey: ['fridge', variables.userId] });
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(['fridge', variables.userId], data);
     },
   });
 }

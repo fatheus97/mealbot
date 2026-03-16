@@ -113,7 +113,7 @@ describe('useUpdateFridge', () => {
     });
 
     const { wrapper, queryClient } = createWrapper();
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    const setQueryDataSpy = vi.spyOn(queryClient, 'setQueryData');
     const { result } = renderHook(() => useUpdateFridge(), { wrapper });
 
     result.current.mutate({ userId: 1, items });
@@ -124,7 +124,7 @@ describe('useUpdateFridge', () => {
       method: 'PUT',
       body: JSON.stringify(items),
     });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['fridge', 1] });
+    expect(setQueryDataSpy).toHaveBeenCalledWith(['fridge', 1], items);
   });
 });
 
