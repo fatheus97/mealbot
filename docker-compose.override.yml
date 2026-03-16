@@ -11,3 +11,4 @@ services:
       - "5174:5173"        # Override the 5173:80 mapping from the base compose file
     environment:
       - NODE_ENV=development
+      - VITE_API_BASE=http://localhost:8000/api

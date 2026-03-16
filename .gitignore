@@ -1,6 +1,7 @@
 # Prerequisites
 .env
 .env.local
+.env.production
 
 # Python (Backend)
 **/__pycache__/

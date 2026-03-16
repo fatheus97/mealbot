@@ -1,7 +1,7 @@
 // frontend/src/api.ts
 import type { StockItem, UserProfile } from "./types";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 export async function authFetch(endpoint: string, options: RequestInit = {}) {
   // 1. Grab the token we saved during login

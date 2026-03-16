@@ -1,0 +1,42 @@
+# Production overrides — use with:
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Requires DOMAIN env var in .env (e.g. DOMAIN=yourdomain.com)
+
+services:
+  # Disable test database
+  test-db:
+    profiles: ["disabled"]
+
+  db:
+    ports: !override []
+    restart: unless-stopped
+
+  backend:
+    volumes: !override []
+    ports: !override []
+    restart: unless-stopped
+
+  frontend:
+    ports: !override []
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    env_file:
+      - .env
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
