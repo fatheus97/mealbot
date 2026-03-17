@@ -12,7 +12,8 @@ AI-powered meal planner that generates multi-day meal plans based on what's in y
 - **Shopping List** — Auto-computed from plan vs. fridge diff
 - **Meal History** — Track confirmed meals to avoid repetition
 - **User Preferences** — Country, language, measurement system, variability, spice tracking
-- **Auth** — JWT-based registration and login with rate limiting and password complexity requirements
+- **Auth** — JWT-based login with rate limiting and password complexity requirements
+- **Closed Alpha** — Public registration disabled by default; users created via CLI script
 
 ## Tech Stack
 
@@ -22,7 +23,7 @@ AI-powered meal planner that generates multi-day meal plans based on what's in y
 | **Frontend** | React 19, TypeScript, Zustand, TanStack Query |
 | **Database** | PostgreSQL 15 + pgvector (for RAG) |
 | **LLM** | Gemini 2.5 Flash (default), DeepSeek, or OpenAI — with ordered fallback chain |
-| **Infra** | Docker Compose |
+| **Infra** | Docker Compose, Caddy (production reverse proxy + auto HTTPS) |
 
 ## Quick Start
 
@@ -56,7 +57,7 @@ docker compose up --build
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/users/register` | Create account |
+| POST | `/api/users/register` | Create account (disabled when `REGISTRATION_ENABLED=false`) |
 | POST | `/api/users/login` | Get JWT token |
 | GET | `/api/users` | Get profile |
 | PATCH | `/api/users` | Update preferences |
@@ -79,18 +80,36 @@ docker compose up --build
 
 ## Running Tests
 
+Dev dependencies (pytest, mypy, etc.) are installed automatically in local development via the `INSTALL_DEV` build arg in `docker-compose.override.yml`.
+
 ```bash
 # Start test database and backend
 docker compose up -d test-db backend
-
-# Install dev dependencies (first time only)
-docker compose exec -u root backend pip install -r requirements-dev.txt
 
 # Run tests
 docker compose exec \
   -e TEST_DATABASE_URL=postgresql+psycopg://testuser:testpassword@test-db:5432/mealbot_test \
   -e SECRET_KEY=test-secret-key-that-is-long-enough-for-validation \
   backend python -m pytest -v
+```
+
+## Production Deployment
+
+Production uses `docker-compose.prod.yml` which adds Caddy for automatic HTTPS, disables dev ports, and removes volume mounts.
+
+```bash
+# Create .env with production secrets (see .env.example)
+# Set DOMAIN, ALLOWED_ORIGINS, REGISTRATION_ENABLED=false, strong POSTGRES_PASSWORD and SECRET_KEY
+
+# Start
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+# Run migrations
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend alembic upgrade head
+
+# Create user accounts (registration is disabled in prod)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend \
+  python -m app.scripts.create_user --email user@example.com --password "StrongPassword123!"
 ```
 
 ## Project Structure
@@ -101,6 +120,7 @@ backend/
 │   ├── api/            # FastAPI routers (plan, fridge, history, user)
 │   ├── core/           # Config, security (JWT, bcrypt)
 │   ├── models/         # SQLModel DB models + Pydantic schemas
+│   ├── scripts/        # CLI tools (create_user.py)
 │   ├── services/       # LLM integration (meal_planner, receipt_scanner, recipe_retriever)
 │   └── utils.py        # Shopping list computation, fridge subtraction
 ├── tests/              # pytest test suite
@@ -130,6 +150,10 @@ See `.env.example` for all options. Key variables:
 | `OPENAI_API_KEY` | If using OpenAI | OpenAI platform key |
 | `DEEPSEEK_API_KEY` | If using DeepSeek | DeepSeek platform key |
 | `LLM_MOCK` | No | `true` to bypass LLM calls with fake data |
+| `REGISTRATION_ENABLED` | No | `true` to allow public signup (default: `true`, set `false` for closed alpha) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | JWT token lifetime in minutes (default: `1440` = 24h) |
+| `ALLOWED_ORIGINS` | No | Comma-separated CORS origins (default: `http://localhost:5173,http://localhost:5174`) |
+| `DOMAIN` | Prod only | Domain for Caddy HTTPS, e.g. `yourdomain.com` |
 
 ## License
 
