@@ -1,4 +1,10 @@
 services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_DEV: "true"
+
   frontend:
     build:
       context: ./frontend
