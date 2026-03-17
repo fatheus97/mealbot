@@ -17,8 +17,9 @@ RUN mkdir -p /var/cache/nginx/client_temp \
              /var/cache/nginx/fastcgi_temp \
              /var/cache/nginx/uwsgi_temp \
              /var/cache/nginx/scgi_temp \
-    && chown -R nginx:nginx /var/cache/nginx \
-    && chown -R nginx:nginx /var/run
+             /tmp/nginx \
+    && chown -R nginx:nginx /var/cache/nginx /tmp/nginx \
+    && sed -i 's|/run/nginx.pid|/tmp/nginx/nginx.pid|' /etc/nginx/nginx.conf
 EXPOSE 80
 USER nginx
 CMD ["nginx", "-g", "daemon off;"]
