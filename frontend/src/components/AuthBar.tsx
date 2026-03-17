@@ -53,7 +53,8 @@ export function AuthBar() {
       </div>
       {!userId && (
         <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "#555" }}>
-          This is a closed alpha. For access, contact the admin.
+          This is a closed alpha. For access, contact{" "}
+          <a href="mailto:info@trymealbot.com" style={{ color: "#007bff" }}>info@trymealbot.com</a>.
         </p>
       )}
     </section>
