@@ -34,10 +34,17 @@ RUN adduser --disabled-password --no-create-home appuser
 ENV HF_HOME=/tmp/hf_cache \
     FASTEMBED_CACHE_PATH=/tmp/fastembed_cache
 
-# 6. Copy the rest of the code
+# 6. Pre-download the embedding model into the image. Keeps first API call
+#    fast (no 30s HuggingFace fetch on cold start) and makes the cache part
+#    of an image layer so rebuilds don't re-download.
+RUN mkdir -p /tmp/hf_cache /tmp/fastembed_cache && \
+    python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2')" && \
+    chown -R appuser:appuser /tmp/hf_cache /tmp/fastembed_cache
+
+# 7. Copy the rest of the code
 COPY --chown=appuser:appuser . .
 
-# 7. Switch to non-root user
+# 8. Switch to non-root user
 USER appuser
 
 EXPOSE 8000
