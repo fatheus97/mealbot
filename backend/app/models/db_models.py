@@ -86,23 +86,17 @@ class MealEntry(SQLModel, table=True):
         description="Full PlannedMeal JSON (ingredients, steps, etc.)."
     )
 
+    # RAG embedding — 384d from all-MiniLM-L6-v2, generated when rated 4+
+    embedding: list[float] | None = Field(
+        default=None, sa_column=Column(Vector(384), nullable=True)
+    )
+
     user: "User" = Relationship(back_populates="meal_entries")
     meal_plan: "MealPlan" = Relationship(back_populates="meal_entries")
 
-
-class RecipeRow(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    title: str = Field(index=True)
-    ingredients_text: str  # "chicken breast; rice; spinach"
-    steps_text: str
-    cuisine: Optional[str] = Field(default=None, index=True)
-    tags_text: str = Field(default="")  # "asian; spicy"
-
-    # For RAG - 384 dimensions matches the all-MiniLM-L6-v2 model used in ingestion scripts
-    embedding: list[float] = Field(sa_column=Column(Vector(384)))
     __table_args__ = (
         Index(
-            "ix_recipe_embedding_hnsw",
+            "ix_mealentry_embedding_hnsw",
             "embedding",
             postgresql_using="hnsw",
             postgresql_with={"m": 16, "ef_construction": 64},
