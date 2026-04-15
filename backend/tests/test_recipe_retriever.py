@@ -198,6 +198,12 @@ def _unit_vec_like(seed_vec: list[float], bias: float) -> list[float]:
 class TestRetrieveRatedMeals:
     """Integration tests against the real pgvector test DB."""
 
+    @staticmethod
+    def _configure_settings(mock_settings: MagicMock, own: int = 5, global_: int = 15) -> None:
+        mock_settings.rag_user_boost = 0.7
+        mock_settings.rag_own_user_fetch = own
+        mock_settings.rag_global_fetch = global_
+
     @patch("app.services.recipe_retriever.settings")
     @patch("app.services.recipe_retriever.get_embedding_model")
     async def test_filters_out_low_ratings_and_missing_embeddings(
@@ -206,7 +212,7 @@ class TestRetrieveRatedMeals:
         mock_settings: MagicMock,
         db_session,
     ) -> None:
-        mock_settings.rag_user_boost = 0.7
+        self._configure_settings(mock_settings)
         query_vec = [1.0] + [0.0] * 383
         mock_model = MagicMock()
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
@@ -231,7 +237,7 @@ class TestRetrieveRatedMeals:
             embedding=None,
         )
 
-        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q", k=10)
+        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
 
         names = [h.name for h in hits]
         assert names == ["good"]
@@ -245,7 +251,7 @@ class TestRetrieveRatedMeals:
         db_session,
     ) -> None:
         """Own meal at raw distance 0.4 should beat other user's at 0.3 (0.4*0.7 < 0.3)."""
-        mock_settings.rag_user_boost = 0.7
+        self._configure_settings(mock_settings)
         query_vec = [1.0] + [0.0] * 383
         mock_model = MagicMock()
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
@@ -259,7 +265,7 @@ class TestRetrieveRatedMeals:
         # Cosine distance is controlled by the angle. Using unit vectors along
         # different axes gives a predictable distance (≈ 1 - cos(angle)).
         import math
-        # My vec at 0.4 cosine distance from query => cos = 0.6 => angle ≈ 53°
+        # My vec at 0.4 cosine distance from query => cos = 0.6
         # Their vec at 0.3 cosine distance from query => cos = 0.7
         def vec_at_cos(c: float) -> list[float]:
             s = math.sqrt(1 - c * c)
@@ -274,7 +280,7 @@ class TestRetrieveRatedMeals:
             embedding=vec_at_cos(0.7),
         )
 
-        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q", k=5)
+        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
 
         assert len(hits) == 2
         # After boost, mine (0.4 * 0.7 = 0.28) should rank above theirs (0.3)
@@ -286,13 +292,15 @@ class TestRetrieveRatedMeals:
 
     @patch("app.services.recipe_retriever.settings")
     @patch("app.services.recipe_retriever.get_embedding_model")
-    async def test_respects_k_limit(
+    async def test_respects_fetch_limits(
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
         db_session,
     ) -> None:
-        mock_settings.rag_user_boost = 0.7
+        """Union of own-user and global fetches is bounded by own + global."""
+        own_n, global_n = 2, 3
+        self._configure_settings(mock_settings, own=own_n, global_=global_n)
         query_vec = [1.0] + [0.0] * 383
         mock_model = MagicMock()
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
@@ -301,14 +309,59 @@ class TestRetrieveRatedMeals:
         _, user_id = await _make_user(db_session, "k@example.com")
         _, plan_id = await _make_plan(db_session, user_id)
 
-        for i in range(5):
+        # 10 meals, all distinct distances via a large enough bias step to
+        # avoid float-precision ties in cosine_distance.
+        for i in range(10):
             await _make_entry(
                 db_session, user_id, plan_id, f"m{i}", rating=5,
-                embedding=_unit_vec_like(query_vec, bias=0.01 * (i + 1)),
+                embedding=_unit_vec_like(query_vec, bias=0.1 * (i + 1)),
             )
 
-        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q", k=2)
-        assert len(hits) == 2
+        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
+        # All meals belong to user, so own ⊆ global after dedup → len == global_n
+        assert len(hits) == global_n
+
+    @patch("app.services.recipe_retriever.settings")
+    @patch("app.services.recipe_retriever.get_embedding_model")
+    async def test_own_user_guaranteed_even_when_outranked_globally(
+        self,
+        mock_get_model: MagicMock,
+        mock_settings: MagicMock,
+        db_session,
+    ) -> None:
+        """Regression guard for the single-global-query design: a user with a
+        far meal must still see their own history represented, even when many
+        closer cross-user meals would saturate a single top-K."""
+        self._configure_settings(mock_settings, own=1, global_=3)
+        query_vec = [1.0] + [0.0] * 383
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
+        mock_get_model.return_value = mock_model
+
+        _, me_id = await _make_user(db_session, "me2@example.com")
+        _, them_id = await _make_user(db_session, "them2@example.com")
+        _, my_plan_id = await _make_plan(db_session, me_id)
+        _, their_plan_id = await _make_plan(db_session, them_id)
+
+        # My single meal — relatively far from the query
+        await _make_entry(
+            db_session, me_id, my_plan_id, "mine_only", rating=5,
+            embedding=_unit_vec_like(query_vec, bias=0.5),
+        )
+        # 5 much closer meals belonging to someone else — would crowd out
+        # a single global top-3 without the separate own-user query.
+        for i in range(5):
+            await _make_entry(
+                db_session, them_id, their_plan_id, f"theirs_{i}", rating=5,
+                embedding=_unit_vec_like(query_vec, bias=0.001 * (i + 1)),
+            )
+
+        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
+
+        names = [h.name for h in hits]
+        assert "mine_only" in names, "own-user meal must be retrieved despite being further"
+        own_hits = [h for h in hits if h.user_id == me_id]
+        assert len(own_hits) == 1
 
     @patch("app.services.recipe_retriever.settings")
     @patch("app.services.recipe_retriever.get_embedding_model")
@@ -318,12 +371,12 @@ class TestRetrieveRatedMeals:
         mock_settings: MagicMock,
         db_session,
     ) -> None:
-        mock_settings.rag_user_boost = 0.7
+        self._configure_settings(mock_settings)
         query_vec = [1.0] + [0.0] * 383
         mock_model = MagicMock()
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
         _, user_id = await _make_user(db_session, "empty@example.com")
-        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q", k=5)
+        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
         assert hits == []

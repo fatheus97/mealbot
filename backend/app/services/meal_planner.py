@@ -105,7 +105,10 @@ async def generate_single_day_with_rag(
     retrieval_query = "\n".join(query_parts) or "general meal planning"
 
     hits = await retrieve_rated_meals(session, user_id, retrieval_query)
-    relevant = _filter_relevant(hits)
+    # Cap the set fed to the LLM — token cost is linear in example count, but
+    # relevance drops off quickly past the top few. Filter THEN slice so we
+    # don't keep high-ranked-but-irrelevant hits over low-ranked relevant ones.
+    relevant = _filter_relevant(hits)[:settings.rag_max_context_meals]
 
     if len(relevant) < settings.rag_min_results:
         worst_kept = relevant[-1].adjusted_distance if relevant else None

@@ -43,60 +43,76 @@ async def retrieve_rated_meals(
     session: AsyncSession,
     user_id: int,
     query: str,
-    k: int = 10,
 ) -> list[MealHit]:
     """
-    Retrieve top-k highly-rated meals globally, with a distance boost
-    for meals belonging to the requesting user.
+    Hybrid retrieval of highly-rated meals: own-user top-N plus global top-M,
+    merged and re-ranked with the own-user distance boost.
+
+    The two-query design guarantees the requesting user's own history is
+    represented in the candidate set regardless of corpus size. A single
+    global query would, at scale, almost never surface the user's meals —
+    their few dozen entries can't out-compete thousands of other users' hits
+    on raw distance, and the user-boost multiplier would become a no-op.
     """
     model = get_embedding_model()
     query_emb = (await asyncio.to_thread(lambda: list(model.embed([query]))))[0].tolist()
 
-    # Overfetch to allow re-ranking after user boost
-    fetch_limit = k * 2
-
     distance_expr = MealEntry.embedding.cosine_distance(query_emb)  # type: ignore[attr-defined,union-attr]
 
-    stmt = (
-        select(
-            MealEntry,
-            distance_expr.label("cosine_distance"),
-        )
-        .where(
-            MealEntry.rating >= 4,  # type: ignore[operator]
-            MealEntry.embedding.is_not(None),  # type: ignore[union-attr]
-        )
+    base_filters = [
+        MealEntry.rating >= 4,  # type: ignore[operator]
+        MealEntry.embedding.is_not(None),  # type: ignore[union-attr]
+    ]
+
+    own_stmt = (
+        select(MealEntry, distance_expr.label("cosine_distance"))
+        .where(*base_filters, MealEntry.user_id == user_id)  # type: ignore[arg-type]
         .order_by(literal_column("cosine_distance"))
-        .limit(fetch_limit)
+        .limit(settings.rag_own_user_fetch)
+    )
+    global_stmt = (
+        select(MealEntry, distance_expr.label("cosine_distance"))
+        .where(*base_filters)
+        .order_by(literal_column("cosine_distance"))
+        .limit(settings.rag_global_fetch)
     )
 
-    result = await session.execute(stmt)
-    rows = result.all()
+    # Run sequentially — AsyncSession wraps a single connection and is not
+    # safe for concurrent .execute() calls. Each query is a single HNSW index
+    # lookup (~ms), so sequential is cheap.
+    own_result = await session.execute(own_stmt)
+    own_rows = own_result.all()
+    global_result = await session.execute(global_stmt)
+    global_rows = global_result.all()
 
-    hits: list[MealHit] = []
-    for row in rows:
+    # Dedupe across the two result sets — a user's own meal can appear in both.
+    seen: dict[int, MealHit] = {}
+    for row in (*own_rows, *global_rows):
         entry: MealEntry = row[0]
         distance: float = row[1]
+        entry_id: int = entry.id  # type: ignore[assignment]
 
-        # Boost own meals by reducing their distance
-        if entry.user_id == user_id:
-            adjusted = distance * settings.rag_user_boost
-        else:
-            adjusted = distance
+        if entry_id in seen:
+            continue
 
-        hits.append(MealHit(
-            meal_entry_id=entry.id,  # type: ignore[arg-type]
+        adjusted = distance * settings.rag_user_boost if entry.user_id == user_id else distance
+
+        seen[entry_id] = MealHit(
+            meal_entry_id=entry_id,
             user_id=entry.user_id,
             name=entry.name,
             meal_type=entry.meal_type,
             meal_json=entry.meal_json,
             cosine_distance=distance,
             adjusted_distance=adjusted,
-        ))
+        )
 
-    # Re-sort by adjusted distance and take top k
-    hits.sort(key=lambda h: h.adjusted_distance)
-    return hits[:k]
+    hits = sorted(seen.values(), key=lambda h: h.adjusted_distance)
+    logger.debug(
+        "RAG retrieval: %d own-user + %d global rows → %d unique candidates",
+        len(own_rows), len(global_rows), len(hits),
+    )
+    return hits
 
 
 async def embed_meal_entry(entry: MealEntry) -> None:
