@@ -534,7 +534,9 @@ async def rate_meal(
         try:
             await embed_meal_entry(entry)
         except Exception:
-            logger.warning("Failed to generate embedding for meal entry %d", meal_entry_id)
+            # logger.exception (not .warning) — keeps the traceback so we can
+            # diagnose fastembed / pgvector failures instead of a bare message.
+            logger.exception("Failed to generate embedding for meal entry %d", meal_entry_id)
     elif body.rating < 4 and entry.embedding is not None:
         entry.embedding = None
 
