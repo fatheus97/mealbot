@@ -4,10 +4,12 @@ import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from app.models.db_models import MealEntry
+from app.core.security import get_password_hash
+from app.models.db_models import MealEntry, MealPlan, User
 from app.services.recipe_retriever import (
     get_embedding_model,
     embed_meal_entry,
+    retrieve_rated_meals,
     MealHit,
 )
 
@@ -145,3 +147,183 @@ class TestMealHitModel:
         assert sorted_hits[0].name == "Close (boosted)"
         assert sorted_hits[1].name == "Medium"
         assert sorted_hits[2].name == "Far"
+
+
+SAMPLE_MEAL_JSON_MIN = (
+    '{"name":"X","meal_type":"dinner","meal_type_label":"Dinner",'
+    '"ingredients":[],"steps":[]}'
+)
+
+
+async def _make_user(db_session, email: str) -> tuple[User, int]:
+    user = User(email=email, hashed_password=get_password_hash("irrelevant"))
+    db_session.add(user)
+    await db_session.flush()
+    assert user.id is not None
+    return user, user.id
+
+
+async def _make_plan(db_session, user_id: int) -> tuple[MealPlan, int]:
+    plan = MealPlan(
+        user_id=user_id, days=1, meals_per_day=1, people_count=1,
+        request_json="{}", response_json="{}",
+    )
+    db_session.add(plan)
+    await db_session.flush()
+    assert plan.id is not None
+    return plan, plan.id
+
+
+async def _make_entry(
+    db_session, user_id: int, plan_id: int, name: str,
+    rating: int | None, embedding: list[float] | None,
+) -> MealEntry:
+    entry = MealEntry(
+        user_id=user_id, meal_plan_id=plan_id,
+        day_index=1, meal_index=1, name=name, meal_type="dinner",
+        meal_json=SAMPLE_MEAL_JSON_MIN, rating=rating, embedding=embedding,
+    )
+    db_session.add(entry)
+    await db_session.flush()
+    return entry
+
+
+def _unit_vec_like(seed_vec: list[float], bias: float) -> list[float]:
+    """Build a 384-d vector close to seed_vec (smaller bias = closer)."""
+    v = list(seed_vec)
+    v[0] += bias
+    return v
+
+
+class TestRetrieveRatedMeals:
+    """Integration tests against the real pgvector test DB."""
+
+    @patch("app.services.recipe_retriever.settings")
+    @patch("app.services.recipe_retriever.get_embedding_model")
+    async def test_filters_out_low_ratings_and_missing_embeddings(
+        self,
+        mock_get_model: MagicMock,
+        mock_settings: MagicMock,
+        db_session,
+    ) -> None:
+        mock_settings.rag_user_boost = 0.7
+        query_vec = [1.0] + [0.0] * 383
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
+        mock_get_model.return_value = mock_model
+
+        _, user_id = await _make_user(db_session, "r1@example.com")
+        _, plan_id = await _make_plan(db_session, user_id)
+
+        # Rated 5, has embedding — should appear
+        await _make_entry(
+            db_session, user_id, plan_id, "good", rating=5,
+            embedding=_unit_vec_like(query_vec, bias=0.01),
+        )
+        # Rated 3 — filtered out
+        await _make_entry(
+            db_session, user_id, plan_id, "mediocre", rating=3,
+            embedding=_unit_vec_like(query_vec, bias=0.01),
+        )
+        # Rated 5 but no embedding — filtered out
+        await _make_entry(
+            db_session, user_id, plan_id, "not yet embedded", rating=5,
+            embedding=None,
+        )
+
+        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q", k=10)
+
+        names = [h.name for h in hits]
+        assert names == ["good"]
+
+    @patch("app.services.recipe_retriever.settings")
+    @patch("app.services.recipe_retriever.get_embedding_model")
+    async def test_user_boost_promotes_own_meal_past_closer_other(
+        self,
+        mock_get_model: MagicMock,
+        mock_settings: MagicMock,
+        db_session,
+    ) -> None:
+        """Own meal at raw distance 0.4 should beat other user's at 0.3 (0.4*0.7 < 0.3)."""
+        mock_settings.rag_user_boost = 0.7
+        query_vec = [1.0] + [0.0] * 383
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
+        mock_get_model.return_value = mock_model
+
+        _, me_id = await _make_user(db_session, "me@example.com")
+        _, them_id = await _make_user(db_session, "them@example.com")
+        _, my_plan_id = await _make_plan(db_session, me_id)
+        _, their_plan_id = await _make_plan(db_session, them_id)
+
+        # Cosine distance is controlled by the angle. Using unit vectors along
+        # different axes gives a predictable distance (≈ 1 - cos(angle)).
+        import math
+        # My vec at 0.4 cosine distance from query => cos = 0.6 => angle ≈ 53°
+        # Their vec at 0.3 cosine distance from query => cos = 0.7
+        def vec_at_cos(c: float) -> list[float]:
+            s = math.sqrt(1 - c * c)
+            return [c, s] + [0.0] * 382
+
+        await _make_entry(
+            db_session, me_id, my_plan_id, "mine_far", rating=5,
+            embedding=vec_at_cos(0.6),
+        )
+        await _make_entry(
+            db_session, them_id, their_plan_id, "theirs_close", rating=5,
+            embedding=vec_at_cos(0.7),
+        )
+
+        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q", k=5)
+
+        assert len(hits) == 2
+        # After boost, mine (0.4 * 0.7 = 0.28) should rank above theirs (0.3)
+        assert hits[0].name == "mine_far"
+        assert hits[0].cosine_distance == pytest.approx(0.4, abs=0.01)
+        assert hits[0].adjusted_distance == pytest.approx(0.28, abs=0.01)
+        assert hits[1].name == "theirs_close"
+        assert hits[1].adjusted_distance == hits[1].cosine_distance
+
+    @patch("app.services.recipe_retriever.settings")
+    @patch("app.services.recipe_retriever.get_embedding_model")
+    async def test_respects_k_limit(
+        self,
+        mock_get_model: MagicMock,
+        mock_settings: MagicMock,
+        db_session,
+    ) -> None:
+        mock_settings.rag_user_boost = 0.7
+        query_vec = [1.0] + [0.0] * 383
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
+        mock_get_model.return_value = mock_model
+
+        _, user_id = await _make_user(db_session, "k@example.com")
+        _, plan_id = await _make_plan(db_session, user_id)
+
+        for i in range(5):
+            await _make_entry(
+                db_session, user_id, plan_id, f"m{i}", rating=5,
+                embedding=_unit_vec_like(query_vec, bias=0.01 * (i + 1)),
+            )
+
+        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q", k=2)
+        assert len(hits) == 2
+
+    @patch("app.services.recipe_retriever.settings")
+    @patch("app.services.recipe_retriever.get_embedding_model")
+    async def test_empty_corpus_returns_empty(
+        self,
+        mock_get_model: MagicMock,
+        mock_settings: MagicMock,
+        db_session,
+    ) -> None:
+        mock_settings.rag_user_boost = 0.7
+        query_vec = [1.0] + [0.0] * 383
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
+        mock_get_model.return_value = mock_model
+
+        _, user_id = await _make_user(db_session, "empty@example.com")
+        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q", k=5)
+        assert hits == []
