@@ -75,12 +75,21 @@ async def generate_partial_day(
     return response
 
 
-def _rag_sufficient(hits: list[MealHit]) -> bool:
-    """Check if RAG results meet the minimum count and relevance thresholds."""
+def _rag_sufficient(hits: list[MealHit]) -> tuple[bool, str]:
+    """Check if RAG results meet count + relevance thresholds.
+
+    Returns (ok, reason). `reason` is empty when ok, otherwise a human-readable
+    string explaining which gate failed — used for observability.
+    """
     if len(hits) < settings.rag_min_results:
-        return False
+        return False, f"only {len(hits)} hits, need {settings.rag_min_results}"
     avg_distance = sum(h.adjusted_distance for h in hits) / len(hits)
-    return avg_distance < settings.rag_max_distance
+    if avg_distance >= settings.rag_max_distance:
+        return False, (
+            f"avg distance {avg_distance:.3f} >= threshold {settings.rag_max_distance:.3f} "
+            f"({len(hits)} hits)"
+        )
+    return True, ""
 
 
 async def generate_single_day_with_rag(
@@ -104,11 +113,9 @@ async def generate_single_day_with_rag(
 
     hits = await retrieve_rated_meals(session, user_id, retrieval_query)
 
-    if not _rag_sufficient(hits):
-        logger.info(
-            "RAG: insufficient results (%d hits, need %d) — falling back to standard pipeline",
-            len(hits), settings.rag_min_results,
-        )
+    ok, reason = _rag_sufficient(hits)
+    if not ok:
+        logger.info("RAG: insufficient results (%s) — falling back to standard pipeline", reason)
         return None
 
     # Parse meal_json into PlannedMeal for template rendering

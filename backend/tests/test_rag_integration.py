@@ -54,7 +54,9 @@ class TestRagSufficient:
         mock_settings.rag_max_distance = 0.4
 
         hits = [_make_hit(distance=0.1) for _ in range(2)]
-        assert _rag_sufficient(hits) is False
+        ok, reason = _rag_sufficient(hits)
+        assert ok is False
+        assert "2 hits" in reason and "need 3" in reason
 
     @patch("app.services.meal_planner.settings")
     def test_above_max_distance(self, mock_settings: MagicMock) -> None:
@@ -62,7 +64,9 @@ class TestRagSufficient:
         mock_settings.rag_max_distance = 0.4
 
         hits = [_make_hit(distance=0.5, adjusted=0.5) for _ in range(5)]
-        assert _rag_sufficient(hits) is False
+        ok, reason = _rag_sufficient(hits)
+        assert ok is False
+        assert "avg distance" in reason and "0.500" in reason
 
     @patch("app.services.meal_planner.settings")
     def test_passes_when_sufficient(self, mock_settings: MagicMock) -> None:
@@ -70,14 +74,18 @@ class TestRagSufficient:
         mock_settings.rag_max_distance = 0.4
 
         hits = [_make_hit(distance=0.2, adjusted=0.2) for _ in range(5)]
-        assert _rag_sufficient(hits) is True
+        ok, reason = _rag_sufficient(hits)
+        assert ok is True
+        assert reason == ""
 
     @patch("app.services.meal_planner.settings")
     def test_empty_hits(self, mock_settings: MagicMock) -> None:
         mock_settings.rag_min_results = 3
         mock_settings.rag_max_distance = 0.4
 
-        assert _rag_sufficient([]) is False
+        ok, reason = _rag_sufficient([])
+        assert ok is False
+        assert "0 hits" in reason
 
     @patch("app.services.meal_planner.settings")
     def test_exactly_at_threshold(self, mock_settings: MagicMock) -> None:
@@ -86,7 +94,8 @@ class TestRagSufficient:
         mock_settings.rag_max_distance = 0.4
 
         hits = [_make_hit(distance=0.4, adjusted=0.4) for _ in range(3)]
-        assert _rag_sufficient(hits) is False
+        ok, _ = _rag_sufficient(hits)
+        assert ok is False
 
 
 class TestPlanEndpointRagIntegration:
