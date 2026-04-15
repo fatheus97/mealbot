@@ -75,21 +75,14 @@ async def generate_partial_day(
     return response
 
 
-def _rag_sufficient(hits: list[MealHit]) -> tuple[bool, str]:
-    """Check if RAG results meet count + relevance thresholds.
+def _filter_relevant(hits: list[MealHit]) -> list[MealHit]:
+    """Keep only hits whose adjusted distance is below the relevance threshold.
 
-    Returns (ok, reason). `reason` is empty when ok, otherwise a human-readable
-    string explaining which gate failed — used for observability.
+    Returning the filtered list (rather than an averaged pass/fail) means only
+    genuinely close matches reach the LLM prompt — one great hit can't drag
+    three poor hits into context.
     """
-    if len(hits) < settings.rag_min_results:
-        return False, f"only {len(hits)} hits, need {settings.rag_min_results}"
-    avg_distance = sum(h.adjusted_distance for h in hits) / len(hits)
-    if avg_distance >= settings.rag_max_distance:
-        return False, (
-            f"avg distance {avg_distance:.3f} >= threshold {settings.rag_max_distance:.3f} "
-            f"({len(hits)} hits)"
-        )
-    return True, ""
+    return [h for h in hits if h.adjusted_distance < settings.rag_max_distance]
 
 
 async def generate_single_day_with_rag(
@@ -112,15 +105,25 @@ async def generate_single_day_with_rag(
     retrieval_query = "\n".join(query_parts) or "general meal planning"
 
     hits = await retrieve_rated_meals(session, user_id, retrieval_query)
+    relevant = _filter_relevant(hits)
 
-    ok, reason = _rag_sufficient(hits)
-    if not ok:
-        logger.info("RAG: insufficient results (%s) — falling back to standard pipeline", reason)
+    if len(relevant) < settings.rag_min_results:
+        worst_kept = relevant[-1].adjusted_distance if relevant else None
+        logger.info(
+            "RAG: insufficient relevant hits (%d under threshold %.3f, need %d; total fetched=%d, "
+            "best=%.3f, worst-kept=%s) — falling back to standard pipeline",
+            len(relevant),
+            settings.rag_max_distance,
+            settings.rag_min_results,
+            len(hits),
+            hits[0].adjusted_distance if hits else float("inf"),
+            f"{worst_kept:.3f}" if worst_kept is not None else "n/a",
+        )
         return None
 
     # Parse meal_json into PlannedMeal for template rendering
     retrieved_meals: list[dict[str, object]] = []
-    for hit in hits:
+    for hit in relevant:
         try:
             meal = PlannedMeal.model_validate_json(hit.meal_json)
             retrieved_meals.append({

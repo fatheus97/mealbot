@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from app.services.meal_planner import _rag_sufficient
+from app.services.meal_planner import _filter_relevant
 from app.services.recipe_retriever import MealHit
 from app.models.plan_models import (
     SingleDayResponse,
@@ -47,55 +47,56 @@ def _make_single_day_response() -> SingleDayResponse:
     )
 
 
-class TestRagSufficient:
+class TestFilterRelevant:
     @patch("app.services.meal_planner.settings")
-    def test_below_min_results(self, mock_settings: MagicMock) -> None:
-        mock_settings.rag_min_results = 3
+    def test_drops_hits_at_or_above_threshold(self, mock_settings: MagicMock) -> None:
+        """Strict less-than: a hit exactly at the threshold is dropped."""
         mock_settings.rag_max_distance = 0.4
 
-        hits = [_make_hit(distance=0.1) for _ in range(2)]
-        ok, reason = _rag_sufficient(hits)
-        assert ok is False
-        assert "2 hits" in reason and "need 3" in reason
+        hits = [
+            _make_hit(distance=0.1, adjusted=0.1),
+            _make_hit(distance=0.39, adjusted=0.39),
+            _make_hit(distance=0.4, adjusted=0.4),   # at threshold → drop
+            _make_hit(distance=0.6, adjusted=0.6),   # above → drop
+        ]
+        kept = _filter_relevant(hits)
+        assert len(kept) == 2
+        assert [h.adjusted_distance for h in kept] == [0.1, 0.39]
 
     @patch("app.services.meal_planner.settings")
-    def test_above_max_distance(self, mock_settings: MagicMock) -> None:
-        mock_settings.rag_min_results = 3
-        mock_settings.rag_max_distance = 0.4
+    def test_all_below_threshold_kept(self, mock_settings: MagicMock) -> None:
+        mock_settings.rag_max_distance = 0.5
+
+        hits = [_make_hit(distance=0.1, adjusted=0.1) for _ in range(5)]
+        assert len(_filter_relevant(hits)) == 5
+
+    @patch("app.services.meal_planner.settings")
+    def test_all_above_threshold_returns_empty(self, mock_settings: MagicMock) -> None:
+        mock_settings.rag_max_distance = 0.3
 
         hits = [_make_hit(distance=0.5, adjusted=0.5) for _ in range(5)]
-        ok, reason = _rag_sufficient(hits)
-        assert ok is False
-        assert "avg distance" in reason and "0.500" in reason
+        assert _filter_relevant(hits) == []
 
     @patch("app.services.meal_planner.settings")
-    def test_passes_when_sufficient(self, mock_settings: MagicMock) -> None:
-        mock_settings.rag_min_results = 3
+    def test_empty_input(self, mock_settings: MagicMock) -> None:
         mock_settings.rag_max_distance = 0.4
-
-        hits = [_make_hit(distance=0.2, adjusted=0.2) for _ in range(5)]
-        ok, reason = _rag_sufficient(hits)
-        assert ok is True
-        assert reason == ""
+        assert _filter_relevant([]) == []
 
     @patch("app.services.meal_planner.settings")
-    def test_empty_hits(self, mock_settings: MagicMock) -> None:
-        mock_settings.rag_min_results = 3
+    def test_mixed_good_bad_does_not_dilute(self, mock_settings: MagicMock) -> None:
+        """Regression guard for the old averaging behavior: one great hit
+        should NOT rescue a batch of poor hits. Only hits under threshold pass."""
         mock_settings.rag_max_distance = 0.4
 
-        ok, reason = _rag_sufficient([])
-        assert ok is False
-        assert "0 hits" in reason
-
-    @patch("app.services.meal_planner.settings")
-    def test_exactly_at_threshold(self, mock_settings: MagicMock) -> None:
-        """Average distance exactly at max should fail (strict less-than)."""
-        mock_settings.rag_min_results = 3
-        mock_settings.rag_max_distance = 0.4
-
-        hits = [_make_hit(distance=0.4, adjusted=0.4) for _ in range(3)]
-        ok, _ = _rag_sufficient(hits)
-        assert ok is False
+        hits = [
+            _make_hit(distance=0.05, adjusted=0.05),  # excellent
+            _make_hit(distance=0.5, adjusted=0.5),    # poor
+            _make_hit(distance=0.5, adjusted=0.5),    # poor
+            _make_hit(distance=0.5, adjusted=0.5),    # poor
+        ]
+        # Old avg = 0.39 (would pass), new filter = only 1 relevant
+        kept = _filter_relevant(hits)
+        assert len(kept) == 1
 
 
 class TestPlanEndpointRagIntegration:
