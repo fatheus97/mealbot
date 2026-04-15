@@ -29,6 +29,11 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
 # 5. Create a non-root user
 RUN adduser --disabled-password --no-create-home appuser
 
+# HuggingFace / fastembed caches. appuser has no $HOME, so pin to /tmp.
+# Without this, HF's xet downloader hits Permission denied on first use.
+ENV HF_HOME=/tmp/hf_cache \
+    FASTEMBED_CACHE_PATH=/tmp/fastembed_cache
+
 # 6. Copy the rest of the code
 COPY --chown=appuser:appuser . .
 
