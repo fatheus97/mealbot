@@ -35,6 +35,11 @@ class Settings(BaseSettings):
 
     use_rag: bool = False
 
+    # RAG thresholds
+    rag_min_results: int = 3
+    rag_max_distance: float = 0.4
+    rag_user_boost: float = 0.7
+
     run_llm_tests: bool = False
 
 

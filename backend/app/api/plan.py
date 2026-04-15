@@ -18,7 +18,9 @@ from app.models.plan_models import (
     IngredientAmount, RegeneratePlanRequest, MealPlanSummary, MealEntrySummary,
     FinishPlanResponse, RateMealRequest,
 )
-from app.services.meal_planner import generate_single_day, generate_partial_day
+from app.core.config import settings
+from app.services.meal_planner import generate_single_day, generate_partial_day, generate_single_day_with_rag
+from app.services.recipe_retriever import embed_meal_entry
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
 from app.db import get_session
 from app.api.deps import get_current_user
@@ -187,7 +189,15 @@ async def plan_meals_for_user(
             day_req.stock_items = remaining_ingredients
             day_req.past_meals = past_meals
 
-            single_day = await generate_single_day(day_req)
+            single_day: SingleDayResponse | None = None
+            if settings.use_rag:
+                single_day = await generate_single_day_with_rag(
+                    day_req, session, current_user.id,  # type: ignore[arg-type]
+                )
+                if single_day:
+                    logger.info("Day %d: used RAG pipeline", day_index)
+            if single_day is None:
+                single_day = await generate_single_day(day_req)
             meal_plan.append(single_day)
 
             remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
@@ -519,6 +529,15 @@ async def rate_meal(
     if entry.cooked_at is None:
         entry.cooked_at = datetime.now(timezone.utc)
 
+    # Invariant: embedding exists iff rating >= 4.
+    if body.rating >= 4 and entry.embedding is None:
+        try:
+            await embed_meal_entry(entry)
+        except Exception:
+            logger.warning("Failed to generate embedding for meal entry %d", meal_entry_id)
+    elif body.rating < 4 and entry.embedding is not None:
+        entry.embedding = None
+
     session.add(entry)
     await session.commit()
     await session.refresh(entry)
@@ -562,6 +581,7 @@ async def uncook_meal(
     if entry.cooked_at is not None:
         entry.cooked_at = None
         entry.rating = None
+        entry.embedding = None
         session.add(entry)
         await session.commit()
         await session.refresh(entry)

@@ -1,0 +1,365 @@
+"""Tests for RAG integration: threshold logic, plan endpoint wiring, embedding on rate."""
+
+from unittest.mock import AsyncMock, patch, MagicMock
+
+import pytest
+
+from app.services.meal_planner import _rag_sufficient
+from app.services.recipe_retriever import MealHit
+from app.models.plan_models import (
+    SingleDayResponse,
+    PlannedMeal,
+    IngredientAmount,
+)
+
+
+def _make_hit(
+    distance: float = 0.2,
+    adjusted: float | None = None,
+    user_id: int = 1,
+    meal_entry_id: int = 1,
+) -> MealHit:
+    return MealHit(
+        meal_entry_id=meal_entry_id,
+        user_id=user_id,
+        name="Test Meal",
+        meal_type="dinner",
+        meal_json=(
+            '{"name":"Test Meal","meal_type":"dinner","meal_type_label":"Dinner",'
+            '"ingredients":[{"name":"rice","quantity_grams":200,"is_spice":false}],'
+            '"steps":["Cook rice"]}'
+        ),
+        cosine_distance=distance,
+        adjusted_distance=adjusted if adjusted is not None else distance,
+    )
+
+
+def _make_single_day_response() -> SingleDayResponse:
+    return SingleDayResponse(
+        meals=[
+            PlannedMeal(
+                name="RAG Meal",
+                meal_type="dinner",
+                ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                steps=["Cook it"],
+            )
+        ]
+    )
+
+
+class TestRagSufficient:
+    @patch("app.services.meal_planner.settings")
+    def test_below_min_results(self, mock_settings: MagicMock) -> None:
+        mock_settings.rag_min_results = 3
+        mock_settings.rag_max_distance = 0.4
+
+        hits = [_make_hit(distance=0.1) for _ in range(2)]
+        assert _rag_sufficient(hits) is False
+
+    @patch("app.services.meal_planner.settings")
+    def test_above_max_distance(self, mock_settings: MagicMock) -> None:
+        mock_settings.rag_min_results = 3
+        mock_settings.rag_max_distance = 0.4
+
+        hits = [_make_hit(distance=0.5, adjusted=0.5) for _ in range(5)]
+        assert _rag_sufficient(hits) is False
+
+    @patch("app.services.meal_planner.settings")
+    def test_passes_when_sufficient(self, mock_settings: MagicMock) -> None:
+        mock_settings.rag_min_results = 3
+        mock_settings.rag_max_distance = 0.4
+
+        hits = [_make_hit(distance=0.2, adjusted=0.2) for _ in range(5)]
+        assert _rag_sufficient(hits) is True
+
+    @patch("app.services.meal_planner.settings")
+    def test_empty_hits(self, mock_settings: MagicMock) -> None:
+        mock_settings.rag_min_results = 3
+        mock_settings.rag_max_distance = 0.4
+
+        assert _rag_sufficient([]) is False
+
+    @patch("app.services.meal_planner.settings")
+    def test_exactly_at_threshold(self, mock_settings: MagicMock) -> None:
+        """Average distance exactly at max should fail (strict less-than)."""
+        mock_settings.rag_min_results = 3
+        mock_settings.rag_max_distance = 0.4
+
+        hits = [_make_hit(distance=0.4, adjusted=0.4) for _ in range(3)]
+        assert _rag_sufficient(hits) is False
+
+
+class TestPlanEndpointRagIntegration:
+    @patch("app.api.plan.generate_single_day_with_rag", new_callable=AsyncMock)
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.api.plan.settings")
+    async def test_uses_rag_when_enabled_and_sufficient(
+        self,
+        mock_settings: MagicMock,
+        mock_standard: AsyncMock,
+        mock_rag: AsyncMock,
+        client: MagicMock,
+        auth_headers: dict[str, str],
+    ) -> None:
+        mock_settings.use_rag = True
+        rag_response = _make_single_day_response()
+        mock_rag.return_value = rag_response
+
+        response = await client.post(
+            "/api/plan?days=1",
+            json={
+                "stock_items": [{"name": "rice", "quantity_grams": 500}],
+                "taste_preferences": [],
+                "avoid_ingredients": [],
+                "meals_per_day": 1,
+                "people_count": 1,
+                "past_meals": [],
+            },
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        mock_rag.assert_awaited()
+        mock_standard.assert_not_awaited()
+
+    @patch("app.api.plan.generate_single_day_with_rag", new_callable=AsyncMock)
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.api.plan.settings")
+    async def test_falls_back_when_rag_returns_none(
+        self,
+        mock_settings: MagicMock,
+        mock_standard: AsyncMock,
+        mock_rag: AsyncMock,
+        client: MagicMock,
+        auth_headers: dict[str, str],
+    ) -> None:
+        mock_settings.use_rag = True
+        mock_rag.return_value = None
+        mock_standard.return_value = _make_single_day_response()
+
+        response = await client.post(
+            "/api/plan?days=1",
+            json={
+                "stock_items": [{"name": "rice", "quantity_grams": 500}],
+                "taste_preferences": [],
+                "avoid_ingredients": [],
+                "meals_per_day": 1,
+                "people_count": 1,
+                "past_meals": [],
+            },
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        mock_rag.assert_awaited()
+        mock_standard.assert_awaited()
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.api.plan.settings")
+    async def test_skips_rag_when_disabled(
+        self,
+        mock_settings: MagicMock,
+        mock_standard: AsyncMock,
+        client: MagicMock,
+        auth_headers: dict[str, str],
+    ) -> None:
+        mock_settings.use_rag = False
+        mock_standard.return_value = _make_single_day_response()
+
+        response = await client.post(
+            "/api/plan?days=1",
+            json={
+                "stock_items": [{"name": "rice", "quantity_grams": 500}],
+                "taste_preferences": [],
+                "avoid_ingredients": [],
+                "meals_per_day": 1,
+                "people_count": 1,
+                "past_meals": [],
+            },
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        mock_standard.assert_awaited()
+
+
+class TestRateMealEmbedding:
+    @patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock)
+    async def test_rate_4_triggers_embedding(
+        self,
+        mock_embed: AsyncMock,
+        client: MagicMock,
+        db_session: MagicMock,
+        test_user: MagicMock,
+    ) -> None:
+        from app.models.db_models import MealPlan, MealEntry
+        from datetime import datetime, timezone
+
+        plan = MealPlan(
+            user_id=test_user.id,
+            days=1,
+            meals_per_day=1,
+            people_count=1,
+            request_json="{}",
+            response_json="{}",
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        entry = MealEntry(
+            user_id=test_user.id,
+            meal_plan_id=plan.id,  # type: ignore[arg-type]
+            day_index=1,
+            meal_index=1,
+            name="Test Meal",
+            meal_type="dinner",
+            meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
+        )
+        db_session.add(entry)
+        await db_session.flush()
+
+        response = await client.post(
+            f"/api/plan/{plan.id}/meals/{entry.id}/rate",
+            json={"rating": 4},
+        )
+
+        assert response.status_code == 200
+        mock_embed.assert_awaited_once()
+
+    @patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock)
+    async def test_rate_below_4_skips_embedding(
+        self,
+        mock_embed: AsyncMock,
+        client: MagicMock,
+        db_session: MagicMock,
+        test_user: MagicMock,
+    ) -> None:
+        from app.models.db_models import MealPlan, MealEntry
+        from datetime import datetime, timezone
+
+        plan = MealPlan(
+            user_id=test_user.id,
+            days=1,
+            meals_per_day=1,
+            people_count=1,
+            request_json="{}",
+            response_json="{}",
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        entry = MealEntry(
+            user_id=test_user.id,
+            meal_plan_id=plan.id,  # type: ignore[arg-type]
+            day_index=1,
+            meal_index=1,
+            name="Test Meal",
+            meal_type="dinner",
+            meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
+        )
+        db_session.add(entry)
+        await db_session.flush()
+
+        response = await client.post(
+            f"/api/plan/{plan.id}/meals/{entry.id}/rate",
+            json={"rating": 2},
+        )
+
+        assert response.status_code == 200
+        mock_embed.assert_not_awaited()
+
+    async def test_rate_drop_below_4_clears_embedding(
+        self,
+        client: MagicMock,
+        db_session: MagicMock,
+        test_user: MagicMock,
+    ) -> None:
+        """Dropping rating from 5 to 3 (misclick) must clear the stale embedding."""
+        from app.models.db_models import MealPlan, MealEntry
+        from datetime import datetime, timezone
+
+        plan = MealPlan(
+            user_id=test_user.id,
+            days=1,
+            meals_per_day=1,
+            people_count=1,
+            request_json="{}",
+            response_json="{}",
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        entry = MealEntry(
+            user_id=test_user.id,
+            meal_plan_id=plan.id,  # type: ignore[arg-type]
+            day_index=1,
+            meal_index=1,
+            name="Test Meal",
+            meal_type="dinner",
+            meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
+            rating=5,
+            cooked_at=datetime.now(timezone.utc),
+            embedding=[0.1] * 384,
+        )
+        db_session.add(entry)
+        await db_session.flush()
+
+        response = await client.post(
+            f"/api/plan/{plan.id}/meals/{entry.id}/rate",
+            json={"rating": 3},
+        )
+
+        assert response.status_code == 200
+        await db_session.refresh(entry)
+        assert entry.rating == 3
+        assert entry.embedding is None
+
+    async def test_uncook_clears_embedding(
+        self,
+        client: MagicMock,
+        db_session: MagicMock,
+        test_user: MagicMock,
+    ) -> None:
+        """Uncooking a rated meal must clear rating AND the stale embedding together."""
+        from app.models.db_models import MealPlan, MealEntry
+        from datetime import datetime, timezone
+
+        plan = MealPlan(
+            user_id=test_user.id,
+            days=1,
+            meals_per_day=1,
+            people_count=1,
+            request_json="{}",
+            response_json="{}",
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        entry = MealEntry(
+            user_id=test_user.id,
+            meal_plan_id=plan.id,  # type: ignore[arg-type]
+            day_index=1,
+            meal_index=1,
+            name="Test Meal",
+            meal_type="dinner",
+            meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
+            rating=5,
+            cooked_at=datetime.now(timezone.utc),
+            embedding=[0.1] * 384,
+        )
+        db_session.add(entry)
+        await db_session.flush()
+
+        response = await client.post(
+            f"/api/plan/{plan.id}/meals/{entry.id}/uncook",
+        )
+
+        assert response.status_code == 200
+        await db_session.refresh(entry)
+        assert entry.rating is None
+        assert entry.cooked_at is None
+        assert entry.embedding is None
