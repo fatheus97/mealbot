@@ -1,18 +1,23 @@
 """Edge case tests for plan API: invalid bounds, ownership, fridge depletion."""
 
-from datetime import datetime, timezone
+import json
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
+from app.api.fridge import _allocate_fifo, _group_and_sort_fridge
 from app.api.plan import _derive_status
-from app.models.db_models import MealPlan, User
+from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
+    ConsumedBatch,
     IngredientAmount,
     PlannedMeal,
     SingleDayResponse,
+    StockItemDTO,
 )
 
 
@@ -472,3 +477,243 @@ class TestDeriveStatus:
     def test_finished_overrides_cooked(self):
         now = datetime.now(timezone.utc)
         assert _derive_status(total=3, cooked=3, finished_at=now) == "finished"
+
+
+# Far-future date keeps get_fridge_items' auto-need-to-use threshold inert.
+_FAR_EXP = "2099-04-25"
+_FAR_DATE = date(2099, 4, 25)
+_FAR_DATE_2 = date(2099, 4, 30)
+
+
+class TestConsumedSnapshot:
+    def test_allocate_fifo_single_batch_full_deduction(self):
+        fridge = [
+            StockItemDTO(name="tomato", quantity_grams=200, expiration_date=_FAR_DATE)
+        ]
+        by_name = _group_and_sort_fridge(fridge)
+        allocs = _allocate_fifo(by_name, [IngredientAmount(name="tomato", quantity_grams=200)])
+
+        assert len(allocs) == 1
+        assert allocs[0].quantity_grams == 200
+        assert allocs[0].expiration_date == _FAR_DATE
+        # Source batch should be drained to 0
+        assert by_name["tomato"][0].quantity_grams == 0
+
+    def test_allocate_fifo_multi_batch_partial_deduction(self):
+        # Earlier expiration should be drained first (FIFO)
+        fridge = [
+            StockItemDTO(name="tomato", quantity_grams=80, expiration_date=_FAR_DATE_2),
+            StockItemDTO(name="tomato", quantity_grams=100, expiration_date=_FAR_DATE),
+        ]
+        by_name = _group_and_sort_fridge(fridge)
+        allocs = _allocate_fifo(by_name, [IngredientAmount(name="tomato", quantity_grams=150)])
+
+        assert [a.quantity_grams for a in allocs] == [100, 50]
+        assert [a.expiration_date for a in allocs] == [_FAR_DATE, _FAR_DATE_2]
+
+    def test_allocate_fifo_no_matching_batch_returns_empty(self):
+        fridge = [StockItemDTO(name="rice", quantity_grams=300)]
+        by_name = _group_and_sort_fridge(fridge)
+        allocs = _allocate_fifo(by_name, [IngredientAmount(name="tofu", quantity_grams=100)])
+
+        assert allocs == []
+        # Untouched ingredient stays put
+        assert by_name["rice"][0].quantity_grams == 300
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_confirm_writes_consumed_snapshot_per_meal(
+        self, mock_gen: AsyncMock,
+        client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
+    ):
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{
+                "name": "tomato", "quantity_grams": 500,
+                "expiration_date": _FAR_EXP, "need_to_use": True,
+            }],
+        )
+
+        # Two meals each consuming 100g of tomato
+        mock_gen.return_value = SingleDayResponse(meals=[
+            PlannedMeal(
+                name="Salad", meal_type="lunch",
+                ingredients=[IngredientAmount(name="tomato", quantity_grams=100)],
+                steps=["Mix"],
+            ),
+            PlannedMeal(
+                name="Soup", meal_type="dinner",
+                ingredients=[IngredientAmount(name="tomato", quantity_grams=100)],
+                steps=["Boil"],
+            ),
+        ])
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        # Read snapshots from DB and verify each meal recorded its 100g debit
+        result = await db_session.execute(
+            select(MealEntry)
+            .where(MealEntry.meal_plan_id == plan_id)
+            .order_by(MealEntry.meal_index)  # type: ignore[arg-type]
+        )
+        entries = result.scalars().all()
+        assert len(entries) == 2
+
+        for entry in entries:
+            assert entry.consumed_snapshot_json is not None
+            batches = [ConsumedBatch.model_validate(b) for b in json.loads(entry.consumed_snapshot_json)]
+            assert len(batches) == 1
+            assert batches[0].name == "tomato"
+            assert batches[0].quantity_grams == 100
+            assert batches[0].expiration_date == _FAR_DATE
+            assert batches[0].need_to_use is True
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_finish_restores_expiration_date_for_uncooked(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Primary regression: uncooked meal's grams must return to original dated bucket."""
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{
+                "name": "tomato", "quantity_grams": 200,
+                "expiration_date": _FAR_EXP, "need_to_use": True,
+            }],
+        )
+
+        mock_gen.return_value = _fake_day_with_ingredients([("tomato", 100)])
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        # Confirm reserves 100g; fridge now has 100g of dated tomato
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        # Finish without cooking — the 100g should return to the same dated bucket
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+
+        fridge_resp = await client.get("/api/fridge", headers=auth_headers)
+        fridge = fridge_resp.json()
+        tomatoes = [x for x in fridge if x["name"] == "tomato"]
+        assert len(tomatoes) == 1, f"Expected one merged tomato bucket, got {tomatoes}"
+        assert tomatoes[0]["quantity_grams"] == 200
+        assert tomatoes[0]["expiration_date"] == _FAR_EXP
+        assert tomatoes[0]["need_to_use"] is True
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_finish_restores_multi_batch_correctly(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """FIFO across two dated batches; finish must restore each grams to its own bucket."""
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[
+                {"name": "tomato", "quantity_grams": 80, "expiration_date": _FAR_DATE.isoformat()},
+                {"name": "tomato", "quantity_grams": 100, "expiration_date": _FAR_DATE_2.isoformat()},
+            ],
+        )
+
+        # 150g consumes all 80g of earlier batch + 70g of later batch
+        mock_gen.return_value = _fake_day_with_ingredients([("tomato", 150)])
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+
+        fridge_resp = await client.get("/api/fridge", headers=auth_headers)
+        by_exp = {x["expiration_date"]: x["quantity_grams"] for x in fridge_resp.json() if x["name"] == "tomato"}
+        assert by_exp == {
+            _FAR_DATE.isoformat(): 80,
+            _FAR_DATE_2.isoformat(): 100,
+        }
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_finish_falls_back_for_legacy_entry_without_snapshot(
+        self, mock_gen: AsyncMock,
+        client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
+    ):
+        """Pre-migration entries (NULL snapshot) should fall back to lossy restore."""
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{
+                "name": "tomato", "quantity_grams": 200,
+                "expiration_date": _FAR_EXP,
+            }],
+        )
+
+        mock_gen.return_value = _fake_day_with_ingredients([("tomato", 100)])
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        # Simulate a legacy row by NULLing the snapshot column
+        result = await db_session.execute(
+            select(MealEntry).where(MealEntry.meal_plan_id == plan_id)
+        )
+        for entry in result.scalars().all():
+            entry.consumed_snapshot_json = None
+            db_session.add(entry)
+        await db_session.flush()
+
+        finish_resp = await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+        assert finish_resp.status_code == 200
+
+        # Legacy path drops grams into a None-dated bucket — kept dated bucket stays at 100g
+        fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+        by_exp = {x["expiration_date"]: x["quantity_grams"] for x in fridge if x["name"] == "tomato"}
+        assert by_exp == {_FAR_EXP: 100, None: 100}
+
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_finish_idempotent_with_snapshot(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Second finish must not double-restore: fridge state stays stable."""
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{
+                "name": "tomato", "quantity_grams": 200,
+                "expiration_date": _FAR_EXP,
+            }],
+        )
+
+        mock_gen.return_value = _fake_day_with_ingredients([("tomato", 100)])
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+        first_fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+        second_fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+
+        assert first_fridge == second_fridge
+        tomatoes = [x for x in second_fridge if x["name"] == "tomato"]
+        assert len(tomatoes) == 1
+        assert tomatoes[0]["quantity_grams"] == 200

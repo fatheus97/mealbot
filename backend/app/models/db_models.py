@@ -86,6 +86,11 @@ class MealEntry(SQLModel, table=True):
         description="Full PlannedMeal JSON (ingredients, steps, etc.)."
     )
 
+    # Per-meal snapshot of which fridge batches were debited at confirm time.
+    # JSON list[ConsumedBatch]. NULL on legacy rows (pre-migration); finish_plan
+    # falls back to add_ingredients_to_fridge for those.
+    consumed_snapshot_json: str | None = Field(default=None)
+
     # RAG embedding — 384d from all-MiniLM-L6-v2, generated when rated 4+
     embedding: list[float] | None = Field(
         default=None, sa_column=Column(Vector(384), nullable=True)

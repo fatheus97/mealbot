@@ -11,7 +11,7 @@ from app.api.deps import get_current_user
 from app.core.rate_limit import limiter
 from app.db import get_session
 from app.models.db_models import User, StockItem
-from app.models.plan_models import IngredientAmount, ScannedItemDTO, StockItemDTO
+from app.models.plan_models import ConsumedBatch, IngredientAmount, ScannedItemDTO, StockItemDTO
 from app.services.receipt_scanner import extract_items_from_receipt, extract_items_from_pdf, normalize_item_names
 
 logger = logging.getLogger(__name__)
@@ -213,7 +213,12 @@ async def replace_fridge_items(
 async def add_ingredients_to_fridge(
     session: AsyncSession, user_id: int, ingredients: List["IngredientAmount"],
 ) -> List[StockItemDTO]:
-    """Add ingredient amounts back to fridge. Leftovers have no expiration date."""
+    """Legacy fallback: return leftover grams to the fridge with no expiration metadata.
+
+    Used by finish_plan only for MealEntry rows that have no consumed_snapshot_json
+    (entries confirmed before the snapshot column existed). New code should rely on
+    restore_consumed_batches instead, which preserves expiration_date and need_to_use.
+    """
     existing = await get_fridge_items(session, user_id)
     # Returned leftovers have expiration_date=None, so they merge with other None-dated items
     merged: dict[tuple[str, date | None], StockItemDTO] = {
@@ -235,35 +240,88 @@ async def add_ingredients_to_fridge(
     return await replace_fridge_items(session, user_id, list(merged.values()), commit=False)
 
 
-async def subtract_ingredients_from_fridge(
-    session: AsyncSession, user_id: int, ingredients: List["IngredientAmount"],
+async def restore_consumed_batches(
+    session: AsyncSession, user_id: int, batches: List[ConsumedBatch],
 ) -> List[StockItemDTO]:
-    """Subtract ingredient amounts from fridge using FIFO (earliest-expiring first)."""
+    """Add ConsumedBatch entries back into the fridge, preserving each batch's
+    expiration_date and need_to_use. Merges into an existing fridge bucket keyed
+    by (name.lower(), expiration_date); creates a fresh bucket otherwise."""
     existing = await get_fridge_items(session, user_id)
+    merged: dict[tuple[str, date | None], StockItemDTO] = {
+        (i.name.strip().lower(), i.expiration_date): i for i in existing
+    }
+    for b in batches:
+        key = (b.name.strip().lower(), b.expiration_date)
+        if key in merged:
+            merged[key] = StockItemDTO(
+                name=merged[key].name,
+                quantity_grams=merged[key].quantity_grams + b.quantity_grams,
+                need_to_use=merged[key].need_to_use or b.need_to_use,
+                expiration_date=merged[key].expiration_date,
+            )
+        else:
+            merged[key] = StockItemDTO(
+                name=b.name,
+                quantity_grams=b.quantity_grams,
+                need_to_use=b.need_to_use,
+                expiration_date=b.expiration_date,
+            )
+    return await replace_fridge_items(session, user_id, list(merged.values()), commit=False)
 
-    # Group by lowercase name, each name can have multiple batches
-    by_name: dict[str, list[StockItemDTO]] = {}
-    for item in existing:
-        key = item.name.strip().lower()
-        by_name.setdefault(key, []).append(item)
 
-    # Sort each group: earliest expiration first, None last; smaller qty first for same date
-    for batches in by_name.values():
-        batches.sort(key=lambda x: (x.expiration_date is None, x.expiration_date or date.max, x.quantity_grams))
-
+def _allocate_fifo(
+    batches_by_name: dict[str, list[StockItemDTO]],
+    ingredients: List["IngredientAmount"],
+) -> List[ConsumedBatch]:
+    """Deduct `ingredients` from `batches_by_name` in-place (FIFO: earliest expiration first)
+    and return the per-batch debits actually applied. Caller owns the dict and is responsible
+    for the initial sort and final flattening."""
+    allocations: List[ConsumedBatch] = []
     for ing in ingredients:
         key = ing.name.strip().lower()
-        batches = by_name.get(key, [])
+        batches = batches_by_name.get(key, [])
         if not batches:
             continue
         remaining = ing.quantity_grams
         for batch in batches:
             if remaining <= 0:
                 break
+            if batch.quantity_grams <= 0:
+                continue
             deducted = min(remaining, batch.quantity_grams)
             batch.quantity_grams = batch.quantity_grams - deducted
             remaining -= deducted
+            allocations.append(ConsumedBatch(
+                name=batch.name,
+                quantity_grams=deducted,
+                expiration_date=batch.expiration_date,
+                need_to_use=batch.need_to_use,
+            ))
+    return allocations
 
-    # Flatten and remove zeroed items
+
+def _group_and_sort_fridge(items: List[StockItemDTO]) -> dict[str, list[StockItemDTO]]:
+    """Group fridge items by lowercase name; sort each group earliest-expiration first
+    (None last), smaller qty first for the same date. Returns mutable copies safe to deduct."""
+    by_name: dict[str, list[StockItemDTO]] = {}
+    for item in items:
+        # copy so callers can mutate quantity_grams without touching source DTOs
+        by_name.setdefault(item.name.strip().lower(), []).append(item.model_copy())
+    for batches in by_name.values():
+        batches.sort(key=lambda x: (
+            x.expiration_date is None,
+            x.expiration_date or date.max,
+            x.quantity_grams,
+        ))
+    return by_name
+
+
+async def subtract_ingredients_from_fridge(
+    session: AsyncSession, user_id: int, ingredients: List["IngredientAmount"],
+) -> List[StockItemDTO]:
+    """Subtract ingredient amounts from fridge using FIFO (earliest-expiring first)."""
+    existing = await get_fridge_items(session, user_id)
+    by_name = _group_and_sort_fridge(existing)
+    _allocate_fifo(by_name, ingredients)
     updated = [item for batches in by_name.values() for item in batches if item.quantity_grams > 0]
     return await replace_fridge_items(session, user_id, updated, commit=False)

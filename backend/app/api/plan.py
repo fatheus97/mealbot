@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime, timezone
 from typing import List, cast, Literal
@@ -7,14 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.api.fridge import (
-    add_ingredients_to_fridge,
+    _allocate_fifo,
+    _group_and_sort_fridge,
     get_fridge_items,
-    subtract_ingredients_from_fridge,
+    replace_fridge_items,
+    restore_consumed_batches,
 )
 from app.core.rate_limit import limiter
 from app.models.db_models import User, StockItem, MealPlan, MealEntry
 from app.models.plan_models import (
-    MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO, PlannedMeal,
+    ConsumedBatch, MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO, PlannedMeal,
     IngredientAmount, RegeneratePlanRequest, MealPlanSummary, MealEntrySummary,
     FinishPlanResponse, RateMealRequest,
 )
@@ -440,15 +443,33 @@ async def confirm_plan(
             detail="Stored plan data could not be loaded.",
         )
 
-    # Extract all ingredients and subtract from fridge
-    all_ingredients = _extract_all_ingredients(plan_obj)
-    await subtract_ingredients_from_fridge(session, current_user.id, all_ingredients)
+    # FIFO-debit fridge per meal so each MealEntry can record exactly which
+    # batches (with expiration_date + need_to_use) it consumed. This snapshot
+    # is what lets finish_plan restore an uncooked meal's ingredients to their
+    # original dated bucket instead of dropping them into a None-dated one.
+    fridge = await get_fridge_items(session, current_user.id)
+    batches_by_name = _group_and_sort_fridge(fridge)
+    snapshots: dict[tuple[int, int], list[ConsumedBatch]] = {}
+
+    for day_index, day in enumerate(plan_obj.days, start=1):
+        for meal_index, meal in enumerate(day.meals, start=1):
+            meal_ingredients = [ing for ing in meal.ingredients if not ing.is_spice]
+            allocations = _allocate_fifo(batches_by_name, meal_ingredients)
+            snapshots[(day_index, meal_index)] = allocations
+
+    final_state = [
+        item
+        for batches in batches_by_name.values()
+        for item in batches
+        if item.quantity_grams > 0
+    ]
+    await replace_fridge_items(session, current_user.id, final_state, commit=False)
 
     # Create meal entries — all start UNCOOKED (ingredients already reserved via fridge subtraction)
     now = datetime.now(timezone.utc)
     _persist_meal_entries(
         session, user_id=current_user.id, plan_id=plan_id,
-        plan_obj=plan_obj, cooked_at=None,
+        plan_obj=plan_obj, cooked_at=None, consumption_snapshots=snapshots,
     )
 
     plan.confirmed_at = now
@@ -665,7 +686,9 @@ async def finish_plan(
             returned_meals=uncooked_count,
         )
 
-    # Collect ingredients from uncooked meals
+    # Collect uncooked meals — entries with a confirm-time snapshot get exact
+    # restore (preserves expiration_date + need_to_use); legacy entries fall
+    # back to the lossy name+grams merge.
     result = await session.execute(
         select(MealEntry).where(
             MealEntry.meal_plan_id == plan_id,
@@ -674,13 +697,31 @@ async def finish_plan(
     )
     uncooked_entries = result.scalars().all()
 
-    all_ingredients: List[IngredientAmount] = []
+    # Snapshot-bearing entries restore exact (name, expiration_date, need_to_use)
+    # tuples; legacy entries (NULL snapshot) degrade to None-dated buckets.
+    # Both paths funnel through restore_consumed_batches so the fridge is
+    # rewritten exactly once per finish (avoids autoflush ordering surprises).
+    batches_to_restore: List[ConsumedBatch] = []
     for entry in uncooked_entries:
-        all_ingredients.extend(_parse_meal_ingredients(entry))
+        if entry.consumed_snapshot_json:
+            try:
+                raw = json.loads(entry.consumed_snapshot_json)
+                batches_to_restore.extend(
+                    ConsumedBatch.model_validate(b) for b in raw
+                )
+                continue
+            except Exception:
+                logger.exception(
+                    "Corrupt consumed_snapshot_json on meal entry %d — falling back to lossy restore",
+                    entry.id,
+                )
+        batches_to_restore.extend(
+            ConsumedBatch(name=ing.name, quantity_grams=ing.quantity_grams)
+            for ing in _parse_meal_ingredients(entry)
+        )
 
-    # Return uncooked ingredients to fridge
-    if all_ingredients:
-        await add_ingredients_to_fridge(session, current_user.id, all_ingredients)
+    if batches_to_restore:
+        await restore_consumed_batches(session, current_user.id, batches_to_restore)
 
     now = datetime.now(timezone.utc)
     plan.finished_at = now
@@ -692,15 +733,6 @@ async def finish_plan(
         finished_at=now,
         returned_meals=len(uncooked_entries),
     )
-
-
-def _extract_all_ingredients(plan: MealPlanResponse) -> List[IngredientAmount]:
-    """Collect all non-spice ingredients from every meal in the plan."""
-    result: List[IngredientAmount] = []
-    for day in plan.days:
-        for meal in day.meals:
-            result.extend(ing for ing in meal.ingredients if not ing.is_spice)
-    return result
 
 
 def _parse_meal_ingredients(entry: MealEntry) -> List[IngredientAmount]:
@@ -715,8 +747,15 @@ def _persist_meal_entries(
     plan_id: int,
     plan_obj: MealPlanResponse,
     cooked_at: datetime | None = None,
+    consumption_snapshots: dict[tuple[int, int], list[ConsumedBatch]] | None = None,
 ) -> None:
     """Stage meal entries into the session. Caller must await session.commit().
+
+    `consumption_snapshots` keys are 1-based (day_index, meal_index) tuples
+    matching the indices used below; values are the per-meal fridge debits
+    captured by `_allocate_fifo` at confirm time. Pass None for non-confirm
+    callers — entries get NULL `consumed_snapshot_json` and finish_plan will
+    use its legacy restore path.
 
     This function is intentionally synchronous. session.add_all() only stages
     objects in memory — no I/O occurs until the caller awaits session.commit().
@@ -725,6 +764,12 @@ def _persist_meal_entries(
 
     for day_index, day in enumerate(plan_obj.days, start=1):
         for meal_index, meal in enumerate(day.meals, start=1):
+            snapshot_json: str | None = None
+            if consumption_snapshots is not None:
+                batches = consumption_snapshots.get((day_index, meal_index), [])
+                snapshot_json = json.dumps(
+                    [b.model_dump(mode="json") for b in batches]
+                )
             entries.append(
                 MealEntry(
                     user_id=user_id,
@@ -735,6 +780,7 @@ def _persist_meal_entries(
                     meal_type=meal.meal_type,
                     meal_json=meal.model_dump_json(),
                     cooked_at=cooked_at,
+                    consumed_snapshot_json=snapshot_json,
                 )
             )
 

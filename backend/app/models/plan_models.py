@@ -116,6 +116,14 @@ class IngredientAmount(BaseModel):
         return v
 
 
+class ConsumedBatch(BaseModel):
+    """A specific fridge batch (with its expiration + need_to_use) charged to a meal at confirm time."""
+    name: str
+    quantity_grams: float
+    expiration_date: date | None = None
+    need_to_use: bool = False
+
+
 class PlannedMeal(BaseModel):
     name: str
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
