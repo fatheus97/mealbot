@@ -10,17 +10,23 @@ interface ReceiptScannerProps {
 
 interface ReviewItem {
   name: string;
-  addedQty: number;
+  addedQty: string;
   existingQty: number;
   needToUse: boolean;
   itemType?: ScannedItemType;
   expirationDate: string | null;
 }
 
+const parseQty = (s: string): number => {
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : NaN;
+};
+
 export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const [state, setState] = useState<ScannerState>("idle");
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
+  const [confirmError, setConfirmError] = useState("");
   const [notice, setNotice] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,7 +57,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
         const existing = fridgeLookup.get(compoundKey);
         return {
           name: scanned.name,
-          addedQty: scanned.quantity_grams,
+          addedQty: String(scanned.quantity_grams),
           existingQty: existing?.quantity_grams ?? 0,
           needToUse: existing?.need_to_use ?? false,
           itemType: scanned.item_type,
@@ -68,9 +74,17 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   };
 
   const handleConfirm = async () => {
+    const invalidIdx = reviewItems.findIndex((item) => Number.isNaN(parseQty(item.addedQty)));
+    if (invalidIdx !== -1) {
+      setConfirmError(
+        `Row ${invalidIdx + 1} (${reviewItems[invalidIdx].name || "unnamed"}) needs a quantity greater than 0.`,
+      );
+      return;
+    }
+
     const itemsToMerge: StockItem[] = reviewItems.map((item) => ({
       name: item.name,
-      quantity_grams: item.addedQty,
+      quantity_grams: parseQty(item.addedQty),
       need_to_use: item.needToUse,
       expiration_date: item.expirationDate,
     }));
@@ -79,6 +93,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       await mergeMutation.mutateAsync(itemsToMerge);
       setState("idle");
       setReviewItems([]);
+      setConfirmError("");
       if (fileInputRef.current) fileInputRef.current.value = "";
       setNotice("Items added to fridge!");
       setTimeout(() => setNotice(""), 3000);
@@ -91,6 +106,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const handleCancel = () => {
     setState("idle");
     setReviewItems([]);
+    setConfirmError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -162,8 +178,14 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               </thead>
               <tbody>
                 {reviewItems.map((item, index) => {
-                  const resultQty = item.existingQty + item.addedQty;
+                  const addedNum = parseQty(item.addedQty);
+                  const isInvalid = Number.isNaN(addedNum);
                   const isNew = item.existingQty === 0;
+                  const resultLabel = isInvalid
+                    ? "—"
+                    : isNew
+                      ? `${addedNum}g (new)`
+                      : `+${addedNum} → ${item.existingQty + addedNum}g`;
                   return (
                     <tr key={index} style={{ borderBottom: "1px solid #eee" }}>
                       <td>
@@ -186,10 +208,21 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                       </td>
                       <td>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           value={item.addedQty}
-                          onChange={(e) => updateReviewItem(index, "addedQty", parseInt(e.target.value) || 0)}
-                          style={{ width: "80px" }}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                              updateReviewItem(index, "addedQty", v);
+                              setConfirmError("");
+                            }
+                          }}
+                          style={{
+                            width: "80px",
+                            border: isInvalid ? "1px solid #ef4444" : undefined,
+                          }}
+                          aria-invalid={isInvalid}
                         />
                       </td>
                       <td>
@@ -200,10 +233,8 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                           style={{ width: "130px" }}
                         />
                       </td>
-                      <td style={{ color: isNew ? "#4ade80" : "inherit" }}>
-                        {isNew
-                          ? `${item.addedQty}g (new)`
-                          : `+${item.addedQty} → ${resultQty}g`}
+                      <td style={{ color: isNew && !isInvalid ? "#4ade80" : "inherit" }}>
+                        {resultLabel}
                       </td>
                       <td>
                         <input
@@ -220,6 +251,9 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                 })}
               </tbody>
             </table>
+          )}
+          {confirmError && (
+            <p style={{ color: "#f87171", margin: "0.25rem 0 0.5rem" }}>{confirmError}</p>
           )}
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button

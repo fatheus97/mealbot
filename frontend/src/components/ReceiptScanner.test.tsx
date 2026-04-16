@@ -166,6 +166,68 @@ describe('ReceiptScanner', () => {
     expect(screen.queryByDisplayValue('rice')).not.toBeInTheDocument();
   });
 
+  it('clears the qty cell on backspace without auto-zero', async () => {
+    mockedScanReceipt.mockResolvedValue([
+      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+    ]);
+
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
+
+    const qty = (await screen.findByDisplayValue('1000')) as HTMLInputElement;
+    await user.clear(qty);
+
+    expect(qty.value).toBe('');
+  });
+
+  it('blocks confirm when a row has an invalid qty', async () => {
+    mockedScanReceipt.mockResolvedValue([
+      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+    ]);
+
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
+
+    const qty = await screen.findByDisplayValue('1000');
+    await user.clear(qty);
+    await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+
+    expect(screen.getByText(/needs a quantity greater than 0/i)).toBeInTheDocument();
+    expect(mockedMergeFridge).not.toHaveBeenCalled();
+  });
+
+  it('forwards decimal qty values as floats on confirm', async () => {
+    mockedScanReceipt.mockResolvedValue([
+      { name: 'yeast', quantity_grams: 100, need_to_use: false, item_type: 'ingredient' as const },
+    ]);
+    mockedMergeFridge.mockResolvedValue([
+      { name: 'yeast', quantity_grams: 12.5, need_to_use: false, item_type: 'ingredient' as const },
+    ]);
+
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
+
+    const qty = await screen.findByDisplayValue('100');
+    await user.clear(qty);
+    await user.type(qty, '12.5');
+    await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+
+    await waitFor(() => {
+      expect(mockedMergeFridge).toHaveBeenCalledWith([
+        { name: 'yeast', quantity_grams: 12.5, need_to_use: false, expiration_date: null },
+      ]);
+    });
+  });
+
   it('allows removing items from review', async () => {
     mockedScanReceipt.mockResolvedValue([
       { name: 'chicken', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },

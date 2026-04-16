@@ -16,19 +16,25 @@ interface FridgeItemModalProps {
 
 export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeItemModalProps) {
   const [name, setName] = useState(initialValues.name);
-  const [quantity, setQuantity] = useState(initialValues.quantity_grams);
+  const [quantity, setQuantity] = useState(String(initialValues.quantity_grams));
   const [expiration, setExpiration] = useState(initialValues.expiration_date ?? "");
   const [needToUse, setNeedToUse] = useState(initialValues.need_to_use);
   const [error, setError] = useState("");
+  const [quantityError, setQuantityError] = useState("");
 
   const handleOk = () => {
     if (!name.trim()) {
       setError("Name is required");
       return;
     }
+    const parsedQuantity = Number(quantity);
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+      setQuantityError("Enter a quantity greater than 0");
+      return;
+    }
     onOk({
       name: name.trim(),
-      quantity_grams: quantity,
+      quantity_grams: parsedQuantity,
       expiration_date: expiration || null,
       need_to_use: needToUse,
     });
@@ -80,11 +86,21 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
             Quantity (g)
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                  setQuantity(v);
+                  setQuantityError("");
+                }
+              }}
               style={{ width: "100px" }}
             />
+            {quantityError && (
+              <span style={{ color: "red", fontSize: "0.85rem" }}>{quantityError}</span>
+            )}
           </label>
 
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>

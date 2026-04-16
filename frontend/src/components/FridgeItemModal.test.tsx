@@ -76,4 +76,83 @@ describe("FridgeItemModal", () => {
     expect(screen.getByText("Name is required")).toBeInTheDocument();
     expect(onOk).not.toHaveBeenCalled();
   });
+
+  it("backspacing the quantity field leaves it empty (no auto-zero)", async () => {
+    const user = userEvent.setup();
+    render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const qty = screen.getByDisplayValue("100") as HTMLInputElement;
+    await user.click(qty);
+    await user.keyboard("{Backspace}{Backspace}{Backspace}");
+
+    expect(qty.value).toBe("");
+  });
+
+  it("blocks submit and shows error when quantity is empty", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={onOk} onCancel={vi.fn()} />,
+    );
+
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), "Milk");
+    await user.clear(screen.getByDisplayValue("100"));
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+
+    expect(screen.getByText(/quantity greater than 0/i)).toBeInTheDocument();
+    expect(onOk).not.toHaveBeenCalled();
+  });
+
+  it("blocks submit and shows error when quantity is zero", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={onOk} onCancel={vi.fn()} />,
+    );
+
+    const qty = screen.getByDisplayValue("100") as HTMLInputElement;
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), "Milk");
+    await user.clear(qty);
+    await user.type(qty, "0");
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+
+    expect(screen.getByText(/quantity greater than 0/i)).toBeInTheDocument();
+    expect(onOk).not.toHaveBeenCalled();
+  });
+
+  it("accepts decimal quantities and forwards them as numbers", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={onOk} onCancel={vi.fn()} />,
+    );
+
+    const qty = screen.getByDisplayValue("100") as HTMLInputElement;
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), "Yeast");
+    await user.clear(qty);
+    await user.type(qty, "12.5");
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+
+    expect(onOk).toHaveBeenCalledWith({
+      name: "Yeast",
+      quantity_grams: 12.5,
+      expiration_date: null,
+      need_to_use: false,
+    });
+  });
+
+  it("rejects non-numeric input at the keystroke level", async () => {
+    const user = userEvent.setup();
+    render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const qty = screen.getByDisplayValue("100") as HTMLInputElement;
+    await user.click(qty);
+    await user.keyboard("abc");
+
+    expect(qty.value).toBe("100");
+  });
 });
