@@ -33,11 +33,12 @@ def get_password_hash(password: str) -> str:
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
 
-def create_access_token(subject: int | str) -> str:
+def create_access_token(subject: int | str, expire_minutes: int | None = None) -> str:
     """
         Generates a JWT token containing the user's ID as the 'sub' (subject).
     """
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    minutes = expire_minutes if expire_minutes is not None else settings.access_token_expire_minutes
+    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
     to_encode = {"exp": expire, "sub": str(subject)}
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
     return encoded_jwt

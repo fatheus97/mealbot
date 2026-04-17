@@ -105,6 +105,7 @@ export interface LoginResponse {
   user_id: number;
   email: string;
   onboarding_completed: boolean;
+  is_demo: boolean;
 }
 
 export interface AuthState {
@@ -112,9 +113,11 @@ export interface AuthState {
   token: string | null; // <-- NEW: Added token to state
   email: string;
   onboardingCompleted: boolean; // <-- NEW: Track onboarding state
+  isDemo: boolean;
   login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => void;
   setOnboardingCompleted: (value: boolean) => void;
+  loginDemo: () => Promise<void>;
 }
 
 export interface UserProfile {

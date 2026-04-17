@@ -26,7 +26,7 @@ from app.services.meal_planner import generate_single_day, generate_partial_day,
 from app.services.recipe_retriever import embed_meal_entry
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
 from app.db import get_session
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_non_demo
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ async def get_plan_detail(
 async def delete_plan(
     request: Request,
     plan_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_non_demo),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Delete a plan and its associated meal entries."""
@@ -420,7 +420,7 @@ async def regenerate_plan(
 async def confirm_plan(
     request: Request,
     plan_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_non_demo),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
 
@@ -660,7 +660,7 @@ async def list_meal_entries(
 async def finish_plan(
     request: Request,
     plan_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_non_demo),
     session: AsyncSession = Depends(get_session),
 ) -> FinishPlanResponse:
     """Finish a plan: return ingredients for uncooked meals to fridge."""

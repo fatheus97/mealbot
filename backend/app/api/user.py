@@ -10,7 +10,7 @@ from app.models.db_models import User
 from app.models.user_schemas import UserCreate, UserRead, UserUpdate, Token, MessageResponse
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.config import settings
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_non_demo
 from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -30,6 +30,7 @@ def _to_read(u: User) -> UserRead:
         include_spices=u.include_spices,
         track_snacks=u.track_snacks,
         onboarding_completed=u.onboarding_completed,
+        is_demo=u.is_demo,
     )
 
 
@@ -106,7 +107,8 @@ async def login(
         token_type="bearer",
         user_id=user.id,
         email=user.email,
-        onboarding_completed=bool(user.onboarding_completed)
+        onboarding_completed=bool(user.onboarding_completed),
+        is_demo=bool(user.is_demo),
     )
 
 
@@ -123,7 +125,7 @@ async def get_user(
 @router.patch(path="", response_model=UserRead)
 async def update_user(
     patch: UserUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_non_demo),
     session: AsyncSession = Depends(get_session),
 ) -> UserRead:
 

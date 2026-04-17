@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     run_llm_tests: bool = False
 
 
+    demo_mode: bool = False
+    demo_session_expire_minutes: int = 120
+
     registration_enabled: bool = False
 
     access_token_expire_minutes: int = 60 * 24  # 24 hours

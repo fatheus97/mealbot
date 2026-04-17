@@ -34,6 +34,8 @@ class User(SQLModel, table=True):
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)
 
+    is_demo: bool = Field(default=False, index=True)
+
     fridge_items: List["StockItem"] = Relationship(back_populates="user")
     meal_plans: List["MealPlan"] = Relationship(back_populates="user")
     meal_entries: List["MealEntry"] = Relationship(back_populates="user")

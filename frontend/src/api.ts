@@ -33,6 +33,18 @@ export async function authFetch(endpoint: string, options: RequestInit = {}) {
     window.dispatchEvent(new Event("mealbot:logout"));
   }
 
+  // 6. Demo mode blocked action — fire event so DemoBanner can flash
+  if (response.status === 403) {
+    try {
+      const body = await response.clone().json();
+      if (body?.detail?.code === "demo_blocked") {
+        window.dispatchEvent(new CustomEvent("mealbot:demo-blocked"));
+      }
+    } catch {
+      // non-JSON 403 — ignore
+    }
+  }
+
   return response;
 }
 

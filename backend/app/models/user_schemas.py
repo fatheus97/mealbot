@@ -33,6 +33,7 @@ class UserRead(UserBase):
     include_spices: bool
     track_snacks: bool
     onboarding_completed: bool
+    is_demo: bool = False
 
 class UserUpdate(SQLModel):
     country: Optional[str] = None
@@ -53,3 +54,4 @@ class Token(BaseModel):
     user_id: int
     email: str
     onboarding_completed: bool
+    is_demo: bool = False
