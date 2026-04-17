@@ -15,6 +15,9 @@ services:
       - /app/node_modules  # Anonymous volume to protect container dependencies
     ports:
       - "5174:5173"        # Override the 5173:80 mapping from the base compose file
+    depends_on:
+      backend:
+        condition: service_healthy
     environment:
       - NODE_ENV=development
       - VITE_API_BASE=http://localhost:8000/api

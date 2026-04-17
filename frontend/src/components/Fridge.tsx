@@ -391,7 +391,11 @@ export function Fridge() {
           <ReceiptScanner currentFridge={fridge} />
 
           {isLoading && <p>Loading inventory...</p>}
-          {fetchError && <p style={{ color: "red" }}>Error: {fetchError.message}</p>}
+          {fetchError && (
+            <p style={{ color: fetchError instanceof TypeError ? "#888" : "red" }}>
+              {fetchError instanceof TypeError ? "Connecting to server…" : `Error: ${fetchError.message}`}
+            </p>
+          )}
 
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
