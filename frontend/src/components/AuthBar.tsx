@@ -41,6 +41,7 @@ export function AuthBar() {
                 finally { setLoading(false); }
               }}
               disabled={loading}
+              title="No signup needed — explore with mocked data."
               style={{ padding: "0.5rem 1rem", backgroundColor: "#2e7d32", color: "white", border: "none", borderRadius: "4px" }}
             >
               {loading ? "..." : "Try Demo"}

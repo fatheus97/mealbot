@@ -1,6 +1,6 @@
 import base64
 import logging
-from typing import Any, TypeVar, Type, Callable  # Any: instructor kwargs are inherently untyped
+from typing import Any, TypeVar, Type, Callable, Optional  # Any: instructor kwargs are inherently untyped
 
 import instructor
 from fastapi import HTTPException
@@ -140,12 +140,13 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         response_model: Type[T],
+        mock_context: Optional[dict[str, Any]] = None,
     ) -> T:
         """
         Forces the LLM to return data that perfectly validates against the injected Pydantic model.
         """
         if settings.llm_mock:
-            return self._mock_response(response_model)
+            return self._mock_response(response_model, mock_context)
 
         messages: list[object] = [
             {"role": "system", "content": system_prompt},
@@ -215,21 +216,229 @@ class LLMClient:
 
         return await self._call_with_fallback(build_kwargs, response_model, "Receipt scanning service")
 
-    @staticmethod
-    def _mock_response(response_model: Type[T]) -> T:
-        """Deterministic fake response used for local development."""
-        return response_model.model_validate({
-            "meals": [{
-                "name": "Mock spicy chicken with rice",
+    # Three-day rotating meal templates using the seeded demo fridge.
+    # Indexed by day_index % 3 → list of (name, meal_type, label, ingredients, steps).
+    _MOCK_MEAL_TEMPLATES: list[list[dict[str, Any]]] = [
+        [  # day_index % 3 == 1
+            {
+                "name": "Garlic Chicken with Spinach Rice",
+                "meal_type": "breakfast",
+                "meal_type_label": "Breakfast",
+                "ingredients": [
+                    {"name": "eggs", "quantity_grams": 120},
+                    {"name": "greek yogurt", "quantity_grams": 150},
+                    {"name": "lemons", "quantity_grams": 30},
+                ],
+                "steps": [
+                    "Whisk eggs and season with salt and pepper.",
+                    "Cook in a non-stick pan over medium heat until set.",
+                    "Serve with Greek yogurt and a squeeze of lemon.",
+                ],
+            },
+            {
+                "name": "Garlic Chicken with Spinach Rice",
                 "meal_type": "lunch",
                 "meal_type_label": "Lunch",
                 "ingredients": [
                     {"name": "chicken breast", "quantity_grams": 200},
-                    {"name": "rice", "quantity_grams": 100},
+                    {"name": "rice", "quantity_grams": 150},
+                    {"name": "baby spinach", "quantity_grams": 80},
+                    {"name": "garlic", "quantity_grams": 10},
+                    {"name": "olive oil", "quantity_grams": 20},
                 ],
-                "steps": ["Cook rice", "Cook chicken"],
-            }]
-        })
+                "steps": [
+                    "Cook rice according to package instructions.",
+                    "Season chicken with garlic and a pinch of salt.",
+                    "Sear chicken in olive oil for 6 minutes per side until golden.",
+                    "Wilt spinach in the same pan for 2 minutes.",
+                    "Serve chicken over spinach rice.",
+                ],
+            },
+            {
+                "name": "Cherry Tomato Pasta",
+                "meal_type": "dinner",
+                "meal_type_label": "Dinner",
+                "ingredients": [
+                    {"name": "pasta", "quantity_grams": 200},
+                    {"name": "cherry tomatoes", "quantity_grams": 200},
+                    {"name": "garlic", "quantity_grams": 10},
+                    {"name": "olive oil", "quantity_grams": 30},
+                    {"name": "cheddar cheese", "quantity_grams": 40},
+                ],
+                "steps": [
+                    "Boil pasta in salted water until al dente.",
+                    "Halve cherry tomatoes and sauté with garlic in olive oil for 5 minutes.",
+                    "Toss pasta with the tomato sauce.",
+                    "Finish with grated cheddar cheese.",
+                ],
+            },
+            {
+                "name": "Greek Yogurt with Lemon",
+                "meal_type": "snack",
+                "meal_type_label": "Snack",
+                "ingredients": [
+                    {"name": "greek yogurt", "quantity_grams": 150},
+                    {"name": "lemons", "quantity_grams": 20},
+                ],
+                "steps": ["Drizzle lemon juice over Greek yogurt and enjoy."],
+            },
+        ],
+        [  # day_index % 3 == 2
+            {
+                "name": "Scrambled Eggs with Cheddar",
+                "meal_type": "breakfast",
+                "meal_type_label": "Breakfast",
+                "ingredients": [
+                    {"name": "eggs", "quantity_grams": 180},
+                    {"name": "cheddar cheese", "quantity_grams": 50},
+                    {"name": "olive oil", "quantity_grams": 10},
+                ],
+                "steps": [
+                    "Beat eggs with salt and pepper.",
+                    "Cook in olive oil over low heat, stirring gently.",
+                    "Fold in cheddar cheese just before serving.",
+                ],
+            },
+            {
+                "name": "Spinach and Tomato Chicken Salad",
+                "meal_type": "lunch",
+                "meal_type_label": "Lunch",
+                "ingredients": [
+                    {"name": "baby spinach", "quantity_grams": 120},
+                    {"name": "cherry tomatoes", "quantity_grams": 150},
+                    {"name": "chicken breast", "quantity_grams": 150},
+                    {"name": "olive oil", "quantity_grams": 20},
+                    {"name": "lemons", "quantity_grams": 30},
+                ],
+                "steps": [
+                    "Grill or pan-fry chicken breast until cooked through, then slice.",
+                    "Combine spinach, halved cherry tomatoes, and sliced chicken.",
+                    "Dress with olive oil and lemon juice.",
+                ],
+            },
+            {
+                "name": "Baked Chicken with Onion and Rice",
+                "meal_type": "dinner",
+                "meal_type_label": "Dinner",
+                "ingredients": [
+                    {"name": "chicken breast", "quantity_grams": 250},
+                    {"name": "rice", "quantity_grams": 180},
+                    {"name": "onions", "quantity_grams": 120},
+                    {"name": "olive oil", "quantity_grams": 20},
+                    {"name": "garlic", "quantity_grams": 10},
+                ],
+                "steps": [
+                    "Preheat oven to 200°C.",
+                    "Slice onions and spread in a baking dish with olive oil and garlic.",
+                    "Place chicken on top, season, and bake for 25 minutes.",
+                    "Serve with steamed rice.",
+                ],
+            },
+            {
+                "name": "Cheddar Crackers",
+                "meal_type": "snack",
+                "meal_type_label": "Snack",
+                "ingredients": [
+                    {"name": "cheddar cheese", "quantity_grams": 60},
+                ],
+                "steps": ["Slice cheddar and serve as a snack."],
+            },
+        ],
+        [  # day_index % 3 == 0
+            {
+                "name": "Eggs with Greek Yogurt",
+                "meal_type": "breakfast",
+                "meal_type_label": "Breakfast",
+                "ingredients": [
+                    {"name": "eggs", "quantity_grams": 180},
+                    {"name": "greek yogurt", "quantity_grams": 100},
+                    {"name": "olive oil", "quantity_grams": 10},
+                ],
+                "steps": [
+                    "Fry eggs in olive oil over medium heat.",
+                    "Serve with a side of Greek yogurt.",
+                ],
+            },
+            {
+                "name": "Cheesy Pasta with Spinach",
+                "meal_type": "lunch",
+                "meal_type_label": "Lunch",
+                "ingredients": [
+                    {"name": "pasta", "quantity_grams": 180},
+                    {"name": "cheddar cheese", "quantity_grams": 80},
+                    {"name": "baby spinach", "quantity_grams": 100},
+                    {"name": "olive oil", "quantity_grams": 20},
+                    {"name": "garlic", "quantity_grams": 10},
+                ],
+                "steps": [
+                    "Boil pasta in salted water.",
+                    "Sauté garlic in olive oil, add spinach and wilt for 2 minutes.",
+                    "Toss pasta with spinach and stir in cheddar until melted.",
+                ],
+            },
+            {
+                "name": "Lemon Chicken with Cherry Tomatoes",
+                "meal_type": "dinner",
+                "meal_type_label": "Dinner",
+                "ingredients": [
+                    {"name": "chicken breast", "quantity_grams": 280},
+                    {"name": "cherry tomatoes", "quantity_grams": 180},
+                    {"name": "lemons", "quantity_grams": 50},
+                    {"name": "olive oil", "quantity_grams": 30},
+                    {"name": "garlic", "quantity_grams": 10},
+                ],
+                "steps": [
+                    "Marinate chicken in lemon juice, olive oil, and garlic for 10 minutes.",
+                    "Sear in a hot pan for 6 minutes per side.",
+                    "Add halved cherry tomatoes and cook 3 more minutes.",
+                    "Serve with remaining lemon wedges.",
+                ],
+            },
+            {
+                "name": "Yogurt with Honey",
+                "meal_type": "snack",
+                "meal_type_label": "Snack",
+                "ingredients": [
+                    {"name": "greek yogurt", "quantity_grams": 150},
+                ],
+                "steps": ["Serve Greek yogurt chilled as an afternoon snack."],
+            },
+        ],
+    ]
+
+    # Meal types to assign for 1–5 meals per day
+    _MOCK_MEAL_SLOTS = [
+        [],                                             # 0 (unused)
+        ["lunch"],                                      # 1
+        ["breakfast", "dinner"],                        # 2
+        ["breakfast", "lunch", "dinner"],               # 3
+        ["breakfast", "lunch", "dinner", "snack"],      # 4
+        ["breakfast", "lunch", "dinner", "snack", "snack"],  # 5
+    ]
+
+    @staticmethod
+    def _mock_response(response_model: Type[T], mock_context: Optional[dict[str, Any]] = None) -> T:
+        """Deterministic fridge-aware fake response used in demo/dev mode."""
+        meals_per_day = 3
+        day_index = 1
+
+        if mock_context:
+            meals_per_day = int(mock_context.get("meals_per_day", 3))
+            day_index = int(mock_context.get("day_index", 1))
+
+        meals_per_day = max(1, min(meals_per_day, 5))
+        template_idx = day_index % 3
+        templates = LLMClient._MOCK_MEAL_TEMPLATES[template_idx]
+        slots = LLMClient._MOCK_MEAL_SLOTS[meals_per_day]
+
+        # Match templates by meal_type slot; fall back to the template at that position.
+        type_to_template: dict[str, dict[str, Any]] = {t["meal_type"]: t for t in templates}
+        meals: list[dict[str, Any]] = []
+        for slot in slots:
+            meal = type_to_template.get(slot, templates[len(meals) % len(templates)])
+            meals.append({**meal, "meal_type": slot})
+
+        return response_model.model_validate({"meals": meals})
 
     @staticmethod
     def _mock_vision_response(response_model: Type[T]) -> T:

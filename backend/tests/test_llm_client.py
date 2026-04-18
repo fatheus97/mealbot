@@ -102,9 +102,9 @@ class TestMockMode:
         result = client._mock_response(SingleDayResponse)
 
         assert isinstance(result, SingleDayResponse)
-        assert len(result.meals) == 1
-        assert result.meals[0].name == "Mock spicy chicken with rice"
-        assert result.meals[0].meal_type == "lunch"
+        assert len(result.meals) == 3  # default: breakfast/lunch/dinner
+        meal_types = {m.meal_type for m in result.meals}
+        assert meal_types == {"breakfast", "lunch", "dinner"}
 
     @patch("app.llm.client.settings")
     async def test_chat_json_returns_mock_when_enabled(self, mock_settings: MagicMock) -> None:
@@ -120,7 +120,7 @@ class TestMockMode:
             response_model=SingleDayResponse,
         )
         assert isinstance(result, SingleDayResponse)
-        assert len(result.meals) == 1
+        assert len(result.meals) >= 1
 
 
 class TestIsFallbackError:

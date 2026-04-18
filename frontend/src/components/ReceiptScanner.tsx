@@ -1,6 +1,9 @@
 import { useState, useRef } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
+import { useAuth } from "../contexts/AuthContext";
+import { DemoBlockedError } from "../api";
 import type { ScannedItemType, StockItem } from "../types";
+import demoReceiptUrl from "../assets/demo-receipt.svg";
 
 type ScannerState = "idle" | "scanning" | "review" | "error";
 
@@ -22,7 +25,17 @@ const parseQty = (s: string): number => {
   return Number.isFinite(n) && n > 0 ? n : NaN;
 };
 
+const DEMO_SCAN_ITEMS: ReviewItem[] = [
+  { name: "Whole Milk", addedQty: "1000", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
+  { name: "Eggs", addedQty: "360", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
+  { name: "Bananas", addedQty: "300", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
+  { name: "Butter", addedQty: "250", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
+  { name: "Roma Tomatoes", addedQty: "500", existingQty: 0, needToUse: true, itemType: "ingredient", expirationDate: null },
+  { name: "Whole Wheat Bread", addedQty: "500", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
+];
+
 export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
+  const { isDemo } = useAuth();
   const [state, setState] = useState<ScannerState>("idle");
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
@@ -34,6 +47,15 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const mergeMutation = useMergeFridge();
 
   const handleScan = async () => {
+    if (isDemo) {
+      setState("scanning");
+      setTimeout(() => {
+        setReviewItems(DEMO_SCAN_ITEMS);
+        setState("review");
+      }, 1200);
+      return;
+    }
+
     const file = fileInputRef.current?.files?.[0];
     if (!file) return;
 
@@ -68,6 +90,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       setReviewItems(items);
       setState("review");
     } catch (err) {
+      if (err instanceof DemoBlockedError) return;
       setErrorMessage(err instanceof Error ? err.message : "Failed to scan receipt.");
       setState("error");
     }
@@ -98,6 +121,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       setNotice("Items added to fridge!");
       setTimeout(() => setNotice(""), 3000);
     } catch (err) {
+      if (err instanceof DemoBlockedError) return;
       setErrorMessage(err instanceof Error ? err.message : "Failed to merge items.");
       setState("error");
     }
@@ -132,13 +156,21 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
       {/* File input — always visible in idle/error states */}
       {(state === "idle" || state === "error") && (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,application/pdf,.pdf"
-            aria-label="Select receipt image or PDF"
-          />
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          {isDemo ? (
+            <img
+              src={demoReceiptUrl}
+              alt="Demo grocery receipt"
+              style={{ height: 120, border: "1px solid #334155", borderRadius: 4 }}
+            />
+          ) : (
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,application/pdf,.pdf"
+              aria-label="Select receipt image or PDF"
+            />
+          )}
           <button onClick={handleScan} disabled={scanMutation.isPending}>
             Scan Receipt
           </button>
@@ -255,15 +287,19 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
           {confirmError && (
             <p style={{ color: "#f87171", margin: "0.25rem 0 0.5rem" }}>{confirmError}</p>
           )}
-          <div style={{ display: "flex", gap: "0.5rem" }}>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <button
               onClick={handleConfirm}
-              disabled={mergeMutation.isPending || reviewItems.length === 0}
-              style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: "pointer" }}
+              disabled={isDemo || mergeMutation.isPending || reviewItems.length === 0}
+              title={isDemo ? "Saving is disabled in demo mode" : undefined}
+              style={{ backgroundColor: isDemo ? "#475569" : "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: isDemo ? "not-allowed" : "pointer" }}
             >
               {mergeMutation.isPending ? "Adding..." : "Add to Fridge"}
             </button>
             <button onClick={handleCancel}>Cancel</button>
+            {isDemo && (
+              <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Saving disabled in demo mode</span>
+            )}
           </div>
         </>
       )}

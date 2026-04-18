@@ -26,10 +26,10 @@ export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
       days: 3,
-      dietType: "",
+      dietType: "balanced",
       mealsPerDay: 3,
       peopleCount: 2,
-      tastePreferences: "",
+      tastePreferences: "Mediterranean, Italian, light",
       avoidIngredients: "",
       stockOnly: false,
 

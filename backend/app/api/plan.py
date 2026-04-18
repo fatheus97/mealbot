@@ -200,7 +200,7 @@ async def plan_meals_for_user(
                 if single_day:
                     logger.info("Day %d: used RAG pipeline", day_index)
             if single_day is None:
-                single_day = await generate_single_day(day_req)
+                single_day = await generate_single_day(day_req, day_index=day_index)
             meal_plan.append(single_day)
 
             remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)

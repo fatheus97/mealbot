@@ -25,18 +25,25 @@ _prompts_env = SandboxedEnvironment(
 SYSTEM_PROMPT = "You are a careful and realistic meal planner. ALWAYS return ONLY valid JSON."
 
 
-async def generate_single_day(req: MealPlanRequest) -> SingleDayResponse:
+async def generate_single_day(req: MealPlanRequest, day_index: int = 1) -> SingleDayResponse:
     """
     Generates a meal plan for a single day with strict schema enforcement.
     """
     template = _prompts_env.get_template("meal_plan.jinja")
     user_prompt = template.render(**req.model_dump())
 
+    mock_context = {
+        "stock_items": [item.name for item in req.stock_items],
+        "meals_per_day": req.meals_per_day,
+        "day_index": day_index,
+    }
+
     # AI-01: Pass the Pydantic schema as response_model
     response = await llm_client.chat_json(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        response_model=SingleDayResponse
+        response_model=SingleDayResponse,
+        mock_context=mock_context,
     )
 
     return response

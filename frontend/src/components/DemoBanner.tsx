@@ -4,11 +4,14 @@ import { useAuth } from "../contexts/AuthContext";
 export function DemoBanner() {
   const { isDemo } = useAuth();
   const [blocked, setBlocked] = useState(false);
+  const [fading, setFading] = useState(false);
 
   useEffect(() => {
     const handler = () => {
       setBlocked(true);
-      setTimeout(() => setBlocked(false), 2500);
+      setFading(false);
+      setTimeout(() => setFading(true), 2000);
+      setTimeout(() => { setBlocked(false); setFading(false); }, 2500);
     };
     window.addEventListener("mealbot:demo-blocked", handler);
     return () => window.removeEventListener("mealbot:demo-blocked", handler);
@@ -29,12 +32,13 @@ export function DemoBanner() {
         textAlign: "center",
         zIndex: 1000,
         fontSize: "0.875rem",
-        transition: "background 0.2s",
+        transition: "background 0.3s, opacity 0.5s",
+        opacity: fading ? 0.4 : 1,
       }}
     >
       {blocked
         ? "Editing is disabled in demo mode"
-        : "Demo mode — generate plans and explore. Editing is disabled."}
+        : "Demo mode — generate plans, cook meals, and rate them. Saving changes is disabled."}
     </div>
   );
 }

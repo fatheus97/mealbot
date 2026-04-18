@@ -29,7 +29,7 @@ function MainLayout() {
         initialPlan={openedPlan?.plan ?? null}
         initialSummary={openedPlan?.summary}
       />
-      {userId && !onboardingCompleted && <OnboardingModal />}
+      {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
     </div>
   );
 }
