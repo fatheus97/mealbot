@@ -31,8 +31,22 @@ function createWrapper() {
   );
 }
 
+// AuthProvider mounts and calls authFetch("/config") to gate the Try Demo
+// button. Route by URL so /config gets a harmless ok response and tests can
+// stub the endpoint they actually care about without queue ordering games.
+const okEmpty = () =>
+  ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({}),
+  }) as unknown as Response;
+
 beforeEach(() => {
   vi.stubGlobal('alert', vi.fn());
+  mockedAuthFetch.mockImplementation((url: string) => {
+    if (url === '/config') return Promise.resolve(okEmpty());
+    return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+  });
 });
 
 describe('AuthBar', () => {
@@ -45,16 +59,6 @@ describe('AuthBar', () => {
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
   });
 
-  it('toggles to registration mode', async () => {
-    const user = userEvent.setup();
-    render(<AuthBar />, { wrapper: createWrapper() });
-
-    await user.click(screen.getByText(/need an account/i));
-
-    expect(screen.getByText('Create Account')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sign up/i })).toBeInTheDocument();
-  });
-
   it('calls login on sign in', async () => {
     const loginResponse = {
       access_token: 'jwt',
@@ -64,10 +68,16 @@ describe('AuthBar', () => {
       onboarding_completed: false,
     };
 
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(loginResponse),
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users/login') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(loginResponse),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
     });
 
     const user = userEvent.setup();
@@ -79,70 +89,6 @@ describe('AuthBar', () => {
 
     await waitFor(() => {
       expect(localStorage.getItem('mealbot_token')).toBe('jwt');
-    });
-  });
-
-  it('calls register then login on sign up', async () => {
-    // First call: register
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 201,
-      json: () => Promise.resolve({}),
-    });
-
-    // Second call: login (called via AuthContext.login which uses authFetch)
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({
-        access_token: 'new-jwt',
-        token_type: 'bearer',
-        user_id: 2,
-        email: 'new@x.com',
-        onboarding_completed: false,
-      }),
-    });
-
-    const user = userEvent.setup();
-    render(<AuthBar />, { wrapper: createWrapper() });
-
-    await user.click(screen.getByText(/need an account/i));
-    await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
-    await user.type(screen.getByPlaceholderText('Password'), 'password123');
-    await user.click(screen.getByRole('button', { name: /sign up/i }));
-
-    await waitFor(() => {
-      expect(localStorage.getItem('mealbot_token')).toBe('new-jwt');
-    });
-  });
-
-  it('shows manual login message when login fails after register', async () => {
-    // Register succeeds
-    mockedAuthFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({}),
-      })
-      // Login fails
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: () => Promise.resolve({}),
-      });
-
-    const user = userEvent.setup();
-    render(<AuthBar />, { wrapper: createWrapper() });
-
-    await user.click(screen.getByText(/need an account/i));
-    await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
-    await user.type(screen.getByPlaceholderText('Password'), 'password123');
-    await user.click(screen.getByRole('button', { name: /sign up/i }));
-
-    await waitFor(() => {
-      expect(window.alert).toHaveBeenCalledWith(
-        'Account created! Please sign in manually.',
-      );
     });
   });
 

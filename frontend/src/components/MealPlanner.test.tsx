@@ -37,6 +37,15 @@ function loginUser() {
   localStorage.setItem('mealbot_user_email', 'test@test.com');
 }
 
+// AuthProvider mounts with authFetch("/config"). Route by URL so that call
+// doesn't consume the mock queue meant for /plan endpoints.
+const okEmpty = () =>
+  ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({}),
+  }) as unknown as Response;
+
 beforeEach(() => {
   vi.stubGlobal(
     'location',
@@ -48,6 +57,10 @@ beforeEach(() => {
       },
     ),
   );
+  mockedAuthFetch.mockImplementation((url: string) => {
+    if (url === '/config') return Promise.resolve(okEmpty());
+    return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+  });
 });
 
 describe('MealPlanner', () => {
@@ -71,8 +84,10 @@ describe('MealPlanner', () => {
   it('disables generate button while pending', async () => {
     loginUser();
 
-    // Never resolve to keep mutation pending
-    mockedAuthFetch.mockReturnValueOnce(new Promise(() => {}));
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return new Promise(() => {}); // never resolves → button stays pending
+    });
 
     const user = userEvent.setup();
     render(<MealPlanner />, { wrapper: createWrapper() });
@@ -86,10 +101,13 @@ describe('MealPlanner', () => {
 
   it('shows error on generation failure', async () => {
     loginUser();
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      text: () => Promise.resolve('Server error'),
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('Server error'),
+      } as unknown as Response);
     });
 
     const user = userEvent.setup();
@@ -123,10 +141,13 @@ describe('MealPlanner', () => {
       shopping_list: [{ name: 'Eggs', quantity_grams: 200 }],
     };
 
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(planResponse),
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
     });
 
     const user = userEvent.setup();
@@ -166,11 +187,24 @@ describe('MealPlanner', () => {
       shopping_list: [],
     };
 
-    // First call: generate
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(planResponse),
+    const regeneratedPlan = { ...planResponse, days: [{ meals: [planResponse.days[0].meals[0], { ...planResponse.days[0].meals[1], name: 'Meal C' }] }] };
+
+    // /plan/generate fires first, then /plan/42/regenerate after freeze.
+    // Route by endpoint so /config doesn't perturb ordering.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url.endsWith('/regenerate')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(regeneratedPlan),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
     });
 
     const user = userEvent.setup();
@@ -185,14 +219,6 @@ describe('MealPlanner', () => {
     // Freeze first meal (accessible name is text content "Freeze")
     const freezeButtons = screen.getAllByRole('button', { name: 'Freeze' });
     await user.click(freezeButtons[0]);
-
-    // Second call: regenerate
-    const regeneratedPlan = { ...planResponse, days: [{ meals: [planResponse.days[0].meals[0], { ...planResponse.days[0].meals[1], name: 'Meal C' }] }] };
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(regeneratedPlan),
-    });
 
     await user.click(screen.getByRole('button', { name: /regenerate unfrozen/i }));
 
