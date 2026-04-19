@@ -4,6 +4,11 @@ services:
       context: ./backend
       args:
         INSTALL_DEV: "true"
+    environment:
+      # Enable the /api/demo/session endpoint locally so "Try Demo" works in dev.
+      # Per-user LLM mocking (mock=current_user.is_demo) keeps demo sessions
+      # from burning API credits; alpha accounts still hit the real LLM.
+      - DEMO_MODE=true
 
   frontend:
     build:
