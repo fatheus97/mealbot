@@ -24,14 +24,31 @@ const parseQty = (s: string): number => {
   return Number.isFinite(n) && n > 0 ? n : NaN;
 };
 
-const DEMO_SCAN_ITEMS: ReviewItem[] = [
-  { name: "Whole Milk", addedQty: "1000", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
-  { name: "Eggs", addedQty: "360", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
-  { name: "Bananas", addedQty: "300", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
-  { name: "Butter", addedQty: "250", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
-  { name: "Roma Tomatoes", addedQty: "500", existingQty: 0, needToUse: true, itemType: "ingredient", expirationDate: null },
-  { name: "Whole Wheat Bread", addedQty: "500", existingQty: 0, needToUse: false, itemType: "ingredient", expirationDate: null },
+// Expiration dates are computed from shelf-life days at click time so the
+// demo always shows dates relative to today — no stale "expired yesterday"
+// rows for recruiters who open the demo weeks after the build.
+const DEMO_SCAN_TEMPLATE: Array<Omit<ReviewItem, "expirationDate"> & { shelfLifeDays: number }> = [
+  { name: "Whole Milk",        addedQty: "1000", existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
+  { name: "Eggs",              addedQty: "360",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 21 },
+  { name: "Bananas",           addedQty: "300",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 5 },
+  { name: "Butter",            addedQty: "250",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 30 },
+  { name: "Roma Tomatoes",     addedQty: "500",  existingQty: 0, needToUse: true,  itemType: "ingredient", shelfLifeDays: 4 },
+  { name: "Whole Wheat Bread", addedQty: "500",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
 ];
+
+const buildDemoScanItems = (): ReviewItem[] => {
+  const today = new Date();
+  return DEMO_SCAN_TEMPLATE.map(({ shelfLifeDays, ...item }) => {
+    const exp = new Date(today);
+    exp.setDate(exp.getDate() + shelfLifeDays);
+    // YYYY-MM-DD in local time — matches the <input type="date"> format and
+    // the backend's ISO date representation.
+    const y = exp.getFullYear();
+    const m = String(exp.getMonth() + 1).padStart(2, "0");
+    const d = String(exp.getDate()).padStart(2, "0");
+    return { ...item, expirationDate: `${y}-${m}-${d}` };
+  });
+};
 
 export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const { isDemo } = useAuth();
@@ -49,7 +66,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     if (isDemo) {
       setState("scanning");
       setTimeout(() => {
-        setReviewItems(DEMO_SCAN_ITEMS);
+        setReviewItems(buildDemoScanItems());
         setState("review");
       }, 1200);
       return;
