@@ -1,0 +1,24 @@
+# Demo deployment override.
+#
+# Runs the prod-like stack (nginx on :5173, no Vite) with demo mode enabled
+# and the LLM mocked so visitors can't burn API credits. Uses its own pgdata
+# volume so demo traffic never touches the dev database.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+#
+# The explicit -f flags skip docker-compose.override.yml (dev on :5174),
+# so the frontend runs as nginx on :5173.
+
+services:
+  db:
+    volumes:
+      - pgdata_demo:/var/lib/postgresql/data
+
+  backend:
+    environment:
+      - LLM_MOCK=true
+      - DEMO_MODE=true
+
+volumes:
+  pgdata_demo:
