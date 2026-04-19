@@ -10,6 +10,20 @@ from sqlmodel import select
 from app.models.db_models import StockItem, User
 
 
+class TestPublicConfig:
+    async def test_config_reports_demo_mode_true(self, unauthed_client: AsyncClient) -> None:
+        with patch("app.core.config.settings.demo_mode", True):
+            resp = await unauthed_client.get("/api/config")
+        assert resp.status_code == 200
+        assert resp.json() == {"demo_mode": True}
+
+    async def test_config_reports_demo_mode_false(self, unauthed_client: AsyncClient) -> None:
+        with patch("app.core.config.settings.demo_mode", False):
+            resp = await unauthed_client.get("/api/config")
+        assert resp.status_code == 200
+        assert resp.json() == {"demo_mode": False}
+
+
 class TestDemoSession:
     async def test_happy_path_creates_user_and_seeds_fridge(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
