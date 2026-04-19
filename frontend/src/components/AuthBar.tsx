@@ -3,7 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { SettingsPopup } from "./SettingsPopup";
 
 export function AuthBar() {
-  const { userId, email, login, logout, loginDemo } = useAuth();
+  const { userId, email, login, logout, loginDemo, demoEnabled } = useAuth();
   const [inputEmail, setInputEmail] = useState(email);
   const [inputPassword, setInputPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,19 +33,21 @@ export function AuthBar() {
             <button onClick={handleLogin} disabled={loading} style={{ padding: "0.5rem 1rem" }}>
               {loading ? "..." : "Sign In"}
             </button>
-            <button
-              onClick={async () => {
-                setLoading(true);
-                try { await loginDemo(); }
-                catch { alert("Demo unavailable. Please try again."); }
-                finally { setLoading(false); }
-              }}
-              disabled={loading}
-              title="No signup needed — explore with mocked data."
-              style={{ padding: "0.5rem 1rem", backgroundColor: "#2e7d32", color: "white", border: "none", borderRadius: "4px" }}
-            >
-              {loading ? "..." : "Try Demo"}
-            </button>
+            {demoEnabled && (
+              <button
+                onClick={async () => {
+                  setLoading(true);
+                  try { await loginDemo(); }
+                  catch { alert("Demo unavailable. Please try again."); }
+                  finally { setLoading(false); }
+                }}
+                disabled={loading}
+                title="No signup needed — explore with mocked data."
+                style={{ padding: "0.5rem 1rem", backgroundColor: "#2e7d32", color: "white", border: "none", borderRadius: "4px" }}
+              >
+                {loading ? "..." : "Try Demo"}
+              </button>
+            )}
           </>
         )}
         {userId && (

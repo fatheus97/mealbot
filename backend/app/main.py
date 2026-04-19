@@ -65,9 +65,19 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class PublicConfig(BaseModel):
+    demo_mode: bool
+
+
 @app.api_route("/health", methods=["GET", "HEAD"], response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/api/config", response_model=PublicConfig)
+async def public_config() -> PublicConfig:
+    """Non-secret runtime flags the frontend reads on load to gate UI (e.g. Try Demo button)."""
+    return PublicConfig(demo_mode=settings.demo_mode)
 
 
 #routers

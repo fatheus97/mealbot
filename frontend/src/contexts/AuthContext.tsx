@@ -17,6 +17,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isDemo, setIsDemo] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_demo") === "true"
   );
+  const [demoEnabled, setDemoEnabled] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Gate the "Try Demo" button on the backend feature flag so we don't
+    // advertise a demo that will 404. Failure → keep button hidden.
+    authFetch("/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { demo_mode?: boolean } | null) => {
+        if (data?.demo_mode) setDemoEnabled(true);
+      })
+      .catch(() => { /* leave demoEnabled=false */ });
+  }, []);
 
   const setOnboardingCompleted = (value: boolean) => {
     setOnboardingCompletedState(value);
@@ -100,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   return (
-    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, isDemo, login, logout, setOnboardingCompleted, loginDemo }}>
+    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, isDemo, demoEnabled, login, logout, setOnboardingCompleted, loginDemo }}>
       {children}
     </AuthContext.Provider>
   );
