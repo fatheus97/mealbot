@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    name: backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write CI .env
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_USER=mealbot
+          POSTGRES_PASSWORD=mealbotpw
+          POSTGRES_DB=mealbot
+          JWT_SECRET=ci-test-secret-not-for-prod
+          DEMO_MODE=false
+          LLM_MOCK=true
+          EOF
+
+      - name: Build backend image (with dev deps)
+        run: docker compose -f docker-compose.yml build --build-arg INSTALL_DEV=true backend
+
+      - name: Start databases
+        run: docker compose -f docker-compose.yml up -d db test-db
+
+      - name: Wait for test-db
+        run: |
+          for i in {1..30}; do
+            if docker compose -f docker-compose.yml exec -T test-db pg_isready -U testuser -d mealbot_test; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "test-db never became ready" >&2
+          exit 1
+
+      - name: Run pytest
+        run: docker compose -f docker-compose.yml run --rm backend pytest
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml logs --tail=200
+
+  backend-types:
+    name: backend mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write CI .env
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_USER=mealbot
+          POSTGRES_PASSWORD=mealbotpw
+          POSTGRES_DB=mealbot
+          JWT_SECRET=ci-test-secret-not-for-prod
+          DEMO_MODE=false
+          EOF
+
+      - name: Build backend image (with dev deps)
+        run: docker compose -f docker-compose.yml build --build-arg INSTALL_DEV=true backend
+
+      - name: Run mypy
+        run: docker compose -f docker-compose.yml run --rm --no-deps backend mypy .
+
+  frontend-build:
+    name: frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
