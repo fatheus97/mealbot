@@ -22,8 +22,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Gate the "Try Demo" button on the backend feature flag so we don't
     // advertise a demo that will 404. Failure → keep button hidden.
-    authFetch("/config")
-      .then((r) => (r.ok ? r.json() : null))
+    // Wrapped in Promise.resolve() so tests that replace authFetch with
+    // vi.fn() (returns undefined) don't blow up at mount.
+    Promise.resolve(authFetch("/config"))
+      .then((r) => (r?.ok ? r.json() : null))
       .then((data: { demo_mode?: boolean } | null) => {
         if (data?.demo_mode) setDemoEnabled(true);
       })

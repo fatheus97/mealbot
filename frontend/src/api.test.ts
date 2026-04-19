@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { authFetch, fetchUserProfile, updateUserProfile } from './api';
 
-const MOCK_BASE = 'http://localhost:8000/api';
+// api.ts defaults to the relative "/api" path when VITE_API_BASE is unset
+// (prod behavior: nginx proxies /api). Tests run with VITE_API_BASE unset.
+const MOCK_BASE = '/api';
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());

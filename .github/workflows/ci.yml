@@ -17,12 +17,12 @@ jobs:
           POSTGRES_USER=mealbot
           POSTGRES_PASSWORD=mealbotpw
           POSTGRES_DB=mealbot
-          JWT_SECRET=ci-test-secret-not-for-prod
+          SECRET_KEY=ci-only-not-real-64-char-key-not-for-production-0123456789abcdef
           DEMO_MODE=false
           LLM_MOCK=true
           EOF
 
-      - name: Build backend image (with dev deps)
+      - name: Build backend image with dev deps
         run: docker compose -f docker-compose.yml build --build-arg INSTALL_DEV=true backend
 
       - name: Start databases
@@ -49,24 +49,30 @@ jobs:
   backend-types:
     name: backend mypy
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
-      - name: Write CI .env
-        run: |
-          cat > .env <<'EOF'
-          POSTGRES_USER=mealbot
-          POSTGRES_PASSWORD=mealbotpw
-          POSTGRES_DB=mealbot
-          JWT_SECRET=ci-test-secret-not-for-prod
-          DEMO_MODE=false
-          EOF
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
 
-      - name: Build backend image (with dev deps)
-        run: docker compose -f docker-compose.yml build --build-arg INSTALL_DEV=true backend
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
 
       - name: Run mypy
-        run: docker compose -f docker-compose.yml run --rm --no-deps backend mypy .
+        # mypy does static analysis, so it doesn't need a live DB, but
+        # importing app/core/config.py at module load evaluates `settings =
+        # Settings()` which requires SECRET_KEY and DATABASE_URL. Provide
+        # throwaway values so the import succeeds.
+        env:
+          SECRET_KEY: ci-only-not-real-64-char-key-not-for-production-0123456789abcdef
+          DATABASE_URL: postgresql+psycopg://x:y@localhost/z
+        run: mypy .
 
   frontend-build:
     name: frontend build

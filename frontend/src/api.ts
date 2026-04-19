@@ -26,7 +26,7 @@ export async function authFetch(endpoint: string, options: RequestInit = {}) {
   });
 
   // 5. Global error handling for expired tokens
-  if (response.status === 401) {
+  if (response?.status === 401) {
     localStorage.removeItem("mealbot_token");
     localStorage.removeItem("mealbot_user_id");
     localStorage.removeItem("mealbot_user_email");

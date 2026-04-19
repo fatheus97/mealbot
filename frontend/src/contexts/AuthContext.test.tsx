@@ -7,8 +7,20 @@ function wrapper({ children }: { children: ReactNode }) {
   return <AuthProvider>{children}</AuthProvider>;
 }
 
+// AuthProvider mounts and fires a fetch to /api/config to gate the Try Demo
+// button. Default that call to a harmless empty-body ok response so tests that
+// don't care about /config don't need to set it up. Tests that care about
+// specific endpoints override via mockImplementation or mockResolvedValueOnce.
+const okEmpty = () =>
+  ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({}),
+    text: () => Promise.resolve('{}'),
+  }) as unknown as Response;
+
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn());
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okEmpty()));
 });
 
 describe('AuthContext', () => {
@@ -39,10 +51,19 @@ describe('AuthContext', () => {
       onboarding_completed: true,
     };
 
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(loginResponse),
+    // Route fetches by URL: /config (from AuthProvider mount) gets an empty
+    // ok response, /users/login gets the specific login payload. Can't use
+    // mockResolvedValueOnce because mount + login fire in order and the
+    // queue would be consumed in the wrong order.
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/users/login')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(loginResponse),
+        });
+      }
+      return Promise.resolve(okEmpty());
     });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -58,10 +79,15 @@ describe('AuthContext', () => {
   });
 
   it('login throws on non-ok response', async () => {
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      json: () => Promise.resolve({}),
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/users/login')) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({}),
+        });
+      }
+      return Promise.resolve(okEmpty());
     });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
