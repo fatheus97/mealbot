@@ -26,7 +26,7 @@ from app.services.meal_planner import generate_single_day, generate_partial_day,
 from app.services.recipe_retriever import embed_meal_entry
 from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
 from app.db import get_session
-from app.api.deps import get_current_user, require_non_demo
+from app.api.deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ async def get_plan_detail(
 async def delete_plan(
     request: Request,
     plan_id: int,
-    current_user: User = Depends(require_non_demo),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Delete a plan and its associated meal entries."""
@@ -195,12 +195,12 @@ async def plan_meals_for_user(
             single_day: SingleDayResponse | None = None
             if settings.use_rag:
                 single_day = await generate_single_day_with_rag(
-                    day_req, session, current_user.id,  # type: ignore[arg-type]
+                    day_req, session, current_user.id, mock=current_user.is_demo,  # type: ignore[arg-type]
                 )
                 if single_day:
                     logger.info("Day %d: used RAG pipeline", day_index)
             if single_day is None:
-                single_day = await generate_single_day(day_req, day_index=day_index)
+                single_day = await generate_single_day(day_req, day_index=day_index, mock=current_user.is_demo)
             meal_plan.append(single_day)
 
             remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
@@ -362,7 +362,7 @@ async def regenerate_plan(
         day_req.past_meals = past_meals
 
         try:
-            new_meals_response = await generate_partial_day(day_req, frozen_only, slots_to_generate)
+            new_meals_response = await generate_partial_day(day_req, frozen_only, slots_to_generate, mock=current_user.is_demo)
         except HTTPException:
             raise
         except Exception as e:
@@ -420,7 +420,7 @@ async def regenerate_plan(
 async def confirm_plan(
     request: Request,
     plan_id: int,
-    current_user: User = Depends(require_non_demo),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
 
@@ -660,7 +660,7 @@ async def list_meal_entries(
 async def finish_plan(
     request: Request,
     plan_id: int,
-    current_user: User = Depends(require_non_demo),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> FinishPlanResponse:
     """Finish a plan: return ingredients for uncooked meals to fridge."""

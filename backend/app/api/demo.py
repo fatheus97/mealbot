@@ -1,13 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.core.security import create_access_token
 from app.db import get_session
-from app.models.db_models import User
 from app.models.user_schemas import Token
+from app.services.demo_user import cleanup_expired_demo_users, create_ephemeral_demo_user
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -21,23 +20,26 @@ async def demo_session(
     if not settings.demo_mode:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo mode is not enabled")
 
-    result = await session.execute(select(User).where(User.is_demo == True))  # noqa: E712
-    demo_user: User | None = result.scalars().first()
-    if demo_user is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Demo data not seeded")
+    # Sweep expired demo users before minting a new one. Lazy GC keeps the
+    # demo deployment self-cleaning without a background scheduler.
+    await cleanup_expired_demo_users(session, settings.demo_session_expire_minutes)
 
-    if demo_user.id is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid demo user state")
+    user = await create_ephemeral_demo_user(session)
+    await session.commit()
+    await session.refresh(user)
+
+    if user.id is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create demo user")
 
     token = create_access_token(
-        subject=demo_user.id,
+        subject=user.id,
         expire_minutes=settings.demo_session_expire_minutes,
     )
     return Token(
         access_token=token,
         token_type="bearer",
-        user_id=demo_user.id,
-        email=demo_user.email,
-        onboarding_completed=bool(demo_user.onboarding_completed),
+        user_id=user.id,
+        email=user.email,
+        onboarding_completed=bool(user.onboarding_completed),
         is_demo=True,
     )

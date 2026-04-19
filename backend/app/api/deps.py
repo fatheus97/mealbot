@@ -37,12 +37,3 @@ async def get_current_user(
         raise credentials_exception
 
     return user
-
-
-async def require_non_demo(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.is_demo:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "demo_blocked", "message": "Editing is disabled in demo mode"},
-        )
-    return current_user

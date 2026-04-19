@@ -25,7 +25,7 @@ _prompts_env = SandboxedEnvironment(
 SYSTEM_PROMPT = "You are a careful and realistic meal planner. ALWAYS return ONLY valid JSON."
 
 
-async def generate_single_day(req: MealPlanRequest, day_index: int = 1) -> SingleDayResponse:
+async def generate_single_day(req: MealPlanRequest, day_index: int = 1, mock: bool = False) -> SingleDayResponse:
     """
     Generates a meal plan for a single day with strict schema enforcement.
     """
@@ -44,6 +44,7 @@ async def generate_single_day(req: MealPlanRequest, day_index: int = 1) -> Singl
         user_prompt=user_prompt,
         response_model=SingleDayResponse,
         mock_context=mock_context,
+        mock=mock,
     )
 
     return response
@@ -53,6 +54,7 @@ async def generate_partial_day(
     req: MealPlanRequest,
     frozen_meals: list[PlannedMeal],
     slots_to_generate: list[str],
+    mock: bool = False,
 ) -> SingleDayResponse:
     """
     Generates only the unfrozen meal slots for a single day,
@@ -69,6 +71,7 @@ async def generate_partial_day(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
         response_model=SingleDayResponse,
+        mock=mock,
     )
 
     # Validate that returned meals match requested slots
@@ -96,6 +99,7 @@ async def generate_single_day_with_rag(
     req: MealPlanRequest,
     session: AsyncSession,
     user_id: int,
+    mock: bool = False,
 ) -> SingleDayResponse | None:
     """
     Attempt RAG generation using highly-rated meals from all users.
@@ -158,6 +162,7 @@ async def generate_single_day_with_rag(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
         response_model=SingleDayResponse,
+        mock=mock,
     )
 
     return response

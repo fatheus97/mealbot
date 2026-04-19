@@ -1,13 +1,6 @@
 // frontend/src/api.ts
 import type { StockItem, UserProfile } from "./types";
 
-export class DemoBlockedError extends Error {
-  readonly isDemoBlocked = true;
-  constructor() {
-    super("Editing is disabled in demo mode");
-  }
-}
-
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 export async function authFetch(endpoint: string, options: RequestInit = {}) {
@@ -38,20 +31,6 @@ export async function authFetch(endpoint: string, options: RequestInit = {}) {
     localStorage.removeItem("mealbot_user_id");
     localStorage.removeItem("mealbot_user_email");
     window.dispatchEvent(new Event("mealbot:logout"));
-  }
-
-  // 6. Demo mode blocked action — fire event so DemoBanner can flash, then throw typed error
-  if (response.status === 403) {
-    try {
-      const body = await response.clone().json();
-      if (body?.detail?.code === "demo_blocked") {
-        window.dispatchEvent(new CustomEvent("mealbot:demo-blocked"));
-        throw new DemoBlockedError();
-      }
-    } catch (e) {
-      if (e instanceof DemoBlockedError) throw e;
-      // non-JSON 403 — fall through
-    }
   }
 
   return response;

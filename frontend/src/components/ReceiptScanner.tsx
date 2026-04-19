@@ -1,7 +1,6 @@
 import { useState, useRef } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
-import { DemoBlockedError } from "../api";
 import type { ScannedItemType, StockItem } from "../types";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 
@@ -90,7 +89,6 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       setReviewItems(items);
       setState("review");
     } catch (err) {
-      if (err instanceof DemoBlockedError) return;
       setErrorMessage(err instanceof Error ? err.message : "Failed to scan receipt.");
       setState("error");
     }
@@ -121,7 +119,6 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       setNotice("Items added to fridge!");
       setTimeout(() => setNotice(""), 3000);
     } catch (err) {
-      if (err instanceof DemoBlockedError) return;
       setErrorMessage(err instanceof Error ? err.message : "Failed to merge items.");
       setState("error");
     }
@@ -290,16 +287,12 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <button
               onClick={handleConfirm}
-              disabled={isDemo || mergeMutation.isPending || reviewItems.length === 0}
-              title={isDemo ? "Saving is disabled in demo mode" : undefined}
-              style={{ backgroundColor: isDemo ? "#475569" : "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: isDemo ? "not-allowed" : "pointer" }}
+              disabled={mergeMutation.isPending || reviewItems.length === 0}
+              style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: "pointer" }}
             >
               {mergeMutation.isPending ? "Adding..." : "Add to Fridge"}
             </button>
             <button onClick={handleCancel}>Cancel</button>
-            {isDemo && (
-              <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Saving disabled in demo mode</span>
-            )}
           </div>
         </>
       )}

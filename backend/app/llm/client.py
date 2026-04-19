@@ -141,11 +141,12 @@ class LLMClient:
         user_prompt: str,
         response_model: Type[T],
         mock_context: Optional[dict[str, Any]] = None,
+        mock: bool = False,
     ) -> T:
         """
         Forces the LLM to return data that perfectly validates against the injected Pydantic model.
         """
-        if settings.llm_mock:
+        if mock or settings.llm_mock:
             return self._mock_response(response_model, mock_context)
 
         messages: list[object] = [
@@ -165,12 +166,13 @@ class LLMClient:
         image_base64: str,
         image_media_type: str,
         response_model: Type[T],
+        mock: bool = False,
     ) -> T:
         """
         Sends an image + text prompt to the LLM and forces the response into a Pydantic model.
         Both GPT-4o-mini and Gemini 2.5 Flash support vision natively.
         """
-        if settings.llm_mock:
+        if mock or settings.llm_mock:
             return self._mock_vision_response(response_model)
 
         image_bytes = base64.b64decode(image_base64)

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, delete
 
-from app.api.deps import get_current_user, require_non_demo
+from app.api.deps import get_current_user
 from app.core.rate_limit import limiter
 from app.db import get_session
 from app.models.db_models import User, StockItem
@@ -37,7 +37,7 @@ async def get_fridge(
 @router.put("", response_model=List[StockItemDTO])
 async def put_fridge(
     payload: List[StockItemDTO],
-    current_user: User = Depends(require_non_demo),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
     if current_user.id is None:
@@ -50,7 +50,7 @@ async def put_fridge(
 async def scan_receipt(
     request: Request,
     file: UploadFile = File(...),
-    current_user: User = Depends(require_non_demo),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[ScannedItemDTO]:
     """Upload a receipt image or PDF and extract grocery items via LLM."""
@@ -90,13 +90,14 @@ async def scan_receipt(
     user_language = current_user.language or "English"
 
     if is_pdf:
-        scan_result = await extract_items_from_pdf(pdf_bytes=file_bytes, language=user_language)
+        scan_result = await extract_items_from_pdf(pdf_bytes=file_bytes, language=user_language, mock=current_user.is_demo)
     else:
         image_base64 = base64.b64encode(file_bytes).decode("ascii")
         scan_result = await extract_items_from_receipt(
             image_base64=image_base64,
             image_media_type=file.content_type,
             language=user_language,
+            mock=current_user.is_demo,
         )
 
     # Normalize scanned names against existing fridge items
@@ -106,6 +107,7 @@ async def scan_receipt(
     items = await normalize_item_names(
         scan_result.items,
         [i.name for i in fridge_items],
+        mock=current_user.is_demo,
     )
 
     # Filter out ready_to_eat items if user doesn't track snacks
@@ -131,7 +133,7 @@ async def scan_receipt(
 async def merge_fridge_items(
     request: Request,
     payload: List[StockItemDTO],
-    current_user: User = Depends(require_non_demo),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> List[StockItemDTO]:
     """Merge scanned items into the existing fridge (auto-sum matching names + expiration)."""

@@ -36,6 +36,7 @@ def _fake_jpeg(size: int = 1024) -> io.BytesIO:
 async def _passthrough_normalize(
     scanned_items: List[ScannedReceiptItem],
     fridge_item_names: List[str],
+    mock: bool = False,
 ) -> List[ScannedReceiptItem]:
     """Passthrough mock: returns items unchanged."""
     return scanned_items

@@ -40,6 +40,7 @@ async def extract_items_from_receipt(
     image_base64: str,
     image_media_type: str,
     language: str = "English",
+    mock: bool = False,
 ) -> ReceiptScanResponse:
     """Send a receipt image to the LLM and return structured grocery items."""
     template = _prompts_env.get_template("receipt_scan.jinja")
@@ -51,6 +52,7 @@ async def extract_items_from_receipt(
         image_base64=image_base64,
         image_media_type=image_media_type,
         response_model=ReceiptScanResponse,
+        mock=mock,
     )
 
 
@@ -98,7 +100,7 @@ PDF_SYSTEM_PROMPT = (
 )
 
 
-async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English") -> ReceiptScanResponse:
+async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English", mock: bool = False) -> ReceiptScanResponse:
     """Extract grocery items from a PDF receipt using text extraction + LLM."""
     receipt_text = await asyncio.to_thread(_extract_pdf_text, pdf_bytes)
 
@@ -109,6 +111,7 @@ async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English") ->
         system_prompt=PDF_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         response_model=ReceiptScanResponse,
+        mock=mock,
     )
 
 
@@ -121,9 +124,10 @@ NORMALIZE_SYSTEM_PROMPT = (
 async def normalize_item_names(
     scanned_items: List[ScannedReceiptItem],
     fridge_item_names: List[str],
+    mock: bool = False,
 ) -> List[ScannedReceiptItem]:
     """Normalize scanned item names against existing fridge items via LLM."""
-    if settings.llm_mock:
+    if mock or settings.llm_mock:
         return scanned_items
 
     if not scanned_items:
@@ -141,6 +145,7 @@ async def normalize_item_names(
         system_prompt=NORMALIZE_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         response_model=NormalizationResponse,
+        mock=mock,
     )
 
     # Build original → normalized lookup

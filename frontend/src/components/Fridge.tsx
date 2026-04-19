@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useFridge, useUpdateFridge } from "../hooks/useServerState";
 import type { StockItem } from "../types";
-import { DemoBlockedError } from "../api";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
@@ -186,7 +185,6 @@ export function Fridge() {
       { userId, items: cleaned },
       {
         onError: (err) => {
-          if (err instanceof DemoBlockedError) return;
           const msg = err instanceof Error ? err.message : "Unknown error";
           setNotice(`Failed to save: ${msg}`);
           setTimeout(() => setNotice(""), 5000);

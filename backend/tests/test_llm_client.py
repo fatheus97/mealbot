@@ -122,6 +122,23 @@ class TestMockMode:
         assert isinstance(result, SingleDayResponse)
         assert len(result.meals) >= 1
 
+    @patch("app.llm.client.settings")
+    async def test_chat_json_returns_mock_when_mock_param_true(self, mock_settings: MagicMock) -> None:
+        mock_settings.llm_mock = False  # global setting OFF
+        mock_settings.openai_api_key = None
+        mock_settings.gemini_api_key = None
+        mock_settings.deepseek_api_key = None
+        client = LLMClient()
+
+        result = await client.chat_json(
+            system_prompt="test",
+            user_prompt="test",
+            response_model=SingleDayResponse,
+            mock=True,  # per-call override
+        )
+        assert isinstance(result, SingleDayResponse)
+        assert len(result.meals) >= 1
+
 
 class TestIsFallbackError:
     """Tests for _is_fallback_error helper — Gemini and OpenAI, codes 402/404/429."""
