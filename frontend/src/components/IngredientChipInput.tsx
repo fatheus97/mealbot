@@ -62,17 +62,20 @@ export function IngredientChipInput({
     onChange(next);
   };
 
+  const showSuggestions = isFocused && filteredSuggestions.length > 0;
+
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
-      commitChip(draft);
+      commitChip(showSuggestions ? filteredSuggestions[0] : draft);
+    } else if (e.key === "Tab" && showSuggestions) {
+      e.preventDefault();
+      commitChip(filteredSuggestions[0]);
     } else if (e.key === "Backspace" && draft === "" && values.length > 0) {
       e.preventDefault();
       removeChip(values.length - 1);
     }
   };
-
-  const showSuggestions = isFocused && filteredSuggestions.length > 0;
 
   return (
     <div style={{ position: "relative", width: "100%", marginTop: "0.25rem" }}>

@@ -45,6 +45,26 @@ describe("IngredientChipInput", () => {
     expect(screen.queryByRole("option", { name: "rice" })).not.toBeInTheDocument();
   });
 
+  it("commits the top suggestion when Enter is pressed while suggestions are visible", async () => {
+    const user = userEvent.setup();
+    render(<Harness suggestions={["chicken breast", "chickpeas"]} />);
+
+    await user.type(screen.getByPlaceholderText("type here"), "chick");
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByTestId("state").textContent).toBe("chicken breast");
+  });
+
+  it("commits the top suggestion when Tab is pressed while suggestions are visible", async () => {
+    const user = userEvent.setup();
+    render(<Harness suggestions={["chicken breast", "chickpeas"]} />);
+
+    await user.type(screen.getByPlaceholderText("type here"), "chick");
+    await user.keyboard("{Tab}");
+
+    expect(screen.getByTestId("state").textContent).toBe("chicken breast");
+  });
+
   it("commits a suggestion when clicked", async () => {
     const user = userEvent.setup();
     render(<Harness suggestions={["chicken breast", "rice"]} />);
