@@ -123,7 +123,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleForceLogout = () => logout();
     window.addEventListener("mealbot:logout", handleForceLogout);
     return () => window.removeEventListener("mealbot:logout", handleForceLogout);
-  });
+    // Subscribe once for the provider's lifetime. logout() closes over stable
+    // setters + queryClient, so an empty dep array is safe and intended.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, isDemo, demoEnabled, login, logout, setOnboardingCompleted, loginDemo }}>
