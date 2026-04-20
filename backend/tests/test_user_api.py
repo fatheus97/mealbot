@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.config import settings
-from app.core.security import ALGORITHM
+from app.core.security import ALGORITHM, create_access_token
 from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 
@@ -198,6 +198,7 @@ class TestExpiredToken:
     ):
         expired_payload = {
             "sub": str(test_user.id),
+            "tv": test_user.token_version,
             "exp": datetime.now(timezone.utc) - timedelta(hours=1),
         }
         expired_token = jwt.encode(
@@ -206,5 +207,90 @@ class TestExpiredToken:
         resp = await unauthed_client.get(
             "/api/users",
             headers={"Authorization": f"Bearer {expired_token}"},
+        )
+        assert resp.status_code == 401
+
+
+class TestLogout:
+    async def test_logout_returns_204(
+        self, unauthed_client: AsyncClient, test_user
+    ):
+        token = create_access_token(
+            subject=test_user.id, token_version=test_user.token_version
+        )
+        resp = await unauthed_client.post(
+            "/api/users/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 204
+        assert resp.content == b""
+
+    async def test_token_invalid_after_logout(
+        self, unauthed_client: AsyncClient, test_user
+    ):
+        # Mint a token under the user's current token_version, use it to log
+        # out, then prove the same token is now rejected on a protected route.
+        token = create_access_token(
+            subject=test_user.id, token_version=test_user.token_version
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+
+        ok = await unauthed_client.get("/api/users", headers=headers)
+        assert ok.status_code == 200
+
+        logout = await unauthed_client.post("/api/users/logout", headers=headers)
+        assert logout.status_code == 204
+
+        stale = await unauthed_client.get("/api/users", headers=headers)
+        assert stale.status_code == 401
+
+    async def test_fresh_login_after_logout_works(
+        self, unauthed_client: AsyncClient, test_user
+    ):
+        # Logging out bumps the user's token_version; a subsequent login mints
+        # a token under the new version and must be accepted.
+        old_token = create_access_token(
+            subject=test_user.id, token_version=test_user.token_version
+        )
+        logout = await unauthed_client.post(
+            "/api/users/logout",
+            headers={"Authorization": f"Bearer {old_token}"},
+        )
+        assert logout.status_code == 204
+
+        login = await unauthed_client.post(
+            "/api/users/login",
+            data={"username": TEST_EMAIL, "password": TEST_PASSWORD},
+        )
+        assert login.status_code == 200
+        new_token = login.json()["access_token"]
+
+        resp = await unauthed_client.get(
+            "/api/users",
+            headers={"Authorization": f"Bearer {new_token}"},
+        )
+        assert resp.status_code == 200
+
+    async def test_logout_without_auth_returns_401(
+        self, unauthed_client: AsyncClient
+    ):
+        resp = await unauthed_client.post("/api/users/logout")
+        assert resp.status_code == 401
+
+    async def test_token_without_tv_claim_is_rejected(
+        self, unauthed_client: AsyncClient, test_user
+    ):
+        # Legacy tokens (pre-revocation feature) don't carry "tv" — reject so
+        # clients are forced to re-login under the versioned scheme.
+        legacy_payload = {
+            "sub": str(test_user.id),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        }
+        legacy_token = jwt.encode(
+            legacy_payload, settings.secret_key, algorithm=ALGORITHM
+        )
+        resp = await unauthed_client.get(
+            "/api/users",
+            headers={"Authorization": f"Bearer {legacy_token}"},
         )
         assert resp.status_code == 401

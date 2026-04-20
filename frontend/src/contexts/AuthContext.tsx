@@ -98,6 +98,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Fire-and-forget server-side revocation. If the token is already invalid
+    // or the backend is unreachable, we still clear the client state below so
+    // the user actually gets logged out. The server call is best-effort; its
+    // only job is to bump the user's token_version so previously-issued
+    // tokens can't be used from another device/tab.
+    void Promise.resolve(authFetch("/users/logout", { method: "POST" })).catch(
+      (err) => console.warn("Server-side logout failed:", err),
+    );
+
     setUserId(null);
     setToken(null);
     setEmail("");

@@ -34,6 +34,7 @@ async def demo_session(
     token = create_access_token(
         subject=user.id,
         expire_minutes=settings.demo_session_expire_minutes,
+        token_version=user.token_version,
     )
     return Token(
         access_token=token,

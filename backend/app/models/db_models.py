@@ -36,6 +36,11 @@ class User(SQLModel, table=True):
 
     is_demo: bool = Field(default=False, index=True)
 
+    # Incremented on logout to revoke all outstanding JWTs for this user.
+    # Tokens carry the version they were issued under ("tv" claim); requests
+    # with a mismatched version are rejected in get_current_user.
+    token_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
+
     fridge_items: List["StockItem"] = Relationship(back_populates="user")
     meal_plans: List["MealPlan"] = Relationship(back_populates="user")
     meal_entries: List["MealEntry"] = Relationship(back_populates="user")

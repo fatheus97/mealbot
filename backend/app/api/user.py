@@ -99,7 +99,7 @@ async def login(
     # 3. Generate the JWT (user exists and was fetched from DB, so id is always set)
     if user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
-    access_token = create_access_token(subject=user.id)
+    access_token = create_access_token(subject=user.id, token_version=user.token_version)
 
     # 4. Return the Token schema
     return Token(
@@ -110,6 +110,21 @@ async def login(
         onboarding_completed=bool(user.onboarding_completed),
         is_demo=bool(user.is_demo),
     )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """
+    Revoke all outstanding JWTs for the caller by bumping their token_version.
+    The next request with any previously-issued token will 401.
+    """
+    current_user.token_version += 1
+    session.add(current_user)
+    await session.commit()
+    return None
 
 
 @router.get(path="", response_model=UserRead)

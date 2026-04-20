@@ -33,12 +33,20 @@ def get_password_hash(password: str) -> str:
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
 
-def create_access_token(subject: int | str, expire_minutes: int | None = None) -> str:
+def create_access_token(
+    subject: int | str,
+    expire_minutes: int | None = None,
+    token_version: int = 0,
+) -> str:
     """
-        Generates a JWT token containing the user's ID as the 'sub' (subject).
+    Generates a JWT token containing the user's ID as the 'sub' (subject) and
+    the user's current token_version as the 'tv' claim. Requests carrying a
+    token whose 'tv' doesn't match the user's current token_version are
+    rejected (see app.api.deps.get_current_user) — this is how logout
+    invalidates all outstanding tokens for a user server-side.
     """
     minutes = expire_minutes if expire_minutes is not None else settings.access_token_expire_minutes
     expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-    to_encode = {"exp": expire, "sub": str(subject)}
+    to_encode = {"exp": expire, "sub": str(subject), "tv": token_version}
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
     return encoded_jwt

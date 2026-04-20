@@ -46,6 +46,9 @@ const okEmpty = () =>
 
 beforeEach(() => {
   vi.stubGlobal('alert', vi.fn());
+  // Call history accumulates across tests unless cleared — tests that assert
+  // on mock.calls need a clean slate.
+  mockedAuthFetch.mockClear();
   mockedAuthFetch.mockImplementation((url: string) => {
     if (url === '/config') return Promise.resolve(okEmpty());
     return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
@@ -111,6 +114,56 @@ describe('AuthBar', () => {
     localStorage.setItem('mealbot_token', 'tok');
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user@test.com');
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.click(screen.getByRole('button', { name: /logout/i }));
+
+    expect(screen.getByText('Login')).toBeInTheDocument();
+    expect(localStorage.getItem('mealbot_token')).toBeNull();
+  });
+
+  it('logout POSTs to /users/logout for server-side token revocation', async () => {
+    localStorage.setItem('mealbot_token', 'tok');
+    localStorage.setItem('mealbot_user_id', '1');
+    localStorage.setItem('mealbot_user_email', 'user@test.com');
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users/logout') {
+        return Promise.resolve({ ok: true, status: 204 } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.click(screen.getByRole('button', { name: /logout/i }));
+
+    const logoutCalls = mockedAuthFetch.mock.calls.filter(
+      (c) => c[0] === '/users/logout',
+    );
+    expect(logoutCalls).toHaveLength(1);
+    expect(logoutCalls[0][1]).toMatchObject({ method: 'POST' });
+    expect(localStorage.getItem('mealbot_token')).toBeNull();
+  });
+
+  it('logout still clears local state when server revocation call fails', async () => {
+    // The server call is best-effort: network failure must not trap a user
+    // in a "logged in" state locally.
+    localStorage.setItem('mealbot_token', 'tok');
+    localStorage.setItem('mealbot_user_id', '1');
+    localStorage.setItem('mealbot_user_email', 'user@test.com');
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users/logout') {
+        return Promise.reject(new Error('network down'));
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
 
     const user = userEvent.setup();
     render(<AuthBar />, { wrapper: createWrapper() });
