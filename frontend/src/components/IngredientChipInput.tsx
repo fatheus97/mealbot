@@ -145,6 +145,7 @@ export function IngredientChipInput({
             padding: "0.15rem",
             fontSize: "0.9rem",
             backgroundColor: "transparent",
+            color: "#111",
           }}
         />
       </div>
