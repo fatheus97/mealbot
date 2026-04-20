@@ -171,6 +171,78 @@ describe('MealPlanner', () => {
     expect(screen.queryByText(/meal\(s\) frozen/)).not.toBeInTheDocument();
   });
 
+  it('clears frozen styling on confirm so cooked-green can paint', async () => {
+    loginUser();
+
+    const planResponse = {
+      plan_id: 7,
+      days: [
+        {
+          meals: [
+            {
+              name: 'Scrambled Eggs',
+              meal_type: 'breakfast',
+              uses_existing_ingredients: [],
+              ingredients: [],
+              steps: [],
+            },
+          ],
+        },
+      ],
+      shopping_list: [],
+    };
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url.endsWith('/confirm')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      }
+      if (url.includes('/meal-entries') || url.includes('/meals')) {
+        // useMealEntries poll — irrelevant for this test, return empty list.
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve([]),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
+    });
+
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+
+    await user.click(screen.getByRole('button', { name: /generate plan/i }));
+    await waitFor(() => expect(screen.getByText('Scrambled Eggs')).toBeInTheDocument());
+
+    // Freeze the meal so the frozen state is populated. The meal container
+    // is the parent of the BREAKFAST label — grab it so we can inspect its
+    // inline backgroundColor across confirm.
+    const mealLabel = screen.getByText(/BREAKFAST:/i);
+    const mealContainer = mealLabel.closest('div[style]')?.parentElement as HTMLElement;
+    expect(mealContainer).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Freeze' }));
+    // Sanity: blue applied while frozen pre-confirm.
+    expect(mealContainer.style.backgroundColor).toBe('rgb(238, 244, 251)');
+
+    await user.click(screen.getByRole('button', { name: /confirm plan/i }));
+
+    // Regression guard: previously `frozenMeals` was left populated after
+    // confirm, so `isFrozen ? blue : isCooked ? green : transparent` kept
+    // the meal blue forever and the cooked-green style could never paint.
+    await waitFor(() => {
+      expect(mealContainer.style.backgroundColor).toBe('transparent');
+    });
+  });
+
   it('regenerate sends correct frozen_meals', async () => {
     loginUser();
 
