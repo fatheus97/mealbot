@@ -16,6 +16,9 @@ interface OpenedPlan {
 
 function MainLayout() {
   const { userId, onboardingCompleted, isDemo } = useAuth();
+  // openedPlan and other component-local state in this subtree are scoped to a
+  // single user session — see AuthRoot below for the userId-keyed remount that
+  // discards them on logout/login transitions.
   const [openedPlan, setOpenedPlan] = useState<OpenedPlan | null>(null);
 
   return (
@@ -34,11 +37,18 @@ function MainLayout() {
   );
 }
 
+function AuthRoot() {
+  const { userId } = useAuth();
+  // Remounts the entire authenticated subtree when the active user changes,
+  // so no component-local state from a previous session survives login/logout.
+  return <MainLayout key={userId ?? "anon"} />;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <MainLayout />
+        <AuthRoot />
       </AuthProvider>
     </ErrorBoundary>
   );

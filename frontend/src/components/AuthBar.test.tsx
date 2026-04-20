@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthBar } from './AuthBar';
 import { AuthProvider } from '../contexts/AuthContext';
+import { usePreferencesStore, DEFAULT_PREFERENCES } from '../store/usePreferencesStore';
 import type { ReactNode } from 'react';
 
 vi.mock('../api', () => ({
@@ -16,16 +17,18 @@ import { authFetch } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
+function createWrapper(queryClient?: QueryClient) {
+  const client =
+    queryClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
 
   return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={client}>
       <AuthProvider>{children}</AuthProvider>
     </QueryClientProvider>
   );
@@ -116,5 +119,35 @@ describe('AuthBar', () => {
 
     expect(screen.getByText('Login')).toBeInTheDocument();
     expect(localStorage.getItem('mealbot_token')).toBeNull();
+  });
+
+  it('logout clears query cache and resets persisted preferences (cross-account leak guard)', async () => {
+    localStorage.setItem('mealbot_token', 'tok');
+    localStorage.setItem('mealbot_user_id', '1');
+    localStorage.setItem('mealbot_user_email', 'user-a@test.com');
+
+    // Seed user-A preferences (would otherwise persist into user-B's session).
+    usePreferencesStore.getState().setDietType('vegan');
+    usePreferencesStore.getState().setTastePreferences('private taste notes');
+    usePreferencesStore.getState().setAvoidIngredients('peanuts');
+
+    // Seed query cache with user-A's plan list.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(['planList', 1], [{ id: 99, label: 'A secret plan' }]);
+    expect(queryClient.getQueryData(['planList', 1])).toBeDefined();
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper(queryClient) });
+
+    await user.click(screen.getByRole('button', { name: /logout/i }));
+
+    const prefs = usePreferencesStore.getState();
+    expect(prefs.dietType).toBe(DEFAULT_PREFERENCES.dietType);
+    expect(prefs.tastePreferences).toBe(DEFAULT_PREFERENCES.tastePreferences);
+    expect(prefs.avoidIngredients).toBe(DEFAULT_PREFERENCES.avoidIngredients);
+    expect(localStorage.getItem('mealbot-preferences')).toBeNull();
+    expect(queryClient.getQueryData(['planList', 1])).toBeUndefined();
   });
 });

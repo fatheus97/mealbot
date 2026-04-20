@@ -20,18 +20,23 @@ interface PreferencesState {
   setTastePreferences: (tastes: string) => void;
   setAvoidIngredients: (avoids: string) => void;
   setStockOnly: (stockOnly: boolean) => void;
+  reset: () => void;
 }
+
+export const DEFAULT_PREFERENCES = {
+  days: 3,
+  dietType: "balanced" as DietType | "",
+  mealsPerDay: 3,
+  peopleCount: 2,
+  tastePreferences: "Mediterranean, Italian, light",
+  avoidIngredients: "",
+  stockOnly: false,
+};
 
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
-      days: 3,
-      dietType: "balanced",
-      mealsPerDay: 3,
-      peopleCount: 2,
-      tastePreferences: "Mediterranean, Italian, light",
-      avoidIngredients: "",
-      stockOnly: false,
+      ...DEFAULT_PREFERENCES,
 
       setDays: (days) => set({ days }),
       setDietType: (dietType) => set({ dietType }),
@@ -40,6 +45,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setTastePreferences: (tastePreferences) => set({ tastePreferences }),
       setAvoidIngredients: (avoidIngredients) => set({ avoidIngredients }),
       setStockOnly: (stockOnly) => set({ stockOnly }),
+      reset: () => set({ ...DEFAULT_PREFERENCES }),
     }),
     {
       name: 'mealbot-preferences', // The key used in localStorage

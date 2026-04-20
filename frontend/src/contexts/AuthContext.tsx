@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode} from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { LoginResponse, AuthState } from "../types";
 import {authFetch} from "../api.ts";
+import { usePreferencesStore } from "../store/usePreferencesStore";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
@@ -18,6 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => window.localStorage.getItem("mealbot_is_demo") === "true"
   );
   const [demoEnabled, setDemoEnabled] = useState<boolean>(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     // Gate the "Try Demo" button on the backend feature flag so we don't
@@ -105,6 +108,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.localStorage.removeItem("mealbot_user_email");
     window.localStorage.removeItem("mealbot_onboarding");
     window.localStorage.removeItem("mealbot_is_demo");
+
+    // Prevent cross-account leakage: drop cached server data and reset
+    // the persisted preferences store to defaults. Component-local state
+    // (e.g. App's openedPlan) is cleared via the userId-keyed remount in App.tsx.
+    queryClient.clear();
+    // Reset in-memory state first; clearStorage() last so the persist
+    // middleware's reset write doesn't immediately re-populate the entry.
+    usePreferencesStore.getState().reset();
+    void usePreferencesStore.persist.clearStorage();
   };
 
   useEffect(() => {

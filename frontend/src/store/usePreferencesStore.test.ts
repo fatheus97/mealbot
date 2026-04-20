@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { usePreferencesStore } from './usePreferencesStore';
+import { usePreferencesStore, DEFAULT_PREFERENCES } from './usePreferencesStore';
 
 beforeEach(() => {
   usePreferencesStore.setState({
@@ -10,6 +10,7 @@ beforeEach(() => {
     tastePreferences: '',
     avoidIngredients: '',
   });
+  localStorage.removeItem('mealbot-preferences');
 });
 
 describe('usePreferencesStore', () => {
@@ -58,6 +59,29 @@ describe('usePreferencesStore', () => {
 
     const stored = JSON.parse(localStorage.getItem('mealbot-preferences') ?? '{}');
     expect(stored.state?.days).toBe(7);
+  });
+
+  it('reset() restores defaults and clearStorage() wipes the persisted entry', async () => {
+    const store = usePreferencesStore.getState();
+    store.setDays(7);
+    store.setDietType('vegan');
+    store.setTastePreferences('umami');
+    store.setAvoidIngredients('gluten');
+
+    expect(localStorage.getItem('mealbot-preferences')).not.toBeNull();
+
+    usePreferencesStore.getState().reset();
+    await usePreferencesStore.persist.clearStorage();
+
+    const state = usePreferencesStore.getState();
+    expect(state.days).toBe(DEFAULT_PREFERENCES.days);
+    expect(state.dietType).toBe(DEFAULT_PREFERENCES.dietType);
+    expect(state.mealsPerDay).toBe(DEFAULT_PREFERENCES.mealsPerDay);
+    expect(state.peopleCount).toBe(DEFAULT_PREFERENCES.peopleCount);
+    expect(state.tastePreferences).toBe(DEFAULT_PREFERENCES.tastePreferences);
+    expect(state.avoidIngredients).toBe(DEFAULT_PREFERENCES.avoidIngredients);
+    expect(state.stockOnly).toBe(DEFAULT_PREFERENCES.stockOnly);
+    expect(localStorage.getItem('mealbot-preferences')).toBeNull();
   });
 
   it('restores state from localStorage', () => {
