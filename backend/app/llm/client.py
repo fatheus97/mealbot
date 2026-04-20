@@ -147,6 +147,9 @@ class LLMClient:
         Forces the LLM to return data that perfectly validates against the injected Pydantic model.
         """
         if mock or settings.llm_mock:
+            from app.models.plan_models import ReceiptScanResponse
+            if response_model is ReceiptScanResponse:
+                return self._mock_vision_response(response_model)
             return self._mock_response(response_model, mock_context)
 
         messages: list[object] = [

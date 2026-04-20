@@ -272,6 +272,19 @@ class TestLLMVisionMock:
             assert item.quantity_grams > 0
             assert len(item.name) > 0
 
+    async def test_chat_json_mock_routes_receipt_model_to_vision_response(self):
+        """Regression: mock=True with ReceiptScanResponse must return receipt shape, not meal-plan shape."""
+        from app.llm.client import LLMClient
+        client = LLMClient()
+        result = await client.chat_json(
+            system_prompt="x",
+            user_prompt="y",
+            response_model=ReceiptScanResponse,
+            mock=True,
+        )
+        assert isinstance(result, ReceiptScanResponse)
+        assert len(result.items) > 0
+
 
 class TestSnackFiltering:
     @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
