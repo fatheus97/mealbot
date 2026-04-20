@@ -148,7 +148,6 @@ export function Fridge() {
         ...JSON.parse(JSON.stringify(item)),
         _editId: assignId(),
       }));
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFridge(copy);
       refreshGroupOrder(copy, sortKey, sortDir);
     }
@@ -180,7 +179,9 @@ export function Fridge() {
     if (!userId) return;
     const cleaned: StockItem[] = items
       .filter((item) => item.name.trim() !== "")
-      .map(({ _editId: _, ...rest }) => rest);
+      // Strip the client-only _editId before sending to the backend.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      .map(({ _editId, ...rest }) => rest);
     updateFridgeMutation.mutate(
       { userId, items: cleaned },
       {
