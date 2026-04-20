@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { authFetch, fetchUserProfile, updateUserProfile } from './api';
 
-// api.ts defaults to the relative "/api" path when VITE_API_BASE is unset
-// (prod behavior: nginx proxies /api). Tests run with VITE_API_BASE unset.
-const MOCK_BASE = '/api';
+// Mirror api.ts's resolution so this test passes whether VITE_API_BASE is
+// unset (CI: resolves to "/api") or set by docker-compose.override.yml
+// (local frontend container: "http://localhost:8000/api").
+const MOCK_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
