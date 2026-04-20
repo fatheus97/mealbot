@@ -29,6 +29,7 @@ function MainLayout() {
       <Fridge />
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
       <MealPlanner
+        key={openedPlan?.plan.plan_id ?? "new"}
         initialPlan={openedPlan?.plan ?? null}
         initialSummary={openedPlan?.summary}
       />

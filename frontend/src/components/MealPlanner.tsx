@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal } from "../hooks/useServerState";
 import { StarRating } from "./StarRating";
@@ -20,20 +20,14 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
   const finishMutation = useFinishPlan();
   const rateMutation = useRateMeal();
 
-  const [currentPlan, setCurrentPlan] = useState<MealPlanResponse | null>(null);
+  // Derive initial state directly from the initialPlan prop. The parent
+  // (App.tsx) remounts this component via `key={openedPlan?.plan.plan_id}`
+  // when a different plan is opened, so prop→state sync via useEffect is
+  // unnecessary and was flagged by react-hooks/set-state-in-effect.
+  const [currentPlan, setCurrentPlan] = useState<MealPlanResponse | null>(initialPlan ?? null);
   const [frozenMeals, setFrozenMeals] = useState<Set<string>>(new Set());
-  const [isConfirmed, setIsConfirmed] = useState(false);
-  const [isFinished, setIsFinished] = useState(false);
-
-  // Sync initialPlan prop to currentPlan state (catalog plans are always confirmed)
-  useEffect(() => {
-    if (initialPlan) {
-      setCurrentPlan(initialPlan);
-      setFrozenMeals(new Set());
-      setIsConfirmed(true);
-      setIsFinished(initialSummary?.finished_at != null);
-    }
-  }, [initialPlan, initialSummary]);
+  const [isConfirmed, setIsConfirmed] = useState(initialPlan != null);
+  const [isFinished, setIsFinished] = useState(initialSummary?.finished_at != null);
 
   const planId = currentPlan?.plan_id ?? null;
   const { data: mealEntries } = useMealEntries(isConfirmed ? planId : null);
