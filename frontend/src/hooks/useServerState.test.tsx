@@ -141,6 +141,7 @@ describe('useGeneratePlan', () => {
       ingredients: [],
       taste_preferences: [],
       avoid_ingredients: [],
+      ingredients_to_use: [],
       diet_type: null,
       meals_per_day: 3,
       people_count: 2,
