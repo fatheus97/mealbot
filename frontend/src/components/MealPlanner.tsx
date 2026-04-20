@@ -107,7 +107,13 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
   const handleConfirm = () => {
     if (!currentPlan?.plan_id) return;
     confirmMutation.mutate(currentPlan.plan_id, {
-      onSuccess: () => setIsConfirmed(true),
+      onSuccess: () => {
+        setIsConfirmed(true);
+        // Freezing is only meaningful pre-confirm (as a regenerate hint).
+        // Clear the set so the frozen-blue styling doesn't mask the
+        // cooked-green styling on the same meal post-confirm.
+        setFrozenMeals(new Set());
+      },
     });
   };
 
