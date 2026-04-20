@@ -2,7 +2,7 @@
 
 export type MeasurementSystem = "none" | "imperial" | "metric";
 export type Variability = "traditional" | "experimental";
-export type DietType = "balanced" | "high_protein" | "low_carb" | "vegetarian" | "vegan";
+export type DietType = "balanced" | "high_protein" | "low_carb" | "vegetarian" | "vegan" | "baby_food";
 
 export interface IngredientAmount {
   name: string;
@@ -14,6 +14,7 @@ export interface MealPlanRequest {
   ingredients: IngredientAmount[];
   taste_preferences: string[];
   avoid_ingredients: string[];
+  ingredients_to_use: string[];
   diet_type: DietType | null;
   meals_per_day: number;
   people_count: number;

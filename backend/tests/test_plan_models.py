@@ -93,6 +93,64 @@ class TestMealPlanRequestSanitization:
         assert "low-fat" in req.taste_preferences
         assert "sugar-free" in req.taste_preferences
 
+    def test_preserves_unicode_diacritics(self):
+        """Czech/European characters must survive sanitization — otherwise LLM
+        loses the semantics of tags like 'sladké' (sweet) / 'pečené' (baked)."""
+        req = MealPlanRequest(
+            taste_preferences=["sladké", "pečené", "Středomořské"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert "sladké" in req.taste_preferences
+        assert "pečené" in req.taste_preferences
+        assert "Středomořské" in req.taste_preferences
+
+    def test_still_strips_prompt_injection_vectors(self):
+        """Unicode-aware sanitizer must still block injection characters."""
+        req = MealPlanRequest(
+            taste_preferences=["{{evil}}", "`shell`", "<img>", "a|b", "c$d"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        for pref in req.taste_preferences:
+            for ch in "{}<>`|$":
+                assert ch not in pref
+
+    def test_ingredients_to_use_sanitized(self):
+        req = MealPlanRequest(
+            ingredients_to_use=["kuřecí prsa", "rýže<script>", "a" * 51],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert "kuřecí prsa" in req.ingredients_to_use
+        assert any("rýže" in i and "<" not in i for i in req.ingredients_to_use)
+        # Over-length item dropped
+        assert len(req.ingredients_to_use) == 2
+
+    def test_non_string_items_skipped(self):
+        req = MealPlanRequest(
+            taste_preferences=["valid", 123, None, "also-valid"],  # type: ignore[list-item]
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert req.taste_preferences == ["valid", "also-valid"]
+
+    def test_baby_food_diet_type_accepted(self):
+        req = MealPlanRequest(
+            diet_type="baby_food",
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert req.diet_type == "baby_food"
+
+    def test_invalid_diet_type_rejected(self):
+        with pytest.raises(ValidationError):
+            MealPlanRequest(
+                diet_type="nonsense",  # type: ignore[arg-type]
+                meals_per_day=3,
+                people_count=2,
+            )
+
     def test_meals_per_day_bounds(self):
         with pytest.raises(ValidationError):
             MealPlanRequest(meals_per_day=0, people_count=2)

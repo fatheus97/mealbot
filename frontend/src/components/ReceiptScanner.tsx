@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import type { ChangeEvent } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
 import type { ScannedItemType, StockItem } from "../types";
@@ -62,19 +63,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const scanMutation = useScanReceipt();
   const mergeMutation = useMergeFridge();
 
-  const handleScan = async () => {
-    if (isDemo) {
-      setState("scanning");
-      setTimeout(() => {
-        setReviewItems(buildDemoScanItems());
-        setState("review");
-      }, 1200);
-      return;
-    }
-
-    const file = fileInputRef.current?.files?.[0];
-    if (!file) return;
-
+  const handleScan = async (file: File) => {
     setState("scanning");
     setErrorMessage("");
 
@@ -108,7 +97,24 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Failed to scan receipt.");
       setState("error");
+    } finally {
+      // Reset so selecting the same file again (e.g. after an error) re-triggers onChange.
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const handleDemoScan = () => {
+    setState("scanning");
+    setTimeout(() => {
+      setReviewItems(buildDemoScanItems());
+      setState("review");
+    }, 1200);
+  };
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    void handleScan(file);
   };
 
   const handleConfirm = async () => {
@@ -168,26 +174,30 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     <div style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#1e293b", borderRadius: "8px", color: "rgba(255, 255, 255, 0.87)" }}>
       <h3 style={{ marginTop: 0 }}>Scan Receipt</h3>
 
-      {/* File input — always visible in idle/error states */}
+      {/* File input — always visible in idle/error states. Selecting a file auto-triggers the scan. */}
       {(state === "idle" || state === "error") && (
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
           {isDemo ? (
-            <img
-              src={demoReceiptUrl}
-              alt="Demo grocery receipt"
-              style={{ height: 120, border: "1px solid #334155", borderRadius: 4 }}
-            />
+            <>
+              <img
+                src={demoReceiptUrl}
+                alt="Demo grocery receipt"
+                style={{ height: 120, border: "1px solid #334155", borderRadius: 4 }}
+              />
+              <button onClick={handleDemoScan} disabled={scanMutation.isPending}>
+                Scan demo receipt
+              </button>
+            </>
           ) : (
             <input
               ref={fileInputRef}
               type="file"
               accept="image/jpeg,image/png,application/pdf,.pdf"
               aria-label="Select receipt image or PDF"
+              onChange={handleFileChange}
+              disabled={scanMutation.isPending}
             />
           )}
-          <button onClick={handleScan} disabled={scanMutation.isPending}>
-            Scan Receipt
-          </button>
         </div>
       )}
 

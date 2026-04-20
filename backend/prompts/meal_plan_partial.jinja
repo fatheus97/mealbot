@@ -26,9 +26,19 @@ User context:
   — none
 {% endif %}
 — Taste preferences: {{ taste_preferences | join(", ") or "none specified" }}
+— Priority ingredients to use this run: {{ ingredients_to_use | join(", ") or "none specified" }}
 — Ingredients to avoid: {{ avoid_ingredients | join(", ") or "none specified" }}
 — Diet type: {{ diet_type or "balanced" }}
 — Previously eaten meals (avoid similar ones): {{ past_meals | join(" | ") or "none" }}
+{% if diet_type == "baby_food" %}
+
+INFANT FOOD MODE (for ~6–12 month old baby):
+— Every meal MUST be safe and age-appropriate for a roughly 7-month-old baby.
+— Textures: soft, mashable, puréed, or small well-cooked pieces. NO hard, crunchy, or chewy foods.
+— NO honey. NO added salt. NO added sugar. NO whole nuts or nut pieces. NO raw egg. NO cow's milk as a drink. NO choking hazards (whole grapes, raw apple/carrot chunks, popcorn).
+— Prefer: cooked-soft vegetables, iron-rich foods, well-cooked grains, soft fruit.
+— Keep preparations simple: 1–3 main ingredients per meal is ideal.
+{% endif %}
 
 The following meals are ALREADY PLANNED and LOCKED for this day. DO NOT regenerate them.
 Use them as context to ensure the new meals complement them (avoid duplicate ingredients, provide variety):
@@ -43,21 +53,23 @@ Generate ONLY the following meal slots: {{ slots_to_generate | join(', ') }}
 The output JSON must contain EXACTLY {{ slots_to_generate | length }} meal(s) with meal_type values matching the slots above.
 
 Your priorities, IN THIS ORDER, are:
-1) AVOID ALL ingredients listed in "Ingredients to avoid" and theirs synonyms and hyponyms.
-2) Respect diet type.
+1) AVOID ALL ingredients listed in "Ingredients to avoid" and their synonyms and hyponyms.
+2) Respect diet type. If diet type is "baby_food", the INFANT FOOD MODE rules above are hard constraints.
+3) HONOR TASTE PREFERENCES STRONGLY. Treat flavor words ("sweet", "savory", "spicy", "mild") and preparation-method words ("baked", "grilled", "fried", "raw", "roasted", "boiled") as hard filters on dish style, not soft hints. Do NOT override with generic "variety" reasoning.
+4) USE PRIORITY INGREDIENTS. For each item in "Priority ingredients to use this run", build a meal around it or feature it prominently. Treat with urgency equal to or higher than URGENT stock items.
 {% if stock_only %}
-3) STOCK-ONLY MODE: You MUST use ONLY ingredients from the fridge lists above (URGENT + NON-URGENT). Do NOT introduce ANY new ingredients that are not listed above. If you cannot make a full meal, make a simpler one with what is available. Never add items to buy.
-4) Use URGENT stock ingredients so nothing goes to waste.
-5) Keep meals realistic and simple enough for a home cook.
-6) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
-7) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
-8) Use NON-URGENT stock ingredients.
+5) STOCK-ONLY MODE: You MUST use ONLY ingredients from the fridge lists above (URGENT + NON-URGENT). Do NOT introduce ANY new ingredients that are not listed above. If you cannot make a full meal, make a simpler one with what is available. Never add items to buy.
+6) Use URGENT stock ingredients so nothing goes to waste.
+7) Keep meals realistic and simple enough for a home cook.
+8) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
+9) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
+10) Use NON-URGENT stock ingredients.
 {% else %}
-3) Keep meals realistic, delicious, and simple for a home cook. Use ANY ingredients you need — you are NOT limited to stock.
-4) Prefer URGENT stock ingredients where they fit naturally. Never force them into a recipe.
-5) Variety and creativity: avoid past meals, repeated ingredients, and samey flavour profiles.
-6) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
-7) Use NON-URGENT stock ingredients when they make sense.
+5) Keep meals realistic, delicious, and simple for a home cook. Use ANY ingredients you need — you are NOT limited to stock.
+6) Prefer URGENT stock ingredients where they fit naturally. Never force them into a recipe.
+7) Variety and creativity: avoid past meals, repeated ingredients, and samey flavour profiles — but NEVER at the expense of priorities 1–4.
+8) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
+9) Use NON-URGENT stock ingredients when they make sense.
 {% endif %}
 
 Rules about ingredients:

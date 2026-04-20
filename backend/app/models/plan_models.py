@@ -27,8 +27,13 @@ class MealPlanRequest(BaseModel):
         max_length=50,
         description="Ingredients that must not be used (allergies, dislikes).",
     )
+    ingredients_to_use: List[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Priority ingredients the user wants used in this plan run; treated with urgency.",
+    )
     diet_type: Optional[
-        Literal["balanced", "high_protein", "low_carb", "vegetarian", "vegan"]
+        Literal["balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food"]
     ] = None
     meals_per_day: int = Field(
         ge=1,
@@ -77,25 +82,31 @@ class MealPlanRequest(BaseModel):
         description="When true, only fridge/pantry ingredients may be used — no shopping.",
     )
 
-    @field_validator("taste_preferences", "avoid_ingredients", "past_meals", mode="before")
+    @field_validator(
+        "taste_preferences",
+        "avoid_ingredients",
+        "ingredients_to_use",
+        "past_meals",
+        mode="before",
+    )
     @classmethod
     def sanitize_input(cls, v):
-        # Handle cases where the input might be None
         if not v:
             return []
 
         cleaned_list = []
         for item in v:
-            # Enforce length limit per tag (drop it if it's too long instead of crashing the whole request)
+            if not isinstance(item, str):
+                continue
             if len(item) > 50:
                 continue
-
-                # Whitelist: Allow only alphanumeric, spaces, and hyphens.
-            cleaned = re.sub(r'[^a-zA-Z0-9\s-]', '', item).strip()
+            # Unicode-aware whitelist: keep letters (incl. Czech/European diacritics),
+            # digits, spaces, and a small set of harmless punctuation. Still blocks
+            # prompt-injection vectors like { } < > | ` $ \ / etc.
+            cleaned = re.sub(r"[^\w\s\-,.]", "", item, flags=re.UNICODE).strip()
             if cleaned:
                 cleaned_list.append(cleaned)
 
-        # Optional: Limit the total number of items to prevent prompt stuffing
         return cleaned_list[:20]
 
 

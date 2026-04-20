@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal, useFridge } from "../hooks/useServerState";
 import { StarRating } from "./StarRating";
+import { IngredientChipInput } from "./IngredientChipInput";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType } from "../types";
 
@@ -28,6 +29,15 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
   const [frozenMeals, setFrozenMeals] = useState<Set<string>>(new Set());
   const [isConfirmed, setIsConfirmed] = useState(initialPlan != null);
   const [isFinished, setIsFinished] = useState(initialSummary?.finished_at != null);
+  // Per-run only: intentionally not persisted in the preferences store —
+  // "use these ingredients" is a one-shot hint for THIS plan generation.
+  const [ingredientsToUse, setIngredientsToUse] = useState<string[]>([]);
+
+  const { data: fridgeItems } = useFridge(userId);
+  const fridgeSuggestions = useMemo(
+    () => (Array.isArray(fridgeItems) ? fridgeItems.map((i) => i.name) : []),
+    [fridgeItems],
+  );
 
   const planId = currentPlan?.plan_id ?? null;
   const { data: mealEntries } = useMealEntries(isConfirmed ? planId : null);
@@ -67,6 +77,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
       ingredients: [],
       taste_preferences: parseList(tastePreferences),
       avoid_ingredients: parseList(avoidIngredients),
+      ingredients_to_use: ingredientsToUse,
       diet_type: dietType === "" ? null : dietType,
       meals_per_day: mealsPerDay,
       people_count: peopleCount,
@@ -172,6 +183,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
             <option value="low_carb">Low Carb</option>
             <option value="vegetarian">Vegetarian</option>
             <option value="vegan">Vegan</option>
+            <option value="baby_food">Baby food (6–12 mo)</option>
           </select>
         </label>
 
@@ -202,6 +214,16 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
         <label style={{ gridColumn: "span 2" }}>
           Ingredients to Avoid (comma separated):
           <input type="text" value={avoidIngredients} onChange={(e) => setAvoidIngredients(e.target.value)} placeholder="e.g. peanuts, cilantro" style={{ width: "100%", marginTop: "0.25rem" }} />
+        </label>
+
+        <label style={{ gridColumn: "span 2" }}>
+          Ingredients to use up (this run only):
+          <IngredientChipInput
+            values={ingredientsToUse}
+            onChange={setIngredientsToUse}
+            suggestions={fridgeSuggestions}
+            placeholder="Type an ingredient and press Enter (fridge items auto-suggest)"
+          />
         </label>
       </div>
 

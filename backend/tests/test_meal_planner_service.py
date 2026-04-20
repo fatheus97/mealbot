@@ -139,6 +139,54 @@ class TestGeneratePartialDay:
         assert "expected" in caplog.text.lower() or len(caplog.records) > 0
 
 
+class TestPromptContent:
+    @patch("app.services.meal_planner.llm_client")
+    async def test_ingredients_to_use_section_rendered(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request(ingredients_to_use=["rajčata", "tofu"]))
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "Priority ingredients to use this run" in prompt
+        assert "rajčata" in prompt
+        assert "tofu" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_ingredients_to_use_none_specified_when_empty(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request(ingredients_to_use=[]))
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "Priority ingredients to use this run: none specified" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_baby_food_block_rendered_only_when_selected(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request(diet_type="baby_food"))
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "INFANT FOOD MODE" in prompt
+        assert "NO honey" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_baby_food_block_absent_when_other_diet(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request(diet_type="vegetarian"))
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        # Unique block-only phrase — "INFANT FOOD MODE" also appears in the
+        # (gated) reference within the priority list.
+        assert "NO honey" not in prompt
+        assert "6–12 month old baby" not in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_taste_preferences_elevated_to_priority(self, mock_llm: MagicMock):
+        """Regression: taste preferences must appear as a numbered priority,
+        not just passive context, so the LLM honors them."""
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request(taste_preferences=["sladké", "pečené"]))
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "HONOR TASTE PREFERENCES STRONGLY" in prompt
+        # Diacritics survive into the final prompt
+        assert "sladké" in prompt
+        assert "pečené" in prompt
+
+
 class TestStockOnlyPrompt:
     @patch("app.services.meal_planner.llm_client")
     async def test_stock_only_constraint_in_prompt(self, mock_llm: MagicMock):

@@ -27,10 +27,10 @@ function createFile(name = 'receipt.jpg', type = 'image/jpeg'): File {
 }
 
 describe('ReceiptScanner', () => {
-  it('renders file input and scan button', () => {
+  it('renders file input (no scan button — upload auto-triggers)', () => {
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
     expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /scan receipt/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^scan receipt$/i })).not.toBeInTheDocument();
   });
 
   it('shows scanning state during scan', async () => {
@@ -43,7 +43,6 @@ describe('ReceiptScanner', () => {
     const input = screen.getByLabelText(/select receipt image/i);
     const file = createFile();
     await user.upload(input, file);
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/scanning receipt/i)).toBeInTheDocument();
@@ -61,7 +60,6 @@ describe('ReceiptScanner', () => {
 
     const input = screen.getByLabelText(/select receipt image/i);
     await user.upload(input, createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('chicken breast')).toBeInTheDocument();
@@ -91,7 +89,6 @@ describe('ReceiptScanner', () => {
 
     const input = screen.getByLabelText(/select receipt image/i);
     await user.upload(input, createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     await waitFor(() => {
       // Should show "+500 → 700g" for existing item
@@ -112,7 +109,6 @@ describe('ReceiptScanner', () => {
 
     const input = screen.getByLabelText(/select receipt image/i);
     await user.upload(input, createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /add to fridge/i })).toBeInTheDocument();
@@ -136,7 +132,6 @@ describe('ReceiptScanner', () => {
 
     const input = screen.getByLabelText(/select receipt image/i);
     await user.upload(input, createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/receipt scan failed/i)).toBeInTheDocument();
@@ -153,7 +148,6 @@ describe('ReceiptScanner', () => {
 
     const input = screen.getByLabelText(/select receipt image/i);
     await user.upload(input, createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
@@ -161,8 +155,8 @@ describe('ReceiptScanner', () => {
 
     await user.click(screen.getByRole('button', { name: /cancel/i }));
 
-    // Should be back to idle state
-    expect(screen.getByRole('button', { name: /scan receipt/i })).toBeInTheDocument();
+    // Should be back to idle state — file input visible, no review rows
+    expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
     expect(screen.queryByDisplayValue('rice')).not.toBeInTheDocument();
   });
 
@@ -175,7 +169,6 @@ describe('ReceiptScanner', () => {
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
 
     await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     const qty = (await screen.findByDisplayValue('1000')) as HTMLInputElement;
     await user.clear(qty);
@@ -192,7 +185,6 @@ describe('ReceiptScanner', () => {
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
 
     await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     const qty = await screen.findByDisplayValue('1000');
     await user.clear(qty);
@@ -214,7 +206,6 @@ describe('ReceiptScanner', () => {
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
 
     await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     const qty = await screen.findByDisplayValue('100');
     await user.clear(qty);
@@ -239,7 +230,6 @@ describe('ReceiptScanner', () => {
 
     const input = screen.getByLabelText(/select receipt image/i);
     await user.upload(input, createFile());
-    await user.click(screen.getByRole('button', { name: /scan receipt/i }));
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('chicken')).toBeInTheDocument();
