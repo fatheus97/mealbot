@@ -54,17 +54,23 @@ async def generate_partial_day(
     req: MealPlanRequest,
     frozen_meals: list[PlannedMeal],
     slots_to_generate: list[str],
+    replaced_meals: list[str] | None = None,
     mock: bool = False,
 ) -> SingleDayResponse:
     """
     Generates only the unfrozen meal slots for a single day,
     using frozen meals as context so the LLM complements them.
+
+    `replaced_meals` are the names of meals the user just rejected in the
+    slots we're about to re-roll — surfacing them in the prompt stops the
+    LLM from returning near-identical reskins.
     """
     template = _prompts_env.get_template("meal_plan_partial.jinja")
     user_prompt = template.render(
         **req.model_dump(),
         frozen_meals=[m.model_dump() for m in frozen_meals],
         slots_to_generate=slots_to_generate,
+        replaced_meals=replaced_meals or [],
     )
 
     response = await llm_client.chat_json(

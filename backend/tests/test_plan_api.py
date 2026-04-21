@@ -191,6 +191,78 @@ class TestPlanRegenerate:
         # Unfrozen meal replaced
         assert body["days"][0]["meals"][1]["name"] == "New Dinner"
 
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    async def test_regenerate_passes_replaced_meals(
+        self,
+        mock_gen: AsyncMock,
+        mock_partial: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+    ):
+        """The names of the unfrozen (rejected) meals must flow into the
+        partial-day call via replaced_meals AND past_meals — otherwise the
+        LLM keeps returning reskinned versions of what the user just rejected.
+        """
+        mock_gen.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Original Lunch",
+                    meal_type="lunch",
+                    ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                    steps=["Cook rice"],
+                ),
+                PlannedMeal(
+                    name="Original Dinner",
+                    meal_type="dinner",
+                    ingredients=[IngredientAmount(name="pasta", quantity_grams=300)],
+                    steps=["Boil pasta"],
+                ),
+            ]
+        )
+
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        mock_partial.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Replacement Lunch",
+                    meal_type="lunch",
+                    ingredients=[IngredientAmount(name="lentils", quantity_grams=200)],
+                    steps=["Simmer"],
+                ),
+                PlannedMeal(
+                    name="Replacement Dinner",
+                    meal_type="dinner",
+                    ingredients=[IngredientAmount(name="tofu", quantity_grams=250)],
+                    steps=["Fry"],
+                ),
+            ]
+        )
+
+        # Regenerate with nothing frozen — both meals are being rejected.
+        regen_resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate",
+            headers=auth_headers,
+            json={"frozen_meals": []},
+        )
+        assert regen_resp.status_code == 200
+
+        mock_partial.assert_awaited_once()
+        call = mock_partial.await_args
+        # replaced_meals passed by keyword.
+        assert call.kwargs["replaced_meals"] == ["Original Lunch", "Original Dinner"]
+        # past_meals on the request also carries the rejected names so the
+        # long-term-history block reinforces the signal.
+        day_req = call.args[0]
+        assert "Original Lunch" in day_req.past_meals
+        assert "Original Dinner" in day_req.past_meals
+
     @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
     async def test_regenerate_confirmed_plan_rejected(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict

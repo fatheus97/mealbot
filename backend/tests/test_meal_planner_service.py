@@ -182,6 +182,36 @@ class TestPromptContent:
         assert '"total_time_minutes": <number>' in prompt
 
     @patch("app.services.meal_planner.llm_client")
+    async def test_replaced_meals_block_rendered_when_provided(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", "dinner"))
+        await generate_partial_day(
+            _make_request(),
+            frozen_meals=[],
+            slots_to_generate=["dinner"],
+            replaced_meals=["Chicken salad", "Pasta primavera"],
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "REJECTED" in prompt
+        assert "Chicken salad" in prompt
+        assert "Pasta primavera" in prompt
+        # Priority-list bullet is present.
+        assert "DIFFER FROM THE REJECTED MEALS" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_replaced_meals_block_none_when_empty(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", "dinner"))
+        await generate_partial_day(
+            _make_request(),
+            frozen_meals=[],
+            slots_to_generate=["dinner"],
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        # Block still renders with "none" placeholder so the LLM isn't confused
+        # by a dangling header.
+        assert "REJECTED" in prompt
+        assert "— none" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
     async def test_baby_food_block_rendered_only_when_selected(self, mock_llm: MagicMock):
         mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
         await generate_single_day(_make_request(diet_type="baby_food"))

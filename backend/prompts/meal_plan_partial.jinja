@@ -49,6 +49,14 @@ Use them as context to ensure the new meals complement them (avoid duplicate ing
   — none
 {% endif %}
 
+The user just REJECTED the following meals in this plan and asked for replacements. Do NOT return dishes that are substantially similar — change the main protein, cuisine, or cooking technique. A reskin with the same core ingredients and method is a failure:
+{% for name in replaced_meals %}
+  — "{{ name }}"
+{% endfor %}
+{% if not replaced_meals %}
+  — none
+{% endif %}
+
 Generate ONLY the following meal slots: {{ slots_to_generate | join(', ') }}
 The output JSON must contain EXACTLY {{ slots_to_generate | length }} meal(s) with meal_type values matching the slots above.
 
@@ -57,19 +65,20 @@ Your priorities, IN THIS ORDER, are:
 2) Respect diet type. If diet type is "baby_food", the INFANT FOOD MODE rules above are hard constraints.
 3) HONOR TASTE PREFERENCES STRONGLY. Treat flavor words ("sweet", "savory", "spicy", "mild") and preparation-method words ("baked", "grilled", "fried", "raw", "roasted", "boiled") as hard filters on dish style, not soft hints. Do NOT override with generic "variety" reasoning.
 4) USE PRIORITY INGREDIENTS. For each item in "Priority ingredients to use this run", build a meal around it or feature it prominently. Treat with urgency equal to or higher than URGENT stock items.
+5) DIFFER FROM THE REJECTED MEALS above. The user already saw those dishes and asked for replacements — do not return anything that is the rejected dish in a different outfit. Shift the main protein, cuisine, or cooking technique.
 {% if stock_only %}
-5) STOCK-ONLY MODE: You MUST use ONLY ingredients from the fridge lists above (URGENT + NON-URGENT). Do NOT introduce ANY new ingredients that are not listed above. If you cannot make a full meal, make a simpler one with what is available. Never add items to buy.
-6) Use URGENT stock ingredients so nothing goes to waste.
-7) Keep meals realistic and simple enough for a home cook.
-8) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
-9) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
-10) Use NON-URGENT stock ingredients.
+6) STOCK-ONLY MODE: You MUST use ONLY ingredients from the fridge lists above (URGENT + NON-URGENT). Do NOT introduce ANY new ingredients that are not listed above. If you cannot make a full meal, make a simpler one with what is available. Never add items to buy.
+7) Use URGENT stock ingredients so nothing goes to waste.
+8) Keep meals realistic and simple enough for a home cook.
+9) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
+10) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
+11) Use NON-URGENT stock ingredients.
 {% else %}
-5) Keep meals realistic, delicious, and simple for a home cook. Use ANY ingredients you need — you are NOT limited to stock.
-6) Prefer URGENT stock ingredients where they fit naturally. Never force them into a recipe.
-7) Variety and creativity: avoid past meals, repeated ingredients, and samey flavour profiles — but NEVER at the expense of priorities 1–4.
-8) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
-9) Use NON-URGENT stock ingredients when they make sense.
+6) Keep meals realistic, delicious, and simple for a home cook. Use ANY ingredients you need — you are NOT limited to stock.
+7) Prefer URGENT stock ingredients where they fit naturally. Never force them into a recipe.
+8) Variety and creativity: avoid past meals, repeated ingredients, and samey flavour profiles — but NEVER at the expense of priorities 1–5.
+9) Complement the locked meals — avoid using the same main ingredients or similar flavour profiles.
+10) Use NON-URGENT stock ingredients when they make sense.
 {% endif %}
 
 Rules about ingredients:

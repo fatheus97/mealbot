@@ -356,13 +356,25 @@ async def regenerate_plan(
         # Determine which meal_type slots to regenerate
         slots_to_generate: list[str] = [day.meals[i].meal_type for i in unfrozen_indices]
 
+        # Capture the meals we're about to replace. Feeding their names to the
+        # prompt — both in a dedicated "rejected" block and in past_meals —
+        # stops the LLM from returning a near-identical reskin.
+        replaced_names: list[str] = [day.meals[i].name for i in unfrozen_indices]
+        past_meals.extend(replaced_names)
+
         # Build request for partial generation
         day_req = original_req.model_copy()
         day_req.stock_items = remaining_ingredients
         day_req.past_meals = past_meals
 
         try:
-            new_meals_response = await generate_partial_day(day_req, frozen_only, slots_to_generate, mock=current_user.is_demo)
+            new_meals_response = await generate_partial_day(
+                day_req,
+                frozen_only,
+                slots_to_generate,
+                replaced_meals=replaced_names,
+                mock=current_user.is_demo,
+            )
         except HTTPException:
             raise
         except Exception as e:
