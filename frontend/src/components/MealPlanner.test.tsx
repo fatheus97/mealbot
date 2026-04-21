@@ -301,4 +301,61 @@ describe('MealPlanner', () => {
       });
     });
   });
+
+  it('renders total cook time badge only when present', async () => {
+    loginUser();
+
+    const planResponse = {
+      plan_id: 1,
+      days: [
+        {
+          meals: [
+            {
+              name: 'Timed Meal',
+              meal_type: 'lunch',
+              uses_existing_ingredients: [],
+              ingredients: [],
+              steps: [],
+              total_time_minutes: 35,
+            },
+            {
+              name: 'Legacy Meal',
+              meal_type: 'dinner',
+              uses_existing_ingredients: [],
+              ingredients: [],
+              steps: [],
+              // total_time_minutes intentionally omitted — simulates a plan from
+              // before this feature shipped.
+            },
+          ],
+        },
+      ],
+      shopping_list: [],
+    };
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
+    });
+
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+
+    await user.click(screen.getByRole('button', { name: /generate plan/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Timed Meal')).toBeInTheDocument();
+    });
+
+    // Present for the meal that has total_time_minutes.
+    expect(screen.getByLabelText(/total time 35 minutes/i)).toBeInTheDocument();
+    expect(screen.getByText(/· 35 min/)).toBeInTheDocument();
+
+    // Absent for the legacy meal — only one badge should exist total.
+    expect(screen.queryAllByLabelText(/total time .* minutes/i)).toHaveLength(1);
+  });
 });

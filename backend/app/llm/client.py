@@ -239,6 +239,7 @@ class LLMClient:
                     "Cook in a non-stick pan over medium heat until set.",
                     "Serve with Greek yogurt and a squeeze of lemon.",
                 ],
+                "total_time_minutes": 10,
             },
             {
                 "name": "Garlic Chicken with Spinach Rice",
@@ -258,6 +259,7 @@ class LLMClient:
                     "Wilt spinach in the same pan for 2 minutes.",
                     "Serve chicken over spinach rice.",
                 ],
+                "total_time_minutes": 30,
             },
             {
                 "name": "Cherry Tomato Pasta",
@@ -276,6 +278,7 @@ class LLMClient:
                     "Toss pasta with the tomato sauce.",
                     "Finish with grated cheddar cheese.",
                 ],
+                "total_time_minutes": 20,
             },
             {
                 "name": "Greek Yogurt with Lemon",
@@ -286,6 +289,7 @@ class LLMClient:
                     {"name": "lemons", "quantity_grams": 20},
                 ],
                 "steps": ["Drizzle lemon juice over Greek yogurt and enjoy."],
+                "total_time_minutes": 3,
             },
         ],
         [  # day_index % 3 == 2
@@ -303,6 +307,7 @@ class LLMClient:
                     "Cook in olive oil over low heat, stirring gently.",
                     "Fold in cheddar cheese just before serving.",
                 ],
+                "total_time_minutes": 10,
             },
             {
                 "name": "Spinach and Tomato Chicken Salad",
@@ -320,6 +325,7 @@ class LLMClient:
                     "Combine spinach, halved cherry tomatoes, and sliced chicken.",
                     "Dress with olive oil and lemon juice.",
                 ],
+                "total_time_minutes": 20,
             },
             {
                 "name": "Baked Chicken with Onion and Rice",
@@ -338,6 +344,7 @@ class LLMClient:
                     "Place chicken on top, season, and bake for 25 minutes.",
                     "Serve with steamed rice.",
                 ],
+                "total_time_minutes": 45,
             },
             {
                 "name": "Cheddar Crackers",
@@ -347,6 +354,7 @@ class LLMClient:
                     {"name": "cheddar cheese", "quantity_grams": 60},
                 ],
                 "steps": ["Slice cheddar and serve as a snack."],
+                "total_time_minutes": 2,
             },
         ],
         [  # day_index % 3 == 0
@@ -363,6 +371,7 @@ class LLMClient:
                     "Fry eggs in olive oil over medium heat.",
                     "Serve with a side of Greek yogurt.",
                 ],
+                "total_time_minutes": 8,
             },
             {
                 "name": "Cheesy Pasta with Spinach",
@@ -380,6 +389,7 @@ class LLMClient:
                     "Sauté garlic in olive oil, add spinach and wilt for 2 minutes.",
                     "Toss pasta with spinach and stir in cheddar until melted.",
                 ],
+                "total_time_minutes": 20,
             },
             {
                 "name": "Lemon Chicken with Cherry Tomatoes",
@@ -398,6 +408,7 @@ class LLMClient:
                     "Add halved cherry tomatoes and cook 3 more minutes.",
                     "Serve with remaining lemon wedges.",
                 ],
+                "total_time_minutes": 30,
             },
             {
                 "name": "Yogurt with Honey",
@@ -407,6 +418,7 @@ class LLMClient:
                     {"name": "greek yogurt", "quantity_grams": 150},
                 ],
                 "steps": ["Serve Greek yogurt chilled as an afternoon snack."],
+                "total_time_minutes": 2,
             },
         ],
     ]

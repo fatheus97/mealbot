@@ -141,6 +141,14 @@ class PlannedMeal(BaseModel):
     meal_type_label: str = ""
     ingredients: List[IngredientAmount]
     steps: List[str]
+    # Optional so legacy meal_json rows (pre-feature) still parse during RAG retrieval.
+    # New generations are instructed by the prompt to always populate it.
+    total_time_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=600,
+        description="Total time from prep start to finish, including cook and rest, in minutes.",
+    )
 
 
 class SingleDayResponse(BaseModel):

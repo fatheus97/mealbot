@@ -354,6 +354,14 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
                          </span>
                        )}
                        <strong>{(meal.meal_type_label || meal.meal_type).toUpperCase()}:</strong> {meal.name}
+                       {meal.total_time_minutes != null && (
+                         <span
+                           style={{ marginLeft: "0.5rem", fontSize: "0.85em", color: "#666" }}
+                           aria-label={`Total time ${meal.total_time_minutes} minutes`}
+                         >
+                           · {meal.total_time_minutes} min
+                         </span>
+                       )}
                        {(isConfirmed || isFinished) && entry && (
                          <StarRating
                            rating={entry.rating}

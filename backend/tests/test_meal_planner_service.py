@@ -162,6 +162,26 @@ class TestPromptContent:
         assert "Priority ingredients to use this run: none specified" in prompt
 
     @patch("app.services.meal_planner.llm_client")
+    async def test_total_time_minutes_in_schema_and_rules(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request())
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        # Schema block contains the field
+        assert '"total_time_minutes": <number>' in prompt
+        # Rules block explains it
+        assert "total_time_minutes" in prompt
+        assert "prep" in prompt and "cooking" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_total_time_minutes_in_partial_prompt(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", "dinner"))
+        await generate_partial_day(
+            _make_request(), frozen_meals=[], slots_to_generate=["dinner"],
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert '"total_time_minutes": <number>' in prompt
+
+    @patch("app.services.meal_planner.llm_client")
     async def test_baby_food_block_rendered_only_when_selected(self, mock_llm: MagicMock):
         mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
         await generate_single_day(_make_request(diet_type="baby_food"))
@@ -287,6 +307,25 @@ class TestRagPromptContent:
         assert "HONOR TASTE PREFERENCES STRONGLY" in prompt
         assert "sladké" in prompt
         assert "pečené" in prompt
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_prompt_includes_total_time_minutes(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+
+        await generate_single_day_with_rag(_make_request(), session=MagicMock(), user_id=1)
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert '"total_time_minutes": <number>' in prompt
 
 
 class TestNonRagPromptSuppressesRetrievedMeals:

@@ -259,3 +259,49 @@ class TestMealPlanResponseSerialization:
         restored = PlannedMeal.model_validate_json(meal.model_dump_json())
         assert restored.meal_type == "breakfast"
         assert restored.meal_type_label == "Snídaně"
+
+
+class TestPlannedMealTotalTime:
+    def _base_meal_kwargs(self) -> dict:
+        return {
+            "name": "Test",
+            "meal_type": "lunch",
+            "ingredients": [IngredientAmount(name="rice", quantity_grams=200)],
+            "steps": ["Cook"],
+        }
+
+    def test_total_time_accepted(self):
+        meal = PlannedMeal(**self._base_meal_kwargs(), total_time_minutes=35)
+        assert meal.total_time_minutes == 35
+
+    def test_total_time_defaults_to_none(self):
+        meal = PlannedMeal(**self._base_meal_kwargs())
+        assert meal.total_time_minutes is None
+
+    def test_total_time_zero_rejected(self):
+        with pytest.raises(ValidationError):
+            PlannedMeal(**self._base_meal_kwargs(), total_time_minutes=0)
+
+    def test_total_time_negative_rejected(self):
+        with pytest.raises(ValidationError):
+            PlannedMeal(**self._base_meal_kwargs(), total_time_minutes=-10)
+
+    def test_total_time_above_max_rejected(self):
+        with pytest.raises(ValidationError):
+            PlannedMeal(**self._base_meal_kwargs(), total_time_minutes=601)
+
+    def test_legacy_meal_json_without_total_time_parses(self):
+        """Regression guard for RAG retrieval: pre-feature meal_json rows in
+        the DB must still deserialize cleanly."""
+        legacy_json = (
+            '{"name":"Old Dish","meal_type":"dinner","meal_type_label":"Dinner",'
+            '"ingredients":[{"name":"rice","quantity_grams":200,"is_spice":false}],'
+            '"steps":["Cook rice"]}'
+        )
+        meal = PlannedMeal.model_validate_json(legacy_json)
+        assert meal.total_time_minutes is None
+
+    def test_total_time_roundtrip(self):
+        meal = PlannedMeal(**self._base_meal_kwargs(), total_time_minutes=45)
+        restored = PlannedMeal.model_validate_json(meal.model_dump_json())
+        assert restored.total_time_minutes == 45

@@ -29,6 +29,7 @@ export interface PlannedMeal {
   uses_existing_ingredients: string[];
   ingredients: IngredientAmount[];
   steps: string[];
+  total_time_minutes?: number | null;
 }
 
 export interface SingleDayPlan {

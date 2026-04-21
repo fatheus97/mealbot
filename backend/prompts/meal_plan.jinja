@@ -122,6 +122,7 @@ Other rules:
     for exactly {{ people_count }} people.
 — All ingredient amounts in grams as numeric "quantity_grams". No units in name or quantity.
 — Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
+— "total_time_minutes" is an integer: the total time from starting prep to finishing cooking, including prep, active cooking, and any resting/baking/marinating time. Give a realistic estimate for a home cook; must be between 1 and 600.
 
 Output JSON schema (must match exactly):
 
@@ -138,7 +139,8 @@ Output JSON schema (must match exactly):
           "is_spice": <boolean>
         }
       ],
-      "steps": [<string>]
+      "steps": [<string>],
+      "total_time_minutes": <number>
     }
   ]
 }
