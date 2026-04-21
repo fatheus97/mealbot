@@ -150,7 +150,7 @@ async def generate_single_day_with_rag(
             logger.warning("RAG: failed to parse meal_json for entry %d", hit.meal_entry_id)
             continue
 
-    template = _prompts_env.get_template("meal_plan_rag.jinja")
+    template = _prompts_env.get_template("meal_plan.jinja")
     user_prompt = template.render(
         **req.model_dump(),
         retrieved_meals=retrieved_meals,

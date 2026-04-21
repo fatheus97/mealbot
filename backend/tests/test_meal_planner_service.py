@@ -13,7 +13,12 @@ from app.models.plan_models import (
     IngredientAmount,
     StockItemDTO,
 )
-from app.services.meal_planner import generate_single_day, generate_partial_day
+from app.services.meal_planner import (
+    generate_single_day,
+    generate_partial_day,
+    generate_single_day_with_rag,
+)
+from app.services.recipe_retriever import MealHit
 
 
 def _make_request(**overrides: Any) -> MealPlanRequest:
@@ -185,6 +190,117 @@ class TestPromptContent:
         # Diacritics survive into the final prompt
         assert "sladké" in prompt
         assert "pečené" in prompt
+
+
+class TestRagPromptContent:
+    """RAG and non-RAG now share meal_plan.jinja, gated on `retrieved_meals`.
+    Regression guard: features added to the non-RAG path (priority ingredients,
+    baby_food mode, taste preferences priority) silently disappeared from the
+    RAG path when the templates were separate files."""
+
+    def _rag_hit(self) -> MealHit:
+        return MealHit(
+            meal_entry_id=1,
+            user_id=1,
+            name="Retrieved Meal",
+            meal_type="dinner",
+            meal_json=(
+                '{"name":"Retrieved Meal","meal_type":"dinner","meal_type_label":"Dinner",'
+                '"ingredients":[{"name":"rice","quantity_grams":200,"is_spice":false}],'
+                '"steps":["Cook rice"]}'
+            ),
+            cosine_distance=0.1,
+            adjusted_distance=0.1,
+        )
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_prompt_includes_ingredients_to_use(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+
+        req = _make_request(ingredients_to_use=["rajčata", "tofu"])
+        result = await generate_single_day_with_rag(req, session=MagicMock(), user_id=1)
+
+        assert result is not None, "RAG should have fired with a relevant hit"
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "Priority ingredients to use this run" in prompt
+        assert "rajčata" in prompt
+        assert "tofu" in prompt
+        assert "USE PRIORITY INGREDIENTS" in prompt
+        # Retrieved meals actually rendered
+        assert "Retrieved Meal" in prompt
+        assert "Highly-rated retrieved meals" in prompt
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_prompt_includes_baby_food_block(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+
+        await generate_single_day_with_rag(
+            _make_request(diet_type="baby_food"), session=MagicMock(), user_id=1
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "INFANT FOOD MODE" in prompt
+        assert "NO honey" in prompt
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_prompt_elevates_taste_preferences(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+
+        await generate_single_day_with_rag(
+            _make_request(taste_preferences=["sladké", "pečené"]),
+            session=MagicMock(),
+            user_id=1,
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "HONOR TASTE PREFERENCES STRONGLY" in prompt
+        assert "sladké" in prompt
+        assert "pečené" in prompt
+
+
+class TestNonRagPromptSuppressesRetrievedMeals:
+    """The non-RAG path must not render the retrieved-meals preamble or section,
+    even though it uses the same template."""
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_non_rag_prompt_has_no_retrieved_meals_block(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request())
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "Highly-rated retrieved meals" not in prompt
+        assert "curated set of highly-rated meals" not in prompt
+        assert "adapt a retrieved meal" not in prompt
 
 
 class TestStockOnlyPrompt:
