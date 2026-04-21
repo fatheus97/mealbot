@@ -1,16 +1,15 @@
 """Tests for RAG integration: threshold logic, plan endpoint wiring, embedding on rate."""
 
-from unittest.mock import AsyncMock, patch, MagicMock
+from datetime import UTC
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
+from app.models.plan_models import (
+    IngredientAmount,
+    PlannedMeal,
+    SingleDayResponse,
+)
 from app.services.meal_planner import _filter_relevant
 from app.services.recipe_retriever import MealHit
-from app.models.plan_models import (
-    SingleDayResponse,
-    PlannedMeal,
-    IngredientAmount,
-)
 
 
 def _make_hit(
@@ -202,8 +201,9 @@ class TestRateMealEmbedding:
         db_session: MagicMock,
         test_user: MagicMock,
     ) -> None:
-        from app.models.db_models import MealPlan, MealEntry
-        from datetime import datetime, timezone
+        from datetime import datetime
+
+        from app.models.db_models import MealEntry, MealPlan
 
         plan = MealPlan(
             user_id=test_user.id,
@@ -212,7 +212,7 @@ class TestRateMealEmbedding:
             people_count=1,
             request_json="{}",
             response_json="{}",
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
         )
         db_session.add(plan)
         await db_session.flush()
@@ -245,8 +245,9 @@ class TestRateMealEmbedding:
         db_session: MagicMock,
         test_user: MagicMock,
     ) -> None:
-        from app.models.db_models import MealPlan, MealEntry
-        from datetime import datetime, timezone
+        from datetime import datetime
+
+        from app.models.db_models import MealEntry, MealPlan
 
         plan = MealPlan(
             user_id=test_user.id,
@@ -255,7 +256,7 @@ class TestRateMealEmbedding:
             people_count=1,
             request_json="{}",
             response_json="{}",
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
         )
         db_session.add(plan)
         await db_session.flush()
@@ -287,8 +288,9 @@ class TestRateMealEmbedding:
         test_user: MagicMock,
     ) -> None:
         """Dropping rating from 5 to 3 (misclick) must clear the stale embedding."""
-        from app.models.db_models import MealPlan, MealEntry
-        from datetime import datetime, timezone
+        from datetime import datetime
+
+        from app.models.db_models import MealEntry, MealPlan
 
         plan = MealPlan(
             user_id=test_user.id,
@@ -297,7 +299,7 @@ class TestRateMealEmbedding:
             people_count=1,
             request_json="{}",
             response_json="{}",
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
         )
         db_session.add(plan)
         await db_session.flush()
@@ -311,7 +313,7 @@ class TestRateMealEmbedding:
             meal_type="dinner",
             meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
             rating=5,
-            cooked_at=datetime.now(timezone.utc),
+            cooked_at=datetime.now(UTC),
             embedding=[0.1] * 384,
         )
         db_session.add(entry)
@@ -334,8 +336,9 @@ class TestRateMealEmbedding:
         test_user: MagicMock,
     ) -> None:
         """Uncooking a rated meal must clear rating AND the stale embedding together."""
-        from app.models.db_models import MealPlan, MealEntry
-        from datetime import datetime, timezone
+        from datetime import datetime
+
+        from app.models.db_models import MealEntry, MealPlan
 
         plan = MealPlan(
             user_id=test_user.id,
@@ -344,7 +347,7 @@ class TestRateMealEmbedding:
             people_count=1,
             request_json="{}",
             response_json="{}",
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
         )
         db_session.add(plan)
         await db_session.flush()
@@ -358,7 +361,7 @@ class TestRateMealEmbedding:
             meal_type="dinner",
             meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
             rating=5,
-            cooked_at=datetime.now(timezone.utc),
+            cooked_at=datetime.now(UTC),
             embedding=[0.1] * 384,
         )
         db_session.add(entry)

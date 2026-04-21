@@ -1,18 +1,18 @@
 """Tests for recipe retriever: embedding, retrieval, and user boost."""
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.core.security import get_password_hash
 from app.models.db_models import MealEntry, MealPlan, User
 from app.services.recipe_retriever import (
-    get_embedding_model,
-    embed_meal_entry,
-    retrieve_rated_meals,
     MealHit,
+    embed_meal_entry,
+    get_embedding_model,
+    retrieve_rated_meals,
 )
-
 
 SAMPLE_MEAL_JSON = (
     '{"name":"Chicken Curry","meal_type":"dinner","meal_type_label":"Dinner",'

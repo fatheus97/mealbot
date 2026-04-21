@@ -1,8 +1,7 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import jwt
-import pytest
 from httpx import AsyncClient
 
 from app.core.config import settings
@@ -199,7 +198,7 @@ class TestExpiredToken:
         expired_payload = {
             "sub": str(test_user.id),
             "tv": test_user.token_version,
-            "exp": datetime.now(timezone.utc) - timedelta(hours=1),
+            "exp": datetime.now(UTC) - timedelta(hours=1),
         }
         expired_token = jwt.encode(
             expired_payload, settings.secret_key, algorithm=ALGORITHM
@@ -284,7 +283,7 @@ class TestLogout:
         # clients are forced to re-login under the versioned scheme.
         legacy_payload = {
             "sub": str(test_user.id),
-            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+            "exp": datetime.now(UTC) + timedelta(hours=1),
         }
         legacy_token = jwt.encode(
             legacy_payload, settings.secret_key, algorithm=ALGORITHM

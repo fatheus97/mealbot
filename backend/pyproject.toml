@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = [
+    # pragmatic relaxations — tighten later if wanted
+    "E501",  # line too long; mypy/readability already cover this
+    "B008",  # function calls in defaults — FastAPI uses Depends() this way
+    "UP042", # str+Enum → StrEnum; opt out to avoid serialization behaviour shift
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B017", "SIM117"]

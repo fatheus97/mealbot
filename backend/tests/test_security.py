@@ -1,13 +1,13 @@
 import jwt
 import pytest
 
+from app.core.config import Settings, settings
 from app.core.security import (
     ALGORITHM,
+    create_access_token,
     get_password_hash,
     verify_password,
-    create_access_token,
 )
-from app.core.config import settings, Settings
 
 
 class TestPasswordHashing:

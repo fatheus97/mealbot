@@ -5,13 +5,12 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List, Set, Tuple
 
 import pytest
 from fastapi.testclient import TestClient
+
 from app.core.config import settings
 from app.main import app
-
 
 # --------------------------------------------------------------------------------------
 # Safety switch: do NOT run real LLM tests unless explicitly enabled.
@@ -39,7 +38,7 @@ OVERWRITE_CACHE = os.getenv("LLM_TEST_OVERWRITE", "0") == "1"
 # The idea: validator searches the response for avoid_term + expansions.
 # This is NOT "perfect semantics" — it is intentionally a pragmatic dictionary-based check.
 # --------------------------------------------------------------------------------------
-AVOID_ALIASES: Dict[str, str] = {
+AVOID_ALIASES: dict[str, str] = {
     "legumes": "legume",
     "pulses": "legume",
     "beans": "legume",
@@ -51,7 +50,7 @@ AVOID_ALIASES: Dict[str, str] = {
     "eggs": "egg",
 }
 
-AVOID_EXPANSIONS: Dict[str, Set[str]] = {
+AVOID_EXPANSIONS: dict[str, set[str]] = {
     # Category term -> terms to search in response
     "fish": {
         "fish",
@@ -137,7 +136,7 @@ def _canonical_avoid(term: str) -> str:
     return AVOID_ALIASES.get(t, t)
 
 
-def _terms_for_avoid(avoid_term: str) -> Set[str]:
+def _terms_for_avoid(avoid_term: str) -> set[str]:
     canon = _canonical_avoid(avoid_term)
     terms = set(AVOID_EXPANSIONS.get(canon, set()))
     # Always include the raw + canonical term too (so we search the explicit avoid word).
@@ -160,13 +159,13 @@ def _text_contains_term(text: str, term: str) -> bool:
     return re.search(pattern, text) is not None
 
 
-def _find_hits_in_response(response_json: dict, avoid_term: str) -> List[str]:
+def _find_hits_in_response(response_json: dict, avoid_term: str) -> list[str]:
     """
     Search full response text for avoid_term + synonyms/hyponyms.
     This follows your idea: "search the avoid word and its synonyms/hyponyms in the response".
     """
     response_text = json.dumps(response_json, ensure_ascii=False).lower()
-    hits: List[str] = []
+    hits: list[str] = []
     for term in sorted(_terms_for_avoid(avoid_term)):
         if _text_contains_term(response_text, term):
             hits.append(term)
@@ -178,7 +177,7 @@ def _slug(s: str) -> str:
 
 
 # 50 conflict scenarios (need_to_use ingredient that is inside the avoid category)
-SCENARIOS: List[Tuple[str, str]] = [
+SCENARIOS: list[tuple[str, str]] = [
     ("lentil", "legume"),
     ("lentils", "legume"),
     ("chickpeas", "legume"),
@@ -248,7 +247,7 @@ def test_llm_prompt_need_to_use_vs_avoid_consistency(client: TestClient) -> None
     assert r.status_code == 200, r.text
     user_id = int(r.json())
 
-    failures: List[str] = []
+    failures: list[str] = []
 
     for idx, (need_to_use_item, avoid_term) in enumerate(SCENARIOS, start=1):
         # Prepare fridge: include a couple of safe staples so the model has alternatives.

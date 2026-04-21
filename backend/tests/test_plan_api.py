@@ -5,9 +5,9 @@ from httpx import AsyncClient
 
 from app.models.plan_models import (
     IngredientAmount,
+    MealPlanResponse,
     PlannedMeal,
     SingleDayResponse,
-    MealPlanResponse,
 )
 
 

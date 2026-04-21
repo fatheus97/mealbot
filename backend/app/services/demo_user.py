@@ -4,7 +4,7 @@ Each /api/demo/session call creates a fresh isolated User so demo visitors
 can cook, rate, and finish plans without colliding with each other. Expired
 users (and their data) are swept lazily on the next session creation.
 """
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,7 +70,7 @@ async def cleanup_expired_demo_users(session: AsyncSession, ttl_minutes: int) ->
     first (MealEntry → MealPlan → StockItem → User) inside a single
     transaction. Caller must commit.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=ttl_minutes)
+    cutoff = datetime.now(UTC) - timedelta(minutes=ttl_minutes)
     result = await session.execute(
         select(User.id).where(User.is_demo == True, User.created_at < cutoff)  # noqa: E712
     )

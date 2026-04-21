@@ -1,7 +1,7 @@
 """Edge case tests for plan API: invalid bounds, ownership, fridge depletion."""
 
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -471,11 +471,11 @@ class TestDeriveStatus:
         assert _derive_status(total=3, cooked=3) == "cooked"
 
     def test_finished_when_finished_at_set(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         assert _derive_status(total=3, cooked=1, finished_at=now) == "finished"
 
     def test_finished_overrides_cooked(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         assert _derive_status(total=3, cooked=3, finished_at=now) == "finished"
 
 

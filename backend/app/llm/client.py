@@ -1,6 +1,10 @@
 import base64
 import logging
-from typing import Any, TypeVar, Type, Callable, Optional  # Any: instructor kwargs are inherently untyped
+from collections.abc import Callable
+from typing import (  # Any: instructor kwargs are inherently untyped
+    Any,
+    TypeVar,
+)
 
 import instructor
 from fastapi import HTTPException
@@ -8,11 +12,13 @@ from google import genai
 from google.genai import types as genai_types
 from google.genai.errors import APIError as GeminiAPIError
 from google.genai.types import HttpOptionsDict
-from openai import AsyncOpenAI, RateLimitError as OpenAIRateLimitError, APIStatusError as OpenAIAPIStatusError
+from openai import APIStatusError as OpenAIAPIStatusError
+from openai import AsyncOpenAI
+from openai import RateLimitError as OpenAIRateLimitError
 from openai.types.chat import ChatCompletionSystemMessageParam
 from pydantic import BaseModel
 
-from app.core.config import settings, LLMProvider, ModelEntry
+from app.core.config import LLMProvider, ModelEntry, settings
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +96,7 @@ class LLMClient:
     async def _call_with_fallback(
         self,
         build_kwargs: Callable[[ModelEntry], dict[str, Any]],
-        response_model: Type[T],
+        response_model: type[T],
         error_context: str,
     ) -> T:
         """Try each model in settings.model_chain; fall back on 429."""
@@ -139,8 +145,8 @@ class LLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
-        response_model: Type[T],
-        mock_context: Optional[dict[str, Any]] = None,
+        response_model: type[T],
+        mock_context: dict[str, Any] | None = None,
         mock: bool = False,
     ) -> T:
         """
@@ -168,7 +174,7 @@ class LLMClient:
         user_prompt: str,
         image_base64: str,
         image_media_type: str,
-        response_model: Type[T],
+        response_model: type[T],
         mock: bool = False,
     ) -> T:
         """
@@ -434,7 +440,7 @@ class LLMClient:
     ]
 
     @staticmethod
-    def _mock_response(response_model: Type[T], mock_context: Optional[dict[str, Any]] = None) -> T:
+    def _mock_response(response_model: type[T], mock_context: dict[str, Any] | None = None) -> T:
         """Deterministic fridge-aware fake response used in demo/dev mode."""
         meals_per_day = 3
         day_index = 1
@@ -458,7 +464,7 @@ class LLMClient:
         return response_model.model_validate({"meals": meals})
 
     @staticmethod
-    def _mock_vision_response(response_model: Type[T]) -> T:
+    def _mock_vision_response(response_model: type[T]) -> T:
         """Deterministic fake response for vision/receipt scanning in development."""
         return response_model.model_validate({
             "purchase_date": "2026-03-10",

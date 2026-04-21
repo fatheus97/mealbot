@@ -1,11 +1,12 @@
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_session
-from app.models.db_models import User
+
 from app.core.config import settings
 from app.core.security import ALGORITHM
+from app.db import get_session
+from app.models.db_models import User
 
 # This tells FastAPI to look for a "Bearer <token>" in the Authorization header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/users/login")
@@ -28,8 +29,8 @@ async def get_current_user(
             raise credentials_exception
         user_id = int(user_id_str)
         token_version = payload.get("tv")
-    except (jwt.InvalidTokenError, ValueError):
-        raise credentials_exception
+    except (jwt.InvalidTokenError, ValueError) as exc:
+        raise credentials_exception from exc
 
     # Tokens predating the logout/revocation feature don't carry "tv" — reject
     # them so clients re-login and get a versioned token. Expiry is 24h, so

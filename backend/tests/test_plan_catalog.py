@@ -7,7 +7,6 @@ from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
     SingleDayResponse,
-    MealPlanResponse,
     StockItemDTO,
 )
 
@@ -531,8 +530,7 @@ class TestOwnershipChecks:
         self, client: AsyncClient, auth_headers: dict, db_session
     ):
         """Create a plan, then try to access it with wrong ownership."""
-        body = await _create_plan(client, auth_headers)
-        plan_id = body["plan_id"]
+        await _create_plan(client, auth_headers)
 
         # Access with valid auth but plan_id that doesn't match
         resp = await client.get(

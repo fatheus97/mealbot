@@ -1,5 +1,6 @@
 import asyncio
 import io
+import logging
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -15,9 +16,6 @@ from app.models.plan_models import (
     ReceiptScanResponse,
     ScannedReceiptItem,
 )
-
-import logging
-from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +63,7 @@ def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
         raise HTTPException(
             status_code=422,
             detail="Could not read PDF. The file may be corrupted or password-protected.",
-        )
+        ) from exc
 
     if len(reader.pages) > max_pages:
         raise HTTPException(
@@ -122,10 +120,10 @@ NORMALIZE_SYSTEM_PROMPT = (
 
 
 async def normalize_item_names(
-    scanned_items: List[ScannedReceiptItem],
-    fridge_item_names: List[str],
+    scanned_items: list[ScannedReceiptItem],
+    fridge_item_names: list[str],
     mock: bool = False,
-) -> List[ScannedReceiptItem]:
+) -> list[ScannedReceiptItem]:
     """Normalize scanned item names against existing fridge items via LLM."""
     if mock or settings.llm_mock:
         return scanned_items

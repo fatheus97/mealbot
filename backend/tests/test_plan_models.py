@@ -4,12 +4,11 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.plan_models import (
+    FrozenMeal,
     IngredientAmount,
     MealPlanRequest,
-    PlannedMeal,
-    StockItemDTO,
-    FrozenMeal,
     MealPlanResponse,
+    PlannedMeal,
     SingleDayResponse,
 )
 

@@ -1,8 +1,8 @@
 import logging
+from datetime import UTC, datetime, timedelta
 
-import jwt
 import bcrypt
-from datetime import datetime, timedelta, timezone
+import jwt
 
 from app.core.config import settings
 
@@ -46,7 +46,7 @@ def create_access_token(
     invalidates all outstanding tokens for a user server-side.
     """
     minutes = expire_minutes if expire_minutes is not None else settings.access_token_expire_minutes
-    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    expire = datetime.now(UTC) + timedelta(minutes=minutes)
     to_encode = {"exp": expire, "sub": str(subject), "tv": token_version}
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
     return encoded_jwt

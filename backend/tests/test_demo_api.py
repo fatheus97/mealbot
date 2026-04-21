@@ -1,8 +1,7 @@
 """Tests for POST /api/demo/session — ephemeral user creation and expiry cleanup."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -61,7 +60,9 @@ class TestDemoSession:
 
     async def test_token_expires_in_approx_2h(self, unauthed_client: AsyncClient) -> None:
         import time
+
         import jwt as pyjwt
+
         from app.core.config import settings
         with patch("app.core.config.settings.demo_mode", True):
             resp = await unauthed_client.post("/api/demo/session")
@@ -81,7 +82,7 @@ class TestDemoSession:
         old_user = result.scalars().first()
         assert old_user is not None
         old_id = old_user.id
-        old_user.created_at = datetime.now(timezone.utc) - timedelta(hours=3)
+        old_user.created_at = datetime.now(UTC) - timedelta(hours=3)
         db_session.add(old_user)
         await db_session.commit()
 

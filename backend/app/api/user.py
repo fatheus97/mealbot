@@ -1,17 +1,17 @@
-from fastapi import Depends, HTTPException, APIRouter, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.api.deps import get_current_user
+from app.core.config import settings
+from app.core.rate_limit import limiter
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db import get_session
 from app.models.db_models import User
-from app.models.user_schemas import UserCreate, UserRead, UserUpdate, Token, MessageResponse
-from app.core.security import verify_password, get_password_hash, create_access_token
-from app.core.config import settings
-from app.api.deps import get_current_user
-from app.core.rate_limit import limiter
+from app.models.user_schemas import MessageResponse, Token, UserCreate, UserRead, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 

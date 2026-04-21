@@ -1,12 +1,14 @@
 import json
 import logging
-from datetime import datetime, timezone
-from typing import List, cast, Literal
+from datetime import UTC, datetime
+from typing import Literal, cast
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.api.deps import get_current_user
 from app.api.fridge import (
     _allocate_fifo,
     _group_and_sort_fridge,
@@ -14,19 +16,31 @@ from app.api.fridge import (
     replace_fridge_items,
     restore_consumed_batches,
 )
-from app.core.rate_limit import limiter
-from app.models.db_models import User, StockItem, MealPlan, MealEntry
-from app.models.plan_models import (
-    ConsumedBatch, MealPlanRequest, MealPlanResponse, SingleDayResponse, StockItemDTO, PlannedMeal,
-    IngredientAmount, RegeneratePlanRequest, MealPlanSummary, MealEntrySummary,
-    FinishPlanResponse, RateMealRequest,
-)
 from app.core.config import settings
-from app.services.meal_planner import generate_single_day, generate_partial_day, generate_single_day_with_rag
-from app.services.recipe_retriever import embed_meal_entry
-from app.utils import subtract_used_from_fridge, compute_shopping_list_from_plan
+from app.core.rate_limit import limiter
 from app.db import get_session
-from app.api.deps import get_current_user
+from app.models.db_models import MealEntry, MealPlan, StockItem, User
+from app.models.plan_models import (
+    ConsumedBatch,
+    FinishPlanResponse,
+    IngredientAmount,
+    MealEntrySummary,
+    MealPlanRequest,
+    MealPlanResponse,
+    MealPlanSummary,
+    PlannedMeal,
+    RateMealRequest,
+    RegeneratePlanRequest,
+    SingleDayResponse,
+    StockItemDTO,
+)
+from app.services.meal_planner import (
+    generate_partial_day,
+    generate_single_day,
+    generate_single_day_with_rag,
+)
+from app.services.recipe_retriever import embed_meal_entry
+from app.utils import compute_shopping_list_from_plan, subtract_used_from_fridge
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +63,12 @@ def _derive_status(
 
 
 # GET /api/plan — List user's plans
-@router.get("", response_model=List[MealPlanSummary])
+@router.get("", response_model=list[MealPlanSummary])
 async def list_plans(
     request: Request,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> List[MealPlanSummary]:
+) -> list[MealPlanSummary]:
     """List all plans for the current user with cooking status (single query)."""
     total_count = func.count(MealEntry.id).label("total_meals")  # type: ignore[arg-type]
     cooked_count = func.count(MealEntry.cooked_at).label("cooked_meals")  # type: ignore[arg-type]
@@ -107,12 +121,12 @@ async def get_plan_detail(
 
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to parse response_json for plan %d", plan_id)
         raise HTTPException(
             status_code=500,
             detail="Stored plan data could not be loaded.",
-        )
+        ) from exc
 
     plan_obj.plan_id = plan.id
     return plan_obj
@@ -174,17 +188,17 @@ async def plan_meals_for_user(
     )
     db_items = result.scalars().all()
 
-    remaining_ingredients: List[StockItemDTO] = [
+    remaining_ingredients: list[StockItemDTO] = [
         StockItemDTO(name=item.name, quantity_grams=item.quantity_grams, need_to_use=item.need_to_use)
         for item in db_items
     ]
 
-    initial_fridge: List[StockItemDTO] = [
+    initial_fridge: list[StockItemDTO] = [
         ing.model_copy() for ing in remaining_ingredients
     ]
 
-    past_meals: List[str] = list(payload.past_meals)
-    meal_plan: List[SingleDayResponse] = []
+    past_meals: list[str] = list(payload.past_meals)
+    meal_plan: list[SingleDayResponse] = []
 
     try:
         for day_index in range(1, days + 1):
@@ -214,7 +228,7 @@ async def plan_meals_for_user(
             detail="Meal plan generation failed. Please try again.",
         ) from e
 
-    shopping_items: List[IngredientAmount] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
+    shopping_items: list[IngredientAmount] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
     if payload.stock_only:
         if shopping_items:
             logger.warning(
@@ -283,16 +297,18 @@ async def regenerate_plan(
     if not plan or plan.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    if hasattr(plan, "confirmed_at") and getattr(plan, "confirmed_at"):
+    if hasattr(plan, "confirmed_at") and plan.confirmed_at:
         raise HTTPException(status_code=409, detail="Cannot regenerate a confirmed plan")
 
     # 2) Deserialize stored request & response
     try:
         original_req = MealPlanRequest.model_validate_json(plan.request_json)
         original_resp = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to parse stored data for plan %d", plan_id)
-        raise HTTPException(status_code=500, detail="Stored plan data could not be loaded.")
+        raise HTTPException(
+            status_code=500, detail="Stored plan data could not be loaded."
+        ) from exc
 
     # 3) Build frozen set for fast lookup
     frozen_set: set[tuple[int, int]] = {
@@ -321,14 +337,14 @@ async def regenerate_plan(
     )
     db_items = result.scalars().all()
 
-    remaining_ingredients: List[StockItemDTO] = [
+    remaining_ingredients: list[StockItemDTO] = [
         StockItemDTO(name=item.name, quantity_grams=item.quantity_grams, need_to_use=item.need_to_use)
         for item in db_items
     ]
-    initial_fridge: List[StockItemDTO] = [ing.model_copy() for ing in remaining_ingredients]
+    initial_fridge: list[StockItemDTO] = [ing.model_copy() for ing in remaining_ingredients]
 
-    past_meals: List[str] = list(original_req.past_meals)
-    new_days: List[SingleDayResponse] = []
+    past_meals: list[str] = list(original_req.past_meals)
+    new_days: list[SingleDayResponse] = []
 
     # 6) Loop day-by-day
     for day_index, day in enumerate(original_resp.days):
@@ -402,7 +418,7 @@ async def regenerate_plan(
         past_meals.extend(m.name for m in new_only)
 
     # 7) Recompute shopping list
-    shopping_items: List[IngredientAmount] = compute_shopping_list_from_plan(new_days, initial_fridge)
+    shopping_items: list[IngredientAmount] = compute_shopping_list_from_plan(new_days, initial_fridge)
     if original_req.stock_only:
         if shopping_items:
             logger.warning(
@@ -427,14 +443,14 @@ async def regenerate_plan(
 
 
 # POST /api/plan/{plan_id}/confirm
-@router.post("/{plan_id}/confirm", response_model=List[StockItemDTO])
+@router.post("/{plan_id}/confirm", response_model=list[StockItemDTO])
 @limiter.limit("10/minute")
 async def confirm_plan(
     request: Request,
     plan_id: int,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> List[StockItemDTO]:
+) -> list[StockItemDTO]:
 
     # Load plan & ownership check
     plan = await session.get(MealPlan, plan_id)
@@ -442,18 +458,18 @@ async def confirm_plan(
         raise HTTPException(status_code=404, detail="Plan not found")
 
     # Idempotence guard (do not subtract twice)
-    if hasattr(plan, "confirmed_at") and getattr(plan, "confirmed_at"):
+    if hasattr(plan, "confirmed_at") and plan.confirmed_at:
         return await get_fridge_items(session, current_user.id)
 
     # Parse stored plan response
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to parse response_json for plan %d during confirm", plan_id)
         raise HTTPException(
             status_code=500,
             detail="Stored plan data could not be loaded.",
-        )
+        ) from exc
 
     # FIFO-debit fridge per meal so each MealEntry can record exactly which
     # batches (with expiration_date + need_to_use) it consumed. This snapshot
@@ -478,7 +494,7 @@ async def confirm_plan(
     await replace_fridge_items(session, current_user.id, final_state, commit=False)
 
     # Create meal entries — all start UNCOOKED (ingredients already reserved via fridge subtraction)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     _persist_meal_entries(
         session, user_id=current_user.id, plan_id=plan_id,
         plan_obj=plan_obj, cooked_at=None, consumption_snapshots=snapshots,
@@ -517,7 +533,7 @@ async def cook_meal(
 
     # Idempotent: if already cooked, return as-is
     if entry.cooked_at is None:
-        entry.cooked_at = datetime.now(timezone.utc)
+        entry.cooked_at = datetime.now(UTC)
         session.add(entry)
         await session.commit()
         await session.refresh(entry)
@@ -560,7 +576,7 @@ async def rate_meal(
     entry.rating = body.rating
     # Auto-cook if not already cooked
     if entry.cooked_at is None:
-        entry.cooked_at = datetime.now(timezone.utc)
+        entry.cooked_at = datetime.now(UTC)
 
     # Invariant: embedding exists iff rating >= 4.
     if body.rating >= 4 and entry.embedding is None:
@@ -633,13 +649,13 @@ async def uncook_meal(
 
 
 # GET /api/plan/{plan_id}/meals — List meal entries for a plan
-@router.get("/{plan_id}/meals", response_model=List[MealEntrySummary])
+@router.get("/{plan_id}/meals", response_model=list[MealEntrySummary])
 async def list_meal_entries(
     request: Request,
     plan_id: int,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> List[MealEntrySummary]:
+) -> list[MealEntrySummary]:
     """List all meal entries for a plan (for cook/uncook UI)."""
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
@@ -713,7 +729,7 @@ async def finish_plan(
     # tuples; legacy entries (NULL snapshot) degrade to None-dated buckets.
     # Both paths funnel through restore_consumed_batches so the fridge is
     # rewritten exactly once per finish (avoids autoflush ordering surprises).
-    batches_to_restore: List[ConsumedBatch] = []
+    batches_to_restore: list[ConsumedBatch] = []
     for entry in uncooked_entries:
         if entry.consumed_snapshot_json:
             try:
@@ -735,7 +751,7 @@ async def finish_plan(
     if batches_to_restore:
         await restore_consumed_batches(session, current_user.id, batches_to_restore)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     plan.finished_at = now
     session.add(plan)
     await session.commit()
@@ -747,7 +763,7 @@ async def finish_plan(
     )
 
 
-def _parse_meal_ingredients(entry: MealEntry) -> List[IngredientAmount]:
+def _parse_meal_ingredients(entry: MealEntry) -> list[IngredientAmount]:
     """Parse a MealEntry's JSON back into ingredient list (excluding spices)."""
     meal = PlannedMeal.model_validate_json(entry.meal_json)
     return [ing for ing in meal.ingredients if not ing.is_spice]
@@ -772,7 +788,7 @@ def _persist_meal_entries(
     This function is intentionally synchronous. session.add_all() only stages
     objects in memory — no I/O occurs until the caller awaits session.commit().
     """
-    entries: List[MealEntry] = []
+    entries: list[MealEntry] = []
 
     for day_index, day in enumerate(plan_obj.days, start=1):
         for meal_index, meal in enumerate(day.meals, start=1):

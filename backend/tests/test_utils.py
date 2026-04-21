@@ -8,8 +8,8 @@ from app.models.plan_models import (
 )
 from app.utils import (
     compute_shopping_list_from_plan,
-    subtract_used_from_fridge,
     merge_shopping_lists,
+    subtract_used_from_fridge,
 )
 
 

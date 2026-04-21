@@ -1,17 +1,17 @@
 import os
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlmodel import SQLModel
 
-from app.models.db_models import User
-from app.core.security import get_password_hash, create_access_token
-from app.core.rate_limit import limiter
-from app.db import get_session
 from app.api.deps import get_current_user
+from app.core.rate_limit import limiter
+from app.core.security import create_access_token, get_password_hash
+from app.db import get_session
+from app.models.db_models import User
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",

@@ -1,15 +1,17 @@
 """Tests for LLM client: mock mode, quota detection, fallback chain."""
 
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-from google.genai.errors import ClientError as GeminiClientError, ServerError as GeminiServerError
-from openai import APIStatusError as OpenAIAPIStatusError, RateLimitError as OpenAIRateLimitError
+from google.genai.errors import ClientError as GeminiClientError
+from google.genai.errors import ServerError as GeminiServerError
+from openai import APIStatusError as OpenAIAPIStatusError
+from openai import RateLimitError as OpenAIRateLimitError
 from pydantic import BaseModel
 
-from app.core.config import ModelEntry, LLMProvider
-from app.llm.client import LLMClient, MAX_LLM_RETRIES
+from app.core.config import LLMProvider, ModelEntry
+from app.llm.client import LLMClient
 from app.models.plan_models import SingleDayResponse
 
 

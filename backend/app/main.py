@@ -2,16 +2,17 @@ import logging
 import sys
 import time
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.api.plan import router as plan_router
+from app.api.demo import router as demo_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
+from app.api.plan import router as plan_router
 from app.api.user import router as user_router
-from app.api.demo import router as demo_router
 from app.core.config import settings
 from app.core.rate_limit import limiter
 

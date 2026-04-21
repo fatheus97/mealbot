@@ -1,18 +1,21 @@
 import base64
 import logging
 from datetime import date, timedelta
-from typing import List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, delete
+from sqlmodel import delete, select
 
 from app.api.deps import get_current_user
 from app.core.rate_limit import limiter
 from app.db import get_session
-from app.models.db_models import User, StockItem
+from app.models.db_models import StockItem, User
 from app.models.plan_models import ConsumedBatch, IngredientAmount, ScannedItemDTO, StockItemDTO
-from app.services.receipt_scanner import extract_items_from_receipt, extract_items_from_pdf, normalize_item_names
+from app.services.receipt_scanner import (
+    extract_items_from_pdf,
+    extract_items_from_receipt,
+    normalize_item_names,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,36 +26,36 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 # //api/fridge
-@router.get("", response_model=List[StockItemDTO])
+@router.get("", response_model=list[StockItemDTO])
 async def get_fridge(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> List[StockItemDTO]:
+) -> list[StockItemDTO]:
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     return await get_fridge_items(session, current_user.id)
 
 
 # //api/fridge
-@router.put("", response_model=List[StockItemDTO])
+@router.put("", response_model=list[StockItemDTO])
 async def put_fridge(
-    payload: List[StockItemDTO],
+    payload: list[StockItemDTO],
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> List[StockItemDTO]:
+) -> list[StockItemDTO]:
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     return await replace_fridge_items(session, current_user.id, payload)
 
 
-@router.post("/scan", response_model=List[ScannedItemDTO])
+@router.post("/scan", response_model=list[ScannedItemDTO])
 @limiter.limit("5/minute")
 async def scan_receipt(
     request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> List[ScannedItemDTO]:
+) -> list[ScannedItemDTO]:
     """Upload a receipt image or PDF and extract grocery items via LLM."""
     # Validate content type
     if file.content_type is None:
@@ -128,14 +131,14 @@ async def scan_receipt(
     ]
 
 
-@router.post("/merge", response_model=List[StockItemDTO])
+@router.post("/merge", response_model=list[StockItemDTO])
 @limiter.limit("10/minute")
 async def merge_fridge_items(
     request: Request,
-    payload: List[StockItemDTO],
+    payload: list[StockItemDTO],
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> List[StockItemDTO]:
+) -> list[StockItemDTO]:
     """Merge scanned items into the existing fridge (auto-sum matching names + expiration)."""
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
@@ -163,7 +166,7 @@ async def merge_fridge_items(
     return await replace_fridge_items(session, current_user.id, list(merged.values()))
 
 
-async def get_fridge_items(session: AsyncSession, user_id: int) -> List[StockItemDTO]:
+async def get_fridge_items(session: AsyncSession, user_id: int) -> list[StockItemDTO]:
     """Return fridge items to the user in API schema form. Auto-ticks near-expiry items."""
     result = await session.execute(select(StockItem).where(StockItem.user_id == user_id))
     rows = result.scalars().all()
@@ -171,7 +174,7 @@ async def get_fridge_items(session: AsyncSession, user_id: int) -> List[StockIte
     today = date.today()
     threshold = today + timedelta(days=2)
 
-    items: List[StockItemDTO] = []
+    items: list[StockItemDTO] = []
     for r in rows:
         is_expiring = r.expiration_date is not None and r.expiration_date <= threshold
         items.append(StockItemDTO(
@@ -184,8 +187,8 @@ async def get_fridge_items(session: AsyncSession, user_id: int) -> List[StockIte
 
 
 async def replace_fridge_items(
-    session: AsyncSession, user_id: int, items: List[StockItemDTO], commit: bool = True,
-) -> List[StockItemDTO]:
+    session: AsyncSession, user_id: int, items: list[StockItemDTO], commit: bool = True,
+) -> list[StockItemDTO]:
     """
     Replace fridge items for a user (delete old, insert new).
     Shared by PUT /fridge and plan confirm endpoint.
@@ -213,8 +216,8 @@ async def replace_fridge_items(
 
 
 async def add_ingredients_to_fridge(
-    session: AsyncSession, user_id: int, ingredients: List["IngredientAmount"],
-) -> List[StockItemDTO]:
+    session: AsyncSession, user_id: int, ingredients: list["IngredientAmount"],
+) -> list[StockItemDTO]:
     """Legacy fallback: return leftover grams to the fridge with no expiration metadata.
 
     Used by finish_plan only for MealEntry rows that have no consumed_snapshot_json
@@ -243,8 +246,8 @@ async def add_ingredients_to_fridge(
 
 
 async def restore_consumed_batches(
-    session: AsyncSession, user_id: int, batches: List[ConsumedBatch],
-) -> List[StockItemDTO]:
+    session: AsyncSession, user_id: int, batches: list[ConsumedBatch],
+) -> list[StockItemDTO]:
     """Add ConsumedBatch entries back into the fridge, preserving each batch's
     expiration_date and need_to_use. Merges into an existing fridge bucket keyed
     by (name.lower(), expiration_date); creates a fresh bucket otherwise."""
@@ -273,12 +276,12 @@ async def restore_consumed_batches(
 
 def _allocate_fifo(
     batches_by_name: dict[str, list[StockItemDTO]],
-    ingredients: List["IngredientAmount"],
-) -> List[ConsumedBatch]:
+    ingredients: list["IngredientAmount"],
+) -> list[ConsumedBatch]:
     """Deduct `ingredients` from `batches_by_name` in-place (FIFO: earliest expiration first)
     and return the per-batch debits actually applied. Caller owns the dict and is responsible
     for the initial sort and final flattening."""
-    allocations: List[ConsumedBatch] = []
+    allocations: list[ConsumedBatch] = []
     for ing in ingredients:
         key = ing.name.strip().lower()
         batches = batches_by_name.get(key, [])
@@ -302,7 +305,7 @@ def _allocate_fifo(
     return allocations
 
 
-def _group_and_sort_fridge(items: List[StockItemDTO]) -> dict[str, list[StockItemDTO]]:
+def _group_and_sort_fridge(items: list[StockItemDTO]) -> dict[str, list[StockItemDTO]]:
     """Group fridge items by lowercase name; sort each group earliest-expiration first
     (None last), smaller qty first for the same date. Returns mutable copies safe to deduct."""
     by_name: dict[str, list[StockItemDTO]] = {}
@@ -319,8 +322,8 @@ def _group_and_sort_fridge(items: List[StockItemDTO]) -> dict[str, list[StockIte
 
 
 async def subtract_ingredients_from_fridge(
-    session: AsyncSession, user_id: int, ingredients: List["IngredientAmount"],
-) -> List[StockItemDTO]:
+    session: AsyncSession, user_id: int, ingredients: list["IngredientAmount"],
+) -> list[StockItemDTO]:
     """Subtract ingredient amounts from fridge using FIFO (earliest-expiring first)."""
     existing = await get_fridge_items(session, user_id)
     by_name = _group_and_sort_fridge(existing)

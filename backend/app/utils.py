@@ -1,13 +1,12 @@
 from collections import defaultdict
-from typing import List
 
 from app.models.plan_models import IngredientAmount, PlannedMeal, SingleDayResponse, StockItemDTO
 
 
 def compute_shopping_list_from_plan(
-    days: List[SingleDayResponse],
-    initial_fridge: List[StockItemDTO],
-) -> List[IngredientAmount]:
+    days: list[SingleDayResponse],
+    initial_fridge: list[StockItemDTO],
+) -> list[IngredientAmount]:
     """
     Compute how much needs to be bought for the whole plan, based on:
     - total required grams from all meals,
@@ -36,7 +35,7 @@ def compute_shopping_list_from_plan(
         pretty_name.setdefault(key, item.name)
 
     # Compute what we actually need to buy
-    shopping: List[IngredientAmount] = []
+    shopping: list[IngredientAmount] = []
     for key, needed in required.items():
         have = available.get(key, 0.0)
         missing = needed - have
@@ -52,9 +51,9 @@ def compute_shopping_list_from_plan(
 
 
 def subtract_used_from_fridge(
-    fridge: List[StockItemDTO],
-    meals: List[PlannedMeal],
-) -> List[StockItemDTO]:
+    fridge: list[StockItemDTO],
+    meals: list[PlannedMeal],
+) -> list[StockItemDTO]:
     """
     Subtract the amounts of fridge ingredients used in the given meals.
 
@@ -71,7 +70,7 @@ def subtract_used_from_fridge(
             key = ing.name.lower()
             used_grams[key] += ing.quantity_grams
 
-    new_fridge: List[StockItemDTO] = []
+    new_fridge: list[StockItemDTO] = []
     for item in fridge:
         key = item.name.lower()
         remaining = item.quantity_grams - used_grams.get(key, 0.0)
@@ -83,7 +82,7 @@ def subtract_used_from_fridge(
     return new_fridge
 
 
-def merge_shopping_lists(items: List[IngredientAmount]) -> List[IngredientAmount]:
+def merge_shopping_lists(items: list[IngredientAmount]) -> list[IngredientAmount]:
     """
     Merge shopping list entries with the same ingredient name by summing grams.
     """
@@ -95,7 +94,7 @@ def merge_shopping_lists(items: List[IngredientAmount]) -> List[IngredientAmount
         key = ing.name.lower()
         totals[key] = totals.get(key, 0.0) + ing.quantity_grams
 
-    merged: List[IngredientAmount] = []
+    merged: list[IngredientAmount] = []
     for key, qty in totals.items():
         # Keep the original name capitalization from the first occurrence
         # (simple heuristic: use key as-is; or store name mapping if you prefer).

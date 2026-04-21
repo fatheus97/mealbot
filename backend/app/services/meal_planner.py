@@ -4,8 +4,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jinja2.sandbox import SandboxedEnvironment
 from jinja2 import FileSystemLoader
+from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.config import settings
 from app.llm.client import llm_client

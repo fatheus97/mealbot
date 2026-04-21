@@ -1,17 +1,17 @@
-from datetime import date, datetime, timezone
-from typing import Optional, List
-from sqlalchemy import Index
-from sqlmodel import SQLModel, Field, Relationship, Column, String
+from datetime import UTC, date, datetime
+
 from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
+from sqlalchemy import Index
+from sqlmodel import Column, Field, Relationship, SQLModel, String
 
 
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
-    
+
     hashed_password: str = Field(nullable=False)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Used for ingredient availability + local recipes
     country: str | None = Field(default=None, index=True)
@@ -41,13 +41,13 @@ class User(SQLModel, table=True):
     # with a mismatched version are rejected in get_current_user.
     token_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
 
-    fridge_items: List["StockItem"] = Relationship(back_populates="user")
-    meal_plans: List["MealPlan"] = Relationship(back_populates="user")
-    meal_entries: List["MealEntry"] = Relationship(back_populates="user")
+    fridge_items: list["StockItem"] = Relationship(back_populates="user")
+    meal_plans: list["MealPlan"] = Relationship(back_populates="user")
+    meal_entries: list["MealEntry"] = Relationship(back_populates="user")
 
 
 class StockItem(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     name: str = Field(index=True)
     quantity_grams: float = Field(ge=0)
@@ -58,9 +58,9 @@ class StockItem(SQLModel, table=True):
 
 
 class MealPlan(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     days: int
     meals_per_day: int
     people_count: int
@@ -73,10 +73,10 @@ class MealPlan(SQLModel, table=True):
     stock_after_json: str | None = Field(default=None)
 
     user: "User" = Relationship(back_populates="meal_plans")
-    meal_entries: List["MealEntry"] = Relationship(back_populates="meal_plan")
+    meal_entries: list["MealEntry"] = Relationship(back_populates="meal_plan")
 
 class MealEntry(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     meal_plan_id: int = Field(foreign_key="mealplan.id", index=True)
     day_index: int = Field(description="Which day of the plan this meal belongs to (1-based).")
@@ -84,7 +84,7 @@ class MealEntry(SQLModel, table=True):
     name: str = Field(index=True)
     meal_type: str = Field(index=True)  # "breakfast", "lunch", ...
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     cooked_at: datetime | None = Field(default=None)
     rating: int | None = Field(default=None)

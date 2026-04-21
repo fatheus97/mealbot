@@ -1,6 +1,5 @@
 import io
 from datetime import date, timedelta
-from typing import List
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,7 +13,6 @@ from app.models.plan_models import (
     ReceiptScanResponse,
     ScannedReceiptItem,
 )
-
 
 MOCK_SCAN_RESULT = ReceiptScanResponse(
     purchase_date=date(2026, 3, 10),
@@ -34,10 +32,10 @@ def _fake_jpeg(size: int = 1024) -> io.BytesIO:
 
 
 async def _passthrough_normalize(
-    scanned_items: List[ScannedReceiptItem],
-    fridge_item_names: List[str],
+    scanned_items: list[ScannedReceiptItem],
+    fridge_item_names: list[str],
     mock: bool = False,
-) -> List[ScannedReceiptItem]:
+) -> list[ScannedReceiptItem]:
     """Passthrough mock: returns items unchanged."""
     return scanned_items
 

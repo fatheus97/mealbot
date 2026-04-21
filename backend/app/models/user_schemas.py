@@ -1,5 +1,4 @@
 import re
-from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlmodel import SQLModel
@@ -26,7 +25,7 @@ class UserCreate(UserBase):
 
 class UserRead(UserBase):
     id: int
-    country: Optional[str] = None
+    country: str | None = None
     language: str
     measurement_system: str
     variability: str
@@ -36,13 +35,13 @@ class UserRead(UserBase):
     is_demo: bool = False
 
 class UserUpdate(SQLModel):
-    country: Optional[str] = None
-    language: Optional[str] = None
-    measurement_system: Optional[str] = None
-    variability: Optional[str] = None
-    include_spices: Optional[bool] = None
-    track_snacks: Optional[bool] = None
-    onboarding_completed: Optional[bool] = None
+    country: str | None = None
+    language: str | None = None
+    measurement_system: str | None = None
+    variability: str | None = None
+    include_spices: bool | None = None
+    track_snacks: bool | None = None
+    onboarding_completed: bool | None = None
 
 class MessageResponse(BaseModel):
     message: str

@@ -1,7 +1,8 @@
 import re
-from typing import List, Optional, Literal
+from datetime import UTC, date, datetime
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
-from datetime import date, datetime, timezone
 
 
 class StockItemDTO(BaseModel):
@@ -13,28 +14,26 @@ class StockItemDTO(BaseModel):
 
 class MealPlanRequest(BaseModel):
     """Request for planning meals (potentially multiple days, one day per LLM call)."""
-    stock_items: List[StockItemDTO] = Field(
+    stock_items: list[StockItemDTO] = Field(
         default_factory=list,
         description="Current fridge/pantry state in grams per ingredient.",
     )
-    taste_preferences: List[str] = Field(
+    taste_preferences: list[str] = Field(
         default_factory=list,
         max_length=20,
         description="Tags like 'spicy', 'asian', 'comfort', 'light', 'vegetarian'.",
     )
-    avoid_ingredients: List[str] = Field(
+    avoid_ingredients: list[str] = Field(
         default_factory=list,
         max_length=50,
         description="Ingredients that must not be used (allergies, dislikes).",
     )
-    ingredients_to_use: List[str] = Field(
+    ingredients_to_use: list[str] = Field(
         default_factory=list,
         max_length=20,
         description="Priority ingredients the user wants used in this plan run; treated with urgency.",
     )
-    diet_type: Optional[
-        Literal["balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food"]
-    ] = None
+    diet_type: Literal["balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food"] | None = None
     meals_per_day: int = Field(
         ge=1,
         le=6,
@@ -47,7 +46,7 @@ class MealPlanRequest(BaseModel):
         default=2,
         description="Number of people to plan the meals for.",
     )
-    past_meals: List[str] = Field(
+    past_meals: list[str] = Field(
         default_factory=list,
         description="Meal names eaten recently (to avoid similar dishes).",
     )
@@ -57,7 +56,7 @@ class MealPlanRequest(BaseModel):
         description="Language for all LLM output (meal names, steps, ingredient names).",
     )
 
-    country: Optional[str] = Field(
+    country: str | None = Field(
         default=None,
         description="User country for ingredient availability and local recipes.",
     )
@@ -139,8 +138,8 @@ class PlannedMeal(BaseModel):
     name: str
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
     meal_type_label: str = ""
-    ingredients: List[IngredientAmount]
-    steps: List[str]
+    ingredients: list[IngredientAmount]
+    steps: list[str]
     # Optional so legacy meal_json rows (pre-feature) still parse during RAG retrieval.
     # New generations are instructed by the prompt to always populate it.
     total_time_minutes: int | None = Field(
@@ -153,14 +152,14 @@ class PlannedMeal(BaseModel):
 
 class SingleDayResponse(BaseModel):
     """LLM response for a single day (raw output from the model)."""
-    meals: List[PlannedMeal]
+    meals: list[PlannedMeal]
 
 
 class MealPlanResponse(BaseModel):
     """Multi-day plan returned by the /plan endpoint."""
     plan_id: int | None
-    days: List[SingleDayResponse]
-    shopping_list: List[IngredientAmount]
+    days: list[SingleDayResponse]
+    shopping_list: list[IngredientAmount]
 
 class FrozenMeal(BaseModel):
     """Identifies a meal the user wants to keep unchanged during regeneration."""
@@ -170,7 +169,7 @@ class FrozenMeal(BaseModel):
 
 class RegeneratePlanRequest(BaseModel):
     """Request to regenerate unfrozen meals in an existing plan."""
-    frozen_meals: List[FrozenMeal] = Field(
+    frozen_meals: list[FrozenMeal] = Field(
         default_factory=list,
         description="Meals that should NOT be regenerated.",
     )
@@ -207,7 +206,7 @@ class ReceiptScanResponse(BaseModel):
         default=None,
         description="Transaction date from the receipt (YYYY-MM-DD). None if not visible.",
     )
-    items: List[ScannedReceiptItem]
+    items: list[ScannedReceiptItem]
 
 
 class ScannedItemDTO(BaseModel):
@@ -227,7 +226,7 @@ class NormalizedName(BaseModel):
 
 class NormalizationResponse(BaseModel):
     """LLM response model for ingredient name normalization."""
-    items: List[NormalizedName]
+    items: list[NormalizedName]
 
 
 class MealHistoryItem(BaseModel):
@@ -256,7 +255,7 @@ class MealPlanSummary(BaseModel):
     @classmethod
     def ensure_utc(cls, v: datetime | None) -> datetime | None:
         if isinstance(v, datetime) and v.tzinfo is None:
-            return v.replace(tzinfo=timezone.utc)
+            return v.replace(tzinfo=UTC)
         return v
 
 
@@ -270,7 +269,7 @@ class FinishPlanResponse(BaseModel):
     def ensure_utc(cls, v: datetime) -> datetime:
         """DB may return naive datetimes — attach UTC so serialization is consistent."""
         if isinstance(v, datetime) and v.tzinfo is None:
-            return v.replace(tzinfo=timezone.utc)
+            return v.replace(tzinfo=UTC)
         return v
 
 

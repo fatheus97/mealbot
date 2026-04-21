@@ -1,21 +1,18 @@
 """Tests for meal_planner service: prompt generation, partial day, slot validation."""
 
-from unittest.mock import AsyncMock, patch, MagicMock
-
-import pytest
-
 from typing import Any, Literal
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.plan_models import (
-    MealPlanRequest,
-    SingleDayResponse,
-    PlannedMeal,
     IngredientAmount,
+    MealPlanRequest,
+    PlannedMeal,
+    SingleDayResponse,
     StockItemDTO,
 )
 from app.services.meal_planner import (
-    generate_single_day,
     generate_partial_day,
+    generate_single_day,
     generate_single_day_with_rag,
 )
 from app.services.recipe_retriever import MealHit
