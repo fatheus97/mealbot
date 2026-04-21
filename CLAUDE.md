@@ -25,6 +25,7 @@ You are allergic to "happy path" programming, spaghetti code, and over-engineeri
 - `docker compose up --build` — rebuild and start
 - `docker compose exec backend pytest` — run backend tests
 - `docker compose exec backend mypy .` — type check
+- `docker compose exec backend ruff check .` — lint backend
 - `docker compose logs -f backend` — tail backend logs
 
 ## Code Standards
