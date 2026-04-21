@@ -255,6 +255,7 @@ class TestPlanRegenerate:
 
         mock_partial.assert_awaited_once()
         call = mock_partial.await_args
+        assert call is not None  # narrow for mypy; assert_awaited_once guarantees it
         # replaced_meals passed by keyword.
         assert call.kwargs["replaced_meals"] == ["Original Lunch", "Original Dinner"]
         # past_meals on the request also carries the rejected names so the
