@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal, useFridge } from "../hooks/useServerState";
 import { StarRating } from "./StarRating";
@@ -32,6 +32,17 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
   // Per-run only: intentionally not persisted in the preferences store —
   // "use these ingredients" is a one-shot hint for THIS plan generation.
   const [ingredientsToUse, setIngredientsToUse] = useState<string[]>([]);
+
+  // Scroll the rendered plan into view when the component mounts with an
+  // opened plan (via App.tsx's key-based remount on Open). We only scroll
+  // on mount — not when the user generates a new plan on the same mount —
+  // because that view is already at the form and a jump would be disorienting.
+  const planContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (initialPlan != null) {
+      planContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [initialPlan]);
 
   const { data: fridgeItems } = useFridge(userId);
   const fridgeSuggestions = useMemo(
@@ -239,7 +250,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
 
       {/* Plan Render Output */}
       {currentPlan && (
-        <div style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f9f9f9", color: "#111", borderRadius: "8px", overflowX: "auto", wordBreak: "break-word" }}>
+        <div ref={planContainerRef} style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f9f9f9", color: "#111", borderRadius: "8px", overflowX: "auto", wordBreak: "break-word" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <h3 style={{ margin: 0 }}>

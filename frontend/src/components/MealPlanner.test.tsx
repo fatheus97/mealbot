@@ -302,6 +302,55 @@ describe('MealPlanner', () => {
     });
   });
 
+  it('scrolls to the plan on mount when initialPlan is provided', () => {
+    loginUser();
+
+    const scrollIntoView = vi.fn();
+    // scrollIntoView isn't implemented in jsdom — stub it on the prototype so
+    // any element's call lands on the spy.
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    const initialPlan = {
+      plan_id: 99,
+      days: [
+        {
+          meals: [
+            {
+              name: 'Opened Meal',
+              meal_type: 'lunch',
+              uses_existing_ingredients: [],
+              ingredients: [],
+              steps: [],
+            },
+          ],
+        },
+      ],
+      shopping_list: [],
+    };
+
+    render(<MealPlanner initialPlan={initialPlan} />, { wrapper: createWrapper() });
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  });
+
+  it('does not scroll on mount when no initialPlan is provided', () => {
+    loginUser();
+
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    render(<MealPlanner />, { wrapper: createWrapper() });
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it('renders total cook time badge only when present', async () => {
     loginUser();
 
