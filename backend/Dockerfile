@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.10
 FROM python:3.11.12-slim
 
 WORKDIR /app
@@ -36,8 +37,11 @@ ENV HF_HOME=/tmp/hf_cache \
 
 # 6. Pre-download the embedding model into the image. Keeps first API call
 #    fast (no 30s HuggingFace fetch on cold start) and makes the cache part
-#    of an image layer so rebuilds don't re-download.
-RUN mkdir -p /tmp/hf_cache /tmp/fastembed_cache && \
+#    of an image layer so rebuilds don't re-download. HF_TOKEN is injected
+#    via BuildKit secret — never written to image history. Missing token is
+#    fine (falls back to anonymous), just louder and rate-limited.
+RUN --mount=type=secret,id=hf_token,env=HF_TOKEN \
+    mkdir -p /tmp/hf_cache /tmp/fastembed_cache && \
     python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2')" && \
     chown -R appuser:appuser /tmp/hf_cache /tmp/fastembed_cache
 
