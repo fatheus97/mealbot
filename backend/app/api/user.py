@@ -11,6 +11,7 @@ from sqlmodel import select
 
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter
 from app.core.security import create_access_token, get_password_hash, verify_password
@@ -166,7 +167,20 @@ async def update_user(
 ) -> UserRead:
 
     if patch.country is not None:
-        current_user.country = patch.country.strip() or None
+        raw = patch.country.strip()
+        if not raw:
+            current_user.country = None
+        else:
+            # Whitelist gate: `country` is templated into the LLM system prompt,
+            # so unbounded free text here is a prompt-injection vector. The
+            # frontend fetches the same canonical list from /api/countries.
+            canonical = normalize_country(raw)
+            if canonical is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Unsupported country. Pick one from the list.",
+                )
+            current_user.country = canonical
 
     if patch.language is not None:
         lang = patch.language.strip()

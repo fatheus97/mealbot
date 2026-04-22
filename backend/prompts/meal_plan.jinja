@@ -16,7 +16,7 @@ User context:
 — Language: {{ language or "English" }}
 — Number of people: {{ people_count }}
 — Meals for this day: {{ meals_per_day }}
-— Country: <user_content type="country">{{ country or "not specified" }}</user_content>
+— Country: {{ country or "not specified" }}
 — Recipe style preference: {{ variability or "traditional" }}
 — Include spices/seasonings in shopping list: {{ "yes" if include_spices else "no" }}
 — Measurement preference (steps only): {{ measurement_system or "metric" }}
@@ -94,7 +94,7 @@ Rules about ingredients:
 — If stock has "chicken breast", never buy "ground chicken" — adapt the recipe to use what's available.
 — Use the EXACT ingredient name string from the fridge list (no synonyms, no pluralisation).
 {% if country %}
-— Prefer recipes and non-stock ingredients that are commonly available in <user_content type="country">{{ country }}</user_content>.
+— Prefer recipes and non-stock ingredients that are commonly available in {{ country }}.
 {% endif %}
 {% if stock_only %}
 — Do NOT use any ingredients that are not in the fridge list above. Adapt recipes to work with available stock only.
@@ -107,7 +107,7 @@ Rules about variety:
     make the meals clearly different in style and other ingredients:
   EXAMPLE: chicken salad vs chicken curry vs chicken stir-fry are fine
 {% if variability == "traditional" and country%}
-— Prefer classic, traditional dishes and familiar flavour profiles typical for <user_content type="country">{{ country }}</user_content> and it's region.
+— Prefer classic, traditional dishes and familiar flavour profiles typical for {{ country }} and its region.
     Avoid heavy fusion or novelty for novelty's sake.
 {% elif variability == "traditional"%}
 — Prefer classic, traditional dishes and familiar flavour profiles. Avoid heavy fusion or novelty for novelty's sake.

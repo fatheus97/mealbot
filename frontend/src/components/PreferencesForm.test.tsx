@@ -1,8 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PreferencesForm } from './PreferencesForm';
 import type { PreferencesFormValues } from './PreferencesForm';
+
+vi.mock('../api.ts', () => ({
+  authFetch: vi.fn(),
+}));
+
+import { authFetch } from '../api.ts';
+const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 
 const defaultValues: PreferencesFormValues = {
   country: '',
@@ -11,6 +18,23 @@ const defaultValues: PreferencesFormValues = {
   include_spices: true,
   track_snacks: true,
 };
+
+function mockCountries(list: string[] = ['France', 'Germany', 'Italy']) {
+  mockedAuthFetch.mockImplementation((url: string) => {
+    if (url === '/countries') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ countries: list }),
+      });
+    }
+    return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+  });
+}
+
+beforeEach(() => {
+  mockedAuthFetch.mockReset();
+  mockCountries();
+});
 
 describe('PreferencesForm', () => {
   it('renders all form fields', () => {
@@ -53,6 +77,12 @@ describe('PreferencesForm', () => {
       />,
     );
 
+    // The component fetches /countries on mount — wait for it so the
+    // whitelist check passes when we type 'Germany' below.
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'),
+    );
+
     // Type a country
     const countryInput = screen.getByPlaceholderText(/start typing to search/i);
     await user.type(countryInput, 'Germany');
@@ -93,6 +123,9 @@ describe('PreferencesForm', () => {
         submitLabel="Save"
       />,
     );
+
+    // Wait for /countries fetch so 'France' passes the whitelist gate.
+    await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).toBeEnabled());
 
     await user.click(screen.getByRole('button', { name: /save/i }));
 
@@ -157,5 +190,56 @@ describe('PreferencesForm', () => {
 
     await user.click(screen.getByLabelText(/experimental/i));
     expect(screen.getByText(/creative combinations/i)).toBeInTheDocument();
+  });
+
+  it('disables submit when country is not in the whitelist', async () => {
+    // Backend's country list is the source of truth — the picker can offer
+    // free typing (datalist), but a non-matching value must not reach PATCH.
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={onSubmit}
+        submitLabel="Save"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'),
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/start typing to search/i),
+      'Atlantis',
+    );
+
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    expect(screen.getByText(/pick a country from the list/i)).toBeInTheDocument();
+
+    // Submission is also blocked at the form level (button disabled is a UX
+    // hint, not a guarantee — assert the click doesn't call onSubmit either).
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('populates the datalist from the fetched country list', async () => {
+    mockCountries(['Czech Republic', 'Slovakia']);
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={vi.fn()}
+        submitLabel="Save"
+      />,
+    );
+
+    await waitFor(() => {
+      // datalist options are not exposed via getByRole('option') in jsdom
+      // reliably, so check via the raw DOM.
+      const options = document.querySelectorAll('#country-list option');
+      expect(options).toHaveLength(2);
+    });
   });
 });

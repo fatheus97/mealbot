@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { COUNTRIES } from "../data/countries";
+import { useEffect, useMemo, useState } from "react";
 import { LANGUAGES } from "../data/languages";
 import type { Variability } from "../types";
+import { authFetch } from "../api.ts";
 
 export interface PreferencesFormValues {
   country: string;
@@ -24,10 +24,27 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [variability, setVariability] = useState<Variability>(initialValues.variability);
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
+  const [countries, setCountries] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Fetch the canonical whitelist once on mount — the backend is the single
+    // source of truth so the picker can never offer a value PATCH will reject.
+    // Wrapped in Promise.resolve() to stay safe in tests that mock authFetch.
+    Promise.resolve(authFetch("/countries"))
+      .then((r) => (r?.ok ? r.json() : null))
+      .then((data: { countries?: string[] } | null) => {
+        if (data?.countries) setCountries(data.countries);
+      })
+      .catch(() => { /* leave empty — submit validation still runs */ });
+  }, []);
+
+  const countrySet = useMemo(() => new Set(countries), [countries]);
+  const countryValid = country.trim() === "" || countrySet.has(country.trim());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ country, language, variability, include_spices: includeSpices, track_snacks: trackSnacks });
+    if (!countryValid) return;
+    onSubmit({ country: country.trim(), language, variability, include_spices: includeSpices, track_snacks: trackSnacks });
   };
 
   return (
@@ -42,13 +59,24 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           value={country}
           onChange={(e) => setCountry(e.target.value)}
           placeholder="Start typing to search..."
-          style={{ padding: "0.5rem", fontSize: "1rem", border: "1px solid #ccc", borderRadius: "4px" }}
+          aria-invalid={!countryValid}
+          style={{
+            padding: "0.5rem",
+            fontSize: "1rem",
+            border: `1px solid ${countryValid ? "#ccc" : "#dc2626"}`,
+            borderRadius: "4px",
+          }}
         />
         <datalist id="country-list">
-          {COUNTRIES.map((c) => (
+          {countries.map((c) => (
             <option key={c} value={c} />
           ))}
         </datalist>
+        {!countryValid && (
+          <span style={{ fontSize: "0.85rem", color: "#dc2626" }}>
+            Pick a country from the list.
+          </span>
+        )}
       </label>
 
       <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
@@ -135,7 +163,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || !countryValid}
         style={{
           padding: "0.6rem 1.5rem",
           fontSize: "1rem",
@@ -143,8 +171,8 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           color: "white",
           border: "none",
           borderRadius: "6px",
-          cursor: loading ? "not-allowed" : "pointer",
-          opacity: loading ? 0.7 : 1,
+          cursor: loading || !countryValid ? "not-allowed" : "pointer",
+          opacity: loading || !countryValid ? 0.7 : 1,
           alignSelf: "flex-start",
         }}
       >

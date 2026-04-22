@@ -15,6 +15,7 @@ from app.api.history import router as history_router
 from app.api.plan import router as plan_router
 from app.api.user import router as user_router
 from app.core.config import settings
+from app.core.country_whitelist import SUPPORTED_COUNTRIES
 from app.core.rate_limit import limiter
 from app.services.recipe_retriever import get_embedding_model
 
@@ -82,6 +83,15 @@ class PublicConfig(BaseModel):
     demo_mode: bool
 
 
+class CountriesResponse(BaseModel):
+    countries: list[str]
+
+
+# Cached sorted list — the whitelist is a frozenset, order is not stable.
+# Sorting once at import keeps the response deterministic and cache-friendly.
+_SORTED_COUNTRIES: list[str] = sorted(SUPPORTED_COUNTRIES)
+
+
 @app.api_route("/health", methods=["GET", "HEAD"], response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -91,6 +101,14 @@ async def health() -> HealthResponse:
 async def public_config() -> PublicConfig:
     """Non-secret runtime flags the frontend reads on load to gate UI (e.g. Try Demo button)."""
     return PublicConfig(demo_mode=settings.demo_mode)
+
+
+@app.get("/api/countries", response_model=CountriesResponse)
+async def list_countries() -> CountriesResponse:
+    """Canonical country list the frontend typeahead fetches on mount. Single
+    source of truth — keeps the picker in sync with the backend whitelist so
+    a value the user sees is always a value PATCH will accept."""
+    return CountriesResponse(countries=_SORTED_COUNTRIES)
 
 
 #routers

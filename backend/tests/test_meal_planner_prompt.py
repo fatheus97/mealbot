@@ -75,25 +75,15 @@ class TestUserContentTags:
         rendered = _render(past_meals=["chicken curry", "beef stew"])
         assert '<user_content type="past_meals">' in rendered
 
-    def test_country_wrapped_in_every_occurrence(self) -> None:
-        # The field is templated in three places: the context header and two
-        # rules-section lines. If any one is unwrapped, the <user_content>
-        # fence does nothing because the payload still appears raw in a
-        # directive. Assert every {{ country }} render is inside a fence.
+    def test_country_not_wrapped_because_whitelisted(self) -> None:
+        # `country` is gated through app.core.country_whitelist at PATCH and at
+        # plan-render time, so the value is guaranteed to be a canonical ISO
+        # 3166 name by the time it reaches the template. No <user_content>
+        # fence needed — wrapping a canonical word inside a directive would
+        # read strangely to the model.
         rendered = _render(country="Italy")
-        # At least three occurrences of Italy, all inside <user_content>.
-        italy_positions = [
-            i for i in range(len(rendered))
-            if rendered.startswith("Italy", i)
-        ]
-        assert len(italy_positions) >= 3
-        for pos in italy_positions:
-            # Find the nearest preceding <user_content ... > open tag
-            open_idx = rendered.rfind('<user_content type="country">', 0, pos)
-            close_idx = rendered.find("</user_content>", pos)
-            assert open_idx != -1 and close_idx != -1, (
-                f"country at position {pos} is not inside a <user_content> fence"
-            )
+        assert "Italy" in rendered
+        assert '<user_content type="country">' not in rendered
 
     def test_retrieved_meals_wrapped(self) -> None:
         class _Meal:

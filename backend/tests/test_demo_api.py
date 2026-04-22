@@ -23,6 +23,26 @@ class TestPublicConfig:
         assert resp.json() == {"demo_mode": False}
 
 
+class TestCountriesEndpoint:
+    async def test_countries_returns_sorted_canonical_list(
+        self, unauthed_client: AsyncClient
+    ) -> None:
+        # Unauthenticated — the country list is public, same trust level as
+        # /api/config. The frontend picker fetches this on mount so the
+        # picker can never offer a value PATCH will reject.
+        from app.core.country_whitelist import SUPPORTED_COUNTRIES
+
+        resp = await unauthed_client.get("/api/countries")
+        assert resp.status_code == 200
+        body = resp.json()
+        countries = body["countries"]
+        assert isinstance(countries, list)
+        # Must contain every canonical entry — the set is the source of truth.
+        assert set(countries) == SUPPORTED_COUNTRIES
+        # Sorted for deterministic UI rendering / caching.
+        assert countries == sorted(countries)
+
+
 class TestDemoSession:
     async def test_happy_path_creates_user_and_seeds_fridge(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
