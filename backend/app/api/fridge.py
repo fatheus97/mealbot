@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete, select
 
 from app.api.deps import get_current_user
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.db_models import StockItem, User
 from app.models.plan_models import ConsumedBatch, IngredientAmount, ScannedItemDTO, StockItemDTO
@@ -49,7 +49,7 @@ async def put_fridge(
 
 
 @router.post("/scan", response_model=list[ScannedItemDTO])
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=user_id_key_func)
 async def scan_receipt(
     request: Request,
     file: UploadFile = File(...),
@@ -132,7 +132,7 @@ async def scan_receipt(
 
 
 @router.post("/merge", response_model=list[StockItemDTO])
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key_func)
 async def merge_fridge_items(
     request: Request,
     payload: list[StockItemDTO],

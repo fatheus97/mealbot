@@ -53,4 +53,9 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers + --forwarded-allow-ips="*" make uvicorn trust X-Forwarded-For
+# from the Caddy reverse proxy so request.client.host (and therefore slowapi's
+# IP-based rate limit on /register, /login, /demo/session) reflects the real
+# client instead of Caddy's container IP. Safe here because the backend is only
+# reachable from inside the compose network — Caddy is the only hop.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

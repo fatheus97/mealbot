@@ -19,7 +19,7 @@ from app.api.fridge import (
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
@@ -136,7 +136,7 @@ async def get_plan_detail(
 
 # DELETE /api/plan/{plan_id}
 @router.delete("/{plan_id}", status_code=204)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key_func)
 async def delete_plan(
     request: Request,
     plan_id: int,
@@ -160,7 +160,7 @@ async def delete_plan(
 
 # POST /api/plan — Create plan (MealEntry rows created on confirm, not here)
 @router.post("", response_model=MealPlanResponse)
-@limiter.limit("3/minute")
+@limiter.limit("3/minute", key_func=user_id_key_func)
 async def plan_meals_for_user(
     request: Request,
     days: int = Query(ge=1, le=7, description="Number of days to plan (1-7)"),
@@ -287,7 +287,7 @@ async def plan_meals_for_user(
 
 # POST /api/plan/{plan_id}/regenerate
 @router.post("/{plan_id}/regenerate", response_model=MealPlanResponse)
-@limiter.limit("3/minute")
+@limiter.limit("3/minute", key_func=user_id_key_func)
 async def regenerate_plan(
     request: Request,
     plan_id: int,
@@ -455,7 +455,7 @@ async def regenerate_plan(
 
 # POST /api/plan/{plan_id}/confirm
 @router.post("/{plan_id}/confirm", response_model=list[StockItemDTO])
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key_func)
 async def confirm_plan(
     request: Request,
     plan_id: int,
@@ -527,7 +527,7 @@ async def confirm_plan(
 
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/cook
 @router.post("/{plan_id}/meals/{meal_entry_id}/cook", response_model=MealEntrySummary)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key_func)
 async def cook_meal(
     request: Request,
     plan_id: int,
@@ -569,7 +569,7 @@ async def cook_meal(
 
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/rate
 @router.post("/{plan_id}/meals/{meal_entry_id}/rate", response_model=MealEntrySummary)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key_func)
 async def rate_meal(
     request: Request,
     plan_id: int,
@@ -624,7 +624,7 @@ async def rate_meal(
 
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/uncook
 @router.post("/{plan_id}/meals/{meal_entry_id}/uncook", response_model=MealEntrySummary)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key_func)
 async def uncook_meal(
     request: Request,
     plan_id: int,
@@ -702,7 +702,7 @@ async def list_meal_entries(
 
 # POST /api/plan/{plan_id}/finish
 @router.post("/{plan_id}/finish", response_model=FinishPlanResponse)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key_func)
 async def finish_plan(
     request: Request,
     plan_id: int,
