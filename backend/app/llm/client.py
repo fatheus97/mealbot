@@ -124,7 +124,8 @@ class LLMClient:
         """Try each model in settings.model_chain; fall back on retryable/terminal errors."""
         last_exc: Exception | None = None
         retryable_attempts = 0
-        for entry in settings.model_chain:
+        chain = settings.model_chain
+        for i, entry in enumerate(chain):
             client = self._get_client(entry.provider)
             kwargs = build_kwargs(entry)
             try:
@@ -149,8 +150,14 @@ class LLMClient:
             except Exception as e:
                 last_exc = e
                 classification = self._classify_error(e)
+                is_last = i == len(chain) - 1
                 if classification == "retryable":
-                    delay = min(2 ** retryable_attempts, self._BACKOFF_CAP_SECONDS) + random.uniform(0, 0.5)
+                    retryable_attempts += 1
+                    # Skip the sleep if there's no next provider to hand off to —
+                    # we're about to raise 502 anyway, don't tack on ~10s of dead wait.
+                    if is_last:
+                        continue
+                    delay = min(2 ** (retryable_attempts - 1), self._BACKOFF_CAP_SECONDS) + random.uniform(0, 0.5)
                     logger.warning(
                         "Retryable error on %s/%s, sleeping %.2fs before next provider: %s",
                         entry.provider.value,
@@ -158,7 +165,6 @@ class LLMClient:
                         delay,
                         e,
                     )
-                    retryable_attempts += 1
                     await asyncio.sleep(delay)
                     continue
                 if classification == "terminal":

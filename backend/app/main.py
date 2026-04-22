@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 import time
@@ -36,8 +37,10 @@ async def lifespan(fastAPI: FastAPI):
     # is a pure in-process load. Doing it here — rather than on first request —
     # closes a race where two concurrent cold-path requests would each allocate
     # their own TextEmbedding instance and leak memory.
+    # Offload to a thread: model load deserializes ~90MB of weights and would
+    # otherwise block the event loop, starving the /health probe during startup.
     logger.info("Initializing embedding model")
-    get_embedding_model()
+    await asyncio.to_thread(get_embedding_model)
     logger.info("Embedding model ready")
     yield
     # shutdown
