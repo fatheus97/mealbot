@@ -1,0 +1,43 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  review:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            CI on this repo already enforces: pytest, mypy (strict), ruff, eslint,
+            frontend build, gitleaks. Do NOT re-check those — focus your review on
+            what CI cannot catch.
+
+            Review priorities, in order:
+            1. Correctness and edge cases — does the change do what its description claims? What breaks on the unhappy path?
+            2. Security — per CLAUDE.md, treat all user input as malicious; external API/LLM/DB calls need timeouts + specific exceptions.
+            3. Conventions from CLAUDE.md and .claude/rules/ — FastAPI Pydantic models, async discipline, structured LLM output, Dockerfile practices, conventional commits.
+            4. Design smells — premature abstraction, dead code, hidden behavior, broken invariants.
+            5. Migration & deploy risk — flag Alembic migrations that need a deployment note, flag changes that require host .env updates.
+
+            Skip trivia (whitespace, obvious typos). Be direct and specific — quote file:line. Staff-engineer tone: if something is a production risk, say so.
+
+            Post top-level feedback with `gh pr comment`. Use inline comments for specific code issues.
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
