@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:0.8.2-pg15
     environment:
       # WARNING: POSTGRES_USER and POSTGRES_PASSWORD must be set in .env — no defaults provided
       POSTGRES_USER: ${POSTGRES_USER}
@@ -17,7 +17,7 @@ services:
       retries: 10
 
   test-db:
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:0.8.2-pg15
     environment:
       POSTGRES_USER: testuser
       POSTGRES_PASSWORD: testpassword
