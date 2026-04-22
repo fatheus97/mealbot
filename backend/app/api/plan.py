@@ -314,6 +314,11 @@ async def regenerate_plan(
             status_code=500, detail="Stored plan data could not be loaded."
         ) from exc
 
+    # Plans stored before the language whitelist landed can carry an
+    # arbitrary string. Normalize before templating into the system prompt,
+    # same as plan_meals_for_user does for the live-user path.
+    original_req.language = normalize_language(original_req.language or "") or "English"
+
     # 3) Build frozen set for fast lookup
     frozen_set: set[tuple[int, int]] = {
         (fm.day_index, fm.meal_index) for fm in body.frozen_meals

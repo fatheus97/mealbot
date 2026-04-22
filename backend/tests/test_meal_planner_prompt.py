@@ -75,9 +75,40 @@ class TestUserContentTags:
         rendered = _render(past_meals=["chicken curry", "beef stew"])
         assert '<user_content type="past_meals">' in rendered
 
-    def test_country_wrapped(self) -> None:
+    def test_country_wrapped_in_every_occurrence(self) -> None:
+        # The field is templated in three places: the context header and two
+        # rules-section lines. If any one is unwrapped, the <user_content>
+        # fence does nothing because the payload still appears raw in a
+        # directive. Assert every {{ country }} render is inside a fence.
         rendered = _render(country="Italy")
-        assert '<user_content type="country">Italy</user_content>' in rendered
+        # At least three occurrences of Italy, all inside <user_content>.
+        italy_positions = [
+            i for i in range(len(rendered))
+            if rendered.startswith("Italy", i)
+        ]
+        assert len(italy_positions) >= 3
+        for pos in italy_positions:
+            # Find the nearest preceding <user_content ... > open tag
+            open_idx = rendered.rfind('<user_content type="country">', 0, pos)
+            close_idx = rendered.find("</user_content>", pos)
+            assert open_idx != -1 and close_idx != -1, (
+                f"country at position {pos} is not inside a <user_content> fence"
+            )
+
+    def test_retrieved_meals_wrapped(self) -> None:
+        class _Meal:
+            def __init__(self, name: str) -> None:
+                self.name = name
+                self.is_own = False
+                self.ingredients = ["chicken", "rice"]
+                self.steps = ["cook", "serve"]
+
+        rendered = _render(retrieved_meals=[_Meal("Paprika Chicken")])
+        assert '<user_content type="retrieved_meals">' in rendered
+        # Ensure the meal content lands inside the fence
+        open_idx = rendered.index('<user_content type="retrieved_meals">')
+        close_idx = rendered.index("</user_content>", open_idx)
+        assert "Paprika Chicken" in rendered[open_idx:close_idx]
 
     def test_stock_item_names_wrapped(self) -> None:
         # Fridge names are free text from receipt scans / manual entry and
