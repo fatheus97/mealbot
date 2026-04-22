@@ -20,6 +20,7 @@ jobs:
           SECRET_KEY=ci-only-not-real-64-char-key-not-for-production-0123456789abcdef
           DEMO_MODE=false
           LLM_MOCK=true
+          HF_TOKEN=
           EOF
 
       - name: Build backend image with dev deps
