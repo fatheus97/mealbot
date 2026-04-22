@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -54,19 +55,20 @@ async def register_user(
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
 
-    # 1. Check if a user already exists
-    statement = select(User).where(User.email == user.email)
-    result = await session.execute(statement)
-    existing_user = result.scalars().first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    # 2. Hash the password and save the user
+    # Rely on the unique index on User.email instead of a pre-SELECT. The
+    # check-then-insert pattern has a race window under concurrent registration:
+    # two requests can both pass the SELECT and then race to commit.
     hashed_pw = get_password_hash(user.password)
     db_user = User(email=user.email, hashed_password=hashed_pw)
     session.add(db_user)
-    await session.commit()
-    await session.refresh(db_user)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
 
     return MessageResponse(message="User created successfully. Please log in.")
 

@@ -49,6 +49,26 @@ class TestGetEmbeddingModel:
 
         module._model = None
 
+    @patch("app.services.recipe_retriever.TextEmbedding")
+    async def test_lifespan_initializes_model_at_startup(
+        self, mock_embedding_cls: MagicMock
+    ) -> None:
+        # Production safety: two concurrent requests hitting a cold path
+        # must not both allocate a TextEmbedding. The lifespan hook closes
+        # that window by initializing the singleton before the first request.
+        import app.services.recipe_retriever as module
+
+        mock_instance = MagicMock()
+        mock_embedding_cls.return_value = mock_instance
+        module._model = None
+
+        from app.main import app, lifespan
+
+        async with lifespan(app):
+            assert module._model is mock_instance
+
+        module._model = None
+
 
 class TestEmbedMealEntry:
     @patch("app.services.recipe_retriever.get_embedding_model")

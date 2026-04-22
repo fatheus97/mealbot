@@ -444,6 +444,97 @@ class TestFallbackChain:
         assert mock_gemini.chat.completions.create.await_count == 1
 
 
+class TestFallbackBackoff:
+    """Retryable errors (429/503) must back off before hitting the next provider;
+    terminal errors (402/404) must NOT back off — no point waiting for a config issue."""
+
+    @patch("app.llm.client.asyncio.sleep")
+    @patch("app.llm.client.settings")
+    async def test_retryable_429_sleeps_before_next_provider(
+        self, mock_settings: MagicMock, mock_sleep: AsyncMock
+    ) -> None:
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain("gemini/model-a", "gemini/model-b")
+        mock_settings.gemini_api_key = "fake-key"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        client = LLMClient()
+        expected = _mock_single_day()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create = AsyncMock(
+            side_effect=[_quota_error_gemini(), expected],
+        )
+        client.gemini_client = mock_gemini
+
+        result = await client.chat_json("sys", "usr", SingleDayResponse)
+        assert result == expected
+        # First retryable failure: backoff = 2**0 + jitter ∈ [1.0, 1.5)
+        mock_sleep.assert_awaited_once()
+        assert mock_sleep.await_args is not None
+        delay = mock_sleep.await_args.args[0]
+        assert 1.0 <= delay < 1.5, f"expected ~1.0-1.5s backoff, got {delay}"
+
+    @patch("app.llm.client.asyncio.sleep")
+    @patch("app.llm.client.settings")
+    async def test_terminal_404_skips_backoff(
+        self, mock_settings: MagicMock, mock_sleep: AsyncMock
+    ) -> None:
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain("gemini/model-a", "gemini/model-b")
+        mock_settings.gemini_api_key = "fake-key"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        client = LLMClient()
+        expected = _mock_single_day()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create = AsyncMock(
+            side_effect=[_model_not_found_gemini(), expected],
+        )
+        client.gemini_client = mock_gemini
+
+        result = await client.chat_json("sys", "usr", SingleDayResponse)
+        assert result == expected
+        # Terminal error (404 = wrong model name) shouldn't make us wait —
+        # the config is broken, not the upstream.
+        mock_sleep.assert_not_awaited()
+
+    @patch("app.llm.client.asyncio.sleep")
+    @patch("app.llm.client.settings")
+    async def test_backoff_grows_exponentially_across_retries(
+        self, mock_settings: MagicMock, mock_sleep: AsyncMock
+    ) -> None:
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain(
+            "gemini/model-a", "gemini/model-b", "gemini/model-c",
+        )
+        mock_settings.gemini_api_key = "fake-key"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        client = LLMClient()
+        expected = _mock_single_day()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create = AsyncMock(
+            side_effect=[
+                _quota_error_gemini(),
+                _service_unavailable_gemini(),
+                expected,
+            ],
+        )
+        client.gemini_client = mock_gemini
+
+        result = await client.chat_json("sys", "usr", SingleDayResponse)
+        assert result == expected
+        assert mock_sleep.await_count == 2
+        first_delay = mock_sleep.await_args_list[0].args[0]
+        second_delay = mock_sleep.await_args_list[1].args[0]
+        # 2**0 + jitter vs 2**1 + jitter — second strictly greater
+        # (minimum second = 2.0, maximum first = 1.5)
+        assert first_delay < second_delay
+
+
 class TestMissingApiKey:
     """Provider in chain but no API key configured → 500."""
 

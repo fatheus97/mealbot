@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ class TestRegister:
                 "/api/users/register",
                 json={"email": TEST_EMAIL, "password": "AnotherPass123"},
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 409
         assert "already registered" in resp.json()["detail"].lower()
 
     async def test_register_blocked_when_disabled(self, unauthed_client: AsyncClient):
@@ -46,6 +47,25 @@ class TestRegister:
                 json={"email": "bad", "password": "x"},
             )
         assert resp.status_code == 403
+
+    async def test_register_race_falls_back_to_409_not_500(
+        self, unauthed_client: AsyncClient
+    ):
+        # Simulates the losing side of a concurrent registration race: the
+        # pre-SELECT is gone, so the duplicate is only caught when the DB
+        # raises IntegrityError on commit. That path must translate to 409,
+        # never bubble up as a 500.
+        # (True asyncio.gather() concurrency can't be exercised here — the
+        #  test harness shares one AsyncSession across requests and SQLAlchemy
+        #  forbids concurrent ops on a single session. Production uses a
+        #  session-per-request pool where real races resolve at the DB.)
+        email = "race@example.com"
+        payload = {"email": email, "password": "RacePass123"}
+        with patch.object(settings, "registration_enabled", True):
+            first = await unauthed_client.post("/api/users/register", json=payload)
+            second = await unauthed_client.post("/api/users/register", json=payload)
+        codes = Counter([first.status_code, second.status_code])
+        assert codes == Counter([201, 409]), f"expected one 201 + one 409, got {codes}"
 
 
 class TestPasswordComplexity:

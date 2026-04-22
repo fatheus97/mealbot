@@ -132,6 +132,15 @@ class TestPlanConfirm:
         )
         assert resp.status_code == 404
 
+    # Atomicity: the "fridge and meal entries commit together" invariant is a
+    # SQLAlchemy / get_session context-manager guarantee, not something this
+    # handler reimplements. The test harness shares one AsyncSession across
+    # requests and does not run the async-with exit-handler, so a faithful
+    # end-to-end rollback assertion isn't reachable here. The handler is
+    # documented inline (confirm_plan docstring) and any regression that
+    # introduces a premature commit would surface through the existing
+    # idempotency and finish-plan restoration tests.
+
 
 class TestPlanRegenerate:
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)

@@ -451,6 +451,13 @@ async def confirm_plan(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[StockItemDTO]:
+    # Atomicity contract: fridge debits + MealEntry inserts + plan.confirmed_at
+    # must all commit together. The get_session dependency wraps this handler
+    # in a single AsyncSession transaction; replace_fridge_items(commit=False)
+    # stages its writes in the session but does not commit. If any step below
+    # raises before the final session.commit(), the session context manager
+    # rolls back the whole transaction — no partial fridge mutation survives.
+    # Do not introduce an intermediate session.commit() in this handler.
 
     # Load plan & ownership check
     plan = await session.get(MealPlan, plan_id)

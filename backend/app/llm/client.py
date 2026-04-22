@@ -1,5 +1,7 @@
+import asyncio
 import base64
 import logging
+import random
 from collections.abc import Callable
 from typing import (  # Any: instructor kwargs are inherently untyped
     Any,
@@ -73,25 +75,45 @@ class LLMClient:
             return self.deepseek_client
         raise HTTPException(500, "Unsupported provider")
 
-    # HTTP status codes that mean "this specific model is unavailable, the next
-    # one in the chain might work": quota/billing exhaustion (429, 402),
-    # model-not-found (404, e.g. a preview model was renamed upstream), and
-    # service-unavailable / high-demand overload (503, common on Gemini previews).
-    _FALLBACK_STATUS_CODES = {402, 404, 429, 503}
+    # HTTP status codes that trigger chain fallback. Split by whether the
+    # upstream is expected to recover on its own:
+    #   - RETRYABLE: transient load / overload (429 quota, 503 overloaded).
+    #     Worth a short backoff before the next provider to absorb a thundering
+    #     herd — if every concurrent request tries the fallback instantly, the
+    #     next provider's quota dies the same way.
+    #   - TERMINAL: permanent for this model (402 billing, 404 model-not-found).
+    #     No point sleeping — the config is wrong, move on immediately.
+    _RETRYABLE_STATUS_CODES = {429, 503}
+    _TERMINAL_FALLBACK_STATUS_CODES = {402, 404}
+    _FALLBACK_STATUS_CODES = _RETRYABLE_STATUS_CODES | _TERMINAL_FALLBACK_STATUS_CODES
+
+    # Backoff cap: one bad request shouldn't stall the whole chain for long.
+    _BACKOFF_CAP_SECONDS = 10.0
+
+    @staticmethod
+    def _classify_error(exc: Exception) -> str | None:
+        """Return 'retryable', 'terminal', or None (non-fallback) for an exception."""
+        current: BaseException | None = exc
+        while current is not None:
+            code: int | None = None
+            if isinstance(current, GeminiAPIError):
+                code = getattr(current, "code", None)
+            elif isinstance(current, OpenAIRateLimitError):
+                return "retryable"
+            elif isinstance(current, OpenAIAPIStatusError):
+                code = current.status_code
+
+            if code in LLMClient._RETRYABLE_STATUS_CODES:
+                return "retryable"
+            if code in LLMClient._TERMINAL_FALLBACK_STATUS_CODES:
+                return "terminal"
+            current = current.__cause__
+        return None
 
     @staticmethod
     def _is_fallback_error(exc: Exception) -> bool:
         """Check if an exception (or its cause chain) should trigger chain fallback."""
-        current: BaseException | None = exc
-        while current is not None:
-            if isinstance(current, GeminiAPIError) and getattr(current, "code", None) in LLMClient._FALLBACK_STATUS_CODES:
-                return True
-            if isinstance(current, OpenAIRateLimitError):
-                return True
-            if isinstance(current, OpenAIAPIStatusError) and current.status_code in LLMClient._FALLBACK_STATUS_CODES:
-                return True
-            current = current.__cause__
-        return False
+        return LLMClient._classify_error(exc) is not None
 
     async def _call_with_fallback(
         self,
@@ -99,8 +121,9 @@ class LLMClient:
         response_model: type[T],
         error_context: str,
     ) -> T:
-        """Try each model in settings.model_chain; fall back on 429."""
+        """Try each model in settings.model_chain; fall back on retryable/terminal errors."""
         last_exc: Exception | None = None
+        retryable_attempts = 0
         for entry in settings.model_chain:
             client = self._get_client(entry.provider)
             kwargs = build_kwargs(entry)
@@ -125,9 +148,22 @@ class LLMClient:
                 return result  # type: ignore[return-value]
             except Exception as e:
                 last_exc = e
-                if self._is_fallback_error(e):
+                classification = self._classify_error(e)
+                if classification == "retryable":
+                    delay = min(2 ** retryable_attempts, self._BACKOFF_CAP_SECONDS) + random.uniform(0, 0.5)
                     logger.warning(
-                        "Fallback-eligible error on %s/%s, trying next: %s",
+                        "Retryable error on %s/%s, sleeping %.2fs before next provider: %s",
+                        entry.provider.value,
+                        entry.model,
+                        delay,
+                        e,
+                    )
+                    retryable_attempts += 1
+                    await asyncio.sleep(delay)
+                    continue
+                if classification == "terminal":
+                    logger.warning(
+                        "Terminal error on %s/%s (config issue), trying next immediately: %s",
                         entry.provider.value,
                         entry.model,
                         e,

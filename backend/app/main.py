@@ -15,6 +15,7 @@ from app.api.plan import router as plan_router
 from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.services.recipe_retriever import get_embedding_model
 
 # Configure the root logger
 logging.basicConfig(
@@ -30,6 +31,14 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(fastAPI: FastAPI):
+    # Initialize the sentence-transformer embedding model eagerly. The model
+    # weights are baked into the image at build time (see Dockerfile), so this
+    # is a pure in-process load. Doing it here — rather than on first request —
+    # closes a race where two concurrent cold-path requests would each allocate
+    # their own TextEmbedding instance and leak memory.
+    logger.info("Initializing embedding model")
+    get_embedding_model()
+    logger.info("Embedding model ready")
     yield
     # shutdown
 
