@@ -16,6 +16,7 @@ from app.api.plan import router as plan_router
 from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.country_whitelist import SUPPORTED_COUNTRIES
+from app.core.language_whitelist import SUPPORTED_LANGUAGES
 from app.core.rate_limit import limiter
 from app.services.recipe_retriever import get_embedding_model
 
@@ -87,9 +88,14 @@ class CountriesResponse(BaseModel):
     countries: list[str]
 
 
-# Cached sorted list — the whitelist is a frozenset, order is not stable.
-# Sorting once at import keeps the response deterministic and cache-friendly.
+class LanguagesResponse(BaseModel):
+    languages: list[str]
+
+
+# Cached sorted lists — the whitelists are frozensets, iteration order is not
+# stable. Sorting once at import keeps responses deterministic and cache-friendly.
 _SORTED_COUNTRIES: list[str] = sorted(SUPPORTED_COUNTRIES)
+_SORTED_LANGUAGES: list[str] = sorted(SUPPORTED_LANGUAGES)
 
 
 @app.api_route("/health", methods=["GET", "HEAD"], response_model=HealthResponse)
@@ -109,6 +115,13 @@ async def list_countries() -> CountriesResponse:
     source of truth — keeps the picker in sync with the backend whitelist so
     a value the user sees is always a value PATCH will accept."""
     return CountriesResponse(countries=_SORTED_COUNTRIES)
+
+
+@app.get("/api/languages", response_model=LanguagesResponse)
+async def list_languages() -> LanguagesResponse:
+    """Canonical language list for the frontend typeahead — same contract
+    and rationale as /api/countries."""
+    return LanguagesResponse(languages=_SORTED_LANGUAGES)
 
 
 #routers

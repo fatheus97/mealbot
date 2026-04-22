@@ -18,13 +18,19 @@ const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
 const mockedUpdateProfile = updateUserProfile as ReturnType<typeof vi.fn>;
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 
-// PreferencesForm fetches /countries on mount. AuthProvider fetches /config.
+// PreferencesForm fetches /countries and /languages. AuthProvider fetches /config.
 function stubAuthFetch() {
   mockedAuthFetch.mockImplementation((url: string) => {
     if (url === '/countries') {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ countries: ['Germany', 'France', 'Italy'] }),
+      });
+    }
+    if (url === '/languages') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ languages: ['English', 'Czech', 'Spanish'] }),
       });
     }
     if (url === '/config') {
@@ -38,9 +44,11 @@ const mockProfile = {
   id: 1,
   email: 'test@test.com',
   country: 'Germany',
+  language: 'English',
   measurement_system: 'metric' as const,
   variability: 'traditional' as const,
   include_spices: true,
+  track_snacks: true,
   onboarding_completed: true,
 };
 
@@ -176,8 +184,10 @@ describe('SettingsPopup', () => {
     await waitFor(() => {
       expect(mockedUpdateProfile).toHaveBeenCalledWith({
         country: 'Germany',
+        language: 'English',
         variability: 'experimental',
         include_spices: true,
+        track_snacks: true,
       });
     });
 

@@ -19,12 +19,21 @@ const defaultValues: PreferencesFormValues = {
   track_snacks: true,
 };
 
-function mockCountries(list: string[] = ['France', 'Germany', 'Italy']) {
+function mockWhitelists(
+  countries: string[] = ['France', 'Germany', 'Italy'],
+  languages: string[] = ['English', 'Czech', 'Spanish'],
+) {
   mockedAuthFetch.mockImplementation((url: string) => {
     if (url === '/countries') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ countries: list }),
+        json: () => Promise.resolve({ countries }),
+      });
+    }
+    if (url === '/languages') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ languages }),
       });
     }
     return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
@@ -33,7 +42,7 @@ function mockCountries(list: string[] = ['France', 'Germany', 'Italy']) {
 
 beforeEach(() => {
   mockedAuthFetch.mockReset();
-  mockCountries();
+  mockWhitelists();
 });
 
 describe('PreferencesForm', () => {
@@ -257,7 +266,7 @@ describe('PreferencesForm', () => {
   });
 
   it('populates the datalist from the fetched country list', async () => {
-    mockCountries(['Czech Republic', 'Slovakia']);
+    mockWhitelists(['Czech Republic', 'Slovakia']);
 
     render(
       <PreferencesForm
@@ -273,5 +282,108 @@ describe('PreferencesForm', () => {
       const options = document.querySelectorAll('#country-list option');
       expect(options).toHaveLength(2);
     });
+  });
+
+  it('disables submit when language is not in the whitelist', async () => {
+    // Same pattern as country — the language field is templated into the LLM
+    // prompt, so a non-whitelist value must be blocked at the form level
+    // instead of falling through to the opaque "failed to save" path.
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={onSubmit}
+        submitLabel="Save"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/languages'),
+    );
+
+    const languageInput = screen.getByPlaceholderText(/e\.g\. english/i);
+    await user.clear(languageInput);
+    await user.type(languageInput, 'Klingon');
+
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    expect(screen.getByText(/pick a language from the list/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('Tab completes country from a prefix match', async () => {
+    mockWhitelists(['Czech Republic', 'Slovakia', 'Italy']);
+    const user = userEvent.setup();
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={vi.fn()}
+        submitLabel="Save"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'),
+    );
+
+    const countryInput = screen.getByPlaceholderText(/start typing to search/i);
+    await user.click(countryInput);
+    await user.keyboard('cz');
+    await user.keyboard('{Tab}');
+
+    expect(countryInput).toHaveValue('Czech Republic');
+  });
+
+  it('Enter completes language from a prefix match without submitting', async () => {
+    mockWhitelists(['France'], ['English', 'Czech']);
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(
+      <PreferencesForm
+        initialValues={{ ...defaultValues, country: 'France' }}
+        onSubmit={onSubmit}
+        submitLabel="Save"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/languages'),
+    );
+
+    const languageInput = screen.getByPlaceholderText(/e\.g\. english/i);
+    await user.clear(languageInput);
+    await user.type(languageInput, 'cz');
+    await user.keyboard('{Enter}');
+
+    expect(languageInput).toHaveValue('Czech');
+    // Enter must not have slipped through to submit the form.
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('Tab canonicalizes case (italy → Italy)', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={vi.fn()}
+        submitLabel="Save"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'),
+    );
+
+    const countryInput = screen.getByPlaceholderText(/start typing to search/i);
+    await user.click(countryInput);
+    await user.keyboard('italy');
+    await user.keyboard('{Tab}');
+
+    expect(countryInput).toHaveValue('Italy');
   });
 });

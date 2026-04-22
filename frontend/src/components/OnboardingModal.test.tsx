@@ -17,14 +17,20 @@ import { authFetch, updateUserProfile } from '../api';
 const mockedUpdateProfile = updateUserProfile as ReturnType<typeof vi.fn>;
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 
-// PreferencesForm fetches /countries on mount to validate the picker input
-// against the backend whitelist. AuthProvider fetches /config. Stub both.
+// PreferencesForm fetches /countries and /languages on mount to validate the
+// picker input against the backend whitelists. AuthProvider fetches /config.
 function stubAuthFetch() {
   mockedAuthFetch.mockImplementation((url: string) => {
     if (url === '/countries') {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ countries: ['Germany', 'France', 'Italy'] }),
+      });
+    }
+    if (url === '/languages') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ languages: ['English', 'Czech', 'Spanish'] }),
       });
     }
     if (url === '/config') {

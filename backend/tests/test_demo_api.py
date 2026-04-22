@@ -43,6 +43,21 @@ class TestCountriesEndpoint:
         assert countries == sorted(countries)
 
 
+class TestLanguagesEndpoint:
+    async def test_languages_returns_sorted_canonical_list(
+        self, unauthed_client: AsyncClient
+    ) -> None:
+        from app.core.language_whitelist import SUPPORTED_LANGUAGES
+
+        resp = await unauthed_client.get("/api/languages")
+        assert resp.status_code == 200
+        body = resp.json()
+        languages = body["languages"]
+        assert isinstance(languages, list)
+        assert set(languages) == SUPPORTED_LANGUAGES
+        assert languages == sorted(languages)
+
+
 class TestDemoSession:
     async def test_happy_path_creates_user_and_seeds_fridge(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
