@@ -224,6 +224,38 @@ describe('PreferencesForm', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('does not lock out a returning user when /countries fetch fails', async () => {
+    // Regression: if the whitelist fetch errors, the client used to leave
+    // countrySet empty and reject every pre-populated country. The backend
+    // still whitelists at PATCH — the client should fall back to server-side
+    // validation, not block saves entirely.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/countries') return Promise.reject(new Error('network'));
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    render(
+      <PreferencesForm
+        initialValues={{
+          country: 'France',
+          language: 'English',
+          variability: 'traditional',
+          include_spices: true,
+          track_snacks: true,
+        }}
+        onSubmit={vi.fn()}
+        submitLabel="Save"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'),
+    );
+
+    expect(screen.getByRole('button', { name: /save/i })).toBeEnabled();
+    expect(screen.queryByText(/pick a country from the list/i)).not.toBeInTheDocument();
+  });
+
   it('populates the datalist from the fetched country list', async () => {
     mockCountries(['Czech Republic', 'Slovakia']);
 

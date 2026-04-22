@@ -75,7 +75,6 @@ _ALIASES: dict[str, str] = {
     "korea, north": "North Korea",
     "dprk": "North Korea",
     "uae": "United Arab Emirates",
-    "ivory coast": "Congo",  # rough fallback — no standalone entry
     "myanmar (burma)": "Myanmar",
     "burma": "Myanmar",
     "russian federation": "Russia",

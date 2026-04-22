@@ -25,6 +25,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
   const [countries, setCountries] = useState<string[]>([]);
+  const [countriesLoaded, setCountriesLoaded] = useState(false);
 
   useEffect(() => {
     // Fetch the canonical whitelist once on mount — the backend is the single
@@ -33,13 +34,20 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
     Promise.resolve(authFetch("/countries"))
       .then((r) => (r?.ok ? r.json() : null))
       .then((data: { countries?: string[] } | null) => {
-        if (data?.countries) setCountries(data.countries);
+        if (data?.countries) {
+          setCountries(data.countries);
+          setCountriesLoaded(true);
+        }
       })
-      .catch(() => { /* leave empty — submit validation still runs */ });
+      .catch(() => { /* leave countriesLoaded=false — fall back to server-side validation */ });
   }, []);
 
   const countrySet = useMemo(() => new Set(countries), [countries]);
-  const countryValid = country.trim() === "" || countrySet.has(country.trim());
+  // If the list didn't load (network error), skip the client-side gate so a
+  // returning user whose profile already holds a valid country isn't locked
+  // out of saving. The backend whitelist still rejects bad values at PATCH.
+  const countryValid =
+    !countriesLoaded || country.trim() === "" || countrySet.has(country.trim());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
