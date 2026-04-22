@@ -25,8 +25,10 @@ class User(SQLModel, table=True):
     # include spices in shopping list + stock
     include_spices: bool = Field(default=True)
 
-    # preferred output language for LLM responses
-    language: str = Field(default="English")
+    # preferred output language for LLM responses; whitelisted against
+    # app.core.language_whitelist at the API layer. Capped at 50 chars to
+    # bound prompt-token use and guard against pathological input.
+    language: str = Field(default="English", max_length=50)
 
     # include snacks/ready-to-eat items from receipt scans
     track_snacks: bool = Field(default=True)

@@ -17,6 +17,7 @@ from app.api.fridge import (
     restore_consumed_batches,
 )
 from app.core.config import settings
+from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter
 from app.db import get_session
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
@@ -168,7 +169,10 @@ async def plan_meals_for_user(
 ) -> MealPlanResponse:
 
     payload.country = current_user.country
-    payload.language = current_user.language
+    # Defense-in-depth: even though PATCH /api/users whitelists language,
+    # legacy rows (pre-whitelist) may hold arbitrary values. Normalize here
+    # before templating into the LLM system prompt, fall back to English.
+    payload.language = normalize_language(current_user.language or "") or "English"
 
     ms_raw = (current_user.measurement_system or "metric").strip().lower()
     if ms_raw not in ("none", "metric", "imperial"):

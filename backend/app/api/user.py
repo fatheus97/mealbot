@@ -1,3 +1,6 @@
+import hashlib
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordRequestForm
@@ -8,16 +11,26 @@ from sqlmodel import select
 
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db import get_session
 from app.models.db_models import User
 from app.models.user_schemas import MessageResponse, Token, UserCreate, UserRead, UserUpdate
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/users", tags=["users"])
 
 _ALLOWED_MEASUREMENT = {"none", "metric", "imperial"}
 _ALLOWED_VARIABILITY = {"traditional", "experimental"}
+
+
+def _email_fingerprint(email: str) -> str:
+    """Short non-reversible id for an email. Logged on auth failures so we can
+    correlate brute-force attempts without writing plaintext addresses to logs.
+    """
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:12]
 
 
 def _to_read(u: User) -> UserRead:
@@ -70,6 +83,7 @@ async def register_user(
             detail="Email already registered",
         ) from None
 
+    logger.info("user_registered user_id=%s", db_user.id)
     return MessageResponse(message="User created successfully. Please log in.")
 
 
@@ -92,6 +106,9 @@ async def login(
 
     # 2. Verify existence and password
     if not user or not verify_password(form_data.password, user.hashed_password):
+        logger.warning(
+            "login_failed email_fp=%s", _email_fingerprint(form_data.username),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -102,6 +119,7 @@ async def login(
     if user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     access_token = create_access_token(subject=user.id, token_version=user.token_version)
+    logger.info("login_success user_id=%s", user.id)
 
     # 4. Return the Token schema
     return Token(
@@ -126,6 +144,7 @@ async def logout(
     current_user.token_version += 1
     session.add(current_user)
     await session.commit()
+    logger.info("logout user_id=%s", current_user.id)
     return None
 
 
@@ -153,7 +172,15 @@ async def update_user(
         lang = patch.language.strip()
         if not lang or len(lang) > 50:
             raise HTTPException(status_code=400, detail="Invalid language: must be 1-50 characters")
-        current_user.language = lang
+        # Whitelist gate: `language` is templated into the LLM system prompt,
+        # so unbounded free text here is a prompt-injection vector.
+        canonical = normalize_language(lang)
+        if canonical is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported language. Pick one of the supported options.",
+            )
+        current_user.language = canonical
 
     if patch.measurement_system is not None:
         ms = patch.measurement_system.strip().lower()

@@ -156,7 +156,14 @@ class TestPromptContent:
         mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
         await generate_single_day(_make_request(ingredients_to_use=[]))
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
-        assert "Priority ingredients to use this run: none specified" in prompt
+        # User-origin list fields are now wrapped in <user_content> tags for
+        # prompt-injection hardening; the "none specified" fallback lands
+        # inside that tag.
+        assert (
+            'Priority ingredients to use this run: '
+            '<user_content type="priority_ingredients">none specified'
+            in prompt
+        )
 
     @patch("app.services.meal_planner.llm_client")
     async def test_total_time_minutes_in_schema_and_rules(self, mock_llm: MagicMock):
