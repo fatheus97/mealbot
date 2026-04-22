@@ -17,7 +17,7 @@ alembic~=1.15
 pydantic[email]~=2.11
 
 # For RAG features
-pgvector~=0.3
+pgvector~=0.4
 fastembed~=0.6
 
 # PDF parsing
