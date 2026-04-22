@@ -1,28 +1,38 @@
-Review the current codebase for production readiness. Check:
+Review the current codebase for production readiness. CI already enforces pytest, mypy (strict), ruff, eslint, frontend build, and gitleaks on every PR — **do not re-run them**. Read current CI state via `gh run list` / `gh pr checks <num>` if you need it. Focus on what CI cannot catch.
 
-1. **Security:** SQL injection, XSS, auth bypass, exposed secrets, input validation
-2. **Error Handling:** Unhandled exceptions, missing try/except on external calls
-3. **Type Safety:** Any `Any` types, missing type hints, unvalidated data.
-   Run `docker compose exec backend mypy .` and include all errors in the report.
-   Every mypy error is at minimum a WARNING. Type errors that could cause
-   runtime failures are CRITICAL.
-4. **Docker:** Root user, unpinned versions, bloated images, missing .dockerignore
-5. **Performance:** N+1 queries, missing indexes, blocking calls in async code
-6. **Dependencies:** Outdated packages, unnecessary libraries, known CVEs
-7. **Test Coverage:** Identify all untested endpoints, services, and business logic.
-   For each untested area, note what tests are needed (happy path, error cases, edge cases).
+1. **Architecture & code volume** — less code is better.
+   - Separation of concerns: business logic leaking into FastAPI route handlers instead of services; ORM calls scattered through services instead of repositories; DB models leaking into response schemas.
+   - Module size & cohesion: files doing too much; flag anything that should split.
+   - Dead code, unused exports, speculative abstractions, premature generalization.
+   - Duplication: grep for existing utilities before accepting a new helper — same rule as `/pr-check`.
+   - Hidden behavior / broken invariants: state mutated in surprising places, implicit coupling between layers.
+   - Layering violations: frontend reaching past typed API contracts; backend exposing internals through response shapes.
 
-Output a structured report with:
+2. **Semantic security** — gitleaks only catches committed secrets. It does not see:
+   - SQL injection, XSS, auth/authz bypass, IDOR, path traversal
+   - User input used without validation or sanitization
+   - Secrets read from env but then logged, echoed in errors, or sent to an LLM
+
+3. **Error handling on external calls** — every DB / LLM / HTTP call needs specific exceptions and an explicit timeout. Bare `except` or missing timeout is a production risk, not a style issue.
+
+4. **Async discipline & performance** — blocking calls inside async endpoints, N+1 queries, missing indexes on filtered columns, unbounded result sets.
+
+5. **Docker hardening** — non-root USER, pinned base images, minimal layers, `.dockerignore` excludes `node_modules` / `__pycache__` / `.git`. Not enforced by CI.
+
+6. **Dependencies** — Dependabot opens bumps but does not gate on CVEs. Flag packages with known vulns, unnecessary libraries, and anything abandoned.
+
+7. **Test-coverage gaps** — which endpoints, services, and business-logic branches have no tests? For each, list what's needed (happy path, error cases, edge cases). This is a qualitative gap analysis, not a coverage percentage.
+
+Output a structured report:
 - **CRITICAL** — must fix before deploy
 - **WARNING** — should fix soon
 - **INFO** — improvement suggestions
-- **UNTESTED** — code that has no test coverage
+- **UNTESTED** — code with no test coverage
 
-For each finding: file path, line number (if applicable), what's wrong, and how to fix it.
+For each finding: file path, line number (if applicable), what's wrong, and how to fix it. Be direct and specific — quote `file:line`. If something is a production risk, say so.
 
 After the report, ask me:
 "Would you like me to generate the missing tests now?"
-If I say yes, create tests following project conventions — pytest for backend, Vitest for frontend.
-Prioritize by risk: test endpoints and business logic first, utilities last.
+If I say yes, create tests following project conventions — pytest for backend, Vitest for frontend. Prioritize by risk: endpoints and business logic first, utilities last.
 
 $ARGUMENTS

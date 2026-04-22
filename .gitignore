@@ -22,3 +22,5 @@ frontend/.next/
 
 # Claude Code local settings (user-specific permissions)
 .claude/settings.local.json
+# Claude Code runtime lock (ScheduleWakeup / loop state, machine-local)
+.claude/scheduled_tasks.lock
