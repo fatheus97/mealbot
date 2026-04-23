@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import ValidationError
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -112,7 +113,7 @@ async def get_plan_detail(
 
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception as exc:
+    except ValidationError as exc:
         logger.exception("Failed to parse response_json for plan %d", plan_id)
         raise HTTPException(
             status_code=500,
@@ -237,7 +238,7 @@ async def regenerate_plan(
     try:
         original_req = MealPlanRequest.model_validate_json(plan.request_json)
         original_resp = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception as exc:
+    except ValidationError as exc:
         logger.exception("Failed to parse stored data for plan %d", plan_id)
         raise HTTPException(
             status_code=500, detail="Stored plan data could not be loaded."
@@ -410,7 +411,7 @@ async def confirm_plan(
     # Parse stored plan response
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
-    except Exception as exc:
+    except ValidationError as exc:
         logger.exception("Failed to parse response_json for plan %d during confirm", plan_id)
         raise HTTPException(
             status_code=500,
@@ -684,7 +685,7 @@ async def finish_plan(
                     ConsumedBatch.model_validate(b) for b in raw
                 )
                 continue
-            except Exception:
+            except (json.JSONDecodeError, ValidationError):
                 logger.exception(
                     "Corrupt consumed_snapshot_json on meal entry %d — falling back to lossy restore",
                     entry.id,
