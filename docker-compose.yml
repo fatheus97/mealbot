@@ -43,13 +43,34 @@ services:
   # migrations are pending this is a ~1s no-op; when there are any, they
   # apply atomically before the app comes up. Loud failure if a migration
   # breaks — deploy aborts instead of silently shipping a stale schema.
+  #
+  # Emergency bypass (if a migration is broken and you need the backend
+  # up against the old schema to roll forward by hand):
+  #   docker compose up -d --no-deps backend
+  # Prefer fixing the migration and re-running a normal `up -d --build`.
   migrate:
     build:
       context: ./backend
       dockerfile: Dockerfile
       secrets:
         - hf_token
-    command: ["alembic", "upgrade", "head"]
+    # `timeout 120` caps a runaway migration (hung advisory lock, stalled
+    # connection) at 2 minutes so the deploy fails loudly instead of
+    # blocking backend startup forever. Real migrations on this box
+    # finish in seconds. Raise only if a legitimate migration needs it —
+    # and consider `op.execute("SET LOCAL statement_timeout = 0")` per
+    # the template banner for long table rewrites.
+    command: ["sh", "-c", "timeout 120 alembic upgrade head"]
+    # Volume-mount alembic/ so a dev creating a new migration and running
+    # `docker compose up -d` (without --build) still picks up the new
+    # revision file — otherwise the migrate container starts from the
+    # baked image, doesn't see the new file, exits 0, and the schema
+    # silently stays behind. Read-only because migrate only reads
+    # revisions; it writes to alembic_version via the db, not the fs.
+    # In prod the host path is identical to the image layer (deploy.sh
+    # does `git pull` before `up --build`) so the overlay is a no-op.
+    volumes:
+      - ./backend/alembic:/app/alembic:ro
     env_file:
       - .env
     environment:
