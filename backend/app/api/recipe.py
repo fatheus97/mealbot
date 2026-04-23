@@ -62,6 +62,12 @@ def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest
     """
     extra_tastes = list(req.taste_preferences)
     if req.note:
+        # MealPlanRequest.sanitize_input caps taste_preferences at 20 items.
+        # If the incoming list already has 20, the note would be silently
+        # dropped — reserve the last slot for the note instead so the user's
+        # intent actually reaches the prompt.
+        if len(extra_tastes) >= 20:
+            extra_tastes = extra_tastes[:19]
         extra_tastes.append(req.note)
 
     # Stock items get loaded in generate_single_day's caller path for plans,
@@ -113,11 +119,14 @@ async def generate_recipe(
     policy as plan generation) — in practice, with a layout of [meal_type],
     the model almost always obeys.
     """
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
+
     plan_req = _build_plan_request(payload, current_user)
     # Pre-load the fridge so the LLM can use available stock. Unlike the plan
     # flow we don't allocate here — just feed the names+grams in so the LLM
     # prefers them.
-    fridge = await get_fridge_items(session, current_user.id or 0)
+    fridge = await get_fridge_items(session, current_user.id)
     plan_req.stock_items = [
         StockItemDTO(
             name=item.name,
@@ -166,6 +175,13 @@ async def cook_recipe(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
 
+    # TRUST BOUNDARY: payload.recipe is fully client-controlled. We enforce
+    # meal_type alignment below, but ingredient names / quantities / steps
+    # are taken at face value. The blast radius is self-scoped (each user's
+    # own fridge), so the risk is self-harm only — a user can craft a recipe
+    # that debits their fridge inaccurately. A future hardening step is to
+    # cache generated recipes server-side (short-TTL draft row) and accept
+    # a draft_id here instead of the full payload. See Phase 4 review on PR #89.
     if payload.recipe.meal_type != payload.meal_type:
         # Defensive: the frontend should only POST the recipe it just got back
         # from /generate, which had its meal_type forced to payload.meal_type

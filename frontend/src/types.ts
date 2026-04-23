@@ -36,7 +36,6 @@ export interface PlannedMeal {
   // string fallback so old plans still render.
   meal_type: MealType | string;
   meal_type_label?: string;
-  uses_existing_ingredients: string[];
   ingredients: IngredientAmount[];
   steps: string[];
   total_time_minutes?: number | null;

@@ -131,7 +131,7 @@ describe('MealPlanner', () => {
             {
               name: 'Scrambled Eggs',
               meal_type: 'breakfast',
-              uses_existing_ingredients: [],
+
               ingredients: [{ name: 'Eggs', quantity_grams: 200 }],
               steps: ['Crack eggs', 'Cook'],
             },
@@ -182,7 +182,7 @@ describe('MealPlanner', () => {
             {
               name: 'Scrambled Eggs',
               meal_type: 'breakfast',
-              uses_existing_ingredients: [],
+
               ingredients: [],
               steps: [],
             },
@@ -251,8 +251,8 @@ describe('MealPlanner', () => {
       days: [
         {
           meals: [
-            { name: 'Meal A', meal_type: 'breakfast', uses_existing_ingredients: [], ingredients: [], steps: [] },
-            { name: 'Meal B', meal_type: 'lunch', uses_existing_ingredients: [], ingredients: [], steps: [] },
+            { name: 'Meal A', meal_type: 'breakfast', ingredients: [], steps: [] },
+            { name: 'Meal B', meal_type: 'lunch', ingredients: [], steps: [] },
           ],
         },
       ],
@@ -321,7 +321,7 @@ describe('MealPlanner', () => {
             {
               name: 'Opened Meal',
               meal_type: 'lunch',
-              uses_existing_ingredients: [],
+
               ingredients: [],
               steps: [],
             },
@@ -362,7 +362,7 @@ describe('MealPlanner', () => {
             {
               name: 'Timed Meal',
               meal_type: 'lunch',
-              uses_existing_ingredients: [],
+
               ingredients: [],
               steps: [],
               total_time_minutes: 35,
@@ -370,7 +370,7 @@ describe('MealPlanner', () => {
             {
               name: 'Legacy Meal',
               meal_type: 'dinner',
-              uses_existing_ingredients: [],
+
               ingredients: [],
               steps: [],
               // total_time_minutes intentionally omitted — simulates a plan from

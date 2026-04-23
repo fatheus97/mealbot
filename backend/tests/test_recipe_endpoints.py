@@ -217,6 +217,46 @@ class TestCookRecipe:
         assert resp.status_code == 400
         assert "must match" in resp.json()["detail"].lower()
 
+    async def test_cook_succeeds_with_empty_fridge(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session: AsyncSession,
+        test_user: User,
+    ):
+        """No fridge match → allocate_fifo returns [], consumed_snapshot_json
+        is persisted as "[]". Cook still succeeds because Cook Now treats the
+        fridge as best-effort rather than a hard constraint (stock_only=False
+        is the default)."""
+        # Don't seed the fridge — deliberately empty.
+        recipe = _fake_recipe()
+        resp = await client.post(
+            "/api/recipe/cook",
+            headers=auth_headers,
+            json={
+                "meal_type": "soup",
+                "people_count": 2,
+                "taste_preferences": [],
+                "avoid_ingredients": [],
+                "ingredients_to_use": [],
+                "stock_only": False,
+                "recipe": recipe.model_dump(mode="json"),
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["cooked_at"] is not None
+
+        await db_session.commit()
+        entry = (
+            await db_session.execute(
+                select(MealEntry).where(MealEntry.user_id == test_user.id),
+            )
+        ).scalars().first()
+        assert entry is not None
+        # Empty allocation still serialises to a valid JSON array.
+        assert entry.consumed_snapshot_json == "[]"
+
     async def test_cook_creates_meal_entry_with_consumed_snapshot(
         self,
         client: AsyncClient,

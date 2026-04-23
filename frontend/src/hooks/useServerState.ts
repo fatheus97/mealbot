@@ -50,11 +50,13 @@ export function useCookRecipe() {
   return useMutation({
     mutationFn: (payload: CookRecipeRequest) => cookRecipe(payload),
     onSuccess: () => {
-      // Fridge was debited; meal history now has a new row. Invalidate
-      // anything that reads either so the UI picks up the side-effects.
+      // Fridge is debited and a new 1-day plan row is created. Invalidate
+      // both so the sidebar catalog (usePlanList → ['planList']) and the
+      // fridge UI (useFridge → ['fridge']) pick up the side effects.
+      // MealEntry queries are keyed by planId so there's no cross-plan
+      // cache to invalidate here.
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
-      queryClient.invalidateQueries({ queryKey: ['plans'] });
-      queryClient.invalidateQueries({ queryKey: ['meals'] });
+      queryClient.invalidateQueries({ queryKey: ['planList'] });
     },
   });
 }
