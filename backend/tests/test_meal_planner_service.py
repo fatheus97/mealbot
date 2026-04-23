@@ -1,5 +1,6 @@
 """Tests for meal_planner service: prompt generation, partial day, slot validation."""
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -130,7 +131,6 @@ class TestGeneratePartialDay:
         )
         mock_llm.chat_json = AsyncMock(return_value=wrong_type)
 
-        import logging
         with caplog.at_level(logging.WARNING, logger="app.services.meal_planner"):
             result = await generate_partial_day(
                 _make_request(),
@@ -182,7 +182,6 @@ class TestGeneratePartialDay:
             return_value=_make_single_day_response("Oops", MealType.SNACK),
         )
 
-        import logging
         with caplog.at_level(logging.WARNING, logger="app.services.meal_planner"):
             result = await generate_single_day(
                 _make_request(),

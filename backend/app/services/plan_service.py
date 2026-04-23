@@ -162,11 +162,15 @@ async def generate_plan_days(
     #   1. payload.day_layouts[i]  (explicit per-day override from the form)
     #   2. user.default_day_layout (saved preference)
     #   3. None                    (legacy meals_per_day path — LLM picks slots)
+    #
+    # Partial override (shorter day_layouts than days) is not a supported API
+    # contract: POST /api/plan rejects any length mismatch with 422. So
+    # request_layouts is either None/[] or exactly `days` long.
     request_layouts = payload.day_layouts or []
     user_default: list[str] | None = list(user.default_day_layout) if user.default_day_layout else None
 
     def _resolve_layout(i: int) -> list[str] | None:
-        if i < len(request_layouts):
+        if request_layouts:
             return [slot.value for slot in request_layouts[i]]
         return user_default
 

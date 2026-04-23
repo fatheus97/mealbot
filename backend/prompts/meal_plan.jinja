@@ -133,8 +133,9 @@ Other rules:
 {% if slot_layout %}
 — Create a realistic plan for exactly one day with EXACTLY {{ slot_layout | length }} meals
     for exactly {{ people_count }} people, in this order — you MUST emit the meal_type values below verbatim:
-{% for slot in slot_layout %}    {{ loop.index }}. {{ slot }}
-{% endfor %}
+{%- for slot in slot_layout %}
+    {{ loop.index }}. {{ slot }}
+{%- endfor %}
 — Do NOT substitute, reorder, add, or drop meal_type slots. The output `meal_type`
   field for meal N MUST equal the value listed at position N above.
 {% else %}

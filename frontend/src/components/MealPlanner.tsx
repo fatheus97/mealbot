@@ -97,15 +97,28 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
     stockOnly, setStockOnly,
   } = usePreferencesStore();
 
-  // Keep dayLayouts aligned with the selected number of days whenever
-  // per-day customization is on. Uses the "adjust state while rendering"
-  // pattern (same as DayLayoutEditor) so eslint's set-state-in-effect rule
-  // stays happy and we avoid an extra commit per resize.
+  // Keep dayLayouts aligned with (days, userDefaultLayout) while per-day
+  // customization is on. Uses the "adjust state while rendering" pattern
+  // (same as DayLayoutEditor) so eslint's set-state-in-effect rule stays
+  // happy and we avoid an extra commit per resize.
+  //
+  // syncedSeed tracks the seed we last populated with. Important for the
+  // cold-load race: the user can toggle customize ON *before* the /users
+  // fetch resolves, at which point userDefaultLayout is still FALLBACK_DAY.
+  // When the profile lands, userDefaultLayout changes and we must re-seed
+  // any un-grown days — otherwise the user silently gets main_course-only
+  // days instead of their saved default. resizeLayouts only fills new
+  // positions, so days the user has already touched are preserved.
   const [syncedDays, setSyncedDays] = useState(days);
   const [syncedCustomize, setSyncedCustomize] = useState(customizeDays);
-  if (customizeDays && (syncedDays !== days || !syncedCustomize)) {
+  const [syncedSeed, setSyncedSeed] = useState<MealType[]>(userDefaultLayout);
+  if (
+    customizeDays &&
+    (syncedDays !== days || !syncedCustomize || syncedSeed !== userDefaultLayout)
+  ) {
     setSyncedDays(days);
     setSyncedCustomize(true);
+    setSyncedSeed(userDefaultLayout);
     setDayLayouts((prev) => resizeLayouts(prev, days, userDefaultLayout));
   } else if (!customizeDays && syncedCustomize) {
     setSyncedCustomize(false);
