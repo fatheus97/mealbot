@@ -9,7 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.api.fridge import _allocate_fifo, _group_and_sort_fridge
+from app.services.fridge_service import allocate_fifo, group_and_sort_fridge
 from app.api.plan import _derive_status
 from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
@@ -486,12 +486,12 @@ _FAR_DATE_2 = date(2099, 4, 30)
 
 
 class TestConsumedSnapshot:
-    def test_allocate_fifo_single_batch_full_deduction(self):
+    def testallocate_fifo_single_batch_full_deduction(self):
         fridge = [
             StockItemDTO(name="tomato", quantity_grams=200, expiration_date=_FAR_DATE)
         ]
-        by_name = _group_and_sort_fridge(fridge)
-        allocs = _allocate_fifo(by_name, [IngredientAmount(name="tomato", quantity_grams=200)])
+        by_name = group_and_sort_fridge(fridge)
+        allocs = allocate_fifo(by_name, [IngredientAmount(name="tomato", quantity_grams=200)])
 
         assert len(allocs) == 1
         assert allocs[0].quantity_grams == 200
@@ -499,22 +499,22 @@ class TestConsumedSnapshot:
         # Source batch should be drained to 0
         assert by_name["tomato"][0].quantity_grams == 0
 
-    def test_allocate_fifo_multi_batch_partial_deduction(self):
+    def testallocate_fifo_multi_batch_partial_deduction(self):
         # Earlier expiration should be drained first (FIFO)
         fridge = [
             StockItemDTO(name="tomato", quantity_grams=80, expiration_date=_FAR_DATE_2),
             StockItemDTO(name="tomato", quantity_grams=100, expiration_date=_FAR_DATE),
         ]
-        by_name = _group_and_sort_fridge(fridge)
-        allocs = _allocate_fifo(by_name, [IngredientAmount(name="tomato", quantity_grams=150)])
+        by_name = group_and_sort_fridge(fridge)
+        allocs = allocate_fifo(by_name, [IngredientAmount(name="tomato", quantity_grams=150)])
 
         assert [a.quantity_grams for a in allocs] == [100, 50]
         assert [a.expiration_date for a in allocs] == [_FAR_DATE, _FAR_DATE_2]
 
-    def test_allocate_fifo_no_matching_batch_returns_empty(self):
+    def testallocate_fifo_no_matching_batch_returns_empty(self):
         fridge = [StockItemDTO(name="rice", quantity_grams=300)]
-        by_name = _group_and_sort_fridge(fridge)
-        allocs = _allocate_fifo(by_name, [IngredientAmount(name="tofu", quantity_grams=100)])
+        by_name = group_and_sort_fridge(fridge)
+        allocs = allocate_fifo(by_name, [IngredientAmount(name="tofu", quantity_grams=100)])
 
         assert allocs == []
         # Untouched ingredient stays put

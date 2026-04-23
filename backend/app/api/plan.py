@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.api.deps import get_current_user
-from app.api.fridge import (
-    _allocate_fifo,
-    _group_and_sort_fridge,
+from app.services.fridge_service import (
+    allocate_fifo,
     get_fridge_items,
+    group_and_sort_fridge,
     replace_fridge_items,
     restore_consumed_batches,
 )
@@ -494,13 +494,13 @@ async def confirm_plan(
     # is what lets finish_plan restore an uncooked meal's ingredients to their
     # original dated bucket instead of dropping them into a None-dated one.
     fridge = await get_fridge_items(session, current_user.id)
-    batches_by_name = _group_and_sort_fridge(fridge)
+    batches_by_name = group_and_sort_fridge(fridge)
     snapshots: dict[tuple[int, int], list[ConsumedBatch]] = {}
 
     for day_index, day in enumerate(plan_obj.days, start=1):
         for meal_index, meal in enumerate(day.meals, start=1):
             meal_ingredients = [ing for ing in meal.ingredients if not ing.is_spice]
-            allocations = _allocate_fifo(batches_by_name, meal_ingredients)
+            allocations = allocate_fifo(batches_by_name, meal_ingredients)
             snapshots[(day_index, meal_index)] = allocations
 
     final_state = [
@@ -799,7 +799,7 @@ def _persist_meal_entries(
 
     `consumption_snapshots` keys are 1-based (day_index, meal_index) tuples
     matching the indices used below; values are the per-meal fridge debits
-    captured by `_allocate_fifo` at confirm time. Pass None for non-confirm
+    captured by `allocate_fifo` at confirm time. Pass None for non-confirm
     callers — entries get NULL `consumed_snapshot_json` and finish_plan will
     use its legacy restore path.
 
