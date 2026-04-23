@@ -53,6 +53,7 @@ class TestGenerateRecipe:
         assert body["recipe"]["meal_type"] == "soup"
         mock_gen.assert_awaited_once()
         # slot_layout is the single meal_type the user chose.
+        assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["slot_layout"] == ["soup"]
 
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
