@@ -1,5 +1,13 @@
 // frontend/src/api.ts
-import type { MealPlanResponse, StockItem, UserProfile } from "./types";
+import type {
+  CookRecipeRequest,
+  MealEntrySummary,
+  MealPlanResponse,
+  SingleRecipeRequest,
+  SingleRecipeResponse,
+  StockItem,
+  UserProfile,
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -72,6 +80,34 @@ export async function fetchPlan(planId: number): Promise<MealPlanResponse> {
   const res = await authFetch(`/plan/${planId}`);
   if (!res.ok) {
     throw new Error(`Failed to load plan: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function generateRecipe(
+  payload: SingleRecipeRequest,
+): Promise<SingleRecipeResponse> {
+  const res = await authFetch("/recipe/generate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Recipe generation failed: ${res.status} - ${txt}`);
+  }
+  return res.json();
+}
+
+export async function cookRecipe(
+  payload: CookRecipeRequest,
+): Promise<MealEntrySummary> {
+  const res = await authFetch("/recipe/cook", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Recipe cook failed: ${res.status} - ${txt}`);
   }
   return res.json();
 }

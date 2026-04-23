@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { DietType } from '../types';
 
+export type PlannerMode = "plan_ahead" | "cook_now";
+
 interface PreferencesState {
   // Form Values
   days: number;
@@ -11,6 +13,8 @@ interface PreferencesState {
   tastePreferences: string;
   avoidIngredients: string;
   stockOnly: boolean;
+  // Active tab in the planner; persisted so reloads land on the same mode.
+  mode: PlannerMode;
 
   // Actions
   setDays: (days: number) => void;
@@ -20,6 +24,7 @@ interface PreferencesState {
   setTastePreferences: (tastes: string) => void;
   setAvoidIngredients: (avoids: string) => void;
   setStockOnly: (stockOnly: boolean) => void;
+  setMode: (mode: PlannerMode) => void;
   reset: () => void;
 }
 
@@ -31,6 +36,7 @@ export const DEFAULT_PREFERENCES = {
   tastePreferences: "Mediterranean, Italian, light",
   avoidIngredients: "",
   stockOnly: false,
+  mode: "plan_ahead" as PlannerMode,
 };
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -45,6 +51,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setTastePreferences: (tastePreferences) => set({ tastePreferences }),
       setAvoidIngredients: (avoidIngredients) => set({ avoidIngredients }),
       setStockOnly: (stockOnly) => set({ stockOnly }),
+      setMode: (mode) => set({ mode }),
       reset: () => set({ ...DEFAULT_PREFERENCES }),
     }),
     {

@@ -13,6 +13,7 @@ from app.api.demo import router as demo_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
 from app.api.plan import router as plan_router
+from app.api.recipe import router as recipe_router
 from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.country_whitelist import SUPPORTED_COUNTRIES
@@ -146,6 +147,7 @@ app.include_router(fridge_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(demo_router, prefix="/api")
+app.include_router(recipe_router, prefix="/api")
 
 # pro lokální vývoj:
 # uvicorn app.main:app --reload

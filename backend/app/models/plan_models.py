@@ -264,6 +264,73 @@ class NormalizationResponse(BaseModel):
     items: list[NormalizedName]
 
 
+class SingleRecipeRequest(BaseModel):
+    """Cook Now: generate one recipe the user is about to make right now.
+
+    Distinct from MealPlanRequest because it deliberately has no multi-day
+    semantics, no shopping list, and a required user-chosen meal_type. The
+    `note` field is a free-text hint ("pasta-based", "use up the cilantro")
+    that gets templated into the LLM prompt as taste preference.
+    """
+
+    meal_type: MealType
+    diet_type: Literal[
+        "balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food"
+    ] | None = None
+    people_count: int = Field(ge=1, le=10, default=2)
+    taste_preferences: list[str] = Field(default_factory=list, max_length=20)
+    avoid_ingredients: list[str] = Field(default_factory=list, max_length=50)
+    ingredients_to_use: list[str] = Field(default_factory=list, max_length=20)
+    stock_only: bool = False
+    note: str | None = Field(default=None, max_length=200)
+
+    @field_validator(
+        "taste_preferences",
+        "avoid_ingredients",
+        "ingredients_to_use",
+        mode="before",
+    )
+    @classmethod
+    def sanitize_input(cls, v):
+        # Same unicode-aware whitelist as MealPlanRequest. Duplicated rather
+        # than imported to keep model-layer cross-references minimal.
+        if not v:
+            return []
+        cleaned: list[str] = []
+        for item in v:
+            if not isinstance(item, str):
+                continue
+            if len(item) > 50:
+                continue
+            clean = re.sub(r"[^\w\s\-,.]", "", item, flags=re.UNICODE).strip()
+            if clean:
+                cleaned.append(clean)
+        return cleaned[:20]
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def sanitize_note(cls, v):
+        if v is None or not isinstance(v, str):
+            return None
+        clean = re.sub(r"[^\w\s\-,.!?()'\"/]", "", v, flags=re.UNICODE).strip()
+        return clean or None
+
+
+class SingleRecipeResponse(BaseModel):
+    """Result of POST /api/recipe/generate — a single PlannedMeal."""
+    recipe: PlannedMeal
+
+
+class CookRecipeRequest(SingleRecipeRequest):
+    """Submit a previously-generated recipe for persistence + fridge debit.
+
+    Extends SingleRecipeRequest (same user-supplied context) with the
+    PlannedMeal the server returned, so the cook endpoint doesn't re-invoke
+    the LLM — it just persists + debits + marks cooked.
+    """
+    recipe: PlannedMeal
+
+
 class MealHistoryItem(BaseModel):
         meal_entry_id: int
         meal_plan_id: int

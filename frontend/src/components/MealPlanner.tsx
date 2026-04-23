@@ -4,6 +4,7 @@ import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, use
 import { StarRating } from "./StarRating";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
+import { CookNowForm } from "./CookNowForm";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { mealTypeLabel, type MealType } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType } from "../types";
@@ -95,7 +96,13 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
     tastePreferences, setTastePreferences,
     avoidIngredients, setAvoidIngredients,
     stockOnly, setStockOnly,
+    mode, setMode,
   } = usePreferencesStore();
+
+  // When the user opens an existing plan (initialPlan passed in), force the
+  // Plan Ahead tab so the rendered plan view is visible — a Cook Now tab
+  // wouldn't render the opened plan at all.
+  const effectiveMode = initialPlan != null ? "plan_ahead" : mode;
 
   // Keep dayLayouts aligned with (days, userDefaultLayout) while per-day
   // customization is on. Uses the "adjust state while rendering" pattern
@@ -257,6 +264,52 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
     <section style={{ marginBottom: "2rem", borderTop: "2px solid #eee", paddingTop: "2rem" }}>
       <h2>Meal Planner</h2>
 
+      {initialPlan == null && (
+        <div role="tablist" style={{ display: "flex", gap: "0.25rem", marginBottom: "1rem", borderBottom: "2px solid #e5e7eb" }}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveMode === "cook_now"}
+            onClick={() => setMode("cook_now")}
+            style={{
+              padding: "0.5rem 1.25rem",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "1rem",
+              fontWeight: effectiveMode === "cook_now" ? 600 : 400,
+              borderBottom: effectiveMode === "cook_now" ? "2px solid #2563eb" : "2px solid transparent",
+              marginBottom: "-2px",
+              color: effectiveMode === "cook_now" ? "#2563eb" : "#4b5563",
+            }}
+          >
+            Cook Now
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveMode === "plan_ahead"}
+            onClick={() => setMode("plan_ahead")}
+            style={{
+              padding: "0.5rem 1.25rem",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "1rem",
+              fontWeight: effectiveMode === "plan_ahead" ? 600 : 400,
+              borderBottom: effectiveMode === "plan_ahead" ? "2px solid #2563eb" : "2px solid transparent",
+              marginBottom: "-2px",
+              color: effectiveMode === "plan_ahead" ? "#2563eb" : "#4b5563",
+            }}
+          >
+            Plan Ahead
+          </button>
+        </div>
+      )}
+
+      {effectiveMode === "cook_now" && <CookNowForm />}
+
+      {effectiveMode === "plan_ahead" && (<>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
         <label>
           Days to plan:
@@ -565,6 +618,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
           )}
         </div>
       )}
+      </>)}
     </section>
   );
 }

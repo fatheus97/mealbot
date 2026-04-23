@@ -101,6 +101,26 @@ export interface MealEntrySummary {
   rating: number | null;
 }
 
+// Phase 4: Cook Now request/response
+export interface SingleRecipeRequest {
+  meal_type: MealType;
+  diet_type: DietType | null;
+  people_count: number;
+  taste_preferences: string[];
+  avoid_ingredients: string[];
+  ingredients_to_use: string[];
+  stock_only: boolean;
+  note: string | null;
+}
+
+export interface CookRecipeRequest extends SingleRecipeRequest {
+  recipe: PlannedMeal;
+}
+
+export interface SingleRecipeResponse {
+  recipe: PlannedMeal;
+}
+
 export type ScannedItemType = "ingredient" | "ready_to_eat";
 
 export interface StockItem {

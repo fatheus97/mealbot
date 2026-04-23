@@ -81,6 +81,16 @@ class MealPlan(SQLModel, table=True):
     meals_per_day: int
     people_count: int
 
+    # "planned" = the classic multi-day plan flow; "cook_now" = a one-shot
+    # single-recipe cook (Phase 4). Kept as a plain str (not an enum column)
+    # because future kinds are plausible and loose str avoids a migration
+    # round-trip. The value is validated at the API layer.
+    kind: str = Field(
+        default="planned",
+        sa_column_kwargs={"server_default": "planned"},
+        nullable=False,
+    )
+
     # For simplicity, we persist the raw request/response as JSON blobs.
     request_json: str  # store MealPlanRequest.model_dump_json()
     response_json: str  # store MealPlanResponse.model_dump_json()
