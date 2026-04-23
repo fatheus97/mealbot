@@ -137,7 +137,10 @@ class TestGeneratePartialDay:
                 slots_to_generate=["dinner"],
             )
 
-        assert result.meals[0].meal_type == "breakfast"
+        # "breakfast" is legacy and gets mapped to the new taxonomy's
+        # savory_breakfast by the PlannedMeal pre-validator — still a mismatch
+        # against the requested "dinner" slot, which is what this test exercises.
+        assert result.meals[0].meal_type == "savory_breakfast"
         assert "expected" in caplog.text.lower() or len(caplog.records) > 0
 
 

@@ -80,8 +80,10 @@ async def generate_partial_day(
         mock=mock,
     )
 
-    # Validate that returned meals match requested slots
-    returned_types = [m.meal_type for m in response.meals]
+    # Validate that returned meals match requested slots. ``.value`` gives the
+    # raw enum string so the comparison is str-vs-str regardless of how the
+    # caller supplied the slots.
+    returned_types = [m.meal_type.value for m in response.meals]
     if sorted(returned_types) != sorted(slots_to_generate):
         logger.warning(
             "LLM returned meal_types %s but expected %s — using response as-is",

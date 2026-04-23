@@ -250,14 +250,42 @@ class TestMealPlanResponseSerialization:
     def test_meal_type_label_roundtrip(self):
         meal = PlannedMeal(
             name="Snídaně s ovocem",
-            meal_type="breakfast",
-            meal_type_label="Snídaně",
+            meal_type="sweet_breakfast",
+            meal_type_label="Sladká snídaně",
             ingredients=[IngredientAmount(name="ovesné mléko", quantity_grams=500)],
             steps=["Připravte mléko"],
         )
         restored = PlannedMeal.model_validate_json(meal.model_dump_json())
-        assert restored.meal_type == "breakfast"
-        assert restored.meal_type_label == "Snídaně"
+        assert restored.meal_type == "sweet_breakfast"
+        assert restored.meal_type_label == "Sladká snídaně"
+
+    def test_legacy_meal_type_translated_on_deserialization(self):
+        """DB rows from before the taxonomy split store 'breakfast'/'lunch'/
+        'dinner'/'snack'. The pre-validator must map them onto the new enum so
+        RAG retrieval and history queries keep working."""
+        legacy_cases = [
+            ("breakfast", "savory_breakfast"),
+            ("lunch", "light_lunch"),
+            ("dinner", "hot_dinner"),
+            ("snack", "snack"),
+        ]
+        for legacy, expected in legacy_cases:
+            legacy_json = (
+                f'{{"name":"Old","meal_type":"{legacy}","meal_type_label":"X",'
+                '"ingredients":[{"name":"rice","quantity_grams":200,"is_spice":false}],'
+                '"steps":["Cook"]}'
+            )
+            meal = PlannedMeal.model_validate_json(legacy_json)
+            assert meal.meal_type == expected, f"{legacy!r} did not translate to {expected!r}"
+
+    def test_unknown_meal_type_rejected(self):
+        with pytest.raises(ValidationError):
+            PlannedMeal(
+                name="Nonsense",
+                meal_type="elevenses",  # type: ignore[arg-type]
+                ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                steps=["Cook"],
+            )
 
 
 class TestPlannedMealTotalTime:

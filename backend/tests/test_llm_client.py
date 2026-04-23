@@ -104,9 +104,12 @@ class TestMockMode:
         result = client._mock_response(SingleDayResponse)
 
         assert isinstance(result, SingleDayResponse)
-        assert len(result.meals) == 3  # default: breakfast/lunch/dinner
+        assert len(result.meals) == 3  # default: breakfast/lunch/dinner (legacy mock)
+        # Mock returns legacy values which the pre-validator translates onto
+        # the new taxonomy. We assert on the translated values so this test
+        # stays green regardless of whether the mock itself gets rewritten.
         meal_types = {m.meal_type for m in result.meals}
-        assert meal_types == {"breakfast", "lunch", "dinner"}
+        assert meal_types == {"savory_breakfast", "light_lunch", "hot_dinner"}
 
     @patch("app.llm.client.settings")
     async def test_chat_json_returns_mock_when_enabled(self, mock_settings: MagicMock) -> None:

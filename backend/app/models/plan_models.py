@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
+
 
 class StockItemDTO(BaseModel):
     name: str
@@ -136,7 +138,7 @@ class ConsumedBatch(BaseModel):
 
 class PlannedMeal(BaseModel):
     name: str
-    meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
+    meal_type: MealType
     meal_type_label: str = ""
     ingredients: list[IngredientAmount]
     steps: list[str]
@@ -148,6 +150,15 @@ class PlannedMeal(BaseModel):
         le=600,
         description="Total time from prep start to finish, including cook and rest, in minutes.",
     )
+
+    @field_validator("meal_type", mode="before")
+    @classmethod
+    def translate_legacy_meal_type(cls, v: object) -> object:
+        # Pre-taxonomy meal_json rows stored "breakfast"/"lunch"/"dinner"/"snack".
+        # Map them onto the new enum so DB reads (RAG, history) still deserialize.
+        if isinstance(v, str) and v in LEGACY_MEAL_TYPE_MAP:
+            return LEGACY_MEAL_TYPE_MAP[v].value
+        return v
 
 
 class SingleDayResponse(BaseModel):

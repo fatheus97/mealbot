@@ -309,8 +309,11 @@ async def regenerate_plan(
         remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, frozen_only)
         past_meals.extend(m.name for m in frozen_only)
 
-        # Determine which meal_type slots to regenerate
-        slots_to_generate: list[str] = [day.meals[i].meal_type for i in unfrozen_indices]
+        # Determine which meal_type slots to regenerate.
+        # ``.value`` unwraps the MealType enum to its plain string form — both
+        # the prompt template and the downstream equality check expect raw
+        # enum values, not Enum.__str__ output ("MealType.SNACK").
+        slots_to_generate: list[str] = [day.meals[i].meal_type.value for i in unfrozen_indices]
 
         # Capture the meals we're about to replace. Feeding their names to the
         # prompt — both in a dedicated "rejected" block and in past_meals —

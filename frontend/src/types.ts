@@ -1,5 +1,9 @@
 // src/types.ts
 
+import type { MealType } from "./constants/mealTypes";
+
+export type { MealType } from "./constants/mealTypes";
+
 export type MeasurementSystem = "none" | "imperial" | "metric";
 export type Variability = "traditional" | "experimental";
 export type DietType = "balanced" | "high_protein" | "low_carb" | "vegetarian" | "vegan" | "baby_food";
@@ -24,7 +28,10 @@ export interface MealPlanRequest {
 
 export interface PlannedMeal {
   name: string;
-  meal_type: "breakfast" | "lunch" | "dinner" | "snack" | string;
+  // Server returns the strict MealType enum on freshly-generated meals, but
+  // historical rows may carry legacy values ("breakfast" etc.) — keep the
+  // string fallback so old plans still render.
+  meal_type: MealType | string;
   meal_type_label?: string;
   uses_existing_ingredients: string[];
   ingredients: IngredientAmount[];

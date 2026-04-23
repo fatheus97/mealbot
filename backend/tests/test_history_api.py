@@ -23,7 +23,7 @@ class TestMealHistory:
             meals=[
                 PlannedMeal(
                     name="History Meal",
-                    meal_type="lunch",
+                    meal_type="light_lunch",
                     ingredients=[
                         IngredientAmount(name="chicken", quantity_grams=300),
                     ],
@@ -46,6 +46,6 @@ class TestMealHistory:
         history = hist_resp.json()
         assert len(history) == 1
         assert history[0]["name"] == "History Meal"
-        assert history[0]["meal_type"] == "lunch"
+        assert history[0]["meal_type"] == "light_lunch"
         assert "meal_entry_id" in history[0]
         assert "meal_plan_id" in history[0]

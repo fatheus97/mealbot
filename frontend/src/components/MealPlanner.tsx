@@ -4,6 +4,7 @@ import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, use
 import { StarRating } from "./StarRating";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { usePreferencesStore } from "../store/usePreferencesStore";
+import { mealTypeLabel } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType } from "../types";
 
 interface MealPlannerProps {
@@ -364,7 +365,7 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
                            {isCooked ? "Cooked" : "Not cooked"}
                          </span>
                        )}
-                       <strong>{(meal.meal_type_label || meal.meal_type).toUpperCase()}:</strong> {meal.name}
+                       <strong>{mealTypeLabel(meal.meal_type, meal.meal_type_label).toUpperCase()}:</strong> {meal.name}
                        {meal.total_time_minutes != null && (
                          <span
                            style={{ marginLeft: "0.5rem", fontSize: "0.85em", color: "#666" }}
