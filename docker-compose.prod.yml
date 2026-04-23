@@ -22,7 +22,10 @@ services:
     restart: unless-stopped
 
   caddy:
-    image: caddy:2-alpine
+    # Pinned to 2.8.4 + digest. `caddy:2-alpine` let the major tag float
+    # and could roll to a new minor without a review. Digest pin makes
+    # rebuilds reproducible across the Hetzner box and local/CI.
+    image: caddy:2.8.4-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
     ports:
       - "80:80"
       - "443:443"

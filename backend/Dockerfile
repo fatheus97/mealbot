@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1.10
-FROM python:3.11.12-slim
+# Digest pinned so the exact same layer contents are built every time —
+# tag mutability (even rare on official images) can't invalidate a
+# reproducible build. To bump, `docker pull python:<new-tag>` and copy
+# the digest from `docker image inspect --format '{{index .RepoDigests 0}}'`.
+FROM python:3.11.12-slim@sha256:dbf1de478a55d6763afaa39c2f3d7b54b25230614980276de5cacdde79529d0c
 
 WORKDIR /app
 
