@@ -48,7 +48,7 @@ async def _get_entry_id(
 
 
 class TestRateMeal:
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_rate_meal_happy_path(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -70,7 +70,7 @@ class TestRateMeal:
         assert body["rating"] == 4
         assert body["cooked_at"] is not None
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_rate_auto_cooks_uncooked_meal(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -88,7 +88,7 @@ class TestRateMeal:
         assert body["rating"] == 5
         assert body["cooked_at"] is not None
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_rate_already_cooked_preserves_cooked_at(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -109,7 +109,7 @@ class TestRateMeal:
         )
         assert rate_resp.json()["cooked_at"] == original_cooked_at
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_rate_can_be_changed(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -130,7 +130,7 @@ class TestRateMeal:
         assert resp.status_code == 200
         assert resp.json()["rating"] == 5
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_rate_invalid_below_range(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -144,7 +144,7 @@ class TestRateMeal:
         )
         assert resp.status_code == 422
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_rate_invalid_above_range(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -158,7 +158,7 @@ class TestRateMeal:
         )
         assert resp.status_code == 422
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_rate_finished_plan_rejected(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -185,7 +185,7 @@ class TestRateMeal:
         )
         assert resp.status_code == 404
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_uncook_clears_rating(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
@@ -208,7 +208,7 @@ class TestRateMeal:
         assert body["rating"] is None
         assert body["cooked_at"] is None
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_list_meals_includes_rating(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):

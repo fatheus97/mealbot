@@ -99,9 +99,9 @@ class TestFilterRelevant:
 
 
 class TestPlanEndpointRagIntegration:
-    @patch("app.api.plan.generate_single_day_with_rag", new_callable=AsyncMock)
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
-    @patch("app.api.plan.settings")
+    @patch("app.services.plan_service.generate_single_day_with_rag", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.settings")
     async def test_uses_rag_when_enabled_and_sufficient(
         self,
         mock_settings: MagicMock,
@@ -131,9 +131,9 @@ class TestPlanEndpointRagIntegration:
         mock_rag.assert_awaited()
         mock_standard.assert_not_awaited()
 
-    @patch("app.api.plan.generate_single_day_with_rag", new_callable=AsyncMock)
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
-    @patch("app.api.plan.settings")
+    @patch("app.services.plan_service.generate_single_day_with_rag", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.settings")
     async def test_falls_back_when_rag_returns_none(
         self,
         mock_settings: MagicMock,
@@ -163,8 +163,8 @@ class TestPlanEndpointRagIntegration:
         mock_rag.assert_awaited()
         mock_standard.assert_awaited()
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
-    @patch("app.api.plan.settings")
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.settings")
     async def test_skips_rag_when_disabled(
         self,
         mock_settings: MagicMock,

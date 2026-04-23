@@ -162,8 +162,11 @@ class TestFIFOSubtraction:
         self, client: AsyncClient, auth_headers: dict, test_user, db_session
     ):
         """FIFO: subtracting should consume from earliest-expiring batch first."""
-        from app.services.fridge_service import replace_fridge_items, subtract_ingredients_from_fridge
         from app.models.plan_models import IngredientAmount, StockItemDTO
+        from app.services.fridge_service import (
+            replace_fridge_items,
+            subtract_ingredients_from_fridge,
+        )
 
         assert test_user.id is not None
         user_id = test_user.id
@@ -189,8 +192,11 @@ class TestFIFOSubtraction:
         self, client: AsyncClient, auth_headers: dict, test_user, db_session
     ):
         """FIFO: when first batch is exhausted, overflow to next batch."""
-        from app.services.fridge_service import replace_fridge_items, subtract_ingredients_from_fridge
         from app.models.plan_models import IngredientAmount, StockItemDTO
+        from app.services.fridge_service import (
+            replace_fridge_items,
+            subtract_ingredients_from_fridge,
+        )
 
         assert test_user.id is not None
         user_id = test_user.id
@@ -213,8 +219,11 @@ class TestFIFOSubtraction:
         self, client: AsyncClient, auth_headers: dict, test_user, db_session
     ):
         """FIFO: same expiration date → smaller batch consumed first."""
-        from app.services.fridge_service import replace_fridge_items, subtract_ingredients_from_fridge
         from app.models.plan_models import IngredientAmount, StockItemDTO
+        from app.services.fridge_service import (
+            replace_fridge_items,
+            subtract_ingredients_from_fridge,
+        )
 
         assert test_user.id is not None
         user_id = test_user.id
@@ -238,8 +247,11 @@ class TestFIFOSubtraction:
         self, client: AsyncClient, auth_headers: dict, test_user, db_session
     ):
         """FIFO: partial deduction from same-date batches takes from smaller batch."""
-        from app.services.fridge_service import replace_fridge_items, subtract_ingredients_from_fridge
         from app.models.plan_models import IngredientAmount, StockItemDTO
+        from app.services.fridge_service import (
+            replace_fridge_items,
+            subtract_ingredients_from_fridge,
+        )
 
         assert test_user.id is not None
         user_id = test_user.id

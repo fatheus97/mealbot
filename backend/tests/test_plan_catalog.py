@@ -38,7 +38,7 @@ async def _create_plan(
 ) -> dict:
     """Helper: generate a plan and return the response body."""
     with patch(
-        "app.api.plan.generate_single_day",
+        "app.services.plan_service.generate_single_day",
         new_callable=AsyncMock,
         return_value=_fake_day(meals_per_day),
     ):
@@ -153,7 +153,7 @@ class TestListPlans:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_list_plans_returns_summary(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):

@@ -15,7 +15,7 @@ class TestMealHistory:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_history_after_confirm(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):

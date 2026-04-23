@@ -28,7 +28,7 @@ def _fake_day() -> SingleDayResponse:
 
 
 class TestPlanGeneration:
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_generate_one_day(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
@@ -48,7 +48,7 @@ class TestPlanGeneration:
         assert result.plan_id is not None
         mock_gen.assert_awaited_once()
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_multi_day_calls_per_day(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
@@ -66,7 +66,7 @@ class TestPlanGeneration:
 
 
 class TestPlanConfirm:
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_confirm_decrements_fridge(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
@@ -94,7 +94,7 @@ class TestPlanConfirm:
         by_name = {x["name"]: x for x in fridge}
         assert by_name["chicken breast"]["quantity_grams"] == 300.0
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_confirm_idempotent(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
@@ -144,7 +144,7 @@ class TestPlanConfirm:
 
 class TestPlanRegenerate:
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_frozen_meals_unchanged(
         self,
         mock_gen: AsyncMock,
@@ -201,7 +201,7 @@ class TestPlanRegenerate:
         assert body["days"][0]["meals"][1]["name"] == "New Dinner"
 
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_regenerate_passes_replaced_meals(
         self,
         mock_gen: AsyncMock,
@@ -273,7 +273,7 @@ class TestPlanRegenerate:
         assert "Original Lunch" in day_req.past_meals
         assert "Original Dinner" in day_req.past_meals
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_regenerate_confirmed_plan_rejected(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
@@ -297,7 +297,7 @@ class TestPlanRegenerate:
         assert regen_resp.status_code == 409
 
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_regenerate_normalizes_legacy_injected_language(
         self,
         mock_gen: AsyncMock,
@@ -350,7 +350,7 @@ class TestPlanRegenerate:
         assert req_arg.language == "English"
 
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_regenerate_normalizes_legacy_injected_country(
         self,
         mock_gen: AsyncMock,
@@ -415,7 +415,7 @@ def _fake_day_with_non_stock_ingredient() -> SingleDayResponse:
 
 
 class TestStockOnlyPlan:
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_stock_only_empties_shopping_list(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
@@ -438,7 +438,7 @@ class TestStockOnlyPlan:
         body = resp.json()
         assert body["shopping_list"] == []
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_stock_only_logs_warning_on_hallucinated_ingredients(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, caplog
     ):
@@ -461,7 +461,7 @@ class TestStockOnlyPlan:
         assert resp.status_code == 200
         assert any("stock_only" in r.message for r in caplog.records)
 
-    @patch("app.api.plan.generate_single_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_stock_only_false_keeps_shopping_list(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
