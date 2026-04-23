@@ -165,6 +165,57 @@ class TestMealPlanRequestSanitization:
             MealPlanRequest(meals_per_day=3, people_count=11)
 
 
+class TestMealPlanRequestDayLayouts:
+    def test_day_layouts_accepts_valid_nested_list(self):
+        req = MealPlanRequest(
+            meals_per_day=3,
+            people_count=2,
+            day_layouts=[
+                ["sweet_breakfast", "snack", "main_course"],  # type: ignore[list-item]
+                ["savory_breakfast", "soup", "hot_dinner"],  # type: ignore[list-item]
+            ],
+        )
+        assert req.day_layouts is not None
+        assert len(req.day_layouts) == 2
+        assert req.day_layouts[0][0] == "sweet_breakfast"
+
+    def test_day_layouts_default_is_none(self):
+        req = MealPlanRequest(meals_per_day=3, people_count=2)
+        assert req.day_layouts is None
+
+    def test_day_layouts_rejects_unknown_meal_type(self):
+        with pytest.raises(ValidationError):
+            MealPlanRequest(
+                meals_per_day=3,
+                people_count=2,
+                day_layouts=[["elevenses"]],  # type: ignore[list-item]
+            )
+
+    def test_day_layouts_rejects_empty_inner_list(self):
+        with pytest.raises(ValidationError, match="between 1 and 8"):
+            MealPlanRequest(
+                meals_per_day=3,
+                people_count=2,
+                day_layouts=[[]],
+            )
+
+    def test_day_layouts_rejects_too_many_slots(self):
+        with pytest.raises(ValidationError, match="between 1 and 8"):
+            MealPlanRequest(
+                meals_per_day=3,
+                people_count=2,
+                day_layouts=[["snack"] * 9],  # type: ignore[list-item]
+            )
+
+    def test_day_layouts_rejects_more_than_7_days(self):
+        with pytest.raises(ValidationError):
+            MealPlanRequest(
+                meals_per_day=3,
+                people_count=2,
+                day_layouts=[["snack"]] * 8,  # type: ignore[list-item]
+            )
+
+
 class TestFrozenMeal:
     def test_valid_frozen_meal(self):
         fm = FrozenMeal(day_index=0, meal_index=0)

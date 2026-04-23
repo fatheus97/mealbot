@@ -157,21 +157,40 @@ async def generate_plan_days(
     past_meals: list[str] = list(payload.past_meals)
     meal_plan: list[SingleDayResponse] = []
 
+    # Resolve the per-day layout with the same precedence everywhere the plan
+    # flow is rendered:
+    #   1. payload.day_layouts[i]  (explicit per-day override from the form)
+    #   2. user.default_day_layout (saved preference)
+    #   3. None                    (legacy meals_per_day path — LLM picks slots)
+    request_layouts = payload.day_layouts or []
+    user_default: list[str] | None = list(user.default_day_layout) if user.default_day_layout else None
+
+    def _resolve_layout(i: int) -> list[str] | None:
+        if i < len(request_layouts):
+            return [slot.value for slot in request_layouts[i]]
+        return user_default
+
     for day_index in range(1, days + 1):
         day_req = payload.model_copy()
         day_req.stock_items = remaining_ingredients
         day_req.past_meals = past_meals
+
+        slot_layout = _resolve_layout(day_index - 1)
 
         try:
             single_day: SingleDayResponse | None = None
             if settings.use_rag:
                 single_day = await generate_single_day_with_rag(
                     day_req, session, user.id, mock=user.is_demo,
+                    slot_layout=slot_layout,
                 )
                 if single_day:
                     logger.info("Day %d: used RAG pipeline", day_index)
             if single_day is None:
-                single_day = await generate_single_day(day_req, day_index=day_index, mock=user.is_demo)
+                single_day = await generate_single_day(
+                    day_req, day_index=day_index, mock=user.is_demo,
+                    slot_layout=slot_layout,
+                )
         except HTTPException:
             raise
         except Exception as exc:

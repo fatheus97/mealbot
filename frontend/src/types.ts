@@ -24,6 +24,9 @@ export interface MealPlanRequest {
   people_count: number;
   past_meals: string[];
   stock_only?: boolean;
+  // Phase 3+: per-day slot override. Outer length must equal `days` query
+  // param. Null/undefined = fall back to user.default_day_layout → meals_per_day.
+  day_layouts?: MealType[][] | null;
 }
 
 export interface PlannedMeal {

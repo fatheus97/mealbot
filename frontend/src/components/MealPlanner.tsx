@@ -1,11 +1,28 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal, useFridge } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
 import { StarRating } from "./StarRating";
 import { IngredientChipInput } from "./IngredientChipInput";
+import { DayLayoutEditor } from "./DayLayoutEditor";
 import { usePreferencesStore } from "../store/usePreferencesStore";
-import { mealTypeLabel } from "../constants/mealTypes";
+import { mealTypeLabel, type MealType } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType } from "../types";
+
+// Fallback seed for a single day when the user has no saved default layout.
+// main_course is the least opinionated single-meal day; the editor lets the
+// user add slots from there.
+const FALLBACK_DAY: MealType[] = ["main_course"];
+
+function resizeLayouts(
+  current: MealType[][],
+  targetLen: number,
+  seed: MealType[],
+): MealType[][] {
+  if (current.length === targetLen) return current;
+  if (current.length > targetLen) return current.slice(0, targetLen);
+  const extra = Array.from({ length: targetLen - current.length }, () => [...seed]);
+  return [...current, ...extra];
+}
 
 interface MealPlannerProps {
   initialPlan?: MealPlanResponse | null;
@@ -46,10 +63,25 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
   }, [initialPlan]);
 
   const { data: fridgeItems } = useFridge(userId);
+  const { data: profile } = useUserProfile(userId);
   const fridgeSuggestions = useMemo(
     () => (Array.isArray(fridgeItems) ? fridgeItems.map((i) => i.name) : []),
     [fridgeItems],
   );
+  const userDefaultLayout: MealType[] = useMemo(
+    () => (profile?.default_day_layout && profile.default_day_layout.length > 0
+      ? profile.default_day_layout
+      : FALLBACK_DAY),
+    [profile],
+  );
+
+  // Per-day customization: off by default so the existing meals_per_day path
+  // stays intact for users who haven't opted in. When toggled on, each day is
+  // seeded from the user's default_day_layout (or the single-main_course
+  // fallback if they haven't set one).
+  const [customizeDays, setCustomizeDays] = useState(false);
+  const [dayLayouts, setDayLayouts] = useState<MealType[][]>([]);
+  const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([0]));
 
   const planId = currentPlan?.plan_id ?? null;
   const { data: mealEntries } = useMealEntries(isConfirmed ? planId : null);
@@ -64,6 +96,36 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
     avoidIngredients, setAvoidIngredients,
     stockOnly, setStockOnly,
   } = usePreferencesStore();
+
+  // Keep dayLayouts aligned with the selected number of days whenever
+  // per-day customization is on. Uses the "adjust state while rendering"
+  // pattern (same as DayLayoutEditor) so eslint's set-state-in-effect rule
+  // stays happy and we avoid an extra commit per resize.
+  const [syncedDays, setSyncedDays] = useState(days);
+  const [syncedCustomize, setSyncedCustomize] = useState(customizeDays);
+  if (customizeDays && (syncedDays !== days || !syncedCustomize)) {
+    setSyncedDays(days);
+    setSyncedCustomize(true);
+    setDayLayouts((prev) => resizeLayouts(prev, days, userDefaultLayout));
+  } else if (!customizeDays && syncedCustomize) {
+    setSyncedCustomize(false);
+  }
+
+  const setDayLayoutAt = useCallback((idx: number, next: MealType[]) => {
+    setDayLayouts((prev) => {
+      const arr = [...prev];
+      arr[idx] = next;
+      return arr;
+    });
+  }, []);
+
+  const toggleDayExpanded = useCallback((idx: number) => {
+    setExpandedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  }, []);
 
   const toggleFreeze = useCallback((dayIdx: number, mealIdx: number) => {
     const key = `${dayIdx}-${mealIdx}`;
@@ -95,6 +157,12 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
       people_count: peopleCount,
       past_meals: [],
       stock_only: stockOnly,
+      // Only send day_layouts when the user has opted into per-day
+      // customization — otherwise backend falls back to user.default_day_layout
+      // or the legacy meals_per_day path.
+      day_layouts: customizeDays
+        ? resizeLayouts(dayLayouts, days, userDefaultLayout)
+        : null,
     };
 
     setCurrentPlan(null);
@@ -237,6 +305,69 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
             placeholder="Type an ingredient and press Enter (fridge items auto-suggest)"
           />
         </label>
+
+        <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={customizeDays}
+            onChange={(e) => setCustomizeDays(e.target.checked)}
+          />
+          Customize meal types per day
+          <span style={{ fontSize: "0.8rem", color: "#666", marginLeft: "auto" }}>
+            Off: uses "Meals per day" count · On: overrides per day
+          </span>
+        </label>
+
+        {customizeDays && (
+          <div style={{ gridColumn: "span 2", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {Array.from({ length: days }).map((_, dayIdx) => {
+              const layout = dayLayouts[dayIdx] ?? userDefaultLayout;
+              const expanded = expandedDays.has(dayIdx);
+              return (
+                <div
+                  key={dayIdx}
+                  style={{
+                    border: "1px solid #ddd",
+                    borderRadius: "6px",
+                    padding: "0.5rem 0.75rem",
+                    backgroundColor: "#fcfcfc",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleDayExpanded(dayIdx)}
+                    aria-expanded={expanded}
+                    style={{
+                      display: "flex",
+                      width: "100%",
+                      alignItems: "center",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontSize: "0.95rem",
+                    }}
+                  >
+                    <span style={{ marginRight: "0.4rem" }}>{expanded ? "▼" : "▶"}</span>
+                    <strong>Day {dayIdx + 1}</strong>
+                    <span style={{ marginLeft: "0.75rem", color: "#666", fontSize: "0.85rem" }}>
+                      {layout.map((mt) => mealTypeLabel(mt)).join(" · ")}
+                    </span>
+                  </button>
+                  {expanded && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <DayLayoutEditor
+                        value={layout}
+                        onChange={(next) => setDayLayoutAt(dayIdx, next)}
+                        ariaLabel={`Day ${dayIdx + 1} layout`}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <button onClick={handleGenerate} disabled={generatePlanMutation.isPending} style={{ padding: "0.5rem 2rem", fontSize: "1.1rem" }}>

@@ -130,8 +130,17 @@ Other rules:
 — List all is_spice=true ingredients AFTER all is_spice=false ingredients in the array.
 — In steps, prefer 'spoon'/'teaspoon'/'splash' over grams for is_spice=true items.
 {% endif %}
+{% if slot_layout %}
+— Create a realistic plan for exactly one day with EXACTLY {{ slot_layout | length }} meals
+    for exactly {{ people_count }} people, in this order — you MUST emit the meal_type values below verbatim:
+{% for slot in slot_layout %}    {{ loop.index }}. {{ slot }}
+{% endfor %}
+— Do NOT substitute, reorder, add, or drop meal_type slots. The output `meal_type`
+  field for meal N MUST equal the value listed at position N above.
+{% else %}
 — Create a realistic plan for exactly one day with {{ meals_per_day }} meals
     for exactly {{ people_count }} people.
+{% endif %}
 — All ingredient amounts in grams as numeric "quantity_grams". No units in name or quantity.
 — Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
 — "total_time_minutes" is an integer: the total time from starting prep to finishing cooking, including prep, active cooking, and any resting/baking/marinating time. Give a realistic estimate for a home cook; must be between 1 and 600.

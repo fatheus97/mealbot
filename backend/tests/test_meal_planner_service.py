@@ -142,6 +142,58 @@ class TestGeneratePartialDay:
         assert "expected" in caplog.text.lower() or len(caplog.records) > 0
 
     @patch("app.services.meal_planner.llm_client")
+    async def test_single_day_slot_layout_rendered_in_prompt(
+        self, mock_llm: MagicMock,
+    ):
+        """When a slot_layout is supplied, the prompt must list the exact
+        meal_types in order so the LLM can't freelance the day structure."""
+        mock_llm.chat_json = AsyncMock(
+            return_value=_make_single_day_response("Soup", MealType.SOUP),
+        )
+
+        layout = [MealType.SWEET_BREAKFAST.value, MealType.SNACK.value, MealType.SOUP.value]
+        await generate_single_day(
+            _make_request(), day_index=1, slot_layout=layout,
+        )
+
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "EXACTLY 3 meals" in prompt
+        assert "1. sweet_breakfast" in prompt
+        assert "2. snack" in prompt
+        assert "3. soup" in prompt
+        assert "MUST emit the meal_type values below verbatim" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_single_day_no_slot_layout_keeps_legacy_prompt(
+        self, mock_llm: MagicMock,
+    ):
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        await generate_single_day(_make_request(meals_per_day=4), day_index=1)
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "exactly one day with 4 meals" in prompt
+        assert "MUST emit the meal_type values below verbatim" not in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_single_day_logs_warning_on_layout_mismatch(
+        self, mock_llm: MagicMock, caplog,
+    ):
+        # LLM returns snack where the layout asked for soup → warn, don't raise.
+        mock_llm.chat_json = AsyncMock(
+            return_value=_make_single_day_response("Oops", MealType.SNACK),
+        )
+
+        import logging
+        with caplog.at_level(logging.WARNING, logger="app.services.meal_planner"):
+            result = await generate_single_day(
+                _make_request(),
+                day_index=2,
+                slot_layout=[MealType.SOUP.value],
+            )
+
+        assert result.meals[0].meal_type == MealType.SNACK
+        assert any("layout requested" in r.getMessage() for r in caplog.records)
+
+    @patch("app.services.meal_planner.llm_client")
     async def test_legacy_meal_type_string_translated_in_partial_day(
         self, mock_llm: MagicMock,
     ):

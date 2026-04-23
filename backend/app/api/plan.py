@@ -177,6 +177,15 @@ async def plan_meals_for_user(
 
     payload.include_spices = bool(current_user.include_spices)
 
+    if payload.day_layouts is not None and len(payload.day_layouts) != days:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"day_layouts length ({len(payload.day_layouts)}) must match "
+                f"days query param ({days})."
+            ),
+        )
+
     try:
         meal_plan, shopping_items, _initial_fridge = await generate_plan_days(
             session, current_user, payload, days,

@@ -66,6 +66,127 @@ class TestPlanGeneration:
         assert mock_gen.await_count == 3
 
 
+class TestPlanDayLayouts:
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_day_layouts_flow_into_single_day_call(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Per-day layout in the request must flow into each generate_single_day
+        invocation verbatim — no silent reordering or dropping."""
+        mock_gen.return_value = _fake_day()
+
+        resp = await client.post(
+            "/api/plan?days=2",
+            headers=auth_headers,
+            json={
+                "meals_per_day": 1,
+                "people_count": 2,
+                "day_layouts": [
+                    ["sweet_breakfast", "snack", "main_course"],
+                    ["savory_breakfast", "soup", "hot_dinner"],
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        assert mock_gen.await_count == 2
+
+        # Day 1's slot_layout kwarg
+        first_call = mock_gen.await_args_list[0]
+        assert first_call.kwargs["slot_layout"] == [
+            "sweet_breakfast", "snack", "main_course",
+        ]
+        # Day 2's slot_layout kwarg
+        second_call = mock_gen.await_args_list[1]
+        assert second_call.kwargs["slot_layout"] == [
+            "savory_breakfast", "soup", "hot_dinner",
+        ]
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_day_layouts_length_must_match_days_query(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        resp = await client.post(
+            "/api/plan?days=3",
+            headers=auth_headers,
+            json={
+                "meals_per_day": 1,
+                "people_count": 2,
+                "day_layouts": [["main_course"], ["main_course"]],  # 2 != 3
+            },
+        )
+        assert resp.status_code == 422
+        assert "day_layouts length" in resp.json()["detail"]
+        mock_gen.assert_not_awaited()
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_day_layouts_absent_falls_back_to_user_default(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """When the request doesn't supply day_layouts but the user has a
+        saved default_day_layout, each day uses the saved default."""
+        mock_gen.return_value = _fake_day()
+
+        # Set the user's default layout first.
+        await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": ["savory_breakfast", "light_lunch"]},
+        )
+
+        resp = await client.post(
+            "/api/plan?days=2",
+            headers=auth_headers,
+            json={"meals_per_day": 3, "people_count": 2},  # no day_layouts
+        )
+        assert resp.status_code == 200
+        assert mock_gen.await_count == 2
+        for call in mock_gen.await_args_list:
+            assert call.kwargs["slot_layout"] == ["savory_breakfast", "light_lunch"]
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_no_layout_anywhere_sends_none(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Neither request day_layouts nor user default → slot_layout=None,
+        legacy meals_per_day-only path takes over."""
+        mock_gen.return_value = _fake_day()
+
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["slot_layout"] is None
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_day_layouts_override_user_default(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Explicit per-day layout in the request beats the user's saved default."""
+        mock_gen.return_value = _fake_day()
+
+        await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": ["snack", "snack"]},
+        )
+
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={
+                "meals_per_day": 1,
+                "people_count": 2,
+                "day_layouts": [["soup", "dessert"]],
+            },
+        )
+        assert resp.status_code == 200
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["slot_layout"] == ["soup", "dessert"]
+
+
 class TestPlanConfirm:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_confirm_decrements_fridge(

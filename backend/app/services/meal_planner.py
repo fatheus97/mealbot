@@ -25,16 +25,31 @@ _prompts_env = SandboxedEnvironment(
 SYSTEM_PROMPT = "You are a careful and realistic meal planner. ALWAYS return ONLY valid JSON."
 
 
-async def generate_single_day(req: MealPlanRequest, day_index: int = 1, mock: bool = False) -> SingleDayResponse:
+async def generate_single_day(
+    req: MealPlanRequest,
+    day_index: int = 1,
+    mock: bool = False,
+    slot_layout: list[str] | None = None,
+) -> SingleDayResponse:
     """
     Generates a meal plan for a single day with strict schema enforcement.
+
+    When ``slot_layout`` is provided (Phase 3+), the prompt instructs the LLM
+    to produce exactly those meal_type values in that order. We log a warning
+    if the response doesn't match, but still return it — the LLM occasionally
+    reorders or substitutes, and a retry loop would double latency for a
+    surface-only mismatch. Callers that need stricter guarantees can fall back
+    to the pre-Phase-3 meals_per_day path by passing ``slot_layout=None``.
     """
     template = _prompts_env.get_template("meal_plan.jinja")
-    user_prompt = template.render(**req.model_dump())
+    user_prompt = template.render(
+        **req.model_dump(),
+        slot_layout=slot_layout,
+    )
 
     mock_context = {
         "stock_items": [item.name for item in req.stock_items],
-        "meals_per_day": req.meals_per_day,
+        "meals_per_day": len(slot_layout) if slot_layout else req.meals_per_day,
         "day_index": day_index,
     }
 
@@ -46,6 +61,15 @@ async def generate_single_day(req: MealPlanRequest, day_index: int = 1, mock: bo
         mock_context=mock_context,
         mock=mock,
     )
+
+    if slot_layout is not None:
+        returned = [m.meal_type.value for m in response.meals]
+        if returned != slot_layout:
+            logger.warning(
+                "Day %d: LLM returned meal_types %s but layout requested %s — "
+                "accepting response as-is",
+                day_index, returned, slot_layout,
+            )
 
     return response
 
@@ -108,6 +132,7 @@ async def generate_single_day_with_rag(
     session: AsyncSession,
     user_id: int,
     mock: bool = False,
+    slot_layout: list[str] | None = None,
 ) -> SingleDayResponse | None:
     """
     Attempt RAG generation using highly-rated meals from all users.
@@ -162,6 +187,7 @@ async def generate_single_day_with_rag(
     user_prompt = template.render(
         **req.model_dump(),
         retrieved_meals=retrieved_meals,
+        slot_layout=slot_layout,
     )
 
     logger.info("RAG: using %d retrieved meals for generation", len(retrieved_meals))
@@ -172,5 +198,14 @@ async def generate_single_day_with_rag(
         response_model=SingleDayResponse,
         mock=mock,
     )
+
+    if slot_layout is not None:
+        returned = [m.meal_type.value for m in response.meals]
+        if returned != slot_layout:
+            logger.warning(
+                "RAG: LLM returned meal_types %s but layout requested %s — "
+                "accepting response as-is",
+                returned, slot_layout,
+            )
 
     return response

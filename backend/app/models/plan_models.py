@@ -83,6 +83,30 @@ class MealPlanRequest(BaseModel):
         description="When true, only fridge/pantry ingredients may be used — no shopping.",
     )
 
+    # Per-day meal-slot override. Outer list = one entry per day; inner list =
+    # the ordered MealType slots for that day (1-8 entries). When supplied it
+    # takes precedence over both the user's saved default_day_layout and the
+    # legacy meals_per_day counter. Outer-list length is reconciled against the
+    # `days` query param at the endpoint layer.
+    day_layouts: list[list[MealType]] | None = Field(
+        default=None,
+        max_length=7,
+    )
+
+    @field_validator("day_layouts")
+    @classmethod
+    def validate_day_layouts(
+        cls, v: list[list[MealType]] | None,
+    ) -> list[list[MealType]] | None:
+        if v is None:
+            return None
+        for i, day in enumerate(v):
+            if not 1 <= len(day) <= 8:
+                raise ValueError(
+                    f"day_layouts[{i}] must have between 1 and 8 slots, got {len(day)}",
+                )
+        return v
+
     @field_validator(
         "taste_preferences",
         "avoid_ingredients",
