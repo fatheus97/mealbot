@@ -1,6 +1,13 @@
 services:
   db:
     image: pgvector/pgvector:0.8.2-pg15@sha256:7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742
+    # statement_timeout caps any single query at 30s. A runaway ORM join or a
+    # pgvector scan that picked the wrong plan can otherwise hold a connection
+    # indefinitely and starve the small Hetzner box. 30s is well above any
+    # legitimate hot-path query (p99 ≪ 1s) but small enough that a bad query
+    # fails fast instead of piling up. Enforced server-side so it applies to
+    # every caller, not just our SQLAlchemy engine.
+    command: ["postgres", "-c", "statement_timeout=30000"]
     environment:
       # WARNING: POSTGRES_USER and POSTGRES_PASSWORD must be set in .env — no defaults provided
       POSTGRES_USER: ${POSTGRES_USER}
