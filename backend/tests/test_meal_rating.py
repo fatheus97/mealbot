@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 
+from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -14,7 +15,7 @@ def _fake_day() -> SingleDayResponse:
         meals=[
             PlannedMeal(
                 name="Test Lunch",
-                meal_type="lunch",
+                meal_type=MealType.LIGHT_LUNCH,
                 ingredients=[
                     IngredientAmount(name="chicken breast", quantity_grams=300),
                 ],

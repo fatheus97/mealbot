@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 
+from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
     MealPlanResponse,
@@ -16,7 +17,7 @@ def _fake_day() -> SingleDayResponse:
         meals=[
             PlannedMeal(
                 name="Test Lunch",
-                meal_type="lunch",
+                meal_type=MealType.LIGHT_LUNCH,
                 ingredients=[
                     IngredientAmount(name="chicken breast", quantity_grams=300),
                     IngredientAmount(name="rice", quantity_grams=200),
@@ -154,7 +155,7 @@ class TestPlanRegenerate:
     ):
         original_meal = PlannedMeal(
             name="Original Lunch",
-            meal_type="lunch",
+            meal_type=MealType.LIGHT_LUNCH,
             ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
             steps=["Cook rice"],
         )
@@ -163,7 +164,7 @@ class TestPlanRegenerate:
                 original_meal,
                 PlannedMeal(
                     name="Original Dinner",
-                    meal_type="dinner",
+                    meal_type=MealType.HOT_DINNER,
                     ingredients=[IngredientAmount(name="pasta", quantity_grams=300)],
                     steps=["Boil pasta"],
                 ),
@@ -181,7 +182,7 @@ class TestPlanRegenerate:
         # Regenerate with lunch frozen (index 0)
         new_dinner = PlannedMeal(
             name="New Dinner",
-            meal_type="dinner",
+            meal_type=MealType.HOT_DINNER,
             ingredients=[IngredientAmount(name="tofu", quantity_grams=250)],
             steps=["Fry tofu"],
         )
@@ -217,13 +218,13 @@ class TestPlanRegenerate:
             meals=[
                 PlannedMeal(
                     name="Original Lunch",
-                    meal_type="lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
                     ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
                     steps=["Cook rice"],
                 ),
                 PlannedMeal(
                     name="Original Dinner",
-                    meal_type="dinner",
+                    meal_type=MealType.HOT_DINNER,
                     ingredients=[IngredientAmount(name="pasta", quantity_grams=300)],
                     steps=["Boil pasta"],
                 ),
@@ -241,13 +242,13 @@ class TestPlanRegenerate:
             meals=[
                 PlannedMeal(
                     name="Replacement Lunch",
-                    meal_type="lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
                     ingredients=[IngredientAmount(name="lentils", quantity_grams=200)],
                     steps=["Simmer"],
                 ),
                 PlannedMeal(
                     name="Replacement Dinner",
-                    meal_type="dinner",
+                    meal_type=MealType.HOT_DINNER,
                     ingredients=[IngredientAmount(name="tofu", quantity_grams=250)],
                     steps=["Fry"],
                 ),
@@ -403,7 +404,7 @@ def _fake_day_with_non_stock_ingredient() -> SingleDayResponse:
         meals=[
             PlannedMeal(
                 name="Fancy Salad",
-                meal_type="lunch",
+                meal_type=MealType.LIGHT_LUNCH,
                 ingredients=[
                     IngredientAmount(name="chicken breast", quantity_grams=200),
                     IngredientAmount(name="avocado", quantity_grams=150),

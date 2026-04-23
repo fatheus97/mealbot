@@ -1,8 +1,9 @@
 """Tests for meal_planner service: prompt generation, partial day, slot validation."""
 
-from typing import Any, Literal
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
     MealPlanRequest,
@@ -35,10 +36,10 @@ def _make_request(**overrides: Any) -> MealPlanRequest:
     return MealPlanRequest(**defaults)
 
 
-MealType = Literal["breakfast", "lunch", "dinner", "snack"]
-
-
-def _make_single_day_response(meal_name: str = "Test Meal", meal_type: MealType = "lunch") -> SingleDayResponse:
+def _make_single_day_response(
+    meal_name: str = "Test Meal",
+    meal_type: MealType = MealType.LIGHT_LUNCH,
+) -> SingleDayResponse:
     return SingleDayResponse(
         meals=[
             PlannedMeal(
@@ -92,13 +93,13 @@ class TestGenerateSingleDay:
 class TestGeneratePartialDay:
     @patch("app.services.meal_planner.llm_client")
     async def test_partial_day_returns_response(self, mock_llm: MagicMock):
-        new_meal = _make_single_day_response("New Dinner", "dinner")
+        new_meal = _make_single_day_response("New Dinner", MealType.HOT_DINNER)
         mock_llm.chat_json = AsyncMock(return_value=new_meal)
 
         frozen_meals = [
             PlannedMeal(
                 name="Frozen Lunch",
-                meal_type="lunch",
+                meal_type=MealType.LIGHT_LUNCH,
                 ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
                 steps=["Cook rice"],
             )
@@ -107,7 +108,7 @@ class TestGeneratePartialDay:
         result = await generate_partial_day(
             _make_request(),
             frozen_meals=frozen_meals,
-            slots_to_generate=["dinner"],
+            slots_to_generate=[MealType.HOT_DINNER.value],
         )
 
         assert isinstance(result, SingleDayResponse)
@@ -121,7 +122,7 @@ class TestGeneratePartialDay:
             meals=[
                 PlannedMeal(
                     name="Wrong Breakfast",
-                    meal_type="breakfast",  # Expected dinner
+                    meal_type=MealType.SAVORY_BREAKFAST,  # Expected hot_dinner
                     ingredients=[IngredientAmount(name="eggs", quantity_grams=100)],
                     steps=["Scramble"],
                 )
@@ -134,14 +135,42 @@ class TestGeneratePartialDay:
             result = await generate_partial_day(
                 _make_request(),
                 frozen_meals=[],
-                slots_to_generate=["dinner"],
+                slots_to_generate=[MealType.HOT_DINNER.value],
             )
 
-        # "breakfast" is legacy and gets mapped to the new taxonomy's
-        # savory_breakfast by the PlannedMeal pre-validator — still a mismatch
-        # against the requested "dinner" slot, which is what this test exercises.
-        assert result.meals[0].meal_type == "savory_breakfast"
+        assert result.meals[0].meal_type == MealType.SAVORY_BREAKFAST
         assert "expected" in caplog.text.lower() or len(caplog.records) > 0
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_legacy_meal_type_string_translated_in_partial_day(
+        self, mock_llm: MagicMock,
+    ):
+        """Covers the translation path explicitly: an LLM response that somehow
+        emits a legacy value (or a stored row re-serialized) still deserializes."""
+        legacy_response = SingleDayResponse.model_validate(
+            {
+                "meals": [
+                    {
+                        "name": "Legacy Soup",
+                        "meal_type": "lunch",
+                        "meal_type_label": "Lunch",
+                        "ingredients": [
+                            {"name": "chicken", "quantity_grams": 200, "is_spice": False}
+                        ],
+                        "steps": ["Simmer"],
+                    }
+                ]
+            }
+        )
+        mock_llm.chat_json = AsyncMock(return_value=legacy_response)
+
+        result = await generate_partial_day(
+            _make_request(),
+            frozen_meals=[],
+            slots_to_generate=[MealType.LIGHT_LUNCH.value],
+        )
+
+        assert result.meals[0].meal_type == MealType.LIGHT_LUNCH
 
 
 class TestPromptContent:
@@ -181,7 +210,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_total_time_minutes_in_partial_prompt(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", "dinner"))
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER))
         await generate_partial_day(
             _make_request(), frozen_meals=[], slots_to_generate=["dinner"],
         )
@@ -190,7 +219,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_replaced_meals_block_rendered_when_provided(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", "dinner"))
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER))
         await generate_partial_day(
             _make_request(),
             frozen_meals=[],
@@ -206,7 +235,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_replaced_meals_block_none_when_empty(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", "dinner"))
+        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER))
         await generate_partial_day(
             _make_request(),
             frozen_meals=[],
@@ -408,7 +437,7 @@ class TestStockOnlyPrompt:
     async def test_partial_day_stock_only_constraint(self, mock_llm: MagicMock):
         """Partial regeneration prompt also contains stock-only constraint."""
         mock_llm.chat_json = AsyncMock(
-            return_value=_make_single_day_response("Dinner", "dinner")
+            return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER)
         )
 
         await generate_partial_day(

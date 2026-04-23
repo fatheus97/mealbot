@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -16,7 +17,7 @@ from app.utils import (
 def _meal(ingredients: list[tuple[str, float]]) -> PlannedMeal:
     return PlannedMeal(
         name="Test",
-        meal_type="lunch",
+        meal_type=MealType.LIGHT_LUNCH,
         ingredients=[IngredientAmount(name=n, quantity_grams=g) for n, g in ingredients],
         steps=["cook"],
     )
@@ -133,7 +134,7 @@ def _spice_meal(ingredients: list[tuple[str, float, bool]]) -> PlannedMeal:
     """Helper that accepts (name, grams, is_spice) tuples."""
     return PlannedMeal(
         name="Test",
-        meal_type="lunch",
+        meal_type=MealType.LIGHT_LUNCH,
         ingredients=[
             IngredientAmount(name=n, quantity_grams=g, is_spice=s)
             for n, g, s in ingredients

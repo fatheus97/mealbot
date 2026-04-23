@@ -9,6 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.meal_types import MealType
 from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
     ConsumedBatch,
@@ -26,7 +27,7 @@ def _fake_day_with_ingredients(ingredients: list[tuple[str, float]]) -> SingleDa
         meals=[
             PlannedMeal(
                 name="Test Meal",
-                meal_type="lunch",
+                meal_type=MealType.LIGHT_LUNCH,
                 ingredients=[
                     IngredientAmount(name=name, quantity_grams=qty)
                     for name, qty in ingredients
@@ -137,7 +138,7 @@ class TestRegenerateEdgeCases:
             meals=[
                 PlannedMeal(
                     name="Only Meal",
-                    meal_type="lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
                     ingredients=[IngredientAmount(name="pasta", quantity_grams=200)],
                     steps=["Boil"],
                 )
@@ -167,7 +168,7 @@ class TestRegenerateEdgeCases:
             meals=[
                 PlannedMeal(
                     name="Lunch",
-                    meal_type="lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
                     ingredients=[IngredientAmount(name="rice", quantity_grams=100)],
                     steps=["Cook"],
                 )
@@ -196,7 +197,7 @@ class TestRegenerateEdgeCases:
             meals=[
                 PlannedMeal(
                     name="Lunch",
-                    meal_type="lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
                     ingredients=[IngredientAmount(name="rice", quantity_grams=100)],
                     steps=["Cook"],
                 )
@@ -236,7 +237,7 @@ class TestRegenerateEdgeCases:
         """Empty frozen_meals list should regenerate all meals."""
         original_meal = PlannedMeal(
             name="Original Meal",
-            meal_type="lunch",
+            meal_type=MealType.LIGHT_LUNCH,
             ingredients=[IngredientAmount(name="pasta", quantity_grams=200)],
             steps=["Boil"],
         )
@@ -251,7 +252,7 @@ class TestRegenerateEdgeCases:
 
         replacement_meal = PlannedMeal(
             name="Replacement Meal",
-            meal_type="lunch",
+            meal_type=MealType.LIGHT_LUNCH,
             ingredients=[IngredientAmount(name="rice", quantity_grams=150)],
             steps=["Cook"],
         )
@@ -274,7 +275,7 @@ class TestRegenerateEdgeCases:
             meals=[
                 PlannedMeal(
                     name="Meal",
-                    meal_type="lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
                     ingredients=[IngredientAmount(name="rice", quantity_grams=100)],
                     steps=["Cook"],
                 )
@@ -587,12 +588,12 @@ class TestConsumedSnapshot:
         # Two meals each consuming 100g of tomato
         mock_gen.return_value = SingleDayResponse(meals=[
             PlannedMeal(
-                name="Salad", meal_type="lunch",
+                name="Salad", meal_type=MealType.LIGHT_LUNCH,
                 ingredients=[IngredientAmount(name="tomato", quantity_grams=100)],
                 steps=["Mix"],
             ),
             PlannedMeal(
-                name="Soup", meal_type="dinner",
+                name="Soup", meal_type=MealType.HOT_DINNER,
                 ingredients=[IngredientAmount(name="tomato", quantity_grams=100)],
                 steps=["Boil"],
             ),

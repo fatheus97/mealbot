@@ -3,6 +3,7 @@
 from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -38,7 +39,7 @@ def _make_single_day_response() -> SingleDayResponse:
         meals=[
             PlannedMeal(
                 name="RAG Meal",
-                meal_type="dinner",
+                meal_type=MealType.HOT_DINNER,
                 ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
                 steps=["Cook it"],
             )

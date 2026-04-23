@@ -157,7 +157,7 @@ class PlannedMeal(BaseModel):
         # Pre-taxonomy meal_json rows stored "breakfast"/"lunch"/"dinner"/"snack".
         # Map them onto the new enum so DB reads (RAG, history) still deserialize.
         if isinstance(v, str) and v in LEGACY_MEAL_TYPE_MAP:
-            return LEGACY_MEAL_TYPE_MAP[v].value
+            return LEGACY_MEAL_TYPE_MAP[v]
         return v
 
 

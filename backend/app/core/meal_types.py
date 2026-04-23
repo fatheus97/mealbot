@@ -46,12 +46,15 @@ MEAL_TYPE_LABELS: dict[MealType, str] = {
 # Map the four legacy values (breakfast/lunch/dinner/snack) onto the new
 # taxonomy so existing ``MealEntry.meal_json`` rows still deserialize as
 # ``PlannedMeal``. Applied via a pre-validator on ``PlannedMeal.meal_type``.
+#
+# ``breakfast`` is genuinely ambiguous (could be sweet or savory) — we pick
+# ``savory_breakfast`` as the less-lossy default because historical rows skew
+# savory and re-labelling a pancake "savory_breakfast" is a smaller UX error
+# than re-labelling an omelette "sweet_breakfast". A follow-up backfill can
+# refine individual rows using meal name/ingredient heuristics if needed.
 LEGACY_MEAL_TYPE_MAP: dict[str, MealType] = {
     "breakfast": MealType.SAVORY_BREAKFAST,
     "lunch": MealType.LIGHT_LUNCH,
     "dinner": MealType.HOT_DINNER,
     "snack": MealType.SNACK,
 }
-
-
-VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
