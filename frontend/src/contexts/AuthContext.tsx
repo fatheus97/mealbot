@@ -6,6 +6,20 @@ import { usePreferencesStore } from "../store/usePreferencesStore";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
+/**
+ * Thrown when registration succeeded but the subsequent auto-login failed
+ * (network hiccup, login rate-limit). The caller must surface a
+ * registration-succeeded message so the user doesn't try to register
+ * again and hit a 409 "email already exists".
+ */
+export class AutoLoginAfterRegisterError extends Error {
+  constructor(cause: unknown) {
+    super("Account created, but auto-login failed");
+    this.name = "AutoLoginAfterRegisterError";
+    if (cause instanceof Error) this.cause = cause;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => window.localStorage.getItem("mealbot_token"));
   const [userId, setUserId] = useState<number | null>(() => {
@@ -19,22 +33,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isDemo, setIsDemo] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_demo") === "true"
   );
-  const [demoEnabled, setDemoEnabled] = useState<boolean>(false);
-  const [registrationEnabled, setRegistrationEnabled] = useState<boolean>(false);
+  // null = /config not yet resolved; boolean = resolved value. Using null
+  // as the unresolved sentinel lets the UI avoid a flash of the wrong
+  // copy (e.g. rendering the "closed alpha" notice for the 50-200ms
+  // round-trip on deployments where registration is actually open).
+  const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
+  const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
     // Gate the "Try Demo" and "Register" buttons on backend feature flags so
-    // we don't advertise features that would 4xx. Failure → leave both
-    // false (safer default for a closed alpha). Promise.resolve() wrap keeps
-    // tests that replace authFetch with vi.fn() (returns undefined) safe.
+    // we don't advertise features that would 4xx. Failure → resolve both to
+    // false (safer default: hide everything we can't confirm is enabled).
+    // Promise.resolve() wrap keeps tests that replace authFetch with
+    // vi.fn() (returns undefined) safe.
     Promise.resolve(authFetch("/config"))
       .then((r) => (r?.ok ? r.json() : null))
       .then((data: { demo_mode?: boolean; registration_enabled?: boolean } | null) => {
-        if (data?.demo_mode) setDemoEnabled(true);
-        if (data?.registration_enabled) setRegistrationEnabled(true);
+        setDemoEnabled(Boolean(data?.demo_mode));
+        setRegistrationEnabled(Boolean(data?.registration_enabled));
       })
-      .catch(() => { /* leave both flags false */ });
+      .catch(() => {
+        setDemoEnabled(false);
+        setRegistrationEnabled(false);
+      });
   }, []);
 
   const setOnboardingCompleted = (value: boolean) => {
@@ -94,7 +116,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // rejects per its own rules).
       throw new Error(`Registration failed: ${resp.status}`);
     }
-    return login(newEmail, password);
+    // Distinguish a login-phase failure from a register-phase failure so
+    // the caller can tell the user "your account was created, just sign
+    // in" instead of "registration failed" (which would prompt them to
+    // try again and hit a 409).
+    try {
+      return await login(newEmail, password);
+    } catch (err) {
+      throw new AutoLoginAfterRegisterError(err);
+    }
   };
 
   const loginDemo = async (): Promise<void> => {

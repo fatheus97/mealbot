@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "../contexts/AuthContext";
+import { AutoLoginAfterRegisterError, useAuth } from "../contexts/AuthContext";
 import { SettingsPopup } from "./SettingsPopup";
 
 export function AuthBar() {
@@ -38,7 +38,16 @@ export function AuthBar() {
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      setAuthError("Registration failed. The email may already be registered.");
+      if (error instanceof AutoLoginAfterRegisterError) {
+        // Crucial distinction: the account was created. Telling the user
+        // "registration failed" here would get them to submit again and
+        // hit a 409 on the duplicate email.
+        setAuthError("Account created — please sign in to continue.");
+      } else {
+        // Neutral copy covers 403 (flag flipped), 409 (duplicate), 422
+        // (weak password that passed the client guard), 5xx, etc.
+        setAuthError("Registration failed. Please try again or contact info@trymealbot.com.");
+      }
     } finally {
       setLoading(false);
     }
@@ -50,8 +59,19 @@ export function AuthBar() {
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
         {!userId && (
           <>
-            <input value={inputEmail} onChange={e => setInputEmail(e.target.value)} placeholder="Email" style={{ padding: "0.5rem" }} />
-            <input type="password" value={inputPassword} onChange={e => setInputPassword(e.target.value)} placeholder="Password" style={{ padding: "0.5rem" }} />
+            <input
+              value={inputEmail}
+              onChange={e => { setInputEmail(e.target.value); setAuthError(null); }}
+              placeholder="Email"
+              style={{ padding: "0.5rem" }}
+            />
+            <input
+              type="password"
+              value={inputPassword}
+              onChange={e => { setInputPassword(e.target.value); setAuthError(null); }}
+              placeholder="Password"
+              style={{ padding: "0.5rem" }}
+            />
             <button onClick={handleLogin} disabled={loading} style={{ padding: "0.5rem 1rem" }}>
               {loading ? "..." : "Sign In"}
             </button>
@@ -107,7 +127,7 @@ export function AuthBar() {
           {authError}
         </p>
       )}
-      {!userId && !registrationEnabled && (
+      {!userId && registrationEnabled === false && (
         <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "#555" }}>
           This is a closed alpha. For access, contact{" "}
           <a href="mailto:info@trymealbot.com" style={{ color: "#007bff" }}>info@trymealbot.com</a>.

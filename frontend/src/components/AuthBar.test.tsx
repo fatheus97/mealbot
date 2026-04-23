@@ -239,6 +239,113 @@ describe('AuthBar', () => {
     expect(callUrls).toContain('/users/login');
   });
 
+  it('shows "account created" message when registration succeeds but auto-login fails', async () => {
+    // The account was created but the follow-up /users/login got throttled
+    // or 5xx'd. The user must NOT see "registration failed" — they'd try
+    // again and hit a 409 on the duplicate email.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ registration_enabled: true }),
+        } as unknown as Response);
+      }
+      if (url === '/users/register') {
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: () => Promise.resolve({ message: 'Registered' }),
+        } as unknown as Response);
+      }
+      if (url === '/users/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 429,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    await user.click(await screen.findByRole('button', { name: /^register$/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toMatch(/account created/i);
+    // No token — the login phase failed.
+    expect(localStorage.getItem('mealbot_token')).toBeNull();
+  });
+
+  it('clears authError on next input change (stale-error UX guard)', async () => {
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'bad@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'wrong');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    // Error shows.
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    // User fixes the typo — the stale error should disappear as soon as
+    // they touch an input, not linger until the next submit.
+    await user.type(screen.getByPlaceholderText('Password'), 'x');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('hides closed-alpha notice until /config resolves (no flash)', async () => {
+    // Deployments with registration_enabled=true must not briefly render
+    // the "closed alpha" notice during the /config round-trip. Initial
+    // state is null, so neither "Register" button nor the notice render
+    // until we know which one is correct.
+    let resolveConfig: (r: unknown) => void = () => {};
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') {
+        return new Promise((res) => {
+          resolveConfig = res;
+        });
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    // /config is in-flight — neither banner nor Register button visible.
+    expect(screen.queryByText(/closed alpha/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^register$/i }),
+    ).not.toBeInTheDocument();
+
+    resolveConfig({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ registration_enabled: true }),
+    });
+
+    // Register button appears; closed-alpha notice never did.
+    expect(
+      await screen.findByRole('button', { name: /^register$/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/closed alpha/i)).not.toBeInTheDocument();
+  });
+
   it('shows inline error when register fails and does not log in', async () => {
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') {

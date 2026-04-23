@@ -116,8 +116,12 @@ export interface AuthState {
   email: string;
   onboardingCompleted: boolean; // <-- NEW: Track onboarding state
   isDemo: boolean;
-  demoEnabled: boolean; // server-reported feature flag from /api/config
-  registrationEnabled: boolean; // server-reported feature flag from /api/config
+  // null until /api/config resolves, then boolean. Using null as the
+  // unresolved sentinel lets the UI avoid a flash of the wrong copy
+  // (e.g. rendering a "closed alpha" notice before registration_enabled
+  // resolves to true).
+  demoEnabled: boolean | null;
+  registrationEnabled: boolean | null;
   login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => void;
   setOnboardingCompleted: (value: boolean) => void;
