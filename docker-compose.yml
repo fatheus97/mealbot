@@ -37,6 +37,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-shot service that runs `alembic upgrade head` on every compose up
+  # and exits. Backend waits for it via service_completed_successfully so
+  # we can't serve requests against a schema that's behind main. When no
+  # migrations are pending this is a ~1s no-op; when there are any, they
+  # apply atomically before the app comes up. Loud failure if a migration
+  # breaks — deploy aborts instead of silently shipping a stale schema.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      secrets:
+        - hf_token
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-mealbot}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Don't restart on exit — "completed successfully" is the happy path.
+    restart: "no"
+
   backend:
     build:
       context: ./backend  # This tells Docker to look INSIDE the backend folder
@@ -50,6 +73,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:
