@@ -20,19 +20,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => window.localStorage.getItem("mealbot_is_demo") === "true"
   );
   const [demoEnabled, setDemoEnabled] = useState<boolean>(false);
+  const [registrationEnabled, setRegistrationEnabled] = useState<boolean>(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    // Gate the "Try Demo" button on the backend feature flag so we don't
-    // advertise a demo that will 404. Failure → keep button hidden.
-    // Wrapped in Promise.resolve() so tests that replace authFetch with
-    // vi.fn() (returns undefined) don't blow up at mount.
+    // Gate the "Try Demo" and "Register" buttons on backend feature flags so
+    // we don't advertise features that would 4xx. Failure → leave both
+    // false (safer default for a closed alpha). Promise.resolve() wrap keeps
+    // tests that replace authFetch with vi.fn() (returns undefined) safe.
     Promise.resolve(authFetch("/config"))
       .then((r) => (r?.ok ? r.json() : null))
-      .then((data: { demo_mode?: boolean } | null) => {
+      .then((data: { demo_mode?: boolean; registration_enabled?: boolean } | null) => {
         if (data?.demo_mode) setDemoEnabled(true);
+        if (data?.registration_enabled) setRegistrationEnabled(true);
       })
-      .catch(() => { /* leave demoEnabled=false */ });
+      .catch(() => { /* leave both flags false */ });
   }, []);
 
   const setOnboardingCompleted = (value: boolean) => {
@@ -76,6 +78,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     return data;
+  };
+
+  const register = async (newEmail: string, password: string): Promise<LoginResponse> => {
+    // POST /users/register returns 201 with a plain message, not a token, so
+    // we auto-login immediately after so the UI lands on an authenticated
+    // session without a second user interaction.
+    const resp = await authFetch("/users/register", {
+      method: "POST",
+      body: JSON.stringify({ email: newEmail, password }),
+    });
+    if (!resp.ok) {
+      // 403 when registration_enabled flipped server-side between /config
+      // and submit; 4xx for duplicate email / weak password (backend
+      // rejects per its own rules).
+      throw new Error(`Registration failed: ${resp.status}`);
+    }
+    return login(newEmail, password);
   };
 
   const loginDemo = async (): Promise<void> => {
@@ -138,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, isDemo, demoEnabled, login, logout, setOnboardingCompleted, loginDemo }}>
+    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, isDemo, demoEnabled, registrationEnabled, login, logout, setOnboardingCompleted, loginDemo, register }}>
       {children}
     </AuthContext.Provider>
   );

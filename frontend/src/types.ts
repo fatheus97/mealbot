@@ -117,10 +117,12 @@ export interface AuthState {
   onboardingCompleted: boolean; // <-- NEW: Track onboarding state
   isDemo: boolean;
   demoEnabled: boolean; // server-reported feature flag from /api/config
+  registrationEnabled: boolean; // server-reported feature flag from /api/config
   login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => void;
   setOnboardingCompleted: (value: boolean) => void;
   loginDemo: () => Promise<void>;
+  register: (email: string, password: string) => Promise<LoginResponse>;
 }
 
 export interface UserProfile {

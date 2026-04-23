@@ -82,6 +82,7 @@ class HealthResponse(BaseModel):
 
 class PublicConfig(BaseModel):
     demo_mode: bool
+    registration_enabled: bool
 
 
 class CountriesResponse(BaseModel):
@@ -105,8 +106,18 @@ async def health() -> HealthResponse:
 
 @app.get("/api/config", response_model=PublicConfig)
 async def public_config() -> PublicConfig:
-    """Non-secret runtime flags the frontend reads on load to gate UI (e.g. Try Demo button)."""
-    return PublicConfig(demo_mode=settings.demo_mode)
+    """Non-secret runtime flags the frontend reads on load to gate UI.
+
+    Used to hide features that the backend will reject — e.g. the Try Demo
+    button hides when `demo_mode=False`, and the Register form hides when
+    `registration_enabled=False` (closed alpha). These flags are also
+    enforced server-side; the UI gating is only to avoid advertising
+    features that would 403.
+    """
+    return PublicConfig(
+        demo_mode=settings.demo_mode,
+        registration_enabled=settings.registration_enabled,
+    )
 
 
 @app.get("/api/countries", response_model=CountriesResponse)

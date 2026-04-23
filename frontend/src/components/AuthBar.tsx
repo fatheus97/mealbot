@@ -3,7 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { SettingsPopup } from "./SettingsPopup";
 
 export function AuthBar() {
-  const { userId, email, login, logout, loginDemo, demoEnabled } = useAuth();
+  const { userId, email, login, logout, loginDemo, demoEnabled, register, registrationEnabled } = useAuth();
   const [inputEmail, setInputEmail] = useState(email);
   const [inputPassword, setInputPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,6 +24,26 @@ export function AuthBar() {
     }
   };
 
+  const handleRegister = async () => {
+    // Surface a client-side guard before hitting the backend so the user
+    // doesn't have to wait for a 422 to see "password too short".
+    if (inputPassword.length < 8) {
+      setAuthError("Password must be at least 8 characters.");
+      return;
+    }
+    setLoading(true);
+    setAuthError(null);
+    try {
+      await register(inputEmail, inputPassword);
+      setInputPassword("");
+    } catch (error) {
+      console.error(error);
+      setAuthError("Registration failed. The email may already be registered.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <section style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#f0f8ff", color: "#111", borderRadius: "8px" }}>
       <h2>{userId ? "Welcome" : "Login"}</h2>
@@ -35,6 +55,15 @@ export function AuthBar() {
             <button onClick={handleLogin} disabled={loading} style={{ padding: "0.5rem 1rem" }}>
               {loading ? "..." : "Sign In"}
             </button>
+            {registrationEnabled && (
+              <button
+                onClick={handleRegister}
+                disabled={loading}
+                style={{ padding: "0.5rem 1rem", backgroundColor: "#4a90d9", color: "white", border: "none", borderRadius: "4px" }}
+              >
+                {loading ? "..." : "Register"}
+              </button>
+            )}
             {demoEnabled && (
               <button
                 onClick={async () => {
@@ -78,7 +107,7 @@ export function AuthBar() {
           {authError}
         </p>
       )}
-      {!userId && (
+      {!userId && !registrationEnabled && (
         <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "#555" }}>
           This is a closed alpha. For access, contact{" "}
           <a href="mailto:info@trymealbot.com" style={{ color: "#007bff" }}>info@trymealbot.com</a>.

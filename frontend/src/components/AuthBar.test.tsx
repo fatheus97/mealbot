@@ -174,6 +174,130 @@ describe('AuthBar', () => {
     expect(localStorage.getItem('mealbot_token')).toBeNull();
   });
 
+  it('hides Register button when registration_enabled=false', async () => {
+    // Default /config mock in beforeEach returns {} — no registration_enabled.
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    // Still render the login inputs so we don't confuse the assertion.
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Email')).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole('button', { name: /^register$/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows Register button when registration_enabled=true and auto-logs in after register', async () => {
+    const loginResponse = {
+      access_token: 'jwt-reg',
+      token_type: 'bearer',
+      user_id: 9,
+      email: 'new@x.com',
+      onboarding_completed: false,
+    };
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ registration_enabled: true }),
+        } as unknown as Response);
+      }
+      if (url === '/users/register') {
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: () => Promise.resolve({ message: 'Registered' }),
+        } as unknown as Response);
+      }
+      if (url === '/users/login') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(loginResponse),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    const registerBtn = await screen.findByRole('button', { name: /^register$/i });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    await user.click(registerBtn);
+
+    await waitFor(() => {
+      expect(localStorage.getItem('mealbot_token')).toBe('jwt-reg');
+    });
+
+    const callUrls = mockedAuthFetch.mock.calls.map((c) => c[0] as string);
+    expect(callUrls).toContain('/users/register');
+    expect(callUrls).toContain('/users/login');
+  });
+
+  it('shows inline error when register fails and does not log in', async () => {
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ registration_enabled: true }),
+        } as unknown as Response);
+      }
+      if (url === '/users/register') {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          json: () => Promise.resolve({ detail: 'email taken' }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'dup@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    await user.click(await screen.findByRole('button', { name: /^register$/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toMatch(/registration failed/i);
+    expect(localStorage.getItem('mealbot_token')).toBeNull();
+  });
+
+  it('blocks short-password register client-side before hitting the backend', async () => {
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ registration_enabled: true }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'short');
+    await user.click(await screen.findByRole('button', { name: /^register$/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toMatch(/at least 8/i);
+    // No /users/register call should have fired — the guard short-circuits.
+    const registerCalls = mockedAuthFetch.mock.calls.filter(
+      (c) => c[0] === '/users/register',
+    );
+    expect(registerCalls).toHaveLength(0);
+  });
+
   it('shows inline error on login failure (no window.alert)', async () => {
     // A login failure must surface via an accessible inline banner, not a
     // blocking window.alert dialog. Regression guard — the component used

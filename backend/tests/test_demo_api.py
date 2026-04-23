@@ -11,16 +11,35 @@ from app.models.db_models import StockItem, User
 
 class TestPublicConfig:
     async def test_config_reports_demo_mode_true(self, unauthed_client: AsyncClient) -> None:
-        with patch("app.core.config.settings.demo_mode", True):
+        with (
+            patch("app.core.config.settings.demo_mode", True),
+            patch("app.core.config.settings.registration_enabled", False),
+        ):
             resp = await unauthed_client.get("/api/config")
         assert resp.status_code == 200
-        assert resp.json() == {"demo_mode": True}
+        assert resp.json() == {"demo_mode": True, "registration_enabled": False}
 
     async def test_config_reports_demo_mode_false(self, unauthed_client: AsyncClient) -> None:
-        with patch("app.core.config.settings.demo_mode", False):
+        with (
+            patch("app.core.config.settings.demo_mode", False),
+            patch("app.core.config.settings.registration_enabled", False),
+        ):
             resp = await unauthed_client.get("/api/config")
         assert resp.status_code == 200
-        assert resp.json() == {"demo_mode": False}
+        assert resp.json() == {"demo_mode": False, "registration_enabled": False}
+
+    async def test_config_reports_registration_enabled(
+        self, unauthed_client: AsyncClient
+    ) -> None:
+        # Frontend gates the Register UI on this — a value change here is a
+        # user-visible behavior change, so the shape is locked in tests.
+        with (
+            patch("app.core.config.settings.demo_mode", False),
+            patch("app.core.config.settings.registration_enabled", True),
+        ):
+            resp = await unauthed_client.get("/api/config")
+        assert resp.status_code == 200
+        assert resp.json() == {"demo_mode": False, "registration_enabled": True}
 
 
 class TestCountriesEndpoint:
