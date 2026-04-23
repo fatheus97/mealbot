@@ -547,22 +547,28 @@ class TestOwnershipChecks:
 
     async def test_non_owner_cannot_touch_another_users_plan(
         self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
-        test_user: User,
     ):
-        """User B must not be able to read, delete, confirm, regenerate, or
-        finish User A's plan. The handler returns 404 (not 403) on purpose
-        — it masks existence so an attacker can't enumerate valid plan_ids
-        by watching for 403 vs 404. This test exists because the previous
-        "ownership" test hit a nonexistent plan_id and proved nothing about
-        cross-user access.
+        """User B must not be able to touch any verb on User A's plan or
+        meal entries. Every endpoint returns 404 (not 403) on purpose — it
+        masks existence so an attacker can't enumerate valid plan_ids or
+        meal_entry_ids by watching for 403 vs 404. This test exists because
+        the previous "ownership" test hit a nonexistent plan_id and proved
+        nothing about cross-user access.
         """
         from app.api.deps import get_current_user
         from app.core.security import get_password_hash
         from app.main import app
 
-        # User A creates a plan.
-        body = await _create_plan(client, auth_headers)
+        # User A creates + confirms a plan so meal entries exist (cook /
+        # uncook / rate only work on confirmed plans).
+        body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
         plan_id: int = body["plan_id"]
+
+        # Grab a real meal_entry_id while still authenticated as User A —
+        # we need it to prove the cross-user 404 on the meal-level verbs.
+        entries_resp = await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)
+        assert entries_resp.status_code == 200
+        meal_entry_id: int = entries_resp.json()[0]["id"]
 
         # Stand up User B. Conftest overrides get_current_user to always
         # return test_user, so a fresh JWT alone isn't enough — we have to
@@ -578,9 +584,12 @@ class TestOwnershipChecks:
         async def override_as_user_b() -> User:
             return user_b
 
+        # Save-and-restore: immune to conftest changes, explicit about
+        # what we're temporarily shadowing.
+        original_override = app.dependency_overrides[get_current_user]
         app.dependency_overrides[get_current_user] = override_as_user_b
         try:
-            # Every verb on user A's plan → 404 for user B.
+            # Plan-level verbs → 404 for user B.
             resp = await client.get(f"/api/plan/{plan_id}")
             assert resp.status_code == 404, "User B could read User A's plan"
 
@@ -594,21 +603,37 @@ class TestOwnershipChecks:
             assert resp.status_code == 404, "User B could regenerate the plan"
 
             resp = await client.post(f"/api/plan/{plan_id}/confirm")
+            # Already confirmed; either way must 404 on cross-user.
             assert resp.status_code == 404, "User B could confirm the plan"
 
             resp = await client.post(f"/api/plan/{plan_id}/finish")
             assert resp.status_code == 404, "User B could finish the plan"
 
+            # Meal-entry-level verbs → 404 for user B with a real meal_entry_id
+            # that belongs to user A. The handlers check both the meal
+            # entry's user_id and the plan_id in the path.
+            resp = await client.post(
+                f"/api/plan/{plan_id}/meals/{meal_entry_id}/cook"
+            )
+            assert resp.status_code == 404, "User B could cook User A's meal"
+
+            resp = await client.post(
+                f"/api/plan/{plan_id}/meals/{meal_entry_id}/uncook"
+            )
+            assert resp.status_code == 404, "User B could uncook User A's meal"
+
+            resp = await client.post(
+                f"/api/plan/{plan_id}/meals/{meal_entry_id}/rate",
+                json={"rating": 5},
+            )
+            assert resp.status_code == 404, "User B could rate User A's meal"
+
             resp = await client.delete(f"/api/plan/{plan_id}")
             assert resp.status_code == 404, "User B could delete the plan"
         finally:
-            # Restore test_user so later asserts (and any follow-up tests)
-            # see the original identity.
-            async def override_as_user_a() -> User:
-                return test_user
-            app.dependency_overrides[get_current_user] = override_as_user_a
+            app.dependency_overrides[get_current_user] = original_override
 
         # The plan still belongs to User A and is untouched.
-        resp = await client.get(f"/api/plan/{plan_id}")
+        resp = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["plan_id"] == plan_id
