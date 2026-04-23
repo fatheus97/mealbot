@@ -18,13 +18,19 @@ Default: commit, push, open PRs, and iterate on review feedback without asking.
 - Open a PR with `gh pr create` — do not ask first.
 - After pushing, wait for CI and the Claude PR Review workflow. Poll with
   `ScheduleWakeup` so the session doesn't block.
-- If any CI check fails or the AI review flags blocking issues, fix them,
-  commit, push, and wait again. Loop until every CI check is green AND the
-  AI review gives a clean sign-off ("ready to merge", "no remaining issues",
-  or equivalent).
+- Loop while any CI check is red OR the latest AI review lists any issues —
+  regardless of severity label. Fix each item, commit, push, and wait for
+  the next review. Low-severity items count; fix them unless the reviewer
+  explicitly marks them as optional / non-blocking.
+- Stop when every CI check is green AND the latest AI review contains no
+  actionable items. An affirmative sign-off ("ready to merge", "no remaining
+  issues") is sufficient but not required — absence of issues is the signal.
+- Cap the loop at 5 iterations. If after 5 fix/push cycles the same issue
+  persists (flaky CI, external dependency outage, reviewer oscillating on
+  the same point), stop and surface what's stuck rather than continuing.
 - Only then, ask for permission to merge. The merge itself still requires
   explicit user approval — see the hard rule above.
-- Plan-approval gates in slash commands (e.g. `/polish`, `/add_feature`)
+- Plan-approval gates in slash commands (e.g. `/polish`, `/add-feature`)
   still apply pre-implementation — they are orthogonal to this autonomy rule.
 
 ## The Full Cycle as a Diagram

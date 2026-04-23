@@ -1,4 +1,4 @@
-I want to polish an existing part of the project — a bugfix, UX annoyance, or small improvement to an existing feature. This is NOT for adding new features (use /add_feature for that).
+I want to polish an existing part of the project — a bugfix, UX annoyance, or small improvement to an existing feature. This is NOT for adding new features (use /add-feature for that).
 
 Description: $ARGUMENTS
 
