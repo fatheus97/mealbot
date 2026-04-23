@@ -17,6 +17,7 @@ const defaultValues: PreferencesFormValues = {
   variability: 'traditional',
   include_spices: true,
   track_snacks: true,
+  default_day_layout: [],
 };
 
 function mockWhitelists(
@@ -112,6 +113,7 @@ describe('PreferencesForm', () => {
       variability: 'experimental',
       include_spices: false,
       track_snacks: true,
+      default_day_layout: [],
     });
   });
 
@@ -127,6 +129,7 @@ describe('PreferencesForm', () => {
           variability: 'traditional',
           include_spices: true,
           track_snacks: true,
+          default_day_layout: [],
         }}
         onSubmit={onSubmit}
         submitLabel="Save"
@@ -144,6 +147,7 @@ describe('PreferencesForm', () => {
       variability: 'traditional',
       include_spices: true,
       track_snacks: true,
+      default_day_layout: [],
     });
   });
 
@@ -251,6 +255,7 @@ describe('PreferencesForm', () => {
           variability: 'traditional',
           include_spices: true,
           track_snacks: true,
+          default_day_layout: [],
         }}
         onSubmit={vi.fn()}
         submitLabel="Save"

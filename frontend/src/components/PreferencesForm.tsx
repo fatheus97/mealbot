@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { Variability } from "../types";
+import type { MealType } from "../constants/mealTypes";
 import { authFetch } from "../api.ts";
+import { DayLayoutEditor } from "./DayLayoutEditor";
 
 export interface PreferencesFormValues {
   country: string;
@@ -8,6 +10,9 @@ export interface PreferencesFormValues {
   variability: Variability;
   include_spices: boolean;
   track_snacks: boolean;
+  // [] means "no default set" (the backend clears the column); a populated
+  // list is stored verbatim and used as the per-day shape in Phase 3.
+  default_day_layout: MealType[];
 }
 
 interface PreferencesFormProps {
@@ -66,6 +71,9 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [variability, setVariability] = useState<Variability>(initialValues.variability);
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
+  const [defaultDayLayout, setDefaultDayLayout] = useState<MealType[]>(
+    initialValues.default_day_layout,
+  );
 
   const [countries, countriesLoaded] = useWhitelist("/countries", "countries");
   const [languages, languagesLoaded] = useWhitelist("/languages", "languages");
@@ -91,6 +99,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
       variability,
       include_spices: includeSpices,
       track_snacks: trackSnacks,
+      default_day_layout: defaultDayLayout,
     });
   };
 
@@ -220,6 +229,20 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           </span>
         </span>
       </label>
+
+      <fieldset style={{ border: "1px solid #ddd", borderRadius: "6px", padding: "0.75rem 1rem" }}>
+        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>Default day layout</legend>
+        <p style={{ fontSize: "0.85rem", color: "#666", margin: "0 0 0.5rem 0" }}>
+          The meals you usually want on a planned day, in order. Individual days in a plan
+          can override this.
+        </p>
+        <DayLayoutEditor
+          value={defaultDayLayout}
+          onChange={setDefaultDayLayout}
+          disabled={loading}
+          ariaLabel="Default day layout"
+        />
+      </fieldset>
 
       <button
         type="submit"

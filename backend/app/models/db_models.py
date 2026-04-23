@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 
 from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 from sqlalchemy import Index
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, Relationship, SQLModel, String
 
 
@@ -39,6 +40,17 @@ class User(SQLModel, table=True):
     onboarding_completed: bool = Field(default=False, index=True)
 
     is_demo: bool = Field(default=False, index=True)
+
+    # Preferred per-day meal-slot shape, e.g.
+    #   ["sweet_breakfast", "snack", "main_course", "hot_dinner"]
+    # NULL means the user hasn't set one — plan generation falls back to the
+    # legacy meals_per_day counter. Values are validated against MealType at
+    # the API layer; the column itself is a loose JSONB so historical or
+    # migrated rows with legacy values don't break reads.
+    default_day_layout: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
 
     # Incremented on logout to revoke all outstanding JWTs for this user.
     # Tokens carry the version they were issued under ("tv" claim); requests

@@ -50,6 +50,7 @@ const mockProfile = {
   include_spices: true,
   track_snacks: true,
   onboarding_completed: true,
+  default_day_layout: null,
 };
 
 function createWrapper() {
@@ -188,6 +189,7 @@ describe('SettingsPopup', () => {
         variability: 'experimental',
         include_spices: true,
         track_snacks: true,
+        default_day_layout: [],
       });
     });
 

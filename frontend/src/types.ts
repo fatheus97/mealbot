@@ -146,5 +146,8 @@ export interface UserProfile {
   include_spices: boolean;
   track_snacks: boolean;
   onboarding_completed: boolean;
+  // Preferred shape of a single day's meals. null = user hasn't set one;
+  // plan generation falls back to the legacy meals_per_day counter.
+  default_day_layout: MealType[] | null;
 }
 

@@ -23,6 +23,9 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         variability: values.variability,
         include_spices: values.include_spices,
         track_snacks: values.track_snacks,
+        // Send the raw array (possibly []). The backend treats [] as "clear"
+        // and a populated list as the new stored layout.
+        default_day_layout: values.default_day_layout,
       });
       onClose();
     } catch {
@@ -86,6 +89,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             variability: profile.variability,
             include_spices: profile.include_spices,
             track_snacks: profile.track_snacks,
+            default_day_layout: profile.default_day_layout ?? [],
           }}
           onSubmit={handleSubmit}
           submitLabel="Save"

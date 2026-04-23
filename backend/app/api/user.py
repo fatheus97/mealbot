@@ -46,6 +46,10 @@ def _to_read(u: User) -> UserRead:
         track_snacks=u.track_snacks,
         onboarding_completed=u.onboarding_completed,
         is_demo=u.is_demo,
+        # UserRead validates list items as MealType; invalid legacy values
+        # stored via migration would 500 here, but the column is only written
+        # by this same API so that can't happen in practice.
+        default_day_layout=u.default_day_layout,  # type: ignore[arg-type]
     )
 
 
@@ -216,6 +220,15 @@ async def update_user(
 
     if patch.onboarding_completed is not None:
         current_user.onboarding_completed = bool(patch.onboarding_completed)
+
+    if patch.default_day_layout is not None:
+        # Empty list clears the preference; non-empty stores the raw enum
+        # values so the JSONB column holds plain strings (no "MealType.X"
+        # forms). StrEnum stringifies to the value, but be explicit.
+        if len(patch.default_day_layout) == 0:
+            current_user.default_day_layout = None
+        else:
+            current_user.default_day_layout = [m.value for m in patch.default_day_layout]
 
     session.add(current_user)
     await session.commit()

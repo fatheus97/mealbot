@@ -18,6 +18,7 @@ export function OnboardingModal() {
         variability: values.variability,
         include_spices: values.include_spices,
         track_snacks: values.track_snacks,
+        default_day_layout: values.default_day_layout,
         onboarding_completed: true,
       });
       setOnboardingCompleted(true);
@@ -56,7 +57,14 @@ export function OnboardingModal() {
           These help us generate meal plans tailored to you.
         </p>
         <PreferencesForm
-          initialValues={{ country: "", language: "English", variability: "traditional", include_spices: true, track_snacks: true }}
+          initialValues={{
+            country: "",
+            language: "English",
+            variability: "traditional",
+            include_spices: true,
+            track_snacks: true,
+            default_day_layout: [],
+          }}
           onSubmit={handleSubmit}
           submitLabel="Get Started"
           loading={mutation.isPending}

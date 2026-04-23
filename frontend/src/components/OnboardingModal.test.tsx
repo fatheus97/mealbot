@@ -130,6 +130,7 @@ describe('OnboardingModal', () => {
         variability: 'traditional',
         include_spices: true,
         track_snacks: true,
+        default_day_layout: [],
         onboarding_completed: true,
       });
     });

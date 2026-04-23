@@ -307,6 +307,86 @@ class TestProfile:
         assert resp.status_code == 400
 
 
+class TestDefaultDayLayout:
+    async def test_default_is_null(self, client: AsyncClient, auth_headers: dict):
+        resp = await client.get("/api/users", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["default_day_layout"] is None
+
+    async def test_patch_sets_layout(self, client: AsyncClient, auth_headers: dict):
+        layout = ["sweet_breakfast", "snack", "main_course", "hot_dinner"]
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": layout},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["default_day_layout"] == layout
+
+        # Round-trips on next GET
+        follow = await client.get("/api/users", headers=auth_headers)
+        assert follow.json()["default_day_layout"] == layout
+
+    async def test_patch_empty_list_clears(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # First set a layout...
+        await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": ["soup", "main_course"]},
+        )
+        # ...then clear with [].
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": []},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["default_day_layout"] is None
+
+    async def test_patch_unknown_meal_type_rejected(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": ["elevenses"]},
+        )
+        assert resp.status_code == 422
+
+    async def test_patch_too_many_slots_rejected(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # _MAX_LAYOUT_SLOTS = 8 in user_schemas; 9 must 422.
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": ["snack"] * 9},
+        )
+        assert resp.status_code == 422
+
+    async def test_patch_other_fields_leaves_layout_alone(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": ["savory_breakfast", "main_course"]},
+        )
+        # Touch an unrelated field — layout must survive.
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"variability": "experimental"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["default_day_layout"] == [
+            "savory_breakfast",
+            "main_course",
+        ]
+
+
 class TestExpiredToken:
     async def test_expired_jwt_returns_401(
         self, unauthed_client: AsyncClient, test_user
