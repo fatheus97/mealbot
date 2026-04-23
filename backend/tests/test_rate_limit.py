@@ -10,8 +10,9 @@ from collections.abc import AsyncGenerator
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import create_access_token, get_password_hash
 from app.db import get_session
 from app.models.db_models import User
@@ -102,29 +103,51 @@ async def test_unauth_login_still_buckets_per_ip(
     assert resp.status_code == 429
 
 
-async def test_invalid_bearer_token_falls_back_to_ip(
-    rate_limited_client: AsyncClient,
-) -> None:
-    """A garbage Authorization header must not escape the rate limit by
-    producing an unbucketed key. With an unparseable JWT the key-func falls
-    back to IP, so repeated calls still count against one bucket.
+def _fake_request(*, authorization: str | None, client_ip: str = "1.2.3.4") -> Request:
+    """Construct a minimal Starlette Request for unit-testing the key-func.
 
-    We hit /api/users/logout which is authed but has no @limiter.limit — so
-    an invalid token here just 401s. Instead, hit the IP-bucketed /login
-    with a bogus Authorization header and confirm the IP cap still applies.
+    Integration-level testing of the fallback is impractical: every route
+    that uses ``user_id_key_func`` also declares ``get_current_user`` as a
+    dependency, which rejects invalid tokens with 401 before the limiter
+    decorator ever fires. The defensive fallback is unreachable via HTTP,
+    so we exercise the branches directly.
     """
-    headers = {"Authorization": "Bearer not-a-real-jwt"}
-    for i in range(10):
-        resp = await rate_limited_client.post(
-            "/api/users/login",
-            data={"username": f"hdr{i}@test.com", "password": "x"},
-            headers=headers,
-        )
-        assert resp.status_code != 429
+    headers: list[tuple[bytes, bytes]] = []
+    if authorization is not None:
+        headers.append((b"authorization", authorization.encode()))
+    scope = {
+        "type": "http",
+        "headers": headers,
+        "client": (client_ip, 0),
+    }
+    return Request(scope)
 
-    resp = await rate_limited_client.post(
-        "/api/users/login",
-        data={"username": "hdr99@test.com", "password": "x"},
-        headers=headers,
-    )
-    assert resp.status_code == 429
+
+def test_key_func_returns_user_key_for_valid_jwt() -> None:
+    """A valid Bearer token → ``user:<sub>``. This is the happy path that
+    makes the per-user bucketing actually work."""
+    token = create_access_token(subject=42, token_version=0)
+    req = _fake_request(authorization=f"Bearer {token}")
+    assert user_id_key_func(req) == "user:42"
+
+
+def test_key_func_falls_back_to_ip_on_malformed_token() -> None:
+    """Garbage after ``Bearer `` must fall back to the IP bucket — not
+    return ``None``, which slowapi would treat as a shared global bucket
+    and silently bypass the rate limit."""
+    req = _fake_request(authorization="Bearer not-a-real-jwt", client_ip="9.9.9.9")
+    assert user_id_key_func(req) == "ip:9.9.9.9"
+
+
+def test_key_func_falls_back_to_ip_on_missing_header() -> None:
+    """No Authorization header at all (e.g. if this key_func is ever wired
+    to a public route) → IP bucket."""
+    req = _fake_request(authorization=None, client_ip="9.9.9.9")
+    assert user_id_key_func(req) == "ip:9.9.9.9"
+
+
+def test_key_func_falls_back_to_ip_on_non_bearer_scheme() -> None:
+    """An ``Authorization: Basic ...`` header must not be parsed as a
+    Bearer token and must not produce a None key."""
+    req = _fake_request(authorization="Basic dXNlcjpwYXNz", client_ip="9.9.9.9")
+    assert user_id_key_func(req) == "ip:9.9.9.9"

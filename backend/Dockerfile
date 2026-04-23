@@ -53,9 +53,11 @@ USER appuser
 
 EXPOSE 8000
 
-# --proxy-headers + --forwarded-allow-ips="*" make uvicorn trust X-Forwarded-For
-# from the Caddy reverse proxy so request.client.host (and therefore slowapi's
-# IP-based rate limit on /register, /login, /demo/session) reflects the real
-# client instead of Caddy's container IP. Safe here because the backend is only
-# reachable from inside the compose network — Caddy is the only hop.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# --proxy-headers + --forwarded-allow-ips restrict XFF trust to RFC-1918 ranges
+# (compose internal networks). Caddy reaches the backend via the compose bridge
+# so its source IP is always in 172.16.0.0/12; locking to private ranges means
+# forged X-Forwarded-For from any publicly-routable source is ignored, even if
+# the backend port is briefly exposed to the Docker host during debugging.
+# Without this, slowapi's IP-based limit on /register, /login, /demo/session
+# would see Caddy's container IP instead of the real client.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]

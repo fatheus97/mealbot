@@ -20,9 +20,17 @@ def user_id_key_func(request: Request) -> str:
     yet, and IP is the right abuse dimension there.
 
     We decode the JWT here rather than reading from request.state because the
-    limiter runs before the auth dependency populates state. Revocation isn't
-    relevant for bucket assignment — `get_current_user` rejects revoked
-    tokens right after, so they consume one slot and then 401.
+    limiter runs before the auth dependency populates state. `jwt.decode`
+    validates the signature and the `exp` claim by default — expired tokens
+    raise InvalidTokenError and fall through to the IP bucket.
+
+    A valid-signature, non-expired token whose `tv` (token_version) no longer
+    matches the user's current version (i.e. a logged-out session) still
+    decodes successfully and consumes one slot from that user's named bucket
+    before `get_current_user` rejects the request with 401. This is a bounded
+    DoS: the attacker needs a stolen pre-logout token, and the window closes
+    at token TTL. Accepted trade-off — the alternative is a DB roundtrip per
+    request on the limiter hot path.
     """
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
