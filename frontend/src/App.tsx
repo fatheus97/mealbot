@@ -32,6 +32,7 @@ function MainLayout() {
         key={openedPlan?.plan.plan_id ?? "new"}
         initialPlan={openedPlan?.plan ?? null}
         initialSummary={openedPlan?.summary}
+        onExitPlan={() => setOpenedPlan(null)}
       />
       {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
     </div>

@@ -407,4 +407,69 @@ describe('MealPlanner', () => {
     // Absent for the legacy meal — only one badge should exist total.
     expect(screen.queryAllByLabelText(/total time .* minutes/i)).toHaveLength(1);
   });
+
+  // Regression: the Cook Now / Plan Ahead mode tabs must stay visible while
+  // viewing an opened plan (My Plans → Open). PR #89 had hidden them, which
+  // stranded the user with no way to switch modes without reloading.
+  it('keeps the Cook Now / Plan Ahead tabs visible when an opened plan is shown', () => {
+    loginUser();
+
+    const initialPlan = {
+      plan_id: 77,
+      days: [
+        {
+          meals: [
+            { name: 'Opened Meal', meal_type: 'lunch', ingredients: [], steps: [] },
+          ],
+        },
+      ],
+      shopping_list: [],
+    };
+
+    render(<MealPlanner initialPlan={initialPlan} />, { wrapper: createWrapper() });
+
+    expect(screen.getByRole('tab', { name: /cook now/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /plan ahead/i })).toBeInTheDocument();
+    // Plan Ahead is forced-selected while viewing an opened plan.
+    expect(screen.getByRole('tab', { name: /plan ahead/i })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('calls onExitPlan when switching tabs while an opened plan is shown', async () => {
+    loginUser();
+
+    const initialPlan = {
+      plan_id: 77,
+      days: [
+        {
+          meals: [
+            { name: 'Opened Meal', meal_type: 'lunch', ingredients: [], steps: [] },
+          ],
+        },
+      ],
+      shopping_list: [],
+    };
+    const onExitPlan = vi.fn();
+
+    const user = userEvent.setup();
+    render(
+      <MealPlanner initialPlan={initialPlan} onExitPlan={onExitPlan} />,
+      { wrapper: createWrapper() },
+    );
+
+    await user.click(screen.getByRole('tab', { name: /cook now/i }));
+
+    expect(onExitPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onExitPlan when no plan is opened', async () => {
+    loginUser();
+
+    const onExitPlan = vi.fn();
+    const user = userEvent.setup();
+    render(<MealPlanner onExitPlan={onExitPlan} />, { wrapper: createWrapper() });
+
+    await user.click(screen.getByRole('tab', { name: /cook now/i }));
+
+    expect(onExitPlan).not.toHaveBeenCalled();
+  });
 });

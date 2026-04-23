@@ -28,9 +28,13 @@ function resizeLayouts(
 interface MealPlannerProps {
   initialPlan?: MealPlanResponse | null;
   initialSummary?: MealPlanSummary;
+  // Invoked when the user switches mode while viewing an opened plan, so
+  // the parent can clear openedPlan and MealPlanner remounts cleanly with
+  // no initialPlan. Optional so the non-opened path works without a prop.
+  onExitPlan?: () => void;
 }
 
-export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
+export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
   const { userId } = useAuth();
   const generatePlanMutation = useGeneratePlan();
   const regenerateMutation = useRegeneratePlan();
@@ -264,48 +268,52 @@ export function MealPlanner({ initialPlan, initialSummary }: MealPlannerProps) {
     <section style={{ marginBottom: "2rem", borderTop: "2px solid #eee", paddingTop: "2rem" }}>
       <h2>Meal Planner</h2>
 
-      {initialPlan == null && (
-        <div role="tablist" style={{ display: "flex", gap: "0.25rem", marginBottom: "1rem", borderBottom: "2px solid #e5e7eb" }}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={effectiveMode === "cook_now"}
-            onClick={() => setMode("cook_now")}
-            style={{
-              padding: "0.5rem 1.25rem",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "1rem",
-              fontWeight: effectiveMode === "cook_now" ? 600 : 400,
-              borderBottom: effectiveMode === "cook_now" ? "2px solid #2563eb" : "2px solid transparent",
-              marginBottom: "-2px",
-              color: effectiveMode === "cook_now" ? "#2563eb" : "#4b5563",
-            }}
-          >
-            Cook Now
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={effectiveMode === "plan_ahead"}
-            onClick={() => setMode("plan_ahead")}
-            style={{
-              padding: "0.5rem 1.25rem",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "1rem",
-              fontWeight: effectiveMode === "plan_ahead" ? 600 : 400,
-              borderBottom: effectiveMode === "plan_ahead" ? "2px solid #2563eb" : "2px solid transparent",
-              marginBottom: "-2px",
-              color: effectiveMode === "plan_ahead" ? "#2563eb" : "#4b5563",
-            }}
-          >
-            Plan Ahead
-          </button>
-        </div>
-      )}
+      <div role="tablist" style={{ display: "flex", gap: "0.25rem", marginBottom: "1rem", borderBottom: "2px solid #e5e7eb" }}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={effectiveMode === "cook_now"}
+          onClick={() => {
+            setMode("cook_now");
+            if (initialPlan != null) onExitPlan?.();
+          }}
+          style={{
+            padding: "0.5rem 1.25rem",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: "1rem",
+            fontWeight: effectiveMode === "cook_now" ? 600 : 400,
+            borderBottom: effectiveMode === "cook_now" ? "2px solid #2563eb" : "2px solid transparent",
+            marginBottom: "-2px",
+            color: effectiveMode === "cook_now" ? "#2563eb" : "#4b5563",
+          }}
+        >
+          Cook Now
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={effectiveMode === "plan_ahead"}
+          onClick={() => {
+            setMode("plan_ahead");
+            if (initialPlan != null) onExitPlan?.();
+          }}
+          style={{
+            padding: "0.5rem 1.25rem",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: "1rem",
+            fontWeight: effectiveMode === "plan_ahead" ? 600 : 400,
+            borderBottom: effectiveMode === "plan_ahead" ? "2px solid #2563eb" : "2px solid transparent",
+            marginBottom: "-2px",
+            color: effectiveMode === "plan_ahead" ? "#2563eb" : "#4b5563",
+          }}
+        >
+          Plan Ahead
+        </button>
+      </div>
 
       {effectiveMode === "cook_now" && <CookNowForm />}
 
