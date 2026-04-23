@@ -81,8 +81,13 @@ def persist_meal_entries(
     plan_obj: MealPlanResponse,
     cooked_at: datetime | None = None,
     consumption_snapshots: dict[tuple[int, int], list[ConsumedBatch]] | None = None,
-) -> None:
+) -> list[MealEntry]:
     """Stage meal entries into the session. Caller must await session.commit().
+
+    Returns the staged ``MealEntry`` list so callers can read attributes
+    (e.g. for an API response) without a post-commit re-query. IDs are None
+    at return time; use ``await session.flush()`` if you need them populated
+    before commit.
 
     `consumption_snapshots` keys are 1-based (day_index, meal_index) tuples
     matching the indices used below; values are the per-meal fridge debits
@@ -119,6 +124,7 @@ def persist_meal_entries(
 
     if entries:
         session.add_all(entries)
+    return entries
 
 
 async def generate_plan_days(

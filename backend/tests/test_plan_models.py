@@ -338,6 +338,39 @@ class TestMealPlanResponseSerialization:
                 steps=["Cook"],
             )
 
+    def test_name_length_capped(self):
+        """Client-write path (Cook Now) must not store unbounded names in
+        the indexed MealEntry.name column."""
+        with pytest.raises(ValidationError):
+            PlannedMeal(
+                name="a" * 201,
+                meal_type="soup",  # type: ignore[arg-type]
+                ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                steps=["Cook"],
+            )
+
+    def test_too_many_steps_rejected(self):
+        with pytest.raises(ValidationError):
+            PlannedMeal(
+                name="Many Steps",
+                meal_type="soup",  # type: ignore[arg-type]
+                ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                steps=["step"] * 51,
+            )
+
+    def test_oversized_step_rejected(self):
+        with pytest.raises(ValidationError, match="exceeds 1000"):
+            PlannedMeal(
+                name="Fat Step",
+                meal_type="soup",  # type: ignore[arg-type]
+                ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                steps=["x" * 1001],
+            )
+
+    def test_ingredient_name_length_capped(self):
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="a" * 101, quantity_grams=100)
+
 
 class TestPlannedMealTotalTime:
     def _base_meal_kwargs(self) -> dict:

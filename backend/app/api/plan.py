@@ -75,6 +75,10 @@ async def list_plans(
         .where(
             MealPlan.user_id == current_user.id,
             MealPlan.confirmed_at.is_not(None),  # type: ignore[union-attr]
+            # Cook Now plans are auto-confirmed on creation but shouldn't
+            # appear in the multi-day plan catalog — their UX contract (1-day,
+            # 1-meal, already cooked) doesn't match the "open this plan" flow.
+            MealPlan.kind == "planned",
         )
         .group_by(MealPlan.id)  # type: ignore[arg-type]
         .order_by(MealPlan.created_at.desc())  # type: ignore[attr-defined]

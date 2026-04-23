@@ -17,14 +17,13 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.api.deps import get_current_user
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
-from app.models.db_models import MealEntry, MealPlan, User
+from app.models.db_models import MealPlan, User
 from app.models.plan_models import (
     ConsumedBatch,
     CookRecipeRequest,
@@ -70,11 +69,10 @@ def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest
             extra_tastes = extra_tastes[:19]
         extra_tastes.append(req.note)
 
-    # Stock items get loaded in generate_single_day's caller path for plans,
-    # but the Cook Now flow is a single-meal prompt so we mimic the same shape.
-    # Leaving stock_items empty here is intentional — the /cook endpoint
-    # re-reads the fridge at debit time; the /generate endpoint doesn't need
-    # stock because the LLM only sees what we pass.
+    # _build_plan_request initialises stock_items=[]; the caller is
+    # responsible for populating it. /generate does (below, from the fridge)
+    # so the LLM sees available stock; /cook doesn't call this helper because
+    # it reads the fridge directly for FIFO allocation, not for prompting.
     ms_raw = (user.measurement_system or "metric").strip().lower()
     measurement_system: Literal["none", "metric", "imperial"] = cast(
         'Literal["none", "metric", "imperial"]',
@@ -240,7 +238,7 @@ async def cook_recipe(
     # "planned → confirmed → cooked" state machine because the user's action
     # is a single intent.
     now = datetime.now(UTC)
-    persist_meal_entries(
+    entries = persist_meal_entries(
         session,
         user_id=current_user.id,
         plan_id=plan.id,
@@ -248,20 +246,18 @@ async def cook_recipe(
         cooked_at=now,
         consumption_snapshots={(1, 1): allocations},
     )
-
-    await session.commit()
-
-    # Fetch the persisted MealEntry for the response. persist_meal_entries
-    # only inserted one row under this plan, so first() is safe.
-    result = await session.execute(
-        select(MealEntry).where(MealEntry.meal_plan_id == plan.id),
-    )
-    entry = result.scalars().first()
-    if entry is None or entry.id is None:
-        logger.error("cook_now entry missing after insert for plan %s", plan.id)
+    if not entries:
         raise HTTPException(status_code=500, detail="Cook Now persistence failed")
 
-    return MealEntrySummary(
+    # Flush so the new row has its id populated; snapshot the fields we need
+    # for the response BEFORE commit so a transient DB error on commit doesn't
+    # leave the client with a 500 after the write already happened (and force
+    # them to POST again, creating a duplicate).
+    await session.flush()
+    entry = entries[0]
+    if entry.id is None:
+        raise HTTPException(status_code=500, detail="Cook Now persistence failed")
+    response = MealEntrySummary(
         id=entry.id,
         day_index=entry.day_index,
         meal_index=entry.meal_index,
@@ -270,3 +266,6 @@ async def cook_recipe(
         cooked_at=entry.cooked_at,
         rating=entry.rating,
     )
+
+    await session.commit()
+    return response

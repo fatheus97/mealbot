@@ -137,7 +137,11 @@ class MealPlanRequest(BaseModel):
 
 class IngredientAmount(BaseModel):
     """Amount of a single ingredient, expressed in grams."""
-    name: str = Field(..., description="The canonical name of the ingredient (e.g., 'chicken breast').")
+    # Bounds: Cook Now (Phase 4+) accepts PlannedMeal from the client. These
+    # caps prevent a crafted request from stuffing the indexed MealEntry.name
+    # column or meal_json blob with unbounded data.
+    name: str = Field(..., max_length=100,
+                      description="The canonical name of the ingredient (e.g., 'chicken breast').")
     quantity_grams: float = Field(...,
                                   description="The weight in grams. If the recipe uses volume (cups), estimate the weight.")
     is_spice: bool = Field(default=False, description="True for spices/herbs/seasonings when include_spices is off.")
@@ -161,11 +165,14 @@ class ConsumedBatch(BaseModel):
 
 
 class PlannedMeal(BaseModel):
-    name: str
+    # Bounds apply to the client-write path (Cook Now /recipe/cook) — the LLM
+    # output path doesn't reach these limits in practice, but sizing them here
+    # rather than at the API layer keeps all PlannedMeal use-sites protected.
+    name: str = Field(..., max_length=200)
     meal_type: MealType
-    meal_type_label: str = ""
-    ingredients: list[IngredientAmount]
-    steps: list[str]
+    meal_type_label: str = Field(default="", max_length=100)
+    ingredients: list[IngredientAmount] = Field(..., max_length=40)
+    steps: list[str] = Field(..., max_length=50)
     # Optional so legacy meal_json rows (pre-feature) still parse during RAG retrieval.
     # New generations are instructed by the prompt to always populate it.
     total_time_minutes: int | None = Field(
@@ -182,6 +189,17 @@ class PlannedMeal(BaseModel):
         # Map them onto the new enum so DB reads (RAG, history) still deserialize.
         if isinstance(v, str) and v in LEGACY_MEAL_TYPE_MAP:
             return LEGACY_MEAL_TYPE_MAP[v]
+        return v
+
+    @field_validator("steps")
+    @classmethod
+    def cap_step_length(cls, v: list[str]) -> list[str]:
+        # Per-item cap the list-level `max_length=50` can't express. Keeps
+        # the client-write path (Cook Now) from storing a 10 MB "step" in
+        # meal_json. 1000 chars is well above realistic recipe step length.
+        for i, step in enumerate(v):
+            if len(step) > 1000:
+                raise ValueError(f"steps[{i}] exceeds 1000 characters")
         return v
 
 

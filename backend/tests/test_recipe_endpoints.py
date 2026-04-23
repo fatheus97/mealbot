@@ -217,6 +217,34 @@ class TestCookRecipe:
         assert resp.status_code == 400
         assert "must match" in resp.json()["detail"].lower()
 
+    async def test_cook_plans_hidden_from_catalog(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+    ):
+        """A Cook Now plan is auto-confirmed on creation but must NOT appear
+        in /api/plan (the multi-day catalog). Its UX contract doesn't match
+        the 'open existing plan' flow."""
+        recipe = _fake_recipe()
+        resp = await client.post(
+            "/api/recipe/cook",
+            headers=auth_headers,
+            json={
+                "meal_type": "soup",
+                "people_count": 2,
+                "taste_preferences": [],
+                "avoid_ingredients": [],
+                "ingredients_to_use": [],
+                "stock_only": False,
+                "recipe": recipe.model_dump(mode="json"),
+            },
+        )
+        assert resp.status_code == 200
+
+        catalog = await client.get("/api/plan", headers=auth_headers)
+        assert catalog.status_code == 200
+        assert catalog.json() == []
+
     async def test_cook_succeeds_with_empty_fridge(
         self,
         client: AsyncClient,
