@@ -132,6 +132,8 @@ docker compose exec \
 
 Production uses `docker-compose.prod.yml` which adds Caddy for automatic HTTPS, disables dev ports, and removes volume mounts. Image digests are pinned; Postgres enforces a `statement_timeout`; a dedicated `migrate` service runs `alembic upgrade head` on every startup before the backend comes up, so deploys don't need a manual migration step.
 
+**Build-time secret**: `HF_TOKEN` (optional) — a Hugging Face read token, passed as a BuildKit secret during `docker compose build` to authenticate the one-time embedding-model download baked into the image. Not read at runtime; set it in the shell (`export HF_TOKEN=hf_...`) before building. Anonymous access still works — the token just suppresses the HF warnings and lifts the rate limit during the build.
+
 ```bash
 # Create .env with production secrets (see .env.example).
 # Set DOMAIN, ALLOWED_ORIGINS, REGISTRATION_ENABLED=false, DEMO_MODE as needed,
@@ -193,7 +195,6 @@ See `.env.example` for all options. Key variables:
 | `RAG_MAX_CONTEXT_MEALS` | No | Cap on examples sent to the LLM (default: `8`) |
 | `REGISTRATION_ENABLED` | No | `true` to allow public signup (default: `true`, set `false` for closed alpha) |
 | `DEMO_MODE` | No | `true` to enable `POST /api/demo/session` and the "Try Demo" button |
-| `HF_TOKEN` | No | Hugging Face read token used at `docker build` to authenticate the embedding-model download (anonymous works, just louder warnings) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | No | JWT token lifetime in minutes (default: `1440` = 24h) |
 | `ALLOWED_ORIGINS` | No | Comma-separated CORS origins (default: `http://localhost:5173,http://localhost:5174`) |
 | `DOMAIN` | Prod only | Domain for Caddy HTTPS, e.g. `yourdomain.com` |
