@@ -461,6 +461,36 @@ describe('MealPlanner', () => {
     expect(onExitPlan).toHaveBeenCalledTimes(1);
   });
 
+  // Clicking the currently-active Plan Ahead tab while viewing an opened
+  // plan is the non-obvious case: it's the highlighted tab, but it still
+  // exits the opened plan. See the comment near `effectiveMode`.
+  it('calls onExitPlan when clicking the active Plan Ahead tab with an opened plan', async () => {
+    loginUser();
+
+    const initialPlan = {
+      plan_id: 77,
+      days: [
+        {
+          meals: [
+            { name: 'Opened Meal', meal_type: 'lunch', ingredients: [], steps: [] },
+          ],
+        },
+      ],
+      shopping_list: [],
+    };
+    const onExitPlan = vi.fn();
+
+    const user = userEvent.setup();
+    render(
+      <MealPlanner initialPlan={initialPlan} onExitPlan={onExitPlan} />,
+      { wrapper: createWrapper() },
+    );
+
+    await user.click(screen.getByRole('tab', { name: /plan ahead/i }));
+
+    expect(onExitPlan).toHaveBeenCalledTimes(1);
+  });
+
   it('does not call onExitPlan when no plan is opened', async () => {
     loginUser();
 

@@ -106,6 +106,13 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // When the user opens an existing plan (initialPlan passed in), force the
   // Plan Ahead tab so the rendered plan view is visible — a Cook Now tab
   // wouldn't render the opened plan at all.
+  //
+  // The tabs stay interactive even while viewing an opened plan: a click on
+  // either one calls onExitPlan to dismiss the plan and land on that mode's
+  // entry screen. That includes clicking the currently-highlighted Plan
+  // Ahead tab, which deliberately resets to a fresh form rather than being a
+  // no-op — the tab semantically means "go to the plan form", and the user's
+  // only way out of an opened plan via the bar is to click a tab.
   const effectiveMode = initialPlan != null ? "plan_ahead" : mode;
 
   // Keep dayLayouts aligned with (days, userDefaultLayout) while per-day
