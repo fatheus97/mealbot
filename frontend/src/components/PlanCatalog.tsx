@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { usePlanList, useDeletePlan } from "../hooks/useServerState";
-import { authFetch } from "../api";
+import { fetchPlan } from "../api";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 
 const STATUS_COLORS: Record<PlanStatus, { bg: string; text: string }> = {
@@ -28,9 +28,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   const handleOpen = async (summary: MealPlanSummary) => {
     setLoadingPlanId(summary.id);
     try {
-      const res = await authFetch(`/plan/${summary.id}`);
-      if (!res.ok) throw new Error(`Failed to load plan: ${res.status}`);
-      const data: MealPlanResponse = await res.json();
+      const data: MealPlanResponse = await fetchPlan(summary.id);
       onOpenPlan(data, summary);
     } catch (err) {
       console.error("Failed to load plan:", err);

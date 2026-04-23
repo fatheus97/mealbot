@@ -1,5 +1,5 @@
 // frontend/src/api.ts
-import type { StockItem, UserProfile } from "./types";
+import type { MealPlanResponse, StockItem, UserProfile } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -64,6 +64,14 @@ export async function scanReceipt(file: File): Promise<StockItem[]> {
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Receipt scan failed: ${res.status} - ${txt}`);
+  }
+  return res.json();
+}
+
+export async function fetchPlan(planId: number): Promise<MealPlanResponse> {
+  const res = await authFetch(`/plan/${planId}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load plan: ${res.status}`);
   }
   return res.json();
 }

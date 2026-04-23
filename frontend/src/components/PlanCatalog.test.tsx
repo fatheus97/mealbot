@@ -9,13 +9,15 @@ import type { MealPlanSummary } from "../types";
 
 vi.mock("../api", () => ({
   authFetch: vi.fn(),
+  fetchPlan: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
 }));
 
-import { authFetch } from "../api";
+import { authFetch, fetchPlan } from "../api";
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
+const mockedFetchPlan = fetchPlan as ReturnType<typeof vi.fn>;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -108,12 +110,9 @@ describe("PlanCatalog", () => {
       expect(screen.getByText("Open")).toBeInTheDocument();
     });
 
-    // Second call: load plan detail
+    // Second call: load plan detail (uses fetchPlan, not authFetch)
     const planDetail = { plan_id: 1, days: [], shopping_list: [] };
-    mockedAuthFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(planDetail),
-    });
+    mockedFetchPlan.mockResolvedValueOnce(planDetail);
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Open"));
