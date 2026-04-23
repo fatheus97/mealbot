@@ -1,5 +1,13 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { MEAL_TYPES, MEAL_TYPE_LABELS, type MealType } from "../constants/mealTypes";
+
+// Cheap-enough stable ID. crypto.randomUUID is not always available in the
+// Node jsdom test environment without polyfills, so fall back to a random
+// string. Collisions inside a single layout are astronomically unlikely.
+const newId = (): string =>
+  (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `slot-${Math.random().toString(36).slice(2)}-${Date.now()}`);
 
 interface DayLayoutEditorProps {
   value: MealType[];
@@ -29,18 +37,19 @@ export function DayLayoutEditor({
   // without this, focus on ↑ / ↓ buttons is dropped to the body when the user
   // moves a slot. Slot values can repeat (two "snack" entries is valid), so
   // we can't key on the enum value itself.
-  const nextId = useRef(0);
-  const [ids, setIds] = useState<string[]>(() =>
-    value.map(() => String(nextId.current++)),
-  );
-  // Re-sync IDs only when the array length changes externally (e.g. when the
-  // parent passes a fresh initialValues after a profile fetch). Internal
-  // mutations are driven through the helpers below which keep `ids` in sync.
+  const [ids, setIds] = useState<string[]>(() => value.map(newId));
+  // Re-sync IDs only when the array length changes externally (e.g. parent
+  // passes a fresh initialValues after a profile fetch). Internal mutations
+  // drive `ids` through the helpers below, which keep the array aligned with
+  // `value`. Depending on `value.length` alone is intentional — a same-length
+  // in-place swap by the parent would re-use stale IDs, but the only parent
+  // mutation in practice is a full replace on profile load.
   useEffect(() => {
     setIds((current) => {
       if (current.length === value.length) return current;
-      return value.map((_, i) => current[i] ?? String(nextId.current++));
+      return value.map((_, i) => current[i] ?? newId());
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value.length]);
 
   const atMax = value.length >= maxSlots;
@@ -82,7 +91,7 @@ export function DayLayoutEditor({
 
   const addSlot = () => {
     if (atMax) return;
-    setIds((prev) => [...prev, String(nextId.current++)]);
+    setIds((prev) => [...prev, newId()]);
     // Default new slot to main_course — it's the least opinionated choice and
     // what users most often add when extending a layout.
     onChange([...value, "main_course"]);
