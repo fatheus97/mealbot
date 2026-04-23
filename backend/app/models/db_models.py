@@ -99,7 +99,8 @@ class MealEntry(SQLModel, table=True):
 
     # Per-meal snapshot of which fridge batches were debited at confirm time.
     # JSON list[ConsumedBatch]. NULL on legacy rows (pre-migration); finish_plan
-    # falls back to add_ingredients_to_fridge for those.
+    # falls back to a lossy name+grams restore via restore_consumed_batches for
+    # those — expiration_date and need_to_use are not recoverable.
     consumed_snapshot_json: str | None = Field(default=None)
 
     # RAG embedding — 384d from all-MiniLM-L6-v2, generated when rated 4+

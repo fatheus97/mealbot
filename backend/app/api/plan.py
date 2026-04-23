@@ -690,10 +690,20 @@ async def finish_plan(
                     "Corrupt consumed_snapshot_json on meal entry %d — falling back to lossy restore",
                     entry.id,
                 )
-        batches_to_restore.extend(
-            ConsumedBatch(name=ing.name, quantity_grams=ing.quantity_grams)
-            for ing in parse_meal_ingredients(entry)
-        )
+        # Legacy fallback: entries without a snapshot (or with a corrupt one
+        # that fell through above). meal_json itself can also be corrupt for
+        # legacy rows — guard here so one bad entry doesn't 500 the whole
+        # finish and strand the user.
+        try:
+            batches_to_restore.extend(
+                ConsumedBatch(name=ing.name, quantity_grams=ing.quantity_grams)
+                for ing in parse_meal_ingredients(entry)
+            )
+        except ValidationError:
+            logger.exception(
+                "Corrupt meal_json on meal entry %d — skipping its ingredients in restore",
+                entry.id,
+            )
 
     if batches_to_restore:
         await restore_consumed_batches(session, current_user.id, batches_to_restore)

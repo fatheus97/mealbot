@@ -1,11 +1,15 @@
 """Meal-plan business logic extracted from app.api.plan.
 
-Keeps the HTTP router thin. Functions here:
-- are callable outside a request context (e.g. from a cron or script),
-- raise HTTPException only when the error maps 1:1 to an HTTP status the
-  router would also produce (auth 401s, 404s for missing rows); pure
-  generation/parsing failures raise PlanGenerationError, which the router
-  translates to 502.
+Keeps the HTTP router thin. Functions here are callable outside a request
+context (e.g. from a cron or script). Generation/parsing failures surface
+as PlanGenerationError, which the router translates to 502.
+
+One pragmatic concession: generate_plan_days lets an HTTPException from
+the RAG pipeline pass through untouched, rather than wrapping it — the
+RAG pipeline currently uses HTTPException for some of its own signalling,
+and rewrapping would erase the intended status code. The import of
+HTTPException here is only for that passthrough; the service never
+raises one itself.
 """
 import json
 import logging
@@ -13,6 +17,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import HTTPException
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -135,7 +140,8 @@ async def generate_plan_days(
     Raises PlanGenerationError on LLM failure; lets HTTPException propagate
     (so downstream HTTP errors surface unchanged to the router).
     """
-    assert user.id is not None, "generate_plan_days requires a persisted user"
+    if user.id is None:
+        raise ValueError("generate_plan_days requires a persisted user")
 
     result = await session.execute(
         select(StockItem).where(StockItem.user_id == user.id)
@@ -195,8 +201,6 @@ async def clear_unconfirmed_plans(session: AsyncSession, user_id: int) -> None:
     Used before creating a new plan so we don't accumulate orphans.
     Staged in the session; caller commits.
     """
-    from sqlalchemy import delete  # local import keeps the module-level surface clean
-
     await session.execute(
         delete(MealEntry).where(
             MealEntry.user_id == user_id,  # type: ignore[arg-type]

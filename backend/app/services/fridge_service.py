@@ -13,6 +13,15 @@ from sqlmodel import delete, select
 from app.models.db_models import StockItem
 from app.models.plan_models import ConsumedBatch, IngredientAmount, StockItemDTO
 
+__all__ = [
+    "allocate_fifo",
+    "get_fridge_items",
+    "group_and_sort_fridge",
+    "replace_fridge_items",
+    "restore_consumed_batches",
+    "subtract_ingredients_from_fridge",
+]
+
 
 async def get_fridge_items(session: AsyncSession, user_id: int) -> list[StockItemDTO]:
     """Return fridge items to the user in API schema form. Auto-ticks near-expiry items."""
@@ -61,36 +70,6 @@ async def replace_fridge_items(
     if commit:
         await session.commit()
     return await get_fridge_items(session, user_id)
-
-
-async def add_ingredients_to_fridge(
-    session: AsyncSession, user_id: int, ingredients: list[IngredientAmount],
-) -> list[StockItemDTO]:
-    """Legacy fallback: return leftover grams to the fridge with no expiration metadata.
-
-    Used by finish_plan only for MealEntry rows that have no consumed_snapshot_json
-    (entries confirmed before the snapshot column existed). New code should rely on
-    restore_consumed_batches instead, which preserves expiration_date and need_to_use.
-    """
-    existing = await get_fridge_items(session, user_id)
-    # Returned leftovers have expiration_date=None, so they merge with other None-dated items
-    merged: dict[tuple[str, date | None], StockItemDTO] = {
-        (i.name.strip().lower(), i.expiration_date): i for i in existing
-    }
-    for ing in ingredients:
-        key = (ing.name.strip().lower(), None)
-        if key in merged:
-            merged[key] = StockItemDTO(
-                name=merged[key].name,
-                quantity_grams=merged[key].quantity_grams + ing.quantity_grams,
-                need_to_use=merged[key].need_to_use,
-                expiration_date=merged[key].expiration_date,
-            )
-        else:
-            merged[key] = StockItemDTO(
-                name=ing.name, quantity_grams=ing.quantity_grams, need_to_use=False,
-            )
-    return await replace_fridge_items(session, user_id, list(merged.values()), commit=False)
 
 
 async def restore_consumed_batches(

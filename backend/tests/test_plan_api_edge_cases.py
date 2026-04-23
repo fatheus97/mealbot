@@ -394,6 +394,56 @@ class TestFinishPlan:
         )
         assert finish_resp.status_code == 409
 
+    async def test_finish_skips_entry_with_corrupt_meal_json(
+        self, client: AsyncClient, auth_headers: dict,
+        test_user: User, db_session: AsyncSession,
+    ):
+        """A legacy uncooked entry with corrupt meal_json must not 500 the finish.
+
+        Before the fallback was guarded, parse_meal_ingredients() would let
+        ValidationError propagate and the user could never finish the plan.
+        Now the corrupt entry is logged and skipped; the plan still finishes.
+        """
+        plan = MealPlan(
+            user_id=test_user.id,
+            days=1,
+            meals_per_day=1,
+            people_count=2,
+            request_json="{}",
+            response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
+            confirmed_at=datetime.now(UTC),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        # Legacy entry: NULL consumed_snapshot_json + corrupt meal_json.
+        bad_entry = MealEntry(
+            user_id=test_user.id,
+            meal_plan_id=plan.id,
+            day_index=1,
+            meal_index=1,
+            name="Corrupt Legacy Meal",
+            meal_type="lunch",
+            meal_json="NOT VALID JSON {{{",
+            cooked_at=None,
+            consumed_snapshot_json=None,
+        )
+        db_session.add(bad_entry)
+        await db_session.flush()
+
+        finish_resp = await client.post(
+            f"/api/plan/{plan.id}/finish", headers=auth_headers,
+        )
+        assert finish_resp.status_code == 200, (
+            f"corrupt meal_json on a legacy entry stranded finish_plan: "
+            f"{finish_resp.status_code} {finish_resp.text}"
+        )
+        body = finish_resp.json()
+        assert body["status"] == "finished"
+        # returned_meals counts the uncooked entries walked, not the ones
+        # successfully restored — matches the existing semantic.
+        assert body["returned_meals"] == 1
+
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_finish_all_cooked_returns_zero(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,

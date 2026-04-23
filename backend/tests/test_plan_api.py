@@ -451,7 +451,7 @@ class TestStockOnlyPlan:
             json=[{"name": "chicken breast", "quantity_grams": 500}],
         )
 
-        with caplog.at_level(logging.WARNING, logger="app.api.plan"):
+        with caplog.at_level(logging.WARNING, logger="app.services.plan_service"):
             resp = await client.post(
                 "/api/plan?days=1",
                 headers=auth_headers,
