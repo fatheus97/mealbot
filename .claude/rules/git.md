@@ -9,6 +9,24 @@
 - Always create feature branches for any changes
 ```
 
+## Autonomy
+
+Default: commit, push, open PRs, and iterate on review feedback without asking.
+
+- Commit completed work on the feature branch — do not ask first.
+- Push the branch — do not ask first.
+- Open a PR with `gh pr create` — do not ask first.
+- After pushing, wait for CI and the Claude PR Review workflow. Poll with
+  `ScheduleWakeup` so the session doesn't block.
+- If any CI check fails or the AI review flags blocking issues, fix them,
+  commit, push, and wait again. Loop until every CI check is green AND the
+  AI review gives a clean sign-off ("ready to merge", "no remaining issues",
+  or equivalent).
+- Only then, ask for permission to merge. The merge itself still requires
+  explicit user approval — see the hard rule above.
+- Plan-approval gates in slash commands (e.g. `/polish`, `/add_feature`)
+  still apply pre-implementation — they are orthogonal to this autonomy rule.
+
 ## The Full Cycle as a Diagram
 ```
 1. Create a branch from the main (feature/, fix/, refactor/, chore/)
