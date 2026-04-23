@@ -5,9 +5,11 @@ from unittest.mock import patch
 import jwt
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import ALGORITHM, create_access_token
+from app.models.db_models import User
 from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 
@@ -365,6 +367,55 @@ class TestDefaultDayLayout:
             json={"default_day_layout": ["snack"] * 9},
         )
         assert resp.status_code == 422
+
+    async def test_patch_duplicate_slots_roundtrip(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """Repeated values (e.g. two snacks) are valid and must round-trip."""
+        layout = ["snack", "snack", "main_course"]
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"default_day_layout": layout},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["default_day_layout"] == layout
+        follow = await client.get("/api/users", headers=auth_headers)
+        assert follow.json()["default_day_layout"] == layout
+
+    async def test_read_sanitizes_unknown_stored_values(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session: AsyncSession,
+        test_user: User,
+    ):
+        """Defence in depth: if the JSONB column picks up an unknown slot
+        value (direct DB write, future migration, taxonomy churn), the
+        profile endpoint must filter it out rather than 500 for the user."""
+        test_user.default_day_layout = ["main_course", "elevenses", "snack"]
+        db_session.add(test_user)
+        await db_session.commit()
+
+        resp = await client.get("/api/users", headers=auth_headers)
+        assert resp.status_code == 200
+        # "elevenses" dropped; the two valid slots survive in order.
+        assert resp.json()["default_day_layout"] == ["main_course", "snack"]
+
+    async def test_read_all_unknown_degrades_to_null(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session: AsyncSession,
+        test_user: User,
+    ):
+        test_user.default_day_layout = ["elevenses", "tea_time"]
+        db_session.add(test_user)
+        await db_session.commit()
+
+        resp = await client.get("/api/users", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["default_day_layout"] is None
 
     async def test_patch_other_fields_leaves_layout_alone(
         self, client: AsyncClient, auth_headers: dict

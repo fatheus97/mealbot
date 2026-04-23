@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { MEAL_TYPES, MEAL_TYPE_LABELS, type MealType } from "../constants/mealTypes";
 
 interface DayLayoutEditorProps {
@@ -25,6 +25,24 @@ export function DayLayoutEditor({
 }: DayLayoutEditorProps) {
   const labelId = useId();
 
+  // Stable per-slot ID so React can preserve DOM identity across reorder —
+  // without this, focus on ↑ / ↓ buttons is dropped to the body when the user
+  // moves a slot. Slot values can repeat (two "snack" entries is valid), so
+  // we can't key on the enum value itself.
+  const nextId = useRef(0);
+  const [ids, setIds] = useState<string[]>(() =>
+    value.map(() => String(nextId.current++)),
+  );
+  // Re-sync IDs only when the array length changes externally (e.g. when the
+  // parent passes a fresh initialValues after a profile fetch). Internal
+  // mutations are driven through the helpers below which keep `ids` in sync.
+  useEffect(() => {
+    setIds((current) => {
+      if (current.length === value.length) return current;
+      return value.map((_, i) => current[i] ?? String(nextId.current++));
+    });
+  }, [value.length]);
+
   const atMax = value.length >= maxSlots;
 
   const replaceAt = (idx: number, next: MealType) => {
@@ -34,11 +52,17 @@ export function DayLayoutEditor({
   };
 
   const removeAt = (idx: number) => {
+    setIds((prev) => prev.filter((_, i) => i !== idx));
     onChange(value.filter((_, i) => i !== idx));
   };
 
   const moveUp = (idx: number) => {
     if (idx <= 0) return;
+    setIds((prev) => {
+      const arr = [...prev];
+      [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+      return arr;
+    });
     const arr = [...value];
     [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
     onChange(arr);
@@ -46,6 +70,11 @@ export function DayLayoutEditor({
 
   const moveDown = (idx: number) => {
     if (idx >= value.length - 1) return;
+    setIds((prev) => {
+      const arr = [...prev];
+      [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+      return arr;
+    });
     const arr = [...value];
     [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
     onChange(arr);
@@ -53,6 +82,7 @@ export function DayLayoutEditor({
 
   const addSlot = () => {
     if (atMax) return;
+    setIds((prev) => [...prev, String(nextId.current++)]);
     // Default new slot to main_course — it's the least opinionated choice and
     // what users most often add when extending a layout.
     onChange([...value, "main_course"]);
@@ -71,7 +101,7 @@ export function DayLayoutEditor({
       <ol style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
         {value.map((slot, idx) => (
           <li
-            key={idx}
+            key={ids[idx] ?? idx}
             style={{
               display: "flex",
               alignItems: "center",

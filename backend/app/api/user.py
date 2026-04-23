@@ -13,11 +13,27 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
+from app.core.meal_types import MealType
 from app.core.rate_limit import limiter
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db import get_session
 from app.models.db_models import User
 from app.models.user_schemas import MessageResponse, Token, UserCreate, UserRead, UserUpdate
+
+_VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
+
+
+def _sanitize_layout(raw: list[str] | None) -> list[MealType] | None:
+    """Drop any stored slot value that isn't in the current MealType enum.
+
+    The DB column is a loose JSONB list[str] so direct writes, migrations, or
+    future taxonomy churn can't break profile reads — we re-validate on the
+    way out. An all-unknown layout degrades to None rather than 500-ing.
+    """
+    if not raw:
+        return None
+    clean = [MealType(v) for v in raw if v in _VALID_MEAL_TYPE_VALUES]
+    return clean or None
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +62,7 @@ def _to_read(u: User) -> UserRead:
         track_snacks=u.track_snacks,
         onboarding_completed=u.onboarding_completed,
         is_demo=u.is_demo,
-        # UserRead validates list items as MealType; invalid legacy values
-        # stored via migration would 500 here, but the column is only written
-        # by this same API so that can't happen in practice.
-        default_day_layout=u.default_day_layout,  # type: ignore[arg-type]
+        default_day_layout=_sanitize_layout(u.default_day_layout),
     )
 
 
