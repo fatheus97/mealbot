@@ -108,7 +108,13 @@ class MealEntry(SQLModel, table=True):
     day_index: int = Field(description="Which day of the plan this meal belongs to (1-based).")
     meal_index: int = Field(description="Index of the meal within the day (1-based).")
     name: str = Field(index=True)
-    meal_type: str = Field(index=True)  # "breakfast", "lunch", ...
+    # Loose str at the DB layer. Current taxonomy values are validated via
+    # PlannedMeal.meal_type (MealType enum); the column also holds legacy
+    # "breakfast"/"lunch"/"dinner"/"snack" rows that PlannedMeal's pre-validator
+    # translates on deserialization. Keeping this loose avoids a one-way
+    # backfill and lets catalog/history endpoints return raw values the
+    # frontend's mealTypeLabel() helper can render.
+    meal_type: str = Field(index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC)
     )
