@@ -174,6 +174,69 @@ describe('AuthBar', () => {
     expect(localStorage.getItem('mealbot_token')).toBeNull();
   });
 
+  it('shows inline error on login failure (no window.alert)', async () => {
+    // A login failure must surface via an accessible inline banner, not a
+    // blocking window.alert dialog. Regression guard — the component used
+    // to call alert() which is a screen-reader antipattern and traps the
+    // user until dismissed.
+    const alertSpy = vi.spyOn(window, 'alert');
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ detail: 'bad' }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'bad@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'wrong');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toBe('Login failed. Check your credentials.');
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows inline error when Try Demo fails', async () => {
+    const alertSpy = vi.spyOn(window, 'alert');
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ demo_mode: true }),
+        } as unknown as Response);
+      }
+      if (url === '/demo/session') {
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    const demoBtn = await screen.findByRole('button', { name: /try demo/i });
+    await user.click(demoBtn);
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toBe('Demo unavailable. Please try again.');
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
   it('logout clears query cache and resets persisted preferences (cross-account leak guard)', async () => {
     localStorage.setItem('mealbot_token', 'tok');
     localStorage.setItem('mealbot_user_id', '1');

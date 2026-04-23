@@ -8,15 +8,17 @@ export function AuthBar() {
   const [inputPassword, setInputPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const handleLogin = async () => {
     setLoading(true);
+    setAuthError(null);
     try {
       await login(inputEmail, inputPassword);
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      alert("Login failed. Check your credentials.");
+      setAuthError("Login failed. Check your credentials.");
     } finally {
       setLoading(false);
     }
@@ -37,9 +39,14 @@ export function AuthBar() {
               <button
                 onClick={async () => {
                   setLoading(true);
-                  try { await loginDemo(); }
-                  catch { alert("Demo unavailable. Please try again."); }
-                  finally { setLoading(false); }
+                  setAuthError(null);
+                  try {
+                    await loginDemo();
+                  } catch {
+                    setAuthError("Demo unavailable. Please try again.");
+                  } finally {
+                    setLoading(false);
+                  }
                 }}
                 disabled={loading}
                 title="No signup needed — explore with mocked data."
@@ -66,6 +73,11 @@ export function AuthBar() {
           </div>
         )}
       </div>
+      {!userId && authError && (
+        <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.85rem" }}>
+          {authError}
+        </p>
+      )}
       {!userId && (
         <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "#555" }}>
           This is a closed alpha. For access, contact{" "}

@@ -22,16 +22,19 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   const [expanded, setExpanded] = useState(true);
   const [loadingPlanId, setLoadingPlanId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   if (!userId) return null;
 
   const handleOpen = async (summary: MealPlanSummary) => {
     setLoadingPlanId(summary.id);
+    setOpenError(null);
     try {
       const data: MealPlanResponse = await fetchPlan(summary.id);
       onOpenPlan(data, summary);
     } catch (err) {
       console.error("Failed to load plan:", err);
+      setOpenError("Couldn't open that plan. Please try again.");
     } finally {
       setLoadingPlanId(null);
     }
@@ -68,6 +71,12 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       {expanded && (
         <div style={{ marginTop: "1rem" }}>
           {isLoading && <p style={{ color: "#888" }}>Loading plans...</p>}
+
+          {openError && (
+            <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: 0 }}>
+              {openError}
+            </p>
+          )}
 
           {plans && plans.length === 0 && (
             <p style={{ color: "#888", fontSize: "0.9rem" }}>

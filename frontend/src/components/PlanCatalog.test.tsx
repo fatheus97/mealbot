@@ -162,4 +162,34 @@ describe("PlanCatalog", () => {
     expect(screen.queryByText("Confirm")).not.toBeInTheDocument();
     expect(screen.getByText("Delete")).toBeInTheDocument();
   });
+
+  it("shows inline error when opening a plan fails", async () => {
+    // Previously the failure was swallowed into console.error only; the user
+    // clicked Open, nothing happened, no feedback.
+    loginUser();
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([SAMPLE_PLAN]),
+    });
+
+    // Suppress console.error — the handler still logs, we just don't want
+    // the spew in test output.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const onOpenPlan = vi.fn();
+    render(<PlanCatalog onOpenPlan={onOpenPlan} />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText("Open")).toBeInTheDocument();
+    });
+
+    mockedFetchPlan.mockRejectedValueOnce(new Error("Failed to load plan: 500"));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Open"));
+
+    const banner = await screen.findByRole("alert");
+    expect(banner.textContent).toBe("Couldn't open that plan. Please try again.");
+    expect(onOpenPlan).not.toHaveBeenCalled();
+  });
 });

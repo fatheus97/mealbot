@@ -196,11 +196,10 @@ describe('SettingsPopup', () => {
     });
   });
 
-  it('shows alert on save failure', async () => {
+  it('shows inline error on save failure', async () => {
     loginUser();
     mockedFetchProfile.mockResolvedValueOnce(mockProfile);
     mockedUpdateProfile.mockRejectedValueOnce(new Error('Server error'));
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     const user = userEvent.setup();
 
     render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
@@ -214,10 +213,12 @@ describe('SettingsPopup', () => {
 
     await user.click(screen.getByRole('button', { name: /save/i }));
 
-    await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(
-        'Failed to save preferences. Please try again.',
-      );
-    });
+    // Inline alert banner, not window.alert — the save action should not be
+    // interrupted by a blocking modal dialog.
+    const alerts = await screen.findAllByRole('alert');
+    const savedErrors = alerts.filter(
+      (el) => el.textContent === 'Failed to save preferences. Please try again.',
+    );
+    expect(savedErrors).toHaveLength(1);
   });
 });

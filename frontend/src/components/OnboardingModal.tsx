@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useUpdateUserProfile } from "../hooks/useServerState";
 import { PreferencesForm } from "./PreferencesForm";
@@ -6,8 +7,10 @@ import type { PreferencesFormValues } from "./PreferencesForm";
 export function OnboardingModal() {
   const { setOnboardingCompleted } = useAuth();
   const mutation = useUpdateUserProfile();
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSubmit = async (values: PreferencesFormValues) => {
+    setSaveError(null);
     try {
       await mutation.mutateAsync({
         country: values.country || null,
@@ -19,7 +22,7 @@ export function OnboardingModal() {
       });
       setOnboardingCompleted(true);
     } catch {
-      alert("Failed to save preferences. Please try again.");
+      setSaveError("Failed to save preferences. Please try again.");
     }
   };
 
@@ -58,6 +61,11 @@ export function OnboardingModal() {
           submitLabel="Get Started"
           loading={mutation.isPending}
         />
+        {saveError && (
+          <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.9rem" }}>
+            {saveError}
+          </p>
+        )}
       </div>
     </div>
   );

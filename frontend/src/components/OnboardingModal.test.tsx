@@ -135,20 +135,21 @@ describe('OnboardingModal', () => {
     });
   });
 
-  it('shows alert on API failure', async () => {
+  it('shows inline error on API failure', async () => {
     loginUser();
     const user = userEvent.setup();
     mockedUpdateProfile.mockRejectedValueOnce(new Error('Network error'));
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     render(<OnboardingModal />, { wrapper: createWrapper() });
 
     await user.click(screen.getByRole('button', { name: /get started/i }));
 
-    await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(
-        'Failed to save preferences. Please try again.',
-      );
-    });
+    // Inline <p role="alert">, not window.alert — the latter blocks screen
+    // readers and interrupts flow, the former stays attached to the form.
+    const alerts = await screen.findAllByRole('alert');
+    const savedErrors = alerts.filter(
+      (el) => el.textContent === 'Failed to save preferences. Please try again.',
+    );
+    expect(savedErrors).toHaveLength(1);
   });
 });
