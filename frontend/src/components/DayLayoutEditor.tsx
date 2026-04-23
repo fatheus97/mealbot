@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { MEAL_TYPES, MEAL_TYPE_LABELS, type MealType } from "../constants/mealTypes";
 
 // Cheap-enough stable ID. crypto.randomUUID is not always available in the
@@ -38,19 +38,18 @@ export function DayLayoutEditor({
   // moves a slot. Slot values can repeat (two "snack" entries is valid), so
   // we can't key on the enum value itself.
   const [ids, setIds] = useState<string[]>(() => value.map(newId));
-  // Re-sync IDs only when the array length changes externally (e.g. parent
-  // passes a fresh initialValues after a profile fetch). Internal mutations
-  // drive `ids` through the helpers below, which keep the array aligned with
-  // `value`. Depending on `value.length` alone is intentional — a same-length
-  // in-place swap by the parent would re-use stale IDs, but the only parent
-  // mutation in practice is a full replace on profile load.
-  useEffect(() => {
-    setIds((current) => {
-      if (current.length === value.length) return current;
-      return value.map((_, i) => current[i] ?? newId());
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value.length]);
+  // "Adjusting state while rendering" pattern
+  // (https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes):
+  // if the parent passes a fresh value array with a different length (e.g.
+  // after profile load), resize the id array in the same pass. Calling
+  // setIds here is safe — React discards this render and re-runs with the
+  // new state. An internal same-length mutation by the helpers below keeps
+  // `value` and `ids` aligned without hitting this branch.
+  const [syncedLength, setSyncedLength] = useState(value.length);
+  if (syncedLength !== value.length) {
+    setSyncedLength(value.length);
+    setIds((prev) => value.map((_, i) => prev[i] ?? newId()));
+  }
 
   const atMax = value.length >= maxSlots;
 
