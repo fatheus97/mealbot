@@ -3,22 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { LoginResponse, AuthState } from "../types";
 import {authFetch} from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
+import { AutoLoginAfterRegisterError } from "./authErrors";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
-
-/**
- * Thrown when registration succeeded but the subsequent auto-login failed
- * (network hiccup, login rate-limit). The caller must surface a
- * registration-succeeded message so the user doesn't try to register
- * again and hit a 409 "email already exists".
- */
-export class AutoLoginAfterRegisterError extends Error {
-  constructor(cause: unknown) {
-    super("Account created, but auto-login failed");
-    this.name = "AutoLoginAfterRegisterError";
-    if (cause instanceof Error) this.cause = cause;
-  }
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => window.localStorage.getItem("mealbot_token"));

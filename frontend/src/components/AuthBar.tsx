@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AutoLoginAfterRegisterError, useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/AuthContext";
+import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
 import { SettingsPopup } from "./SettingsPopup";
 
 export function AuthBar() {
