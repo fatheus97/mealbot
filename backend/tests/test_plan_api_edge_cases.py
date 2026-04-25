@@ -1091,3 +1091,45 @@ class TestReopenPlan:
             f"/api/plan/{plan.id}/reopen", headers=auth_headers
         )
         assert resp.status_code == 404
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_reopen_detects_shortfall_with_duplicate_ingredient_names(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Recipe with the same ingredient listed twice must aggregate before
+        the shortfall check. Previously, per-target comparison against the
+        cross-target allocation total masked partial allocation and let
+        reopen succeed with an under-allocated snapshot."""
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500}],
+        )
+        # Two chicken entries on the same recipe — total demand 300g.
+        mock_gen.return_value = _fake_day_with_ingredients(
+            [("chicken", 200), ("chicken", 100)]
+        )
+
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+
+        # Drop fridge below total demand (250g < 300g) but above the
+        # first target alone (250g >= 200g) — the buggy per-target check
+        # would pass both individual comparisons.
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 250}],
+        )
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/reopen", headers=auth_headers
+        )
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert "chicken" in detail.lower()
+        assert "300" in detail  # aggregated need
+        assert "250" in detail  # aggregated allocation

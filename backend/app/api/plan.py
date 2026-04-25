@@ -907,21 +907,31 @@ async def reopen_plan(
         allocations = allocate_fifo(batches_by_name, targets)
 
         # allocate_fifo returns whatever the fridge could supply; it does
-        # not signal shortage. Detect it by summing allocations per
-        # ingredient and comparing to the target. Float epsilon guards
-        # against round-trip rounding (grams stored as float).
+        # not signal shortage. Detect it by summing both sides per
+        # ingredient — a recipe can list the same name twice (e.g.
+        # "chicken: 200g" + "chicken: 100g"), and per-target comparison
+        # against the cross-target allocation total would mask shortfalls
+        # in that case. Float epsilon guards round-trip rounding on grams.
         allocated_by_name: dict[str, float] = {}
         for a in allocations:
             key = a.name.strip().lower()
             allocated_by_name[key] = allocated_by_name.get(key, 0.0) + a.quantity_grams
+
+        needed_by_name: dict[str, float] = {}
+        display_name: dict[str, str] = {}
         for t in targets:
-            got = allocated_by_name.get(t.name.strip().lower(), 0.0)
-            if got + 1e-6 < t.quantity_grams:
+            key = t.name.strip().lower()
+            needed_by_name[key] = needed_by_name.get(key, 0.0) + t.quantity_grams
+            display_name.setdefault(key, t.name)
+
+        for key, needed in needed_by_name.items():
+            got = allocated_by_name.get(key, 0.0)
+            if got + 1e-6 < needed:
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"Not enough {t.name} in fridge to reopen this plan: "
-                        f"need {t.quantity_grams:g}g, have {got:g}g."
+                        f"Not enough {display_name[key]} in fridge to reopen this plan: "
+                        f"need {needed:g}g, have {got:g}g."
                     ),
                 )
         new_snapshots.append(allocations)

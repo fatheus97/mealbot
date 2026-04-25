@@ -227,9 +227,12 @@ export function useUnconfirmPlan() {
       if (!res.ok) throw new Error(await extractErrorDetail(res, "Un-confirm failed"));
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, planId) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      // Server deletes all meal entries; clear the cache so any reader
+      // outside the isConfirmed gate doesn't see stale rows.
+      queryClient.invalidateQueries({ queryKey: ['mealEntries', planId] });
     },
   });
 }
@@ -243,9 +246,13 @@ export function useReopenPlan() {
       if (!res.ok) throw new Error(await extractErrorDetail(res, "Reopen failed"));
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, planId) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      // Reopen rewrites consumed_snapshot_json on uncooked entries; the
+      // cached MealEntrySummary doesn't expose it, but invalidate for
+      // consistency with other plan-state mutations.
+      queryClient.invalidateQueries({ queryKey: ['mealEntries', planId] });
     },
   });
 }

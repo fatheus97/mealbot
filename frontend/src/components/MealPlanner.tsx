@@ -513,7 +513,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                   {confirmMutation.isPending ? "Confirming..." : "Confirm Plan"}
                 </button>
               )}
-              {isConfirmed && !isFinished && (mealEntries?.every((e) => e.cooked_at == null) ?? true) && (
+              {/*
+                Defensive default: hide Un-confirm until mealEntries has
+                actually loaded. `?? true` would flash the button on a
+                freshly-opened stale plan (mealEntries undefined) and let
+                the user click into a backend 409 if a meal turns out to
+                be cooked. The brief flash-of-no-button right after a
+                fresh confirm is harmless — entries fetch resolves in <1s.
+              */}
+              {isConfirmed && !isFinished && (mealEntries?.every((e) => e.cooked_at == null) ?? false) && (
                 <button
                   onClick={handleUnconfirm}
                   disabled={unconfirmMutation.isPending}
