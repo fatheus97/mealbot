@@ -1,4 +1,4 @@
-Review the current codebase for production readiness. CI already enforces pytest, mypy (strict), ruff, eslint, frontend build, and gitleaks on every PR — **do not re-run them**. Read current CI state via `gh run list` / `gh pr checks <num>` if you need it. Focus on what CI cannot catch.
+Review the current codebase for production readiness. CI already enforces pytest, mypy (strict), ruff, eslint, frontend build, and gitleaks on every PR — **do not re-run them**. Read current CI state via `gh run list` if you need it. Focus on what CI cannot catch.
 
 1. **Architecture & code volume** — less code is better.
    - Separation of concerns: business logic leaking into FastAPI route handlers instead of services; ORM calls scattered through services instead of repositories; DB models leaking into response schemas.
@@ -31,8 +31,6 @@ Output a structured report:
 
 For each finding: file path, line number (if applicable), what's wrong, and how to fix it. Be direct and specific — quote `file:line`. If something is a production risk, say so.
 
-After the report, ask me:
-"Would you like me to generate the missing tests now?"
-If I say yes, create tests following project conventions — pytest for backend, Vitest for frontend. Prioritize by risk: endpoints and business logic first, utilities last.
+Stop at the report. Don't start fixing — I'll pick which findings to act on. If I ask you to write missing tests, follow project conventions (pytest for backend, Vitest for frontend) and prioritize by risk: endpoints and business logic first, utilities last.
 
 $ARGUMENTS
