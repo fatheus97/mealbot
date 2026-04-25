@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useRateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useRateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
 import { StarRating } from "./StarRating";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
@@ -39,9 +39,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   const generatePlanMutation = useGeneratePlan();
   const regenerateMutation = useRegeneratePlan();
   const confirmMutation = useConfirmPlan();
+  const unconfirmMutation = useUnconfirmPlan();
   const cookMutation = useCookMeal();
   const uncookMutation = useUncookMeal();
   const finishMutation = useFinishPlan();
+  const reopenMutation = useReopenPlan();
   const rateMutation = useRateMeal();
 
   // Derive initial state directly from the initialPlan prop. The parent
@@ -237,6 +239,20 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     if (!planId) return;
     finishMutation.mutate(planId, {
       onSuccess: () => setIsFinished(true),
+    });
+  };
+
+  const handleUnconfirm = () => {
+    if (!planId) return;
+    unconfirmMutation.mutate(planId, {
+      onSuccess: () => setIsConfirmed(false),
+    });
+  };
+
+  const handleReopen = () => {
+    if (!planId) return;
+    reopenMutation.mutate(planId, {
+      onSuccess: () => setIsFinished(false),
     });
   };
 
@@ -497,6 +513,16 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                   {confirmMutation.isPending ? "Confirming..." : "Confirm Plan"}
                 </button>
               )}
+              {isConfirmed && !isFinished && (mealEntries?.every((e) => e.cooked_at == null) ?? true) && (
+                <button
+                  onClick={handleUnconfirm}
+                  disabled={unconfirmMutation.isPending}
+                  title="Restore the fridge debit and return to the editable plan view"
+                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#6b7280", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                >
+                  {unconfirmMutation.isPending ? "Un-confirming..." : "Un-confirm"}
+                </button>
+              )}
               {isConfirmed && !isFinished && (
                 <button
                   onClick={handleFinish}
@@ -506,8 +532,23 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                   {finishMutation.isPending ? "Finishing..." : "Finish Plan"}
                 </button>
               )}
+              {isFinished && (
+                <button
+                  onClick={handleReopen}
+                  disabled={reopenMutation.isPending}
+                  title="Re-debit ingredients for uncooked meals and return to the active plan"
+                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#6b7280", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                >
+                  {reopenMutation.isPending ? "Reopening..." : "Reopen"}
+                </button>
+              )}
             </div>
           </div>
+          {(unconfirmMutation.isError || reopenMutation.isError) && (
+            <div role="alert" style={{ color: "#b91c1c", marginBottom: "1rem", padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", fontSize: "0.9rem" }}>
+              {(unconfirmMutation.error ?? reopenMutation.error)?.message}
+            </div>
+          )}
           {!isConfirmed && frozenMeals.size > 0 && (
             <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>
               {frozenMeals.size} meal(s) frozen. Unfrozen meals will be regenerated.

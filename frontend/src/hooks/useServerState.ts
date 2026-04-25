@@ -205,6 +205,51 @@ export function useRateMeal() {
   });
 }
 
+// Reads the FastAPI `detail` field on non-OK responses so 409s surface
+// useful messages (e.g. "Not enough chicken in fridge to reopen...") instead
+// of a bare status code. Falls back to the status if the body isn't JSON.
+async function extractErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body && typeof body.detail === "string") return body.detail;
+  } catch {
+    // body wasn't JSON — fall through
+  }
+  return `${fallback}: ${res.status}`;
+}
+
+export function useUnconfirmPlan() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (planId: number): Promise<StockItem[]> => {
+      const res = await authFetch(`/plan/${planId}/unconfirm`, { method: "POST" });
+      if (!res.ok) throw new Error(await extractErrorDetail(res, "Un-confirm failed"));
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planList'] });
+      queryClient.invalidateQueries({ queryKey: ['fridge'] });
+    },
+  });
+}
+
+export function useReopenPlan() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (planId: number): Promise<StockItem[]> => {
+      const res = await authFetch(`/plan/${planId}/reopen`, { method: "POST" });
+      if (!res.ok) throw new Error(await extractErrorDetail(res, "Reopen failed"));
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planList'] });
+      queryClient.invalidateQueries({ queryKey: ['fridge'] });
+    },
+  });
+}
+
 export function useFinishPlan() {
   const queryClient = useQueryClient();
 

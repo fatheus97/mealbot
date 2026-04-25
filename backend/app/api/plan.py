@@ -470,6 +470,97 @@ async def confirm_plan(
     return await get_fridge_items(session, current_user.id)
 
 
+# POST /api/plan/{plan_id}/unconfirm
+@router.post("/{plan_id}/unconfirm", response_model=list[StockItemDTO])
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def unconfirm_plan(
+    request: Request,
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[StockItemDTO]:
+    """Reverse a confirm: restore the fridge debit and delete meal entries.
+
+    Inverse of confirm_plan. Same atomicity contract — fridge restore +
+    MealEntry deletion + clearing confirmed_at all commit together.
+    Blocks if any meal has cooked_at set; the user must uncook first so
+    cooking history is never silently destroyed.
+    """
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    if not plan.confirmed_at:
+        raise HTTPException(status_code=409, detail="Plan is not confirmed.")
+
+    if plan.finished_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot un-confirm a finished plan; reopen it first.",
+        )
+
+    cooked_count_result = await session.execute(
+        select(func.count()).where(
+            MealEntry.meal_plan_id == plan_id,
+            MealEntry.cooked_at.is_not(None),  # type: ignore[union-attr]
+        )
+    )
+    cooked_count = cooked_count_result.scalar() or 0
+    if cooked_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Uncook all meals before un-confirming.",
+        )
+
+    # Restore using each entry's snapshot (preserves expiration_date +
+    # need_to_use). Legacy entries with NULL snapshot fall back to the
+    # lossy recipe-based restore — same dual-path as finish_plan.
+    result = await session.execute(
+        select(MealEntry).where(MealEntry.meal_plan_id == plan_id)
+    )
+    entries = result.scalars().all()
+
+    batches_to_restore: list[ConsumedBatch] = []
+    for entry in entries:
+        if entry.consumed_snapshot_json:
+            try:
+                raw = json.loads(entry.consumed_snapshot_json)
+                batches_to_restore.extend(
+                    ConsumedBatch.model_validate(b) for b in raw
+                )
+                continue
+            except (json.JSONDecodeError, ValidationError):
+                logger.exception(
+                    "Corrupt consumed_snapshot_json on meal entry %d during unconfirm — falling back to lossy restore",
+                    entry.id,
+                )
+        try:
+            batches_to_restore.extend(
+                ConsumedBatch(name=ing.name, quantity_grams=ing.quantity_grams)
+                for ing in parse_meal_ingredients(entry)
+            )
+        except ValidationError:
+            logger.exception(
+                "Corrupt meal_json on meal entry %d during unconfirm — skipping its restore",
+                entry.id,
+            )
+
+    if batches_to_restore:
+        await restore_consumed_batches(session, current_user.id, batches_to_restore)
+
+    # Wipe entries: re-confirm rebuilds them from response_json. Keeping
+    # stale snapshots would point at fridge state that no longer matches.
+    await session.execute(
+        delete(MealEntry).where(MealEntry.meal_plan_id == plan_id)  # type: ignore[arg-type]
+    )
+
+    plan.confirmed_at = None
+    session.add(plan)
+    await session.commit()
+
+    return await get_fridge_items(session, current_user.id)
+
+
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/cook
 @router.post("/{plan_id}/meals/{meal_entry_id}/cook", response_model=MealEntrySummary)
 @limiter.limit("10/minute", key_func=user_id_key_func)
@@ -734,5 +825,128 @@ async def finish_plan(
         finished_at=now,
         returned_meals=len(uncooked_entries),
     )
+
+
+# POST /api/plan/{plan_id}/reopen
+@router.post("/{plan_id}/reopen", response_model=list[StockItemDTO])
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def reopen_plan(
+    request: Request,
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[StockItemDTO]:
+    """Reverse a finish: re-debit the fridge for uncooked meals and clear finished_at.
+
+    Inverse of finish_plan. Re-allocates fresh against current fridge state
+    (the user may have edited the fridge since finish), so the new snapshot
+    can differ from the pre-finish one. Returns 409 if any uncooked meal
+    cannot be fully re-debited from current stock — the user must restock
+    or accept the finish as final.
+    """
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    if plan.finished_at is None:
+        raise HTTPException(status_code=409, detail="Plan is not finished.")
+
+    # Only uncooked entries had their ingredients restored at finish, so
+    # only these need re-debiting. Cooked entries' ingredients were
+    # consumed for real and never returned.
+    result = await session.execute(
+        select(MealEntry).where(
+            MealEntry.meal_plan_id == plan_id,
+            MealEntry.cooked_at.is_(None),  # type: ignore[union-attr]
+        )
+    )
+    uncooked_entries = list(result.scalars().all())
+
+    # Per-entry re-debit target (parallel list to uncooked_entries):
+    #   - Snapshot present → re-debit exactly what was restored at finish
+    #     (sum batches by ingredient name into IngredientAmount).
+    #   - Snapshot NULL (legacy) → fall back to the full recipe.
+    #   - Corrupt meal_json → empty list (logged); matches finish's
+    #     "don't strand the user on one bad row" policy.
+    targets_per_entry: list[list[IngredientAmount]] = []
+    for entry in uncooked_entries:
+        if entry.consumed_snapshot_json:
+            try:
+                raw = json.loads(entry.consumed_snapshot_json)
+                batches = [ConsumedBatch.model_validate(b) for b in raw]
+                summed: dict[str, float] = {}
+                for b in batches:
+                    summed[b.name] = summed.get(b.name, 0.0) + b.quantity_grams
+                targets_per_entry.append([
+                    IngredientAmount(name=name, quantity_grams=grams)
+                    for name, grams in summed.items()
+                ])
+                continue
+            except (json.JSONDecodeError, ValidationError):
+                logger.exception(
+                    "Corrupt consumed_snapshot_json on meal entry %d during reopen — falling back to recipe",
+                    entry.id,
+                )
+        try:
+            targets_per_entry.append(parse_meal_ingredients(entry))
+        except ValidationError:
+            logger.exception(
+                "Corrupt meal_json on meal entry %d during reopen — skipping its re-debit",
+                entry.id,
+            )
+            targets_per_entry.append([])
+
+    # One shared fridge view across all meals so we don't double-spend a
+    # batch (matches confirm's pattern). Per-entry FIFO mutates batches_by_name
+    # in place; the next entry sees what's left.
+    fridge = await get_fridge_items(session, current_user.id)
+    batches_by_name = group_and_sort_fridge(fridge)
+    new_snapshots: list[list[ConsumedBatch]] = []
+
+    for targets in targets_per_entry:
+        allocations = allocate_fifo(batches_by_name, targets)
+
+        # allocate_fifo returns whatever the fridge could supply; it does
+        # not signal shortage. Detect it by summing allocations per
+        # ingredient and comparing to the target. Float epsilon guards
+        # against round-trip rounding (grams stored as float).
+        allocated_by_name: dict[str, float] = {}
+        for a in allocations:
+            key = a.name.strip().lower()
+            allocated_by_name[key] = allocated_by_name.get(key, 0.0) + a.quantity_grams
+        for t in targets:
+            got = allocated_by_name.get(t.name.strip().lower(), 0.0)
+            if got + 1e-6 < t.quantity_grams:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Not enough {t.name} in fridge to reopen this plan: "
+                        f"need {t.quantity_grams:g}g, have {got:g}g."
+                    ),
+                )
+        new_snapshots.append(allocations)
+
+    final_state = [
+        item
+        for batches in batches_by_name.values()
+        for item in batches
+        if item.quantity_grams > 0
+    ]
+    await replace_fridge_items(session, current_user.id, final_state, commit=False)
+
+    # Overwrite each entry's snapshot with the fresh allocation so a future
+    # finish restores from the correct fridge buckets. Legacy NULL entries
+    # become "modern" (snapshot-bearing) after one finish/reopen cycle.
+    for entry, snapshot in zip(uncooked_entries, new_snapshots, strict=True):
+        entry.consumed_snapshot_json = json.dumps(
+            [b.model_dump(mode="json") for b in snapshot]
+        )
+        session.add(entry)
+
+    plan.finished_at = None
+    session.add(plan)
+    await session.commit()
+
+    return await get_fridge_items(session, current_user.id)
 
 

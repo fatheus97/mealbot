@@ -768,3 +768,326 @@ class TestConsumedSnapshot:
         tomatoes = [x for x in second_fridge if x["name"] == "tomato"]
         assert len(tomatoes) == 1
         assert tomatoes[0]["quantity_grams"] == 200
+
+
+class TestUnconfirmPlan:
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_unconfirm_restores_fridge_and_deletes_entries(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Un-confirm restores the exact fridge debit and removes all meal entries."""
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500}],
+        )
+        mock_gen.return_value = _fake_day_with_ingredients([("chicken", 300)])
+
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        # Sanity: confirm did debit (500 - 300 = 200)
+        post_confirm = (await client.get("/api/fridge", headers=auth_headers)).json()
+        assert next(x for x in post_confirm if x["name"] == "chicken")["quantity_grams"] == 200
+
+        unconfirm_resp = await client.post(
+            f"/api/plan/{plan_id}/unconfirm", headers=auth_headers
+        )
+        assert unconfirm_resp.status_code == 200
+
+        # Fridge restored to pre-confirm state
+        fridge = unconfirm_resp.json()
+        assert next(x for x in fridge if x["name"] == "chicken")["quantity_grams"] == 500
+
+        # Meal entries gone
+        meals_resp = await client.get(
+            f"/api/plan/{plan_id}/meals", headers=auth_headers
+        )
+        assert meals_resp.json() == []
+
+        # Plan no longer in catalog (catalog filters confirmed_at IS NOT NULL)
+        list_resp = await client.get("/api/plan", headers=auth_headers)
+        assert plan_id not in [p["id"] for p in list_resp.json()]
+
+    async def test_unconfirm_unconfirmed_plan_rejected(
+        self, client: AsyncClient, auth_headers: dict,
+        test_user: User, db_session: AsyncSession,
+    ):
+        """Un-confirming a plan that was never confirmed → 409."""
+        plan = MealPlan(
+            user_id=test_user.id, days=1, meals_per_day=1, people_count=2,
+            request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
+            confirmed_at=None,
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        resp = await client.post(
+            f"/api/plan/{plan.id}/unconfirm", headers=auth_headers
+        )
+        assert resp.status_code == 409
+        assert "not confirmed" in resp.json()["detail"].lower()
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_unconfirm_finished_plan_rejected(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Un-confirming a finished plan → 409 (must reopen first)."""
+        mock_gen.return_value = _fake_day_with_ingredients([("rice", 100)])
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/unconfirm", headers=auth_headers
+        )
+        assert resp.status_code == 409
+        assert "reopen" in resp.json()["detail"].lower()
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_unconfirm_with_cooked_meal_rejected(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Cooked meals block un-confirm — user must uncook first."""
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "rice", "quantity_grams": 200}],
+        )
+        mock_gen.return_value = _fake_day_with_ingredients([("rice", 100)])
+
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        meals = (await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)).json()
+        await client.post(
+            f"/api/plan/{plan_id}/meals/{meals[0]['id']}/cook", headers=auth_headers
+        )
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/unconfirm", headers=auth_headers
+        )
+        assert resp.status_code == 409
+        assert "uncook" in resp.json()["detail"].lower()
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_unconfirm_after_uncook_succeeds(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """confirm → cook → uncook → unconfirm should work — uncook clears the gate."""
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "rice", "quantity_grams": 200}],
+        )
+        mock_gen.return_value = _fake_day_with_ingredients([("rice", 100)])
+
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        meals = (await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)).json()
+        meal_id = meals[0]["id"]
+        await client.post(f"/api/plan/{plan_id}/meals/{meal_id}/cook", headers=auth_headers)
+        await client.post(f"/api/plan/{plan_id}/meals/{meal_id}/uncook", headers=auth_headers)
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/unconfirm", headers=auth_headers
+        )
+        assert resp.status_code == 200
+        # Fridge fully restored
+        fridge = resp.json()
+        assert next(x for x in fridge if x["name"] == "rice")["quantity_grams"] == 200
+
+    async def test_unconfirm_nonexistent_404(
+        self, client: AsyncClient, auth_headers: dict,
+    ):
+        resp = await client.post("/api/plan/99999/unconfirm", headers=auth_headers)
+        assert resp.status_code == 404
+
+    async def test_unconfirm_other_users_plan_404(
+        self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
+    ):
+        """Another user's plan must surface as 404, not 403 (no enumeration)."""
+        other = User(email="other@test.com", hashed_password="x")
+        db_session.add(other)
+        await db_session.flush()
+
+        plan = MealPlan(
+            user_id=other.id, days=1, meals_per_day=1, people_count=2,
+            request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
+            confirmed_at=datetime.now(UTC),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        resp = await client.post(
+            f"/api/plan/{plan.id}/unconfirm", headers=auth_headers
+        )
+        assert resp.status_code == 404
+
+
+class TestReopenPlan:
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_reopen_redebits_fridge_for_uncooked(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """confirm → finish (uncooked meal restored) → reopen re-debits the fridge."""
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500}],
+        )
+        mock_gen.return_value = _fake_day_with_ingredients([("chicken", 300)])
+
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        # Finish without cooking → 300g returned to fridge → back to 500g
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+        post_finish = (await client.get("/api/fridge", headers=auth_headers)).json()
+        assert next(x for x in post_finish if x["name"] == "chicken")["quantity_grams"] == 500
+
+        # Reopen → 300g debited again → back to 200g
+        reopen_resp = await client.post(
+            f"/api/plan/{plan_id}/reopen", headers=auth_headers
+        )
+        assert reopen_resp.status_code == 200
+        fridge = reopen_resp.json()
+        assert next(x for x in fridge if x["name"] == "chicken")["quantity_grams"] == 200
+
+        # Plan back in catalog with finished_at cleared
+        list_resp = await client.get("/api/plan", headers=auth_headers)
+        plan_summary = next(p for p in list_resp.json() if p["id"] == plan_id)
+        assert plan_summary["finished_at"] is None
+        assert plan_summary["status"] == "planned"  # 0 cooked / 1 total
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_reopen_with_all_cooked_no_fridge_change(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """If every meal was cooked before finish, reopen has nothing to re-debit."""
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "rice", "quantity_grams": 300}],
+        )
+        mock_gen.return_value = _fake_day_with_ingredients([("rice", 100)])
+
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        meals = (await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)).json()
+        await client.post(
+            f"/api/plan/{plan_id}/meals/{meals[0]['id']}/cook", headers=auth_headers
+        )
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+        post_finish = (await client.get("/api/fridge", headers=auth_headers)).json()
+        rice_after_finish = next(x for x in post_finish if x["name"] == "rice")["quantity_grams"]
+
+        reopen_resp = await client.post(
+            f"/api/plan/{plan_id}/reopen", headers=auth_headers
+        )
+        assert reopen_resp.status_code == 200
+        rice_after_reopen = next(
+            x for x in reopen_resp.json() if x["name"] == "rice"
+        )["quantity_grams"]
+        assert rice_after_reopen == rice_after_finish
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_reopen_unfinished_plan_rejected(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """Reopening a plan that was never finished → 409."""
+        mock_gen.return_value = _fake_day_with_ingredients([("rice", 100)])
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/reopen", headers=auth_headers
+        )
+        assert resp.status_code == 409
+        assert "not finished" in resp.json()["detail"].lower()
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_reopen_insufficient_stock_409(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """If user emptied the fridge between finish and reopen, reopen → 409."""
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500}],
+        )
+        mock_gen.return_value = _fake_day_with_ingredients([("chicken", 300)])
+
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+
+        # User emptied the fridge after finish
+        await client.put("/api/fridge", headers=auth_headers, json=[])
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/reopen", headers=auth_headers
+        )
+        assert resp.status_code == 409
+        assert "chicken" in resp.json()["detail"].lower()
+
+        # Plan must remain finished — no partial state on the failure path
+        list_resp = await client.get("/api/plan", headers=auth_headers)
+        plan_summary = next(p for p in list_resp.json() if p["id"] == plan_id)
+        assert plan_summary["finished_at"] is not None
+
+    async def test_reopen_nonexistent_404(
+        self, client: AsyncClient, auth_headers: dict,
+    ):
+        resp = await client.post("/api/plan/99999/reopen", headers=auth_headers)
+        assert resp.status_code == 404
+
+    async def test_reopen_other_users_plan_404(
+        self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
+    ):
+        other = User(email="other2@test.com", hashed_password="x")
+        db_session.add(other)
+        await db_session.flush()
+
+        plan = MealPlan(
+            user_id=other.id, days=1, meals_per_day=1, people_count=2,
+            request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
+            confirmed_at=datetime.now(UTC), finished_at=datetime.now(UTC),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+
+        resp = await client.post(
+            f"/api/plan/{plan.id}/reopen", headers=auth_headers
+        )
+        assert resp.status_code == 404
