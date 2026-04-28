@@ -13,7 +13,7 @@ jsonref~=1.1
 #For DB
 sqlmodel~=0.0.22
 psycopg[binary,pool]~=3.3
-alembic~=1.15
+alembic~=1.18
 pydantic[email]~=2.11
 
 # For RAG features
