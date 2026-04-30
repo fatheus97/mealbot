@@ -86,20 +86,29 @@ export function CookbookModal({ onClose }: Props) {
         padding: "1rem",
       }}
     >
+      {/* Outer cover — dark leather. Always rendered at fixed dimensions so
+          searching, opening a recipe, or paging never resizes the book. The
+          spread view exposes a parchment "page" inset inside this cover so
+          the cover edges are visible around the pages, like opening a real
+          (or Minecraft) book. */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          backgroundColor: "#f5e9c8",
-          color: "#3b2412",
-          borderRadius: "10px",
           width: "min(100%, 880px)",
-          maxHeight: "92vh",
+          height: "min(92vh, 640px)",
+          backgroundColor: "#3b2412",
+          backgroundImage:
+            "linear-gradient(135deg, #4a2d16 0%, #2d1a0a 50%, #4a2d16 100%)",
+          borderRadius: "8px",
+          padding: view === "index" ? "0" : "16px",
+          boxShadow:
+            "0 12px 40px rgba(0,0,0,0.5), inset 0 0 0 2px #6b4423, inset 0 0 0 4px #2d1a0a",
+          fontFamily: "Georgia, 'Times New Roman', serif",
+          overflow: "hidden",
           display: "flex",
           flexDirection: "column",
-          fontFamily: "Georgia, 'Times New Roman', serif",
-          boxShadow: "0 12px 40px rgba(0,0,0,0.4)",
-          overflow: "hidden",
-          border: "1px solid #c8a86b",
+          color: "#f5e9c8",
+          transition: "padding 0.25s ease",
         }}
       >
         {view === "index" ? (
@@ -165,18 +174,33 @@ function CookbookIndex({
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [items]);
 
+  // The index is rendered ON the closed-book cover: dark leather, light
+  // serif text. Click a recipe → cover "opens" to the parchment spread.
+  // Inner content area is fixed-height (flex:1 inside a fixed-height shell)
+  // so debounced search results don't reflow the book.
   return (
     <>
       <header
         style={{
-          padding: "1.25rem 1.5rem 0.75rem",
-          borderBottom: "1px solid #d4b87c",
+          padding: "1.25rem 1.75rem 0.75rem",
+          borderBottom: "1px solid #6b4423",
           display: "flex",
           alignItems: "center",
           gap: "1rem",
         }}
       >
-        <h2 style={{ margin: 0, flex: 1, fontFamily: "inherit" }}>📖 Cookbook</h2>
+        <h2
+          style={{
+            margin: 0,
+            flex: 1,
+            fontFamily: "inherit",
+            color: "#f5e9c8",
+            letterSpacing: "0.04em",
+            textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+          }}
+        >
+          Cookbook
+        </h2>
         <button
           type="button"
           aria-label="Close cookbook"
@@ -186,14 +210,15 @@ function CookbookIndex({
             border: "none",
             fontSize: "1.4rem",
             cursor: "pointer",
-            color: "#3b2412",
+            color: "#f5e9c8",
+            opacity: 0.85,
           }}
         >
           ✕
         </button>
       </header>
 
-      <div style={{ padding: "0.75rem 1.5rem", borderBottom: "1px solid #d4b87c" }}>
+      <div style={{ padding: "0.75rem 1.75rem", borderBottom: "1px solid #6b4423" }}>
         <input
           type="text"
           value={searchInput}
@@ -202,30 +227,32 @@ function CookbookIndex({
           style={{
             width: "100%",
             padding: "0.5rem 0.75rem",
-            borderRadius: "6px",
-            border: "1px solid #c8a86b",
-            backgroundColor: "#fdf8eb",
-            color: "inherit",
+            borderRadius: "4px",
+            border: "1px solid #6b4423",
+            backgroundColor: "rgba(245,233,200,0.08)",
+            color: "#f5e9c8",
             fontFamily: "inherit",
             fontSize: "1rem",
           }}
         />
       </div>
 
-      <div style={{ overflowY: "auto", padding: "1rem 1.5rem", flex: 1 }}>
-        {isLoading && <p>Loading…</p>}
+      {/* Scroll lives on the inner list; the outer book frame keeps its
+          fixed height so a 0-result search doesn't shrink the cover. */}
+      <div style={{ overflowY: "auto", padding: "1rem 1.75rem", flex: 1, minHeight: 0 }}>
+        {isLoading && <p style={{ opacity: 0.8 }}>Loading…</p>}
         {isError && (
-          <p role="alert" style={{ color: "#7f1d1d" }}>
+          <p role="alert" style={{ color: "#fca5a5" }}>
             Failed to load cookbook.
           </p>
         )}
         {!isLoading && !isError && items.length === 0 && (
-          <div style={{ textAlign: "center", padding: "2rem 0", color: "#7a5a2e" }}>
+          <div style={{ textAlign: "center", padding: "2rem 0", color: "#d4b87c" }}>
             <p style={{ fontSize: "1.05rem", marginBottom: "0.25rem" }}>
               {searchInput ? "No recipes match your search." : "Your cookbook is empty."}
             </p>
             {!searchInput && (
-              <p style={{ fontSize: "0.9rem" }}>
+              <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
                 Star a recipe in the planner or Cook Now to keep it here.
               </p>
             )}
@@ -237,12 +264,12 @@ function CookbookIndex({
             <h3
               style={{
                 fontFamily: "inherit",
-                fontSize: "0.85rem",
+                fontSize: "0.8rem",
                 textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                color: "#7a5a2e",
+                letterSpacing: "0.08em",
+                color: "#d4b87c",
                 margin: "0 0 0.5rem 0",
-                borderBottom: "1px dotted #c8a86b",
+                borderBottom: "1px dotted #6b4423",
                 paddingBottom: "0.2rem",
               }}
             >
@@ -256,7 +283,7 @@ function CookbookIndex({
                     display: "flex",
                     alignItems: "center",
                     gap: "0.75rem",
-                    padding: "0.5rem 0",
+                    padding: "0.4rem 0",
                   }}
                 >
                   <button
@@ -265,7 +292,7 @@ function CookbookIndex({
                     style={{
                       background: "none",
                       border: "none",
-                      color: "inherit",
+                      color: "#f5e9c8",
                       fontFamily: "inherit",
                       fontSize: "1rem",
                       cursor: "pointer",
@@ -274,10 +301,11 @@ function CookbookIndex({
                       padding: 0,
                       textDecoration: "underline",
                       textDecorationColor: "transparent",
+                      textUnderlineOffset: "3px",
                       transition: "text-decoration-color 0.15s",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.textDecorationColor = "#7a5a2e";
+                      e.currentTarget.style.textDecorationColor = "#f5e9c8";
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.textDecorationColor = "transparent";
@@ -285,7 +313,7 @@ function CookbookIndex({
                   >
                     {item.name}
                     {item.total_time_minutes != null && (
-                      <span style={{ color: "#7a5a2e", fontSize: "0.85rem", marginLeft: "0.5rem" }}>
+                      <span style={{ color: "#d4b87c", fontSize: "0.85rem", marginLeft: "0.5rem" }}>
                         · {item.total_time_minutes} min
                       </span>
                     )}
@@ -300,9 +328,9 @@ function CookbookIndex({
                       background: "none",
                       border: "none",
                       cursor: "pointer",
-                      color: "#7a5a2e",
+                      color: "#d4b87c",
                       fontSize: "0.9rem",
-                      opacity: removingId === item.meal_entry_id ? 0.4 : 1,
+                      opacity: removingId === item.meal_entry_id ? 0.4 : 0.75,
                     }}
                   >
                     ✕
@@ -326,9 +354,27 @@ interface SpreadProps {
   removing: boolean;
 }
 
+// Spread = parchment pages floated inside the dark cover. The 16px padding
+// on the parent cover container exposes the cover edge on all sides; the
+// inner area is the "open book" (two parchment pages with a center spine).
 function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadProps) {
   return (
-    <>
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        backgroundColor: "#f5e9c8",
+        backgroundImage:
+          "radial-gradient(ellipse at top, #faf0d0 0%, #ecdfb0 100%)",
+        borderRadius: "4px",
+        boxShadow:
+          "inset 0 0 0 1px #c8a86b, inset 0 6px 14px rgba(59,36,18,0.18)",
+        color: "#3b2412",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       <header
         style={{
           padding: "0.85rem 1.5rem",
@@ -345,7 +391,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
             background: "none",
             border: "none",
             cursor: "pointer",
-            color: "inherit",
+            color: "#3b2412",
             fontFamily: "inherit",
             fontSize: "0.95rem",
           }}
@@ -353,7 +399,9 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
           ← Back to index
         </button>
         <div style={{ flex: 1, textAlign: "center" }}>
-          <h2 style={{ margin: 0, fontFamily: "inherit", fontSize: "1.3rem" }}>{item.name}</h2>
+          <h2 style={{ margin: 0, fontFamily: "inherit", fontSize: "1.3rem", color: "#3b2412" }}>
+            {item.name}
+          </h2>
           <div style={{ fontSize: "0.85rem", color: "#7a5a2e", marginTop: "0.15rem" }}>
             {mealTypeLabel(item.meal_type, item.meal_type_label)}
             {item.total_time_minutes != null && ` · ${item.total_time_minutes} min`}
@@ -394,28 +442,49 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
         </button>
       </header>
 
+      {/* Two-page spread. The center spine is a darker gutter with an inset
+          shadow on each side so the pages look bound, not just split. */}
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "grid",
-          gridTemplateColumns: "1fr 2px 1fr",
+          gridTemplateColumns: "1fr 8px 1fr",
           overflow: "hidden",
         }}
       >
-        <div style={{ overflowY: "auto", padding: "1.25rem 1.5rem" }}>
+        <div
+          style={{
+            overflowY: "auto",
+            padding: "1.25rem 1.5rem",
+            boxShadow: "inset -8px 0 12px -8px rgba(59,36,18,0.35)",
+          }}
+        >
           <h3 style={{ fontFamily: "inherit", marginTop: 0, fontSize: "1.05rem" }}>
             Ingredients
           </h3>
           <IngredientsList ingredients={item.ingredients} block />
         </div>
-        <div style={{ backgroundColor: "#c8a86b", boxShadow: "inset 0 0 6px rgba(0,0,0,0.25)" }} />
-        <div style={{ overflowY: "auto", padding: "1.25rem 1.5rem" }}>
+        <div
+          style={{
+            background:
+              "linear-gradient(90deg, #a8804a 0%, #6b4423 50%, #a8804a 100%)",
+            boxShadow: "inset 0 0 4px rgba(0,0,0,0.5)",
+          }}
+        />
+        <div
+          style={{
+            overflowY: "auto",
+            padding: "1.25rem 1.5rem",
+            boxShadow: "inset 8px 0 12px -8px rgba(59,36,18,0.35)",
+          }}
+        >
           <h3 style={{ fontFamily: "inherit", marginTop: 0, fontSize: "1.05rem" }}>
             Steps
           </h3>
           <RecipeSteps steps={item.steps} />
         </div>
       </div>
-    </>
+    </div>
   );
 }
