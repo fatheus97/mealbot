@@ -137,7 +137,12 @@ export function CookbookModal({ onClose }: Props) {
           backgroundImage:
             "linear-gradient(135deg, #4a2d16 0%, #2d1a0a 50%, #4a2d16 100%)",
           borderRadius: "8px",
-          padding: view === "index" ? "0" : "16px",
+          // 6px bottom padding on the index view pulls the scroll viewport
+          // up off the cover's bottom rim so text mid-scroll never renders
+          // under the rim shadow. The spread view keeps its uniform 16px
+          // padding for the parchment inset.
+          padding: view === "index" ? "0 0 6px 0" : "16px",
+          boxSizing: "border-box",
           boxShadow:
             "0 12px 40px rgba(0,0,0,0.5), inset 0 0 0 2px #6b4423, inset 0 0 0 4px #2d1a0a",
           fontFamily: "Georgia, 'Times New Roman', serif",
@@ -360,6 +365,12 @@ function CookbookIndex({
           flex: 1,
           minHeight: 0,
           position: "relative",
+          // Hard-clip whatever lives inside. flex: 1 + minHeight: 0 should
+          // already cap the wrapper's height, but a missing definite-height
+          // chain in some browsers lets the inner scroll-container sized
+          // with `height: 100%` grow past the cover's bottom rim. Clipping
+          // here guarantees we never paint outside the wrapper regardless.
+          overflow: "hidden",
         }}
       >
         <div
@@ -367,9 +378,13 @@ function CookbookIndex({
           onScroll={updateScrollState}
           className="cookbook-scroll-hide"
           style={{
+            // Absolute fill of the wrapper instead of `height: 100%` —
+            // sidesteps the flex-height-resolution chain that was letting
+            // the scroller grow past the cover's bottom.
+            position: "absolute",
+            inset: 0,
             overflowY: "auto",
             padding: "1rem 1.75rem 1.75rem",
-            height: "100%",
             scrollbarWidth: "none" as const,
             msOverflowStyle: "none" as const,
             // Belt-and-braces alongside the body-scroll lock: even if some
@@ -495,7 +510,13 @@ function CookbookIndex({
             position: "absolute",
             left: "4px",
             right: "4px",
-            top: "4px",
+            // top: 0 (not 4px). The cover's diagonal background is lighter
+            // at its corners (#4a2d16) than the fade's opaque end
+            // (#2d1a0a) — a 4px gap above the gradient was reading as a
+            // thin un-faded strip. The rim's inset box-shadow on the
+            // parent renders over its children, so extending the fade to
+            // the very top still leaves the leather rim visible on top.
+            top: 0,
             height: "64px",
             pointerEvents: "none",
             background:
@@ -510,7 +531,12 @@ function CookbookIndex({
             position: "absolute",
             left: "4px",
             right: "4px",
-            bottom: "4px",
+            // bottom: 0 (not 4px). The cover's paddingBottom now keeps the
+            // scroll viewport above the rim, so we want the fade to extend
+            // to the very bottom of the viewport — otherwise any text in
+            // the last few pixels would render unfaded between the gradient
+            // and the rim, defeating the purpose of the cue.
+            bottom: 0,
             height: "72px",
             pointerEvents: "none",
             background:
