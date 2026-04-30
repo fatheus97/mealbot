@@ -143,9 +143,14 @@ export function useConfirmPlan() {
       if (!res.ok) throw new Error(`Confirm failed: ${res.status}`);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, planId) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      // Confirm creates the meal entry rows server-side. Without this,
+      // an un-confirm → regenerate → re-confirm cycle leaves the cache
+      // holding the empty array refetched during un-confirm, so per-meal
+      // cook buttons and rating UI never appear.
+      queryClient.invalidateQueries({ queryKey: ['mealEntries', planId] });
     },
   });
 }

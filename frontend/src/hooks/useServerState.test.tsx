@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan } from './useServerState';
+import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan } from './useServerState';
 import type { ReactNode } from 'react';
 
 // Mock the api module
@@ -160,6 +160,31 @@ describe('useGeneratePlan', () => {
       method: 'POST',
       body: JSON.stringify(request),
     });
+  });
+});
+
+describe('useConfirmPlan', () => {
+  it('invalidates mealEntries cache so a re-confirm refetches new entries', async () => {
+    // Repro for the un-confirm → regenerate → re-confirm regression: a
+    // prior un-confirm cycle leaves an empty array cached under
+    // ['mealEntries', planId]. If confirm doesn't invalidate that key,
+    // per-meal cook buttons and rating UI never appear after re-confirm.
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([]),
+    });
+
+    const { wrapper, queryClient } = createWrapper();
+    queryClient.setQueryData(['mealEntries', 7], []);
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useConfirmPlan(), { wrapper });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['mealEntries', 7] });
   });
 });
 
