@@ -27,6 +27,7 @@ from app.models.db_models import MealPlan, User
 from app.models.plan_models import (
     ConsumedBatch,
     CookRecipeRequest,
+    FavoriteRecipeRequest,
     IngredientAmount,
     MealEntrySummary,
     MealPlanRequest,
@@ -44,6 +45,7 @@ from app.services.fridge_service import (
 )
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
+from app.services.recipe_retriever import embed_meal_entry
 
 logger = logging.getLogger(__name__)
 
@@ -264,8 +266,101 @@ async def cook_recipe(
         name=entry.name,
         meal_type=entry.meal_type,
         cooked_at=entry.cooked_at,
-        rating=entry.rating,
+        is_favorite=entry.is_favorite,
     )
 
+    await session.commit()
+    return response
+
+
+@router.post("/favorite", response_model=MealEntrySummary)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def favorite_recipe(
+    request: Request,
+    payload: FavoriteRecipeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MealEntrySummary:
+    """Star a Cook Now recipe straight into the cookbook (no fridge debit).
+
+    Used when the user clicks the star on a generated recipe before clicking
+    "Mark as cooked". A 1-day, 1-meal MealPlan is created with kind="cook_now"
+    and confirmed_at=NOW so the entry is queryable by the cookbook listing —
+    but cooked_at stays NULL (the user hasn't cooked it) and the fridge isn't
+    touched. If they later click "Mark as cooked", the existing /recipe/cook
+    flow runs separately; the cookbook entry remains.
+
+    TRUST BOUNDARY: same as /recipe/cook — payload.recipe is client-controlled.
+    No fridge debit here, so the blast radius is even narrower (the user can
+    only spam their own cookbook with garbage).
+    """
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
+
+    if payload.recipe.meal_type != payload.meal_type:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"recipe.meal_type ({payload.recipe.meal_type}) must match "
+                f"meal_type ({payload.meal_type})."
+            ),
+        )
+
+    day = SingleDayResponse(meals=[payload.recipe])
+    plan_obj = MealPlanResponse(
+        plan_id=None,
+        days=[day],
+        shopping_list=[],
+    )
+
+    plan = MealPlan(
+        user_id=current_user.id,
+        days=1,
+        meals_per_day=1,
+        people_count=payload.people_count,
+        kind="cook_now",
+        request_json=payload.model_dump_json(),
+        response_json=plan_obj.model_dump_json(),
+        confirmed_at=datetime.now(UTC),
+    )
+    session.add(plan)
+    await session.flush()
+    if plan.id is None:
+        raise HTTPException(status_code=500, detail="Plan insert failed")
+
+    # No fridge debit, no consumed_snapshot — the recipe is just a record.
+    entries = persist_meal_entries(
+        session,
+        user_id=current_user.id,
+        plan_id=plan.id,
+        plan_obj=plan_obj,
+        cooked_at=None,
+        consumption_snapshots={},
+    )
+    if not entries:
+        raise HTTPException(status_code=500, detail="Cookbook persistence failed")
+
+    entry = entries[0]
+    entry.is_favorite = True
+    try:
+        await embed_meal_entry(entry)
+    except Exception:
+        # Same policy as the plan-side favorite endpoint: the bit flips even
+        # if embedding fails; a backfill can repair RAG visibility later.
+        logger.exception("Failed to embed cookbook entry for user %s", current_user.id)
+
+    await session.flush()
+    if entry.id is None:
+        raise HTTPException(status_code=500, detail="Cookbook persistence failed")
+
+    response = MealEntrySummary(
+        id=entry.id,
+        day_index=entry.day_index,
+        meal_index=entry.meal_index,
+        name=entry.name,
+        meal_type=entry.meal_type,
+        cooked_at=entry.cooked_at,
+        is_favorite=entry.is_favorite,
+    )
     await session.commit()
     return response

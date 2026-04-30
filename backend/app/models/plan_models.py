@@ -393,9 +393,9 @@ class FinishPlanResponse(BaseModel):
         return v
 
 
-class RateMealRequest(BaseModel):
-    """Request body for rating a meal (1-5 stars)."""
-    rating: int = Field(ge=1, le=5)
+class FavoriteToggleRequest(BaseModel):
+    """Request body for toggling a meal's cookbook membership."""
+    is_favorite: bool
 
 
 class MealEntrySummary(BaseModel):
@@ -406,4 +406,43 @@ class MealEntrySummary(BaseModel):
     name: str
     meal_type: str
     cooked_at: datetime | None
-    rating: int | None = None
+    is_favorite: bool = False
+
+
+class FavoriteRecipeRequest(BaseModel):
+    """Persist a Cook Now recipe directly into the user's cookbook.
+
+    Distinct from CookRecipeRequest because the user is starring without
+    cooking — fridge stays untouched, cooked_at stays NULL. The PlannedMeal
+    arrives client-controlled; the same trust-boundary caveats as /recipe/cook
+    apply (see cook_recipe docstring).
+    """
+    meal_type: MealType
+    people_count: int = Field(ge=1, le=10, default=2)
+    recipe: PlannedMeal
+
+
+class CookbookItem(BaseModel):
+    """Single recipe in the user's cookbook (full details for the spread view).
+
+    Returned by GET /api/cookbook so the frontend can render the open-book
+    spread (ingredients + steps) without a second fetch per recipe.
+    """
+    meal_entry_id: int
+    name: str
+    meal_type: str
+    meal_type_label: str = ""
+    total_time_minutes: int | None = None
+    ingredients: list[IngredientAmount]
+    steps: list[str]
+    created_at: datetime
+    cooked_at: datetime | None = None
+
+
+class CookbookListResponse(BaseModel):
+    total: int
+    items: list[CookbookItem]
+
+
+class CookbookCountResponse(BaseModel):
+    count: int

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from fastembed import TextEmbedding
 from pydantic import BaseModel
-from sqlalchemy import literal_column
+from sqlalchemy import func, literal_column
 from sqlmodel import select
 
 from app.core.config import settings
@@ -45,14 +45,19 @@ async def retrieve_rated_meals(
     query: str,
 ) -> list[MealHit]:
     """
-    Hybrid retrieval of highly-rated meals: own-user top-N plus global top-M,
-    merged and re-ranked with the own-user distance boost.
+    Retrieval over favorited (cookbook) meals.
 
-    The two-query design guarantees the requesting user's own history is
-    represented in the candidate set regardless of corpus size. A single
-    global query would, at scale, almost never surface the user's meals —
-    their few dozen entries can't out-compete thousands of other users' hits
-    on raw distance, and the user-boost multiplier would become a no-op.
+    Two regimes, switched on cookbook size:
+
+    * **Cookbook-only** (favorites count >= settings.rag_cookbook_threshold):
+      the user has a strong taste model — query their own favorites only.
+      Cross-user candidates would dilute relevance, and they're not scarce
+      enough to be useful as novelty injection.
+    * **Hybrid** (below threshold): own-user top-N plus global top-M, merged
+      and re-ranked with the own-user distance boost. The two-query design
+      guarantees the requesting user's own history is represented in the
+      candidate set regardless of corpus size — a single global query would
+      almost never surface a single user's meals at scale.
     """
     model = get_embedding_model()
     query_emb = (await asyncio.to_thread(lambda: list(model.embed([query]))))[0].tolist()
@@ -60,10 +65,50 @@ async def retrieve_rated_meals(
     distance_expr = MealEntry.embedding.cosine_distance(query_emb)  # type: ignore[attr-defined,union-attr]
 
     base_filters = [
-        MealEntry.rating >= 4,  # type: ignore[operator]
+        MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
         MealEntry.embedding.is_not(None),  # type: ignore[union-attr]
     ]
 
+    # Decide regime up-front. One COUNT(*) query is cheap; the alternative
+    # (always-hybrid + post-filter) wastes a global HNSW lookup that the
+    # large-cookbook user wouldn't use anyway.
+    favorite_count_stmt = select(func.count()).select_from(MealEntry).where(
+        MealEntry.user_id == user_id,  # type: ignore[arg-type]
+        MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
+    )
+    favorite_count = (await session.execute(favorite_count_stmt)).scalar() or 0
+
+    if favorite_count >= settings.rag_cookbook_threshold:
+        # Cookbook-only: skip the global query entirely. user_boost is a no-op
+        # since every hit is the user's own; report adjusted == raw distance
+        # for downstream observability.
+        own_stmt = (
+            select(MealEntry, distance_expr.label("cosine_distance"))
+            .where(*base_filters, MealEntry.user_id == user_id)  # type: ignore[arg-type]
+            .order_by(literal_column("cosine_distance"))
+            .limit(settings.rag_cookbook_only_fetch)
+        )
+        own_rows = (await session.execute(own_stmt)).all()
+
+        hits = [
+            MealHit(
+                meal_entry_id=cast_id(row[0]),
+                user_id=row[0].user_id,
+                name=row[0].name,
+                meal_type=row[0].meal_type,
+                meal_json=row[0].meal_json,
+                cosine_distance=row[1],
+                adjusted_distance=row[1],
+            )
+            for row in own_rows
+        ]
+        logger.debug(
+            "RAG retrieval (cookbook-only): %d candidates from %d favorites",
+            len(hits), favorite_count,
+        )
+        return hits
+
+    # Hybrid path
     own_stmt = (
         select(MealEntry, distance_expr.label("cosine_distance"))
         .where(*base_filters, MealEntry.user_id == user_id)  # type: ignore[arg-type]
@@ -90,7 +135,7 @@ async def retrieve_rated_meals(
     for row in (*own_rows, *global_rows):
         entry: MealEntry = row[0]
         distance: float = row[1]
-        entry_id: int = entry.id  # type: ignore[assignment]
+        entry_id: int = cast_id(entry)
 
         if entry_id in seen:
             continue
@@ -109,10 +154,16 @@ async def retrieve_rated_meals(
 
     hits = sorted(seen.values(), key=lambda h: h.adjusted_distance)
     logger.debug(
-        "RAG retrieval: %d own-user + %d global rows → %d unique candidates",
+        "RAG retrieval (hybrid): %d own-user + %d global rows → %d unique candidates",
         len(own_rows), len(global_rows), len(hits),
     )
     return hits
+
+
+def cast_id(entry: MealEntry) -> int:
+    """Narrow MealEntry.id (Optional[int] in SQLModel) to int for selected rows."""
+    assert entry.id is not None
+    return entry.id
 
 
 async def embed_meal_entry(entry: MealEntry) -> None:

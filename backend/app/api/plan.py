@@ -17,13 +17,13 @@ from app.db import get_session
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
     ConsumedBatch,
+    FavoriteToggleRequest,
     FinishPlanResponse,
     IngredientAmount,
     MealEntrySummary,
     MealPlanRequest,
     MealPlanResponse,
     MealPlanSummary,
-    RateMealRequest,
     RegeneratePlanRequest,
     SingleDayResponse,
     StockItemDTO,
@@ -599,22 +599,31 @@ async def cook_meal(
         name=entry.name,
         meal_type=entry.meal_type,
         cooked_at=entry.cooked_at,
-        rating=entry.rating,
+        is_favorite=entry.is_favorite,
     )
 
 
-# POST /api/plan/{plan_id}/meals/{meal_entry_id}/rate
-@router.post("/{plan_id}/meals/{meal_entry_id}/rate", response_model=MealEntrySummary)
-@limiter.limit("10/minute", key_func=user_id_key_func)
-async def rate_meal(
+# POST /api/plan/{plan_id}/meals/{meal_entry_id}/favorite
+@router.post("/{plan_id}/meals/{meal_entry_id}/favorite", response_model=MealEntrySummary)
+@limiter.limit("20/minute", key_func=user_id_key_func)
+async def favorite_meal(
     request: Request,
     plan_id: int,
     meal_entry_id: int,
-    body: RateMealRequest,
+    body: FavoriteToggleRequest,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> MealEntrySummary:
-    """Rate a meal 1-5 stars. Auto-marks as cooked if not already."""
+    """Toggle a meal's cookbook membership.
+
+    Idempotent: posting is_favorite=True when already starred is a no-op.
+    Embedding follows the bit — added on True, cleared on False — so RAG
+    candidates always reflect the user's current cookbook.
+
+    Decoupled from cook/uncook by design: the user can favorite a meal they
+    haven't cooked yet (intent to keep), and uncooking no longer wipes a
+    favorite (history vs. preference are orthogonal).
+    """
     entry = await session.get(MealEntry, meal_entry_id)
     if (
         not entry
@@ -623,24 +632,31 @@ async def rate_meal(
     ):
         raise HTTPException(status_code=404, detail="Meal entry not found")
 
-    plan = await session.get(MealPlan, plan_id)
-    if plan and plan.finished_at is not None:
-        raise HTTPException(status_code=409, detail="Plan is finished.")
+    # Idempotent fast path
+    if entry.is_favorite == body.is_favorite:
+        return MealEntrySummary(
+            id=entry.id,  # type: ignore[arg-type]
+            day_index=entry.day_index,
+            meal_index=entry.meal_index,
+            name=entry.name,
+            meal_type=entry.meal_type,
+            cooked_at=entry.cooked_at,
+            is_favorite=entry.is_favorite,
+        )
 
-    entry.rating = body.rating
-    # Auto-cook if not already cooked
-    if entry.cooked_at is None:
-        entry.cooked_at = datetime.now(UTC)
+    entry.is_favorite = body.is_favorite
 
-    # Invariant: embedding exists iff rating >= 4.
-    if body.rating >= 4 and entry.embedding is None:
+    if body.is_favorite:
         try:
             await embed_meal_entry(entry)
         except Exception:
             # logger.exception (not .warning) — keeps the traceback so we can
             # diagnose fastembed / pgvector failures instead of a bare message.
+            # The favorite bit still flips so the UI is consistent; a missing
+            # embedding just means the recipe is invisible to RAG until a
+            # backfill runs.
             logger.exception("Failed to generate embedding for meal entry %d", meal_entry_id)
-    elif body.rating < 4 and entry.embedding is not None:
+    else:
         entry.embedding = None
 
     session.add(entry)
@@ -654,7 +670,7 @@ async def rate_meal(
         name=entry.name,
         meal_type=entry.meal_type,
         cooked_at=entry.cooked_at,
-        rating=entry.rating,
+        is_favorite=entry.is_favorite,
     )
 
 
@@ -682,11 +698,12 @@ async def uncook_meal(
     if plan and plan.finished_at is not None:
         raise HTTPException(status_code=409, detail="Plan is finished.")
 
-    # Idempotent: if already uncooked, return as-is
+    # Idempotent: if already uncooked, return as-is. Cookbook membership
+    # (is_favorite + embedding) is intentionally NOT cleared here — favorite
+    # signals user preference, cooked signals plan execution; one shouldn't
+    # silently reset the other. The user un-favorites explicitly via the star.
     if entry.cooked_at is not None:
         entry.cooked_at = None
-        entry.rating = None
-        entry.embedding = None
         session.add(entry)
         await session.commit()
         await session.refresh(entry)
@@ -698,7 +715,7 @@ async def uncook_meal(
         name=entry.name,
         meal_type=entry.meal_type,
         cooked_at=entry.cooked_at,
-        rating=entry.rating,
+        is_favorite=entry.is_favorite,
     )
 
 
@@ -730,7 +747,7 @@ async def list_meal_entries(
             name=entry.name,
             meal_type=entry.meal_type,
             cooked_at=entry.cooked_at,
-            rating=entry.rating,
+            is_favorite=entry.is_favorite,
         )
         for entry in entries
     ]

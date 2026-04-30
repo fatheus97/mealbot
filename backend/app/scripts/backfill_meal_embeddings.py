@@ -1,5 +1,6 @@
 """
-One-time backfill: generate embeddings for existing MealEntry rows rated 4+.
+One-time backfill: generate embeddings for favorited MealEntry rows that are
+missing them.
 
 Usage:
     docker compose exec backend python -m app.scripts.backfill_meal_embeddings
@@ -26,7 +27,7 @@ async def backfill() -> None:
         stmt = (
             select(MealEntry)
             .where(
-                MealEntry.rating >= 4,  # type: ignore[operator]
+                MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
                 MealEntry.embedding.is_(None),  # type: ignore[union-attr]
             )
         )

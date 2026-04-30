@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.api.cookbook import router as cookbook_router
 from app.api.demo import router as demo_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
@@ -148,6 +149,7 @@ app.include_router(history_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(demo_router, prefix="/api")
 app.include_router(recipe_router, prefix="/api")
+app.include_router(cookbook_router, prefix="/api")
 
 # pro lokální vývoj:
 # uvicorn app.main:app --reload

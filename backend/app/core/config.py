@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     rag_global_fetch: int = 15
     rag_max_context_meals: int = 8
 
+    # Cookbook-only RAG threshold. Once a user has this many favorites, we skip
+    # the global pool entirely and search only their cookbook. Their taste model
+    # is well-defined by then, and global cross-user noise tends to dilute the
+    # match quality. Configurable so we can tune after real usage data lands.
+    rag_cookbook_threshold: int = 100
+    rag_cookbook_only_fetch: int = 20
+
     run_llm_tests: bool = False
 
 
