@@ -126,7 +126,11 @@ export function useDeletePlan() {
   return useMutation({
     mutationFn: async (planId: number) => {
       const res = await authFetch(`/plan/${planId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`Plan delete failed: ${res.status}`);
+      // Backend now returns 409 with a detail message when the plan contains
+      // cookbook entries. Use extractErrorDetail (same as useUnconfirmPlan /
+      // useReopenPlan) so the user sees "This plan contains N cookbook
+      // recipes…" instead of a bare status code.
+      if (!res.ok) throw new Error(await extractErrorDetail(res, "Plan delete failed"));
     },
     onSuccess: () => {
       return queryClient.invalidateQueries({ queryKey: ['planList'] });
