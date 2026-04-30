@@ -538,6 +538,28 @@ async def unconfirm_plan(
             detail="Uncook all meals before un-confirming.",
         )
 
+    # Same guard as delete_plan: un-confirm bulk-DELETEs every MealEntry on
+    # the plan further down (so re-confirm can rebuild from response_json).
+    # A cookbook entry on this plan would be silently destroyed without this
+    # check. The user must un-favorite explicitly before un-confirming.
+    favorite_count = (
+        await session.execute(
+            select(func.count()).where(
+                MealEntry.meal_plan_id == plan_id,
+                MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
+            )
+        )
+    ).scalar() or 0
+    if favorite_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This plan contains {favorite_count} cookbook recipe"
+                f"{'s' if favorite_count != 1 else ''}. "
+                "Un-favorite them before un-confirming the plan."
+            ),
+        )
+
     # Restore using each entry's snapshot (preserves expiration_date +
     # need_to_use). Legacy entries with NULL snapshot fall back to the
     # lossy recipe-based restore — same dual-path as finish_plan.

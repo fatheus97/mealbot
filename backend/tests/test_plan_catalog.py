@@ -346,6 +346,54 @@ class TestDeletePlan:
         )
         assert del_resp_after.status_code == 204
 
+    async def test_unconfirm_plan_with_favorites_returns_409(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session,
+        test_user,
+    ):
+        """Un-confirm bulk-deletes MealEntry rows; cookbook entries must be
+        protected the same way `delete_plan` is. Without this guard, a user
+        who stars a recipe and then un-confirms the plan loses the cookbook
+        entry silently.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+            body = await _create_and_confirm_plan(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        entries_resp = await client.get(
+            f"/api/plan/{plan_id}/meals", headers=auth_headers,
+        )
+        entry_id = entries_resp.json()[0]["id"]
+
+        with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+            await client.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite",
+                headers=auth_headers,
+                json={"is_favorite": True},
+            )
+
+        unc_resp = await client.post(
+            f"/api/plan/{plan_id}/unconfirm", headers=auth_headers,
+        )
+        assert unc_resp.status_code == 409
+        assert "cookbook" in unc_resp.json()["detail"].lower()
+
+        # Un-favoriting unblocks the un-confirm
+        with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+            await client.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite",
+                headers=auth_headers,
+                json={"is_favorite": False},
+            )
+        unc_resp_after = await client.post(
+            f"/api/plan/{plan_id}/unconfirm", headers=auth_headers,
+        )
+        assert unc_resp_after.status_code == 200
+
 
 class TestCookMeal:
     async def test_cook_uncooked_meal(
