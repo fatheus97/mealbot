@@ -483,14 +483,21 @@ function CookbookIndex({
             content in that direction — bottom fade hides at the end of the
             list, top fade appears once you've scrolled past the first row.
             Hard pop is jarring, so a 150ms opacity transition smooths the
-            on/off. Pointer-events:none so they don't intercept item clicks. */}
+            on/off. Pointer-events:none so they don't intercept item clicks.
+            Insets:
+              - Horizontal `1.75rem` matches the scroll container's padding
+                so the gradient sits over the text column only and never
+                tints the leather cover edges.
+              - Vertical `4px` clears the cover's rim inset-shadow (2px
+                outer light brown + 2px dark inner) — the decorative ring
+                stays clean while the gradient does its cue work. */}
         <div
           aria-hidden
           style={{
             position: "absolute",
-            left: 0,
-            right: 0,
-            top: 0,
+            left: "1.75rem",
+            right: "1.75rem",
+            top: "4px",
             height: "64px",
             pointerEvents: "none",
             background:
@@ -503,9 +510,9 @@ function CookbookIndex({
           aria-hidden
           style={{
             position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
+            left: "1.75rem",
+            right: "1.75rem",
+            bottom: "4px",
             height: "72px",
             pointerEvents: "none",
             background:
