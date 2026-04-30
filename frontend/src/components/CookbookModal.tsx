@@ -16,6 +16,12 @@ export function CookbookModal({ onClose }: Props) {
   const [selected, setSelected] = useState<CookbookItem | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  // Two-stage spread reveal: while the book "opens" (cover widening),
+  // textRevealed is false and inks fade out; once the width transition
+  // finishes we flip it to true and the recipe inks fade in like a Harry
+  // Potter magic book. The opening transition runs ~300ms; we add a small
+  // hold so the user perceives the cover settling before the text appears.
+  const [textRevealed, setTextRevealed] = useState(false);
 
   // 250ms debounce keeps the API quiet while the user types. The hook is
   // gated on the debounced value so each keystroke doesn't invalidate the
@@ -50,12 +56,23 @@ export function CookbookModal({ onClose }: Props) {
   const handleOpenSpread = (item: CookbookItem) => {
     setSelected(item);
     setView("spread");
+    setTextRevealed(false);
   };
 
   const handleBackToIndex = () => {
     setView("index");
     setSelected(null);
+    setTextRevealed(false);
   };
+
+  // Stage 2 of the spread reveal: schedule the text fade-in just after the
+  // cover-width transition (300ms) settles. Cleared on view change so a
+  // back-and-forth doesn't queue stray reveals.
+  useEffect(() => {
+    if (view !== "spread") return;
+    const id = setTimeout(() => setTextRevealed(true), 320);
+    return () => clearTimeout(id);
+  }, [view, selected]);
 
   const handleRemove = (item: CookbookItem) => {
     removeMutation.mutate(item.meal_entry_id, {
@@ -137,6 +154,7 @@ export function CookbookModal({ onClose }: Props) {
               onClose={onClose}
               onRemove={() => handleRemove(selected)}
               removing={removeMutation.isPending}
+              textRevealed={textRevealed}
             />
           )
         )}
@@ -288,8 +306,29 @@ function CookbookIndex({
       </div>
 
       {/* Scroll lives on the inner list; the outer book frame keeps its
-          fixed height so a 0-result search doesn't shrink the cover. */}
-      <div style={{ overflowY: "auto", padding: "1rem 1.75rem", flex: 1, minHeight: 0 }}>
+          fixed height so a 0-result search doesn't shrink the cover.
+          Native scrollbar hidden (off-design on a leather cover); a
+          bottom fade-out cues that there's more content to scroll to. */}
+      <style>{`
+        .cookbook-scroll-hide::-webkit-scrollbar { display: none; }
+      `}</style>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+        }}
+      >
+        <div
+          className="cookbook-scroll-hide"
+          style={{
+            overflowY: "auto",
+            padding: "1rem 1.75rem 1.75rem",
+            height: "100%",
+            scrollbarWidth: "none" as const,
+            msOverflowStyle: "none" as const,
+          }}
+        >
         {isLoading && <p style={{ opacity: 0.8 }}>Loading…</p>}
         {isError && (
           <p role="alert" style={{ color: "#fca5a5" }}>
@@ -390,6 +429,23 @@ function CookbookIndex({
             </ul>
           </section>
         ))}
+        </div>
+        {/* Bottom fade-out signals scrollability without showing a scrollbar
+            that would clash with the leather cover. Pointer-events:none so
+            it doesn't intercept clicks on the last list item. */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: "32px",
+            pointerEvents: "none",
+            background:
+              "linear-gradient(180deg, rgba(45,26,10,0) 0%, rgba(45,26,10,0.85) 100%)",
+          }}
+        />
       </div>
     </>
   );
@@ -402,6 +458,11 @@ interface SpreadProps {
   onClose: () => void;
   onRemove: () => void;
   removing: boolean;
+  // Stage 2 of the open animation: false during the cover-widening
+  // transition (so all recipe inks are invisible — the page looks blank,
+  // like a Harry Potter book before the spell), true after the cover
+  // settles (text fades in over ~450ms).
+  textRevealed: boolean;
 }
 
 // Spread = parchment pages floated inside the dark cover. The 16px padding
@@ -411,18 +472,44 @@ interface SpreadProps {
 // No top-spanning bar — each page has its own header (left: title +
 // "back to index"; right: actions) so the spine runs uninterrupted from
 // top to bottom and the layout reads as a true open book.
-function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadProps) {
+function CookbookSpread({ item, onBack, onClose, onRemove, removing, textRevealed }: SpreadProps) {
+  // Recipe inks fade in only after the cover is open — controls (back, ✕,
+  // remove) sit on the parchment too so they fade with the rest. The
+  // transition is intentionally a touch slow so it reads as text appearing
+  // on a magic page, not a layout pop.
+  const inkStyle = {
+    opacity: textRevealed ? 1 : 0,
+    transition: "opacity 0.45s ease-in",
+  };
   const pageStyleBase = {
-    overflowY: "auto" as const,
     padding: "1rem 1.4rem 1.25rem",
     display: "flex",
     flexDirection: "column" as const,
     minHeight: 0,
+    position: "relative" as const,
+  };
+  const pageScrollStyle = {
+    overflowY: "auto" as const,
+    flex: 1,
+    minHeight: 0,
+    scrollbarWidth: "none" as const,
+    msOverflowStyle: "none" as const,
   };
   const pageHeaderStyle = {
-    paddingBottom: "0.6rem",
-    borderBottom: "1px dotted #c8a86b",
-    marginBottom: "0.85rem",
+    // Reserve the same vertical block on both pages so the recipe name and
+    // the STEPS heading sit at the same height across the spine.
+    minHeight: "3.4rem",
+    marginBottom: "0.6rem",
+    display: "flex",
+    flexDirection: "column" as const,
+  };
+  const sectionHeading = {
+    fontFamily: "inherit",
+    margin: 0,
+    fontSize: "1rem",
+    color: "#7a5a2e",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.05em",
   };
 
   return (
@@ -441,6 +528,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
     >
       {/* Left page */}
       <div
+        className="cookbook-scroll-hide"
         style={{
           ...pageStyleBase,
           backgroundImage:
@@ -448,7 +536,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
           boxShadow: "inset -10px 0 14px -10px rgba(59,36,18,0.45)",
         }}
       >
-        <div style={pageHeaderStyle}>
+        <div style={{ ...pageHeaderStyle, ...inkStyle }}>
           <button
             type="button"
             onClick={onBack}
@@ -460,12 +548,13 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
               fontFamily: "inherit",
               fontSize: "0.85rem",
               padding: 0,
-              marginBottom: "0.5rem",
+              marginBottom: "0.35rem",
+              alignSelf: "flex-start",
             }}
           >
             ← Back to index
           </button>
-          <h2 style={{ margin: 0, fontFamily: "inherit", fontSize: "1.35rem", color: "#3b2412" }}>
+          <h2 style={{ margin: 0, fontFamily: "inherit", fontSize: "1.35rem", color: "#3b2412", lineHeight: 1.15 }}>
             {item.name}
           </h2>
           <div style={{ fontSize: "0.85rem", color: "#7a5a2e", marginTop: "0.15rem" }}>
@@ -474,13 +563,15 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
           </div>
         </div>
 
-        <h3 style={{ fontFamily: "inherit", marginTop: 0, marginBottom: "0.5rem", fontSize: "1rem", color: "#7a5a2e", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        <h3 style={{ ...sectionHeading, marginBottom: "0.5rem", ...inkStyle }}>
           Ingredients
         </h3>
-        <IngredientsList ingredients={item.ingredients} block />
+        <div className="cookbook-scroll-hide" style={{ ...pageScrollStyle, ...inkStyle }}>
+          <IngredientsList ingredients={item.ingredients} block />
+        </div>
       </div>
 
-      {/* Spine — uninterrupted top-to-bottom now that there's no spanning header. */}
+      {/* Spine — uninterrupted top-to-bottom. */}
       <div
         style={{
           background:
@@ -491,6 +582,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
 
       {/* Right page */}
       <div
+        className="cookbook-scroll-hide"
         style={{
           ...pageStyleBase,
           backgroundImage:
@@ -498,59 +590,67 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
           boxShadow: "inset 10px 0 14px -10px rgba(59,36,18,0.45)",
         }}
       >
+        {/* ✕ close — top-right, on the parchment, fades with the rest. */}
+        <button
+          type="button"
+          aria-label="Close cookbook"
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            top: "0.6rem",
+            right: "0.8rem",
+            background: "none",
+            border: "none",
+            fontSize: "1.2rem",
+            cursor: "pointer",
+            color: "#7a5a2e",
+            padding: 0,
+            ...inkStyle,
+          }}
+        >
+          ✕
+        </button>
+
+        {/* STEPS heading aligned with the recipe name on the left page —
+            same height as the h2 within the page header block. */}
+        <div style={{ ...pageHeaderStyle, justifyContent: "flex-end", ...inkStyle }}>
+          <h3 style={{ ...sectionHeading, fontSize: "1.1rem", marginBottom: "0.15rem" }}>
+            Steps
+          </h3>
+        </div>
+
+        <div className="cookbook-scroll-hide" style={{ ...pageScrollStyle, ...inkStyle }}>
+          <RecipeSteps steps={item.steps} />
+        </div>
+
+        {/* Remove pinned to bottom-right, parchment-styled. */}
         <div
           style={{
-            ...pageHeaderStyle,
             display: "flex",
-            alignItems: "center",
             justifyContent: "flex-end",
-            gap: "0.5rem",
-            // Match the left page header's vertical footprint so the dotted
-            // rules align across the spine and the pages look like spreads
-            // of the same book.
-            minHeight: "calc(0.85rem + 1.35rem * 1.2 + 0.85rem + 0.5rem)",
+            paddingTop: "0.75rem",
+            ...inkStyle,
           }}
         >
           <button
             type="button"
             onClick={onRemove}
             disabled={removing}
-            title="Remove from cookbook"
             style={{
               background: "none",
               border: "1px solid #c8a86b",
               borderRadius: "4px",
               cursor: removing ? "default" : "pointer",
               color: "#7a5a2e",
-              padding: "0.3rem 0.7rem",
+              padding: "0.3rem 0.75rem",
               fontFamily: "inherit",
               fontSize: "0.85rem",
               opacity: removing ? 0.5 : 1,
             }}
           >
-            {removing ? "Removing…" : "Remove"}
-          </button>
-          <button
-            type="button"
-            aria-label="Close cookbook"
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: "1.3rem",
-              cursor: "pointer",
-              color: "#7a5a2e",
-              padding: "0 0.25rem",
-            }}
-          >
-            ✕
+            {removing ? "Removing…" : "Remove from Cookbook"}
           </button>
         </div>
-
-        <h3 style={{ fontFamily: "inherit", marginTop: 0, marginBottom: "0.5rem", fontSize: "1rem", color: "#7a5a2e", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          Steps
-        </h3>
-        <RecipeSteps steps={item.steps} />
       </div>
     </div>
   );
