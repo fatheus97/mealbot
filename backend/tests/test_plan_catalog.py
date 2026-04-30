@@ -625,10 +625,10 @@ class TestOwnershipChecks:
             assert resp.status_code == 404, "User B could uncook User A's meal"
 
             resp = await client.post(
-                f"/api/plan/{plan_id}/meals/{meal_entry_id}/rate",
-                json={"rating": 5},
+                f"/api/plan/{plan_id}/meals/{meal_entry_id}/favorite",
+                json={"is_favorite": True},
             )
-            assert resp.status_code == 404, "User B could rate User A's meal"
+            assert resp.status_code == 404, "User B could favorite User A's meal"
 
             resp = await client.delete(f"/api/plan/{plan_id}")
             assert resp.status_code == 404, "User B could delete the plan"

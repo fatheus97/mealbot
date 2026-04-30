@@ -1,4 +1,4 @@
-"""Tests for RAG integration: threshold logic, plan endpoint wiring, embedding on rate."""
+"""Tests for RAG integration: threshold logic, plan endpoint wiring, embedding on favorite."""
 
 from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -193,21 +193,17 @@ class TestPlanEndpointRagIntegration:
         mock_standard.assert_awaited()
 
 
-class TestRateMealEmbedding:
-    @patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock)
-    async def test_rate_4_triggers_embedding(
-        self,
-        mock_embed: AsyncMock,
-        client: MagicMock,
-        db_session: MagicMock,
-        test_user: MagicMock,
-    ) -> None:
+class TestFavoriteMealEmbedding:
+    """Embedding lifecycle on the /favorite endpoint."""
+
+    @staticmethod
+    async def _seed_entry(db_session, user_id: int, *, is_favorite: bool = False, embedding=None):
         from datetime import datetime
 
         from app.models.db_models import MealEntry, MealPlan
 
         plan = MealPlan(
-            user_id=test_user.id,
+            user_id=user_id,
             days=1,
             meals_per_day=1,
             people_count=1,
@@ -219,152 +215,79 @@ class TestRateMealEmbedding:
         await db_session.flush()
 
         entry = MealEntry(
-            user_id=test_user.id,
-            meal_plan_id=plan.id,  # type: ignore[arg-type]
+            user_id=user_id,
+            meal_plan_id=plan.id,
             day_index=1,
             meal_index=1,
             name="Test Meal",
             meal_type="dinner",
             meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
+            is_favorite=is_favorite,
+            embedding=embedding,
         )
         db_session.add(entry)
         await db_session.flush()
+        return plan, entry
+
+    @patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock)
+    async def test_favorite_true_triggers_embedding(
+        self,
+        mock_embed: AsyncMock,
+        client: MagicMock,
+        db_session: MagicMock,
+        test_user: MagicMock,
+    ) -> None:
+        plan, entry = await self._seed_entry(db_session, test_user.id)
 
         response = await client.post(
-            f"/api/plan/{plan.id}/meals/{entry.id}/rate",
-            json={"rating": 4},
+            f"/api/plan/{plan.id}/meals/{entry.id}/favorite",
+            json={"is_favorite": True},
         )
 
         assert response.status_code == 200
         mock_embed.assert_awaited_once()
 
     @patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock)
-    async def test_rate_below_4_skips_embedding(
+    async def test_favorite_false_clears_embedding(
         self,
         mock_embed: AsyncMock,
         client: MagicMock,
         db_session: MagicMock,
         test_user: MagicMock,
     ) -> None:
-        from datetime import datetime
-
-        from app.models.db_models import MealEntry, MealPlan
-
-        plan = MealPlan(
-            user_id=test_user.id,
-            days=1,
-            meals_per_day=1,
-            people_count=1,
-            request_json="{}",
-            response_json="{}",
-            confirmed_at=datetime.now(UTC),
+        plan, entry = await self._seed_entry(
+            db_session, test_user.id, is_favorite=True, embedding=[0.1] * 384,
         )
-        db_session.add(plan)
-        await db_session.flush()
-
-        entry = MealEntry(
-            user_id=test_user.id,
-            meal_plan_id=plan.id,  # type: ignore[arg-type]
-            day_index=1,
-            meal_index=1,
-            name="Test Meal",
-            meal_type="dinner",
-            meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
-        )
-        db_session.add(entry)
-        await db_session.flush()
 
         response = await client.post(
-            f"/api/plan/{plan.id}/meals/{entry.id}/rate",
-            json={"rating": 2},
+            f"/api/plan/{plan.id}/meals/{entry.id}/favorite",
+            json={"is_favorite": False},
         )
 
         assert response.status_code == 200
         mock_embed.assert_not_awaited()
-
-    async def test_rate_drop_below_4_clears_embedding(
-        self,
-        client: MagicMock,
-        db_session: MagicMock,
-        test_user: MagicMock,
-    ) -> None:
-        """Dropping rating from 5 to 3 (misclick) must clear the stale embedding."""
-        from datetime import datetime
-
-        from app.models.db_models import MealEntry, MealPlan
-
-        plan = MealPlan(
-            user_id=test_user.id,
-            days=1,
-            meals_per_day=1,
-            people_count=1,
-            request_json="{}",
-            response_json="{}",
-            confirmed_at=datetime.now(UTC),
-        )
-        db_session.add(plan)
-        await db_session.flush()
-
-        entry = MealEntry(
-            user_id=test_user.id,
-            meal_plan_id=plan.id,  # type: ignore[arg-type]
-            day_index=1,
-            meal_index=1,
-            name="Test Meal",
-            meal_type="dinner",
-            meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
-            rating=5,
-            cooked_at=datetime.now(UTC),
-            embedding=[0.1] * 384,
-        )
-        db_session.add(entry)
-        await db_session.flush()
-
-        response = await client.post(
-            f"/api/plan/{plan.id}/meals/{entry.id}/rate",
-            json={"rating": 3},
-        )
-
-        assert response.status_code == 200
         await db_session.refresh(entry)
-        assert entry.rating == 3
+        assert entry.is_favorite is False
         assert entry.embedding is None
 
-    async def test_uncook_clears_embedding(
+    @patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock)
+    async def test_uncook_preserves_embedding(
         self,
+        mock_embed: AsyncMock,
         client: MagicMock,
         db_session: MagicMock,
         test_user: MagicMock,
     ) -> None:
-        """Uncooking a rated meal must clear rating AND the stale embedding together."""
+        """Pinning the new contract: cookbook (favorite + embedding) survives uncook.
+
+        Distinct from the legacy rating endpoint, which cleared everything on uncook.
+        """
         from datetime import datetime
 
-        from app.models.db_models import MealEntry, MealPlan
-
-        plan = MealPlan(
-            user_id=test_user.id,
-            days=1,
-            meals_per_day=1,
-            people_count=1,
-            request_json="{}",
-            response_json="{}",
-            confirmed_at=datetime.now(UTC),
+        plan, entry = await self._seed_entry(
+            db_session, test_user.id, is_favorite=True, embedding=[0.1] * 384,
         )
-        db_session.add(plan)
-        await db_session.flush()
-
-        entry = MealEntry(
-            user_id=test_user.id,
-            meal_plan_id=plan.id,  # type: ignore[arg-type]
-            day_index=1,
-            meal_index=1,
-            name="Test Meal",
-            meal_type="dinner",
-            meal_json='{"name":"Test","meal_type":"dinner","meal_type_label":"Dinner","ingredients":[],"steps":[]}',
-            rating=5,
-            cooked_at=datetime.now(UTC),
-            embedding=[0.1] * 384,
-        )
+        entry.cooked_at = datetime.now(UTC)
         db_session.add(entry)
         await db_session.flush()
 
@@ -374,6 +297,9 @@ class TestRateMealEmbedding:
 
         assert response.status_code == 200
         await db_session.refresh(entry)
-        assert entry.rating is None
         assert entry.cooked_at is None
-        assert entry.embedding is None
+        assert entry.is_favorite is True
+        # pgvector hydrates to a numpy array, hence list()/len() rather than
+        # equality on the raw attribute.
+        assert entry.embedding is not None
+        assert len(list(entry.embedding)) == 384

@@ -196,12 +196,12 @@ async def _make_plan(db_session, user_id: int) -> tuple[MealPlan, int]:
 
 async def _make_entry(
     db_session, user_id: int, plan_id: int, name: str,
-    rating: int | None, embedding: list[float] | None,
+    is_favorite: bool, embedding: list[float] | None,
 ) -> MealEntry:
     entry = MealEntry(
         user_id=user_id, meal_plan_id=plan_id,
         day_index=1, meal_index=1, name=name, meal_type="dinner",
-        meal_json=SAMPLE_MEAL_JSON_MIN, rating=rating, embedding=embedding,
+        meal_json=SAMPLE_MEAL_JSON_MIN, is_favorite=is_favorite, embedding=embedding,
     )
     db_session.add(entry)
     await db_session.flush()
@@ -219,14 +219,22 @@ class TestRetrieveRatedMeals:
     """Integration tests against the real pgvector test DB."""
 
     @staticmethod
-    def _configure_settings(mock_settings: MagicMock, own: int = 5, global_: int = 15) -> None:
+    def _configure_settings(
+        mock_settings: MagicMock,
+        own: int = 5,
+        global_: int = 15,
+        cookbook_threshold: int = 100,
+        cookbook_only_fetch: int = 20,
+    ) -> None:
         mock_settings.rag_user_boost = 0.7
         mock_settings.rag_own_user_fetch = own
         mock_settings.rag_global_fetch = global_
+        mock_settings.rag_cookbook_threshold = cookbook_threshold
+        mock_settings.rag_cookbook_only_fetch = cookbook_only_fetch
 
     @patch("app.services.recipe_retriever.settings")
     @patch("app.services.recipe_retriever.get_embedding_model")
-    async def test_filters_out_low_ratings_and_missing_embeddings(
+    async def test_filters_out_non_favorites_and_missing_embeddings(
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
@@ -243,17 +251,17 @@ class TestRetrieveRatedMeals:
 
         # Rated 5, has embedding — should appear
         await _make_entry(
-            db_session, user_id, plan_id, "good", rating=5,
+            db_session, user_id, plan_id, "good", is_favorite=True,
             embedding=_unit_vec_like(query_vec, bias=0.01),
         )
-        # Rated 3 — filtered out
+        # Not favorited — filtered out
         await _make_entry(
-            db_session, user_id, plan_id, "mediocre", rating=3,
+            db_session, user_id, plan_id, "mediocre", is_favorite=False,
             embedding=_unit_vec_like(query_vec, bias=0.01),
         )
-        # Rated 5 but no embedding — filtered out
+        # Favorited but no embedding — filtered out
         await _make_entry(
-            db_session, user_id, plan_id, "not yet embedded", rating=5,
+            db_session, user_id, plan_id, "not yet embedded", is_favorite=True,
             embedding=None,
         )
 
@@ -292,11 +300,11 @@ class TestRetrieveRatedMeals:
             return [c, s] + [0.0] * 382
 
         await _make_entry(
-            db_session, me_id, my_plan_id, "mine_far", rating=5,
+            db_session, me_id, my_plan_id, "mine_far", is_favorite=True,
             embedding=vec_at_cos(0.6),
         )
         await _make_entry(
-            db_session, them_id, their_plan_id, "theirs_close", rating=5,
+            db_session, them_id, their_plan_id, "theirs_close", is_favorite=True,
             embedding=vec_at_cos(0.7),
         )
 
@@ -333,7 +341,7 @@ class TestRetrieveRatedMeals:
         # avoid float-precision ties in cosine_distance.
         for i in range(10):
             await _make_entry(
-                db_session, user_id, plan_id, f"m{i}", rating=5,
+                db_session, user_id, plan_id, f"m{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.1 * (i + 1)),
             )
 
@@ -365,14 +373,14 @@ class TestRetrieveRatedMeals:
 
         # My single meal — relatively far from the query
         await _make_entry(
-            db_session, me_id, my_plan_id, "mine_only", rating=5,
+            db_session, me_id, my_plan_id, "mine_only", is_favorite=True,
             embedding=_unit_vec_like(query_vec, bias=0.5),
         )
         # 5 much closer meals belonging to someone else — would crowd out
         # a single global top-3 without the separate own-user query.
         for i in range(5):
             await _make_entry(
-                db_session, them_id, their_plan_id, f"theirs_{i}", rating=5,
+                db_session, them_id, their_plan_id, f"theirs_{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.001 * (i + 1)),
             )
 
@@ -400,3 +408,85 @@ class TestRetrieveRatedMeals:
         _, user_id = await _make_user(db_session, "empty@example.com")
         hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
         assert hits == []
+
+    @patch("app.services.recipe_retriever.settings")
+    @patch("app.services.recipe_retriever.get_embedding_model")
+    async def test_below_threshold_uses_hybrid_with_global(
+        self,
+        mock_get_model: MagicMock,
+        mock_settings: MagicMock,
+        db_session,
+    ) -> None:
+        """User with < threshold favorites should still see other users' candidates."""
+        self._configure_settings(
+            mock_settings, own=2, global_=5, cookbook_threshold=10,
+        )
+        query_vec = [1.0] + [0.0] * 383
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
+        mock_get_model.return_value = mock_model
+
+        _, me_id = await _make_user(db_session, "me_small@example.com")
+        _, them_id = await _make_user(db_session, "them_small@example.com")
+        _, my_plan_id = await _make_plan(db_session, me_id)
+        _, their_plan_id = await _make_plan(db_session, them_id)
+
+        # I have 2 favorites — well below threshold of 10
+        for i in range(2):
+            await _make_entry(
+                db_session, me_id, my_plan_id, f"mine_{i}", is_favorite=True,
+                embedding=_unit_vec_like(query_vec, bias=0.1 * (i + 1)),
+            )
+        # 3 cross-user favorites — these MUST appear in hybrid mode
+        for i in range(3):
+            await _make_entry(
+                db_session, them_id, their_plan_id, f"theirs_{i}", is_favorite=True,
+                embedding=_unit_vec_like(query_vec, bias=0.05 * (i + 1)),
+            )
+
+        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
+        cross_user = [h for h in hits if h.user_id == them_id]
+        assert len(cross_user) > 0, "hybrid mode must surface cross-user favorites"
+
+    @patch("app.services.recipe_retriever.settings")
+    @patch("app.services.recipe_retriever.get_embedding_model")
+    async def test_at_threshold_switches_to_cookbook_only(
+        self,
+        mock_get_model: MagicMock,
+        mock_settings: MagicMock,
+        db_session,
+    ) -> None:
+        """At/above threshold: cross-user candidates are excluded entirely."""
+        self._configure_settings(
+            mock_settings, own=2, global_=5, cookbook_threshold=3, cookbook_only_fetch=10,
+        )
+        query_vec = [1.0] + [0.0] * 383
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
+        mock_get_model.return_value = mock_model
+
+        _, me_id = await _make_user(db_session, "me_big@example.com")
+        _, them_id = await _make_user(db_session, "them_big@example.com")
+        _, my_plan_id = await _make_plan(db_session, me_id)
+        _, their_plan_id = await _make_plan(db_session, them_id)
+
+        # 3 own favorites — meets the threshold of 3
+        for i in range(3):
+            await _make_entry(
+                db_session, me_id, my_plan_id, f"mine_{i}", is_favorite=True,
+                embedding=_unit_vec_like(query_vec, bias=0.1 * (i + 1)),
+            )
+        # 5 cross-user favorites — must NOT appear once we cross the threshold
+        for i in range(5):
+            await _make_entry(
+                db_session, them_id, their_plan_id, f"theirs_{i}", is_favorite=True,
+                embedding=_unit_vec_like(query_vec, bias=0.01 * (i + 1)),
+            )
+
+        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
+        cross_user = [h for h in hits if h.user_id == them_id]
+        assert cross_user == [], "cookbook-only mode must exclude cross-user favorites"
+        assert len(hits) == 3
+        # adjusted_distance == cosine_distance in cookbook-only mode (no boost)
+        for h in hits:
+            assert h.adjusted_distance == h.cosine_distance
