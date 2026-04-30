@@ -7,6 +7,7 @@ import { Fridge } from "./components/Fridge";
 import { PlanCatalog } from "./components/PlanCatalog";
 import { MealPlanner } from "./components/MealPlanner";
 import { OnboardingModal } from "./components/OnboardingModal";
+import { CookbookFab } from "./components/CookbookFab";
 import type { MealPlanResponse, MealPlanSummary } from "./types";
 
 interface OpenedPlan {
@@ -35,6 +36,7 @@ function MainLayout() {
         onExitPlan={() => setOpenedPlan(null)}
       />
       {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
+      {userId && <CookbookFab />}
     </div>
   );
 }
