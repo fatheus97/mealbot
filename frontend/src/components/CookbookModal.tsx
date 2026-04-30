@@ -94,7 +94,12 @@ export function CookbookModal({ onClose }: Props) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "min(100%, 880px)",
+          // Closed-book index is narrow (single cover); the open-book spread
+          // doubles the width so two parchment pages fit side-by-side.
+          width:
+            view === "index"
+              ? "min(95%, 440px)"
+              : "min(98%, 880px)",
           height: "min(92vh, 640px)",
           backgroundColor: "#3b2412",
           backgroundImage:
@@ -108,7 +113,8 @@ export function CookbookModal({ onClose }: Props) {
           display: "flex",
           flexDirection: "column",
           color: "#f5e9c8",
-          transition: "padding 0.25s ease",
+          transition: "width 0.3s ease, padding 0.3s ease",
+          position: "relative",
         }}
       >
         {view === "index" ? (
@@ -180,59 +186,103 @@ function CookbookIndex({
   // so debounced search results don't reflow the book.
   return (
     <>
+      {/* Close button is absolute so the title can be perfectly centered
+          on the cover regardless of header content width. */}
+      <button
+        type="button"
+        aria-label="Close cookbook"
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          top: "0.75rem",
+          right: "0.9rem",
+          background: "none",
+          border: "none",
+          fontSize: "1.3rem",
+          cursor: "pointer",
+          color: "#d4b87c",
+          opacity: 0.7,
+          zIndex: 1,
+        }}
+      >
+        ✕
+      </button>
+
       <header
         style={{
-          padding: "1.25rem 1.75rem 0.75rem",
+          padding: "2rem 1.5rem 1rem",
           borderBottom: "1px solid #6b4423",
-          display: "flex",
-          alignItems: "center",
-          gap: "1rem",
+          textAlign: "center",
         }}
       >
         <h2
           style={{
             margin: 0,
-            flex: 1,
-            fontFamily: "inherit",
-            color: "#f5e9c8",
-            letterSpacing: "0.04em",
-            textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+            // Layered title styling: a tall serif display family stack with
+            // a gold gradient clip + a subtle dark drop shadow so the
+            // letters look embossed into the leather cover.
+            fontFamily:
+              '"Cinzel", "Cormorant Garamond", "Trajan Pro", Georgia, serif',
+            fontSize: "1.85rem",
+            fontWeight: 600,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            backgroundImage:
+              "linear-gradient(180deg, #f9d77a 0%, #d4a637 50%, #8a5a1f 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            color: "transparent",
+            textShadow: "0 2px 4px rgba(0,0,0,0.5)",
+            filter: "drop-shadow(0 1px 0 rgba(0,0,0,0.6))",
           }}
         >
           Cookbook
         </h2>
-        <button
-          type="button"
-          aria-label="Close cookbook"
-          onClick={onClose}
+        {/* Decorative gold flourish under the title — two short rules with a
+            diamond between, the visual cue you'd expect on an old book cover. */}
+        <div
+          aria-hidden
           style={{
-            background: "none",
-            border: "none",
-            fontSize: "1.4rem",
-            cursor: "pointer",
-            color: "#f5e9c8",
-            opacity: 0.85,
+            marginTop: "0.5rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.5rem",
+            color: "#d4a637",
+            fontSize: "0.7rem",
           }}
         >
-          ✕
-        </button>
+          <span style={{ flex: "0 0 40px", height: "1px", backgroundColor: "#a87f2a" }} />
+          <span>◆</span>
+          <span style={{ flex: "0 0 40px", height: "1px", backgroundColor: "#a87f2a" }} />
+        </div>
       </header>
 
-      <div style={{ padding: "0.75rem 1.75rem", borderBottom: "1px solid #6b4423" }}>
+      {/* Search bar — narrow, centered, doesn't span the full cover width. */}
+      <div
+        style={{
+          padding: "0.85rem 1.5rem 0.75rem",
+          borderBottom: "1px solid #6b4423",
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
         <input
           type="text"
           value={searchInput}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search recipes…"
           style={{
-            width: "100%",
-            padding: "0.5rem 0.75rem",
+            width: "min(100%, 240px)",
+            padding: "0.4rem 0.7rem",
             borderRadius: "4px",
             border: "1px solid #6b4423",
             backgroundColor: "rgba(245,233,200,0.08)",
             color: "#f5e9c8",
             fontFamily: "inherit",
-            fontSize: "1rem",
+            fontSize: "0.95rem",
+            textAlign: "center",
           }}
         />
       </div>
@@ -356,50 +406,66 @@ interface SpreadProps {
 
 // Spread = parchment pages floated inside the dark cover. The 16px padding
 // on the parent cover container exposes the cover edge on all sides; the
-// inner area is the "open book" (two parchment pages with a center spine).
+// inner area is two parchment pages joined by a central bound spine.
+//
+// No top-spanning bar — each page has its own header (left: title +
+// "back to index"; right: actions) so the spine runs uninterrupted from
+// top to bottom and the layout reads as a true open book.
 function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadProps) {
+  const pageStyleBase = {
+    overflowY: "auto" as const,
+    padding: "1rem 1.4rem 1.25rem",
+    display: "flex",
+    flexDirection: "column" as const,
+    minHeight: 0,
+  };
+  const pageHeaderStyle = {
+    paddingBottom: "0.6rem",
+    borderBottom: "1px dotted #c8a86b",
+    marginBottom: "0.85rem",
+  };
+
   return (
     <div
       style={{
         flex: 1,
         minHeight: 0,
+        display: "grid",
+        gridTemplateColumns: "1fr 10px 1fr",
         backgroundColor: "#f5e9c8",
-        backgroundImage:
-          "radial-gradient(ellipse at top, #faf0d0 0%, #ecdfb0 100%)",
         borderRadius: "4px",
-        boxShadow:
-          "inset 0 0 0 1px #c8a86b, inset 0 6px 14px rgba(59,36,18,0.18)",
+        boxShadow: "inset 0 0 0 1px #c8a86b",
         color: "#3b2412",
-        display: "flex",
-        flexDirection: "column",
         overflow: "hidden",
       }}
     >
-      <header
+      {/* Left page */}
+      <div
         style={{
-          padding: "0.85rem 1.5rem",
-          borderBottom: "1px solid #d4b87c",
-          display: "flex",
-          alignItems: "center",
-          gap: "1rem",
+          ...pageStyleBase,
+          backgroundImage:
+            "radial-gradient(ellipse at top right, #faf0d0 0%, #ecdfb0 100%)",
+          boxShadow: "inset -10px 0 14px -10px rgba(59,36,18,0.45)",
         }}
       >
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "#3b2412",
-            fontFamily: "inherit",
-            fontSize: "0.95rem",
-          }}
-        >
-          ← Back to index
-        </button>
-        <div style={{ flex: 1, textAlign: "center" }}>
-          <h2 style={{ margin: 0, fontFamily: "inherit", fontSize: "1.3rem", color: "#3b2412" }}>
+        <div style={pageHeaderStyle}>
+          <button
+            type="button"
+            onClick={onBack}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#7a5a2e",
+              fontFamily: "inherit",
+              fontSize: "0.85rem",
+              padding: 0,
+              marginBottom: "0.5rem",
+            }}
+          >
+            ← Back to index
+          </button>
+          <h2 style={{ margin: 0, fontFamily: "inherit", fontSize: "1.35rem", color: "#3b2412" }}>
             {item.name}
           </h2>
           <div style={{ fontSize: "0.85rem", color: "#7a5a2e", marginTop: "0.15rem" }}>
@@ -407,83 +473,84 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing }: SpreadPro
             {item.total_time_minutes != null && ` · ${item.total_time_minutes} min`}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={removing}
-          title="Remove from cookbook"
-          style={{
-            background: "none",
-            border: "1px solid #c8a86b",
-            borderRadius: "4px",
-            cursor: removing ? "default" : "pointer",
-            color: "#7a5a2e",
-            padding: "0.25rem 0.6rem",
-            fontFamily: "inherit",
-            fontSize: "0.85rem",
-            opacity: removing ? 0.5 : 1,
-          }}
-        >
-          {removing ? "Removing…" : "Remove"}
-        </button>
-        <button
-          type="button"
-          aria-label="Close cookbook"
-          onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            fontSize: "1.4rem",
-            cursor: "pointer",
-            color: "#3b2412",
-          }}
-        >
-          ✕
-        </button>
-      </header>
 
-      {/* Two-page spread. The center spine is a darker gutter with an inset
-          shadow on each side so the pages look bound, not just split. */}
+        <h3 style={{ fontFamily: "inherit", marginTop: 0, marginBottom: "0.5rem", fontSize: "1rem", color: "#7a5a2e", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Ingredients
+        </h3>
+        <IngredientsList ingredients={item.ingredients} block />
+      </div>
+
+      {/* Spine — uninterrupted top-to-bottom now that there's no spanning header. */}
       <div
         style={{
-          flex: 1,
-          minHeight: 0,
-          display: "grid",
-          gridTemplateColumns: "1fr 8px 1fr",
-          overflow: "hidden",
+          background:
+            "linear-gradient(90deg, #a8804a 0%, #6b4423 50%, #a8804a 100%)",
+          boxShadow: "inset 0 0 4px rgba(0,0,0,0.5)",
+        }}
+      />
+
+      {/* Right page */}
+      <div
+        style={{
+          ...pageStyleBase,
+          backgroundImage:
+            "radial-gradient(ellipse at top left, #faf0d0 0%, #ecdfb0 100%)",
+          boxShadow: "inset 10px 0 14px -10px rgba(59,36,18,0.45)",
         }}
       >
         <div
           style={{
-            overflowY: "auto",
-            padding: "1.25rem 1.5rem",
-            boxShadow: "inset -8px 0 12px -8px rgba(59,36,18,0.35)",
+            ...pageHeaderStyle,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "0.5rem",
+            // Match the left page header's vertical footprint so the dotted
+            // rules align across the spine and the pages look like spreads
+            // of the same book.
+            minHeight: "calc(0.85rem + 1.35rem * 1.2 + 0.85rem + 0.5rem)",
           }}
         >
-          <h3 style={{ fontFamily: "inherit", marginTop: 0, fontSize: "1.05rem" }}>
-            Ingredients
-          </h3>
-          <IngredientsList ingredients={item.ingredients} block />
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={removing}
+            title="Remove from cookbook"
+            style={{
+              background: "none",
+              border: "1px solid #c8a86b",
+              borderRadius: "4px",
+              cursor: removing ? "default" : "pointer",
+              color: "#7a5a2e",
+              padding: "0.3rem 0.7rem",
+              fontFamily: "inherit",
+              fontSize: "0.85rem",
+              opacity: removing ? 0.5 : 1,
+            }}
+          >
+            {removing ? "Removing…" : "Remove"}
+          </button>
+          <button
+            type="button"
+            aria-label="Close cookbook"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "1.3rem",
+              cursor: "pointer",
+              color: "#7a5a2e",
+              padding: "0 0.25rem",
+            }}
+          >
+            ✕
+          </button>
         </div>
-        <div
-          style={{
-            background:
-              "linear-gradient(90deg, #a8804a 0%, #6b4423 50%, #a8804a 100%)",
-            boxShadow: "inset 0 0 4px rgba(0,0,0,0.5)",
-          }}
-        />
-        <div
-          style={{
-            overflowY: "auto",
-            padding: "1.25rem 1.5rem",
-            boxShadow: "inset 8px 0 12px -8px rgba(59,36,18,0.35)",
-          }}
-        >
-          <h3 style={{ fontFamily: "inherit", marginTop: 0, fontSize: "1.05rem" }}>
-            Steps
-          </h3>
-          <RecipeSteps steps={item.steps} />
-        </div>
+
+        <h3 style={{ fontFamily: "inherit", marginTop: 0, marginBottom: "0.5rem", fontSize: "1rem", color: "#7a5a2e", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Steps
+        </h3>
+        <RecipeSteps steps={item.steps} />
       </div>
     </div>
   );
