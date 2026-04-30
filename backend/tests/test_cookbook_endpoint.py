@@ -17,12 +17,13 @@ SAMPLE_MEAL_JSON = (
 
 async def _seed_favorite(
     db_session: AsyncSession,
-    user_id: int,
+    user_id: int | None,
     name: str = "Chicken Curry",
     meal_type: str = "main_course",
     is_favorite: bool = True,
 ) -> int:
     """Create a confirmed plan + favorited MealEntry. Returns meal_entry_id."""
+    assert user_id is not None
     plan = MealPlan(
         user_id=user_id,
         days=1,
@@ -34,10 +35,11 @@ async def _seed_favorite(
     )
     db_session.add(plan)
     await db_session.flush()
+    assert plan.id is not None
 
     entry = MealEntry(
         user_id=user_id,
-        meal_plan_id=plan.id,  # type: ignore[arg-type]
+        meal_plan_id=plan.id,
         day_index=1,
         meal_index=1,
         name=name,
@@ -177,6 +179,7 @@ class TestCookbookDelete:
         entry_id = await _seed_favorite(db_session, test_user.id, "Goodbye")
         # seed an embedding so we can verify it gets cleared
         entry = await db_session.get(MealEntry, entry_id)
+        assert entry is not None
         entry.embedding = [0.1] * 384
         db_session.add(entry)
         await db_session.flush()
