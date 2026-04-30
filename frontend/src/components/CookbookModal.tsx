@@ -123,6 +123,14 @@ export function CookbookModal({ onClose }: Props) {
           spread view exposes a parchment "page" inset inside this cover so
           the cover edges are visible around the pages, like opening a real
           (or Minecraft) book. */}
+      {/* Hide native WebKit scrollbars on every .cookbook-scroll-hide
+          descendant. Lives on the modal root (not inside CookbookIndex) so
+          the rule stays mounted during index→spread switches; otherwise
+          scrollbars would flash on the spread's parchment pages every time
+          they're opened on Chrome/Safari. */}
+      <style>{`
+        .cookbook-scroll-hide::-webkit-scrollbar { display: none; }
+      `}</style>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -299,7 +307,10 @@ function CookbookIndex({
             backgroundClip: "text",
             WebkitTextFillColor: "transparent",
             color: "transparent",
-            textShadow: "0 2px 4px rgba(0,0,0,0.5)",
+            // text-shadow has no effect when -webkit-text-fill-color is
+            // transparent (no fill to project from); the visible shadow
+            // is the filter: drop-shadow below, which works on the
+            // composited gold-clipped glyphs.
             filter: "drop-shadow(0 1px 0 rgba(0,0,0,0.6))",
           }}
         >
@@ -355,11 +366,8 @@ function CookbookIndex({
 
       {/* Scroll lives on the inner list; the outer book frame keeps its
           fixed height so a 0-result search doesn't shrink the cover.
-          Native scrollbar hidden (off-design on a leather cover); a
-          bottom fade-out cues that there's more content to scroll to. */}
-      <style>{`
-        .cookbook-scroll-hide::-webkit-scrollbar { display: none; }
-      `}</style>
+          Native scrollbar hidden via the .cookbook-scroll-hide rule on the
+          modal root; a bottom fade-out cues that there's more content. */}
       <div
         style={{
           flex: 1,
@@ -566,42 +574,47 @@ function useFitFontSize(
   maxPx: number,
   minPx: number,
   depKey: unknown,
-): number {
-  const [fontPx, setFontPx] = useState(maxPx);
-
+): void {
+  // Pure DOM mutation — no state, no re-renders. The previous version
+  // tracked fontPx in useState and called setFontPx() on every shrink
+  // step, but no caller ever consumed the return value, so each step
+  // queued a wasted React render. Mutating element.style directly is
+  // both cheaper and avoids that feedback loop.
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    // Start fresh each time content changes — otherwise a previous shrink
-    // would persist and we'd never grow back for a shorter recipe.
-    let size = maxPx;
-    setFontPx(size);
-
-    // Two-pass measurement: applying the new font size mutates layout, so
-    // we use rAF to read scrollHeight after the browser paints.
+    // Wait for the cover-widening transition (300ms + 20ms hold) before
+    // measuring. Without the delay, the first rAF runs while the cover
+    // is still ~440px wide mid-animation, so the shrink loop pessimises
+    // fonts that would have fit fine at the final 880px width.
     let raf = 0;
-    const step = () => {
+    let size = maxPx;
+    const start = () => {
       const node = containerRef.current;
       if (!node) return;
-      // 1px tolerance — sub-pixel rounding can otherwise spin a useless
-      // shrink/grow cycle.
-      if (node.scrollHeight - node.clientHeight > 1 && size > minPx) {
-        size -= 1;
-        node.style.fontSize = `${size}px`;
-        raf = requestAnimationFrame(step);
-      } else {
-        setFontPx(size);
-      }
+      node.style.fontSize = `${size}px`;
+      const step = () => {
+        const n = containerRef.current;
+        if (!n) return;
+        // 1px tolerance — sub-pixel rounding can otherwise spin a
+        // useless shrink/grow cycle.
+        if (n.scrollHeight - n.clientHeight > 1 && size > minPx) {
+          size -= 1;
+          n.style.fontSize = `${size}px`;
+          raf = requestAnimationFrame(step);
+        }
+      };
+      raf = requestAnimationFrame(step);
     };
-    el.style.fontSize = `${size}px`;
-    raf = requestAnimationFrame(step);
+    const timer = setTimeout(start, 320);
 
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(raf);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depKey, maxPx, minPx]);
-
-  return fontPx;
 }
 
 
@@ -633,6 +646,11 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
   const inkStyle = {
     opacity: textRevealed ? 1 : 0,
     transition: "opacity 0.25s ease-out",
+    // While the inks are invisible, prevent click + focus on the
+    // controls underneath them. Otherwise ← Back / ✕ Close / Remove
+    // would be keyboard-focusable and clickable in a 0-opacity state
+    // — WCAG 2.4.3 (focus order on visible controls only).
+    pointerEvents: textRevealed ? ("auto" as const) : ("none" as const),
   };
 
   // Per-page auto-fit. Ingredients and steps shrink independently so a

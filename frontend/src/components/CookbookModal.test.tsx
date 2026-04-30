@@ -107,7 +107,20 @@ describe("CookbookModal", () => {
     await user.click(screen.getByText("Chicken Curry"));
     await waitFor(() => screen.getByText("Ingredients"));
 
-    await user.click(screen.getByText(/Back to index/));
+    // The two-stage open animation gates ink controls behind
+    // pointer-events: none until ~320ms post-mount; wait for the Back
+    // button to become interactive before clicking.
+    const backButton = screen.getByText(/Back to index/);
+    await waitFor(
+      () => {
+        if (getComputedStyle(backButton).pointerEvents === "none") {
+          throw new Error("Back button still gated");
+        }
+      },
+      { timeout: 1000 },
+    );
+
+    await user.click(backButton);
     // Search bar (only present on the index) returns
     expect(screen.getByPlaceholderText(/Search recipes/)).toBeInTheDocument();
   });
