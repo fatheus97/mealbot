@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import { useCookbook, useRemoveFromCookbook } from "../hooks/useServerState";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
@@ -65,12 +65,13 @@ export function CookbookModal({ onClose }: Props) {
     setTextRevealed(false);
   };
 
-  // Stage 2 of the spread reveal: schedule the text fade-in just after the
-  // cover-width transition (300ms) settles. Cleared on view change so a
-  // back-and-forth doesn't queue stray reveals.
+  // Stage 2 of the spread reveal: kick off the text fade slightly BEFORE
+  // the cover-width transition fully settles, so the two stages overlap
+  // and the whole open feels continuous instead of "open … pause … reveal".
+  // Cleared on view change so a back-and-forth doesn't queue stray reveals.
   useEffect(() => {
     if (view !== "spread") return;
-    const id = setTimeout(() => setTextRevealed(true), 320);
+    const id = setTimeout(() => setTextRevealed(true), 180);
     return () => clearTimeout(id);
   }, [view, selected]);
 
@@ -432,7 +433,9 @@ function CookbookIndex({
         </div>
         {/* Bottom fade-out signals scrollability without showing a scrollbar
             that would clash with the leather cover. Pointer-events:none so
-            it doesn't intercept clicks on the last list item. */}
+            it doesn't intercept clicks on the last list item. Two-stop
+            gradient + extra height so the fade reads clearly against the
+            cream-on-leather contrast, not just at the very bottom edge. */}
         <div
           aria-hidden
           style={{
@@ -440,15 +443,69 @@ function CookbookIndex({
             left: 0,
             right: 0,
             bottom: 0,
-            height: "32px",
+            height: "56px",
             pointerEvents: "none",
             background:
-              "linear-gradient(180deg, rgba(45,26,10,0) 0%, rgba(45,26,10,0.85) 100%)",
+              "linear-gradient(180deg, rgba(45,26,10,0) 0%, rgba(45,26,10,0.65) 45%, rgba(45,26,10,1) 100%)",
           }}
         />
       </div>
     </>
   );
+}
+
+
+// Shrink the body font on a scroll container until it fits, before falling
+// back to scrolling. The recipe pages have a fixed height (the book frame
+// is fixed-size by design), so a long ingredients list or step list would
+// otherwise force a scrollbar — which we hide for design reasons. Stepping
+// the font down 1px at a time gives us "lower font size when it doesn't
+// fit" without ever leaving content invisible.
+//
+// Floors at 12px so unusually long content still scrolls rather than
+// becoming illegible. depKey changes whenever the content changes; we
+// re-run the fit pass on each new recipe.
+function useFitFontSize(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  maxPx: number,
+  minPx: number,
+  depKey: unknown,
+): number {
+  const [fontPx, setFontPx] = useState(maxPx);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Start fresh each time content changes — otherwise a previous shrink
+    // would persist and we'd never grow back for a shorter recipe.
+    let size = maxPx;
+    setFontPx(size);
+
+    // Two-pass measurement: applying the new font size mutates layout, so
+    // we use rAF to read scrollHeight after the browser paints.
+    let raf = 0;
+    const step = () => {
+      const node = containerRef.current;
+      if (!node) return;
+      // 1px tolerance — sub-pixel rounding can otherwise spin a useless
+      // shrink/grow cycle.
+      if (node.scrollHeight - node.clientHeight > 1 && size > minPx) {
+        size -= 1;
+        node.style.fontSize = `${size}px`;
+        raf = requestAnimationFrame(step);
+      } else {
+        setFontPx(size);
+      }
+    };
+    el.style.fontSize = `${size}px`;
+    raf = requestAnimationFrame(step);
+
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depKey, maxPx, minPx]);
+
+  return fontPx;
 }
 
 
@@ -479,8 +536,16 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
   // on a magic page, not a layout pop.
   const inkStyle = {
     opacity: textRevealed ? 1 : 0,
-    transition: "opacity 0.45s ease-in",
+    transition: "opacity 0.25s ease-out",
   };
+
+  // Per-page auto-fit. Ingredients and steps shrink independently so a
+  // long ingredients list doesn't shrink steps along with it. depKey is the
+  // recipe id so a new selection re-runs the fit pass.
+  const ingredientsRef = useRef<HTMLDivElement | null>(null);
+  const stepsRef = useRef<HTMLDivElement | null>(null);
+  useFitFontSize(ingredientsRef, 16, 12, item.meal_entry_id);
+  useFitFontSize(stepsRef, 16, 12, item.meal_entry_id);
   const pageStyleBase = {
     padding: "1rem 1.4rem 1.25rem",
     display: "flex",
@@ -566,7 +631,11 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
         <h3 style={{ ...sectionHeading, marginBottom: "0.5rem", ...inkStyle }}>
           Ingredients
         </h3>
-        <div className="cookbook-scroll-hide" style={{ ...pageScrollStyle, ...inkStyle }}>
+        <div
+          ref={ingredientsRef}
+          className="cookbook-scroll-hide"
+          style={{ ...pageScrollStyle, ...inkStyle }}
+        >
           <IngredientsList ingredients={item.ingredients} block />
         </div>
       </div>
@@ -619,7 +688,11 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
           </h3>
         </div>
 
-        <div className="cookbook-scroll-hide" style={{ ...pageScrollStyle, ...inkStyle }}>
+        <div
+          ref={stepsRef}
+          className="cookbook-scroll-hide"
+          style={{ ...pageScrollStyle, ...inkStyle }}
+        >
           <RecipeSteps steps={item.steps} />
         </div>
 
