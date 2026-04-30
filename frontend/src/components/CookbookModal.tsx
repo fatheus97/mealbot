@@ -46,6 +46,20 @@ export function CookbookModal({ onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [view, onClose]);
 
+  // Lock body scroll while the cookbook is open. Without this, hitting the
+  // top/bottom of the cookbook list lets the wheel event bubble up to the
+  // page underneath (meal planner), which then scrolls — and once the
+  // cookbook is no longer at its boundary, every subsequent wheel tick
+  // alternates between scrolling the page and the cookbook. Restoring the
+  // previous overflow on unmount keeps interplay with other modals safe.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
   const { data, isLoading, isError } = useCookbook({
     q: debouncedQuery || undefined,
   });
@@ -358,6 +372,10 @@ function CookbookIndex({
             height: "100%",
             scrollbarWidth: "none" as const,
             msOverflowStyle: "none" as const,
+            // Belt-and-braces alongside the body-scroll lock: even if some
+            // future change removes the lock, `contain` stops scroll-chaining
+            // from this container into ancestors when we hit the boundary.
+            overscrollBehavior: "contain" as const,
           }}
         >
         {isLoading && <p style={{ opacity: 0.8 }}>Loading…</p>}
@@ -606,6 +624,9 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
     minHeight: 0,
     scrollbarWidth: "none" as const,
     msOverflowStyle: "none" as const,
+    // Same scroll-chaining guard as the index list — boundary wheel events
+    // must not propagate out of the modal to the page underneath.
+    overscrollBehavior: "contain" as const,
   };
   const pageHeaderStyle = {
     // Reserve the same vertical block on both pages so the recipe name and
