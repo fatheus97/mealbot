@@ -1,7 +1,9 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useRateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
-import { StarRating } from "./StarRating";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useFridge, useUserProfile } from "../hooks/useServerState";
+import { FavoriteStar } from "./FavoriteStar";
+import { IngredientsList } from "./recipe/IngredientsList";
+import { RecipeSteps } from "./recipe/RecipeSteps";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
 import { CookNowForm } from "./CookNowForm";
@@ -44,7 +46,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   const uncookMutation = useUncookMeal();
   const finishMutation = useFinishPlan();
   const reopenMutation = useReopenPlan();
-  const rateMutation = useRateMeal();
+  const favoriteMutation = useFavoriteMeal();
 
   // Derive initial state directly from the initialPlan prop. The parent
   // (App.tsx) remounts this component via `key={openedPlan?.plan.plan_id}`
@@ -264,11 +266,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     ) ?? null;
   };
 
-  const handleRate = (dayIdx: number, mealIdx: number, rating: number) => {
+  const handleFavoriteToggle = (dayIdx: number, mealIdx: number, next: boolean) => {
     if (!planId) return;
     const entry = findEntry(dayIdx, mealIdx);
     if (!entry) return;
-    rateMutation.mutate({ planId, mealEntryId: entry.id, rating });
+    favoriteMutation.mutate({ planId, mealEntryId: entry.id, isFavorite: next });
   };
 
   const handleCookToggle = (dayIdx: number, mealIdx: number) => {
@@ -635,34 +637,23 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            · {meal.total_time_minutes} min
                          </span>
                        )}
-                       {(isConfirmed || isFinished) && entry && (
-                         <StarRating
-                           rating={entry.rating}
-                           onRate={(r) => handleRate(idx, mealIdx, r)}
-                           disabled={isFinished}
+                       {entry && (
+                         <FavoriteStar
+                           isFavorite={entry.is_favorite}
+                           onToggle={(next) => handleFavoriteToggle(idx, mealIdx, next)}
+                           disabled={favoriteMutation.isPending}
                          />
                        )}
                      </div>
 
                      <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
                        <em>Ingredients:</em>{" "}
-                       {[...(meal.ingredients ?? [])]
-                         .sort((a, b) => (a.is_spice ? 1 : 0) - (b.is_spice ? 1 : 0))
-                         .map((ing, i, arr) => (
-                           <span key={i}>
-                             {ing.is_spice
-                               ? <span style={{ fontStyle: "italic" }}>{ing.name}</span>
-                               : <span>{ing.name} ({ing.quantity_grams}g)</span>}
-                             {i < arr.length - 1 ? ", " : ""}
-                           </span>
-                         ))}
+                       <IngredientsList ingredients={meal.ingredients ?? []} />
                      </div>
 
-                     <ol style={{ marginTop: "0.25rem", fontSize: "0.9em", paddingLeft: "1.2rem" }}>
-                       {meal.steps?.map((step, stepIdx) => (
-                         <li key={stepIdx} style={{ marginBottom: "0.25rem" }}>{step}</li>
-                       ))}
-                     </ol>
+                     <div style={{ fontSize: "0.9em" }}>
+                       <RecipeSteps steps={meal.steps ?? []} />
+                     </div>
                    </div>
                  );
                })}

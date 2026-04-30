@@ -97,7 +97,34 @@ export interface MealEntrySummary {
   name: string;
   meal_type: string;
   cooked_at: string | null;
-  rating: number | null;
+  is_favorite: boolean;
+}
+
+export interface CookbookItem {
+  meal_entry_id: number;
+  name: string;
+  meal_type: string;
+  meal_type_label: string;
+  total_time_minutes: number | null;
+  ingredients: IngredientAmount[];
+  steps: string[];
+  created_at: string;
+  cooked_at: string | null;
+}
+
+export interface CookbookListResponse {
+  total: number;
+  items: CookbookItem[];
+}
+
+export interface CookbookCountResponse {
+  count: number;
+}
+
+export interface FavoriteRecipeRequest {
+  meal_type: MealType;
+  people_count: number;
+  recipe: PlannedMeal;
 }
 
 // Phase 4: Cook Now request/response

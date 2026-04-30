@@ -600,7 +600,7 @@ describe('MealPlanner', () => {
     };
     const cookedEntry = {
       id: 1, day_index: 1, meal_index: 1, name: 'Eggs',
-      meal_type: 'breakfast', cooked_at: new Date().toISOString(), rating: null,
+      meal_type: 'breakfast', cooked_at: new Date().toISOString(), is_favorite: false,
     };
 
     mockedAuthFetch.mockImplementation((url: string) => {

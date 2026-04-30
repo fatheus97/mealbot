@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useFridge, useGenerateRecipe, useCookRecipe } from "../hooks/useServerState";
+import {
+  useFridge,
+  useGenerateRecipe,
+  useCookRecipe,
+  useFavoriteRecipe,
+  useRemoveFromCookbook,
+} from "../hooks/useServerState";
 import { IngredientChipInput } from "./IngredientChipInput";
+import { FavoriteStar } from "./FavoriteStar";
+import { IngredientsList } from "./recipe/IngredientsList";
+import { RecipeSteps } from "./recipe/RecipeSteps";
 import {
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
@@ -23,6 +32,8 @@ export function CookNowForm() {
   const { data: fridgeItems } = useFridge(userId);
   const generateMutation = useGenerateRecipe();
   const cookMutation = useCookRecipe();
+  const favoriteRecipeMutation = useFavoriteRecipe();
+  const removeFromCookbookMutation = useRemoveFromCookbook();
 
   const fridgeSuggestions = useMemo(
     () => (Array.isArray(fridgeItems) ? fridgeItems.map((i) => i.name) : []),
@@ -44,6 +55,10 @@ export function CookNowForm() {
   // a recipe is on screen keeps the old pendingRequest until a new generate.
   const [pendingRequest, setPendingRequest] = useState<SingleRecipeRequest | null>(null);
   const [cookedEntry, setCookedEntry] = useState<{ id: number; name: string } | null>(null);
+  // Once the user stars a generated recipe, the server returns a meal_entry_id
+  // and we treat the recipe as "saved." Subsequent star toggles route through
+  // the plan-side /favorite endpoint by id rather than re-creating a row.
+  const [savedEntry, setSavedEntry] = useState<{ id: number; isFavorite: boolean } | null>(null);
 
   if (!userId) return null;
 
@@ -65,6 +80,7 @@ export function CookNowForm() {
     const req = buildRequest();
     setRecipe(null);
     setCookedEntry(null);
+    setSavedEntry(null);
     setPendingRequest(req);
     generateMutation.mutate(req, {
       onSuccess: (data) => setRecipe(data.recipe),
@@ -75,9 +91,43 @@ export function CookNowForm() {
     if (!recipe || !pendingRequest) return;
     const payload: CookRecipeRequest = { ...pendingRequest, recipe };
     cookMutation.mutate(payload, {
-      onSuccess: (entry) => setCookedEntry({ id: entry.id, name: entry.name }),
+      onSuccess: (entry) => {
+        setCookedEntry({ id: entry.id, name: entry.name });
+        // Cooking creates its own MealEntry (kind="cook_now"). If the user
+        // already starred (and we have a savedEntry), the cooked row is a
+        // separate entry — the saved one keeps its own state.
+        if (!savedEntry) {
+          setSavedEntry({ id: entry.id, isFavorite: entry.is_favorite });
+        }
+      },
     });
   };
+
+  // Cookbook toggle on the in-memory Cook Now recipe.
+  //
+  //  * First star → POST /recipe/favorite creates the MealEntry, returns id.
+  //  * Un-star    → DELETE /cookbook/{id} clears the bit + embedding.
+  //  * Re-star    → POST /recipe/favorite again, which is a fresh insert.
+  //                 We accept that "star → unstar → star" produces a new
+  //                 row rather than reviving the old one; the cookbook
+  //                 listing dedupes nothing, but the user paid for both
+  //                 stars deliberately so it's their cookbook.
+  const handleFavoriteToggle = (next: boolean) => {
+    if (!recipe) return;
+    if (next) {
+      favoriteRecipeMutation.mutate(
+        { meal_type: mealType, people_count: peopleCount, recipe },
+        { onSuccess: (entry) => setSavedEntry({ id: entry.id, isFavorite: true }) },
+      );
+    } else if (savedEntry) {
+      removeFromCookbookMutation.mutate(savedEntry.id, {
+        onSuccess: () => setSavedEntry({ id: savedEntry.id, isFavorite: false }),
+      });
+    }
+  };
+
+  const isFavorited = savedEntry?.isFavorite ?? false;
+  const favoritePending = favoriteRecipeMutation.isPending || removeFromCookbookMutation.isPending;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -218,16 +268,25 @@ export function CookNowForm() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}>
-            <div>
-              <strong style={{ textTransform: "uppercase", color: "#6b7280", fontSize: "0.85rem" }}>
-                {mealTypeLabel(recipe.meal_type, recipe.meal_type_label)}
-              </strong>
-              <h3 style={{ margin: "0.25rem 0 0.5rem 0" }}>{recipe.name}</h3>
-              {recipe.total_time_minutes != null && (
-                <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>
-                  {recipe.total_time_minutes} min
-                </span>
-              )}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", flex: 1 }}>
+              <div style={{ paddingTop: "1.4rem" }}>
+                <FavoriteStar
+                  isFavorite={isFavorited}
+                  onToggle={handleFavoriteToggle}
+                  disabled={favoritePending}
+                />
+              </div>
+              <div>
+                <strong style={{ textTransform: "uppercase", color: "#6b7280", fontSize: "0.85rem" }}>
+                  {mealTypeLabel(recipe.meal_type, recipe.meal_type_label)}
+                </strong>
+                <h3 style={{ margin: "0.25rem 0 0.5rem 0" }}>{recipe.name}</h3>
+                {recipe.total_time_minutes != null && (
+                  <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>
+                    {recipe.total_time_minutes} min
+                  </span>
+                )}
+              </div>
             </div>
             {cookedEntry ? (
               <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Cooked</span>
@@ -252,23 +311,10 @@ export function CookNowForm() {
 
           <div style={{ marginTop: "0.75rem" }}>
             <em>Ingredients:</em>{" "}
-            {[...recipe.ingredients]
-              .sort((a, b) => (a.is_spice ? 1 : 0) - (b.is_spice ? 1 : 0))
-              .map((ing, i, arr) => (
-                <span key={i}>
-                  {ing.is_spice
-                    ? <span style={{ fontStyle: "italic" }}>{ing.name}</span>
-                    : <span>{ing.name} ({Math.round(ing.quantity_grams)}g)</span>}
-                  {i < arr.length - 1 ? ", " : ""}
-                </span>
-              ))}
+            <IngredientsList ingredients={recipe.ingredients} />
           </div>
 
-          <ol style={{ marginTop: "0.5rem", paddingLeft: "1.25rem" }}>
-            {recipe.steps.map((step, i) => (
-              <li key={i} style={{ marginBottom: "0.25rem" }}>{step}</li>
-            ))}
-          </ol>
+          <RecipeSteps steps={recipe.steps} />
 
           {cookMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>

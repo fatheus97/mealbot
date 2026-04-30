@@ -1,6 +1,7 @@
 // frontend/src/api.ts
 import type {
   CookRecipeRequest,
+  FavoriteRecipeRequest,
   MealEntrySummary,
   MealPlanResponse,
   SingleRecipeRequest,
@@ -108,6 +109,20 @@ export async function cookRecipe(
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Recipe cook failed: ${res.status} - ${txt}`);
+  }
+  return res.json();
+}
+
+export async function favoriteRecipe(
+  payload: FavoriteRecipeRequest,
+): Promise<MealEntrySummary> {
+  const res = await authFetch("/recipe/favorite", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Recipe favorite failed: ${res.status} - ${txt}`);
   }
   return res.json();
 }

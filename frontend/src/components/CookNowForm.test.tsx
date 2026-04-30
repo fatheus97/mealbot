@@ -98,7 +98,7 @@ describe('CookNowForm', () => {
       name: 'Quick Soup',
       meal_type: 'soup',
       cooked_at: '2026-04-23T10:00:00Z',
-      rating: null,
+      is_favorite: false,
     });
 
     render(<CookNowForm />, { wrapper: createWrapper() });

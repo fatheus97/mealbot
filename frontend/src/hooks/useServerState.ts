@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, RegeneratePlanRequest, UserProfile, FinishPlanResponse, SingleRecipeRequest, CookRecipeRequest } from '../types';
-import { authFetch, cookRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, scanReceipt, updateUserProfile } from '../api';
+import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, RegeneratePlanRequest, UserProfile, FinishPlanResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
+import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, scanReceipt, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -191,21 +191,98 @@ export function useUncookMeal() {
   });
 }
 
-export function useRateMeal() {
+// Toggle cookbook membership for an existing plan meal entry. Server flips
+// the embedding to match (added on True, cleared on False). The cookbook
+// list/count caches are invalidated so the FAB badge and modal stay live.
+export function useFavoriteMeal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ planId, mealEntryId, rating }: { planId: number; mealEntryId: number; rating: number }): Promise<MealEntrySummary> => {
-      const res = await authFetch(`/plan/${planId}/meals/${mealEntryId}/rate`, {
+    mutationFn: async ({ planId, mealEntryId, isFavorite }: { planId: number; mealEntryId: number; isFavorite: boolean }): Promise<MealEntrySummary> => {
+      const res = await authFetch(`/plan/${planId}/meals/${mealEntryId}/favorite`, {
         method: "POST",
-        body: JSON.stringify({ rating }),
+        body: JSON.stringify({ is_favorite: isFavorite }),
       });
-      if (!res.ok) throw new Error(`Rate meal failed: ${res.status}`);
+      if (!res.ok) throw new Error(`Favorite toggle failed: ${res.status}`);
       return res.json();
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['mealEntries', variables.planId] });
+      queryClient.invalidateQueries({ queryKey: ['cookbook'] });
+      queryClient.invalidateQueries({ queryKey: ['cookbookCount'] });
+    },
+  });
+}
+
+// Star a Cook Now recipe straight into the cookbook (creates the MealEntry).
+// Used when the user clicks ★ on a freshly generated recipe before any cook
+// action — server creates a kind="cook_now" plan and a MealEntry with
+// is_favorite=True and cooked_at=NULL.
+export function useFavoriteRecipe() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: FavoriteRecipeRequest) => favoriteRecipe(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cookbook'] });
+      queryClient.invalidateQueries({ queryKey: ['cookbookCount'] });
+    },
+  });
+}
+
+interface UseCookbookParams {
+  q?: string;
+  mealType?: string;
+  limit?: number;
+  offset?: number;
+  enabled?: boolean;
+}
+
+export function useCookbook({ q, mealType, limit = 50, offset = 0, enabled = true }: UseCookbookParams = {}) {
+  return useQuery({
+    queryKey: ['cookbook', { q, mealType, limit, offset }],
+    queryFn: async (): Promise<CookbookListResponse> => {
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      if (mealType) params.set('meal_type', mealType);
+      params.set('limit', String(limit));
+      params.set('offset', String(offset));
+      const res = await authFetch(`/cookbook?${params.toString()}`);
+      if (!res.ok) throw new Error(`Cookbook fetch failed: ${res.status}`);
+      return res.json();
+    },
+    enabled,
+  });
+}
+
+export function useCookbookCount(userId: number | null) {
+  return useQuery({
+    queryKey: ['cookbookCount', userId],
+    queryFn: async (): Promise<CookbookCountResponse> => {
+      const res = await authFetch('/cookbook/count');
+      if (!res.ok) throw new Error(`Cookbook count failed: ${res.status}`);
+      return res.json();
+    },
+    enabled: userId !== null,
+    staleTime: 30_000,
+  });
+}
+
+export function useRemoveFromCookbook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (mealEntryId: number): Promise<CookbookCountResponse> => {
+      const res = await authFetch(`/cookbook/${mealEntryId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Remove from cookbook failed: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cookbook'] });
+      queryClient.invalidateQueries({ queryKey: ['cookbookCount'] });
+      // The plan-side meals query holds is_favorite, so the star next to a
+      // meal in the plan view re-syncs to false after a delete from the
+      // cookbook modal.
+      queryClient.invalidateQueries({ queryKey: ['mealEntries'] });
     },
   });
 }
