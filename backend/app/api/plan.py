@@ -137,10 +137,36 @@ async def delete_plan(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
-    """Delete a plan and its associated meal entries."""
+    """Delete a plan and its associated meal entries.
+
+    Refuses (409) if any meal entry on the plan is in the user's cookbook.
+    Cookbook membership outlives the plan it was first cooked in, so silently
+    cascading the delete would destroy data the user explicitly chose to keep.
+    The user must un-favorite (or just leave the plan around) — the path is
+    deliberate to avoid surprising data loss now that the cookbook is a
+    visible UI surface.
+    """
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Plan not found")
+
+    favorite_count = (
+        await session.execute(
+            select(func.count()).where(
+                MealEntry.meal_plan_id == plan_id,
+                MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
+            )
+        )
+    ).scalar() or 0
+    if favorite_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This plan contains {favorite_count} cookbook recipe"
+                f"{'s' if favorite_count != 1 else ''}. "
+                "Un-favorite them before deleting the plan."
+            ),
+        )
 
     # Delete meal entries first (no cascade in SQLModel by default)
     await session.execute(

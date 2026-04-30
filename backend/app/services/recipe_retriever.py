@@ -161,8 +161,15 @@ async def retrieve_rated_meals(
 
 
 def cast_id(entry: MealEntry) -> int:
-    """Narrow MealEntry.id (Optional[int] in SQLModel) to int for selected rows."""
-    assert entry.id is not None
+    """Narrow MealEntry.id (Optional[int] in SQLModel) to int for selected rows.
+
+    `assert` would be a no-op under `python -O`, so use an explicit raise.
+    Hot path on RAG retrieval — every selected MealEntry already has an id,
+    so this should never fire in practice; if it does, surfacing a clear
+    error beats a silent None propagating into a TypeError downstream.
+    """
+    if entry.id is None:
+        raise ValueError("MealEntry.id is None — row not flushed?")
     return entry.id
 
 

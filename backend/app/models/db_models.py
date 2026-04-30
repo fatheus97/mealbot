@@ -122,9 +122,14 @@ class MealEntry(SQLModel, table=True):
     # Cookbook membership: starring a meal sets this True and triggers embedding
     # generation; un-starring clears both. Replaces the legacy 1–5 rating column —
     # we lost the granularity intentionally to keep the cookbook UX a single bit.
+    #
+    # No standalone index here — the composite (user_id, is_favorite) index
+    # created in migration o5p6q7r8s9t0 covers every hot path (cookbook list,
+    # count, RAG threshold check). Keeping index=True would make Alembic
+    # autogenerate add a redundant single-column index next time it runs.
     is_favorite: bool = Field(
         default=False,
-        sa_column=Column(Boolean, nullable=False, server_default="false", index=True),
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
     # Keep details as JSON for now (ingredients, steps, etc.)
     meal_json: str = Field(

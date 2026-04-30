@@ -95,13 +95,21 @@ async def list_cookbook(
     result = await session.execute(list_stmt)
     entries = result.scalars().all()
 
+    # Track skipped (corrupt) entries so the reported total reflects what the
+    # client can actually paginate. Without this, a single bad meal_json row
+    # would leave `total > sum(items)` across pages and the client's
+    # "hasNextPage = offset + items.length < total" check would loop forever
+    # requesting pages that come back partially empty.
     items: list[CookbookItem] = []
+    skipped = 0
     for entry in entries:
         item = _to_cookbook_item(entry)
         if item is not None:
             items.append(item)
+        else:
+            skipped += 1
 
-    return CookbookListResponse(total=total, items=items)
+    return CookbookListResponse(total=max(0, total - skipped), items=items)
 
 
 @router.get("/count", response_model=CookbookCountResponse)

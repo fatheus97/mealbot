@@ -6,8 +6,8 @@ Distinct from /api/plan because the use case is genuinely different:
   - Save + fridge-debit on cook (reuses the /plan/{id}/confirm machinery).
 
 Internally a cook-now recipe becomes a 1-day, 1-meal MealPlan with
-kind="cook_now" so existing infra (MealEntry, rating, RAG embedding on rate)
-works for free.
+kind="cook_now" so existing infra (MealEntry, is_favorite, RAG embedding
+on favorite) works for free.
 """
 from __future__ import annotations
 

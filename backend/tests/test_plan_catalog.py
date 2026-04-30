@@ -293,6 +293,59 @@ class TestDeletePlan:
         )
         assert resp.status_code == 404
 
+    async def test_delete_plan_with_favorites_returns_409(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session,
+        test_user,
+    ):
+        """Cookbook membership outlives the plan; delete must refuse.
+
+        Without this guard, deleting a plan would silently destroy starred
+        recipes the user explicitly chose to keep.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+            body = await _create_and_confirm_plan(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        entries_resp = await client.get(
+            f"/api/plan/{plan_id}/meals", headers=auth_headers,
+        )
+        entry_id = entries_resp.json()[0]["id"]
+
+        with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+            fav_resp = await client.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite",
+                headers=auth_headers,
+                json={"is_favorite": True},
+            )
+        assert fav_resp.status_code == 200
+
+        del_resp = await client.delete(
+            f"/api/plan/{plan_id}", headers=auth_headers,
+        )
+        assert del_resp.status_code == 409
+        assert "cookbook" in del_resp.json()["detail"].lower()
+
+        # Plan still exists
+        list_resp = await client.get("/api/plan", headers=auth_headers)
+        assert any(p["id"] == plan_id for p in list_resp.json())
+
+        # Un-favoriting unblocks the delete
+        with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+            await client.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite",
+                headers=auth_headers,
+                json={"is_favorite": False},
+            )
+        del_resp_after = await client.delete(
+            f"/api/plan/{plan_id}", headers=auth_headers,
+        )
+        assert del_resp_after.status_code == 204
+
 
 class TestCookMeal:
     async def test_cook_uncooked_meal(
