@@ -188,6 +188,34 @@ function CookbookIndex({
   onClose,
   removingId,
 }: IndexProps) {
+  // Direction-aware fade overlays. atTop=true hides the top fade (nothing
+  // above to scroll back to); atBottom=true hides the bottom fade (you're
+  // at the end). Both default to true so a non-overflowing list shows
+  // neither fade. Re-measured on every scroll AND on every items change
+  // (search filter / add / remove) since the list height can change.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [atTop, setAtTop] = useState(true);
+  const [atBottom, setAtBottom] = useState(true);
+
+  const updateScrollState = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const overflow = el.scrollHeight - el.clientHeight;
+    if (overflow <= 1) {
+      // Whole list fits — no scrolling possible, no cues needed.
+      setAtTop(true);
+      setAtBottom(true);
+      return;
+    }
+    setAtTop(el.scrollTop <= 1);
+    setAtBottom(el.scrollTop >= overflow - 1);
+  };
+
+  useLayoutEffect(() => {
+    updateScrollState();
+    // Items/search change can reflow the list — re-measure after paint.
+  }, [items]);
+
   const grouped = useMemo(() => {
     const map = new Map<string, CookbookItem[]>();
     for (const item of items) {
@@ -321,6 +349,8 @@ function CookbookIndex({
         }}
       >
         <div
+          ref={scrollRef}
+          onScroll={updateScrollState}
           className="cookbook-scroll-hide"
           style={{
             overflowY: "auto",
@@ -431,11 +461,26 @@ function CookbookIndex({
           </section>
         ))}
         </div>
-        {/* Bottom fade-out signals scrollability without showing a scrollbar
-            that would clash with the leather cover. Pointer-events:none so
-            it doesn't intercept clicks on the last list item. Two-stop
-            gradient + extra height so the fade reads clearly against the
-            cream-on-leather contrast, not just at the very bottom edge. */}
+        {/* Direction-aware scroll fades. Each one shows up only when there's
+            content in that direction — bottom fade hides at the end of the
+            list, top fade appears once you've scrolled past the first row.
+            Hard pop is jarring, so a 150ms opacity transition smooths the
+            on/off. Pointer-events:none so they don't intercept item clicks. */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            height: "64px",
+            pointerEvents: "none",
+            background:
+              "linear-gradient(180deg, rgba(45,26,10,1) 0%, rgba(45,26,10,0.7) 45%, rgba(45,26,10,0) 100%)",
+            opacity: atTop ? 0 : 1,
+            transition: "opacity 0.15s ease-out",
+          }}
+        />
         <div
           aria-hidden
           style={{
@@ -443,10 +488,12 @@ function CookbookIndex({
             left: 0,
             right: 0,
             bottom: 0,
-            height: "56px",
+            height: "72px",
             pointerEvents: "none",
             background:
-              "linear-gradient(180deg, rgba(45,26,10,0) 0%, rgba(45,26,10,0.65) 45%, rgba(45,26,10,1) 100%)",
+              "linear-gradient(180deg, rgba(45,26,10,0) 0%, rgba(45,26,10,0.75) 45%, rgba(45,26,10,1) 100%)",
+            opacity: atBottom ? 0 : 1,
+            transition: "opacity 0.15s ease-out",
           }}
         />
       </div>
