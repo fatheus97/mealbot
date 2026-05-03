@@ -5,6 +5,11 @@ import type { StockItem } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
+import { ConfirmDialog } from "./ConfirmDialog";
+
+type PendingRemoval =
+  | { kind: "item"; index: number; name: string; quantity: number }
+  | { kind: "group"; indices: number[]; name: string; batchCount: number };
 
 /** StockItem extended with a stable identity for edit-safe rendering. */
 interface EditableStockItem extends StockItem {
@@ -56,6 +61,7 @@ export function Fridge() {
   // Stable group order — only changes on load, save, add, remove, and sort toggle
   const [groupOrder, setGroupOrder] = useState<string[]>([]);
   const [modalState, setModalState] = useState<{ mode: "add" | "edit"; editIndex: number | null } | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
 
   /** Build grouped items from the flat fridge array. */
   const buildGroups = useCallback((items: EditableStockItem[]): GroupedItem[] => {
@@ -197,21 +203,40 @@ export function Fridge() {
     );
   };
 
-  const removeFridgeItem = (index: number) => {
-    const updated = [...fridge];
-    updated.splice(index, 1);
-    setFridge(updated);
-    refreshGroupOrder(updated, sortKey, sortDir);
-    persistFridge(updated);
+  const requestRemoveItem = (index: number) => {
+    const item = fridge[index];
+    if (!item) return;
+    setPendingRemoval({
+      kind: "item",
+      index,
+      name: item.name || "this item",
+      quantity: item.quantity_grams,
+    });
   };
 
-  const removeGroup = (indices: number[]) => {
+  const requestRemoveGroup = (group: GroupedItem) => {
+    setPendingRemoval({
+      kind: "group",
+      indices: group.flatIndices,
+      name: group.displayName || "this group",
+      batchCount: group.batchCount,
+    });
+  };
+
+  const cancelRemoval = () => setPendingRemoval(null);
+
+  const confirmRemoval = () => {
+    if (!pendingRemoval) return;
+    const indices =
+      pendingRemoval.kind === "item" ? [pendingRemoval.index] : pendingRemoval.indices;
+    // Sort descending so splices don't shift later indices.
     const sorted = [...indices].sort((a, b) => b - a);
     const updated = [...fridge];
     for (const idx of sorted) updated.splice(idx, 1);
     setFridge(updated);
     refreshGroupOrder(updated, sortKey, sortDir);
     persistFridge(updated);
+    setPendingRemoval(null);
   };
 
   const openAddModal = () => setModalState({ mode: "add", editIndex: null });
@@ -291,7 +316,7 @@ export function Fridge() {
         <td>{item.need_to_use ? "Yes" : "No"}</td>
         <td style={{ display: "flex", gap: "0.25rem" }}>
           <button onClick={() => openEditModal(idx)}>Edit</button>
-          <button onClick={() => removeFridgeItem(idx)}>Remove</button>
+          <button onClick={() => requestRemoveItem(idx)}>Remove</button>
         </td>
       </tr>
     );
@@ -327,7 +352,7 @@ export function Fridge() {
         </td>
         <td>{group.needToUse ? "Yes" : "No"}</td>
         <td>
-          <button onClick={(e) => { e.stopPropagation(); removeGroup(group.flatIndices); }}>
+          <button onClick={(e) => { e.stopPropagation(); requestRemoveGroup(group); }}>
             Remove all
           </button>
         </td>
@@ -365,7 +390,7 @@ export function Fridge() {
             <td>{item.need_to_use ? "Yes" : "No"}</td>
             <td style={{ display: "flex", gap: "0.25rem" }}>
               <button onClick={() => openEditModal(flatIdx)}>Edit</button>
-              <button onClick={() => removeFridgeItem(flatIdx)}>Remove</button>
+              <button onClick={() => requestRemoveItem(flatIdx)}>Remove</button>
             </td>
           </tr>
         );
@@ -457,6 +482,21 @@ export function Fridge() {
           }
           onOk={handleModalOk}
           onCancel={handleModalCancel}
+        />
+      )}
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          title={pendingRemoval.kind === "group" ? "Remove all batches?" : "Remove ingredient?"}
+          message={
+            pendingRemoval.kind === "group"
+              ? `Remove all ${pendingRemoval.batchCount} batches of "${pendingRemoval.name}" from your fridge?`
+              : `Remove "${pendingRemoval.name}" (${Math.round(pendingRemoval.quantity)} g) from your fridge?`
+          }
+          confirmLabel="Remove"
+          loadingLabel="Removing…"
+          onConfirm={confirmRemoval}
+          onCancel={cancelRemoval}
         />
       )}
     </section>

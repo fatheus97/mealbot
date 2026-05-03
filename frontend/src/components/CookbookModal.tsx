@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import { useCookbook, useRemoveFromCookbook } from "../hooks/useServerState";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { mealTypeLabel } from "../constants/mealTypes";
 import type { CookbookItem } from "../types";
 
@@ -14,6 +15,7 @@ interface Props {
 export function CookbookModal({ onClose }: Props) {
   const [view, setView] = useState<"index" | "spread">("index");
   const [selected, setSelected] = useState<CookbookItem | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<CookbookItem | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   // Two-stage spread reveal: while the book "opens" (cover widening),
@@ -89,17 +91,37 @@ export function CookbookModal({ onClose }: Props) {
     return () => clearTimeout(id);
   }, [view, selected]);
 
-  const handleRemove = (item: CookbookItem) => {
-    removeMutation.mutate(item.meal_entry_id, {
+  const requestRemove = (item: CookbookItem) => {
+    setPendingRemoval(item);
+  };
+
+  const cancelRemove = () => {
+    if (removeMutation.isPending) return;
+    setPendingRemoval(null);
+    removeMutation.reset();
+  };
+
+  const confirmRemove = () => {
+    if (!pendingRemoval) return;
+    const target = pendingRemoval;
+    removeMutation.mutate(target.meal_entry_id, {
       onSuccess: () => {
+        setPendingRemoval(null);
         // If the user removed the recipe currently on the spread, snap back
         // to the index. The list query refetches on its own.
-        if (selected?.meal_entry_id === item.meal_entry_id) {
+        if (selected?.meal_entry_id === target.meal_entry_id) {
           handleBackToIndex();
         }
       },
     });
   };
+
+  const removalError =
+    removeMutation.isError && pendingRemoval
+      ? removeMutation.error instanceof Error
+        ? removeMutation.error.message
+        : "Failed to remove recipe."
+      : null;
 
   return (
     <div
@@ -170,7 +192,7 @@ export function CookbookModal({ onClose }: Props) {
             searchInput={searchInput}
             onSearch={setSearchInput}
             onOpen={handleOpenSpread}
-            onRemove={handleRemove}
+            onRemove={requestRemove}
             onClose={onClose}
             removingId={removeMutation.isPending ? removeMutation.variables : null}
           />
@@ -180,13 +202,26 @@ export function CookbookModal({ onClose }: Props) {
               item={selected}
               onBack={handleBackToIndex}
               onClose={onClose}
-              onRemove={() => handleRemove(selected)}
+              onRemove={() => requestRemove(selected)}
               removing={removeMutation.isPending}
               textRevealed={textRevealed}
             />
           )
         )}
       </div>
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          title="Remove from cookbook?"
+          message={`Remove "${pendingRemoval.name}" from your cookbook? You can re-add it later from a meal plan.`}
+          confirmLabel="Remove"
+          loadingLabel="Removing…"
+          loading={removeMutation.isPending}
+          error={removalError}
+          onConfirm={confirmRemove}
+          onCancel={cancelRemove}
+        />
+      )}
     </div>
   );
 }

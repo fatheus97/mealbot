@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -136,6 +136,62 @@ describe("CookbookModal", () => {
 
     await waitFor(() => screen.getByText(/Your cookbook is empty/));
     expect(screen.getByText(/Star a recipe in the planner/)).toBeInTheDocument();
+  });
+
+  it("opens a confirm dialog from the index ✕ and only deletes after confirm", async () => {
+    mockedAuthFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(TWO_RECIPES),
+    });
+
+    render(<CookbookModal onClose={() => {}} />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+
+    await waitFor(() => screen.getByText("Chicken Curry"));
+    await user.click(screen.getByLabelText("Remove Chicken Curry from cookbook"));
+
+    // CookbookModal is itself role="dialog"; query by the confirm title's id
+    // to disambiguate. No DELETE call yet.
+    const confirmDialog = await screen.findByRole("dialog", { name: /Remove from cookbook/i });
+    expect(within(confirmDialog).getByText(/Remove "Chicken Curry"/)).toBeInTheDocument();
+    expect(mockedAuthFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/cookbook/"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+
+    // Confirm — the dialog's confirm button is labelled "Remove".
+    await user.click(within(confirmDialog).getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => {
+      expect(mockedAuthFetch).toHaveBeenCalledWith(
+        "/cookbook/1",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+  });
+
+  it("cancels removal and leaves the cookbook untouched", async () => {
+    mockedAuthFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(TWO_RECIPES),
+    });
+
+    render(<CookbookModal onClose={() => {}} />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+
+    await waitFor(() => screen.getByText("Chicken Curry"));
+    await user.click(screen.getByLabelText("Remove Chicken Curry from cookbook"));
+
+    const confirmDialog = await screen.findByRole("dialog", { name: /Remove from cookbook/i });
+    await user.click(within(confirmDialog).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog", { name: /Remove from cookbook/i })).not.toBeInTheDocument();
+    expect(mockedAuthFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/cookbook/"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 
   it("invokes onClose when the close button is clicked", async () => {

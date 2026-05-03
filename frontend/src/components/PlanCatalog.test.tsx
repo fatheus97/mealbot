@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlanCatalog } from "./PlanCatalog";
@@ -54,6 +54,11 @@ const SAMPLE_PLAN: MealPlanSummary = {
 
 beforeEach(() => {
   vi.stubGlobal("alert", vi.fn());
+  // Reset queued mockResolvedValueOnce responses so a test that consumes
+  // more mocks than its predecessor (e.g. delete-then-refetch) doesn't
+  // leak responses into the next test.
+  mockedAuthFetch.mockReset();
+  mockedFetchPlan.mockReset();
 });
 
 describe("PlanCatalog", () => {
@@ -122,7 +127,7 @@ describe("PlanCatalog", () => {
     });
   });
 
-  it("shows delete confirmation on Delete click", async () => {
+  it("shows delete confirmation dialog on Delete click", async () => {
     loginUser();
     mockedAuthFetch.mockResolvedValueOnce({
       ok: true,
@@ -138,8 +143,8 @@ describe("PlanCatalog", () => {
     const user = userEvent.setup();
     await user.click(screen.getByText("Delete"));
 
-    expect(screen.getByText("Confirm")).toBeInTheDocument();
-    expect(screen.getByText("Cancel")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Delete this plan?")).toBeInTheDocument();
   });
 
   it("cancels delete on Cancel click", async () => {
@@ -157,10 +162,48 @@ describe("PlanCatalog", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Delete"));
-    await user.click(screen.getByText("Cancel"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-    expect(screen.queryByText("Confirm")).not.toBeInTheDocument();
-    expect(screen.getByText("Delete")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("fires the delete mutation when the dialog is confirmed", async () => {
+    loginUser();
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([SAMPLE_PLAN]),
+    });
+    // DELETE /plan/{id}
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      json: () => Promise.resolve({}),
+    });
+    // Refetch after delete (empty list)
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([]),
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Delete"));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockedAuthFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/plan/1"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
   });
 
   it("shows inline error when opening a plan fails", async () => {

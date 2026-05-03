@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { usePlanList, useDeletePlan } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 
 const STATUS_COLORS: Record<PlanStatus, { bg: string; text: string }> = {
@@ -45,6 +46,14 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       onSuccess: () => setConfirmDeleteId(null),
     });
   };
+
+  const planPendingDelete = plans?.find((p) => p.id === confirmDeleteId) ?? null;
+  const deleteError =
+    deleteMutation.isError && deleteMutation.variables === confirmDeleteId
+      ? deleteMutation.error instanceof Error
+        ? deleteMutation.error.message
+        : "Failed to delete plan."
+      : null;
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -140,54 +149,20 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                         {loadingPlanId === plan.id ? "Loading..." : "Open"}
                       </button>
 
-                      {confirmDeleteId === plan.id ? (
-                        <>
-                          <button
-                            onClick={() => handleDelete(plan.id)}
-                            disabled={deleteMutation.isPending}
-                            style={{
-                              padding: "0.3rem 0.8rem",
-                              fontSize: "0.85rem",
-                              backgroundColor: "#dc2626",
-                              color: "#fff",
-                              border: "none",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {deleteMutation.isPending ? "..." : "Confirm"}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteId(null)}
-                            style={{
-                              padding: "0.3rem 0.8rem",
-                              fontSize: "0.85rem",
-                              backgroundColor: "#e5e7eb",
-                              color: "#333",
-                              border: "none",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmDeleteId(plan.id)}
-                          style={{
-                            padding: "0.3rem 0.8rem",
-                            fontSize: "0.85rem",
-                            backgroundColor: "#fee2e2",
-                            color: "#dc2626",
-                            border: "none",
-                            borderRadius: "4px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Delete
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setConfirmDeleteId(plan.id)}
+                        style={{
+                          padding: "0.3rem 0.8rem",
+                          fontSize: "0.85rem",
+                          backgroundColor: "#fee2e2",
+                          color: "#dc2626",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 );
@@ -195,6 +170,19 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
             </div>
           )}
         </div>
+      )}
+
+      {planPendingDelete && (
+        <ConfirmDialog
+          title="Delete this plan?"
+          message={`This will permanently delete the ${planPendingDelete.days}-day / ${planPendingDelete.meals_per_day}-meal plan from ${formatDate(planPendingDelete.created_at)}. This cannot be undone.`}
+          confirmLabel="Delete"
+          loadingLabel="Deleting…"
+          loading={deleteMutation.isPending}
+          error={deleteError}
+          onConfirm={() => handleDelete(planPendingDelete.id)}
+          onCancel={() => setConfirmDeleteId(null)}
+        />
       )}
     </section>
   );
