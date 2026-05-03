@@ -194,6 +194,28 @@ describe("CookbookModal", () => {
     );
   });
 
+  it("Escape inside the confirm dialog cancels the dialog only, not the cookbook", async () => {
+    mockedAuthFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(TWO_RECIPES),
+    });
+    const onClose = vi.fn();
+    render(<CookbookModal onClose={onClose} />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+
+    await waitFor(() => screen.getByText("Chicken Curry"));
+    await user.click(screen.getByLabelText("Remove Chicken Curry from cookbook"));
+    await screen.findByRole("dialog", { name: /Remove from cookbook/i });
+
+    await user.keyboard("{Escape}");
+
+    // Confirm dialog is gone, but the cookbook itself stayed open.
+    expect(screen.queryByRole("dialog", { name: /Remove from cookbook/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Chicken Curry")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("invokes onClose when the close button is clicked", async () => {
     mockedAuthFetch.mockResolvedValue({
       ok: true,

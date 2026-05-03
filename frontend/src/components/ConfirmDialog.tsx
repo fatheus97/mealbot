@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 interface ConfirmDialogProps {
   title: string;
@@ -26,6 +26,8 @@ export function ConfirmDialog({
   destructive = true,
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
 
   // Focus Cancel by default — safer choice for a destructive prompt.
   useEffect(() => {
@@ -34,17 +36,50 @@ export function ConfirmDialog({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !loading) onCancel();
+      if (e.key === "Escape" && !loading) {
+        // Stop other window-level Escape listeners (e.g. CookbookModal,
+        // which also closes on Escape) from firing in the same tick. The
+        // confirm dialog must consume the Escape so the parent surface
+        // stays open.
+        e.stopImmediatePropagation();
+        onCancel();
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture phase so we beat any bubble-phase listener attached to window
+    // by an ancestor modal — bubble vs. capture order isn't well-defined
+    // when both register on `window`, so capture is the safer guarantee.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onCancel, loading]);
+
+  // Minimal focus trap: cycle Tab/Shift+Tab between Cancel and Confirm so
+  // keyboard users can't reach the page underneath. The dialog only has two
+  // tabbable controls, so this is exhaustive.
+  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab") return;
+    const cancelEl = cancelRef.current;
+    const confirmEl = confirmRef.current;
+    if (!cancelEl || !confirmEl) return;
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === cancelEl || !active || !(active instanceof HTMLElement) || !e.currentTarget.contains(active)) {
+        e.preventDefault();
+        confirmEl.focus();
+      }
+    } else {
+      if (active === confirmEl) {
+        e.preventDefault();
+        cancelEl.focus();
+      }
+    }
+  };
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="confirm-dialog-title"
+      aria-labelledby={titleId}
+      onKeyDown={handleDialogKeyDown}
       style={{
         position: "fixed",
         inset: 0,
@@ -69,7 +104,7 @@ export function ConfirmDialog({
           border: "1px solid #e0e0e0",
         }}
       >
-        <h3 id="confirm-dialog-title" style={{ margin: "0 0 0.5rem 0", fontSize: "1.05rem" }}>
+        <h3 id={titleId} style={{ margin: "0 0 0.5rem 0", fontSize: "1.05rem" }}>
           {title}
         </h3>
         <p style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.92rem" }}>
@@ -102,6 +137,7 @@ export function ConfirmDialog({
             {cancelLabel}
           </button>
           <button
+            ref={confirmRef}
             type="button"
             onClick={onConfirm}
             disabled={loading}

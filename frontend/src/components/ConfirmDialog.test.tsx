@@ -131,6 +131,58 @@ describe("ConfirmDialog", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Server unreachable");
   });
 
+  it("cycles focus between Cancel and Confirm on Tab / Shift+Tab", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConfirmDialog
+        title="Delete?"
+        message="Sure?"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // Cancel is focused on mount.
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    // Tab → Confirm.
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+
+    // Tab again → wraps back to Cancel (trap).
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    // Shift+Tab → wraps to Confirm.
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+  });
+
+  it("stops Escape from propagating to ancestor window listeners", async () => {
+    // Regression: when ConfirmDialog is mounted inside another window-level
+    // Escape handler (e.g. CookbookModal), the ancestor used to also fire
+    // and close itself.
+    const ancestorEsc = vi.fn();
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") ancestorEsc();
+    });
+    render(
+      <ConfirmDialog
+        title="Delete?"
+        message="Sure?"
+        onConfirm={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+
+    await user.keyboard("{Escape}");
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(ancestorEsc).not.toHaveBeenCalled();
+  });
+
   it("respects custom confirm and cancel labels", () => {
     render(
       <ConfirmDialog

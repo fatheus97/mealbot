@@ -47,6 +47,13 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
     });
   };
 
+  const cancelDelete = () => {
+    if (deleteMutation.isPending) return;
+    setConfirmDeleteId(null);
+    // Clear any prior error so a future open doesn't render stale state.
+    deleteMutation.reset();
+  };
+
   const planPendingDelete = plans?.find((p) => p.id === confirmDeleteId) ?? null;
   const deleteError =
     deleteMutation.isError && deleteMutation.variables === confirmDeleteId
@@ -181,7 +188,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
           loading={deleteMutation.isPending}
           error={deleteError}
           onConfirm={() => handleDelete(planPendingDelete.id)}
-          onCancel={() => setConfirmDeleteId(null)}
+          onCancel={cancelDelete}
         />
       )}
     </section>
