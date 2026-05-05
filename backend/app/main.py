@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.country_whitelist import SUPPORTED_COUNTRIES
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
 from app.core.rate_limit import limiter
+from app.core.security_headers import security_headers_middleware
 from app.services.recipe_retriever import get_embedding_model
 
 # Configure the root logger
@@ -52,6 +53,9 @@ async def lifespan(fastAPI: FastAPI):
 app = FastAPI(title="Meal Planner LLM API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
+
+app.middleware("http")(security_headers_middleware)
+
 
 @app.middleware("http")
 async def log_request_latency(request: Request, call_next):
