@@ -1,5 +1,5 @@
 fastapi~=0.136
-uvicorn[standard]~=0.34
+uvicorn[standard]~=0.46
 pydantic-settings~=2.14
 jinja2~=3.1
 python-multipart~=0.0.27
