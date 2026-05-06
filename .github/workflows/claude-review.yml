@@ -17,7 +17,13 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: anthropics/claude-code-action@v1
+      # Pinned by SHA to v1.0.112 — the floating `v1` tag was advanced past
+      # this point and the newer release ships a broken native installer
+      # (https://github.com/anthropics/claude-code-action/issues/1254). Symptom:
+      # the action exits with "ReferenceError: Claude Code native binary not
+      # found at /home/runner/.local/bin/claude". Bump only after that issue
+      # is resolved upstream.
+      - uses: anthropics/claude-code-action@2cc1ac1331eac7a6a96d716dd204dd2888d0fcd2  # v1.0.112
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
