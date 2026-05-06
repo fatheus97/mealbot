@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, select
 
 from app.core.security import get_password_hash
-from app.models.db_models import MealEntry, MealPlan, StockItem, User
+from app.models.db_models import AuthSession, MealEntry, MealPlan, StockItem, User
 
 # (name, grams, expiry_offset_days, need_to_use)
 _FRIDGE_SEED: list[tuple[str, float, int | None, bool]] = [
@@ -86,6 +86,11 @@ async def cleanup_expired_demo_users(session: AsyncSession, ttl_minutes: int) ->
     )
     await session.execute(
         delete(StockItem).where(col(StockItem.user_id).in_(expired_ids))
+    )
+    # Auth sessions reference user.id; drop them before the user row to avoid
+    # the FK violation. SQLModel relationships have no DB-level cascade.
+    await session.execute(
+        delete(AuthSession).where(col(AuthSession.user_id).in_(expired_ids))
     )
     await session.execute(
         delete(User).where(col(User.id).in_(expired_ids))

@@ -20,4 +20,6 @@ services:
         condition: service_healthy
     environment:
       - NODE_ENV=development
-      - VITE_API_BASE=http://localhost:8000/api
+      # Same-origin in dev: leave VITE_API_BASE unset so api.ts uses "/api",
+      # which vite's dev server proxies to the backend container. Cookies
+      # stay SameSite=Lax, matching prod Caddy.

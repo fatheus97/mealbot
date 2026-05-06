@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlmodel import SQLModel
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.rate_limit import limiter
-from app.core.security import create_access_token, get_password_hash
+from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
 
@@ -45,6 +46,26 @@ def _disable_rate_limiting():
     limiter.enabled = False
     yield
     limiter.enabled = True
+
+
+@pytest.fixture(autouse=True)
+def _disable_csrf(monkeypatch: pytest.MonkeyPatch):
+    """Disable CSRF middleware for the default test client.
+
+    The bulk of the test suite uses the dependency-overridden `client`
+    fixture and never carries auth cookies; requiring CSRF would force
+    every mutation test to plumb the X-CSRF-Token header. Tests that
+    specifically exercise CSRF re-enable it locally.
+    """
+    monkeypatch.setattr(settings, "csrf_enabled", False)
+
+
+@pytest.fixture(autouse=True)
+def _disable_cookie_secure(monkeypatch: pytest.MonkeyPatch):
+    """Tests use httpx ASGITransport over plain http://test, so cookies set
+    with Secure would be silently dropped by the client and break every
+    cookie-driven test. Production keeps cookie_secure=True (the default)."""
+    monkeypatch.setattr(settings, "cookie_secure", False)
 
 
 @pytest.fixture
@@ -90,9 +111,15 @@ async def test_user(db_session: AsyncSession) -> User:
 
 @pytest.fixture
 async def auth_headers(test_user: User) -> dict[str, str]:
+    """Decorative fixture, kept for test ergonomics.
+
+    The `client` fixture below overrides get_current_user with a function
+    that just returns test_user, so auth is not actually validated. We
+    return an empty dict — tests that historically passed `headers=auth_headers`
+    keep compiling and the override does the real work.
+    """
     assert test_user.id is not None
-    token = create_access_token(subject=test_user.id, token_version=test_user.token_version)
-    return {"Authorization": f"Bearer {token}"}
+    return {}
 
 
 @pytest.fixture

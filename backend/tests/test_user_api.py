@@ -1,16 +1,13 @@
 from collections import Counter
-from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-import jwt
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.security import ALGORITHM, create_access_token
 from app.models.db_models import User
-from tests.conftest import TEST_EMAIL, TEST_PASSWORD
+from tests.conftest import TEST_EMAIL
 
 
 class TestRegister:
@@ -95,25 +92,6 @@ class TestPasswordComplexity:
                 json={"email": "pw3@example.com", "password": "NoDigitsHere"},
             )
         assert resp.status_code == 422
-
-
-class TestLogin:
-    async def test_login_success(self, unauthed_client: AsyncClient, test_user):
-        resp = await unauthed_client.post(
-            "/api/users/login",
-            data={"username": TEST_EMAIL, "password": TEST_PASSWORD},
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "access_token" in body
-        assert body["email"] == TEST_EMAIL
-
-    async def test_login_wrong_password(self, unauthed_client: AsyncClient, test_user):
-        resp = await unauthed_client.post(
-            "/api/users/login",
-            data={"username": TEST_EMAIL, "password": "WrongPassword"},
-        )
-        assert resp.status_code == 401
 
 
 class TestProfile:
@@ -438,111 +416,7 @@ class TestDefaultDayLayout:
         ]
 
 
-class TestExpiredToken:
-    async def test_expired_jwt_returns_401(
-        self, unauthed_client: AsyncClient, test_user
-    ):
-        expired_payload = {
-            "sub": str(test_user.id),
-            "tv": test_user.token_version,
-            "exp": datetime.now(UTC) - timedelta(hours=1),
-        }
-        expired_token = jwt.encode(
-            expired_payload, settings.secret_key, algorithm=ALGORITHM
-        )
-        resp = await unauthed_client.get(
-            "/api/users",
-            headers={"Authorization": f"Bearer {expired_token}"},
-        )
-        assert resp.status_code == 401
-
-
-class TestLogout:
-    async def test_logout_returns_204(
-        self, unauthed_client: AsyncClient, test_user
-    ):
-        token = create_access_token(
-            subject=test_user.id, token_version=test_user.token_version
-        )
-        resp = await unauthed_client.post(
-            "/api/users/logout",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert resp.status_code == 204
-        assert resp.content == b""
-
-    async def test_token_invalid_after_logout(
-        self, unauthed_client: AsyncClient, test_user
-    ):
-        # Mint a token under the user's current token_version, use it to log
-        # out, then prove the same token is now rejected on a protected route.
-        token = create_access_token(
-            subject=test_user.id, token_version=test_user.token_version
-        )
-        headers = {"Authorization": f"Bearer {token}"}
-
-        ok = await unauthed_client.get("/api/users", headers=headers)
-        assert ok.status_code == 200
-
-        logout = await unauthed_client.post("/api/users/logout", headers=headers)
-        assert logout.status_code == 204
-
-        stale = await unauthed_client.get("/api/users", headers=headers)
-        assert stale.status_code == 401
-
-    async def test_fresh_login_after_logout_works(
-        self, unauthed_client: AsyncClient, test_user
-    ):
-        # Logging out bumps the user's token_version; a subsequent login mints
-        # a token under the new version and must be accepted.
-        old_token = create_access_token(
-            subject=test_user.id, token_version=test_user.token_version
-        )
-        logout = await unauthed_client.post(
-            "/api/users/logout",
-            headers={"Authorization": f"Bearer {old_token}"},
-        )
-        assert logout.status_code == 204
-
-        login = await unauthed_client.post(
-            "/api/users/login",
-            data={"username": TEST_EMAIL, "password": TEST_PASSWORD},
-        )
-        assert login.status_code == 200
-        new_token = login.json()["access_token"]
-
-        resp = await unauthed_client.get(
-            "/api/users",
-            headers={"Authorization": f"Bearer {new_token}"},
-        )
-        assert resp.status_code == 200
-
-    async def test_logout_without_auth_returns_401(
-        self, unauthed_client: AsyncClient
-    ):
-        resp = await unauthed_client.post("/api/users/logout")
-        assert resp.status_code == 401
-
-    async def test_token_without_tv_claim_is_rejected(
-        self, unauthed_client: AsyncClient, test_user
-    ):
-        # Legacy tokens (pre-revocation feature) don't carry "tv" — reject so
-        # clients are forced to re-login under the versioned scheme.
-        legacy_payload = {
-            "sub": str(test_user.id),
-            "exp": datetime.now(UTC) + timedelta(hours=1),
-        }
-        legacy_token = jwt.encode(
-            legacy_payload, settings.secret_key, algorithm=ALGORITHM
-        )
-        resp = await unauthed_client.get(
-            "/api/users",
-            headers={"Authorization": f"Bearer {legacy_token}"},
-        )
-        assert resp.status_code == 401
-
-
-class TestAuthEventLogging:
+class TestRegisterEventLogging:
     async def test_register_emits_event_without_email_plaintext(
         self, unauthed_client: AsyncClient, caplog: pytest.LogCaptureFixture
     ):
@@ -560,56 +434,3 @@ class TestAuthEventLogging:
         assert register_records, "expected a user_registered log record"
         for rec in register_records:
             assert email not in rec.getMessage(), "register log leaks plaintext email"
-
-    async def test_login_success_emits_event_without_email_plaintext(
-        self, unauthed_client: AsyncClient, test_user,
-        caplog: pytest.LogCaptureFixture,
-    ):
-        with caplog.at_level("INFO", logger="app.api.user"):
-            resp = await unauthed_client.post(
-                "/api/users/login",
-                data={"username": TEST_EMAIL, "password": TEST_PASSWORD},
-            )
-        assert resp.status_code == 200
-        success = [r for r in caplog.records if "login_success" in r.getMessage()]
-        assert success, "expected a login_success log record"
-        for rec in success:
-            assert TEST_EMAIL not in rec.getMessage()
-
-    async def test_login_failure_emits_warning_with_email_fingerprint_only(
-        self, unauthed_client: AsyncClient, test_user,
-        caplog: pytest.LogCaptureFixture,
-    ):
-        # Brute-force correlation needs some stable per-email identifier in
-        # logs, but we never want the raw address there. The handler logs a
-        # short sha256 prefix — asserts the exact email string never appears.
-        with caplog.at_level("WARNING", logger="app.api.user"):
-            resp = await unauthed_client.post(
-                "/api/users/login",
-                data={"username": TEST_EMAIL, "password": "WrongPassword"},
-            )
-        assert resp.status_code == 401
-        failed = [r for r in caplog.records if "login_failed" in r.getMessage()]
-        assert failed, "expected a login_failed log record"
-        for rec in failed:
-            msg = rec.getMessage()
-            assert TEST_EMAIL not in msg
-            assert "email_fp=" in msg
-
-    async def test_logout_emits_event_without_email_plaintext(
-        self, unauthed_client: AsyncClient, test_user,
-        caplog: pytest.LogCaptureFixture,
-    ):
-        token = create_access_token(
-            subject=test_user.id, token_version=test_user.token_version,
-        )
-        with caplog.at_level("INFO", logger="app.api.user"):
-            resp = await unauthed_client.post(
-                "/api/users/logout",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        assert resp.status_code == 204
-        logout = [r for r in caplog.records if r.getMessage().startswith("logout ")]
-        assert logout, "expected a logout log record"
-        for rec in logout:
-            assert TEST_EMAIL not in rec.getMessage()

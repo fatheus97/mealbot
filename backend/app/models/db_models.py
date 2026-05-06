@@ -60,6 +60,36 @@ class User(SQLModel, table=True):
     fridge_items: list["StockItem"] = Relationship(back_populates="user")
     meal_plans: list["MealPlan"] = Relationship(back_populates="user")
     meal_entries: list["MealEntry"] = Relationship(back_populates="user")
+    auth_sessions: list["AuthSession"] = Relationship(back_populates="user")
+
+
+class AuthSession(SQLModel, table=True):
+    """One row per logged-in device. The refresh token is stored as its
+    sha256 hex (never plaintext) — leak of a DB dump must not yield usable
+    tokens. Rotation marks the old row revoked and chains via replaced_by_id
+    so a replayed (already-rotated) refresh signals theft and we revoke the
+    whole user."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
+    refresh_token_hash: str = Field(
+        sa_column=Column(String(64), unique=True, index=True, nullable=False),
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
+    last_used_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
+    expires_at: datetime = Field(nullable=False)
+    revoked_at: datetime | None = Field(default=None)
+    # Truncated User-Agent for future "Active sessions" UI; pure metadata,
+    # never trusted for auth decisions.
+    user_agent: str | None = Field(default=None, max_length=256)
+    # Forensic chain pointer. When this row is rotated, we set replaced_by_id
+    # to the new row's id; if a refresh comes in for this (revoked) row we
+    # know the new row is still trusted, but the request itself is reuse.
+    replaced_by_id: int | None = Field(
+        default=None, foreign_key="authsession.id"
+    )
+
+    user: "User" = Relationship(back_populates="auth_sessions")
 
 
 class StockItem(SQLModel, table=True):

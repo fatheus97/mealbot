@@ -1,14 +1,16 @@
-import { createContext, useContext, useState, useEffect, type ReactNode} from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { LoginResponse, AuthState } from "../types";
-import {authFetch} from "../api.ts";
+import type { AuthLoginResponse, AuthState } from "../types";
+import { authFetch } from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError } from "./authErrors";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => window.localStorage.getItem("mealbot_token"));
+  // localStorage entries are a UI render hint to avoid a logged-out flash
+  // on reload. The cookie is the real source of truth — the bootstrap
+  // effect below reconciles by calling /api/users.
   const [userId, setUserId] = useState<number | null>(() => {
     const stored = window.localStorage.getItem("mealbot_user_id");
     return stored ? Number(stored) : null;
@@ -28,6 +30,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null);
   const queryClient = useQueryClient();
 
+  const applyProfile = useCallback((profile: AuthLoginResponse, demoFlag: boolean) => {
+    setUserId(profile.id);
+    setEmail(profile.email);
+    setIsDemo(demoFlag);
+    setOnboardingCompletedState(profile.onboarding_completed);
+    window.localStorage.setItem("mealbot_user_id", String(profile.id));
+    window.localStorage.setItem("mealbot_user_email", profile.email);
+    if (demoFlag) {
+      window.localStorage.setItem("mealbot_is_demo", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_is_demo");
+    }
+    if (profile.onboarding_completed) {
+      window.localStorage.setItem("mealbot_onboarding", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_onboarding");
+    }
+  }, []);
+
+  const clearLocal = useCallback(() => {
+    setUserId(null);
+    setEmail("");
+    setIsDemo(false);
+    setOnboardingCompletedState(false);
+    window.localStorage.removeItem("mealbot_user_id");
+    window.localStorage.removeItem("mealbot_user_email");
+    window.localStorage.removeItem("mealbot_onboarding");
+    window.localStorage.removeItem("mealbot_is_demo");
+
+    // Prevent cross-account leakage: drop cached server data and reset
+    // the persisted preferences store to defaults. Component-local state
+    // (e.g. App's openedPlan) is cleared via the userId-keyed remount in App.tsx.
+    queryClient.clear();
+    // Reset in-memory state first; clearStorage() last so the persist
+    // middleware's reset write doesn't immediately re-populate the entry.
+    usePreferencesStore.getState().reset();
+    void usePreferencesStore.persist.clearStorage();
+  }, [queryClient]);
+
   useEffect(() => {
     // Gate the "Try Demo" and "Register" buttons on backend feature flags so
     // we don't advertise features that would 4xx. Failure → resolve both to
@@ -44,6 +85,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDemoEnabled(false);
         setRegistrationEnabled(false);
       });
+
+    // Reconcile the localStorage render hint with the server. If we have a
+    // userId hint, validate the cookie still holds. authFetch handles 401
+    // via refresh; if both fail it dispatches mealbot:logout and the
+    // listener below clears UI state.
+    if (window.localStorage.getItem("mealbot_user_id")) {
+      Promise.resolve(authFetch("/users"))
+        .then((r) => (r?.ok ? r.json() : null))
+        .then((profile: AuthLoginResponse | null) => {
+          // Defensive: only apply a payload that *looks like* a user profile.
+          // Guards against a misrouted response (test mocks, future endpoint
+          // moves) clobbering state with garbage.
+          if (profile && typeof profile.id === "number" && typeof profile.email === "string") {
+            const wasDemo = window.localStorage.getItem("mealbot_is_demo") === "true";
+            applyProfile(profile, wasDemo);
+          }
+        })
+        .catch(() => {
+          // Transient network blip — leave the hint in place rather than
+          // bouncing the user to the login screen.
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const setOnboardingCompleted = (value: boolean) => {
@@ -55,41 +119,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const login = async (newEmail: string, password: string): Promise<LoginResponse> => {
-    const formData = new URLSearchParams();
-    formData.append("username", newEmail); // OAuth2 spec uses 'username' for email
-    formData.append("password", password);
-
-    const resp = await authFetch(`/users/login`, {
+  const login = useCallback(async (newEmail: string, password: string): Promise<void> => {
+    const resp = await authFetch("/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" }, // NEW: Form content type
-      body: formData
+      body: JSON.stringify({ email: newEmail, password }),
     });
-
     if (!resp.ok) throw new Error(`Login failed: ${resp.status}`);
+    const profile = (await resp.json()) as AuthLoginResponse;
+    applyProfile(profile, false);
+  }, [applyProfile]);
 
-    const data = (await resp.json()) as LoginResponse;
-
-    setToken(data.access_token);
-    setUserId(data.user_id);
-    setEmail(data.email);
-    setIsDemo(false);
-    setOnboardingCompletedState(data.onboarding_completed);
-
-    window.localStorage.setItem("mealbot_token", data.access_token);
-    window.localStorage.setItem("mealbot_user_id", String(data.user_id));
-    window.localStorage.setItem("mealbot_user_email", data.email);
-    window.localStorage.removeItem("mealbot_is_demo");
-    if (data.onboarding_completed) {
-      window.localStorage.setItem("mealbot_onboarding", "true");
-    } else {
-      window.localStorage.removeItem("mealbot_onboarding");
-    }
-
-    return data;
-  };
-
-  const register = async (newEmail: string, password: string): Promise<LoginResponse> => {
+  const register = useCallback(async (newEmail: string, password: string): Promise<void> => {
     // POST /users/register returns 201 with a plain message, not a token, so
     // we auto-login immediately after so the UI lands on an authenticated
     // session without a second user interaction.
@@ -108,73 +148,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // in" instead of "registration failed" (which would prompt them to
     // try again and hit a 409).
     try {
-      return await login(newEmail, password);
+      await login(newEmail, password);
     } catch (err) {
       throw new AutoLoginAfterRegisterError(err);
     }
-  };
+  }, [login]);
 
-  const loginDemo = async (): Promise<void> => {
-    const resp = await authFetch("/demo/session", { method: "POST" });
+  const loginDemo = useCallback(async (): Promise<void> => {
+    const resp = await authFetch("/auth/demo", { method: "POST" });
     if (!resp.ok) throw new Error(`Demo session failed: ${resp.status}`);
+    const profile = (await resp.json()) as AuthLoginResponse;
+    applyProfile(profile, true);
+  }, [applyProfile]);
 
-    const data = (await resp.json()) as LoginResponse;
-
-    setToken(data.access_token);
-    setUserId(data.user_id);
-    setEmail(data.email);
-    setIsDemo(true);
-    setOnboardingCompletedState(data.onboarding_completed);
-
-    window.localStorage.setItem("mealbot_token", data.access_token);
-    window.localStorage.setItem("mealbot_user_id", String(data.user_id));
-    window.localStorage.setItem("mealbot_user_email", data.email);
-    window.localStorage.setItem("mealbot_is_demo", "true");
-    window.localStorage.setItem("mealbot_onboarding", "true");
-  };
-
-  const logout = () => {
-    // Fire-and-forget server-side revocation. If the token is already invalid
-    // or the backend is unreachable, we still clear the client state below so
-    // the user actually gets logged out. The server call is best-effort; its
-    // only job is to bump the user's token_version so previously-issued
-    // tokens can't be used from another device/tab.
-    void Promise.resolve(authFetch("/users/logout", { method: "POST" })).catch(
-      (err) => console.warn("Server-side logout failed:", err),
-    );
-
-    setUserId(null);
-    setToken(null);
-    setEmail("");
-    setIsDemo(false);
-    setOnboardingCompletedState(false);
-    window.localStorage.removeItem("mealbot_token");
-    window.localStorage.removeItem("mealbot_user_id");
-    window.localStorage.removeItem("mealbot_user_email");
-    window.localStorage.removeItem("mealbot_onboarding");
-    window.localStorage.removeItem("mealbot_is_demo");
-
-    // Prevent cross-account leakage: drop cached server data and reset
-    // the persisted preferences store to defaults. Component-local state
-    // (e.g. App's openedPlan) is cleared via the userId-keyed remount in App.tsx.
-    queryClient.clear();
-    // Reset in-memory state first; clearStorage() last so the persist
-    // middleware's reset write doesn't immediately re-populate the entry.
-    usePreferencesStore.getState().reset();
-    void usePreferencesStore.persist.clearStorage();
-  };
+  const logout = useCallback(async (): Promise<void> => {
+    // Fire-and-forget server-side revocation. If the server is unreachable
+    // or returns 401, the local clear below still runs — the user must not
+    // get trapped in a "can't log out" UI state.
+    try {
+      await authFetch("/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.warn("Server-side logout failed:", err);
+    }
+    clearLocal();
+  }, [clearLocal]);
 
   useEffect(() => {
-    const handleForceLogout = () => logout();
+    // Force-logout signal from authFetch (refresh dead). We only clear the
+    // local UI state — NOT call logout() — because the server cookies are
+    // already gone, and recursing into POST /auth/logout would just race
+    // another 401 → refresh → dispatch cycle.
+    const handleForceLogout = () => clearLocal();
     window.addEventListener("mealbot:logout", handleForceLogout);
     return () => window.removeEventListener("mealbot:logout", handleForceLogout);
-    // Subscribe once for the provider's lifetime. logout() closes over stable
-    // setters + queryClient, so an empty dep array is safe and intended.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, token, email, onboardingCompleted, isDemo, demoEnabled, registrationEnabled, login, logout, setOnboardingCompleted, loginDemo, register }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, demoEnabled, registrationEnabled, login, logout, setOnboardingCompleted, loginDemo, register }}>
       {children}
     </AuthContext.Provider>
   );

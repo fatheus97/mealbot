@@ -28,17 +28,23 @@ class TestPasswordHashing:
 
 class TestAccessToken:
     def test_token_contains_correct_sub(self):
-        token = create_access_token(subject=42)
+        token = create_access_token(subject=42, sid=1)
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
         assert payload["sub"] == "42"
 
     def test_token_has_expiry(self):
-        token = create_access_token(subject=1)
+        token = create_access_token(subject=1, sid=1)
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
         assert "exp" in payload
 
+    def test_token_carries_sid_and_tv_claims(self):
+        token = create_access_token(subject=7, sid=42, token_version=3)
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        assert payload["sid"] == 42
+        assert payload["tv"] == 3
+
     def test_token_with_wrong_secret_raises(self):
-        token = create_access_token(subject=1)
+        token = create_access_token(subject=1, sid=1)
         with pytest.raises(jwt.InvalidSignatureError):
             jwt.decode(token, "wrong-secret-that-is-long-enough-for-hmac-sha256", algorithms=[ALGORITHM])
 

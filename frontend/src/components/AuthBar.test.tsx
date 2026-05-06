@@ -34,9 +34,6 @@ function createWrapper(queryClient?: QueryClient) {
   );
 }
 
-// AuthProvider mounts and calls authFetch("/config") to gate the Try Demo
-// button. Route by URL so /config gets a harmless ok response and tests can
-// stub the endpoint they actually care about without queue ordering games.
 const okEmpty = () =>
   ({
     ok: true,
@@ -44,13 +41,28 @@ const okEmpty = () =>
     json: () => Promise.resolve({}),
   }) as unknown as Response;
 
+const profile = (overrides: Record<string, unknown> = {}) => ({
+  id: 1,
+  email: 'test@x.com',
+  country: null,
+  language: 'English',
+  measurement_system: 'metric',
+  variability: 'traditional',
+  include_spices: true,
+  track_snacks: true,
+  onboarding_completed: false,
+  is_demo: false,
+  default_day_layout: null,
+  ...overrides,
+});
+
 beforeEach(() => {
   vi.stubGlobal('alert', vi.fn());
-  // Call history accumulates across tests unless cleared — tests that assert
-  // on mock.calls need a clean slate.
+  localStorage.clear();
   mockedAuthFetch.mockClear();
   mockedAuthFetch.mockImplementation((url: string) => {
     if (url === '/config') return Promise.resolve(okEmpty());
+    if (url === '/users') return Promise.resolve(okEmpty());
     return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
   });
 });
@@ -66,21 +78,14 @@ describe('AuthBar', () => {
   });
 
   it('calls login on sign in', async () => {
-    const loginResponse = {
-      access_token: 'jwt',
-      token_type: 'bearer',
-      user_id: 1,
-      email: 'test@x.com',
-      onboarding_completed: false,
-    };
-
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') return Promise.resolve(okEmpty());
-      if (url === '/users/login') {
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => Promise.resolve(loginResponse),
+          json: () => Promise.resolve(profile({ id: 1, email: 'test@x.com' })),
         } as unknown as Response);
       }
       return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
@@ -94,12 +99,11 @@ describe('AuthBar', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(localStorage.getItem('mealbot_token')).toBe('jwt');
+      expect(localStorage.getItem('mealbot_user_id')).toBe('1');
     });
   });
 
-  it('shows email and logout when logged in', () => {
-    localStorage.setItem('mealbot_token', 'tok');
+  it('shows email and logout when logged in (localStorage hint)', () => {
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user@test.com');
 
@@ -111,27 +115,37 @@ describe('AuthBar', () => {
   });
 
   it('logout clears state', async () => {
-    localStorage.setItem('mealbot_token', 'tok');
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user@test.com');
+
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/logout') {
+        return Promise.resolve({ ok: true, status: 204 } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
 
     const user = userEvent.setup();
     render(<AuthBar />, { wrapper: createWrapper() });
 
     await user.click(screen.getByRole('button', { name: /logout/i }));
 
-    expect(screen.getByText('Login')).toBeInTheDocument();
-    expect(localStorage.getItem('mealbot_token')).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByText('Login')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('mealbot_user_id')).toBeNull();
   });
 
-  it('logout POSTs to /users/logout for server-side token revocation', async () => {
-    localStorage.setItem('mealbot_token', 'tok');
+  it('logout POSTs to /auth/logout for server-side session revocation', async () => {
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user@test.com');
 
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') return Promise.resolve(okEmpty());
-      if (url === '/users/logout') {
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/logout') {
         return Promise.resolve({ ok: true, status: 204 } as unknown as Response);
       }
       return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
@@ -143,23 +157,23 @@ describe('AuthBar', () => {
     await user.click(screen.getByRole('button', { name: /logout/i }));
 
     const logoutCalls = mockedAuthFetch.mock.calls.filter(
-      (c) => c[0] === '/users/logout',
+      (c) => c[0] === '/auth/logout',
     );
     expect(logoutCalls).toHaveLength(1);
     expect(logoutCalls[0][1]).toMatchObject({ method: 'POST' });
-    expect(localStorage.getItem('mealbot_token')).toBeNull();
+    await waitFor(() => {
+      expect(localStorage.getItem('mealbot_user_id')).toBeNull();
+    });
   });
 
   it('logout still clears local state when server revocation call fails', async () => {
-    // The server call is best-effort: network failure must not trap a user
-    // in a "logged in" state locally.
-    localStorage.setItem('mealbot_token', 'tok');
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user@test.com');
 
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') return Promise.resolve(okEmpty());
-      if (url === '/users/logout') {
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/logout') {
         return Promise.reject(new Error('network down'));
       }
       return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
@@ -170,15 +184,15 @@ describe('AuthBar', () => {
 
     await user.click(screen.getByRole('button', { name: /logout/i }));
 
-    expect(screen.getByText('Login')).toBeInTheDocument();
-    expect(localStorage.getItem('mealbot_token')).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByText('Login')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('mealbot_user_id')).toBeNull();
   });
 
   it('hides Register button when registration_enabled=false', async () => {
-    // Default /config mock in beforeEach returns {} — no registration_enabled.
     render(<AuthBar />, { wrapper: createWrapper() });
 
-    // Still render the login inputs so we don't confuse the assertion.
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Email')).toBeInTheDocument();
     });
@@ -188,14 +202,6 @@ describe('AuthBar', () => {
   });
 
   it('shows Register button when registration_enabled=true and auto-logs in after register', async () => {
-    const loginResponse = {
-      access_token: 'jwt-reg',
-      token_type: 'bearer',
-      user_id: 9,
-      email: 'new@x.com',
-      onboarding_completed: false,
-    };
-
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') {
         return Promise.resolve({
@@ -204,6 +210,7 @@ describe('AuthBar', () => {
           json: () => Promise.resolve({ registration_enabled: true }),
         } as unknown as Response);
       }
+      if (url === '/users') return Promise.resolve(okEmpty());
       if (url === '/users/register') {
         return Promise.resolve({
           ok: true,
@@ -211,11 +218,11 @@ describe('AuthBar', () => {
           json: () => Promise.resolve({ message: 'Registered' }),
         } as unknown as Response);
       }
-      if (url === '/users/login') {
+      if (url === '/auth/login') {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => Promise.resolve(loginResponse),
+          json: () => Promise.resolve(profile({ id: 9, email: 'new@x.com' })),
         } as unknown as Response);
       }
       return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
@@ -231,18 +238,15 @@ describe('AuthBar', () => {
     await user.click(registerBtn);
 
     await waitFor(() => {
-      expect(localStorage.getItem('mealbot_token')).toBe('jwt-reg');
+      expect(localStorage.getItem('mealbot_user_id')).toBe('9');
     });
 
     const callUrls = mockedAuthFetch.mock.calls.map((c) => c[0] as string);
     expect(callUrls).toContain('/users/register');
-    expect(callUrls).toContain('/users/login');
+    expect(callUrls).toContain('/auth/login');
   });
 
   it('shows "account created" message when registration succeeds but auto-login fails', async () => {
-    // The account was created but the follow-up /users/login got throttled
-    // or 5xx'd. The user must NOT see "registration failed" — they'd try
-    // again and hit a 409 on the duplicate email.
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') {
         return Promise.resolve({
@@ -251,6 +255,7 @@ describe('AuthBar', () => {
           json: () => Promise.resolve({ registration_enabled: true }),
         } as unknown as Response);
       }
+      if (url === '/users') return Promise.resolve(okEmpty());
       if (url === '/users/register') {
         return Promise.resolve({
           ok: true,
@@ -258,7 +263,7 @@ describe('AuthBar', () => {
           json: () => Promise.resolve({ message: 'Registered' }),
         } as unknown as Response);
       }
-      if (url === '/users/login') {
+      if (url === '/auth/login') {
         return Promise.resolve({
           ok: false,
           status: 429,
@@ -277,14 +282,15 @@ describe('AuthBar', () => {
 
     const banner = await screen.findByRole('alert');
     expect(banner.textContent).toMatch(/account created/i);
-    // No token — the login phase failed.
-    expect(localStorage.getItem('mealbot_token')).toBeNull();
+    // No userId — the login phase failed.
+    expect(localStorage.getItem('mealbot_user_id')).toBeNull();
   });
 
   it('clears authError on next input change (stale-error UX guard)', async () => {
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') return Promise.resolve(okEmpty());
-      if (url === '/users/login') {
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
         return Promise.resolve({
           ok: false,
           status: 401,
@@ -301,20 +307,13 @@ describe('AuthBar', () => {
     await user.type(screen.getByPlaceholderText('Password'), 'wrong');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
-    // Error shows.
     expect(await screen.findByRole('alert')).toBeInTheDocument();
 
-    // User fixes the typo — the stale error should disappear as soon as
-    // they touch an input, not linger until the next submit.
     await user.type(screen.getByPlaceholderText('Password'), 'x');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('hides closed-alpha notice until /config resolves (no flash)', async () => {
-    // Deployments with registration_enabled=true must not briefly render
-    // the "closed alpha" notice during the /config round-trip. Initial
-    // state is null, so neither "Register" button nor the notice render
-    // until we know which one is correct.
     let resolveConfig: (r: unknown) => void = () => {};
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') {
@@ -322,12 +321,12 @@ describe('AuthBar', () => {
           resolveConfig = res;
         });
       }
+      if (url === '/users') return Promise.resolve(okEmpty());
       return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
     });
 
     render(<AuthBar />, { wrapper: createWrapper() });
 
-    // /config is in-flight — neither banner nor Register button visible.
     expect(screen.queryByText(/closed alpha/i)).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /^register$/i }),
@@ -339,7 +338,6 @@ describe('AuthBar', () => {
       json: () => Promise.resolve({ registration_enabled: true }),
     });
 
-    // Register button appears; closed-alpha notice never did.
     expect(
       await screen.findByRole('button', { name: /^register$/i }),
     ).toBeInTheDocument();
@@ -355,6 +353,7 @@ describe('AuthBar', () => {
           json: () => Promise.resolve({ registration_enabled: true }),
         } as unknown as Response);
       }
+      if (url === '/users') return Promise.resolve(okEmpty());
       if (url === '/users/register') {
         return Promise.resolve({
           ok: false,
@@ -374,7 +373,7 @@ describe('AuthBar', () => {
 
     const banner = await screen.findByRole('alert');
     expect(banner.textContent).toMatch(/registration failed/i);
-    expect(localStorage.getItem('mealbot_token')).toBeNull();
+    expect(localStorage.getItem('mealbot_user_id')).toBeNull();
   });
 
   it('blocks short-password register client-side before hitting the backend', async () => {
@@ -386,6 +385,7 @@ describe('AuthBar', () => {
           json: () => Promise.resolve({ registration_enabled: true }),
         } as unknown as Response);
       }
+      if (url === '/users') return Promise.resolve(okEmpty());
       return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
     });
 
@@ -398,7 +398,6 @@ describe('AuthBar', () => {
 
     const banner = await screen.findByRole('alert');
     expect(banner.textContent).toMatch(/at least 8/i);
-    // No /users/register call should have fired — the guard short-circuits.
     const registerCalls = mockedAuthFetch.mock.calls.filter(
       (c) => c[0] === '/users/register',
     );
@@ -406,15 +405,12 @@ describe('AuthBar', () => {
   });
 
   it('shows inline error on login failure (no window.alert)', async () => {
-    // A login failure must surface via an accessible inline banner, not a
-    // blocking window.alert dialog. Regression guard — the component used
-    // to call alert() which is a screen-reader antipattern and traps the
-    // user until dismissed.
     const alertSpy = vi.spyOn(window, 'alert');
 
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') return Promise.resolve(okEmpty());
-      if (url === '/users/login') {
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
         return Promise.resolve({
           ok: false,
           status: 401,
@@ -447,7 +443,8 @@ describe('AuthBar', () => {
           json: () => Promise.resolve({ demo_mode: true }),
         } as unknown as Response);
       }
-      if (url === '/demo/session') {
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/demo') {
         return Promise.resolve({
           ok: false,
           status: 503,
@@ -469,16 +466,22 @@ describe('AuthBar', () => {
   });
 
   it('logout clears query cache and resets persisted preferences (cross-account leak guard)', async () => {
-    localStorage.setItem('mealbot_token', 'tok');
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user-a@test.com');
 
-    // Seed user-A preferences (would otherwise persist into user-B's session).
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/logout') {
+        return Promise.resolve({ ok: true, status: 204 } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
     usePreferencesStore.getState().setDietType('vegan');
     usePreferencesStore.getState().setTastePreferences('private taste notes');
     usePreferencesStore.getState().setAvoidIngredients('peanuts');
 
-    // Seed query cache with user-A's plan list.
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -490,8 +493,11 @@ describe('AuthBar', () => {
 
     await user.click(screen.getByRole('button', { name: /logout/i }));
 
+    await waitFor(() => {
+      const prefs = usePreferencesStore.getState();
+      expect(prefs.dietType).toBe(DEFAULT_PREFERENCES.dietType);
+    });
     const prefs = usePreferencesStore.getState();
-    expect(prefs.dietType).toBe(DEFAULT_PREFERENCES.dietType);
     expect(prefs.tastePreferences).toBe(DEFAULT_PREFERENCES.tastePreferences);
     expect(prefs.avoidIngredients).toBe(DEFAULT_PREFERENCES.avoidIngredients);
     expect(localStorage.getItem('mealbot-preferences')).toBeNull();

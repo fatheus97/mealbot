@@ -1,13 +1,10 @@
-import hashlib
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.api.deps import get_current_user
 from app.core.config import settings
@@ -15,10 +12,10 @@ from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.meal_types import MealType
 from app.core.rate_limit import limiter
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
-from app.models.user_schemas import MessageResponse, Token, UserCreate, UserRead, UserUpdate
+from app.models.user_schemas import MessageResponse, UserCreate, UserRead, UserUpdate
 
 _VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
 
@@ -41,13 +38,6 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 _ALLOWED_MEASUREMENT = {"none", "metric", "imperial"}
 _ALLOWED_VARIABILITY = {"traditional", "experimental"}
-
-
-def _email_fingerprint(email: str) -> str:
-    """Short non-reversible id for an email. Logged on auth failures so we can
-    correlate brute-force attempts without writing plaintext addresses to logs.
-    """
-    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:12]
 
 
 def _to_read(u: User) -> UserRead:
@@ -103,67 +93,6 @@ async def register_user(
 
     logger.info("user_registered user_id=%s", db_user.id)
     return MessageResponse(message="User created successfully. Please log in.")
-
-
-# //api/users/login
-@router.post("/login", response_model=Token,)
-@limiter.limit("10/minute")
-async def login(
-    request: Request,
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    session: AsyncSession = Depends(get_session)
-) -> Token:
-    """
-    Standard OAuth2 Login endpoint.
-    Expects 'username' (which we map to email) and 'password' as form data.
-    """
-    # 1. Find the user by email (OAuth2 uses the 'username' field)
-    statement = select(User).where(User.email == form_data.username)
-    result = await session.execute(statement)
-    user = result.scalars().first()
-
-    # 2. Verify existence and password
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        logger.warning(
-            "login_failed email_fp=%s", _email_fingerprint(form_data.username),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # 3. Generate the JWT (user exists and was fetched from DB, so id is always set)
-    if user.id is None:
-        raise HTTPException(status_code=500, detail="Invalid user state")
-    access_token = create_access_token(subject=user.id, token_version=user.token_version)
-    logger.info("login_success user_id=%s", user.id)
-
-    # 4. Return the Token schema
-    return Token(
-        access_token=access_token,
-        token_type="bearer",
-        user_id=user.id,
-        email=user.email,
-        onboarding_completed=bool(user.onboarding_completed),
-        is_demo=bool(user.is_demo),
-    )
-
-
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> None:
-    """
-    Revoke all outstanding JWTs for the caller by bumping their token_version.
-    The next request with any previously-issued token will 401.
-    """
-    current_user.token_version += 1
-    session.add(current_user)
-    await session.commit()
-    logger.info("logout user_id=%s", current_user.id)
-    return None
 
 
 @router.get(path="", response_model=UserRead)

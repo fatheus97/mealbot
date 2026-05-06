@@ -63,7 +63,20 @@ class Settings(BaseSettings):
 
     registration_enabled: bool = False
 
-    access_token_expire_minutes: int = 60 * 24  # 24 hours
+    # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
+    # window of a stolen access token; refresh keeps active sessions alive
+    # without re-prompting the user.
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 30
+
+    # Cookie attributes — apply to mealbot_at, mealbot_rt, mealbot_csrf.
+    # secure=True requires HTTPS at the browser. Same-origin in dev (Vite
+    # proxy) means SameSite=Lax is sufficient — no need for SameSite=None.
+    cookie_secure: bool = True
+    cookie_samesite: str = "lax"
+
+    # Double-submit-cookie CSRF middleware. Off only as an emergency lever.
+    csrf_enabled: bool = True
 
     db_echo: bool = False
 

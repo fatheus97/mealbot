@@ -4,6 +4,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.core.config import settings
+from app.core.cookies import ACCESS_COOKIE_NAME
 from app.core.security import ALGORITHM
 
 limiter = Limiter(key_func=get_remote_address)
@@ -11,7 +12,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 def user_id_key_func(request: Request) -> str:
     """Rate-limit key for authenticated endpoints: JWT subject when a valid
-    Bearer token is present, remote IP otherwise.
+    access cookie is present, remote IP otherwise.
 
     Why: households / office networks sharing one egress IP were colliding
     into a single rate-limit bucket and tripping each other's limits. Keying
@@ -32,9 +33,8 @@ def user_id_key_func(request: Request) -> str:
     at token TTL. Accepted trade-off — the alternative is a DB roundtrip per
     request on the limiter hot path.
     """
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth[7:]
+    token = request.cookies.get(ACCESS_COOKIE_NAME)
+    if token:
         try:
             payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
             sub = payload.get("sub")

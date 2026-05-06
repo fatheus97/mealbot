@@ -12,33 +12,76 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
-export async function authFetch(endpoint: string, options: RequestInit = {}) {
-  // 1. Grab the token we saved during login
-  const token = localStorage.getItem("mealbot_token");
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const CSRF_COOKIE_NAME = "mealbot_csrf";
 
-  // 2. Set up default headers (skip Content-Type for FormData — browser sets multipart boundary)
+function readCsrfCookie(): string | null {
+  // Non-HttpOnly cookie set by /auth/login + /auth/refresh + /auth/demo.
+  // Mirrored back as X-CSRF-Token on mutations (double-submit cookie pattern).
+  const match = document.cookie.match(
+    new RegExp(`(?:^|;\\s*)${CSRF_COOKIE_NAME}=([^;]+)`),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+// Single-flight refresh so N concurrent 401s share one /auth/refresh call.
+// Without this, the very first action after access expiry would issue N
+// refreshes in parallel — every one rotates the chain, all but the last
+// look like reuse, and the user gets force-logged-out.
+let refreshPromise: Promise<boolean> | null = null;
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    } finally {
+      // Reset AFTER the awaiters have resolved so a new burst can start fresh.
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
+export async function authFetch(
+  endpoint: string,
+  options: RequestInit = {},
+  _retry = false,
+): Promise<Response> {
   const isFormData = options.body instanceof FormData;
+  const method = (options.method ?? "GET").toUpperCase();
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
-    ...(options.headers as Record<string, string> || {}),
+    ...(options.headers as Record<string, string>) || {},
   };
 
-  // 3. Attach the token if it exists
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (!SAFE_METHODS.has(method)) {
+    const csrf = readCsrfCookie();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
   }
 
-  // 4. Make the request
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
+    method,
+    credentials: "include",
     headers,
   });
 
-  // 5. Global error handling for expired tokens
-  if (response?.status === 401) {
-    localStorage.removeItem("mealbot_token");
-    localStorage.removeItem("mealbot_user_id");
-    localStorage.removeItem("mealbot_user_email");
+  // Auth endpoints handle their own 401 semantics — recursing into refresh
+  // here would either loop (refresh → 401 → refresh) or paper over a real
+  // login failure with a refresh attempt.
+  if (response.status === 401 && !_retry && !endpoint.startsWith("/auth/")) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return authFetch(endpoint, options, true);
+    }
+    // Refresh dead — server-side session is gone. Tell the SPA to drop UI state.
     window.dispatchEvent(new Event("mealbot:logout"));
   }
 

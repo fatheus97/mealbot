@@ -157,20 +157,27 @@ export interface StockItem {
   expiration_date?: string | null;
 }
 
-export interface LoginResponse {
-  access_token: string;
-  token_type: string;
-  user_id: number;
+// Server-side response of POST /api/auth/login (and /demo). Same shape as
+// GET /api/users — the SPA stores the relevant fields and lets the user
+// keep working without a follow-up profile fetch.
+export interface AuthLoginResponse {
+  id: number;
   email: string;
+  country: string | null;
+  language: string;
+  measurement_system: MeasurementSystem;
+  variability: Variability;
+  include_spices: boolean;
+  track_snacks: boolean;
   onboarding_completed: boolean;
   is_demo: boolean;
+  default_day_layout: MealType[] | null;
 }
 
 export interface AuthState {
   userId: number | null;
-  token: string | null; // <-- NEW: Added token to state
   email: string;
-  onboardingCompleted: boolean; // <-- NEW: Track onboarding state
+  onboardingCompleted: boolean;
   isDemo: boolean;
   // null until /api/config resolves, then boolean. Using null as the
   // unresolved sentinel lets the UI avoid a flash of the wrong copy
@@ -178,11 +185,11 @@ export interface AuthState {
   // resolves to true).
   demoEnabled: boolean | null;
   registrationEnabled: boolean | null;
-  login: (email: string, password: string) => Promise<LoginResponse>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   setOnboardingCompleted: (value: boolean) => void;
   loginDemo: () => Promise<void>;
-  register: (email: string, password: string) => Promise<LoginResponse>;
+  register: (email: string, password: string) => Promise<void>;
 }
 
 export interface UserProfile {

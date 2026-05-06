@@ -1,4 +1,6 @@
+import hashlib
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
@@ -35,18 +37,50 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(
     subject: int | str,
-    expire_minutes: int | None = None,
+    sid: int,
     token_version: int = 0,
+    expire_minutes: int | None = None,
 ) -> str:
     """
-    Generates a JWT token containing the user's ID as the 'sub' (subject) and
-    the user's current token_version as the 'tv' claim. Requests carrying a
-    token whose 'tv' doesn't match the user's current token_version are
-    rejected (see app.api.deps.get_current_user) — this is how logout
-    invalidates all outstanding tokens for a user server-side.
+    Generates a short-lived JWT bound to a specific auth session ("sid" claim)
+    and the user's current token_version ("tv" claim).
+
+    - "tv" mismatch → token rejected (logout-all, password change, etc.).
+    - "sid" identifies which AuthSession (device) this token came from. We do
+      NOT query the DB on each request to validate sid against revoked_at —
+      the short access TTL (15 min default) is the bound on a stolen access
+      token. Per-device revocation kicks in at the next refresh, where the
+      session row IS checked.
     """
     minutes = expire_minutes if expire_minutes is not None else settings.access_token_expire_minutes
     expire = datetime.now(UTC) + timedelta(minutes=minutes)
-    to_encode = {"exp": expire, "sub": str(subject), "tv": token_version}
+    to_encode: dict[str, object] = {
+        "exp": expire,
+        "sub": str(subject),
+        "tv": token_version,
+        "sid": sid,
+    }
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def create_refresh_token() -> tuple[str, str]:
+    """Mint a fresh opaque refresh token.
+
+    Returns (plaintext, sha256_hex). Send plaintext to the client (cookie),
+    store the hex digest in the DB. The DB never sees plaintext, so a leaked
+    dump can't be used to forge requests.
+    """
+    plaintext = secrets.token_urlsafe(32)
+    return plaintext, hash_refresh_token(plaintext)
+
+
+def hash_refresh_token(token: str) -> str:
+    """Stable digest used to look up an AuthSession by its refresh token."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def generate_csrf_token() -> str:
+    """Random opaque value mirrored into the mealbot_csrf cookie + the
+    X-CSRF-Token header (double-submit-cookie pattern). Not stored server-side."""
+    return secrets.token_urlsafe(32)

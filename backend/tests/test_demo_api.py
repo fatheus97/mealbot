@@ -1,4 +1,4 @@
-"""Tests for POST /api/demo/session — ephemeral user creation and expiry cleanup."""
+"""Tests for POST /api/auth/demo — ephemeral user creation and expiry cleanup."""
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
 from app.models.db_models import StockItem, User
 
 
@@ -82,10 +83,12 @@ class TestDemoSession:
         self, unauthed_client: AsyncClient, db_session: AsyncSession
     ) -> None:
         with patch("app.core.config.settings.demo_mode", True):
-            resp = await unauthed_client.post("/api/demo/session")
+            resp = await unauthed_client.post("/api/auth/demo")
         assert resp.status_code == 200
         body = resp.json()
-        assert "access_token" in body
+        # Cookies set, not access_token in body.
+        assert ACCESS_COOKIE_NAME in unauthed_client.cookies
+        assert REFRESH_COOKIE_NAME in unauthed_client.cookies
         assert body["is_demo"] is True
         assert body["email"].startswith("demo+")
 
@@ -102,34 +105,25 @@ class TestDemoSession:
         self, unauthed_client: AsyncClient, db_session: AsyncSession
     ) -> None:
         with patch("app.core.config.settings.demo_mode", True):
-            r1 = await unauthed_client.post("/api/demo/session")
-            r2 = await unauthed_client.post("/api/demo/session")
+            r1 = await unauthed_client.post("/api/auth/demo")
+            r2 = await unauthed_client.post("/api/auth/demo")
         assert r1.json()["email"] != r2.json()["email"]
-        assert r1.json()["user_id"] != r2.json()["user_id"]
+        assert r1.json()["id"] != r2.json()["id"]
 
     async def test_demo_mode_disabled_returns_404(self, unauthed_client: AsyncClient) -> None:
         with patch("app.core.config.settings.demo_mode", False):
-            resp = await unauthed_client.post("/api/demo/session")
+            resp = await unauthed_client.post("/api/auth/demo")
         assert resp.status_code == 404
 
-    async def test_token_expires_in_approx_2h(self, unauthed_client: AsyncClient) -> None:
-        import time
-
-        import jwt as pyjwt
-
-        from app.core.config import settings
-        with patch("app.core.config.settings.demo_mode", True):
-            resp = await unauthed_client.post("/api/demo/session")
-        token = resp.json()["access_token"]
-        payload = pyjwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        seconds_until_exp = payload["exp"] - int(time.time())
-        assert abs(seconds_until_exp - 7200) < 60
+    # Demo session refresh-row expiry is asserted in
+    # tests/test_auth_api.py::TestDemoSession::test_demo_session_capped_at_demo_session_expire,
+    # which goes through the cookie-aware AsyncClient. No duplicate here.
 
     async def test_expired_demo_users_cleaned_up_on_next_session(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
     ) -> None:
         with patch("app.core.config.settings.demo_mode", True):
-            await unauthed_client.post("/api/demo/session")
+            await unauthed_client.post("/api/auth/demo")
 
         # Back-date the existing demo user so it looks expired
         result = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712
@@ -142,7 +136,7 @@ class TestDemoSession:
 
         # Next session call should sweep the old user and create a fresh one
         with patch("app.core.config.settings.demo_mode", True):
-            resp = await unauthed_client.post("/api/demo/session")
+            resp = await unauthed_client.post("/api/auth/demo")
         assert resp.status_code == 200
 
         result2 = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712

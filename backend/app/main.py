@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.cookbook import router as cookbook_router
-from app.api.demo import router as demo_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
 from app.api.plan import router as plan_router
@@ -18,6 +18,7 @@ from app.api.recipe import router as recipe_router
 from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.country_whitelist import SUPPORTED_COUNTRIES
+from app.core.csrf import csrf_middleware
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
 from app.core.rate_limit import limiter
 from app.core.security_headers import security_headers_middleware
@@ -55,6 +56,7 @@ app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
 app.middleware("http")(security_headers_middleware)
+app.middleware("http")(csrf_middleware)
 
 
 @app.middleware("http")
@@ -78,7 +80,7 @@ app.add_middleware(
     allow_origins=[o.strip() for o in settings.allowed_origins.split(",")],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Content-Type", "X-CSRF-Token"],
 )
 
 
@@ -151,7 +153,7 @@ app.include_router(plan_router, prefix="/api")
 app.include_router(fridge_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
-app.include_router(demo_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 app.include_router(recipe_router, prefix="/api")
 app.include_router(cookbook_router, prefix="/api")
 
