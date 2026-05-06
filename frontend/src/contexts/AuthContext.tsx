@@ -129,7 +129,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (!resp.ok) throw new Error(`Login failed: ${resp.status}`);
     const profile = (await resp.json()) as AuthLoginResponse;
-    applyProfile(profile, false);
+    // Trust the server's is_demo (same call shape as bootstrap above) so all
+    // three entry paths — bootstrap, login, loginDemo — use the same source
+    // of truth. /auth/login never produces a demo account today, but this
+    // keeps future endpoint changes from quietly desyncing the UI flag.
+    applyProfile(profile, Boolean(profile.is_demo));
   }, [applyProfile]);
 
   const register = useCallback(async (newEmail: string, password: string): Promise<void> => {
@@ -161,7 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const resp = await authFetch("/auth/demo", { method: "POST" });
     if (!resp.ok) throw new Error(`Demo session failed: ${resp.status}`);
     const profile = (await resp.json()) as AuthLoginResponse;
-    applyProfile(profile, true);
+    applyProfile(profile, Boolean(profile.is_demo));
   }, [applyProfile]);
 
   const logout = useCallback(async (): Promise<void> => {

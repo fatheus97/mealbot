@@ -273,6 +273,7 @@ async def refresh(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("20/minute")
 async def logout(
     request: Request,
     response: Response,
@@ -299,7 +300,9 @@ async def logout(
 
 
 @router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("20/minute")
 async def logout_all(
+    request: Request,
     response: Response,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
