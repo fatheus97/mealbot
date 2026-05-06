@@ -98,8 +98,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Guards against a misrouted response (test mocks, future endpoint
           // moves) clobbering state with garbage.
           if (profile && typeof profile.id === "number" && typeof profile.email === "string") {
-            const wasDemo = window.localStorage.getItem("mealbot_is_demo") === "true";
-            applyProfile(profile, wasDemo);
+            // Trust the server's is_demo over the localStorage hint — the
+            // hint can be wiped (privacy mode, selective cookie clearing)
+            // while the cookie survives, and bootstrapping a demo account
+            // as a non-demo skews UI gating.
+            applyProfile(profile, Boolean(profile.is_demo));
           }
         })
         .catch(() => {

@@ -117,6 +117,11 @@ async def _issue_session_and_set_cookies(
         access_token=access,
         refresh_token=refresh_plain,
         csrf_token=csrf,
+        # Match cookie max_age to the server-side session expiry so the
+        # browser drops the cookie when the row would no longer be honoured.
+        # Critical for demo sessions (2h server-side TTL would otherwise be
+        # paired with a 30-day cookie max_age and yield 401-loops).
+        refresh_max_age_seconds=ttl,
     )
     return auth_session
 
@@ -187,9 +192,40 @@ async def refresh(
     revoked_at = _ensure_aware(auth_session.revoked_at) if auth_session.revoked_at else None
 
     if revoked_at is not None:
-        # Reuse of a rotated refresh token = theft signal. Revoke the whole
-        # user's sessions and bump token_version to also kill any access
-        # tokens still inside their TTL window.
+        # Distinguish a benign multi-tab race from real refresh-token theft.
+        # Two tabs with synchronised expired access tokens both call
+        # /auth/refresh; one rotates first, the other arrives milliseconds
+        # later and sees the row already revoked. Within the grace window
+        # (and only if the row was actually rotated, not revoked by logout
+        # / theft), mint the loser a parallel session instead of revoking
+        # everything.
+        grace_window = timedelta(seconds=settings.refresh_grace_seconds)
+        if (
+            auth_session.replaced_by_id is not None
+            and (now - revoked_at) <= grace_window
+        ):
+            user_for_grace = await session.get(User, auth_session.user_id)
+            if user_for_grace is None:
+                clear_auth_cookies(response)
+                raise HTTPException(status_code=401, detail="User no longer exists")
+            grace_ttl = _refresh_ttl_for_user(user_for_grace, expires_at, now)
+            grace_session = await _issue_session_and_set_cookies(
+                response=response,
+                session=session,
+                user=user_for_grace,
+                user_agent=request.headers.get("user-agent"),
+                refresh_ttl_seconds=grace_ttl,
+            )
+            await session.commit()
+            logger.info(
+                "refresh_grace_collision user_id=%s old_sid=%s new_sid=%s",
+                auth_session.user_id, auth_session.id, grace_session.id,
+            )
+            return None
+
+        # Outside the grace window — treat as theft. Revoke everything for
+        # this user and bump token_version so in-flight access tokens die
+        # too.
         logger.warning(
             "refresh_reuse_detected user_id=%s session_id=%s",
             auth_session.user_id, auth_session.id,
@@ -214,13 +250,7 @@ async def refresh(
         clear_auth_cookies(response)
         raise HTTPException(status_code=401, detail="User no longer exists")
 
-    # Demo sessions: cap the new session's expiry to the original session's
-    # remaining lifetime so a demo user can't extend past demo_session_expire.
-    refresh_ttl_seconds: int | None = None
-    if user.is_demo:
-        remaining = int((expires_at - now).total_seconds())
-        # Don't let the new session outlive the old one's TTL.
-        refresh_ttl_seconds = max(remaining, 60)
+    refresh_ttl_seconds = _refresh_ttl_for_user(user, expires_at, now)
 
     new_session = await _issue_session_and_set_cookies(
         response=response,
@@ -329,6 +359,22 @@ async def _revoke_all_user_sessions(
         .where(AuthSession.revoked_at.is_(None))  # type: ignore[union-attr]
         .values(revoked_at=now)
     )
+
+
+def _refresh_ttl_for_user(
+    user: User, current_session_expires_at: datetime, now: datetime,
+) -> int | None:
+    """Compute the new refresh-session TTL on rotation.
+
+    Demo users are capped to the remaining lifetime of the original session
+    so they can't extend past demo_session_expire_minutes. Floored at 1s
+    because expires_at <= now is rejected earlier; we just need a positive
+    value here. Non-demo users use the global default (None signals that).
+    """
+    if not user.is_demo:
+        return None
+    remaining = int((current_session_expires_at - now).total_seconds())
+    return max(remaining, 1)
 
 
 def _ensure_aware(dt: datetime) -> datetime:

@@ -31,10 +31,13 @@ _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # bootstrap the cookie; refresh runs cross-tab/restart paths where cookies
 # are present but we don't want a brittle dependency on the CSRF cookie
 # surviving every browser quirk — SameSite=Lax + an HttpOnly refresh cookie
-# is the relevant defence here.
+# is the relevant defence here. Logout is exempt for the same reason: a
+# stale or missing CSRF cookie must not 403 the call and leave an orphan
+# session row server-side.
 _CSRF_EXEMPT_PATHS = frozenset({
     "/api/auth/login",
     "/api/auth/refresh",
+    "/api/auth/logout",
     "/api/auth/demo",
     "/api/users/register",
 })

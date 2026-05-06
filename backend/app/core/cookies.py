@@ -30,11 +30,17 @@ def set_access_cookie(response: Response, token: str) -> None:
     )
 
 
-def set_refresh_cookie(response: Response, token: str) -> None:
+def set_refresh_cookie(
+    response: Response, token: str, max_age_seconds: int | None = None,
+) -> None:
     response.set_cookie(
         key=REFRESH_COOKIE_NAME,
         value=token,
-        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        max_age=(
+            max_age_seconds
+            if max_age_seconds is not None
+            else settings.refresh_token_expire_days * 24 * 60 * 60
+        ),
         httponly=True,
         secure=settings.cookie_secure,
         samesite=settings.cookie_samesite,  # type: ignore[arg-type]
@@ -42,13 +48,19 @@ def set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
-def set_csrf_cookie(response: Response, token: str) -> None:
+def set_csrf_cookie(
+    response: Response, token: str, max_age_seconds: int | None = None,
+) -> None:
     # NOT HttpOnly — the SPA reads this value and mirrors it back as the
     # X-CSRF-Token header on mutations (double-submit cookie pattern).
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=token,
-        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        max_age=(
+            max_age_seconds
+            if max_age_seconds is not None
+            else settings.refresh_token_expire_days * 24 * 60 * 60
+        ),
         httponly=False,
         secure=settings.cookie_secure,
         samesite=settings.cookie_samesite,  # type: ignore[arg-type]
@@ -62,10 +74,17 @@ def set_auth_cookies(
     access_token: str,
     refresh_token: str,
     csrf_token: str,
+    refresh_max_age_seconds: int | None = None,
 ) -> None:
+    """Set all three auth cookies. `refresh_max_age_seconds` controls the
+    browser-side lifetime of the refresh + CSRF cookies (typically equals
+    the server-side AuthSession.expires_at offset). When None, defaults to
+    the global refresh TTL — long-lived for normal users, but demo sessions
+    pass an explicit shorter value so the browser drops the cookies in lock-
+    step with the server-side expiry."""
     set_access_cookie(response, access_token)
-    set_refresh_cookie(response, refresh_token)
-    set_csrf_cookie(response, csrf_token)
+    set_refresh_cookie(response, refresh_token, max_age_seconds=refresh_max_age_seconds)
+    set_csrf_cookie(response, csrf_token, max_age_seconds=refresh_max_age_seconds)
 
 
 def clear_auth_cookies(response: Response) -> None:
