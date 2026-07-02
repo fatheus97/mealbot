@@ -12,6 +12,7 @@ import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
+import { CookMode } from "./recipe/CookMode";
 import {
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
@@ -24,6 +25,11 @@ import type {
   PlannedMeal,
   SingleRecipeRequest,
 } from "../types";
+
+// Cook Now has a single transient recipe on screen, so one fixed cook-mode
+// storage key is enough — it's cleared whenever a new recipe is generated or
+// once a cook succeeds.
+const COOKNOW_COOK_KEY = "cookmode:cooknow";
 
 // Cook Now: one-shot single-recipe generator. The saved recipe carries its
 // full PlannedMeal through /recipe/cook so the server doesn't re-invoke the
@@ -55,6 +61,8 @@ export function CookNowForm() {
   // is cooked or saved — editing local state after either would silently
   // diverge from the persisted MealEntry.
   const [editing, setEditing] = useState(false);
+  // Real-time cooking checklist open on the generated recipe.
+  const [cooking, setCooking] = useState(false);
   // Track the request that produced `recipe` so /recipe/cook gets the same
   // context (server re-validates meal_type match). Resetting the form while
   // a recipe is on screen keeps the old pendingRequest until a new generate.
@@ -87,6 +95,13 @@ export function CookNowForm() {
     setCookedEntry(null);
     setSavedEntry(null);
     setEditing(false);
+    setCooking(false);
+    // Drop any half-finished checklist from a previous recipe.
+    try {
+      localStorage.removeItem(COOKNOW_COOK_KEY);
+    } catch {
+      // ignore — storage unavailable
+    }
     setPendingRequest(req);
     generateMutation.mutate(req, {
       onSuccess: (data) => setRecipe(data.recipe),
@@ -104,6 +119,14 @@ export function CookNowForm() {
         // separate entry — the saved one keeps its own state.
         if (!savedEntry) {
           setSavedEntry({ id: entry.id, isFavorite: entry.is_favorite });
+        }
+        // Close cook mode + drop its saved checklist only now that the server
+        // confirmed — a failed cook leaves the overlay open for a retry.
+        setCooking(false);
+        try {
+          localStorage.removeItem(COOKNOW_COOK_KEY);
+        } catch {
+          // ignore
         }
       },
     });
@@ -297,7 +320,7 @@ export function CookNowForm() {
                 )}
               </div>
             </div>
-            {editing ? null : cookedEntry ? (
+            {editing || cooking ? null : cookedEntry ? (
               <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Cooked</span>
             ) : (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
@@ -315,6 +338,26 @@ export function CookNowForm() {
                     }}
                   >
                     Edit
+                  </button>
+                )}
+                {recipe.steps.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      cookMutation.reset(); // clear any prior cook error so it can't bleed into this session
+                      setEditing(false);
+                      setCooking(true);
+                    }}
+                    style={{
+                      padding: "0.5rem 1rem",
+                      backgroundColor: "#fff",
+                      color: "#16a34a",
+                      border: "1px solid #16a34a",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Start cooking
                   </button>
                 )}
                 <button
@@ -356,6 +399,23 @@ export function CookNowForm() {
 
               <RecipeSteps steps={recipe.steps} />
             </>
+          )}
+
+          {/* Fullscreen cooking overlay (portals to <body>). */}
+          {cooking && (
+            <CookMode
+              meal={recipe}
+              storageKey={COOKNOW_COOK_KEY}
+              onDone={handleCook}
+              onClose={() => setCooking(false)}
+              doneLabel="Mark as cooked"
+              donePending={cookMutation.isPending}
+              doneError={
+                cookMutation.isError
+                  ? "Couldn't save — check your connection and try again."
+                  : null
+              }
+            />
           )}
 
           {cookMutation.isError && (
