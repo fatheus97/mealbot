@@ -2,12 +2,12 @@ fastapi~=0.136
 uvicorn[standard]~=0.46
 pydantic-settings~=2.14
 jinja2~=3.1
-python-multipart~=0.0.27
+python-multipart~=0.0.32
 
 # For LLM
 instructor~=1.15
 openai~=2.0
-google-genai~=1.14
+google-genai~=2.10
 jsonref~=1.1
 
 #For DB
@@ -18,7 +18,7 @@ pydantic[email]~=2.13
 
 # For RAG features
 pgvector~=0.4
-fastembed~=0.6
+fastembed~=0.8
 
 # PDF parsing
 pypdf~=6.10

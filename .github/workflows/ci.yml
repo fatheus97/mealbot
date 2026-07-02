@@ -9,7 +9,7 @@ jobs:
     name: backend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Write CI .env
         run: |
@@ -54,7 +54,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -82,7 +82,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -103,11 +103,11 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: "26"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -122,11 +122,11 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: "26"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
