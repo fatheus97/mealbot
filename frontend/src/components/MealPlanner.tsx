@@ -330,8 +330,9 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     );
   };
 
-  // Finish real-time cooking: mark the meal cooked (idempotent) and close the
-  // checklist. CookMode has already cleared its saved progress by this point.
+  // Finish real-time cooking: mark the meal cooked (idempotent). Cook mode is
+  // closed and its saved progress cleared only after the mutation succeeds — a
+  // failed request keeps the overlay open for a retry.
   const handleFinishCooking = (dayIdx: number, mealIdx: number) => {
     if (!planId) return;
     const entry = findEntry(dayIdx, mealIdx);

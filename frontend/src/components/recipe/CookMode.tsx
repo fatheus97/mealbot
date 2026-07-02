@@ -268,6 +268,7 @@ export function CookMode({
     // Same lower + upper bound as auto-detected durations, so a fat-fingered
     // manual entry can't spawn a multi-day timer.
     if (!(seconds > 0) || seconds > 6 * 3600) return;
+    stopAlarm(); // silence a still-ringing previous timer before replacing it
     requestNotify();
     ensureAudio(); // create inside the click gesture so playback is allowed later
     setTimer({ remaining: seconds, total: seconds, running: true, finished: false });

@@ -131,6 +131,26 @@ describe('CookMode', () => {
     }
   });
 
+  it('replaces a finished timer (silencing its alarm) when a new one starts', () => {
+    vi.useFakeTimers();
+    try {
+      renderCookMode();
+      fireEvent.click(screen.getByRole('button', { name: /next/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+      act(() => {
+        vi.advanceTimersByTime(600 * 1000); // run it to completion
+      });
+      expect(screen.getByText(/time's up/i)).toBeInTheDocument();
+      // Tapping the duration again restarts — the finished state is replaced
+      // (startTimer calls stopAlarm, so the previous alarm can't keep ringing).
+      fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+      expect(screen.queryByText(/time's up/i)).toBeNull();
+      expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('navigates steps with the arrow keys', () => {
     renderCookMode();
     expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
