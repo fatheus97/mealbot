@@ -10,7 +10,7 @@ ENV VITE_API_BASE=$VITE_API_BASE
 RUN npm run build
 
 # Stage 2: Serve with Nginx
-FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+FROM nginx:1.31-alpine@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 RUN mkdir -p /var/cache/nginx/client_temp \
