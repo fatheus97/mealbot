@@ -671,7 +671,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            {isCooked ? "Cooked" : "Not cooked"}
                          </span>
                        )}
-                       {!isEditing && (
+                       {!isEditing && !isFinished && (
                          <button
                            onClick={() => setEditingMeal(`${idx}-${mealIdx}`)}
                            title="Edit this recipe"

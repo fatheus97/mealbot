@@ -212,7 +212,7 @@ class MealEditRequest(BaseModel):
     mirror PlannedMeal so an edit can't smuggle in data a freshly-generated
     meal couldn't hold (this is a client-write path — treat input as hostile).
     """
-    name: str = Field(..., max_length=200)
+    name: str = Field(..., min_length=1, max_length=200)
     ingredients: list[IngredientAmount] = Field(..., max_length=40)
     steps: list[str] = Field(..., max_length=50)
     total_time_minutes: int | None = Field(default=None, ge=1, le=600)

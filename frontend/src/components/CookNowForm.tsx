@@ -126,8 +126,11 @@ export function CookNowForm() {
         { onSuccess: (entry) => setSavedEntry({ id: entry.id, isFavorite: true }) },
       );
     } else if (savedEntry) {
+      // Clear savedEntry entirely (not just isFavorite:false): the DELETE
+      // removed the MealEntry row, so there's nothing to diverge from — this
+      // restores the Edit affordance and lets a re-star create a fresh row.
       removeFromCookbookMutation.mutate(savedEntry.id, {
-        onSuccess: () => setSavedEntry({ id: savedEntry.id, isFavorite: false }),
+        onSuccess: () => setSavedEntry(null),
       });
     }
   };

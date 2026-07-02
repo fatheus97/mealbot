@@ -117,10 +117,13 @@ class TestMealEdit:
         assert meals.json()[0]["name"] == "Edited Tofu Bowl"
 
         # …and MealEntry.meal_json rewritten (the copy cookbook/RAG read from).
+        from app.db import get_session
         from app.main import app
         from app.models.db_models import MealEntry
 
-        session_dep = list(app.dependency_overrides.values())[0]
+        # Look the session override up by key, not by positional index —
+        # robust if another dependency is overridden before this point.
+        session_dep = app.dependency_overrides[get_session]
         async for session in session_dep():
             entry = (
                 await session.execute(
@@ -283,6 +286,49 @@ class TestMealEdit:
             json={**_EDIT_BODY, "steps": ["y" * 1001]},
         )
         assert resp.status_code == 422
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_edit_rejects_empty_name(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        # min_length=1 closes the server-side gap the frontend guards client-side.
+        mock_gen.return_value = _fake_day()
+        plan_id = await _create_plan(client, auth_headers)
+
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json={**_EDIT_BODY, "name": ""},
+        )
+        assert resp.status_code == 422
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_edit_finished_plan_rejected(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        # A finished plan is a historical record — editing is blocked (reopen first).
+        mock_gen.return_value = _fake_day()
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[
+                {"name": "chicken breast", "quantity_grams": 600},
+                {"name": "rice", "quantity_grams": 400},
+            ],
+        )
+        plan_id = await _create_plan(client, auth_headers)
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+        assert (
+            await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+        ).status_code == 200
+
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json=_EDIT_BODY,
+        )
+        assert resp.status_code == 409
+        assert "finished" in resp.json()["detail"].lower()
 
     async def test_edit_nonexistent_plan_404(
         self, client: AsyncClient, auth_headers: dict

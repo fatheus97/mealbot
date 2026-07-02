@@ -788,25 +788,32 @@ async def edit_meal(
 
     Positional address — day_index/meal_index are 0-based, matching
     response_json list positions and the FrozenMeal/regenerate convention.
-    Works in every plan state:
 
       * Pre-confirm  → updates the plan's response_json only (no MealEntry
         rows exist yet).
-      * Post-confirm → updates response_json AND the matching MealEntry's
-        meal_json + denormalized name; re-embeds if the meal is a cookbook
-        favorite (its RAG vector must follow the new name/content).
+      * Post-confirm (active) → updates response_json AND the matching
+        MealEntry's meal_json + denormalized name; re-embeds if the meal is a
+        cookbook favorite (its RAG vector must follow the new name/content).
+
+    Blocked (409) on a finished plan — it's a historical record, and editing
+    would let the recipe text diverge from the debit it captured. Reopen first,
+    matching the reopen-to-edit flow the cook/uncook endpoints already enforce.
 
     Deliberately does NOT touch the fridge. The confirm-time FIFO debit lives
     in each entry's consumed_snapshot_json, and unconfirm/finish/reopen restore
     from that snapshot — never from meal_json — so editing a confirmed meal's
-    ingredients cannot desync fridge accounting. Recipe text and the original
-    debit are allowed to diverge by design; re-running FIFO on every edit would
-    fight the snapshot invariant. meal_type/meal_type_label are preserved —
-    changing a slot would desync the day layout and taxonomy.
+    ingredients cannot desync fridge accounting. meal_type/meal_type_label are
+    preserved — changing a slot would desync the day layout and taxonomy.
     """
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Plan not found")
+
+    if plan.finished_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot edit a finished plan; reopen it first.",
+        )
 
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
@@ -869,9 +876,18 @@ async def edit_meal(
                     )
             session.add(entry)
         else:
-            logger.warning(
-                "No MealEntry for confirmed plan %d at day %d meal %d during edit",
+            # response_json and MealEntry.meal_json are the two sources of truth
+            # for a confirmed plan; a missing entry here means they'd diverge
+            # permanently. Abort with 500 so the session rolls back the
+            # response_json write rather than silently committing a half-update.
+            logger.error(
+                "No MealEntry for confirmed plan %d at day %d meal %d during edit "
+                "— aborting to avoid response_json/meal_json desync",
                 plan_id, day_index + 1, meal_index + 1,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Meal entry not found for confirmed plan.",
             )
 
     await session.commit()
