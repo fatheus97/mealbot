@@ -1,59 +1,52 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { PlannedMeal } from "../../types";
 import { mealTypeLabel } from "../../constants/mealTypes";
+import { parseDurationSeconds } from "./cookMode.utils";
 
 interface Props {
   meal: PlannedMeal;
-  // localStorage key so tick progress survives a mid-cook reload. Pass a stable
-  // key per meal, e.g. `cookmode:${planId}:${day}:${meal}`.
+  // localStorage key so the current step survives a mid-cook reload. Pass a
+  // stable key per meal, e.g. `cookmode:${planId}:${day}:${meal}`.
   storageKey: string;
-  // "Finish": marks the meal cooked (parent decides how). Clears saved progress.
-  onDone: () => void;
-  // "Close": leaves cook mode WITHOUT finishing — progress stays in storage so
-  // reopening resumes where you left off.
-  onClose: () => void;
+  onDone: () => void; // "Done": mark cooked (parent decides). Clears saved step.
+  onClose: () => void; // "Close": leave without finishing; saved step stays.
   doneLabel?: string;
   donePending?: boolean;
 }
 
-type Progress = { ingredients: number[]; steps: number[] };
+function formatClock(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
 
-function readProgress(key: string): Progress {
+function readStep(key: string): number {
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
-      const p = JSON.parse(raw) as Partial<Progress>;
-      return {
-        ingredients: Array.isArray(p.ingredients) ? p.ingredients : [],
-        steps: Array.isArray(p.steps) ? p.steps : [],
-      };
+      const p = JSON.parse(raw) as { step?: unknown };
+      if (typeof p.step === "number" && p.step >= 0) return p.step;
     }
   } catch {
-    // corrupt or unavailable storage — start fresh
+    // corrupt/unavailable — start at step 0
   }
-  return { ingredients: [], steps: [] };
+  return 0;
 }
 
-function writeProgress(key: string, p: Progress): void {
+function writeStep(key: string, step: number): void {
   try {
-    localStorage.setItem(key, JSON.stringify(p));
+    localStorage.setItem(key, JSON.stringify({ step }));
   } catch {
-    // storage full/disabled — the checklist still works in memory this session
+    // storage unavailable — nav still works in memory this session
   }
 }
 
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  gap: "0.5rem",
-  marginBottom: "0.35rem",
-  cursor: "pointer",
-};
+interface WakeLockLike {
+  wakeLock?: { request(type: "screen"): Promise<{ release: () => Promise<void> }> };
+}
 
-// Real-time cooking checklist: tick ingredients as you gather them and steps as
-// you go. Progress is per-meal and persisted to localStorage so a reload (or a
-// phone locking mid-cook) doesn't lose your place. Purely client-side — the
-// only server interaction is the parent's onDone (which marks the meal cooked).
+type Timer = { remaining: number; total: number; running: boolean; finished: boolean };
+
 export function CookMode({
   meal,
   storageKey,
@@ -62,126 +55,342 @@ export function CookMode({
   doneLabel = "Done cooking",
   donePending = false,
 }: Props) {
-  const [progress, setProgress] = useState<Progress>(() => readProgress(storageKey));
+  const total = meal.steps.length;
+  const [current, setCurrent] = useState<number>(() => Math.min(readStep(storageKey), Math.max(0, total - 1)));
+  const [showIngredients, setShowIngredients] = useState(false);
+  const [timer, setTimer] = useState<Timer | null>(null);
+  const [manualMin, setManualMin] = useState("");
 
-  const toggle = (kind: "ingredients" | "steps", idx: number) => {
-    setProgress((prev) => {
-      const set = new Set(prev[kind]);
-      if (set.has(idx)) set.delete(idx);
-      else set.add(idx);
-      const next: Progress = { ...prev, [kind]: [...set] };
-      writeProgress(storageKey, next);
-      return next;
-    });
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const alarmIntervalRef = useRef<number | null>(null);
+
+  const ensureAudio = (): AudioContext | null => {
+    if (audioCtxRef.current) return audioCtxRef.current;
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return null;
+    try {
+      audioCtxRef.current = new Ctx();
+    } catch {
+      return null;
+    }
+    return audioCtxRef.current;
   };
 
-  const ingredientsChecked = new Set(progress.ingredients);
-  const stepsChecked = new Set(progress.steps);
-  const doneSteps = meal.steps.reduce((n, _s, i) => n + (stepsChecked.has(i) ? 1 : 0), 0);
+  const beep = () => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.26);
+    } catch {
+      // audio failed — the visual "Time's up" banner still shows
+    }
+  };
+
+  const stopAlarm = () => {
+    if (alarmIntervalRef.current != null) {
+      clearInterval(alarmIntervalRef.current);
+      alarmIntervalRef.current = null;
+    }
+  };
+
+  const startAlarm = () => {
+    const ctx = ensureAudio();
+    if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
+    beep();
+    if (alarmIntervalRef.current == null) {
+      alarmIntervalRef.current = window.setInterval(beep, 900);
+    }
+  };
+
+  const notify = (body: string) => {
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification("Cooking timer", { body });
+      }
+    } catch {
+      // notification blocked — non-fatal
+    }
+  };
+
+  const requestNotify = () => {
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "default") {
+        Notification.requestPermission().catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Countdown: one interval while running; re-armed on pause/resume.
+  useEffect(() => {
+    if (!timer?.running) return;
+    const id = window.setInterval(() => {
+      setTimer((t) => {
+        if (!t || !t.running) return t;
+        if (t.remaining <= 1) return { ...t, remaining: 0, running: false, finished: true };
+        return { ...t, remaining: t.remaining - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [timer?.running]);
+
+  // Fire the alarm + notification exactly once when a timer finishes.
+  useEffect(() => {
+    if (timer?.finished) {
+      startAlarm();
+      notify(`Timer finished — ${meal.name}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timer?.finished]);
+
+  // Keep the screen awake while cooking; re-acquire when the tab returns to
+  // foreground (the lock is auto-released on hide).
+  useEffect(() => {
+    let sentinel: { release: () => Promise<void> } | null = null;
+    let cancelled = false;
+    const request = () => {
+      const nav = navigator as unknown as WakeLockLike;
+      if (!nav.wakeLock?.request) return;
+      nav.wakeLock
+        .request("screen")
+        .then((s) => {
+          if (cancelled) s.release().catch(() => {});
+          else sentinel = s;
+        })
+        .catch(() => {});
+    };
+    request();
+    const onVis = () => {
+      if (document.visibilityState === "visible") request();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+      sentinel?.release().catch(() => {});
+    };
+  }, []);
+
+  // Teardown: stop any alarm and close the audio context on unmount.
+  useEffect(() => {
+    return () => {
+      stopAlarm();
+      audioCtxRef.current?.close().catch(() => {});
+    };
+  }, []);
+
+  const goTo = (step: number) => {
+    const clamped = Math.max(0, Math.min(total - 1, step));
+    setCurrent(clamped);
+    writeStep(storageKey, clamped);
+  };
+
+  const startTimer = (seconds: number) => {
+    if (!(seconds > 0)) return;
+    requestNotify();
+    ensureAudio(); // create inside the click gesture so playback is allowed later
+    setTimer({ remaining: seconds, total: seconds, running: true, finished: false });
+  };
+
+  const dismissTimer = () => {
+    stopAlarm();
+    setTimer(null);
+  };
 
   const handleDone = () => {
+    stopAlarm();
     try {
       localStorage.removeItem(storageKey);
     } catch {
-      // ignore — nothing to clean up
+      // ignore
     }
     onDone();
   };
 
-  return (
+  const step = meal.steps[current] ?? "";
+  const detected = parseDurationSeconds(step);
+  const isLast = current >= total - 1;
+  const manualSeconds = Math.round(Number(manualMin) * 60);
+
+  const chipBtn: React.CSSProperties = {
+    padding: "0.4rem 0.9rem",
+    borderRadius: "999px",
+    border: "1px solid #334155",
+    background: "#1e293b",
+    color: "#e2e8f0",
+    cursor: "pointer",
+    fontSize: "0.9rem",
+  };
+
+  return createPortal(
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Cooking ${meal.name}`}
       style={{
-        border: "1px solid #16a34a",
-        borderRadius: "6px",
-        padding: "0.75rem",
-        backgroundColor: "#f0fdf4",
-        marginTop: "0.5rem",
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "#0b1220",
+        color: "#f8fafc",
+        display: "flex",
+        flexDirection: "column",
+        padding: "1rem",
+        boxSizing: "border-box",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-        <strong style={{ fontSize: "0.95rem" }}>
-          Cooking: {mealTypeLabel(meal.meal_type, meal.meal_type_label)} — {meal.name}
-        </strong>
-        <span aria-label={`${doneSteps} of ${meal.steps.length} steps done`} style={{ fontSize: "0.85rem", color: "#15803d", fontWeight: 600 }}>
-          {doneSteps}/{meal.steps.length} steps
-        </span>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8" }}>
+            {mealTypeLabel(meal.meal_type, meal.meal_type_label)}
+          </div>
+          <div style={{ fontSize: "1.15rem", fontWeight: 700 }}>{meal.name}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span aria-label={`Step ${current + 1} of ${total}`} style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
+            Step {current + 1} of {total}
+          </span>
+          <button type="button" onClick={() => setShowIngredients((v) => !v)} style={chipBtn}>
+            Ingredients
+          </button>
+          <button type="button" onClick={onClose} aria-label="Close cooking mode" style={{ ...chipBtn, borderColor: "#475569" }}>
+            ✕
+          </button>
+        </div>
       </div>
 
-      <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.6rem 0" }}>
-        <legend style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", marginBottom: "0.25rem" }}>
-          Ingredients
-        </legend>
-        {meal.ingredients.map((ing, idx) => {
-          const checked = ingredientsChecked.has(idx);
-          return (
-            <label key={idx} style={rowStyle}>
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => toggle("ingredients", idx)}
-                aria-label={`Ingredient: ${ing.name}`}
-              />
-              <span style={{ fontSize: "0.9rem", textDecoration: checked ? "line-through" : "none", color: checked ? "#9ca3af" : "#111" }}>
-                {ing.is_spice ? ing.name : `${ing.name} (${Math.round(ing.quantity_grams)}g)`}
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
-
-      <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.6rem 0" }}>
-        <legend style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", marginBottom: "0.25rem" }}>
-          Steps
-        </legend>
-        {meal.steps.map((step, idx) => {
-          const checked = stepsChecked.has(idx);
-          return (
-            <label key={idx} style={rowStyle}>
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => toggle("steps", idx)}
-                aria-label={`Step ${idx + 1}`}
-              />
-              <span style={{ fontSize: "0.9rem", lineHeight: 1.4, textDecoration: checked ? "line-through" : "none", color: checked ? "#9ca3af" : "#111" }}>
-                {idx + 1}. {step}
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
-
-      <div style={{ display: "flex", gap: "0.5rem" }}>
-        <button
-          type="button"
-          onClick={handleDone}
-          disabled={donePending}
-          style={{
-            padding: "0.35rem 1rem",
-            backgroundColor: "#16a34a",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            cursor: donePending ? "not-allowed" : "pointer",
-          }}
-        >
-          {donePending ? "Saving…" : doneLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            padding: "0.35rem 1rem",
-            backgroundColor: "#fff",
-            color: "#374151",
-            border: "1px solid #d1d5db",
-            borderRadius: "4px",
-            cursor: "pointer",
-          }}
-        >
-          Close
-        </button>
+      {/* Progress bar */}
+      <div style={{ height: "4px", background: "#1e293b", borderRadius: "2px", margin: "0.75rem 0 1rem" }}>
+        <div style={{ height: "100%", width: `${Math.min(100, ((current + 1) / Math.max(1, total)) * 100)}%`, background: "#22c55e", borderRadius: "2px", transition: "width 0.2s" }} />
       </div>
-    </div>
+
+      {/* Current step */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: "1.5rem", overflowY: "auto" }}>
+        <p style={{ fontSize: "1.6rem", lineHeight: 1.4, maxWidth: "32rem", margin: 0 }}>{step}</p>
+
+        {/* Timer */}
+        {timer ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+            <div
+              aria-label={`Timer ${formatClock(timer.remaining)} remaining`}
+              style={{ fontSize: "2.5rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: timer.finished ? "#f87171" : "#22c55e" }}
+            >
+              {formatClock(timer.remaining)}
+            </div>
+            {timer.finished ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                <strong role="alert" style={{ color: "#f87171", fontSize: "1.1rem" }}>⏰ Time's up!</strong>
+                <button type="button" onClick={dismissTimer} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
+                  Dismiss
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button type="button" onClick={() => setTimer((t) => (t ? { ...t, running: !t.running } : t))} style={chipBtn}>
+                  {timer.running ? "Pause" : "Resume"}
+                </button>
+                <button type="button" onClick={dismissTimer} style={chipBtn}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem" }}>
+            {detected != null && (
+              <button
+                type="button"
+                onClick={() => startTimer(detected)}
+                style={{ ...chipBtn, background: "#16a34a", color: "#fff", borderColor: "#16a34a", fontWeight: 600 }}
+              >
+                ⏱ Start {formatClock(detected)} timer
+              </button>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <input
+                type="number"
+                min={1}
+                value={manualMin}
+                onChange={(e) => setManualMin(e.target.value)}
+                placeholder="min"
+                aria-label="Custom timer minutes"
+                style={{ width: "4.5rem", padding: "0.35rem", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#e2e8f0" }}
+              />
+              <button
+                type="button"
+                onClick={() => startTimer(manualSeconds)}
+                disabled={!(manualSeconds > 0)}
+                style={{ ...chipBtn, opacity: manualSeconds > 0 ? 1 : 0.5 }}
+              >
+                Set timer
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer nav */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={() => goTo(current - 1)}
+          disabled={current === 0}
+          style={{ ...chipBtn, opacity: current === 0 ? 0.4 : 1 }}
+        >
+          ‹ Back
+        </button>
+        {isLast ? (
+          <button
+            type="button"
+            onClick={handleDone}
+            disabled={donePending}
+            style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: donePending ? "not-allowed" : "pointer" }}
+          >
+            {donePending ? "Saving…" : doneLabel}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => goTo(current + 1)}
+            style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#2563eb", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer" }}
+          >
+            Next ›
+          </button>
+        )}
+      </div>
+
+      {/* Ingredients slide-in */}
+      {showIngredients && (
+        <div
+          style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(20rem, 85vw)", background: "#0f172a", borderLeft: "1px solid #1e293b", padding: "1rem", overflowY: "auto", boxShadow: "-8px 0 24px rgba(0,0,0,0.4)" }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+            <strong>Ingredients</strong>
+            <button type="button" onClick={() => setShowIngredients(false)} aria-label="Hide ingredients" style={chipBtn}>✕</button>
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {meal.ingredients.map((ing, i) => (
+              <li key={i} style={{ padding: "0.3rem 0", borderBottom: "1px solid #1e293b", fontSize: "0.95rem" }}>
+                {ing.is_spice ? <em>{ing.name}</em> : <span>{ing.name} — {Math.round(ing.quantity_grams)}g</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>,
+    document.body,
   );
 }

@@ -331,23 +331,25 @@ export function CookNowForm() {
                     Edit
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditing(false);
-                    setCooking(true);
-                  }}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    backgroundColor: "#fff",
-                    color: "#16a34a",
-                    border: "1px solid #16a34a",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Start cooking
-                </button>
+                {recipe.steps.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditing(false);
+                      setCooking(true);
+                    }}
+                    style={{
+                      padding: "0.5rem 1rem",
+                      backgroundColor: "#fff",
+                      color: "#16a34a",
+                      border: "1px solid #16a34a",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Start cooking
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleCook}
@@ -378,20 +380,6 @@ export function CookNowForm() {
                 onCancel={() => setEditing(false)}
               />
             </div>
-          ) : cooking ? (
-            <div style={{ marginTop: "0.75rem" }}>
-              <CookMode
-                meal={recipe}
-                storageKey={COOKNOW_COOK_KEY}
-                onDone={() => {
-                  handleCook();
-                  setCooking(false);
-                }}
-                onClose={() => setCooking(false)}
-                doneLabel="Mark as cooked"
-                donePending={cookMutation.isPending}
-              />
-            </div>
           ) : (
             <>
               <div style={{ marginTop: "0.75rem" }}>
@@ -401,6 +389,21 @@ export function CookNowForm() {
 
               <RecipeSteps steps={recipe.steps} />
             </>
+          )}
+
+          {/* Fullscreen cooking overlay (portals to <body>). */}
+          {cooking && (
+            <CookMode
+              meal={recipe}
+              storageKey={COOKNOW_COOK_KEY}
+              onDone={() => {
+                handleCook();
+                setCooking(false);
+              }}
+              onClose={() => setCooking(false)}
+              doneLabel="Mark as cooked"
+              donePending={cookMutation.isPending}
+            />
           )}
 
           {cookMutation.isError && (

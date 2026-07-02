@@ -704,7 +704,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            Edit
                          </button>
                        )}
-                       {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && (
+                       {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && (meal.steps?.length ?? 0) > 0 && (
                          <button
                            onClick={() => {
                              setEditingMeal(null);
@@ -754,15 +754,6 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                              : null
                          }
                        />
-                     ) : isCooking ? (
-                       <CookMode
-                         meal={meal}
-                         storageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
-                         onDone={() => handleFinishCooking(idx, mealIdx)}
-                         onClose={() => setCookingMeal(null)}
-                         doneLabel="Mark as cooked"
-                         donePending={cookMutation.isPending}
-                       />
                      ) : (
                        <>
                          <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
@@ -774,6 +765,17 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            <RecipeSteps steps={meal.steps ?? []} />
                          </div>
                        </>
+                     )}
+                     {/* Fullscreen cooking overlay (portals to <body>). */}
+                     {isCooking && entry && (
+                       <CookMode
+                         meal={meal}
+                         storageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
+                         onDone={() => handleFinishCooking(idx, mealIdx)}
+                         onClose={() => setCookingMeal(null)}
+                         doneLabel="Mark as cooked"
+                         donePending={cookMutation.isPending}
+                       />
                      )}
                    </div>
                  );

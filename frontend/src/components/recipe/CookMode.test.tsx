@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookMode } from './CookMode';
+import { parseDurationSeconds } from './cookMode.utils';
 import type { PlannedMeal } from '../../types';
 
 const KEY = 'cookmode:test:0:0';
@@ -15,7 +16,7 @@ function sampleMeal(): PlannedMeal {
       { name: 'tomato', quantity_grams: 300, is_spice: false },
       { name: 'salt', quantity_grams: 5, is_spice: true },
     ],
-    steps: ['Chop', 'Simmer', 'Serve'],
+    steps: ['Chop the onion', 'Simmer for 10 minutes', 'Serve hot'],
     total_time_minutes: 20,
   };
 }
@@ -33,55 +34,90 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+describe('parseDurationSeconds', () => {
+  it('parses minutes and hours; rejects bare numbers', () => {
+    expect(parseDurationSeconds('Simmer for 10 minutes')).toBe(600);
+    expect(parseDurationSeconds('bake 25 min')).toBe(1500);
+    expect(parseDurationSeconds('rest 1 hour')).toBe(3600);
+    expect(parseDurationSeconds('chill 90 mins')).toBe(5400);
+    // Compound durations sum hours + minutes (not truncated to the first token).
+    expect(parseDurationSeconds('Simmer for 1 hour 30 minutes')).toBe(5400);
+    expect(parseDurationSeconds('2 hrs 15 min')).toBe(8100);
+    expect(parseDurationSeconds('bake at 200 degrees')).toBeNull();
+    expect(parseDurationSeconds('Serve hot')).toBeNull();
+  });
+});
+
 describe('CookMode', () => {
-  it('renders ingredient and step checkboxes with a progress count', () => {
+  it('shows the first step and step progress', () => {
     renderCookMode();
-    expect(screen.getByLabelText('Ingredient: tomato')).toBeInTheDocument();
-    expect(screen.getByLabelText('Ingredient: salt')).toBeInTheDocument();
-    expect(screen.getByLabelText('Step 1')).toBeInTheDocument();
-    expect(screen.getByLabelText('Step 3')).toBeInTheDocument();
-    expect(screen.getByLabelText(/0 of 3 steps done/i)).toBeInTheDocument();
+    expect(screen.getByText('Chop the onion')).toBeInTheDocument();
+    expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
   });
 
-  it('updates the progress count and persists ticks to localStorage', async () => {
+  it('advances with Next and persists the step to localStorage', async () => {
     const user = userEvent.setup();
     renderCookMode();
-    await user.click(screen.getByLabelText('Step 1'));
-    await user.click(screen.getByLabelText('Step 2'));
-    expect(screen.getByLabelText(/2 of 3 steps done/i)).toBeInTheDocument();
-    const stored = JSON.parse(localStorage.getItem(KEY) as string);
-    expect([...stored.steps].sort()).toEqual([0, 1]);
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    expect(screen.getByText('Simmer for 10 minutes')).toBeInTheDocument();
+    expect(screen.getByLabelText('Step 2 of 3')).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(KEY) as string).step).toBe(1);
   });
 
-  it('loads existing progress from localStorage on mount', () => {
-    localStorage.setItem(KEY, JSON.stringify({ ingredients: [0], steps: [2] }));
-    renderCookMode();
-    expect((screen.getByLabelText('Ingredient: tomato') as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText('Step 3') as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText('Step 1') as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByLabelText(/1 of 3 steps done/i)).toBeInTheDocument();
-  });
-
-  it('Done clears saved progress and calls onDone', async () => {
+  it('goes back with Back', async () => {
     const user = userEvent.setup();
-    localStorage.setItem(KEY, JSON.stringify({ ingredients: [], steps: [0] }));
+    renderCookMode();
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    await user.click(screen.getByRole('button', { name: /back/i }));
+    expect(screen.getByText('Chop the onion')).toBeInTheDocument();
+  });
+
+  it('resumes from the saved step on mount', () => {
+    localStorage.setItem(KEY, JSON.stringify({ step: 2 }));
+    renderCookMode();
+    expect(screen.getByText('Serve hot')).toBeInTheDocument();
+    expect(screen.getByLabelText('Step 3 of 3')).toBeInTheDocument();
+  });
+
+  it('shows Done on the last step; it clears storage and calls onDone', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(KEY, JSON.stringify({ step: 2 }));
     const { onDone } = renderCookMode({ doneLabel: 'Mark as cooked' });
     await user.click(screen.getByRole('button', { name: /mark as cooked/i }));
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(KEY)).toBeNull();
   });
 
-  it('Close keeps saved progress and calls onClose (resume later)', async () => {
+  it('Close calls onClose and keeps the saved step', async () => {
     const user = userEvent.setup();
     const { onClose } = renderCookMode();
-    await user.click(screen.getByLabelText('Step 1')); // writes progress
-    await user.click(screen.getByRole('button', { name: /^close$/i }));
+    await user.click(screen.getByRole('button', { name: /next/i })); // writes step 1
+    await user.click(screen.getByRole('button', { name: /close cooking mode/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(KEY)).not.toBeNull();
   });
 
-  it('disables the done button while donePending', () => {
-    renderCookMode({ donePending: true });
-    expect(screen.getByRole('button', { name: /saving/i })).toBeDisabled();
+  it('toggles the ingredients panel with amounts', async () => {
+    const user = userEvent.setup();
+    renderCookMode();
+    await user.click(screen.getByRole('button', { name: /^ingredients$/i }));
+    expect(screen.getByText(/tomato — 300g/i)).toBeInTheDocument();
+  });
+
+  it('offers a detected timer and counts it down', () => {
+    vi.useFakeTimers();
+    try {
+      renderCookMode();
+      // Step 2 mentions "10 minutes".
+      fireEvent.click(screen.getByRole('button', { name: /next/i }));
+      fireEvent.click(screen.getByRole('button', { name: /start 10:00 timer/i }));
+      expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(screen.getByLabelText(/Timer 9:57 remaining/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
