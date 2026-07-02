@@ -787,6 +787,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                          onClose={() => setCookingMeal(null)}
                          doneLabel="Mark as cooked"
                          donePending={cookMutation.isPending}
+                         doneError={
+                           cookMutation.isError
+                             ? "Couldn't mark as cooked — check your connection and try again."
+                             : null
+                         }
                        />
                      )}
                    </div>

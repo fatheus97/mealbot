@@ -2,17 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlannedMeal } from "../../types";
 import { mealTypeLabel } from "../../constants/mealTypes";
-import { parseDurationSeconds } from "./cookMode.utils";
+import { tokenizeStepTimers } from "./cookMode.utils";
 
 interface Props {
   meal: PlannedMeal;
   // localStorage key so the current step survives a mid-cook reload. Pass a
   // stable key per meal, e.g. `cookmode:${planId}:${day}:${meal}`.
   storageKey: string;
-  onDone: () => void; // "Done": mark cooked (parent decides). Clears saved step.
+  onDone: () => void; // "Done": mark cooked (parent decides + clears storage on success).
   onClose: () => void; // "Close": leave without finishing; saved step stays.
   doneLabel?: string;
   donePending?: boolean;
+  doneError?: string | null; // shown inside the overlay when a cook attempt fails
 }
 
 function formatClock(totalSeconds: number): string {
@@ -52,6 +53,30 @@ interface WakeLockLike {
 
 type Timer = { remaining: number; total: number; running: boolean; finished: boolean };
 
+const chipBtn: React.CSSProperties = {
+  padding: "0.4rem 0.9rem",
+  borderRadius: "999px",
+  border: "1px solid #334155",
+  background: "#1e293b",
+  color: "#e2e8f0",
+  cursor: "pointer",
+  fontSize: "0.9rem",
+};
+
+// A duration mention rendered inline in the step, tappable to start its timer.
+const inlineTimer: React.CSSProperties = {
+  background: "rgba(34,197,94,0.15)",
+  color: "#4ade80",
+  border: "1px solid rgba(34,197,94,0.5)",
+  borderRadius: "6px",
+  padding: "0 0.35rem",
+  margin: "0 0.15rem",
+  cursor: "pointer",
+  fontSize: "inherit",
+  fontFamily: "inherit",
+  fontWeight: 700,
+};
+
 export function CookMode({
   meal,
   storageKey,
@@ -59,6 +84,7 @@ export function CookMode({
   onClose,
   doneLabel = "Done cooking",
   donePending = false,
+  doneError = null,
 }: Props) {
   const total = meal.steps.length;
   const [current, setCurrent] = useState<number>(() => Math.min(readStep(storageKey), Math.max(0, total - 1)));
@@ -160,6 +186,24 @@ export function CookMode({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timer?.finished]);
 
+  // Keyboard: ← / → move between steps (ignored while typing in a field).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      const delta = e.key === "ArrowRight" ? 1 : -1;
+      setCurrent((c) => {
+        const next = Math.max(0, Math.min(total - 1, c + delta));
+        writeStep(storageKey, next);
+        return next;
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [total, storageKey]);
+
   // Keep the screen awake while cooking; re-acquire when the tab returns to
   // foreground (the lock is auto-released on hide).
   useEffect(() => {
@@ -182,9 +226,8 @@ export function CookMode({
             return;
           }
           sentinel = s;
-          // The browser auto-releases the lock when the tab hides; drop our
-          // ref so the next visibilitychange re-acquires instead of the guard
-          // above short-circuiting.
+          // The browser auto-releases the lock when the tab hides; drop our ref
+          // so the next visibilitychange re-acquires instead of short-circuiting.
           s.addEventListener?.("release", () => {
             if (sentinel === s) sentinel = null;
           });
@@ -213,10 +256,12 @@ export function CookMode({
     };
   }, []);
 
-  const goTo = (step: number) => {
-    const clamped = Math.max(0, Math.min(total - 1, step));
-    setCurrent(clamped);
-    writeStep(storageKey, clamped);
+  const move = (delta: number) => {
+    setCurrent((c) => {
+      const next = Math.max(0, Math.min(total - 1, c + delta));
+      writeStep(storageKey, next);
+      return next;
+    });
   };
 
   const startTimer = (seconds: number) => {
@@ -241,19 +286,9 @@ export function CookMode({
   };
 
   const step = meal.steps[current] ?? "";
-  const detected = parseDurationSeconds(step);
   const isLast = current >= total - 1;
   const manualSeconds = Math.round(Number(manualMin) * 60);
-
-  const chipBtn: React.CSSProperties = {
-    padding: "0.4rem 0.9rem",
-    borderRadius: "999px",
-    border: "1px solid #334155",
-    background: "#1e293b",
-    color: "#e2e8f0",
-    cursor: "pointer",
-    fontSize: "0.9rem",
-  };
+  const manualOk = manualSeconds > 0 && manualSeconds <= 6 * 3600;
 
   return createPortal(
     <div
@@ -267,80 +302,88 @@ export function CookMode({
         background: "#0b1220",
         color: "#f8fafc",
         display: "flex",
-        flexDirection: "column",
-        padding: "1rem",
-        boxSizing: "border-box",
       }}
     >
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8" }}>
-            {mealTypeLabel(meal.meal_type, meal.meal_type_label)}
-          </div>
-          <div style={{ fontSize: "1.15rem", fontWeight: 700 }}>{meal.name}</div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span aria-label={`Step ${current + 1} of ${total}`} style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
-            Step {current + 1} of {total}
-          </span>
-          <button type="button" onClick={() => setShowIngredients((v) => !v)} style={chipBtn}>
-            Ingredients
-          </button>
-          <button type="button" onClick={onClose} aria-label="Close cooking mode" style={{ ...chipBtn, borderColor: "#475569" }}>
-            ✕
-          </button>
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <div style={{ height: "4px", background: "#1e293b", borderRadius: "2px", margin: "0.75rem 0 1rem" }}>
-        <div style={{ height: "100%", width: `${Math.min(100, ((current + 1) / Math.max(1, total)) * 100)}%`, background: "#22c55e", borderRadius: "2px", transition: "width 0.2s" }} />
-      </div>
-
-      {/* Current step */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: "1.5rem", overflowY: "auto" }}>
-        <p style={{ fontSize: "1.6rem", lineHeight: 1.4, maxWidth: "32rem", margin: 0 }}>{step}</p>
-
-        {/* Timer */}
-        {timer ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
-            <div
-              aria-label={`Timer ${formatClock(timer.remaining)} remaining`}
-              style={{ fontSize: "2.5rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: timer.finished ? "#f87171" : "#22c55e" }}
-            >
-              {formatClock(timer.remaining)}
+      {/* Main column — shrinks when the ingredients panel opens (no overlap). */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", padding: "1rem", boxSizing: "border-box" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8" }}>
+              {mealTypeLabel(meal.meal_type, meal.meal_type_label)}
             </div>
-            {timer.finished ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
-                <strong role="alert" style={{ color: "#f87171", fontSize: "1.1rem" }}>⏰ Time's up!</strong>
-                <button type="button" onClick={dismissTimer} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
-                  Dismiss
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button type="button" onClick={() => setTimer((t) => (t ? { ...t, running: !t.running } : t))} style={chipBtn}>
-                  {timer.running ? "Pause" : "Resume"}
-                </button>
-                <button type="button" onClick={dismissTimer} style={chipBtn}>
-                  Cancel
-                </button>
-              </div>
-            )}
+            <div style={{ fontSize: "1.15rem", fontWeight: 700 }}>{meal.name}</div>
           </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem" }}>
-            {detected != null && (
-              <button
-                type="button"
-                onClick={() => startTimer(detected)}
-                style={{ ...chipBtn, background: "#16a34a", color: "#fff", borderColor: "#16a34a", fontWeight: 600 }}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span aria-label={`Step ${current + 1} of ${total}`} style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
+              Step {current + 1} of {total}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowIngredients((v) => !v)}
+              aria-pressed={showIngredients}
+              style={{ ...chipBtn, borderColor: showIngredients ? "#22c55e" : "#334155" }}
+            >
+              Ingredients
+            </button>
+            <button type="button" onClick={onClose} aria-label="Close cooking mode" style={{ ...chipBtn, borderColor: "#475569" }}>
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ height: "4px", background: "#1e293b", borderRadius: "2px", margin: "0.75rem 0 1rem" }}>
+          <div style={{ height: "100%", width: `${Math.min(100, ((current + 1) / Math.max(1, total)) * 100)}%`, background: "#22c55e", borderRadius: "2px", transition: "width 0.2s" }} />
+        </div>
+
+        {/* Current step (durations are tappable timers) */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", overflowY: "auto" }}>
+          <p style={{ fontSize: "1.6rem", lineHeight: 1.5, maxWidth: "40rem", margin: 0 }}>
+            {tokenizeStepTimers(step).map((seg, i) => {
+              const secs = seg.seconds;
+              return secs != null ? (
+                <button key={i} type="button" onClick={() => startTimer(secs)} title="Start a timer" style={inlineTimer}>
+                  {seg.text}
+                </button>
+              ) : (
+                <span key={i}>{seg.text}</span>
+              );
+            })}
+          </p>
+        </div>
+
+        {/* Timer bar (bottom) */}
+        <div style={{ minHeight: "3rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap", margin: "0.5rem 0" }}>
+          {timer ? (
+            <>
+              <span
+                aria-label={`Timer ${formatClock(timer.remaining)} remaining`}
+                style={{ fontSize: "1.9rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: timer.finished ? "#f87171" : "#22c55e" }}
               >
-                ⏱ Start {formatClock(detected)} timer
-              </button>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                {formatClock(timer.remaining)}
+              </span>
+              {timer.finished ? (
+                <>
+                  <strong role="alert" style={{ color: "#f87171" }}>⏰ Time's up!</strong>
+                  <button type="button" onClick={dismissTimer} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
+                    Dismiss
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setTimer((t) => (t ? { ...t, running: !t.running } : t))} style={chipBtn}>
+                    {timer.running ? "Pause" : "Resume"}
+                  </button>
+                  <button type="button" onClick={dismissTimer} style={chipBtn}>
+                    Cancel
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: "0.85rem", color: "#64748b" }}>Tap a time in the step, or set one:</span>
               <input
                 type="number"
                 min={1}
@@ -353,54 +396,63 @@ export function CookMode({
               <button
                 type="button"
                 onClick={() => startTimer(manualSeconds)}
-                disabled={!(manualSeconds > 0) || manualSeconds > 6 * 3600}
-                style={{ ...chipBtn, opacity: manualSeconds > 0 && manualSeconds <= 6 * 3600 ? 1 : 0.5 }}
+                disabled={!manualOk}
+                style={{ ...chipBtn, opacity: manualOk ? 1 : 0.5 }}
               >
                 Set timer
               </button>
-            </div>
+            </>
+          )}
+        </div>
+
+        {doneError && (
+          <div role="alert" style={{ color: "#f87171", textAlign: "center", fontSize: "0.9rem", marginBottom: "0.4rem" }}>
+            {doneError}
           </div>
         )}
-      </div>
 
-      {/* Footer nav */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginTop: "1rem" }}>
-        <button
-          type="button"
-          onClick={() => goTo(current - 1)}
-          disabled={current === 0}
-          style={{ ...chipBtn, opacity: current === 0 ? 0.4 : 1 }}
-        >
-          ‹ Back
-        </button>
-        {isLast ? (
+        {/* Footer nav */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
           <button
             type="button"
-            onClick={handleDone}
-            disabled={donePending}
-            style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: donePending ? "not-allowed" : "pointer" }}
+            onClick={() => move(-1)}
+            disabled={current === 0}
+            style={{ ...chipBtn, opacity: current === 0 ? 0.4 : 1 }}
           >
-            {donePending ? "Saving…" : doneLabel}
+            ‹ Back
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => goTo(current + 1)}
-            style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#2563eb", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer" }}
-          >
-            Next ›
-          </button>
-        )}
+          {isLast ? (
+            <button
+              type="button"
+              onClick={handleDone}
+              disabled={donePending}
+              style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: donePending ? "not-allowed" : "pointer" }}
+            >
+              {donePending ? "Saving…" : doneLabel}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => move(1)}
+              style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#2563eb", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer" }}
+            >
+              Next ›
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Ingredients slide-in */}
+      {/* Ingredients side panel — a flex sibling, so it narrows the main column
+          instead of covering it. */}
       {showIngredients && (
-        <div
-          style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(20rem, 85vw)", background: "#0f172a", borderLeft: "1px solid #1e293b", padding: "1rem", overflowY: "auto", boxShadow: "-8px 0 24px rgba(0,0,0,0.4)" }}
+        <aside
+          style={{ width: "min(20rem, 40vw)", flexShrink: 0, background: "#0f172a", borderLeft: "1px solid #1e293b", padding: "1rem", overflowY: "auto", boxSizing: "border-box" }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
             <strong>Ingredients</strong>
-            <button type="button" onClick={() => setShowIngredients(false)} aria-label="Hide ingredients" style={chipBtn}>✕</button>
+            <button type="button" onClick={() => setShowIngredients(false)} aria-label="Hide ingredients" style={chipBtn}>
+              ✕
+            </button>
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {meal.ingredients.map((ing, i) => (
@@ -409,7 +461,7 @@ export function CookMode({
               </li>
             ))}
           </ul>
-        </div>
+        </aside>
       )}
     </div>,
     document.body,

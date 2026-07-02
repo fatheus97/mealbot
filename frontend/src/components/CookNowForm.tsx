@@ -409,6 +409,11 @@ export function CookNowForm() {
               onClose={() => setCooking(false)}
               doneLabel="Mark as cooked"
               donePending={cookMutation.isPending}
+              doneError={
+                cookMutation.isError
+                  ? "Couldn't save — check your connection and try again."
+                  : null
+              }
             />
           )}
 

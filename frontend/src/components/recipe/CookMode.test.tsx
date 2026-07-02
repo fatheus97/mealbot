@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookMode } from './CookMode';
-import { parseDurationSeconds } from './cookMode.utils';
+import { parseDurationSeconds, tokenizeStepTimers } from './cookMode.utils';
 import type { PlannedMeal } from '../../types';
 
 const KEY = 'cookmode:test:0:0';
@@ -59,8 +59,9 @@ describe('CookMode', () => {
     const user = userEvent.setup();
     renderCookMode();
     await user.click(screen.getByRole('button', { name: /next/i }));
-    expect(screen.getByText('Simmer for 10 minutes')).toBeInTheDocument();
     expect(screen.getByLabelText('Step 2 of 3')).toBeInTheDocument();
+    // Step 2's "10 minutes" renders as an inline tappable timer button.
+    expect(screen.getByRole('button', { name: /^10 minutes$/i })).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(KEY) as string).step).toBe(1);
   });
 
@@ -113,13 +114,13 @@ describe('CookMode', () => {
     expect(screen.getByText(/tomato — 300g/i)).toBeInTheDocument();
   });
 
-  it('offers a detected timer and counts it down', () => {
+  it('makes a duration in the step a tappable timer and counts it down', () => {
     vi.useFakeTimers();
     try {
       renderCookMode();
-      // Step 2 mentions "10 minutes".
+      // Step 2 is "Simmer for 10 minutes" — the "10 minutes" itself is tappable.
       fireEvent.click(screen.getByRole('button', { name: /next/i }));
-      fireEvent.click(screen.getByRole('button', { name: /start 10:00 timer/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
       expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
       act(() => {
         vi.advanceTimersByTime(3000);
@@ -128,5 +129,34 @@ describe('CookMode', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('navigates steps with the arrow keys', () => {
+    renderCookMode();
+    expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'ArrowRight' });
+    expect(screen.getByLabelText('Step 2 of 3')).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'ArrowLeft' });
+    expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
+  });
+
+  it('surfaces a cook-failure error inside the overlay', () => {
+    renderCookMode({ doneError: 'Something went wrong' });
+    expect(screen.getByRole('alert')).toHaveTextContent(/something went wrong/i);
+  });
+});
+
+describe('tokenizeStepTimers', () => {
+  it('splits a duration mention into a tappable segment and preserves text', () => {
+    const segs = tokenizeStepTimers('Simmer for 10 minutes until reduced');
+    const timed = segs.filter((s) => s.seconds != null);
+    expect(timed).toHaveLength(1);
+    expect(timed[0].text).toBe('10 minutes');
+    expect(timed[0].seconds).toBe(600);
+    expect(segs.map((s) => s.text).join('')).toBe('Simmer for 10 minutes until reduced');
+  });
+
+  it('returns a single plain segment when there is no duration', () => {
+    expect(tokenizeStepTimers('Serve hot')).toEqual([{ text: 'Serve hot', seconds: null }]);
   });
 });
