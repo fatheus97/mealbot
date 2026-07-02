@@ -18,7 +18,7 @@ pydantic[email]~=2.13
 
 # For RAG features
 pgvector~=0.4
-fastembed~=0.6
+fastembed~=0.8
 
 # PDF parsing
 pypdf~=6.10
