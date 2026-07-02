@@ -7,7 +7,7 @@ python-multipart~=0.0.32
 # For LLM
 instructor~=1.15
 openai~=2.0
-google-genai~=1.14
+google-genai~=2.10
 jsonref~=1.1
 
 #For DB
