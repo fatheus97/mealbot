@@ -344,6 +344,7 @@ export function CookNowForm() {
                   <button
                     type="button"
                     onClick={() => {
+                      cookMutation.reset(); // clear any prior cook error so it can't bleed into this session
                       setEditing(false);
                       setCooking(true);
                     }}

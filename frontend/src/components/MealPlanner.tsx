@@ -720,6 +720,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                        {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && (meal.steps?.length ?? 0) > 0 && (
                          <button
                            onClick={() => {
+                             cookMutation.reset(); // clear any prior cook error so it can't bleed into this session
                              setEditingMeal(null);
                              setCookingMeal(`${idx}-${mealIdx}`);
                            }}

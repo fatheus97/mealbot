@@ -373,7 +373,7 @@ export function CookMode({
               </span>
               {timer.finished ? (
                 <>
-                  <strong role="alert" style={{ color: "#f87171" }}>⏰ Time's up!</strong>
+                  <strong style={{ color: "#f87171" }}>⏰ Time's up!</strong>
                   <button type="button" onClick={dismissTimer} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
                     Dismiss
                   </button>
