@@ -303,6 +303,13 @@ export function CookMode({
         background: "#0b1220",
         color: "#f8fafc",
         display: "flex",
+        // Tap-through wizard: display text isn't selectable, so tapping a step
+        // or title doesn't show an I-beam cursor / selection caret (which read
+        // as "you can type here"). Buttons/input set their own cursor; the
+        // timer input opts back into selection below.
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        cursor: "default",
       }}
     >
       {/* Main column — shrinks when the ingredients panel opens (no overlap). */}
@@ -392,7 +399,7 @@ export function CookMode({
                 onChange={(e) => setManualMin(e.target.value)}
                 placeholder="min"
                 aria-label="Custom timer minutes"
-                style={{ width: "4.5rem", padding: "0.35rem", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#e2e8f0" }}
+                style={{ width: "4.5rem", padding: "0.35rem", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#e2e8f0", userSelect: "text", WebkitUserSelect: "text" }}
               />
               <button
                 type="button"
