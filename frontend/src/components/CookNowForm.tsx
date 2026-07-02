@@ -11,6 +11,7 @@ import { IngredientChipInput } from "./IngredientChipInput";
 import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
+import { MealEditor } from "./recipe/MealEditor";
 import {
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
@@ -50,6 +51,10 @@ export function CookNowForm() {
   const [stockOnly, setStockOnly] = useState(false);
 
   const [recipe, setRecipe] = useState<PlannedMeal | null>(null);
+  // Inline editor open on the generated recipe. Only offered before the recipe
+  // is cooked or saved — editing local state after either would silently
+  // diverge from the persisted MealEntry.
+  const [editing, setEditing] = useState(false);
   // Track the request that produced `recipe` so /recipe/cook gets the same
   // context (server re-validates meal_type match). Resetting the form while
   // a recipe is on screen keeps the old pendingRequest until a new generate.
@@ -81,6 +86,7 @@ export function CookNowForm() {
     setRecipe(null);
     setCookedEntry(null);
     setSavedEntry(null);
+    setEditing(false);
     setPendingRequest(req);
     generateMutation.mutate(req, {
       onSuccess: (data) => setRecipe(data.recipe),
@@ -288,33 +294,66 @@ export function CookNowForm() {
                 )}
               </div>
             </div>
-            {cookedEntry ? (
+            {editing ? null : cookedEntry ? (
               <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Cooked</span>
             ) : (
-              <button
-                type="button"
-                onClick={handleCook}
-                disabled={cookMutation.isPending}
-                style={{
-                  padding: "0.5rem 1.25rem",
-                  backgroundColor: "#16a34a",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: cookMutation.isPending ? "not-allowed" : "pointer",
-                }}
-              >
-                {cookMutation.isPending ? "Saving…" : "Mark as cooked"}
-              </button>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
+                {!savedEntry && (
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    style={{
+                      padding: "0.5rem 1rem",
+                      backgroundColor: "#fff",
+                      color: "#374151",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCook}
+                  disabled={cookMutation.isPending}
+                  style={{
+                    padding: "0.5rem 1.25rem",
+                    backgroundColor: "#16a34a",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: cookMutation.isPending ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {cookMutation.isPending ? "Saving…" : "Mark as cooked"}
+                </button>
+              </div>
             )}
           </div>
 
-          <div style={{ marginTop: "0.75rem" }}>
-            <em>Ingredients:</em>{" "}
-            <IngredientsList ingredients={recipe.ingredients} />
-          </div>
+          {editing ? (
+            <div style={{ marginTop: "0.75rem" }}>
+              <MealEditor
+                meal={recipe}
+                onSave={(updated) => {
+                  setRecipe(updated);
+                  setEditing(false);
+                }}
+                onCancel={() => setEditing(false)}
+              />
+            </div>
+          ) : (
+            <>
+              <div style={{ marginTop: "0.75rem" }}>
+                <em>Ingredients:</em>{" "}
+                <IngredientsList ingredients={recipe.ingredients} />
+              </div>
 
-          <RecipeSteps steps={recipe.steps} />
+              <RecipeSteps steps={recipe.steps} />
+            </>
+          )}
 
           {cookMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>

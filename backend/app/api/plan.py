@@ -20,10 +20,12 @@ from app.models.plan_models import (
     FavoriteToggleRequest,
     FinishPlanResponse,
     IngredientAmount,
+    MealEditRequest,
     MealEntrySummary,
     MealPlanRequest,
     MealPlanResponse,
     MealPlanSummary,
+    PlannedMeal,
     RegeneratePlanRequest,
     SingleDayResponse,
     StockItemDTO,
@@ -765,6 +767,115 @@ async def uncook_meal(
         cooked_at=entry.cooked_at,
         is_favorite=entry.is_favorite,
     )
+
+
+# PATCH /api/plan/{plan_id}/days/{day_index}/meals/{meal_index} — Edit meal content
+@router.patch(
+    "/{plan_id}/days/{day_index}/meals/{meal_index}",
+    response_model=PlannedMeal,
+)
+@limiter.limit("30/minute", key_func=user_id_key_func)
+async def edit_meal(
+    request: Request,
+    plan_id: int,
+    day_index: int,
+    meal_index: int,
+    body: MealEditRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> PlannedMeal:
+    """Edit one meal's content (name, ingredients, steps, time) in place.
+
+    Positional address — day_index/meal_index are 0-based, matching
+    response_json list positions and the FrozenMeal/regenerate convention.
+    Works in every plan state:
+
+      * Pre-confirm  → updates the plan's response_json only (no MealEntry
+        rows exist yet).
+      * Post-confirm → updates response_json AND the matching MealEntry's
+        meal_json + denormalized name; re-embeds if the meal is a cookbook
+        favorite (its RAG vector must follow the new name/content).
+
+    Deliberately does NOT touch the fridge. The confirm-time FIFO debit lives
+    in each entry's consumed_snapshot_json, and unconfirm/finish/reopen restore
+    from that snapshot — never from meal_json — so editing a confirmed meal's
+    ingredients cannot desync fridge accounting. Recipe text and the original
+    debit are allowed to diverge by design; re-running FIFO on every edit would
+    fight the snapshot invariant. meal_type/meal_type_label are preserved —
+    changing a slot would desync the day layout and taxonomy.
+    """
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    try:
+        plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
+    except ValidationError as exc:
+        logger.exception("Failed to parse response_json for plan %d during edit", plan_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Stored plan data could not be loaded.",
+        ) from exc
+
+    if not 0 <= day_index < len(plan_obj.days):
+        raise HTTPException(status_code=422, detail=f"day_index {day_index} out of bounds")
+    day_meals = plan_obj.days[day_index].meals
+    if not 0 <= meal_index < len(day_meals):
+        raise HTTPException(
+            status_code=422,
+            detail=f"meal_index {meal_index} out of bounds for day {day_index}",
+        )
+
+    existing = day_meals[meal_index]
+
+    # Preserve slot identity; rewrite only content.
+    updated_meal = PlannedMeal(
+        name=body.name,
+        meal_type=existing.meal_type,
+        meal_type_label=existing.meal_type_label,
+        ingredients=body.ingredients,
+        steps=body.steps,
+        total_time_minutes=body.total_time_minutes,
+    )
+    day_meals[meal_index] = updated_meal
+    plan.response_json = plan_obj.model_dump_json()
+    session.add(plan)
+
+    # Keep the confirmed-plan projection (MealEntry) in sync. Entry indices are
+    # 1-based (see persist_meal_entries); response_json positions are 0-based.
+    if plan.confirmed_at is not None:
+        entry = (
+            await session.execute(
+                select(MealEntry).where(
+                    MealEntry.meal_plan_id == plan_id,
+                    MealEntry.day_index == day_index + 1,
+                    MealEntry.meal_index == meal_index + 1,
+                )
+            )
+        ).scalar_one_or_none()
+        if entry is not None:
+            entry.name = updated_meal.name
+            entry.meal_json = updated_meal.model_dump_json()
+            # A favorite's embedding was built from the old name/content — refresh
+            # it so RAG reflects the edit. Failure is non-fatal (same policy as
+            # favorite_meal): the edit still persists; the vector just goes stale
+            # until a backfill.
+            if entry.is_favorite:
+                try:
+                    await embed_meal_entry(entry)
+                except Exception:
+                    logger.exception(
+                        "Failed to re-embed edited favorite meal entry %d", entry.id
+                    )
+            session.add(entry)
+        else:
+            logger.warning(
+                "No MealEntry for confirmed plan %d at day %d meal %d during edit",
+                plan_id, day_index + 1, meal_index + 1,
+            )
+
+    await session.commit()
+    return updated_meal
 
 
 # GET /api/plan/{plan_id}/meals — List meal entries for a plan

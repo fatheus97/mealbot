@@ -60,6 +60,15 @@ export interface RegeneratePlanRequest {
   frozen_meals: FrozenMeal[];
 }
 
+// Body for PATCH /api/plan/{id}/days/{day}/meals/{meal}. meal_type is not
+// editable — the endpoint preserves the existing slot — so it's absent here.
+export interface MealEditRequest {
+  name: string;
+  ingredients: IngredientAmount[];
+  steps: string[];
+  total_time_minutes?: number | null;
+}
+
 export interface MealHistoryItem {
   meal_entry_id: number;
   meal_plan_id: number;

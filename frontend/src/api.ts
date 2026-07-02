@@ -2,8 +2,10 @@
 import type {
   CookRecipeRequest,
   FavoriteRecipeRequest,
+  MealEditRequest,
   MealEntrySummary,
   MealPlanResponse,
+  PlannedMeal,
   SingleRecipeRequest,
   SingleRecipeResponse,
   StockItem,
@@ -166,6 +168,23 @@ export async function favoriteRecipe(
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Recipe favorite failed: ${res.status} - ${txt}`);
+  }
+  return res.json();
+}
+
+export async function updateMeal(
+  planId: number,
+  dayIndex: number,
+  mealIndex: number,
+  body: MealEditRequest,
+): Promise<PlannedMeal> {
+  const res = await authFetch(
+    `/plan/${planId}/days/${dayIndex}/meals/${mealIndex}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Meal update failed: ${res.status} - ${txt}`);
   }
   return res.json();
 }
