@@ -70,7 +70,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 |---|---|---|---|---|
 | **Editable results** | 🟡 | M–L | — | Fridge items fully editable; recipe **name/ingredients/steps are read-only** after generation. Needs (a) frontend inline editing and (b) a backend `PATCH` for **edit-after-confirm** (currently you must unconfirm → regenerate). This is also the enabler for "user edits as feedback". |
 | **Nicer UI** | 🟡 | L | — | Cookbook is genuinely polished; the core planner is functional-but-plain inline styles. Open-ended — worth scoping to specific screens rather than "make it nice". |
-| **Mobile-friendly UI** | 🟡 | M | — | Layout uses flex/grid + 960px cap but **no media queries, untested on real devices**. Pairs naturally with camera capture. |
+| **Mobile-friendly UI** | 🟡 | M | — | Layout uses flex/grid + 960px cap but **no responsive breakpoint media queries** (only `prefers-color-scheme`/`prefers-reduced-motion` exist), untested on real devices. Pairs naturally with camera capture. |
 | **Camera capture** | ⬜ | S–M | mobile | Receipt scanner is **file-upload only**; no `getUserMedia`/camera. Most valuable on mobile. |
 | **Request correlation IDs (I-3)** | ⬜ | M | — | No trace/request IDs, no structured JSON logging. Middleware + `ContextVar` + JSON formatter + log-call updates. Own PR. |
 | **Frontend E2E (U-8)** | ⬜ | M–L | — | No Playwright/Cypress. Deferred until a workflow needs it; low urgency for a solo alpha. |
@@ -97,7 +97,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | Item | Status | Effort | Notes |
 |---|---|---|---|
 | **Non-root SSH hardening** | 🟡 | S | Server-side, not in repo. Create a personal sudo user, disable root SSH login. Low urgency, easy to forget — do it at deploy time. |
-| **`auth_session` cleanup job** | ⬜ | S | Daily `DELETE FROM auth_session WHERE expires_at < now() - 7d`. Add index on `(user_id, revoked_at, expires_at)` — current index is only `(user_id, expires_at)`. |
+| **`authsession` cleanup job** | ⬜ | S | Daily sweep: `DELETE FROM authsession WHERE expires_at < now() - INTERVAL '7 days'` (SQLModel-derived table name is `authsession`, no underscore). Index depends on scope: a full-table sweep wants `(expires_at)`; a per-user sweep is already served by the existing `(user_id, expires_at)`. Only add `revoked_at` to the index if the query filters on it. |
 | **Password change + token rotation** | ⬜ | S | Endpoint doesn't exist; becomes a one-liner once built (`revoke_all_sessions_for_user` + bump `token_version`). |
 
 ---
