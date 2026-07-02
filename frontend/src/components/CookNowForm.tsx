@@ -12,6 +12,11 @@ import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
+import { CookMode } from "./recipe/CookMode";
+
+// Cook Now has a single transient recipe on screen, so one fixed cook-mode
+// storage key is enough — it's cleared whenever a new recipe is generated.
+const COOKNOW_COOK_KEY = "cookmode:cooknow";
 import {
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
@@ -55,6 +60,8 @@ export function CookNowForm() {
   // is cooked or saved — editing local state after either would silently
   // diverge from the persisted MealEntry.
   const [editing, setEditing] = useState(false);
+  // Real-time cooking checklist open on the generated recipe.
+  const [cooking, setCooking] = useState(false);
   // Track the request that produced `recipe` so /recipe/cook gets the same
   // context (server re-validates meal_type match). Resetting the form while
   // a recipe is on screen keeps the old pendingRequest until a new generate.
@@ -87,6 +94,13 @@ export function CookNowForm() {
     setCookedEntry(null);
     setSavedEntry(null);
     setEditing(false);
+    setCooking(false);
+    // Drop any half-finished checklist from a previous recipe.
+    try {
+      localStorage.removeItem(COOKNOW_COOK_KEY);
+    } catch {
+      // ignore — storage unavailable
+    }
     setPendingRequest(req);
     generateMutation.mutate(req, {
       onSuccess: (data) => setRecipe(data.recipe),
@@ -297,7 +311,7 @@ export function CookNowForm() {
                 )}
               </div>
             </div>
-            {editing ? null : cookedEntry ? (
+            {editing || cooking ? null : cookedEntry ? (
               <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Cooked</span>
             ) : (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
@@ -317,6 +331,23 @@ export function CookNowForm() {
                     Edit
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(false);
+                    setCooking(true);
+                  }}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    backgroundColor: "#fff",
+                    color: "#16a34a",
+                    border: "1px solid #16a34a",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Start cooking
+                </button>
                 <button
                   type="button"
                   onClick={handleCook}
@@ -345,6 +376,20 @@ export function CookNowForm() {
                   setEditing(false);
                 }}
                 onCancel={() => setEditing(false)}
+              />
+            </div>
+          ) : cooking ? (
+            <div style={{ marginTop: "0.75rem" }}>
+              <CookMode
+                meal={recipe}
+                storageKey={COOKNOW_COOK_KEY}
+                onDone={() => {
+                  handleCook();
+                  setCooking(false);
+                }}
+                onClose={() => setCooking(false)}
+                doneLabel="Mark as cooked"
+                donePending={cookMutation.isPending}
               />
             </div>
           ) : (

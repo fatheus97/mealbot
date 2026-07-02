@@ -5,6 +5,7 @@ import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
+import { CookMode } from "./recipe/CookMode";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
 import { CookNowForm } from "./CookNowForm";
@@ -53,6 +54,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Which meal (if any) is currently open in the inline editor, keyed by
   // "day-meal" (0-based, matching the render indices).
   const [editingMeal, setEditingMeal] = useState<string | null>(null);
+  // Which meal (if any) is open in real-time cooking mode, same "day-meal" key.
+  const [cookingMeal, setCookingMeal] = useState<string | null>(null);
 
   // Derive initial state directly from the initialPlan prop. The parent
   // (App.tsx) remounts this component via `key={openedPlan?.plan.plan_id}`
@@ -325,6 +328,18 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         },
       },
     );
+  };
+
+  // Finish real-time cooking: mark the meal cooked (idempotent) and close the
+  // checklist. CookMode has already cleared its saved progress by this point.
+  const handleFinishCooking = (dayIdx: number, mealIdx: number) => {
+    if (!planId) return;
+    const entry = findEntry(dayIdx, mealIdx);
+    if (!entry) return;
+    if (!entry.cooked_at) {
+      cookMutation.mutate({ planId, mealEntryId: entry.id });
+    }
+    setCookingMeal(null);
   };
 
   if (!userId) {
@@ -614,6 +629,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                  const entry = findEntry(idx, mealIdx);
                  const isCooked = entry?.cooked_at != null;
                  const isEditing = editingMeal === `${idx}-${mealIdx}`;
+                 const isCooking = cookingMeal === `${idx}-${mealIdx}`;
                  return (
                    <div
                      key={mealIdx}
@@ -644,7 +660,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            {isFrozen ? "Frozen" : "Freeze"}
                          </button>
                        )}
-                       {isConfirmed && !isFinished && entry && (
+                       {isConfirmed && !isFinished && entry && !isCooking && (
                          <button
                            onClick={() => handleCookToggle(idx, mealIdx)}
                            disabled={cookMutation.isPending || uncookMutation.isPending}
@@ -671,7 +687,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            {isCooked ? "Cooked" : "Not cooked"}
                          </span>
                        )}
-                       {!isEditing && !isFinished && (
+                       {!isEditing && !isFinished && !isCooking && (
                          <button
                            onClick={() => setEditingMeal(`${idx}-${mealIdx}`)}
                            title="Edit this recipe"
@@ -686,6 +702,26 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            }}
                          >
                            Edit
+                         </button>
+                       )}
+                       {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && (
+                         <button
+                           onClick={() => {
+                             setEditingMeal(null);
+                             setCookingMeal(`${idx}-${mealIdx}`);
+                           }}
+                           title="Cook this recipe step by step"
+                           style={{
+                             background: "none",
+                             border: "1px solid #16a34a",
+                             borderRadius: "4px",
+                             padding: "0.15rem 0.4rem",
+                             cursor: "pointer",
+                             fontSize: "0.85rem",
+                             color: "#16a34a",
+                           }}
+                         >
+                           Start cooking
                          </button>
                        )}
                        <strong>{mealTypeLabel(meal.meal_type, meal.meal_type_label).toUpperCase()}:</strong> {meal.name}
@@ -717,6 +753,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                              ? (updateMealMutation.error?.message ?? "Save failed")
                              : null
                          }
+                       />
+                     ) : isCooking ? (
+                       <CookMode
+                         meal={meal}
+                         storageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
+                         onDone={() => handleFinishCooking(idx, mealIdx)}
+                         onClose={() => setCookingMeal(null)}
+                         doneLabel="Mark as cooked"
+                         donePending={cookMutation.isPending}
                        />
                      ) : (
                        <>
