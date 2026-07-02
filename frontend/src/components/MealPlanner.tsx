@@ -336,10 +336,22 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     if (!planId) return;
     const entry = findEntry(dayIdx, mealIdx);
     if (!entry) return;
-    if (!entry.cooked_at) {
-      cookMutation.mutate({ planId, mealEntryId: entry.id });
+    const finish = () => {
+      try {
+        localStorage.removeItem(`cookmode:${planId}:${dayIdx}:${mealIdx}`);
+      } catch {
+        // ignore
+      }
+      setCookingMeal(null);
+    };
+    // Close cook mode + drop its saved progress only after the cook mutation
+    // succeeds — a failed request keeps the overlay open for a retry. An
+    // already-cooked meal just closes.
+    if (entry.cooked_at) {
+      finish();
+    } else {
+      cookMutation.mutate({ planId, mealEntryId: entry.id }, { onSuccess: finish });
     }
-    setCookingMeal(null);
   };
 
   if (!userId) {

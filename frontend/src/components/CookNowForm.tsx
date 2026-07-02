@@ -13,10 +13,6 @@ import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
 import { CookMode } from "./recipe/CookMode";
-
-// Cook Now has a single transient recipe on screen, so one fixed cook-mode
-// storage key is enough — it's cleared whenever a new recipe is generated.
-const COOKNOW_COOK_KEY = "cookmode:cooknow";
 import {
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
@@ -29,6 +25,11 @@ import type {
   PlannedMeal,
   SingleRecipeRequest,
 } from "../types";
+
+// Cook Now has a single transient recipe on screen, so one fixed cook-mode
+// storage key is enough — it's cleared whenever a new recipe is generated or
+// once a cook succeeds.
+const COOKNOW_COOK_KEY = "cookmode:cooknow";
 
 // Cook Now: one-shot single-recipe generator. The saved recipe carries its
 // full PlannedMeal through /recipe/cook so the server doesn't re-invoke the
@@ -118,6 +119,14 @@ export function CookNowForm() {
         // separate entry — the saved one keeps its own state.
         if (!savedEntry) {
           setSavedEntry({ id: entry.id, isFavorite: entry.is_favorite });
+        }
+        // Close cook mode + drop its saved checklist only now that the server
+        // confirmed — a failed cook leaves the overlay open for a retry.
+        setCooking(false);
+        try {
+          localStorage.removeItem(COOKNOW_COOK_KEY);
+        } catch {
+          // ignore
         }
       },
     });
@@ -396,10 +405,7 @@ export function CookNowForm() {
             <CookMode
               meal={recipe}
               storageKey={COOKNOW_COOK_KEY}
-              onDone={() => {
-                handleCook();
-                setCooking(false);
-              }}
+              onDone={handleCook}
               onClose={() => setCooking(false)}
               doneLabel="Mark as cooked"
               donePending={cookMutation.isPending}

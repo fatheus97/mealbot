@@ -41,8 +41,13 @@ function writeStep(key: string, step: number): void {
   }
 }
 
+interface WakeSentinel {
+  release: () => Promise<void>;
+  addEventListener?: (type: "release", listener: () => void) => void;
+}
+
 interface WakeLockLike {
-  wakeLock?: { request(type: "screen"): Promise<{ release: () => Promise<void> }> };
+  wakeLock?: { request(type: "screen"): Promise<WakeSentinel> };
 }
 
 type Timer = { remaining: number; total: number; running: boolean; finished: boolean };
@@ -158,18 +163,35 @@ export function CookMode({
   // Keep the screen awake while cooking; re-acquire when the tab returns to
   // foreground (the lock is auto-released on hide).
   useEffect(() => {
-    let sentinel: { release: () => Promise<void> } | null = null;
+    let sentinel: WakeSentinel | null = null;
+    let pending = false;
     let cancelled = false;
     const request = () => {
+      // Skip if a request is already in flight or a lock is held — otherwise a
+      // rapid hide/show can spawn a second sentinel that leaks the first.
+      if (pending || sentinel || cancelled) return;
       const nav = navigator as unknown as WakeLockLike;
       if (!nav.wakeLock?.request) return;
+      pending = true;
       nav.wakeLock
         .request("screen")
         .then((s) => {
-          if (cancelled) s.release().catch(() => {});
-          else sentinel = s;
+          pending = false;
+          if (cancelled) {
+            s.release().catch(() => {});
+            return;
+          }
+          sentinel = s;
+          // The browser auto-releases the lock when the tab hides; drop our
+          // ref so the next visibilitychange re-acquires instead of the guard
+          // above short-circuiting.
+          s.addEventListener?.("release", () => {
+            if (sentinel === s) sentinel = null;
+          });
         })
-        .catch(() => {});
+        .catch(() => {
+          pending = false;
+        });
     };
     request();
     const onVis = () => {
@@ -198,7 +220,9 @@ export function CookMode({
   };
 
   const startTimer = (seconds: number) => {
-    if (!(seconds > 0)) return;
+    // Same lower + upper bound as auto-detected durations, so a fat-fingered
+    // manual entry can't spawn a multi-day timer.
+    if (!(seconds > 0) || seconds > 6 * 3600) return;
     requestNotify();
     ensureAudio(); // create inside the click gesture so playback is allowed later
     setTimer({ remaining: seconds, total: seconds, running: true, finished: false });
@@ -210,12 +234,9 @@ export function CookMode({
   };
 
   const handleDone = () => {
+    // Storage is cleared by the parent AFTER the cook mutation succeeds, so a
+    // failed cook keeps this overlay + its saved progress intact for a retry.
     stopAlarm();
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {
-      // ignore
-    }
     onDone();
   };
 
@@ -332,8 +353,8 @@ export function CookMode({
               <button
                 type="button"
                 onClick={() => startTimer(manualSeconds)}
-                disabled={!(manualSeconds > 0)}
-                style={{ ...chipBtn, opacity: manualSeconds > 0 ? 1 : 0.5 }}
+                disabled={!(manualSeconds > 0) || manualSeconds > 6 * 3600}
+                style={{ ...chipBtn, opacity: manualSeconds > 0 && manualSeconds <= 6 * 3600 ? 1 : 0.5 }}
               >
                 Set timer
               </button>

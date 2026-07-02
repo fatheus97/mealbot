@@ -79,13 +79,22 @@ describe('CookMode', () => {
     expect(screen.getByLabelText('Step 3 of 3')).toBeInTheDocument();
   });
 
-  it('shows Done on the last step; it clears storage and calls onDone', async () => {
+  it('Done on the last step calls onDone and leaves storage for the parent', async () => {
     const user = userEvent.setup();
     localStorage.setItem(KEY, JSON.stringify({ step: 2 }));
     const { onDone } = renderCookMode({ doneLabel: 'Mark as cooked' });
     await user.click(screen.getByRole('button', { name: /mark as cooked/i }));
     expect(onDone).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(KEY)).toBeNull();
+    // CookMode does NOT clear storage itself — the parent clears it only after
+    // the cook mutation succeeds, so a failed cook can resume from the same step.
+    expect(localStorage.getItem(KEY)).not.toBeNull();
+  });
+
+  it('disables the manual timer for an over-cap (>6h) value', async () => {
+    const user = userEvent.setup();
+    renderCookMode();
+    await user.type(screen.getByLabelText(/custom timer minutes/i), '999999');
+    expect(screen.getByRole('button', { name: /set timer/i })).toBeDisabled();
   });
 
   it('Close calls onClose and keeps the saved step', async () => {
