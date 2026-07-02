@@ -1,5 +1,37 @@
 import '@testing-library/jest-dom/vitest';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
+
+// Node 22+ ships native Web Storage globals (`localStorage`/`sessionStorage`) that
+// vitest's jsdom environment leaves unconfigured, so the bare globals resolve to
+// `undefined` under Node 26 (they were provided implicitly under Node 24). Install an
+// in-memory Storage so the test setup and zustand's persist middleware behave
+// consistently regardless of the Node version running the suite.
+function createMemoryStorage(): Storage {
+  const store = new Map<string, string>();
+  return {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.has(key) ? store.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+  } as Storage;
+}
+
+vi.stubGlobal('localStorage', createMemoryStorage());
+vi.stubGlobal('sessionStorage', createMemoryStorage());
 
 afterEach(() => {
   localStorage.clear();
