@@ -69,7 +69,7 @@ def _disable_cookie_secure(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
     """
     Each test gets a session inside a top-level transaction that is always
     rolled back. Endpoint code that calls session.commit() actually commits
@@ -125,7 +125,7 @@ async def auth_headers(test_user: User) -> dict[str, str]:
 @pytest.fixture
 async def client(
     db_session: AsyncSession, test_user: User
-) -> AsyncGenerator[AsyncClient, None]:
+) -> AsyncGenerator[AsyncClient]:
     from app.main import app
 
     async def override_get_session():
@@ -147,7 +147,7 @@ async def client(
 @pytest.fixture
 async def unauthed_client(
     db_session: AsyncSession,
-) -> AsyncGenerator[AsyncClient, None]:
+) -> AsyncGenerator[AsyncClient]:
     from app.main import app
 
     async def override_get_session():

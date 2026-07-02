@@ -20,7 +20,7 @@ async_session_factory = async_sessionmaker(
     expire_on_commit=False     # Critical for async: prevents implicit IO attributes access
 )
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_session() -> AsyncGenerator[AsyncSession]:
     """
     Dependency to be injected into FastAPI routes.
     """
