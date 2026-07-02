@@ -57,10 +57,10 @@ class User(SQLModel, table=True):
     # with a mismatched version are rejected in get_current_user.
     token_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
 
-    fridge_items: list["StockItem"] = Relationship(back_populates="user")
-    meal_plans: list["MealPlan"] = Relationship(back_populates="user")
-    meal_entries: list["MealEntry"] = Relationship(back_populates="user")
-    auth_sessions: list["AuthSession"] = Relationship(back_populates="user")
+    fridge_items: list[StockItem] = Relationship(back_populates="user")
+    meal_plans: list[MealPlan] = Relationship(back_populates="user")
+    meal_entries: list[MealEntry] = Relationship(back_populates="user")
+    auth_sessions: list[AuthSession] = Relationship(back_populates="user")
 
 
 class AuthSession(SQLModel, table=True):
@@ -89,7 +89,7 @@ class AuthSession(SQLModel, table=True):
         default=None, foreign_key="authsession.id"
     )
 
-    user: "User" = Relationship(back_populates="auth_sessions")
+    user: User = Relationship(back_populates="auth_sessions")
 
 
 class StockItem(SQLModel, table=True):
@@ -100,7 +100,7 @@ class StockItem(SQLModel, table=True):
     need_to_use: bool = Field(default=False, index=True)
     expiration_date: date | None = Field(default=None, index=True)
 
-    user: "User" = Relationship(back_populates="fridge_items")
+    user: User = Relationship(back_populates="fridge_items")
 
 
 class MealPlan(SQLModel, table=True):
@@ -128,8 +128,8 @@ class MealPlan(SQLModel, table=True):
     finished_at: datetime | None = Field(default=None)
     stock_after_json: str | None = Field(default=None)
 
-    user: "User" = Relationship(back_populates="meal_plans")
-    meal_entries: list["MealEntry"] = Relationship(back_populates="meal_plan")
+    user: User = Relationship(back_populates="meal_plans")
+    meal_entries: list[MealEntry] = Relationship(back_populates="meal_plan")
 
 class MealEntry(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -177,8 +177,8 @@ class MealEntry(SQLModel, table=True):
         default=None, sa_column=Column(Vector(384), nullable=True)
     )
 
-    user: "User" = Relationship(back_populates="meal_entries")
-    meal_plan: "MealPlan" = Relationship(back_populates="meal_entries")
+    user: User = Relationship(back_populates="meal_entries")
+    meal_plan: MealPlan = Relationship(back_populates="meal_entries")
 
     __table_args__ = (
         Index(

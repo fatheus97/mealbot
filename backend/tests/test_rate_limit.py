@@ -22,13 +22,13 @@ from app.models.db_models import User
 @pytest.fixture
 async def rate_limited_client(
     db_session: AsyncSession,
-) -> AsyncGenerator[AsyncClient, None]:
+) -> AsyncGenerator[AsyncClient]:
     """Client with rate limiting re-enabled and storage flushed, overriding
     the conftest autouse disable. Scoped to a single test so the counter
     doesn't leak between tests."""
     from app.main import app
 
-    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+    async def override_get_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
