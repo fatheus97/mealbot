@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, RegeneratePlanRequest, UserProfile, FinishPlanResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
-import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, scanReceipt, updateUserProfile } from '../api';
+import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
+import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, scanReceipt, updateMeal, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -376,6 +376,27 @@ export function useGeneratePlan() {
     },
     onSuccess: () => {
       return queryClient.invalidateQueries({ queryKey: ['planList'] });
+    },
+  });
+}
+
+// Edit one meal's content in place. Addressed positionally (0-based day/meal),
+// which works pre- and post-confirm. Server keeps response_json and (once
+// confirmed) the MealEntry in sync, so we invalidate the meal-entry and
+// cookbook caches — a favorited meal's name may have changed.
+export function useUpdateMeal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ planId, dayIndex, mealIndex, body }: {
+      planId: number;
+      dayIndex: number;
+      mealIndex: number;
+      body: MealEditRequest;
+    }): Promise<PlannedMeal> => updateMeal(planId, dayIndex, mealIndex, body),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['mealEntries', variables.planId] });
+      queryClient.invalidateQueries({ queryKey: ['cookbook'] });
+      queryClient.invalidateQueries({ queryKey: ['cookbookCount'] });
     },
   });
 }

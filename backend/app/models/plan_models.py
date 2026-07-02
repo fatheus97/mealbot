@@ -203,6 +203,32 @@ class PlannedMeal(BaseModel):
         return v
 
 
+class MealEditRequest(BaseModel):
+    """User-edited content for a single meal (name, ingredients, steps, time).
+
+    meal_type / meal_type_label are intentionally absent: editing a meal's slot
+    would desync the plan's day layout and the RAG taxonomy, so the edit
+    endpoint preserves the existing slot and only rewrites content. Bounds
+    mirror PlannedMeal so an edit can't smuggle in data a freshly-generated
+    meal couldn't hold (this is a client-write path — treat input as hostile).
+    """
+    name: str = Field(..., min_length=1, max_length=200)
+    ingredients: list[IngredientAmount] = Field(..., max_length=40)
+    steps: list[str] = Field(..., max_length=50)
+    total_time_minutes: int | None = Field(default=None, ge=1, le=600)
+
+    @field_validator("steps")
+    @classmethod
+    def cap_step_length(cls, v: list[str]) -> list[str]:
+        # Same per-item cap as PlannedMeal.steps — duplicated (not shared) to
+        # keep the model layer free of cross-references, matching the
+        # sanitize_input duplication in SingleRecipeRequest.
+        for i, step in enumerate(v):
+            if len(step) > 1000:
+                raise ValueError(f"steps[{i}] exceeds 1000 characters")
+        return v
+
+
 class SingleDayResponse(BaseModel):
     """LLM response for a single day (raw output from the model)."""
     meals: list[PlannedMeal]

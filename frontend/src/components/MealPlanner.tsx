@@ -1,15 +1,16 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useFridge, useUserProfile } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
 import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
+import { MealEditor } from "./recipe/MealEditor";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
 import { CookNowForm } from "./CookNowForm";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { mealTypeLabel, type MealType } from "../constants/mealTypes";
-import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType } from "../types";
+import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType, PlannedMeal } from "../types";
 
 // Fallback seed for a single day when the user has no saved default layout.
 // main_course is the least opinionated single-meal day; the editor lets the
@@ -47,6 +48,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   const finishMutation = useFinishPlan();
   const reopenMutation = useReopenPlan();
   const favoriteMutation = useFavoriteMeal();
+  const updateMealMutation = useUpdateMeal();
+
+  // Which meal (if any) is currently open in the inline editor, keyed by
+  // "day-meal" (0-based, matching the render indices).
+  const [editingMeal, setEditingMeal] = useState<string | null>(null);
 
   // Derive initial state directly from the initialPlan prop. The parent
   // (App.tsx) remounts this component via `key={openedPlan?.plan.plan_id}`
@@ -283,6 +289,42 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     } else {
       cookMutation.mutate({ planId, mealEntryId: entry.id });
     }
+  };
+
+  const handleSaveEdit = (dayIdx: number, mealIdx: number, updated: PlannedMeal) => {
+    if (!currentPlan?.plan_id) return;
+    updateMealMutation.mutate(
+      {
+        planId: currentPlan.plan_id,
+        dayIndex: dayIdx,
+        mealIndex: mealIdx,
+        body: {
+          name: updated.name,
+          ingredients: updated.ingredients,
+          steps: updated.steps,
+          total_time_minutes: updated.total_time_minutes ?? null,
+        },
+      },
+      {
+        onSuccess: (serverMeal) => {
+          // Replace the edited meal in local plan state with the server's
+          // canonical version (echoes back preserved meal_type etc.).
+          setCurrentPlan((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  days: prev.days.map((d, di) =>
+                    di === dayIdx
+                      ? { ...d, meals: d.meals.map((m, mi) => (mi === mealIdx ? serverMeal : m)) }
+                      : d,
+                  ),
+                }
+              : prev,
+          );
+          setEditingMeal(null);
+        },
+      },
+    );
   };
 
   if (!userId) {
@@ -571,6 +613,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                  const isFrozen = frozenMeals.has(`${idx}-${mealIdx}`);
                  const entry = findEntry(idx, mealIdx);
                  const isCooked = entry?.cooked_at != null;
+                 const isEditing = editingMeal === `${idx}-${mealIdx}`;
                  return (
                    <div
                      key={mealIdx}
@@ -628,6 +671,23 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                            {isCooked ? "Cooked" : "Not cooked"}
                          </span>
                        )}
+                       {!isEditing && !isFinished && (
+                         <button
+                           onClick={() => setEditingMeal(`${idx}-${mealIdx}`)}
+                           title="Edit this recipe"
+                           style={{
+                             background: "none",
+                             border: "1px solid #ccc",
+                             borderRadius: "4px",
+                             padding: "0.15rem 0.4rem",
+                             cursor: "pointer",
+                             fontSize: "0.85rem",
+                             color: "#555",
+                           }}
+                         >
+                           Edit
+                         </button>
+                       )}
                        <strong>{mealTypeLabel(meal.meal_type, meal.meal_type_label).toUpperCase()}:</strong> {meal.name}
                        {meal.total_time_minutes != null && (
                          <span
@@ -646,14 +706,30 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                        )}
                      </div>
 
-                     <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
-                       <em>Ingredients:</em>{" "}
-                       <IngredientsList ingredients={meal.ingredients ?? []} />
-                     </div>
+                     {isEditing ? (
+                       <MealEditor
+                         meal={meal}
+                         onSave={(updated) => handleSaveEdit(idx, mealIdx, updated)}
+                         onCancel={() => setEditingMeal(null)}
+                         saving={updateMealMutation.isPending}
+                         error={
+                           updateMealMutation.isError
+                             ? (updateMealMutation.error?.message ?? "Save failed")
+                             : null
+                         }
+                       />
+                     ) : (
+                       <>
+                         <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
+                           <em>Ingredients:</em>{" "}
+                           <IngredientsList ingredients={meal.ingredients ?? []} />
+                         </div>
 
-                     <div style={{ fontSize: "0.9em" }}>
-                       <RecipeSteps steps={meal.steps ?? []} />
-                     </div>
+                         <div style={{ fontSize: "0.9em" }}>
+                           <RecipeSteps steps={meal.steps ?? []} />
+                         </div>
+                       </>
+                     )}
                    </div>
                  );
                })}

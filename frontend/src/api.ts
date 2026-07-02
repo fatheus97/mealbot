@@ -2,8 +2,10 @@
 import type {
   CookRecipeRequest,
   FavoriteRecipeRequest,
+  MealEditRequest,
   MealEntrySummary,
   MealPlanResponse,
+  PlannedMeal,
   SingleRecipeRequest,
   SingleRecipeResponse,
   StockItem,
@@ -166,6 +168,33 @@ export async function favoriteRecipe(
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Recipe favorite failed: ${res.status} - ${txt}`);
+  }
+  return res.json();
+}
+
+export async function updateMeal(
+  planId: number,
+  dayIndex: number,
+  mealIndex: number,
+  body: MealEditRequest,
+): Promise<PlannedMeal> {
+  const res = await authFetch(
+    `/plan/${planId}/days/${dayIndex}/meals/${mealIndex}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+  if (!res.ok) {
+    // Surface the backend's human-readable `detail` (e.g. "steps[0] exceeds
+    // 1000 characters", "Cannot edit a finished plan…") rather than dumping raw
+    // FastAPI JSON into the UI. Pydantic 422s carry a list detail, not a string,
+    // so those fall back to the status message.
+    let detail: string | null = null;
+    try {
+      const parsed = await res.json();
+      if (typeof parsed?.detail === "string") detail = parsed.detail;
+    } catch {
+      // non-JSON body — fall back to the status message
+    }
+    throw new Error(detail ?? `Meal update failed: ${res.status}`);
   }
   return res.json();
 }
