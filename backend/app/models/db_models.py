@@ -189,3 +189,92 @@ class MealEntry(SQLModel, table=True):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+class MachineGeneration(SQLModel, table=True):
+    """Append-only record of a raw machine/LLM/OCR output, captured at
+    generation time BEFORE any user edits.
+
+    Paired with MachineCorrection rows (via ``generation_id``) to reconstruct
+    the machine-output → user-correction delta for offline quality analysis.
+    Capturing every generation — not just edited ones — also yields an
+    "accepted as-is" signal for free (a generation with no linked corrections).
+
+    Best-effort telemetry: it shares the user action's transaction (so it's
+    only persisted if that action commits — no phantom rows), but a failed
+    write here must never surface to the user. See app.services.telemetry.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    # CASCADE: telemetry is scoped to a user; when the user goes (e.g. demo-user
+    # cleanup) their signal goes with them.
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    # Which flow produced this: "meal_plan" | "single_recipe" | "receipt_scan"
+    # | "regenerate". Loose str (not an enum column) so new surfaces need no
+    # migration; the value is set from a server-side constant set (never user
+    # input) — see telemetry.GENERATION_SURFACES.
+    surface: str = Field(index=True, nullable=False)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+    )
+    # Loose link to the owning plan when the surface has one (meal_plan,
+    # regenerate); NULL for plan-less surfaces (receipt_scan, single_recipe).
+    # SET NULL, not CASCADE: deleting a plan must not destroy the durable
+    # learning signal — the generation↔correction link and user_id survive.
+    meal_plan_id: int | None = Field(
+        default=None, foreign_key="mealplan.id", index=True, ondelete="SET NULL"
+    )
+    # The inputs that produced the output (request params / prompt inputs),
+    # JSON. NULL when not meaningfully captured.
+    request_json: str | None = Field(default=None)
+    # The pristine machine output, JSON. The core signal.
+    output_json: str = Field(nullable=False)
+
+
+class MachineCorrection(SQLModel, table=True):
+    """Append-only record of a user editing/committing machine-generated
+    content.
+
+    Links to the MachineGeneration it derives from (``generation_id``) when the
+    server can resolve one. One row per edit hop: replaying a target's rows
+    ordered by ``created_at`` reconstructs the full edit chain, and the first
+    hop's ``before_json`` is the pristine generation for that item.
+
+    Best-effort telemetry with the same transactional semantics as
+    MachineGeneration.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    # "meal_edit" | "recipe_cook" | "receipt_merge" | ... — see
+    # telemetry.CORRECTION_SURFACES.
+    surface: str = Field(index=True, nullable=False)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+    )
+    # CASCADE: a correction is meaningless once its generation is gone.
+    generation_id: int | None = Field(
+        default=None,
+        foreign_key="machinegeneration.id",
+        index=True,
+        ondelete="CASCADE",
+    )
+    # SET NULL for the same reason as MachineGeneration.meal_plan_id.
+    meal_plan_id: int | None = Field(
+        default=None, foreign_key="mealplan.id", index=True, ondelete="SET NULL"
+    )
+    # Small structured coords (day/meal index, item counts) for slicing without
+    # parsing the big blobs. JSONB so it's queryable. int-valued only by
+    # convention — anything richer belongs in the JSON snapshots.
+    context_json: dict[str, int] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+    # Immediate pre-edit state (JSON) when the server has it (e.g. meal_edit
+    # reads the old meal); NULL when only the committed version is available.
+    before_json: str | None = Field(default=None)
+    # What the user committed (JSON). The core signal.
+    after_json: str = Field(nullable=False)
