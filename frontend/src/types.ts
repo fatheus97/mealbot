@@ -134,6 +134,8 @@ export interface FavoriteRecipeRequest {
   meal_type: MealType;
   people_count: number;
   recipe: PlannedMeal;
+  // id from the /recipe/generate response, echoed back for edit telemetry.
+  generation_id: number | null;
 }
 
 // Phase 4: Cook Now request/response
@@ -150,10 +152,13 @@ export interface SingleRecipeRequest {
 
 export interface CookRecipeRequest extends SingleRecipeRequest {
   recipe: PlannedMeal;
+  // id from the /recipe/generate response, echoed back for edit telemetry.
+  generation_id: number | null;
 }
 
 export interface SingleRecipeResponse {
   recipe: PlannedMeal;
+  generation_id: number | null;
 }
 
 export type ScannedItemType = "ingredient" | "ready_to_eat";

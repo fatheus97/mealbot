@@ -65,7 +65,9 @@ class TestGenerateRecipe:
         db_session: AsyncSession,
         test_user: User,
     ):
-        """Preview-only: no MealPlan row is written."""
+        """Preview-only: no MealPlan row is written (a machine_generation
+        telemetry row is — that's covered in test_recipe_telemetry — but the
+        plan itself is only created on cook/favorite)."""
         mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
 
         await client.post(
@@ -73,7 +75,7 @@ class TestGenerateRecipe:
             headers=auth_headers,
             json={"meal_type": "soup", "people_count": 2},
         )
-        # Fresh session view — should see zero rows for this user.
+        # Fresh session view — should see zero plan rows for this user.
         await db_session.commit()
         result = await db_session.execute(
             select(MealPlan).where(MealPlan.user_id == test_user.id),

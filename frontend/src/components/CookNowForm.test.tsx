@@ -63,6 +63,7 @@ describe('CookNowForm', () => {
         steps: ['Simmer', 'Serve'],
         total_time_minutes: 20,
       },
+      generation_id: 7,
     });
 
     render(<CookNowForm />, { wrapper: createWrapper() });
@@ -90,6 +91,7 @@ describe('CookNowForm', () => {
         ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
         steps: ['Simmer'],
       },
+      generation_id: 7,
     });
     mockedCook.mockResolvedValueOnce({
       id: 42,
@@ -112,6 +114,8 @@ describe('CookNowForm', () => {
     const payload = mockedCook.mock.calls[0][0];
     expect(payload.meal_type).toBe('main_course');  // default
     expect(payload.recipe.name).toBe('Quick Soup');
+    // The generation id from /generate rides back so the server can link edits.
+    expect(payload.generation_id).toBe(7);
 
     await waitFor(() => expect(screen.getByText(/✓ cooked/i)).toBeInTheDocument());
   });

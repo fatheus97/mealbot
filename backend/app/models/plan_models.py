@@ -361,8 +361,15 @@ class SingleRecipeRequest(BaseModel):
 
 
 class SingleRecipeResponse(BaseModel):
-    """Result of POST /api/recipe/generate — a single PlannedMeal."""
+    """Result of POST /api/recipe/generate — a single PlannedMeal.
+
+    ``generation_id`` identifies the persisted machine_generation row for this
+    output; the client echoes it back on cook/favorite so the server can link
+    any edits the user made to the recipe they were shown. NULL only if the
+    telemetry write was skipped (best-effort).
+    """
     recipe: PlannedMeal
+    generation_id: int | None = None
 
 
 class CookRecipeRequest(SingleRecipeRequest):
@@ -371,8 +378,12 @@ class CookRecipeRequest(SingleRecipeRequest):
     Extends SingleRecipeRequest (same user-supplied context) with the
     PlannedMeal the server returned, so the cook endpoint doesn't re-invoke
     the LLM — it just persists + debits + marks cooked.
+
+    ``generation_id`` is the id from the /generate response; it's used only to
+    link telemetry (owner-checked server-side) and never trusted for logic.
     """
     recipe: PlannedMeal
+    generation_id: int | None = None
 
 
 class MealHistoryItem(BaseModel):
@@ -446,6 +457,9 @@ class FavoriteRecipeRequest(BaseModel):
     meal_type: MealType
     people_count: int = Field(ge=1, le=10, default=2)
     recipe: PlannedMeal
+    # id from the /generate response; used only for owner-checked telemetry
+    # linkage, never trusted for logic. See CookRecipeRequest.generation_id.
+    generation_id: int | None = None
 
 
 class CookbookItem(BaseModel):
