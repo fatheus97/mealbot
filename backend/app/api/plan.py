@@ -47,6 +47,11 @@ from app.services.plan_service import (
     persist_meal_entries,
 )
 from app.services.recipe_retriever import embed_meal_entry
+from app.services.telemetry import (
+    latest_generation_id,
+    record_correction,
+    record_generation,
+)
 from app.utils import compute_shopping_list_from_plan, subtract_used_from_fridge
 
 logger = logging.getLogger(__name__)
@@ -248,6 +253,23 @@ async def plan_meals_for_user(
         response_json=response_obj.model_dump_json(),
     )
     session.add(plan)
+    await session.flush()  # assign plan.id so the generation row can link to it
+
+    # Telemetry: bank the pristine machine output before any user edits. Shares
+    # this transaction, so it persists iff the plan does. Best-effort — see
+    # app.services.telemetry.
+    record_generation(
+        session,
+        user_id=current_user.id,
+        surface="meal_plan",
+        # Reuse the strings already serialized onto the plan — avoids a second
+        # dump and guarantees the captured snapshot is byte-identical to what
+        # was stored, even if plan serialization later gains exclude=/by_alias.
+        output_json=plan.response_json,
+        request_json=plan.request_json,
+        meal_plan_id=plan.id,
+    )
+
     await session.commit()
     await session.refresh(plan)
     response_obj.plan_id = plan.id
@@ -421,6 +443,23 @@ async def regenerate_plan(
     # 8) Persist updated response (no MealEntry rows pre-confirm)
     plan.response_json = response_obj.model_dump_json()
     session.add(plan)
+
+    # Telemetry: a regenerate replaces response_json, so it is a *new* machine
+    # generation. Recording it keeps latest_generation_id() — and thus a later
+    # meal edit's generation_id link and before_json — consistent with the
+    # content actually on screen, not the superseded original plan. Best-effort;
+    # see app.services.telemetry.
+    # Skip rather than assert (see edit_meal) so telemetry can't 500 a regenerate.
+    if current_user.id is not None:
+        record_generation(
+            session,
+            user_id=current_user.id,
+            surface="regenerate",
+            output_json=plan.response_json,
+            request_json=body.model_dump_json(),
+            meal_plan_id=plan.id,
+        )
+
     await session.commit()
 
     return response_obj
@@ -889,6 +928,26 @@ async def edit_meal(
                 status_code=500,
                 detail="Meal entry not found for confirmed plan.",
             )
+
+    # Telemetry: capture the machine-output → user-edit delta. Skip genuine
+    # no-ops (editor opened and saved unchanged) so the data is real edits
+    # only; meal_type/label are preserved, so equal JSON means no change.
+    before_json = existing.model_dump_json()
+    after_json = updated_meal.model_dump_json()
+    # current_user.id is never None on a persisted user, but skip rather than
+    # assert so a surprise can't 500 the edit (honors the telemetry contract).
+    if before_json != after_json and current_user.id is not None:
+        gen_id = await latest_generation_id(session, plan_id)
+        record_correction(
+            session,
+            user_id=current_user.id,
+            surface="meal_edit",
+            before_json=before_json,
+            after_json=after_json,
+            generation_id=gen_id,
+            meal_plan_id=plan_id,
+            context={"day_index": day_index, "meal_index": meal_index},
+        )
 
     await session.commit()
     return updated_meal
