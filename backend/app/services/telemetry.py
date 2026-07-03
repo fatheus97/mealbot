@@ -31,8 +31,9 @@ from app.models.db_models import MachineCorrection, MachineGeneration
 logger = logging.getLogger(__name__)
 
 # The known surfaces. Kept as plain sets (not enums) so a new call site is a
-# one-line addition; asserted against so a typo'd surface fails loudly in tests
-# rather than silently polluting the data.
+# one-line addition; checked against so a typo'd surface is logged-and-skipped
+# rather than silently polluting the data. (An explicit raise, not assert —
+# assert is erased under `python -O`.)
 GENERATION_SURFACES = frozenset(
     {"meal_plan", "single_recipe", "receipt_scan", "regenerate"}
 )
@@ -54,7 +55,8 @@ def record_generation(
     link corrections to it, or ``None`` if construction failed. Never raises.
     """
     try:
-        assert surface in GENERATION_SURFACES, f"unknown generation surface {surface!r}"
+        if surface not in GENERATION_SURFACES:
+            raise ValueError(f"unknown generation surface {surface!r}")
         row = MachineGeneration(
             user_id=user_id,
             surface=surface,
@@ -86,7 +88,8 @@ def record_correction(
     data reflects real edits only. Never raises.
     """
     try:
-        assert surface in CORRECTION_SURFACES, f"unknown correction surface {surface!r}"
+        if surface not in CORRECTION_SURFACES:
+            raise ValueError(f"unknown correction surface {surface!r}")
         row = MachineCorrection(
             user_id=user_id,
             surface=surface,

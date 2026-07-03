@@ -7,7 +7,7 @@ the best-effort guarantees of the app.services.telemetry helpers.
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
-from sqlmodel import select
+from sqlmodel import col, delete, select
 
 from app.core.meal_types import MealType
 from app.db import get_session
@@ -144,6 +144,110 @@ class TestCorrectionCapture:
         corrs = await _rows(MachineCorrection, plan_id)
         assert len(corrs) == 1
 
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_regenerate_records_generation_and_edit_links_to_it(
+        self,
+        mock_gen: AsyncMock,
+        mock_partial: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+    ):
+        """A regenerate replaces response_json, so it is a new generation; a
+        later edit must link to THAT generation, not the superseded original —
+        otherwise generation_id and before_json describe different content."""
+        mock_gen.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Orig Lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
+                    ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                    steps=["Cook rice"],
+                ),
+                PlannedMeal(
+                    name="Orig Dinner",
+                    meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="pasta", quantity_grams=300)],
+                    steps=["Boil pasta"],
+                ),
+            ]
+        )
+        plan_id = (
+            await client.post(
+                "/api/plan?days=1",
+                headers=auth_headers,
+                json={"meals_per_day": 2, "people_count": 2},
+            )
+        ).json()["plan_id"]
+
+        # Regenerate the dinner (freeze the lunch).
+        mock_partial.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="New Dinner",
+                    meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="tofu", quantity_grams=250)],
+                    steps=["Fry tofu"],
+                )
+            ]
+        )
+        regen = await client.post(
+            f"/api/plan/{plan_id}/regenerate",
+            headers=auth_headers,
+            json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
+        )
+        assert regen.status_code == 200
+
+        gens = await _rows(MachineGeneration, plan_id)
+        assert sorted(g.surface for g in gens) == ["meal_plan", "regenerate"]
+        regen_gens = [g for g in gens if g.surface == "regenerate"]
+        assert len(regen_gens) == 1
+        regen_gen_id = regen_gens[0].id
+
+        # Edit the regenerated dinner (index 1).
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/1", headers=auth_headers, json=_EDIT_BODY
+        )
+        assert resp.status_code == 200
+
+        corrs = await _rows(MachineCorrection, plan_id)
+        assert len(corrs) == 1
+        # Links to the regenerate generation, and its before_json is the
+        # regenerated content — the two now agree.
+        assert corrs[0].generation_id == regen_gen_id
+        assert corrs[0].before_json is not None
+        assert PlannedMeal.model_validate_json(corrs[0].before_json).name == "New Dinner"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_edit_on_pretelemetry_plan_records_null_generation(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        """A plan generated before telemetry existed has no generation row;
+        editing it must still record a correction (generation_id=None), not
+        crash — the FK is nullable and latest_generation_id returns None."""
+        mock_gen.return_value = _fake_day()
+        plan_id = await _create_plan(client, auth_headers)
+
+        # Simulate the pre-telemetry plan by dropping its generation row.
+        session_dep = app.dependency_overrides[get_session]
+        async for session in session_dep():
+            await session.execute(
+                delete(MachineGeneration).where(
+                    col(MachineGeneration.meal_plan_id) == plan_id
+                )
+            )
+            await session.commit()
+            break
+
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0", headers=auth_headers, json=_EDIT_BODY
+        )
+        assert resp.status_code == 200
+
+        corrs = await _rows(MachineCorrection, plan_id)
+        assert len(corrs) == 1
+        assert corrs[0].generation_id is None
+
 
 class TestTelemetryHelpers:
     async def _make_plan(self, session, user: User) -> MealPlan:
@@ -162,6 +266,7 @@ class TestTelemetryHelpers:
     async def test_record_generation_rejects_unknown_surface(
         self, db_session, test_user: User
     ):
+        assert test_user.id is not None
         row = record_generation(
             db_session, user_id=test_user.id, surface="bogus", output_json="{}"
         )
@@ -175,6 +280,7 @@ class TestTelemetryHelpers:
     async def test_record_correction_rejects_unknown_surface(
         self, db_session, test_user: User
     ):
+        assert test_user.id is not None
         row = record_correction(
             db_session, user_id=test_user.id, surface="bogus", after_json="{}"
         )
@@ -184,6 +290,8 @@ class TestTelemetryHelpers:
         self, db_session, test_user: User
     ):
         plan = await self._make_plan(db_session, test_user)
+        assert test_user.id is not None
+        assert plan.id is not None
         record_generation(
             db_session,
             user_id=test_user.id,
@@ -200,6 +308,7 @@ class TestTelemetryHelpers:
             meal_plan_id=plan.id,
         )
         await db_session.flush()
+        assert second is not None
 
         assert await latest_generation_id(db_session, plan.id) == second.id
 
@@ -207,4 +316,5 @@ class TestTelemetryHelpers:
         self, db_session, test_user: User
     ):
         plan = await self._make_plan(db_session, test_user)
+        assert plan.id is not None
         assert await latest_generation_id(db_session, plan.id) is None

@@ -262,8 +262,11 @@ async def plan_meals_for_user(
         session,
         user_id=current_user.id,
         surface="meal_plan",
-        output_json=response_obj.model_dump_json(),
-        request_json=payload.model_dump_json(),
+        # Reuse the strings already serialized onto the plan — avoids a second
+        # dump and guarantees the captured snapshot is byte-identical to what
+        # was stored, even if plan serialization later gains exclude=/by_alias.
+        output_json=plan.response_json,
+        request_json=plan.request_json,
         meal_plan_id=plan.id,
     )
 
@@ -440,6 +443,22 @@ async def regenerate_plan(
     # 8) Persist updated response (no MealEntry rows pre-confirm)
     plan.response_json = response_obj.model_dump_json()
     session.add(plan)
+
+    # Telemetry: a regenerate replaces response_json, so it is a *new* machine
+    # generation. Recording it keeps latest_generation_id() — and thus a later
+    # meal edit's generation_id link and before_json — consistent with the
+    # content actually on screen, not the superseded original plan. Best-effort;
+    # see app.services.telemetry.
+    assert current_user.id is not None  # narrowed by the ownership check above
+    record_generation(
+        session,
+        user_id=current_user.id,
+        surface="regenerate",
+        output_json=plan.response_json,
+        request_json=body.model_dump_json(),
+        meal_plan_id=plan.id,
+    )
+
     await session.commit()
 
     return response_obj
