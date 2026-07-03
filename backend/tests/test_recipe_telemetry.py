@@ -259,6 +259,55 @@ class TestCorrectionCapture:
         assert corrs[0].generation_id == gen_id
 
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_favorite_foreign_generation_id_not_linked(
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session: AsyncSession,
+        test_user: User,
+    ):
+        """Security: a foreign generation_id on /favorite must not link — mirror
+        of test_cook_foreign_generation_id_not_linked for the favorite surface."""
+        other = User(email="other2@example.com", hashed_password=get_password_hash("x"))
+        db_session.add(other)
+        await db_session.flush()
+        assert other.id is not None
+        foreign = record_generation(
+            db_session,
+            user_id=other.id,
+            surface="single_recipe",
+            output_json=_fake_recipe().model_dump_json(),
+        )
+        await db_session.flush()
+        assert foreign is not None
+
+        mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
+        body = await _generate(client, auth_headers)
+        edited = {**body["recipe"], "name": "Star Theft Attempt"}
+        resp = await client.post(
+            "/api/recipe/favorite",
+            headers=auth_headers,
+            json={
+                "meal_type": "soup",
+                "people_count": 2,
+                "recipe": edited,
+                "generation_id": foreign.id,  # someone else's id
+            },
+        )
+        assert resp.status_code == 200
+
+        await db_session.commit()
+        corrs = (
+            await db_session.execute(
+                select(MachineCorrection).where(
+                    MachineCorrection.user_id == test_user.id
+                )
+            )
+        ).scalars().all()
+        assert corrs == []
+
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_favorite_unedited_recipe_records_no_correction(
         self,
         mock_gen: AsyncMock,

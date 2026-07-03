@@ -117,7 +117,10 @@ async def generate_recipe(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> SingleRecipeResponse:
-    """Generate a single recipe. No DB write — preview-only.
+    """Generate a single recipe. No plan is persisted (preview), but a
+    MachineGeneration telemetry row IS written — best-effort with a guarded
+    commit (see below) — so a later cook/favorite can link the user's edits
+    back to what they were shown.
 
     The user-chosen meal_type is enforced via slot_layout so the LLM can't
     return a different slot type. A mismatch is logged but not retried (same
@@ -263,6 +266,12 @@ async def cook_recipe(
         session, payload.generation_id, current_user.id, surface="single_recipe"
     )
     if gen is not None:
+        # Raw JSON-string compare — correct only while both sides come from the
+        # same PlannedMeal serialization. If a field with a server-side default
+        # is later ADDED to PlannedMeal, output_json blobs stored before it will
+        # lack the key while a fresh dump includes it, so every pre-existing
+        # generation would compare as "edited" until backfilled. Re-parse both
+        # sides into PlannedMeal here if that ever lands.
         after_json = payload.recipe.model_dump_json()
         if gen.output_json != after_json:
             record_correction(
@@ -389,6 +398,12 @@ async def favorite_recipe(
         session, payload.generation_id, current_user.id, surface="single_recipe"
     )
     if gen is not None:
+        # Raw JSON-string compare — correct only while both sides come from the
+        # same PlannedMeal serialization. If a field with a server-side default
+        # is later ADDED to PlannedMeal, output_json blobs stored before it will
+        # lack the key while a fresh dump includes it, so every pre-existing
+        # generation would compare as "edited" until backfilled. Re-parse both
+        # sides into PlannedMeal here if that ever lands.
         after_json = payload.recipe.model_dump_json()
         if gen.output_json != after_json:
             record_correction(
