@@ -167,7 +167,16 @@ async def generate_recipe(
     # Telemetry: persist the pristine generation so a later cook/favorite can
     # link the user's edits back to what they were shown. No plan exists yet
     # (created on cook), so meal_plan_id stays NULL — the link is generation_id,
-    # echoed back by the client. Best-effort; the recipe is returned regardless.
+    # echoed back by the client.
+    #
+    # This telemetry row is the ONLY write on the (otherwise preview-only)
+    # generate path — unlike /cook and /favorite, where a real MealPlan shares
+    # the commit. So the commit MUST be guarded: a transient DB fault flushing
+    # the telemetry row must not 500 an already-successful (and already-paid-for)
+    # LLM generation. On failure we roll back and degrade to generation_id=None;
+    # the recipe is returned regardless. Honors the telemetry best-effort
+    # contract (see app.services.telemetry).
+    generation_id: int | None = None
     gen = record_generation(
         session,
         user_id=current_user.id,
@@ -175,11 +184,16 @@ async def generate_recipe(
         output_json=recipe.model_dump_json(),
         request_json=payload.model_dump_json(),
     )
-    await session.commit()
+    try:
+        await session.commit()
+        generation_id = gen.id if gen is not None else None
+    except Exception:
+        logger.exception(
+            "Failed to persist single_recipe generation for user %s", current_user.id
+        )
+        await session.rollback()
 
-    return SingleRecipeResponse(
-        recipe=recipe, generation_id=gen.id if gen is not None else None
-    )
+    return SingleRecipeResponse(recipe=recipe, generation_id=generation_id)
 
 
 @router.post("/cook", response_model=MealEntrySummary)

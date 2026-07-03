@@ -10,17 +10,19 @@ vi.mock('../api', () => ({
   authFetch: vi.fn(),
   generateRecipe: vi.fn(),
   cookRecipe: vi.fn(),
+  favoriteRecipe: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
   mergeFridgeItems: vi.fn(),
   scanReceipt: vi.fn(),
 }));
 
-import { authFetch, generateRecipe, cookRecipe } from '../api';
+import { authFetch, generateRecipe, cookRecipe, favoriteRecipe } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedGenerate = generateRecipe as ReturnType<typeof vi.fn>;
 const mockedCook = cookRecipe as ReturnType<typeof vi.fn>;
+const mockedFavorite = favoriteRecipe as ReturnType<typeof vi.fn>;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -47,6 +49,7 @@ beforeEach(() => {
   mockedAuthFetch.mockReset();
   mockedGenerate.mockReset();
   mockedCook.mockReset();
+  mockedFavorite.mockReset();
   // AuthProvider + useFridge hit authFetch; stub harmlessly.
   mockedAuthFetch.mockImplementation(() => Promise.resolve(okEmpty()));
 });
@@ -118,6 +121,42 @@ describe('CookNowForm', () => {
     expect(payload.generation_id).toBe(7);
 
     await waitFor(() => expect(screen.getByText(/✓ cooked/i)).toBeInTheDocument());
+  });
+
+  it('threads generation_id into the favorite payload when the star is clicked', async () => {
+    loginUser();
+    mockedGenerate.mockResolvedValueOnce({
+      recipe: {
+        name: 'Quick Soup',
+        meal_type: 'soup',
+        meal_type_label: 'Soup',
+        ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
+        steps: ['Simmer'],
+      },
+      generation_id: 7,
+    });
+    mockedFavorite.mockResolvedValueOnce({
+      id: 99,
+      day_index: 1,
+      meal_index: 1,
+      name: 'Quick Soup',
+      meal_type: 'soup',
+      cooked_at: null,
+      is_favorite: true,
+    });
+
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    await waitFor(() => screen.getByRole('switch', { name: /add to cookbook/i }));
+
+    await user.click(screen.getByRole('switch', { name: /add to cookbook/i }));
+
+    await waitFor(() => expect(mockedFavorite).toHaveBeenCalledTimes(1));
+    const payload = mockedFavorite.mock.calls[0][0];
+    expect(payload.recipe.name).toBe('Quick Soup');
+    // Same edit-telemetry linkage as the cook path.
+    expect(payload.generation_id).toBe(7);
   });
 
   it('surfaces generation errors inline without clearing the form', async () => {

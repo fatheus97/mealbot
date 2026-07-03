@@ -258,6 +258,42 @@ class TestCorrectionCapture:
         assert corrs[0].surface == "recipe_favorite"
         assert corrs[0].generation_id == gen_id
 
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_favorite_unedited_recipe_records_no_correction(
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session: AsyncSession,
+        test_user: User,
+    ):
+        """Starring an unmodified recipe is accept-as-is — no correction (mirror
+        of the cook no-op, since favorite reuses the same guard independently)."""
+        mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
+        body = await _generate(client, auth_headers)
+
+        resp = await client.post(
+            "/api/recipe/favorite",
+            headers=auth_headers,
+            json={
+                "meal_type": "soup",
+                "people_count": 2,
+                "recipe": body["recipe"],
+                "generation_id": body["generation_id"],
+            },
+        )
+        assert resp.status_code == 200
+
+        await db_session.commit()
+        corrs = (
+            await db_session.execute(
+                select(MachineCorrection).where(
+                    MachineCorrection.user_id == test_user.id
+                )
+            )
+        ).scalars().all()
+        assert corrs == []
+
 
 class TestResolveOwnedGeneration:
     async def test_owner_match_and_mismatches(
