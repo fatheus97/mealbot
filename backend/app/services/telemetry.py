@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 GENERATION_SURFACES = frozenset(
     {"meal_plan", "single_recipe", "receipt_scan", "regenerate"}
 )
-CORRECTION_SURFACES = frozenset({"meal_edit", "recipe_cook", "receipt_merge"})
+CORRECTION_SURFACES = frozenset(
+    {"meal_edit", "recipe_cook", "recipe_favorite", "receipt_merge"}
+)
 
 
 def record_generation(
@@ -103,6 +105,37 @@ def record_correction(
         return row
     except Exception:
         logger.exception("Failed to record machine correction (surface=%s)", surface)
+        return None
+
+
+async def resolve_owned_generation(
+    session: AsyncSession,
+    generation_id: int | None,
+    user_id: int,
+    *,
+    surface: str | None = None,
+) -> MachineGeneration | None:
+    """Fetch a generation by id iff it belongs to ``user_id``.
+
+    ``generation_id`` arrives from the client (it was handed out by the
+    generate endpoint), so ownership MUST be verified before the row is used to
+    link a correction or read its before-snapshot — otherwise a user could
+    point their correction at, or exfiltrate the content of, another user's
+    generation. Optionally also pins the ``surface`` to reject a cross-surface
+    id. Returns ``None`` for a missing / foreign / mismatched / ``None`` id.
+    Never raises.
+    """
+    if generation_id is None:
+        return None
+    try:
+        gen = await session.get(MachineGeneration, generation_id)
+        if gen is None or gen.user_id != user_id:
+            return None
+        if surface is not None and gen.surface != surface:
+            return None
+        return gen
+    except Exception:
+        logger.exception("Failed to resolve generation %s", generation_id)
         return None
 
 

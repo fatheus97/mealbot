@@ -67,6 +67,10 @@ export function CookNowForm() {
   // context (server re-validates meal_type match). Resetting the form while
   // a recipe is on screen keeps the old pendingRequest until a new generate.
   const [pendingRequest, setPendingRequest] = useState<SingleRecipeRequest | null>(null);
+  // The machine_generation id for the recipe on screen. Echoed back on
+  // cook/favorite so the server can link any edits to what was generated.
+  // Stays fixed across inline edits — the edit IS the delta we want to capture.
+  const [generationId, setGenerationId] = useState<number | null>(null);
   const [cookedEntry, setCookedEntry] = useState<{ id: number; name: string } | null>(null);
   // Once the user stars a generated recipe, the server returns a meal_entry_id
   // and we treat the recipe as "saved." Subsequent star toggles route through
@@ -92,6 +96,7 @@ export function CookNowForm() {
   const handleGenerate = () => {
     const req = buildRequest();
     setRecipe(null);
+    setGenerationId(null);
     setCookedEntry(null);
     setSavedEntry(null);
     setEditing(false);
@@ -104,13 +109,16 @@ export function CookNowForm() {
     }
     setPendingRequest(req);
     generateMutation.mutate(req, {
-      onSuccess: (data) => setRecipe(data.recipe),
+      onSuccess: (data) => {
+        setRecipe(data.recipe);
+        setGenerationId(data.generation_id);
+      },
     });
   };
 
   const handleCook = () => {
     if (!recipe || !pendingRequest) return;
-    const payload: CookRecipeRequest = { ...pendingRequest, recipe };
+    const payload: CookRecipeRequest = { ...pendingRequest, recipe, generation_id: generationId };
     cookMutation.mutate(payload, {
       onSuccess: (entry) => {
         setCookedEntry({ id: entry.id, name: entry.name });
@@ -145,7 +153,7 @@ export function CookNowForm() {
     if (!recipe) return;
     if (next) {
       favoriteRecipeMutation.mutate(
-        { meal_type: mealType, people_count: peopleCount, recipe },
+        { meal_type: mealType, people_count: peopleCount, recipe, generation_id: generationId },
         { onSuccess: (entry) => setSavedEntry({ id: entry.id, isFavorite: true }) },
       );
     } else if (savedEntry) {

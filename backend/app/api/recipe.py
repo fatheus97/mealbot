@@ -46,6 +46,11 @@ from app.services.fridge_service import (
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
 from app.services.recipe_retriever import embed_meal_entry
+from app.services.telemetry import (
+    record_correction,
+    record_generation,
+    resolve_owned_generation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +117,10 @@ async def generate_recipe(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> SingleRecipeResponse:
-    """Generate a single recipe. No DB write — preview-only.
+    """Generate a single recipe. No plan is persisted (preview), but a
+    MachineGeneration telemetry row IS written — best-effort with a guarded
+    commit (see below) — so a later cook/favorite can link the user's edits
+    back to what they were shown.
 
     The user-chosen meal_type is enforced via slot_layout so the LLM can't
     return a different slot type. A mismatch is logged but not retried (same
@@ -157,7 +165,38 @@ async def generate_recipe(
             detail="LLM returned no meals — try again.",
         )
 
-    return SingleRecipeResponse(recipe=day_response.meals[0])
+    recipe = day_response.meals[0]
+
+    # Telemetry: persist the pristine generation so a later cook/favorite can
+    # link the user's edits back to what they were shown. No plan exists yet
+    # (created on cook), so meal_plan_id stays NULL — the link is generation_id,
+    # echoed back by the client.
+    #
+    # This telemetry row is the ONLY write on the (otherwise preview-only)
+    # generate path — unlike /cook and /favorite, where a real MealPlan shares
+    # the commit. So the commit MUST be guarded: a transient DB fault flushing
+    # the telemetry row must not 500 an already-successful (and already-paid-for)
+    # LLM generation. On failure we roll back and degrade to generation_id=None;
+    # the recipe is returned regardless. Honors the telemetry best-effort
+    # contract (see app.services.telemetry).
+    generation_id: int | None = None
+    gen = record_generation(
+        session,
+        user_id=current_user.id,
+        surface="single_recipe",
+        output_json=recipe.model_dump_json(),
+        request_json=payload.model_dump_json(),
+    )
+    try:
+        await session.commit()
+        generation_id = gen.id if gen is not None else None
+    except Exception:
+        logger.exception(
+            "Failed to persist single_recipe generation for user %s", current_user.id
+        )
+        await session.rollback()
+
+    return SingleRecipeResponse(recipe=recipe, generation_id=generation_id)
 
 
 @router.post("/cook", response_model=MealEntrySummary)
@@ -219,6 +258,31 @@ async def cook_recipe(
     await session.flush()
     if plan.id is None:
         raise HTTPException(status_code=500, detail="Plan insert failed")
+
+    # Telemetry: if the user edited the generated recipe before cooking, record
+    # the delta against its (owner-checked) generation. An unedited cook leaves
+    # the generation row with no linked correction — the accept-as-is signal.
+    gen = await resolve_owned_generation(
+        session, payload.generation_id, current_user.id, surface="single_recipe"
+    )
+    if gen is not None:
+        # Raw JSON-string compare — correct only while both sides come from the
+        # same PlannedMeal serialization. If a field with a server-side default
+        # is later ADDED to PlannedMeal, output_json blobs stored before it will
+        # lack the key while a fresh dump includes it, so every pre-existing
+        # generation would compare as "edited" until backfilled. Re-parse both
+        # sides into PlannedMeal here if that ever lands.
+        after_json = payload.recipe.model_dump_json()
+        if gen.output_json != after_json:
+            record_correction(
+                session,
+                user_id=current_user.id,
+                surface="recipe_cook",
+                before_json=gen.output_json,
+                after_json=after_json,
+                generation_id=gen.id,
+                meal_plan_id=plan.id,
+            )
 
     # FIFO-debit the fridge for the single meal (reuses /plan/confirm logic).
     fridge = await get_fridge_items(session, current_user.id)
@@ -327,6 +391,30 @@ async def favorite_recipe(
     await session.flush()
     if plan.id is None:
         raise HTTPException(status_code=500, detail="Plan insert failed")
+
+    # Telemetry: capture edits made before starring (same delta as /cook, its
+    # own surface so cook vs save-only intent stays distinguishable).
+    gen = await resolve_owned_generation(
+        session, payload.generation_id, current_user.id, surface="single_recipe"
+    )
+    if gen is not None:
+        # Raw JSON-string compare — correct only while both sides come from the
+        # same PlannedMeal serialization. If a field with a server-side default
+        # is later ADDED to PlannedMeal, output_json blobs stored before it will
+        # lack the key while a fresh dump includes it, so every pre-existing
+        # generation would compare as "edited" until backfilled. Re-parse both
+        # sides into PlannedMeal here if that ever lands.
+        after_json = payload.recipe.model_dump_json()
+        if gen.output_json != after_json:
+            record_correction(
+                session,
+                user_id=current_user.id,
+                surface="recipe_favorite",
+                before_json=gen.output_json,
+                after_json=after_json,
+                generation_id=gen.id,
+                meal_plan_id=plan.id,
+            )
 
     # No fridge debit, no consumed_snapshot — the recipe is just a record.
     entries = persist_meal_entries(
