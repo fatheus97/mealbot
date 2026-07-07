@@ -175,6 +175,26 @@ class TestMergeCorrectionCapture:
         assert len(corrs) == 1
         assert corrs[0].context_json == {"scanned_count": 2, "submitted_count": 1}
 
+    async def test_merge_ambiguous_expiration_does_not_500(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Regression: two rows tying on (name, quantity) but differing in
+        expiration (one null) must not raise in the canonical sort — the sort
+        key is total-order-safe, and the diff is guarded regardless."""
+        body = await _scan(client)
+        payload = [
+            {"name": "milk", "quantity_grams": 500, "need_to_use": False,
+             "expiration_date": "2026-03-10"},
+            {"name": "milk", "quantity_grams": 500, "need_to_use": False,
+             "expiration_date": None},
+        ]
+        resp = await client.post(
+            f"/api/fridge/merge?generation_id={body['generation_id']}", json=payload
+        )
+        assert resp.status_code == 200  # not a 500
+        # It differs from the scan, so a correction is recorded (no crash).
+        assert len(await _corrections(db_session, test_user)) == 1
+
     async def test_merge_foreign_generation_id_not_linked(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ):

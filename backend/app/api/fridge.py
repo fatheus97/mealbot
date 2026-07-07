@@ -4,7 +4,7 @@ import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -38,19 +38,23 @@ _STOCK_ITEMS_ADAPTER = TypeAdapter(list[StockItemDTO])
 
 def _canonical_scan_fields(
     items: list[ScannedItemDTO] | list[StockItemDTO],
-) -> list[tuple[str, float, str | None]]:
+) -> list[tuple[str, float, str]]:
     """Sorted (name, quantity, expiration) triples for scan↔merge comparison.
 
     Only the scan-derived, user-editable fields count. item_type isn't in the
     merge shape, and need_to_use's initial value is seeded from the existing
     fridge (not the scan), so neither is a "scan correction" signal. Sorted so
     reordering doesn't read as an edit; dropped/added rows change the multiset.
+
+    Missing expirations map to "" (never a real isoformat) rather than None so
+    the sort key is a TOTAL order — a None mixed with a str would raise
+    TypeError when two rows tie on (name, quantity).
     """
     return sorted(
         (
             i.name.strip().lower(),
             float(i.quantity_grams),
-            i.expiration_date.isoformat() if i.expiration_date else None,
+            i.expiration_date.isoformat() if i.expiration_date else "",
         )
         for i in items
     )
@@ -224,14 +228,21 @@ async def merge_fridge_items(
         session, generation_id, current_user.id, surface="receipt_scan"
     )
     if gen is not None:
+        # Guard the whole diff (parse + canonical compare). A telemetry failure
+        # here — corrupt output_json, or any edge in the comparison — must never
+        # break the fridge merge; degrade to "not edited" and skip the row.
+        scanned: list[ScannedItemDTO] | None = None
+        edited = False
         try:
             scanned = _SCAN_ITEMS_ADAPTER.validate_json(gen.output_json)
-        except ValidationError:
-            logger.exception("Corrupt receipt_scan output_json on generation %s", gen.id)
-            scanned = None
-        if scanned is not None and _canonical_scan_fields(scanned) != _canonical_scan_fields(
-            payload
-        ):
+            edited = _canonical_scan_fields(scanned) != _canonical_scan_fields(payload)
+        except Exception:
+            logger.exception(
+                "Failed to diff scan vs merge for generation %s — skipping correction",
+                gen.id,
+            )
+            scanned, edited = None, False
+        if scanned is not None and edited:
             record_correction(
                 session,
                 user_id=current_user.id,
