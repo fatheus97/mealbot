@@ -55,6 +55,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const { isDemo } = useAuth();
   const [state, setState] = useState<ScannerState>("idle");
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
+  // machine_generation id for the scan on screen — echoed back on merge so the
+  // server can capture edits made in the review table. null on the demo path
+  // (no real /scan call) or when the scan telemetry write was skipped.
+  const [scanGenerationId, setScanGenerationId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmError, setConfirmError] = useState("");
   const [notice, setNotice] = useState("");
@@ -66,9 +70,12 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const handleScan = async (file: File) => {
     setState("scanning");
     setErrorMessage("");
+    setScanGenerationId(null);
 
     try {
-      const scannedItems = await scanMutation.mutateAsync(file);
+      const scanResponse = await scanMutation.mutateAsync(file);
+      const scannedItems = scanResponse.items;
+      setScanGenerationId(scanResponse.generation_id);
 
       // Build lookup from current fridge by (name, expiration_date) compound key
       const fridgeLookup = new Map<string, StockItem>();
@@ -105,6 +112,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
   const handleDemoScan = () => {
     setState("scanning");
+    setScanGenerationId(null); // demo skips the real /scan, so no generation
     setTimeout(() => {
       setReviewItems(buildDemoScanItems());
       setState("review");
@@ -134,7 +142,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     }));
 
     try {
-      await mergeMutation.mutateAsync(itemsToMerge);
+      await mergeMutation.mutateAsync({ items: itemsToMerge, generationId: scanGenerationId });
       setState("idle");
       setReviewItems([]);
       setConfirmError("");

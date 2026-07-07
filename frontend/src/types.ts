@@ -171,6 +171,13 @@ export interface StockItem {
   expiration_date?: string | null;
 }
 
+// Response of POST /api/fridge/scan. generation_id is echoed back on merge
+// (as a query param) for edit telemetry; null on the demo path.
+export interface ScannedItemsResponse {
+  items: StockItem[];
+  generation_id: number | null;
+}
+
 // Server-side response of POST /api/auth/login (and /demo). Same shape as
 // GET /api/users — the SPA stores the relevant fields and lets the user
 // keep working without a follow-up profile fetch.

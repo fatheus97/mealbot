@@ -56,7 +56,10 @@ class TestScanEndpoint:
             files={"file": ("receipt.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 200
-        data = resp.json()
+        body = resp.json()
+        # Scan now persists a receipt_scan generation and returns its id.
+        assert body["generation_id"] is not None
+        data = body["items"]
         assert len(data) == 3
         names = [item["name"] for item in data]
         assert "chicken breast" in names
@@ -94,7 +97,7 @@ class TestScanEndpoint:
             files={"file": ("receipt.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         expected_date = (date.today() + timedelta(days=3)).isoformat()
         assert data[0]["expiration_date"] == expected_date
 
@@ -154,7 +157,7 @@ class TestScanEndpoint:
             files={"file": ("receipt.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json()["items"] == []
 
     async def test_scan_png_accepted(self, client: AsyncClient):
         """PNG files should also be accepted."""
@@ -302,7 +305,7 @@ class TestSnackFiltering:
             files={"file": ("receipt.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 200
-        names = [item["name"] for item in resp.json()]
+        names = [item["name"] for item in resp.json()["items"]]
         assert "chocolate bar" in names
 
     @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
@@ -326,7 +329,7 @@ class TestSnackFiltering:
             files={"file": ("receipt.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         names = [item["name"] for item in data]
         assert "chocolate bar" not in names
         assert "chicken breast" in names
@@ -560,7 +563,7 @@ class TestPdfScanEndpoint:
             files={"file": ("receipt.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         assert len(data) == 3
         mock_extract.assert_awaited_once()
 

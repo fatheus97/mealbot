@@ -50,10 +50,13 @@ describe('ReceiptScanner', () => {
   });
 
   it('shows review table after successful scan with new items', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
-      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+        { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
 
     const user = userEvent.setup();
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
@@ -76,9 +79,12 @@ describe('ReceiptScanner', () => {
   });
 
   it('shows delta for existing fridge items', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
 
     const currentFridge = [
       { name: 'chicken breast', quantity_grams: 200, need_to_use: false },
@@ -97,9 +103,12 @@ describe('ReceiptScanner', () => {
   });
 
   it('calls merge on confirm and shows success', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'olive oil', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'olive oil', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
     mockedMergeFridge.mockResolvedValue([
       { name: 'olive oil', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
     ]);
@@ -119,7 +128,7 @@ describe('ReceiptScanner', () => {
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
         { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null },
-      ]);
+      ], 7);
       expect(screen.getByText(/items added to fridge/i)).toBeInTheDocument();
     });
   });
@@ -139,9 +148,12 @@ describe('ReceiptScanner', () => {
   });
 
   it('cancel returns to idle state', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
 
     const user = userEvent.setup();
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
@@ -161,9 +173,12 @@ describe('ReceiptScanner', () => {
   });
 
   it('clears the qty cell on backspace without auto-zero', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
 
     const user = userEvent.setup();
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
@@ -177,9 +192,12 @@ describe('ReceiptScanner', () => {
   });
 
   it('blocks confirm when a row has an invalid qty', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
 
     const user = userEvent.setup();
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
@@ -195,9 +213,12 @@ describe('ReceiptScanner', () => {
   });
 
   it('forwards decimal qty values as floats on confirm', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'yeast', quantity_grams: 100, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'yeast', quantity_grams: 100, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
     mockedMergeFridge.mockResolvedValue([
       { name: 'yeast', quantity_grams: 12.5, need_to_use: false, item_type: 'ingredient' as const },
     ]);
@@ -215,15 +236,18 @@ describe('ReceiptScanner', () => {
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
         { name: 'yeast', quantity_grams: 12.5, need_to_use: false, expiration_date: null },
-      ]);
+      ], 7);
     });
   });
 
   it('allows removing items from review', async () => {
-    mockedScanReceipt.mockResolvedValue([
-      { name: 'chicken', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
-      { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
-    ]);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'chicken', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+        { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
 
     const user = userEvent.setup();
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);

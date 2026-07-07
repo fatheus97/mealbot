@@ -6,6 +6,7 @@ import type {
   MealEntrySummary,
   MealPlanResponse,
   PlannedMeal,
+  ScannedItemsResponse,
   SingleRecipeRequest,
   SingleRecipeResponse,
   StockItem,
@@ -107,7 +108,7 @@ export async function updateUserProfile(
   return res.json();
 }
 
-export async function scanReceipt(file: File): Promise<StockItem[]> {
+export async function scanReceipt(file: File): Promise<ScannedItemsResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -199,8 +200,14 @@ export async function updateMeal(
   return res.json();
 }
 
-export async function mergeFridgeItems(items: StockItem[]): Promise<StockItem[]> {
-  const res = await authFetch("/fridge/merge", {
+export async function mergeFridgeItems(
+  items: StockItem[],
+  generationId: number | null = null,
+): Promise<StockItem[]> {
+  // generation_id (from the scan) rides as a query param so the merge body
+  // stays a bare item array; the server owner-checks it for edit telemetry.
+  const qs = generationId != null ? `?generation_id=${generationId}` : "";
+  const res = await authFetch(`/fridge/merge${qs}`, {
     method: "POST",
     body: JSON.stringify(items),
   });
