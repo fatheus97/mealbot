@@ -220,3 +220,28 @@ class TestMergeCorrectionCapture:
         )
         assert resp.status_code == 200
         assert await _corrections(db_session, test_user) == []
+
+    async def test_merge_cross_surface_generation_id_not_linked(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Security (surface pin): the user's OWN generation from a different
+        surface must not link — resolve_owned_generation pins receipt_scan, so
+        a single_recipe id is rejected even though the owner matches."""
+        assert test_user.id is not None
+        wrong_surface = record_generation(
+            db_session,
+            user_id=test_user.id,
+            surface="single_recipe",  # owner matches, surface does not
+            output_json="[]",
+        )
+        await db_session.flush()
+        assert wrong_surface is not None
+
+        body = await _scan(client)
+        payload = _merge_payload(body["items"])
+        payload[0]["name"] = "edited"
+        resp = await client.post(
+            f"/api/fridge/merge?generation_id={wrong_surface.id}", json=payload
+        )
+        assert resp.status_code == 200
+        assert await _corrections(db_session, test_user) == []
