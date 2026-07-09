@@ -10,7 +10,32 @@ from app.models.plan_models import (
     MealPlanResponse,
     PlannedMeal,
     SingleDayResponse,
+    StockItemDTO,
 )
+
+
+class TestStockItemDTOBounds:
+    def test_valid(self):
+        item = StockItemDTO(name="rice", quantity_grams=500)
+        assert item.quantity_grams == 500
+
+    def test_rejects_empty_and_oversized_name(self):
+        with pytest.raises(ValidationError):
+            StockItemDTO(name="", quantity_grams=1)
+        with pytest.raises(ValidationError):
+            StockItemDTO(name="x" * 101, quantity_grams=1)
+
+    def test_rejects_negative_nan_inf_quantity(self):
+        # ge=0 + allow_inf_nan=False. NaN would otherwise slip past the
+        # `qty <= 0` persist filter; inf/negative are also rejected.
+        for bad in (-1.0, float("nan"), float("inf")):
+            with pytest.raises(ValidationError):
+                StockItemDTO(name="rice", quantity_grams=bad)
+
+    def test_allows_large_finite_quantity(self):
+        # No upper cap — internal merge/restore reconstruct from summed
+        # quantities that can legitimately exceed any single-value cap.
+        assert StockItemDTO(name="rice", quantity_grams=2_000_000).quantity_grams == 2_000_000
 
 
 class TestIngredientAmountValidation:

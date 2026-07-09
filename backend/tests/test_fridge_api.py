@@ -2,6 +2,8 @@ from datetime import date, timedelta
 
 from httpx import AsyncClient
 
+from app.api.fridge import MAX_FRIDGE_ITEMS
+
 
 class TestFridgeCRUD:
     async def test_get_empty_fridge(self, client: AsyncClient, auth_headers: dict):
@@ -40,20 +42,75 @@ class TestFridgeCRUD:
         assert "rice" in names
         assert "chicken" not in names
 
-    async def test_put_negative_quantity_ignored(
+    async def test_put_negative_quantity_rejected(
         self, client: AsyncClient, auth_headers: dict
     ):
+        # ge=0 on StockItemDTO now rejects the whole payload (422) rather than
+        # silently dropping the bad item — malformed input is treated as hostile.
         payload = [
             {"name": "rice", "quantity_grams": 300},
             {"name": "bad_item", "quantity_grams": -100},
         ]
-        await client.put("/api/fridge", headers=auth_headers, json=payload)
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
 
-        resp = await client.get("/api/fridge", headers=auth_headers)
-        data = resp.json()
-        names = [x["name"] for x in data]
-        assert "rice" in names
-        assert "bad_item" not in names
+
+class TestFridgeInputBounds:
+    """StockItemDTO bounds — the fridge write path is client-controlled and the
+    names are templated into the LLM prompt, so oversized/degenerate input must
+    be rejected (422), not persisted."""
+
+    async def test_put_rejects_oversized_name(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [{"name": "x" * 101, "quantity_grams": 100}]
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
+
+    async def test_put_rejects_empty_name(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [{"name": "", "quantity_grams": 100}]
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
+
+    # NaN/inf rejection is asserted at the model level in
+    # test_plan_models.TestStockItemDTOBounds — a real client can't transmit NaN
+    # in standard JSON (JSON.stringify(NaN) → "null"), so there's no meaningful
+    # HTTP path to exercise, and FastAPI's error serializer chokes on the nan
+    # echo anyway. Negative quantity (which IS expressible) is covered above.
+
+    async def test_put_rejects_too_many_items(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [{"name": f"item{i}", "quantity_grams": 1} for i in range(MAX_FRIDGE_ITEMS + 1)]
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
+
+    async def test_merge_rejects_oversized_name(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # /fridge/merge takes the same StockItemDTO body — same bound applies.
+        payload = [{"name": "y" * 101, "quantity_grams": 100, "need_to_use": False}]
+        resp = await client.post("/api/fridge/merge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
+
+    async def test_merge_summed_quantity_over_1m_does_not_500(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # Two individually-valid quantities summing over 1,000,000 must merge
+        # (200), not 500 — the internal reconstruction has no upper cap.
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "rice", "quantity_grams": 900_000}],
+        )
+        resp = await client.post(
+            "/api/fridge/merge", headers=auth_headers,
+            json=[{"name": "rice", "quantity_grams": 900_000}],
+        )
+        assert resp.status_code == 200
+        by_name = {x["name"]: x for x in resp.json()}
+        assert by_name["rice"]["quantity_grams"] == 1_800_000
 
     async def test_put_get_preserves_expiration_date(
         self, client: AsyncClient, auth_headers: dict

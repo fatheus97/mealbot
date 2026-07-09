@@ -31,6 +31,11 @@ router = APIRouter(prefix="/fridge", tags=["fridge"])
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
+# Per-item bounds live on StockItemDTO; this caps the LIST so a single PUT/merge
+# can't ship thousands of items (prompt-size/DoS at the list level). A real
+# fridge/pantry is well under this.
+MAX_FRIDGE_ITEMS = 500
+
 # Reused to serialize/parse the telemetry snapshots for the scan→merge surface.
 _SCAN_ITEMS_ADAPTER = TypeAdapter(list[ScannedItemDTO])
 _STOCK_ITEMS_ADAPTER = TypeAdapter(list[StockItemDTO])
@@ -80,6 +85,11 @@ async def put_fridge(
 ) -> list[StockItemDTO]:
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    if len(payload) > MAX_FRIDGE_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many items ({len(payload)}); maximum is {MAX_FRIDGE_ITEMS}.",
+        )
     return await replace_fridge_items(session, current_user.id, payload)
 
 
@@ -217,6 +227,11 @@ async def merge_fridge_items(
     """Merge scanned items into the existing fridge (auto-sum matching names + expiration)."""
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    if len(payload) > MAX_FRIDGE_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many items ({len(payload)}); maximum is {MAX_FRIDGE_ITEMS}.",
+        )
     existing = await get_fridge_items(session, current_user.id)
 
     # Telemetry: if the user edited the scan before merging, record the delta
