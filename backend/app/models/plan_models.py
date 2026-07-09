@@ -8,8 +8,12 @@ from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
 
 
 class StockItemDTO(BaseModel):
-    name: str
-    quantity_grams: float
+    # Client-controlled on PUT /fridge and POST /fridge/merge, and each name is
+    # templated into the LLM system prompt — so bound it like the other hostile-
+    # input string paths (IngredientAmount/PlannedMeal). ge/le also reject
+    # NaN/inf, which would otherwise slip past the `qty <= 0` persist filter.
+    name: str = Field(..., min_length=1, max_length=100)
+    quantity_grams: float = Field(..., ge=0, le=1_000_000)
     need_to_use: bool = Field(default=False)
     expiration_date: date | None = None
 
@@ -256,7 +260,13 @@ class RegeneratePlanRequest(BaseModel):
 
 class ScannedReceiptItem(BaseModel):
     """Single item extracted from a receipt by the LLM."""
-    name: str = Field(..., description="Canonical grocery item name, e.g. 'chicken breast'")
+    # Cap the LLM-produced name at the source: instructor retries to conform, and
+    # it guarantees the downstream ScannedItemDTO (max_length=100) never fails
+    # construction on a crafted-receipt long name (which would 500 the scan).
+    name: str = Field(
+        ..., min_length=1, max_length=100,
+        description="Canonical grocery item name, e.g. 'chicken breast'",
+    )
     quantity_grams: float = Field(..., description="Estimated weight in grams")
     item_type: Literal["ingredient", "ready_to_eat"] = Field(
         ...,
@@ -290,8 +300,9 @@ class ReceiptScanResponse(BaseModel):
 
 class ScannedItemDTO(BaseModel):
     """Item returned to the frontend after receipt scan, before merge."""
-    name: str
-    quantity_grams: float
+    # Same hostile-input bounds as StockItemDTO (this rides the same fridge path).
+    name: str = Field(..., min_length=1, max_length=100)
+    quantity_grams: float = Field(..., ge=0, le=1_000_000)
     need_to_use: bool = False
     item_type: Literal["ingredient", "ready_to_eat"]
     expiration_date: date | None = None

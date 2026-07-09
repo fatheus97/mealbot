@@ -40,20 +40,52 @@ class TestFridgeCRUD:
         assert "rice" in names
         assert "chicken" not in names
 
-    async def test_put_negative_quantity_ignored(
+    async def test_put_negative_quantity_rejected(
         self, client: AsyncClient, auth_headers: dict
     ):
+        # ge=0 on StockItemDTO now rejects the whole payload (422) rather than
+        # silently dropping the bad item — malformed input is treated as hostile.
         payload = [
             {"name": "rice", "quantity_grams": 300},
             {"name": "bad_item", "quantity_grams": -100},
         ]
-        await client.put("/api/fridge", headers=auth_headers, json=payload)
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
 
-        resp = await client.get("/api/fridge", headers=auth_headers)
-        data = resp.json()
-        names = [x["name"] for x in data]
-        assert "rice" in names
-        assert "bad_item" not in names
+
+class TestFridgeInputBounds:
+    """StockItemDTO bounds — the fridge write path is client-controlled and the
+    names are templated into the LLM prompt, so oversized/degenerate input must
+    be rejected (422), not persisted."""
+
+    async def test_put_rejects_oversized_name(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [{"name": "x" * 101, "quantity_grams": 100}]
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
+
+    async def test_put_rejects_empty_name(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [{"name": "", "quantity_grams": 100}]
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
+
+    async def test_put_rejects_over_cap_quantity(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [{"name": "rice", "quantity_grams": 1_000_001}]
+        resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
+
+    async def test_merge_rejects_oversized_name(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # /fridge/merge takes the same StockItemDTO body — same bound applies.
+        payload = [{"name": "y" * 101, "quantity_grams": 100, "need_to_use": False}]
+        resp = await client.post("/api/fridge/merge", headers=auth_headers, json=payload)
+        assert resp.status_code == 422
 
     async def test_put_get_preserves_expiration_date(
         self, client: AsyncClient, auth_headers: dict
