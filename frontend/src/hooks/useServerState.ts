@@ -89,7 +89,8 @@ export function useMergeFridge() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (items: StockItem[]) => mergeFridgeItems(items),
+    mutationFn: (vars: { items: StockItem[]; generationId: number | null }) =>
+      mergeFridgeItems(vars.items, vars.generationId),
     onSuccess: () => {
       return queryClient.invalidateQueries({ queryKey: ['fridge'] });
     },

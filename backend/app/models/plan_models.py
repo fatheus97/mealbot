@@ -297,6 +297,19 @@ class ScannedItemDTO(BaseModel):
     expiration_date: date | None = None
 
 
+class ScannedItemsResponse(BaseModel):
+    """Result of POST /api/fridge/scan — the parsed receipt items plus the id of
+    the persisted receipt_scan generation.
+
+    ``generation_id`` is echoed back on /fridge/merge (as a query param) so the
+    server can capture the user's corrections to the scan. NULL when the
+    telemetry write was skipped (best-effort) or on the demo path (no /scan
+    call).
+    """
+    items: list[ScannedItemDTO]
+    generation_id: int | None = None
+
+
 class NormalizedName(BaseModel):
     """Maps a scanned item name to its canonical normalized form."""
     original: str
