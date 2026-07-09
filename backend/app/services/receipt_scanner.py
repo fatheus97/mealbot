@@ -10,6 +10,7 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 from app.core.config import settings
+from app.core.executors import run_in_parse_executor
 from app.llm.client import llm_client
 from app.models.plan_models import (
     NormalizationResponse,
@@ -106,7 +107,7 @@ async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English", mo
     """Extract grocery items from a PDF receipt using text extraction + LLM."""
     try:
         receipt_text = await asyncio.wait_for(
-            asyncio.to_thread(_extract_pdf_text, pdf_bytes),
+            run_in_parse_executor(_extract_pdf_text, pdf_bytes),
             timeout=PDF_PARSE_TIMEOUT_S,
         )
     except TimeoutError as exc:

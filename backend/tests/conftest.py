@@ -49,6 +49,21 @@ def _disable_rate_limiting():
 
 
 @pytest.fixture(autouse=True)
+def _reset_parse_executor_latch():
+    """The parse executor (app.core.executors) is a process-global singleton with
+    a _shutting_down latch. Any test that runs the app lifespan (e.g. the
+    embedding-model init test does `async with lifespan(app)`) trips the latch on
+    lifespan shutdown, after which every later test that embeds/parses would hit
+    the refuse-to-resurrect RuntimeError. Clear the latch after each test so the
+    next lazy caller starts cleanly. The pool itself (pool is None ⇒ lazy-start)
+    is self-healing, so we only reset the latch, not the whole pool."""
+    yield
+    from app.core import executors
+
+    executors._shutting_down = False
+
+
+@pytest.fixture(autouse=True)
 def _disable_csrf(monkeypatch: pytest.MonkeyPatch):
     """Disable CSRF middleware for the default test client.
 
