@@ -13,6 +13,7 @@ raises one itself.
 """
 import json
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -135,6 +136,23 @@ def batches_from_entry(entry: MealEntry) -> list[ConsumedBatch]:
         return []
 
 
+async def _restore_entries(
+    session: AsyncSession, user_id: int, entries: Iterable[MealEntry]
+) -> None:
+    """Restore every entry's confirm-time consumed batches to the fridge in a
+    single rewrite (no-op when there's nothing to restore).
+
+    Shared by unconfirm (all entries) and finish (uncooked entries only); both
+    funnel through one restore so the fridge is rewritten exactly once and the
+    snapshot/legacy decode lives in a single place (batches_from_entry).
+    """
+    batches_to_restore: list[ConsumedBatch] = []
+    for entry in entries:
+        batches_to_restore.extend(batches_from_entry(entry))
+    if batches_to_restore:
+        await restore_consumed_batches(session, user_id, batches_to_restore)
+
+
 async def confirm_plan_fridge(
     session: AsyncSession, user_id: int, plan: MealPlan, plan_obj: MealPlanResponse,
 ) -> None:
@@ -183,11 +201,7 @@ async def unconfirm_plan_fridge(
         )
     ).scalars().all()
 
-    batches_to_restore: list[ConsumedBatch] = []
-    for entry in entries:
-        batches_to_restore.extend(batches_from_entry(entry))
-    if batches_to_restore:
-        await restore_consumed_batches(session, user_id, batches_to_restore)
+    await _restore_entries(session, user_id, entries)
 
     await session.execute(
         delete(MealEntry).where(MealEntry.meal_plan_id == plan.id)  # type: ignore[arg-type]
@@ -217,11 +231,7 @@ async def finish_plan_fridge(
         )
     ).scalars().all()
 
-    batches_to_restore: list[ConsumedBatch] = []
-    for entry in uncooked_entries:
-        batches_to_restore.extend(batches_from_entry(entry))
-    if batches_to_restore:
-        await restore_consumed_batches(session, user_id, batches_to_restore)
+    await _restore_entries(session, user_id, uncooked_entries)
 
     plan.finished_at = datetime.now(UTC)
     session.add(plan)
