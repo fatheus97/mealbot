@@ -23,7 +23,7 @@ pgvector~=0.4
 fastembed>=0.8,<0.9
 
 # PDF parsing
-pypdf~=6.10
+pypdf~=6.14
 
 #Security
 bcrypt~=5.0
