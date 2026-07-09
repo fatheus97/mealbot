@@ -18,6 +18,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Bounds a stalled fastembed embed (first-call model download, ONNX hang). The
+# model is warmed at startup so steady-state embeds are ~ms; this is a safety
+# ceiling, not a normal-path budget.
+EMBEDDING_TIMEOUT_S = 15
+
 _model: TextEmbedding | None = None
 
 
@@ -60,7 +65,18 @@ async def retrieve_rated_meals(
       almost never surface a single user's meals at scale.
     """
     model = get_embedding_model()
-    query_emb = (await asyncio.to_thread(lambda: list(model.embed([query]))))[0].tolist()
+    try:
+        query_emb = (
+            await asyncio.wait_for(
+                asyncio.to_thread(lambda: list(model.embed([query]))),
+                timeout=EMBEDDING_TIMEOUT_S,
+            )
+        )[0].tolist()
+    except TimeoutError:
+        # RAG is best-effort — a stalled embed degrades to the standard pipeline
+        # (no hits → caller falls back) rather than 502-ing plan generation.
+        logger.warning("RAG query embedding timed out after %ss — skipping retrieval", EMBEDDING_TIMEOUT_S)
+        return []
 
     distance_expr = MealEntry.embedding.cosine_distance(query_emb)  # type: ignore[attr-defined,union-attr]
 
@@ -182,5 +198,12 @@ async def embed_meal_entry(entry: MealEntry) -> None:
         f"Steps: {' '.join(meal.steps)}"
     )
     model = get_embedding_model()
-    emb = (await asyncio.to_thread(lambda: list(model.embed([text_for_embedding]))))[0].tolist()
+    # No fallback here (favorite-embed callers already treat failure as non-fatal
+    # and log it), but bound the embed so it can't hang the request indefinitely.
+    emb = (
+        await asyncio.wait_for(
+            asyncio.to_thread(lambda: list(model.embed([text_for_embedding]))),
+            timeout=EMBEDDING_TIMEOUT_S,
+        )
+    )[0].tolist()
     entry.embedding = emb

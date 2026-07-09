@@ -490,3 +490,19 @@ class TestRetrieveRatedMeals:
         # adjusted_distance == cosine_distance in cookbook-only mode (no boost)
         for h in hits:
             assert h.adjusted_distance == h.cosine_distance
+
+
+class TestEmbedTimeout:
+    async def test_query_embed_timeout_degrades_to_empty(self):
+        """A stalled query embedding returns no hits (caller falls back to the
+        standard pipeline) rather than raising into plan generation."""
+        async def _timeout(*args, **kwargs):
+            raise TimeoutError
+
+        with patch(
+            "app.services.recipe_retriever.get_embedding_model",
+            return_value=MagicMock(),
+        ), patch("app.services.recipe_retriever.asyncio.wait_for", _timeout):
+            # Session is unused on the timeout path (we return before querying).
+            hits = await retrieve_rated_meals(MagicMock(), user_id=1, query="q")
+        assert hits == []

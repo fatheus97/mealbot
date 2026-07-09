@@ -264,6 +264,10 @@ class LLMClient:
                         ],
                     ),
                 ],
+                # Intentional no-op: an EMPTY list means "no explicit override",
+                # so Google's built-in safety filtering on the user-uploaded
+                # image stays ACTIVE. This is NOT a BLOCK_NONE override — do not
+                # populate this with BLOCK_NONE entries or you disable filtering.
                 "safety_settings": [],
             }
 
