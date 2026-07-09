@@ -80,6 +80,20 @@ class TestLogin:
         assert resp.status_code == 401
         assert ACCESS_COOKIE_NAME not in unauthed_client.cookies
 
+    async def test_login_unknown_email_returns_401_and_no_cookies(
+        self, unauthed_client: AsyncClient,
+    ):
+        # Exercises the constant-time branch: no such user → login still runs one
+        # bcrypt verify against DUMMY_PASSWORD_HASH and returns 401 with no cookies.
+        # Guards the `hashed = ... if user is not None else DUMMY_PASSWORD_HASH`
+        # line and the DUMMY_PASSWORD_HASH import from silently regressing.
+        resp = await unauthed_client.post(
+            "/api/auth/login",
+            json={"email": "nobody@nowhere.example", "password": "irrelevant"},
+        )
+        assert resp.status_code == 401
+        assert ACCESS_COOKIE_NAME not in unauthed_client.cookies
+
     async def test_login_failure_logs_email_fingerprint_only(
         self, unauthed_client: AsyncClient, test_user: User,
         caplog: pytest.LogCaptureFixture,
