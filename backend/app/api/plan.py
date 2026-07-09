@@ -98,7 +98,14 @@ async def list_plans(
             MealPlan.kind == "planned",
         )
         .group_by(MealPlan.id)  # type: ignore[arg-type]
-        .order_by(MealPlan.created_at.desc())  # type: ignore[attr-defined]
+        # id.desc() is a tiebreaker: created_at isn't unique (same-burst creates
+        # can collide), and without a stable total order LIMIT/OFFSET pages can
+        # duplicate or drop a row. The catalog index covers (user_id, created_at)
+        # so the id tie-sort is a cheap in-memory step on rare collisions.
+        .order_by(
+            MealPlan.created_at.desc(),  # type: ignore[attr-defined]
+            MealPlan.id.desc(),  # type: ignore[union-attr]
+        )
     )
     if offset:
         stmt = stmt.offset(offset)
