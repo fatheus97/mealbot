@@ -7,6 +7,23 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
 
 
+def _strip_prompt_fence_tags(v: object) -> object:
+    """Remove < and > from a free-text name (mode="before", so length checks
+    apply to the cleaned value).
+
+    These names are templated into LLM prompts wrapped in <user_content> … tags.
+    No real food/meal name contains angle brackets, but a value carrying a
+    literal </user_content> could forge a break-out of the fence and inject
+    instructions. Unlike the sanitize_input fields (whitelist-stripped), these
+    have NO character whitelist, so the fence is their only defense — its
+    delimiter must be un-forgeable. Names that are only brackets collapse to ""
+    and then fail min_length.
+    """
+    if isinstance(v, str):
+        return v.replace("<", "").replace(">", "")
+    return v
+
+
 class StockItemDTO(BaseModel):
     # Client-controlled on PUT /fridge and POST /fridge/merge, and each name is
     # templated into the LLM system prompt — so bound it like the other hostile-
@@ -19,6 +36,11 @@ class StockItemDTO(BaseModel):
     quantity_grams: float = Field(..., ge=0, allow_inf_nan=False)
     need_to_use: bool = Field(default=False)
     expiration_date: date | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        return _strip_prompt_fence_tags(v)
 
 
 class MealPlanRequest(BaseModel):
@@ -153,6 +175,12 @@ class IngredientAmount(BaseModel):
                                   description="The weight in grams. If the recipe uses volume (cups), estimate the weight.")
     is_spice: bool = Field(default=False, description="True for spices/herbs/seasonings when include_spices is off.")
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        # Ingredient names render into fenced LLM prompts (frozen_meals, stock).
+        return _strip_prompt_fence_tags(v)
+
     @field_validator("quantity_grams")
     @classmethod
     def validate_realistic_amount(cls, v):
@@ -188,6 +216,13 @@ class PlannedMeal(BaseModel):
         le=600,
         description="Total time from prep start to finish, including cook and rest, in minutes.",
     )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        # Meal names render into fenced LLM prompts (regenerate frozen_meals) and
+        # are client-controlled on /recipe/cook (see its trust-boundary comment).
+        return _strip_prompt_fence_tags(v)
 
     @field_validator("meal_type", mode="before")
     @classmethod
@@ -281,6 +316,13 @@ class ScannedReceiptItem(BaseModel):
         le=730,
         description="Estimated days from purchase until typical expiration when stored properly",
     )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        # A crafted receipt could make the LLM emit a name carrying </user_content>;
+        # it renders into the fenced normalize prompt, so neutralize the delimiter.
+        return _strip_prompt_fence_tags(v)
 
     @field_validator("quantity_grams")
     @classmethod
