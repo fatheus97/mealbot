@@ -10,6 +10,7 @@ hashed in the AuthSession table — one row per device — which lets us:
 Access tokens stay self-contained JWTs (no DB hit per request); the short
 TTL (default 15 min) is the bound on a stolen access token.
 """
+import asyncio
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
@@ -28,6 +29,7 @@ from app.core.cookies import (
 )
 from app.core.rate_limit import limiter
 from app.core.security import (
+    DUMMY_PASSWORD_HASH,
     create_access_token,
     create_refresh_token,
     generate_csrf_token,
@@ -140,7 +142,13 @@ async def login(
     result = await session.execute(statement)
     user = result.scalars().first()
 
-    if not user or not verify_password(body.password, user.hashed_password):
+    # bcrypt is CPU-heavy (~50-100ms) and would block the single-worker event
+    # loop, so verify off-thread. Always run one verify — against a dummy hash
+    # when the email is unknown — so response timing can't distinguish "no such
+    # user" from "wrong password" (no email enumeration).
+    hashed = user.hashed_password if user is not None else DUMMY_PASSWORD_HASH
+    password_ok = await asyncio.to_thread(verify_password, body.password, hashed)
+    if user is None or not password_ok:
         logger.warning("login_failed email_fp=%s", _email_fingerprint(body.email))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
