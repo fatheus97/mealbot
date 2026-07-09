@@ -245,3 +245,33 @@ class TestMergeCorrectionCapture:
         )
         assert resp.status_code == 200
         assert await _corrections(db_session, test_user) == []
+
+
+class TestGuardedCommitDegrade:
+    async def test_scan_returns_null_id_when_telemetry_commit_fails(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """A failed telemetry commit must not 500 the successful scan — the items
+        are returned, generation_id=None."""
+        def _bad_record(session, **kw):
+            row = MachineGeneration(
+                user_id=9_999_999, surface=kw["surface"],
+                output_json=kw["output_json"], request_json=kw.get("request_json"),
+            )
+            session.add(row)
+            return row
+
+        with patch(
+            "app.api.fridge.extract_items_from_receipt",
+            new_callable=AsyncMock, return_value=MOCK_SCAN,
+        ), patch(
+            "app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize
+        ), patch("app.api.fridge.record_generation", _bad_record):
+            resp = await client.post(
+                "/api/fridge/scan",
+                files={"file": ("receipt.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["generation_id"] is None
+        assert len(body["items"]) == 2
