@@ -376,3 +376,32 @@ class TestResolveOwnedGeneration:
         # None id / missing id → None.
         assert await resolve_owned_generation(db_session, None, test_user.id) is None
         assert await resolve_owned_generation(db_session, 999999, test_user.id) is None
+
+
+class TestGuardedCommitDegrade:
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_generate_returns_null_id_when_telemetry_commit_fails(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        """A failed telemetry commit must not 500 the already-successful (and
+        already-paid-for) generation — the recipe is returned, generation_id=None."""
+        mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
+
+        def _bad_record(session, **kw):
+            # Stage a row that violates the user FK so session.commit() raises.
+            row = MachineGeneration(
+                user_id=9_999_999, surface=kw["surface"],
+                output_json=kw["output_json"], request_json=kw.get("request_json"),
+            )
+            session.add(row)
+            return row
+
+        with patch("app.api.recipe.record_generation", _bad_record):
+            resp = await client.post(
+                "/api/recipe/generate", headers=auth_headers,
+                json={"meal_type": "soup", "people_count": 2},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["generation_id"] is None
+        assert body["recipe"]["name"] == "Cook-Now Soup"

@@ -2,9 +2,11 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.core.meal_types import MealType
-from app.models.db_models import User
+from app.core.security import get_password_hash
+from app.models.db_models import MealPlan, User
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -187,6 +189,54 @@ class TestListPlans:
         assert plan["cooked_meals"] == 0
         assert plan["status"] == "planned"
         assert plan["finished_at"] is None
+
+    async def _user_plan_ids(self, db_session: AsyncSession, user_id: int) -> set[int]:
+        await db_session.commit()
+        rows = await db_session.execute(
+            select(MealPlan).where(MealPlan.user_id == user_id)
+        )
+        return {p.id for p in rows.scalars().all() if p.id is not None}
+
+    async def test_new_plan_deletes_prior_unconfirmed(
+        self, client: AsyncClient, auth_headers: dict,
+        db_session: AsyncSession, test_user: User,
+    ):
+        assert test_user.id is not None
+        a = await _create_plan(client, auth_headers)  # unconfirmed
+        b = await _create_plan(client, auth_headers)  # its creation clears A
+        ids = await self._user_plan_ids(db_session, test_user.id)
+        assert a["plan_id"] not in ids
+        assert b["plan_id"] in ids
+
+    async def test_confirmed_plan_survives_new_plan(
+        self, client: AsyncClient, auth_headers: dict,
+        db_session: AsyncSession, test_user: User,
+    ):
+        assert test_user.id is not None
+        a = await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
+        b = await _create_plan(client, auth_headers)  # A is confirmed → kept
+        ids = await self._user_plan_ids(db_session, test_user.id)
+        assert a["plan_id"] in ids
+        assert b["plan_id"] in ids
+
+    async def test_clear_unconfirmed_is_per_user(
+        self, client: AsyncClient, auth_headers: dict,
+        db_session: AsyncSession, test_user: User,
+    ):
+        # Another user's unconfirmed plan must survive test_user creating a plan.
+        other = User(email="other-clear@example.com", hashed_password=get_password_hash("x"))
+        db_session.add(other)
+        await db_session.flush()
+        other_plan = MealPlan(
+            user_id=other.id, days=1, meals_per_day=1, people_count=1,
+            request_json="{}", response_json="{}",  # unconfirmed
+        )
+        db_session.add(other_plan)
+        await db_session.flush()
+
+        await _create_plan(client, auth_headers)  # clears only test_user's plans
+        await db_session.commit()
+        assert await db_session.get(MealPlan, other_plan.id) is not None
 
     async def test_list_plans_limit_offset_paginate(
         self, client: AsyncClient, auth_headers: dict
