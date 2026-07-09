@@ -32,6 +32,7 @@ from app.models.plan_models import (
 )
 from app.services.fridge_service import (
     allocate_fifo,
+    flatten_fridge_batches,
     get_fridge_items,
     group_and_sort_fridge,
     replace_fridge_items,
@@ -40,10 +41,10 @@ from app.services.fridge_service import (
 from app.services.meal_planner import generate_partial_day
 from app.services.plan_service import (
     PlanGenerationError,
+    batches_from_entry,
     clear_unconfirmed_plans,
     derive_plan_status,
     generate_plan_days,
-    parse_meal_ingredients,
     persist_meal_entries,
 )
 from app.services.recipe_retriever import embed_meal_entry
@@ -515,12 +516,7 @@ async def confirm_plan(
             allocations = allocate_fifo(batches_by_name, meal_ingredients)
             snapshots[(day_index, meal_index)] = allocations
 
-    final_state = [
-        item
-        for batches in batches_by_name.values()
-        for item in batches
-        if item.quantity_grams > 0
-    ]
+    final_state = flatten_fridge_batches(batches_by_name)
     await replace_fridge_items(session, current_user.id, final_state, commit=False)
 
     # Create meal entries — all start UNCOOKED (ingredients already reserved via fridge subtraction)
@@ -611,28 +607,7 @@ async def unconfirm_plan(
 
     batches_to_restore: list[ConsumedBatch] = []
     for entry in entries:
-        if entry.consumed_snapshot_json:
-            try:
-                raw = json.loads(entry.consumed_snapshot_json)
-                batches_to_restore.extend(
-                    ConsumedBatch.model_validate(b) for b in raw
-                )
-                continue
-            except (json.JSONDecodeError, ValidationError):
-                logger.exception(
-                    "Corrupt consumed_snapshot_json on meal entry %d during unconfirm — falling back to lossy restore",
-                    entry.id,
-                )
-        try:
-            batches_to_restore.extend(
-                ConsumedBatch(name=ing.name, quantity_grams=ing.quantity_grams)
-                for ing in parse_meal_ingredients(entry)
-            )
-        except ValidationError:
-            logger.exception(
-                "Corrupt meal_json on meal entry %d during unconfirm — skipping its restore",
-                entry.id,
-            )
+        batches_to_restore.extend(batches_from_entry(entry))
 
     if batches_to_restore:
         await restore_consumed_batches(session, current_user.id, batches_to_restore)
@@ -681,15 +656,7 @@ async def cook_meal(
         await session.commit()
         await session.refresh(entry)
 
-    return MealEntrySummary(
-        id=entry.id,  # type: ignore[arg-type]
-        day_index=entry.day_index,
-        meal_index=entry.meal_index,
-        name=entry.name,
-        meal_type=entry.meal_type,
-        cooked_at=entry.cooked_at,
-        is_favorite=entry.is_favorite,
-    )
+    return MealEntrySummary.from_entry(entry)
 
 
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/favorite
@@ -723,15 +690,7 @@ async def favorite_meal(
 
     # Idempotent fast path
     if entry.is_favorite == body.is_favorite:
-        return MealEntrySummary(
-            id=entry.id,  # type: ignore[arg-type]
-            day_index=entry.day_index,
-            meal_index=entry.meal_index,
-            name=entry.name,
-            meal_type=entry.meal_type,
-            cooked_at=entry.cooked_at,
-            is_favorite=entry.is_favorite,
-        )
+        return MealEntrySummary.from_entry(entry)
 
     entry.is_favorite = body.is_favorite
 
@@ -752,15 +711,7 @@ async def favorite_meal(
     await session.commit()
     await session.refresh(entry)
 
-    return MealEntrySummary(
-        id=entry.id,  # type: ignore[arg-type]
-        day_index=entry.day_index,
-        meal_index=entry.meal_index,
-        name=entry.name,
-        meal_type=entry.meal_type,
-        cooked_at=entry.cooked_at,
-        is_favorite=entry.is_favorite,
-    )
+    return MealEntrySummary.from_entry(entry)
 
 
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/uncook
@@ -797,15 +748,7 @@ async def uncook_meal(
         await session.commit()
         await session.refresh(entry)
 
-    return MealEntrySummary(
-        id=entry.id,  # type: ignore[arg-type]
-        day_index=entry.day_index,
-        meal_index=entry.meal_index,
-        name=entry.name,
-        meal_type=entry.meal_type,
-        cooked_at=entry.cooked_at,
-        is_favorite=entry.is_favorite,
-    )
+    return MealEntrySummary.from_entry(entry)
 
 
 # PATCH /api/plan/{plan_id}/days/{day_index}/meals/{meal_index} — Edit meal content
@@ -973,18 +916,7 @@ async def list_meal_entries(
     )
     entries = result.scalars().all()
 
-    return [
-        MealEntrySummary(
-            id=entry.id,  # type: ignore[arg-type]
-            day_index=entry.day_index,
-            meal_index=entry.meal_index,
-            name=entry.name,
-            meal_type=entry.meal_type,
-            cooked_at=entry.cooked_at,
-            is_favorite=entry.is_favorite,
-        )
-        for entry in entries
-    ]
+    return [MealEntrySummary.from_entry(entry) for entry in entries]
 
 
 # POST /api/plan/{plan_id}/finish
@@ -1036,32 +968,7 @@ async def finish_plan(
     # rewritten exactly once per finish (avoids autoflush ordering surprises).
     batches_to_restore: list[ConsumedBatch] = []
     for entry in uncooked_entries:
-        if entry.consumed_snapshot_json:
-            try:
-                raw = json.loads(entry.consumed_snapshot_json)
-                batches_to_restore.extend(
-                    ConsumedBatch.model_validate(b) for b in raw
-                )
-                continue
-            except (json.JSONDecodeError, ValidationError):
-                logger.exception(
-                    "Corrupt consumed_snapshot_json on meal entry %d — falling back to lossy restore",
-                    entry.id,
-                )
-        # Legacy fallback: entries without a snapshot (or with a corrupt one
-        # that fell through above). meal_json itself can also be corrupt for
-        # legacy rows — guard here so one bad entry doesn't 500 the whole
-        # finish and strand the user.
-        try:
-            batches_to_restore.extend(
-                ConsumedBatch(name=ing.name, quantity_grams=ing.quantity_grams)
-                for ing in parse_meal_ingredients(entry)
-            )
-        except ValidationError:
-            logger.exception(
-                "Corrupt meal_json on meal entry %d — skipping its ingredients in restore",
-                entry.id,
-            )
+        batches_to_restore.extend(batches_from_entry(entry))
 
     if batches_to_restore:
         await restore_consumed_batches(session, current_user.id, batches_to_restore)
@@ -1121,31 +1028,17 @@ async def reopen_plan(
     #     "don't strand the user on one bad row" policy.
     targets_per_entry: list[list[IngredientAmount]] = []
     for entry in uncooked_entries:
-        if entry.consumed_snapshot_json:
-            try:
-                raw = json.loads(entry.consumed_snapshot_json)
-                batches = [ConsumedBatch.model_validate(b) for b in raw]
-                summed: dict[str, float] = {}
-                for b in batches:
-                    summed[b.name] = summed.get(b.name, 0.0) + b.quantity_grams
-                targets_per_entry.append([
-                    IngredientAmount(name=name, quantity_grams=grams)
-                    for name, grams in summed.items()
-                ])
-                continue
-            except (json.JSONDecodeError, ValidationError):
-                logger.exception(
-                    "Corrupt consumed_snapshot_json on meal entry %d during reopen — falling back to recipe",
-                    entry.id,
-                )
-        try:
-            targets_per_entry.append(parse_meal_ingredients(entry))
-        except ValidationError:
-            logger.exception(
-                "Corrupt meal_json on meal entry %d during reopen — skipping its re-debit",
-                entry.id,
-            )
-            targets_per_entry.append([])
+        # Sum the confirm-time consumption by ingredient name (snapshot-decoded
+        # or legacy recipe fallback, both via batches_from_entry). Summing is
+        # allocation-equivalent to the raw ingredient list — the shortage check
+        # and FIFO both aggregate per name anyway.
+        summed: dict[str, float] = {}
+        for b in batches_from_entry(entry):
+            summed[b.name] = summed.get(b.name, 0.0) + b.quantity_grams
+        targets_per_entry.append([
+            IngredientAmount(name=name, quantity_grams=grams)
+            for name, grams in summed.items()
+        ])
 
     # One shared fridge view across all meals so we don't double-spend a
     # batch (matches confirm's pattern). Per-entry FIFO mutates batches_by_name
@@ -1187,12 +1080,7 @@ async def reopen_plan(
                 )
         new_snapshots.append(allocations)
 
-    final_state = [
-        item
-        for batches in batches_by_name.values()
-        for item in batches
-        if item.quantity_grams > 0
-    ]
+    final_state = flatten_fridge_batches(batches_by_name)
     await replace_fridge_items(session, current_user.id, final_state, commit=False)
 
     # Overwrite each entry's snapshot with the fresh allocation so a future

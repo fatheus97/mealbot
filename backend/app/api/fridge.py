@@ -12,7 +12,11 @@ from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.db_models import User
 from app.models.plan_models import ScannedItemDTO, ScannedItemsResponse, StockItemDTO
-from app.services.fridge_service import get_fridge_items, replace_fridge_items
+from app.services.fridge_service import (
+    get_fridge_items,
+    merge_into_fridge_buckets,
+    replace_fridge_items,
+)
 from app.services.receipt_scanner import (
     extract_items_from_pdf,
     extract_items_from_receipt,
@@ -268,23 +272,5 @@ async def merge_fridge_items(
                 context={"scanned_count": len(scanned), "submitted_count": len(payload)},
             )
 
-    # Build a lookup by (lowercase name, expiration_date) compound key
-    merged: dict[tuple[str, date | None], StockItemDTO] = {}
-    for item in existing:
-        key = (item.name.strip().lower(), item.expiration_date)
-        merged[key] = item
-
-    for item in payload:
-        key = (item.name.strip().lower(), item.expiration_date)
-        if key in merged:
-            # Sum quantities, preserve existing need_to_use flag
-            merged[key] = StockItemDTO(
-                name=merged[key].name,
-                quantity_grams=merged[key].quantity_grams + item.quantity_grams,
-                need_to_use=merged[key].need_to_use or item.need_to_use,
-                expiration_date=item.expiration_date,
-            )
-        else:
-            merged[key] = item
-
-    return await replace_fridge_items(session, current_user.id, list(merged.values()))
+    merged = merge_into_fridge_buckets(existing, payload)
+    return await replace_fridge_items(session, current_user.id, merged)
