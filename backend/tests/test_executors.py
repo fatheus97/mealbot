@@ -131,14 +131,14 @@ class TestParseExecutor:
         await shutdown_task
         assert executors._parse_executor is None
 
-    async def test_queued_task_drains_on_concurrent_shutdown(
+    async def test_queued_task_raises_clean_error_on_concurrent_shutdown(
         self, fresh_pool, monkeypatch: pytest.MonkeyPatch
     ):
-        """The narrower case: a task submitted (legitimately, under the lock)
-        while both workers are busy sits QUEUED, unstarted. A concurrent shutdown
-        must drain it, not cancel it — cancel_futures=True would raise
-        CancelledError out of the request coroutine. Fails if cancel_futures is
-        reintroduced."""
+        """A task still QUEUED (both workers busy) when a concurrent shutdown
+        fires is cancelled — to bound shutdown to running items, not queue depth.
+        But the awaiting request must get a clean RuntimeError, never a bare
+        asyncio.CancelledError (BaseException) leaking out of the parse call site.
+        Meanwhile the RUNNING items still drain to completion."""
         monkeypatch.setattr(settings, "parse_executor_workers", 2)
         start_parse_executor()
 
@@ -160,17 +160,22 @@ class TestParseExecutor:
         queued = asyncio.create_task(run_in_parse_executor(lambda: "queued"))
         await asyncio.sleep(0.05)  # let its coroutine reach the submit
 
-        # Shut down concurrently while the 3rd item is queued, then free workers.
+        # Shut down concurrently: cancel_futures cancels the queued item as soon
+        # as shutdown() runs, BEFORE we free the workers — so it can't get picked
+        # up first. The sleep lets the shutdown thread reach that cancel.
         shutdown_task = asyncio.create_task(
             asyncio.to_thread(shutdown_parse_executor)
         )
+        await asyncio.sleep(0.1)
         release.set()
+        await shutdown_task
 
-        # All three complete cleanly — the queued one is drained, not cancelled.
+        # Running items drained to completion...
         assert await b1 == "blocker"
         assert await b2 == "blocker"
-        assert await queued == "queued"
-        await shutdown_task
+        # ...the queued item surfaces a clean RuntimeError, not CancelledError.
+        with pytest.raises(RuntimeError, match="shutting down"):
+            await queued
 
     async def test_start_is_idempotent(self, fresh_pool):
         start_parse_executor()

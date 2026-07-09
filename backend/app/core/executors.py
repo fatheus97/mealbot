@@ -82,32 +82,35 @@ def start_parse_executor() -> None:
 
 
 def shutdown_parse_executor() -> None:
-    """Tear the pool down at app shutdown: drain ALL submitted work (running and
-    queued), and latch 'shut down' so run_in_parse_executor won't resurrect it.
-    Idempotent.
+    """Tear the pool down at app shutdown: wait for RUNNING parses to finish,
+    cancel still-QUEUED ones, and latch 'shut down' so run_in_parse_executor
+    won't resurrect it. Idempotent.
 
-    Blocking (joins parse threads via shutdown(wait=True)); the lifespan offloads
-    this to a thread so it can't stall the event loop / graceful drain. Under the
-    lock we latch + detach the pool reference *before* the join, so a concurrent
-    dispatch either (a) submitted its future first — then wait=True drains it — or
-    (b) sees _parse_executor is None and raises the clean latch error. It can
-    never submit to a pool mid-.shutdown().
+    cancel_futures=True is deliberate and load-bearing: it bounds shutdown
+    duration to the in-flight (running) items only — at most
+    parse_executor_workers of them, ~one parse-timeout cycle — instead of the
+    full queue depth. The queue is NOT bounded by worker count: any number of
+    concurrent requests (across users) can have submitted before the latch flips,
+    so draining the whole queue could stall shutdown for (queued / workers) ×
+    timeout and blow past the container SIGTERM grace into a SIGKILL. A parse that
+    was legitimately submitted but is still queued is cancelled; run_in_parse_
+    executor turns that into a clean RuntimeError for the awaiting request rather
+    than a bare asyncio.CancelledError.
 
-    Deliberately NOT cancel_futures=True: a request that legitimately submitted a
-    parse (under the lock) right before shutdown could still be sitting in the
-    work queue unstarted if both worker slots are busy. Cancelling it would raise
-    asyncio.CancelledError out of the awaiting request coroutine — a BaseException
-    the call sites' except TimeoutError/PdfReadError don't catch and an ASGI
-    server can conflate with the request's own cancellation. The queue is bounded
-    (at SIGTERM no new work is accepted; backlog ≤ worker count), so draining it
-    is cheap and clean, and makes 'drain' above literally true.
+    Blocking (joins running parse threads via shutdown(wait=True)); the lifespan
+    offloads this to a thread so it can't stall the event loop / graceful drain.
+    docker-compose.prod.yml sets stop_grace_period > the parse timeouts so those
+    running items finish within the container's grace window. Under the lock we
+    latch + detach the pool reference *before* the join, so a concurrent dispatch
+    either submitted first (covered by wait / the cancel path) or sees None and
+    raises the clean latch error — it can never submit to a pool mid-.shutdown().
     """
     global _parse_executor, _shutting_down
     with _lock:
         _shutting_down = True
         executor, _parse_executor = _parse_executor, None
     if executor is not None:
-        executor.shutdown(wait=True)
+        executor.shutdown(wait=True, cancel_futures=True)
         logger.info("Parse executor shut down")
 
 
@@ -132,4 +135,18 @@ async def run_in_parse_executor[T](func: Callable[..., T], *args: object) -> T:
             start_parse_executor()
         assert _parse_executor is not None  # start_parse_executor guarantees it
         future = loop.run_in_executor(_parse_executor, func, *args)
-    return await future
+    try:
+        return await future
+    except asyncio.CancelledError:
+        # Tell "shutdown cancelled our still-queued parse" apart from "our own
+        # request task was cancelled". The former (the future itself was
+        # cancelled while we're tearing down) becomes a clean, catchable
+        # RuntimeError instead of a bare CancelledError — a BaseException the
+        # parse call sites don't catch and an ASGI server conflates with request
+        # cancellation. Genuine task cancellation (future still running, or not
+        # shutting down) propagates untouched.
+        if _shutting_down and future.cancelled():
+            raise RuntimeError(
+                "Parse executor is shutting down; parse aborted."
+            ) from None
+        raise

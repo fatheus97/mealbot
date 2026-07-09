@@ -16,6 +16,14 @@ services:
     volumes: !override []
     ports: !override []
     restart: unless-stopped
+    # On SIGTERM the lifespan drains the parse pool: it waits for RUNNING parses
+    # (≤ PARSE_EXECUTOR_WORKERS, uninterruptible native pypdf/fastembed calls) to
+    # finish before exit. Give that more room than a single parse timeout
+    # (PDF_PARSE_TIMEOUT_S=20s) so a parse in flight at deploy time isn't
+    # SIGKILLed mid-work — Docker's default grace is only 10s. Queued (unstarted)
+    # parses are cancelled, not drained, so this bounds on worker count, not queue
+    # depth.
+    stop_grace_period: 30s
 
   frontend:
     ports: !override []
