@@ -104,6 +104,33 @@ class TestParseExecutor:
         start_parse_executor()
         assert await run_in_parse_executor(lambda: 1) == 1
 
+    async def test_inflight_task_drains_on_concurrent_shutdown(self, fresh_pool):
+        """A parse submitted before shutdown finishes cleanly even though
+        shutdown runs concurrently on another thread (as the lifespan does).
+        The lock makes the submit atomic vs. the state swap, and
+        shutdown(wait=True) drains the in-flight task — no raw stdlib
+        'cannot schedule new futures' escaping a parse call site."""
+        start_parse_executor()
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow() -> str:
+            started.set()
+            release.wait(timeout=2)
+            return "done"
+
+        task = asyncio.create_task(run_in_parse_executor(slow))
+        # Ensure the parse is actually running on a pool thread before shutdown.
+        assert await asyncio.to_thread(started.wait, 2) is True
+        # Shutdown concurrently on a thread; shutdown(wait=True) blocks on `slow`.
+        shutdown_task = asyncio.create_task(
+            asyncio.to_thread(shutdown_parse_executor)
+        )
+        release.set()
+        assert await task == "done"
+        await shutdown_task
+        assert executors._parse_executor is None
+
     async def test_start_is_idempotent(self, fresh_pool):
         start_parse_executor()
         first = executors._parse_executor

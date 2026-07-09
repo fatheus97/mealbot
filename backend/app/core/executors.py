@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
@@ -47,12 +48,25 @@ _parse_executor: ThreadPoolExecutor | None = None
 # start_parse_executor() clears it, so an explicit (re)start re-enables dispatch.
 _shutting_down: bool = False
 
+# Guards the (_parse_executor, _shutting_down) state transition against the
+# shutdown/dispatch race. The lifespan offloads shutdown to a *separate thread*
+# (so the blocking join can't stall the loop), which means shutdown_parse_executor
+# and run_in_parse_executor can now run truly concurrently. Without this lock a
+# request racing the drain window could read a non-None pool, skip the latch, and
+# submit to an already-.shutdown() pool → a raw stdlib "cannot schedule new
+# futures after shutdown" bubbling out of a parse call site. The lock is held
+# only for the microsecond state-check + submit (never across the await or the
+# blocking join), so it never serializes actual parse work.
+_lock = threading.Lock()
+
 
 def start_parse_executor() -> None:
     """Create the bounded parse pool. Idempotent — safe to call once at startup.
 
-    Runs synchronously inside a single event-loop tick (no await), so concurrent
-    coroutines can't race to double-create it. Clears the shutdown latch.
+    Clears the shutdown latch. Lock-free by design: it's called either at
+    lifespan startup (before any request is served, so no concurrency) or from
+    inside run_in_parse_executor's locked section (taking _lock here would
+    self-deadlock — threading.Lock is non-reentrant).
     """
     global _parse_executor, _shutting_down
     _shutting_down = False
@@ -73,13 +87,18 @@ def shutdown_parse_executor() -> None:
     Idempotent.
 
     Blocking (joins parse threads via shutdown(wait=True)); the lifespan offloads
-    this to a thread so it can't stall the event loop / graceful drain.
+    this to a thread so it can't stall the event loop / graceful drain. Under the
+    lock we latch + detach the pool reference *before* the join, so a concurrent
+    dispatch either (a) submitted its future first — then wait=True drains it — or
+    (b) sees _parse_executor is None and raises the clean latch error. It can
+    never submit to a pool mid-.shutdown().
     """
     global _parse_executor, _shutting_down
-    _shutting_down = True
-    if _parse_executor is not None:
-        _parse_executor.shutdown(wait=True, cancel_futures=True)
-        _parse_executor = None
+    with _lock:
+        _shutting_down = True
+        executor, _parse_executor = _parse_executor, None
+    if executor is not None:
+        executor.shutdown(wait=True, cancel_futures=True)
         logger.info("Parse executor shut down")
 
 
@@ -92,12 +111,16 @@ async def run_in_parse_executor[T](func: Callable[..., T], *args: object) -> T:
     but after an explicit shutdown it raises rather than resurrecting an
     un-owned pool that would leak threads on process exit.
     """
-    if _parse_executor is None:
-        if _shutting_down:
-            raise RuntimeError(
-                "Parse executor has been shut down; refusing to resurrect it."
-            )
-        start_parse_executor()
-    assert _parse_executor is not None  # start_parse_executor guarantees it
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_parse_executor, func, *args)
+    # Submit under the lock so the pool can't be shut down between the latch
+    # check and the submit; await the returned future *outside* the lock.
+    with _lock:
+        if _parse_executor is None:
+            if _shutting_down:
+                raise RuntimeError(
+                    "Parse executor has been shut down; refusing to resurrect it."
+                )
+            start_parse_executor()
+        assert _parse_executor is not None  # start_parse_executor guarantees it
+        future = loop.run_in_executor(_parse_executor, func, *args)
+    return await future
