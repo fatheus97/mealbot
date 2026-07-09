@@ -117,7 +117,12 @@ async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English", mo
         ) from exc
 
     template = _prompts_env.get_template("receipt_scan_text.jinja")
-    user_prompt = template.render(receipt_text=receipt_text, language=language)
+    # Neutralize the fence delimiter before rendering: unlike the name fields
+    # (bounded + validator-stripped), receipt_text is raw, unbounded, unsanitized
+    # PDF text, so a literal </user_content> in it could forge a break-out of the
+    # prompt fence. No angle bracket matters for grocery extraction.
+    safe_text = receipt_text.replace("<", "").replace(">", "")
+    user_prompt = template.render(receipt_text=safe_text, language=language)
 
     return await llm_client.chat_json(
         system_prompt=PDF_SYSTEM_PROMPT,
