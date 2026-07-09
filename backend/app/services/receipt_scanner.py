@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 MAX_PDF_PAGES = 10
 MIN_EXTRACTABLE_CHARS = 50
+# Bounds pypdf parsing of a pathological / decompression-bomb PDF. wait_for
+# can't cancel the worker thread (it keeps running), but it stops the request
+# from blocking indefinitely and returns a clean error instead of hanging.
+PDF_PARSE_TIMEOUT_S = 20
 
 _prompts_env = SandboxedEnvironment(
     loader=FileSystemLoader(str(Path(__file__).resolve().parents[2] / "prompts")),
@@ -100,10 +104,25 @@ PDF_SYSTEM_PROMPT = (
 
 async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English", mock: bool = False) -> ReceiptScanResponse:
     """Extract grocery items from a PDF receipt using text extraction + LLM."""
-    receipt_text = await asyncio.to_thread(_extract_pdf_text, pdf_bytes)
+    try:
+        receipt_text = await asyncio.wait_for(
+            asyncio.to_thread(_extract_pdf_text, pdf_bytes),
+            timeout=PDF_PARSE_TIMEOUT_S,
+        )
+    except TimeoutError as exc:
+        logger.warning("PDF text extraction exceeded %ss", PDF_PARSE_TIMEOUT_S)
+        raise HTTPException(
+            status_code=504,
+            detail="Receipt PDF took too long to process. Try a smaller/simpler file.",
+        ) from exc
 
     template = _prompts_env.get_template("receipt_scan_text.jinja")
-    user_prompt = template.render(receipt_text=receipt_text, language=language)
+    # Neutralize the fence delimiter before rendering: unlike the name fields
+    # (bounded + validator-stripped), receipt_text is raw, unbounded, unsanitized
+    # PDF text, so a literal </user_content> in it could forge a break-out of the
+    # prompt fence. No angle bracket matters for grocery extraction.
+    safe_text = receipt_text.replace("<", "").replace(">", "")
+    user_prompt = template.render(receipt_text=safe_text, language=language)
 
     return await llm_client.chat_json(
         system_prompt=PDF_SYSTEM_PROMPT,
