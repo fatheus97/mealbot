@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import re
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
+
+if TYPE_CHECKING:
+    from app.models.db_models import MealEntry
 
 
 def _strip_prompt_fence_tags(v: object) -> object:
@@ -517,6 +522,22 @@ class MealEntrySummary(BaseModel):
     meal_type: str
     cooked_at: datetime | None
     is_favorite: bool = False
+
+    @classmethod
+    def from_entry(cls, entry: MealEntry) -> MealEntrySummary:
+        """Build a summary from a persisted MealEntry. Centralizes the field
+        mapping and the entry.id not-None narrowing (the DB PK is int | None
+        while this schema requires int) that were hand-written at 7 call sites."""
+        assert entry.id is not None, "MealEntry must be flushed (id populated) before summarizing"
+        return cls(
+            id=entry.id,
+            day_index=entry.day_index,
+            meal_index=entry.meal_index,
+            name=entry.name,
+            meal_type=entry.meal_type,
+            cooked_at=entry.cooked_at,
+            is_favorite=entry.is_favorite,
+        )
 
 
 class FavoriteRecipeRequest(BaseModel):

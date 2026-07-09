@@ -39,6 +39,7 @@ from app.models.plan_models import (
 )
 from app.services.fridge_service import (
     allocate_fifo,
+    flatten_fridge_batches,
     get_fridge_items,
     group_and_sort_fridge,
     replace_fridge_items,
@@ -292,12 +293,7 @@ async def cook_recipe(
     ]
     allocations: list[ConsumedBatch] = allocate_fifo(batches_by_name, meal_ings)
 
-    final_state: list[StockItemDTO] = [
-        item
-        for batches in batches_by_name.values()
-        for item in batches
-        if item.quantity_grams > 0
-    ]
+    final_state = flatten_fridge_batches(batches_by_name)
     await replace_fridge_items(session, current_user.id, final_state, commit=False)
 
     # Persist MealEntry with cooked_at set immediately — Cook Now skips the
@@ -323,15 +319,7 @@ async def cook_recipe(
     entry = entries[0]
     if entry.id is None:
         raise HTTPException(status_code=500, detail="Cook Now persistence failed")
-    response = MealEntrySummary(
-        id=entry.id,
-        day_index=entry.day_index,
-        meal_index=entry.meal_index,
-        name=entry.name,
-        meal_type=entry.meal_type,
-        cooked_at=entry.cooked_at,
-        is_favorite=entry.is_favorite,
-    )
+    response = MealEntrySummary.from_entry(entry)
 
     await session.commit()
     return response
@@ -441,14 +429,6 @@ async def favorite_recipe(
     if entry.id is None:
         raise HTTPException(status_code=500, detail="Cookbook persistence failed")
 
-    response = MealEntrySummary(
-        id=entry.id,
-        day_index=entry.day_index,
-        meal_index=entry.meal_index,
-        name=entry.name,
-        meal_type=entry.meal_type,
-        cooked_at=entry.cooked_at,
-        is_favorite=entry.is_favorite,
-    )
+    response = MealEntrySummary.from_entry(entry)
     await session.commit()
     return response

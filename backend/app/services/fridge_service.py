@@ -5,6 +5,7 @@ fridge business logic without reaching into a sibling router module.
 The HTTP handlers in `app.api.fridge` are thin wrappers over these
 functions; tests import the pure helpers directly.
 """
+from collections.abc import Iterable
 from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,12 +16,63 @@ from app.models.plan_models import ConsumedBatch, IngredientAmount, StockItemDTO
 
 __all__ = [
     "allocate_fifo",
+    "flatten_fridge_batches",
     "get_fridge_items",
     "group_and_sort_fridge",
+    "merge_into_fridge_buckets",
     "replace_fridge_items",
     "restore_consumed_batches",
     "subtract_ingredients_from_fridge",
 ]
+
+
+def merge_into_fridge_buckets(
+    existing: list[StockItemDTO],
+    incoming: Iterable[StockItemDTO | ConsumedBatch],
+) -> list[StockItemDTO]:
+    """Merge ``incoming`` into ``existing`` fridge buckets keyed by
+    (name.strip().lower(), expiration_date).
+
+    On a key match, quantities sum and need_to_use ORs; otherwise the incoming
+    item starts a fresh bucket. The single source of truth for the merge key,
+    shared by POST /fridge/merge (StockItemDTO input) and consumed-batch restore
+    (ConsumedBatch input) so the two paths can never key the fridge differently.
+    Returns a fresh list; callers persist via replace_fridge_items.
+    """
+    merged: dict[tuple[str, date | None], StockItemDTO] = {
+        (i.name.strip().lower(), i.expiration_date): i for i in existing
+    }
+    for item in incoming:
+        key = (item.name.strip().lower(), item.expiration_date)
+        if key in merged:
+            merged[key] = StockItemDTO(
+                name=merged[key].name,
+                quantity_grams=merged[key].quantity_grams + item.quantity_grams,
+                need_to_use=merged[key].need_to_use or item.need_to_use,
+                expiration_date=merged[key].expiration_date,
+            )
+        else:
+            merged[key] = StockItemDTO(
+                name=item.name,
+                quantity_grams=item.quantity_grams,
+                need_to_use=item.need_to_use,
+                expiration_date=item.expiration_date,
+            )
+    return list(merged.values())
+
+
+def flatten_fridge_batches(
+    batches_by_name: dict[str, list[StockItemDTO]],
+) -> list[StockItemDTO]:
+    """Flatten grouped FIFO batches back to a flat fridge list, dropping any
+    fully-consumed (quantity_grams <= 0) batch. The shared final-state builder
+    for the confirm / reopen / cook FIFO-debit paths."""
+    return [
+        item
+        for batches in batches_by_name.values()
+        for item in batches
+        if item.quantity_grams > 0
+    ]
 
 
 async def get_fridge_items(session: AsyncSession, user_id: int) -> list[StockItemDTO]:
@@ -79,26 +131,8 @@ async def restore_consumed_batches(
     expiration_date and need_to_use. Merges into an existing fridge bucket keyed
     by (name.lower(), expiration_date); creates a fresh bucket otherwise."""
     existing = await get_fridge_items(session, user_id)
-    merged: dict[tuple[str, date | None], StockItemDTO] = {
-        (i.name.strip().lower(), i.expiration_date): i for i in existing
-    }
-    for b in batches:
-        key = (b.name.strip().lower(), b.expiration_date)
-        if key in merged:
-            merged[key] = StockItemDTO(
-                name=merged[key].name,
-                quantity_grams=merged[key].quantity_grams + b.quantity_grams,
-                need_to_use=merged[key].need_to_use or b.need_to_use,
-                expiration_date=merged[key].expiration_date,
-            )
-        else:
-            merged[key] = StockItemDTO(
-                name=b.name,
-                quantity_grams=b.quantity_grams,
-                need_to_use=b.need_to_use,
-                expiration_date=b.expiration_date,
-            )
-    return await replace_fridge_items(session, user_id, list(merged.values()), commit=False)
+    merged = merge_into_fridge_buckets(existing, batches)
+    return await replace_fridge_items(session, user_id, merged, commit=False)
 
 
 def allocate_fifo(

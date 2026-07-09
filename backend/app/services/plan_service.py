@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -72,6 +73,42 @@ def parse_meal_ingredients(entry: MealEntry) -> list[IngredientAmount]:
     """Parse a MealEntry's JSON back into ingredient list (excluding spices)."""
     meal = PlannedMeal.model_validate_json(entry.meal_json)
     return [ing for ing in meal.ingredients if not ing.is_spice]
+
+
+def batches_from_entry(entry: MealEntry) -> list[ConsumedBatch]:
+    """Decode a meal entry's confirm-time consumption into ConsumedBatch list.
+
+    The single source of truth for the dual-path decode shared by unconfirm /
+    finish / reopen (previously copy-pasted three times):
+
+      * Snapshot-bearing entry → decode consumed_snapshot_json (exact name +
+        expiration_date + need_to_use).
+      * NULL / corrupt snapshot → lossy legacy fallback: ConsumedBatch(name,
+        grams) per recipe ingredient (None expiration, need_to_use False).
+
+    Corruption is logged and degrades that one entry to the fallback (or, if
+    meal_json is also corrupt, to []) rather than 500ing the whole restore.
+    """
+    if entry.consumed_snapshot_json:
+        try:
+            raw = json.loads(entry.consumed_snapshot_json)
+            return [ConsumedBatch.model_validate(b) for b in raw]
+        except (json.JSONDecodeError, ValidationError):
+            logger.exception(
+                "Corrupt consumed_snapshot_json on meal entry %s — falling back to lossy restore",
+                entry.id,
+            )
+    try:
+        return [
+            ConsumedBatch(name=ing.name, quantity_grams=ing.quantity_grams)
+            for ing in parse_meal_ingredients(entry)
+        ]
+    except ValidationError:
+        logger.exception(
+            "Corrupt meal_json on meal entry %s — skipping its restore",
+            entry.id,
+        )
+        return []
 
 
 def persist_meal_entries(
