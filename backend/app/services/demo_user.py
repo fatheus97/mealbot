@@ -4,6 +4,7 @@ Each /api/demo/session call creates a fresh isolated User so demo visitors
 can cook, rate, and finish plans without colliding with each other. Expired
 users (and their data) are swept lazily on the next session creation.
 """
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
@@ -33,11 +34,14 @@ _FRIDGE_SEED: list[tuple[str, float, int | None, bool]] = [
 async def create_ephemeral_demo_user(session: AsyncSession) -> User:
     """Create a fresh demo user with seeded fridge. Caller must commit."""
     suffix = uuid4().hex[:8]
+    # Offload bcrypt off the event loop — /api/demo/session is the hottest
+    # unauthenticated path on the demo deployment.
+    hashed_password = await asyncio.to_thread(get_password_hash, uuid4().hex)
     user = User(
         email=f"demo+{suffix}@trymealbot.com",
         # Random password — the demo user is only ever reachable via JWT issued
         # by /api/demo/session, never via /api/users/login.
-        hashed_password=get_password_hash(uuid4().hex),
+        hashed_password=hashed_password,
         is_demo=True,
         onboarding_completed=True,
         country="US",

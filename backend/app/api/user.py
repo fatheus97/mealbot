@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -79,7 +80,8 @@ async def register_user(
     # Rely on the unique index on User.email instead of a pre-SELECT. The
     # check-then-insert pattern has a race window under concurrent registration:
     # two requests can both pass the SELECT and then race to commit.
-    hashed_pw = get_password_hash(user.password)
+    # Offload bcrypt hashing (~50-100ms CPU) so it doesn't block the event loop.
+    hashed_pw = await asyncio.to_thread(get_password_hash, user.password)
     db_user = User(email=user.email, hashed_password=hashed_pw)
     session.add(db_user)
     try:

@@ -35,6 +35,14 @@ def get_password_hash(password: str) -> str:
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
 
+
+# A valid bcrypt hash of a throwaway value, computed once at import. login()
+# verifies against this when the email doesn't exist so the response still
+# performs one bcrypt round — equalizing timing so an attacker can't enumerate
+# registered emails from how fast a 401 comes back. No account ever holds it.
+DUMMY_PASSWORD_HASH = get_password_hash("mealbot-login-timing-equalizer")
+
+
 def create_access_token(
     subject: int | str,
     sid: int,
