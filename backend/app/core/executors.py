@@ -41,14 +41,21 @@ logger = logging.getLogger(__name__)
 # lazily on first use (tests exercise parsing without running the app lifespan).
 _parse_executor: ThreadPoolExecutor | None = None
 
+# Latch flipped by shutdown_parse_executor(). Once the app lifespan has torn the
+# pool down, a late request racing the shutdown window must NOT lazily resurrect
+# a fresh pool — nothing would ever join it, leaking non-daemon worker threads.
+# start_parse_executor() clears it, so an explicit (re)start re-enables dispatch.
+_shutting_down: bool = False
+
 
 def start_parse_executor() -> None:
     """Create the bounded parse pool. Idempotent — safe to call once at startup.
 
     Runs synchronously inside a single event-loop tick (no await), so concurrent
-    coroutines can't race to double-create it.
+    coroutines can't race to double-create it. Clears the shutdown latch.
     """
-    global _parse_executor
+    global _parse_executor, _shutting_down
+    _shutting_down = False
     if _parse_executor is None:
         _parse_executor = ThreadPoolExecutor(
             max_workers=settings.parse_executor_workers,
@@ -62,8 +69,14 @@ def start_parse_executor() -> None:
 
 def shutdown_parse_executor() -> None:
     """Tear the pool down at app shutdown: drain in-flight work, drop what's
-    queued. Idempotent."""
-    global _parse_executor
+    queued, and latch 'shut down' so run_in_parse_executor won't resurrect it.
+    Idempotent.
+
+    Blocking (joins parse threads via shutdown(wait=True)); the lifespan offloads
+    this to a thread so it can't stall the event loop / graceful drain.
+    """
+    global _parse_executor, _shutting_down
+    _shutting_down = True
     if _parse_executor is not None:
         _parse_executor.shutdown(wait=True, cancel_futures=True)
         _parse_executor = None
@@ -75,9 +88,15 @@ async def run_in_parse_executor[T](func: Callable[..., T], *args: object) -> T:
 
     Drop-in for ``asyncio.to_thread(func, *args)`` that targets the isolated
     parse executor instead of the loop's shared default executor. Lazily starts
-    the pool if the app lifespan hasn't (keeps direct-call unit tests working).
+    the pool if the app lifespan hasn't (keeps direct-call unit tests working) —
+    but after an explicit shutdown it raises rather than resurrecting an
+    un-owned pool that would leak threads on process exit.
     """
     if _parse_executor is None:
+        if _shutting_down:
+            raise RuntimeError(
+                "Parse executor has been shut down; refusing to resurrect it."
+            )
         start_parse_executor()
     assert _parse_executor is not None  # start_parse_executor guarantees it
     loop = asyncio.get_running_loop()

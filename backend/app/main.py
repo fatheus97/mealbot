@@ -53,8 +53,10 @@ async def lifespan(fastAPI: FastAPI):
     # default executor used by bcrypt auth offload. See app.core.executors.
     start_parse_executor()
     yield
-    # shutdown
-    shutdown_parse_executor()
+    # Offload the blocking pool teardown (joins parse threads, shutdown(wait=True))
+    # to a thread so it can't stall the event loop — and thus the graceful drain
+    # of other in-flight requests — while an already-running parse finishes.
+    await asyncio.to_thread(shutdown_parse_executor)
 
 app = FastAPI(title="Meal Planner LLM API", lifespan=lifespan)
 app.state.limiter = limiter

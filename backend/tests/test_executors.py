@@ -27,12 +27,18 @@ def _add(a: int, b: int) -> int:
 
 @pytest.fixture
 def fresh_pool():
-    """Each test starts from a torn-down pool and tears it down after, so
-    worker-count monkeypatching actually takes effect and no threads leak
-    between tests. The next lazy caller (endpoint embed tests) recreates it."""
+    """Each test starts from a pristine 'never started' pool and resets to it
+    after, so worker-count monkeypatching takes effect and no threads leak
+    between tests.
+
+    Crucially, clear the _shutting_down latch on both ends: shutdown sets it, and
+    leaving it set would make the next lazy caller (endpoint embed tests, which
+    never run the app lifespan) raise instead of transparently starting."""
     shutdown_parse_executor()
+    executors._shutting_down = False
     yield
     shutdown_parse_executor()
+    executors._shutting_down = False
 
 
 class TestParseExecutor:
@@ -84,6 +90,19 @@ class TestParseExecutor:
             *(run_in_parse_executor(work) for _ in range(6))
         )
         assert state["peak"] == 2
+
+    async def test_refuses_to_resurrect_after_shutdown(self, fresh_pool):
+        """A request racing the shutdown window must not silently spin up a new,
+        un-owned pool (leaked threads). After an explicit shutdown, dispatch
+        raises; only an explicit restart re-enables it."""
+        start_parse_executor()
+        shutdown_parse_executor()
+        assert executors._parse_executor is None
+        with pytest.raises(RuntimeError, match="shut down"):
+            await run_in_parse_executor(lambda: 1)
+        # An explicit (re)start clears the latch and re-enables dispatch.
+        start_parse_executor()
+        assert await run_in_parse_executor(lambda: 1) == 1
 
     async def test_start_is_idempotent(self, fresh_pool):
         start_parse_executor()
