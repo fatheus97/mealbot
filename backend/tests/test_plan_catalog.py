@@ -188,6 +188,28 @@ class TestListPlans:
         assert plan["status"] == "planned"
         assert plan["finished_at"] is None
 
+    async def test_list_plans_limit_offset_paginate(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        for _ in range(3):
+            await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
+
+        # No params → all (backward-compatible; the frontend passes nothing).
+        all_plans = (await client.get("/api/plan", headers=auth_headers)).json()
+        assert len(all_plans) == 3
+
+        first_page = (await client.get("/api/plan?limit=2", headers=auth_headers)).json()
+        assert len(first_page) == 2
+        second_page = (
+            await client.get("/api/plan?limit=2&offset=2", headers=auth_headers)
+        ).json()
+        assert len(second_page) == 1
+
+        # limit+offset partition the set cleanly — no overlap, covers all.
+        paged_ids = {p["id"] for p in first_page} | {p["id"] for p in second_page}
+        assert paged_ids == {p["id"] for p in all_plans}
+        assert len(paged_ids) == 3
+
 
 class TestPlanStatus:
     async def test_plan_status_planned_after_confirm(

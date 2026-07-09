@@ -4,4 +4,7 @@ pytest-asyncio>=1.3.0,<2.0
 httpx>=0.28.1,<1.0
 pytest-cov>=7.1.0,<8.0
 mypy>=1.20.2,<2.0
-ruff>=0.6,<1.0
+# Narrow to one minor: ruff adds/renames rules and changes defaults across
+# minors, so a wide range makes lint results differ between CI and local /
+# across machines. Bump deliberately (matches the mypy/pytest pinning).
+ruff>=0.15,<0.16

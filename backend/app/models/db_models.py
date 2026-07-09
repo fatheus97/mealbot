@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
-from sqlalchemy import Boolean, Index
+from sqlalchemy import Boolean, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, Relationship, SQLModel, String
 
@@ -130,6 +130,20 @@ class MealPlan(SQLModel, table=True):
 
     user: User = Relationship(back_populates="meal_plans")
     meal_entries: list[MealEntry] = Relationship(back_populates="meal_plan")
+
+    __table_args__ = (
+        # Partial composite index matching the plan-catalog query (list_plans):
+        # WHERE user_id = ? AND confirmed_at IS NOT NULL AND kind = 'planned'
+        # ORDER BY created_at DESC. Only user_id was indexed before, forcing a
+        # scan+sort of all the user's plans per catalog load. Postgres scans this
+        # index backward for the DESC order.
+        Index(
+            "ix_mealplan_catalog",
+            "user_id",
+            "created_at",
+            postgresql_where=text("confirmed_at IS NOT NULL AND kind = 'planned'"),
+        ),
+    )
 
 class MealEntry(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)

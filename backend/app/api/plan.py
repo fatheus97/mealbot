@@ -66,10 +66,19 @@ Variability = Literal["traditional", "experimental"]
 @router.get("", response_model=list[MealPlanSummary])
 async def list_plans(
     request: Request,
+    limit: int | None = Query(
+        default=None, ge=1, le=200,
+        description="Max plans to return (newest first). Omit to return all.",
+    ),
+    offset: int = Query(default=0, ge=0, description="Plans to skip (pagination)."),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[MealPlanSummary]:
-    """List all plans for the current user with cooking status (single query)."""
+    """List the current user's confirmed plans with cooking status (single query).
+
+    Newest first. limit/offset are optional and default to returning everything
+    (backward-compatible); pass them to page as plan history grows.
+    """
     total_count = func.count(MealEntry.id).label("total_meals")  # type: ignore[arg-type]
     cooked_count = func.count(MealEntry.cooked_at).label("cooked_meals")  # type: ignore[arg-type]
 
@@ -91,6 +100,10 @@ async def list_plans(
         .group_by(MealPlan.id)  # type: ignore[arg-type]
         .order_by(MealPlan.created_at.desc())  # type: ignore[attr-defined]
     )
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
 
