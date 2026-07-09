@@ -10,6 +10,7 @@ from sqlalchemy import func, literal_column
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.executors import run_in_parse_executor
 from app.models.db_models import MealEntry
 from app.models.plan_models import PlannedMeal
 
@@ -68,7 +69,7 @@ async def retrieve_rated_meals(
     try:
         query_emb = (
             await asyncio.wait_for(
-                asyncio.to_thread(lambda: list(model.embed([query]))),
+                run_in_parse_executor(lambda: list(model.embed([query]))),
                 timeout=EMBEDDING_TIMEOUT_S,
             )
         )[0].tolist()
@@ -202,7 +203,7 @@ async def embed_meal_entry(entry: MealEntry) -> None:
     # and log it), but bound the embed so it can't hang the request indefinitely.
     emb = (
         await asyncio.wait_for(
-            asyncio.to_thread(lambda: list(model.embed([text_for_embedding]))),
+            run_in_parse_executor(lambda: list(model.embed([text_for_embedding]))),
             timeout=EMBEDDING_TIMEOUT_S,
         )
     )[0].tolist()

@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     csrf_enabled: bool = True
 
     db_echo: bool = False
+
+    # Max concurrent untrusted-input parse ops (PDF extraction + embedding) on
+    # the dedicated pool in app.core.executors. Bounded so a burst of malicious
+    # uploads can't starve the default thread pool that offloads bcrypt logins.
+    # Small on purpose: parsing is CPU-bound, so oversubscribing cores past a
+    # low cap only adds contention. Tune per box (CX23 = 2 vCPU).
+    parse_executor_workers: int = Field(default=2, ge=1, le=32)
 
     secret_key: str
     database_url: str

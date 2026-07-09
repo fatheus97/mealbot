@@ -19,6 +19,7 @@ from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.country_whitelist import SUPPORTED_COUNTRIES
 from app.core.csrf import csrf_middleware
+from app.core.executors import shutdown_parse_executor, start_parse_executor
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
 from app.core.rate_limit import limiter
 from app.core.security_headers import security_headers_middleware
@@ -48,8 +49,12 @@ async def lifespan(fastAPI: FastAPI):
     logger.info("Initializing embedding model")
     await asyncio.to_thread(get_embedding_model)
     logger.info("Embedding model ready")
+    # Bounded pool that isolates untrusted-input parsing (PDF/embedding) from the
+    # default executor used by bcrypt auth offload. See app.core.executors.
+    start_parse_executor()
     yield
     # shutdown
+    shutdown_parse_executor()
 
 app = FastAPI(title="Meal Planner LLM API", lifespan=lifespan)
 app.state.limiter = limiter
