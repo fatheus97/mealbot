@@ -82,8 +82,8 @@ def start_parse_executor() -> None:
 
 
 def shutdown_parse_executor() -> None:
-    """Tear the pool down at app shutdown: drain in-flight work, drop what's
-    queued, and latch 'shut down' so run_in_parse_executor won't resurrect it.
+    """Tear the pool down at app shutdown: drain ALL submitted work (running and
+    queued), and latch 'shut down' so run_in_parse_executor won't resurrect it.
     Idempotent.
 
     Blocking (joins parse threads via shutdown(wait=True)); the lifespan offloads
@@ -92,13 +92,22 @@ def shutdown_parse_executor() -> None:
     dispatch either (a) submitted its future first — then wait=True drains it — or
     (b) sees _parse_executor is None and raises the clean latch error. It can
     never submit to a pool mid-.shutdown().
+
+    Deliberately NOT cancel_futures=True: a request that legitimately submitted a
+    parse (under the lock) right before shutdown could still be sitting in the
+    work queue unstarted if both worker slots are busy. Cancelling it would raise
+    asyncio.CancelledError out of the awaiting request coroutine — a BaseException
+    the call sites' except TimeoutError/PdfReadError don't catch and an ASGI
+    server can conflate with the request's own cancellation. The queue is bounded
+    (at SIGTERM no new work is accepted; backlog ≤ worker count), so draining it
+    is cheap and clean, and makes 'drain' above literally true.
     """
     global _parse_executor, _shutting_down
     with _lock:
         _shutting_down = True
         executor, _parse_executor = _parse_executor, None
     if executor is not None:
-        executor.shutdown(wait=True, cancel_futures=True)
+        executor.shutdown(wait=True)
         logger.info("Parse executor shut down")
 
 

@@ -131,6 +131,47 @@ class TestParseExecutor:
         await shutdown_task
         assert executors._parse_executor is None
 
+    async def test_queued_task_drains_on_concurrent_shutdown(
+        self, fresh_pool, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The narrower case: a task submitted (legitimately, under the lock)
+        while both workers are busy sits QUEUED, unstarted. A concurrent shutdown
+        must drain it, not cancel it — cancel_futures=True would raise
+        CancelledError out of the request coroutine. Fails if cancel_futures is
+        reintroduced."""
+        monkeypatch.setattr(settings, "parse_executor_workers", 2)
+        start_parse_executor()
+
+        started = threading.Semaphore(0)
+        release = threading.Event()
+
+        def blocker() -> str:
+            started.release()
+            release.wait(timeout=2)
+            return "blocker"
+
+        # Saturate both worker slots and wait until both are actually running.
+        b1 = asyncio.create_task(run_in_parse_executor(blocker))
+        b2 = asyncio.create_task(run_in_parse_executor(blocker))
+        await asyncio.to_thread(started.acquire)
+        await asyncio.to_thread(started.acquire)
+
+        # Submit a 3rd task — no free worker, so it queues unstarted.
+        queued = asyncio.create_task(run_in_parse_executor(lambda: "queued"))
+        await asyncio.sleep(0.05)  # let its coroutine reach the submit
+
+        # Shut down concurrently while the 3rd item is queued, then free workers.
+        shutdown_task = asyncio.create_task(
+            asyncio.to_thread(shutdown_parse_executor)
+        )
+        release.set()
+
+        # All three complete cleanly — the queued one is drained, not cancelled.
+        assert await b1 == "blocker"
+        assert await b2 == "blocker"
+        assert await queued == "queued"
+        await shutdown_task
+
     async def test_start_is_idempotent(self, fresh_pool):
         start_parse_executor()
         first = executors._parse_executor
