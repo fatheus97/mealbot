@@ -366,6 +366,24 @@ class TestScannedReceiptItemValidation:
         with pytest.raises(ValueError):
             ScannedReceiptItem(name="chicken", quantity_grams=500, item_type="ingredient", shelf_life_days=731)
 
+    def test_long_name_rejected(self):
+        # Capped at the LLM-schema source so the downstream ScannedItemDTO can't
+        # 500 the scan on a crafted-receipt long name.
+        with pytest.raises(ValueError):
+            ScannedReceiptItem(name="x" * 101, quantity_grams=500, item_type="ingredient", shelf_life_days=3)
+
+
+class TestNormalizedNameValidation:
+    def test_long_normalized_rejected(self):
+        # Bounded so a hallucinated normalized name can't crash the
+        # ScannedReceiptItem reconstruction in normalize_item_names.
+        with pytest.raises(ValueError):
+            NormalizedName(original="milk", normalized="y" * 101)
+
+    def test_empty_normalized_rejected(self):
+        with pytest.raises(ValueError):
+            NormalizedName(original="milk", normalized="")
+
 
 class TestNameNormalization:
     """Tests for the normalize_item_names service function."""

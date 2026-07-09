@@ -2,6 +2,8 @@ from datetime import date, timedelta
 
 from httpx import AsyncClient
 
+from app.api.fridge import MAX_FRIDGE_ITEMS
+
 
 class TestFridgeCRUD:
     async def test_get_empty_fridge(self, client: AsyncClient, auth_headers: dict):
@@ -72,10 +74,16 @@ class TestFridgeInputBounds:
         resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
         assert resp.status_code == 422
 
-    async def test_put_rejects_over_cap_quantity(
+    # NaN/inf rejection is asserted at the model level in
+    # test_plan_models.TestStockItemDTOBounds — a real client can't transmit NaN
+    # in standard JSON (JSON.stringify(NaN) → "null"), so there's no meaningful
+    # HTTP path to exercise, and FastAPI's error serializer chokes on the nan
+    # echo anyway. Negative quantity (which IS expressible) is covered above.
+
+    async def test_put_rejects_too_many_items(
         self, client: AsyncClient, auth_headers: dict
     ):
-        payload = [{"name": "rice", "quantity_grams": 1_000_001}]
+        payload = [{"name": f"item{i}", "quantity_grams": 1} for i in range(MAX_FRIDGE_ITEMS + 1)]
         resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
         assert resp.status_code == 422
 
@@ -86,6 +94,23 @@ class TestFridgeInputBounds:
         payload = [{"name": "y" * 101, "quantity_grams": 100, "need_to_use": False}]
         resp = await client.post("/api/fridge/merge", headers=auth_headers, json=payload)
         assert resp.status_code == 422
+
+    async def test_merge_summed_quantity_over_1m_does_not_500(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # Two individually-valid quantities summing over 1,000,000 must merge
+        # (200), not 500 — the internal reconstruction has no upper cap.
+        await client.put(
+            "/api/fridge", headers=auth_headers,
+            json=[{"name": "rice", "quantity_grams": 900_000}],
+        )
+        resp = await client.post(
+            "/api/fridge/merge", headers=auth_headers,
+            json=[{"name": "rice", "quantity_grams": 900_000}],
+        )
+        assert resp.status_code == 200
+        by_name = {x["name"]: x for x in resp.json()}
+        assert by_name["rice"]["quantity_grams"] == 1_800_000
 
     async def test_put_get_preserves_expiration_date(
         self, client: AsyncClient, auth_headers: dict

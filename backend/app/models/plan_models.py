@@ -10,10 +10,13 @@ from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
 class StockItemDTO(BaseModel):
     # Client-controlled on PUT /fridge and POST /fridge/merge, and each name is
     # templated into the LLM system prompt — so bound it like the other hostile-
-    # input string paths (IngredientAmount/PlannedMeal). ge/le also reject
-    # NaN/inf, which would otherwise slip past the `qty <= 0` persist filter.
+    # input string paths (IngredientAmount/PlannedMeal). `ge=0` + allow_inf_nan
+    # reject negative / NaN / inf (NaN would otherwise slip past the `qty <= 0`
+    # persist filter). Deliberately NO upper cap: this DTO is also reconstructed
+    # internally from summed quantities (merge, restore) which can legitimately
+    # exceed any single-value cap — a cap there would 500 an ordinary merge.
     name: str = Field(..., min_length=1, max_length=100)
-    quantity_grams: float = Field(..., ge=0, le=1_000_000)
+    quantity_grams: float = Field(..., ge=0, allow_inf_nan=False)
     need_to_use: bool = Field(default=False)
     expiration_date: date | None = None
 
@@ -302,7 +305,7 @@ class ScannedItemDTO(BaseModel):
     """Item returned to the frontend after receipt scan, before merge."""
     # Same hostile-input bounds as StockItemDTO (this rides the same fridge path).
     name: str = Field(..., min_length=1, max_length=100)
-    quantity_grams: float = Field(..., ge=0, le=1_000_000)
+    quantity_grams: float = Field(..., ge=0, allow_inf_nan=False)
     need_to_use: bool = False
     item_type: Literal["ingredient", "ready_to_eat"]
     expiration_date: date | None = None
@@ -324,7 +327,11 @@ class ScannedItemsResponse(BaseModel):
 class NormalizedName(BaseModel):
     """Maps a scanned item name to its canonical normalized form."""
     original: str
-    normalized: str
+    # Bound the LLM-produced normalized name: normalize_item_names splices it
+    # into a fresh ScannedReceiptItem (name max_length=100), so an unbounded
+    # hallucinated value would raise ValidationError → 500 on the scan. Capping
+    # here makes instructor retry to conform. min_length=1 avoids an empty name.
+    normalized: str = Field(..., min_length=1, max_length=100)
 
 
 class NormalizationResponse(BaseModel):
