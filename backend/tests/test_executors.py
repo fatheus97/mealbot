@@ -177,6 +177,36 @@ class TestParseExecutor:
         with pytest.raises(RuntimeError, match="shutting down"):
             await queued
 
+    async def test_timeout_during_shutdown_stays_timeout_not_runtimeerror(
+        self, fresh_pool
+    ):
+        """A genuine wait_for timeout on a RUNNING parse that fires while the
+        shutdown latch is set (the 30s grace window) must still surface as
+        TimeoutError — the documented 504 path — not be misclassified as the
+        shutdown RuntimeError. Both a shutdown-cancel and a timeout leave
+        future.cancelled() True; only task.cancelling() distinguishes them, so
+        this fails if the translation drops the cancelling() guard."""
+        start_parse_executor()
+        release = threading.Event()
+
+        def slow() -> str:
+            release.wait(timeout=2)
+            return "done"
+
+        async def call() -> str:
+            return await run_in_parse_executor(slow)
+
+        # Latch shutdown-in-progress while the parse runs (mirrors shutdown()
+        # blocked in wait=True on this running item), WITHOUT tearing the pool
+        # down. A wait_for timeout then races the drain window.
+        executors._shutting_down = True
+        try:
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(call(), timeout=0.2)
+        finally:
+            release.set()
+            executors._shutting_down = False
+
     async def test_start_is_idempotent(self, fresh_pool):
         start_parse_executor()
         first = executors._parse_executor

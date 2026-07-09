@@ -138,14 +138,28 @@ async def run_in_parse_executor[T](func: Callable[..., T], *args: object) -> T:
     try:
         return await future
     except asyncio.CancelledError:
-        # Tell "shutdown cancelled our still-queued parse" apart from "our own
-        # request task was cancelled". The former (the future itself was
-        # cancelled while we're tearing down) becomes a clean, catchable
-        # RuntimeError instead of a bare CancelledError — a BaseException the
-        # parse call sites don't catch and an ASGI server conflates with request
-        # cancellation. Genuine task cancellation (future still running, or not
-        # shutting down) propagates untouched.
-        if _shutting_down and future.cancelled():
+        # Tell "shutdown cancelled our still-queued parse out from under us" apart
+        # from "our own task was told to cancel". Both converge on the same
+        # observable state — CancelledError raised, future.cancelled() True — so
+        # neither of those alone is a valid discriminator:
+        #   * shutdown path: executor.shutdown(cancel_futures=True) cancels the
+        #     concurrent future directly; the chain propagates into our asyncio
+        #     future WITHOUT ever calling task.cancel(), so cancelling() stays 0.
+        #   * timeout / disconnect: the caller's wait_for (or the client drop)
+        #     calls task.cancel(), which cancels the same future AND bumps
+        #     cancelling() to >= 1.
+        # Only the shutdown path becomes a clean, catchable RuntimeError (the
+        # bare CancelledError is a BaseException the parse call sites don't catch
+        # and an ASGI server conflates with request cancellation). A genuine
+        # wait_for timeout MUST re-raise CancelledError so wait_for can convert it
+        # to the documented TimeoutError (504) — even mid-shutdown, when
+        # _shutting_down is True for the whole drain window.
+        task = asyncio.current_task()
+        if (
+            _shutting_down
+            and future.cancelled()
+            and (task is None or task.cancelling() == 0)
+        ):
             raise RuntimeError(
                 "Parse executor is shutting down; parse aborted."
             ) from None
