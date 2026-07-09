@@ -8,7 +8,6 @@ python-multipart~=0.0.32
 instructor~=1.15
 openai~=2.0
 google-genai~=2.10
-jsonref~=1.1
 
 #For DB
 sqlmodel~=0.0.38
@@ -18,7 +17,10 @@ pydantic[email]~=2.13
 
 # For RAG features
 pgvector~=0.4
-fastembed~=0.8
+# Pinned to a single 0.x minor: a fastembed minor bump can change the default
+# model / embedding dimensions and silently break RAG (a Dependabot bump makes
+# that an explicit, reviewed change instead of an implicit pull).
+fastembed>=0.8,<0.9
 
 # PDF parsing
 pypdf~=6.10
