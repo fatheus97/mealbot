@@ -1,8 +1,10 @@
 # Mealbot Roadmap
 
 > Structured from personal notes (`confirm_cok.md`) and reconciled against the
-> actual codebase on **2026-07-02**. Where the notes and the code disagreed, the
-> code wins and the discrepancy is called out.
+> actual codebase on **2026-07-02**, re-reconciled **2026-07-10** after the
+> in-recipe UX thrust, the edit-telemetry work, and two production-hardening
+> passes landed. Where the notes and the code disagreed, the code wins and the
+> discrepancy is called out.
 
 ## How to read this
 
@@ -30,7 +32,17 @@ Shipped and verified in the codebase:
   frozen meals, per-day meal-slot layouts.
 - **Plan lifecycle**: generated → confirm (FIFO fridge debit + snapshot) →
   cook/uncook per meal → finish → **reopen/unconfirm** (reverse transitions with
-  exact fridge restoration).
+  exact fridge restoration). Orchestration now lives in `plan_service` (thin
+  route handlers), the state machine is unit-tested directly.
+- **In-recipe UX** (shipped 2026-07-02): recipe results are **editable** in place
+  — name/ingredients/steps via `PATCH /plan/.../meals/{id}` (`edit_meal` +
+  `MealEditor`), including edit-after-confirm — and a **real-time cooking mode**
+  (`CookMode`: tick-box checklist for ingredients/steps, fullscreen).
+- **Edit telemetry** (shipped): every machine generation is persisted
+  (`MachineGeneration`) and every user correction to it is captured
+  (`MachineCorrection`) across plan generation, meal edits, regeneration, Cook
+  Now, and receipt-scan merges — the raw data for "learn from edits". *Not yet
+  consumed* in generation (see Full release → user edits as feedback).
 - **Cookbook**: favorite-star (both modes), open-book popup UI + floating icon,
   RAG over favorites (all-MiniLM-L6-v2 + pgvector HNSW), auto-switch to
   cookbook-only retrieval at 100+ favorites.
@@ -43,6 +55,12 @@ Shipped and verified in the codebase:
   one-shot `migrate` service, SSH auto-deploy (`deploy.sh` + `deploy.yml`),
   registration lock + `create_user` CLI, CI (pytest/mypy-strict/ruff/eslint/build
   /gitleaks) + Claude AI PR review, Dependabot auto-merge.
+- **Hardening** (two `/review-for-prod` passes: #79–84 Apr, #165–173 Jul, 0
+  CRITICAL): bcrypt offloaded off the event loop + constant-time login, all LLM
+  templates prompt-injection fenced, untrusted input bounded, untrusted-parse
+  (PDF/embedding) isolated on a dedicated bounded thread pool so it can't
+  queue-starve auth, list pagination + catalog index, deps current (Python 3.14,
+  node 26, plugin-react v6).
 
 **Everything below is what's left.**
 
@@ -68,7 +86,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
-| **Editable results** | 🟡 | M–L | — | Fridge items fully editable; recipe **name/ingredients/steps are read-only** after generation. Needs (a) frontend inline editing and (b) a backend `PATCH` for **edit-after-confirm** (currently you must unconfirm → regenerate). This is also the enabler for "user edits as feedback". |
+| **Editable results** | ✅ | — | — | **Shipped 2026-07-02.** Recipe name/ingredients/steps editable in place (`MealEditor`) via `PATCH /plan/.../meals/{id}` (`edit_meal`), including edit-after-confirm. Was the enabler for edit telemetry (now shipped) and "user edits as feedback" (capture done, consumption pending). |
 | **Nicer UI** | 🟡 | L | — | Cookbook is genuinely polished; the core planner is functional-but-plain inline styles. Open-ended — worth scoping to specific screens rather than "make it nice". |
 | **Mobile-friendly UI** | 🟡 | M | — | Layout uses flex/grid + 960px cap but **no responsive breakpoint media queries** (only `prefers-color-scheme`/`prefers-reduced-motion` exist), untested on real devices. Pairs naturally with camera capture. |
 | **Camera capture** | ⬜ | S–M | mobile | Receipt scanner is **file-upload only**; no `getUserMedia`/camera. Most valuable on mobile. |
@@ -81,12 +99,12 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
-| **Real-time cooking mode** | ⬜ | M | — | Tick-box checklist for ingredients/steps while cooking. Today there's only a binary cook toggle. Natural extension of the recipe view. |
+| **Real-time cooking mode** | ✅ | — | — | **Shipped 2026-07-02** (#152). `CookMode` — fullscreen tick-box checklist for ingredients/steps while cooking (`cookMode.utils.ts`, tested). |
 | **Leftovers meal_type** | ⬜ | M | calendar dates (soft) | "Cook a bigger dinner, eat it as lunch tomorrow." Needs enum value + prompt handling + schema + UI. Inherently date-aware — pairs with calendar. |
 | **Token-usage tracking** | ⬜ | M | — | **Prerequisite for paygate & expense monitoring.** ⚠️ Notes marked this done; code has *nothing*. Capture prompt/completion tokens from LLM responses → usage table → per-user cost. |
 | **Paygate** | ⬜ | L | token-usage | 2-week trial then $4/mo. Needs billing provider (Stripe/Paddle), subscription state, gating middleware, and cost visibility (above). |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
-| **User edits as feedback** | ⬜ | M–L | editable results | Capture which meals users edit/reject → feed into future generations. Blocked on edit-capture existing first. |
+| **User edits as feedback** | 🟡 | M | — | **Capture half is shipped** (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt). Remaining: **consume** it — feed corrections into future generations (e.g. as prompt context, few-shot examples, or a per-user preference signal). Nothing in `meal_planner`/`recipe_retriever` reads the correction tables yet. Needs a design choice on how edits influence generation. |
 | **Plans ↔ calendar dates** | ⬜ | M–L | — | `MealPlan` has no date fields (day-index is positional). Add scheduled dates + calendar browsing of recipes/plans. Unlocks leftovers + real scheduling. |
 | **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. |
 
@@ -116,16 +134,25 @@ payment or goes public.
 ```
 Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs the below
      │
-     ├─ Beta polish thrust A: editable results ─► user-edits-as-feedback
-     ├─ Beta polish thrust B: mobile-friendly ─► camera capture
-     ├─ real-time cooking mode (standalone, high user value)
+     ├─ ✅ done: editable results, real-time cooking mode, edit-telemetry CAPTURE,
+     │          two prod-hardening passes
+     │
+     ├─ Beta polish thrust: mobile-friendly ─► camera capture   (if users on phones)
+     ├─ close the loop: user-edits-as-feedback  (capture is done — now CONSUME it)
      │
      └─ Monetization track: token-usage tracking ─► paygate
                 calendar dates ─► leftovers + calendar browsing
 ```
 
-**The alpha is live — so the next decision is which improvement earns the most
-from real usage.** Highest-signal candidates: the in-recipe UX thrust (editable
-results + real-time cooking), or mobile + camera if alpha users are on phones.
-Monetization groundwork (token tracking → paygate) is worth starting only when
-charging is near-term.
+**The in-recipe UX thrust is shipped, so the next decision is which improvement
+earns the most from real usage.** Highest-signal candidates now:
+1. **Mobile-friendly + camera capture** — if alpha users are on phones, this is
+   the biggest UX gap (no responsive breakpoints; receipt scan is upload-only).
+2. **Close the edit-feedback loop** — the capture data is accumulating unused;
+   consuming it (edits → better generations) is the payoff the telemetry was for,
+   and a genuine product differentiator.
+3. **Monetization groundwork** (token tracking → paygate) — only worth starting
+   when charging is near-term.
+
+Which one depends on a signal only you have: *are alpha users on mobile, and is
+enough correction data accumulating to make the feedback loop worthwhile yet?*
