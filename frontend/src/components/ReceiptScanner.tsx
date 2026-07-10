@@ -137,9 +137,13 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       });
       // If we're no longer in a state where the camera should open — unmounted,
       // or the user did something else during the (non-modal) permission prompt
-      // like pick a file — stop this just-acquired stream instead of clobbering
-      // that action and leaking the camera.
-      if (!mountedRef.current || stateRef.current !== "idle") {
+      // that moved us into a busy state (scanning/review/camera) — stop this
+      // just-acquired stream instead of clobbering that action and leaking the
+      // camera. "idle" and "error" are both openable (the button shows in both,
+      // so retry-after-denial must still work).
+      const openableState =
+        stateRef.current === "idle" || stateRef.current === "error";
+      if (!mountedRef.current || !openableState) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }

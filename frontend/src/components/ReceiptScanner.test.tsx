@@ -452,6 +452,35 @@ describe('ReceiptScanner', () => {
       expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
     });
 
+    it('can retry the camera after a denial (opens from the error state)', async () => {
+      const stop = vi.fn();
+      const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+      const getUserMedia = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException('x', 'NotAllowedError'))
+        .mockResolvedValueOnce(stream);
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: { getUserMedia },
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      // 1st attempt denied → error state (button still shown).
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      await waitFor(() =>
+        expect(screen.getByText(/permission denied/i)).toBeInTheDocument(),
+      );
+      // 2nd attempt granted → the post-await openable-state check must NOT reject
+      // the "error" state, so the preview opens.
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      await waitFor(() =>
+        expect(screen.getByLabelText(/camera preview/i)).toBeInTheDocument(),
+      );
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+    });
+
     it('releases the camera (stops tracks) on cancel', async () => {
       const { stop } = mockCamera('granted');
       const user = userEvent.setup();
