@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { usePlanList, useDeletePlan } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -18,6 +19,7 @@ interface PlanCatalogProps {
 
 export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   const { userId } = useAuth();
+  const isMobile = useIsMobile();
   const { data: plans, isLoading } = usePlanList(userId);
   const deleteMutation = useDeletePlan();
   const [expanded, setExpanded] = useState(true);
@@ -109,8 +111,12 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                     key={plan.id}
                     style={{
                       display: "flex",
-                      alignItems: "center",
+                      // Mobile: stack the info over the actions (a single row is
+                      // too wide for a phone and the Delete button gets clipped).
+                      flexDirection: isMobile ? "column" : "row",
+                      alignItems: isMobile ? "stretch" : "center",
                       justifyContent: "space-between",
+                      gap: isMobile ? "0.6rem" : undefined,
                       padding: "0.75rem 1rem",
                       backgroundColor: "#f9f9f9",
                       border: "1px solid #e5e7eb",
@@ -118,11 +124,14 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                       fontSize: "0.9rem",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "1rem", flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "0.5rem 1rem" : "1rem", flexWrap: "wrap", flex: 1 }}>
                       <span style={{ color: "#555", minWidth: "90px" }}>
                         {formatDate(plan.created_at)}
                       </span>
-                      <span>
+                      {/* Explicit dark color: the card bg is a fixed light
+                          (#f9f9f9), so inheriting the scheme's text color would
+                          render white-on-light in dark mode. */}
+                      <span style={{ color: "#333" }}>
                         {plan.days}d / {plan.meals_per_day} meals / {plan.people_count}p
                       </span>
                       <span
@@ -144,6 +153,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                         onClick={() => handleOpen(plan)}
                         disabled={loadingPlanId === plan.id}
                         style={{
+                          flex: isMobile ? 1 : undefined,
                           padding: "0.3rem 0.8rem",
                           fontSize: "0.85rem",
                           backgroundColor: "#4a90d9",
@@ -159,6 +169,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                       <button
                         onClick={() => setConfirmDeleteId(plan.id)}
                         style={{
+                          flex: isMobile ? 1 : undefined,
                           padding: "0.3rem 0.8rem",
                           fontSize: "0.85rem",
                           backgroundColor: "#fee2e2",
