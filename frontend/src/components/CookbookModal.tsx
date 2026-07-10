@@ -716,10 +716,10 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
     position: "relative" as const,
   };
   const pageScrollStyle = {
-    // Desktop: each page is its own fixed-height scroll area. Mobile: pages flow
-    // at natural height and the whole spread scrolls as one column.
-    overflowY: isMobile ? ("visible" as const) : ("auto" as const),
-    flex: isMobile ? "0 0 auto" : 1,
+    // Each page is its own fixed-height scroll area (desktop spread only —
+    // mobile uses the single-column layout above).
+    overflowY: "auto" as const,
+    flex: 1,
     minHeight: 0,
     scrollbarWidth: "none" as const,
     msOverflowStyle: "none" as const,
@@ -744,20 +744,97 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
     letterSpacing: "0.05em",
   };
 
+  // Mobile: the open-book two-page spread doesn't fit a phone (it forced the
+  // fixed-height header/steps alignment to overlap and pushed the ✕ into the
+  // page middle). Render a purpose-built single scrolling recipe instead, with
+  // Back + Close pinned to the top and the whole recipe flowing beneath.
+  if (isMobile) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "#f5e9c8",
+          color: "#3b2412",
+          borderRadius: "4px",
+          boxShadow: "inset 0 0 0 1px #c8a86b",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0.5rem 0.9rem",
+            borderBottom: "1px solid #d8c290",
+            flexShrink: 0,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onBack}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#7a5a2e", fontFamily: "inherit", fontSize: "0.9rem", padding: "0.25rem 0" }}
+          >
+            ← Back
+          </button>
+          <button
+            type="button"
+            aria-label="Close cookbook"
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#7a5a2e", fontSize: "1.35rem", lineHeight: 1, padding: "0.25rem 0.4rem" }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div
+          className="cookbook-scroll-hide"
+          style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain", padding: "0.9rem 1.1rem 1.25rem" }}
+        >
+          <h2 style={{ margin: "0 0 0.15rem", fontFamily: "inherit", fontSize: "1.4rem", color: "#3b2412", lineHeight: 1.2 }}>
+            {item.name}
+          </h2>
+          <div style={{ fontSize: "0.85rem", color: "#7a5a2e", marginBottom: "1.1rem" }}>
+            {mealTypeLabel(item.meal_type, item.meal_type_label)}
+            {item.total_time_minutes != null && ` · ${item.total_time_minutes} min`}
+          </div>
+
+          <h3 style={{ ...sectionHeading, marginBottom: "0.5rem" }}>Ingredients</h3>
+          <IngredientsList ingredients={item.ingredients} block />
+
+          <h3 style={{ ...sectionHeading, fontSize: "1.1rem", margin: "1.4rem 0 0.5rem" }}>Steps</h3>
+          <RecipeSteps steps={item.steps} />
+
+          <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "1.4rem" }}>
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={removing}
+              style={{ background: "none", border: "1px solid #c8a86b", borderRadius: "4px", cursor: removing ? "default" : "pointer", color: "#7a5a2e", padding: "0.45rem 0.9rem", fontFamily: "inherit", fontSize: "0.85rem", opacity: removing ? 0.5 : 1 }}
+            >
+              {removing ? "Removing…" : "Remove from Cookbook"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         flex: 1,
         minHeight: 0,
         display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "1fr 10px 1fr",
+        gridTemplateColumns: "1fr 10px 1fr",
         backgroundColor: "#f5e9c8",
         borderRadius: "4px",
         boxShadow: "inset 0 0 0 1px #c8a86b",
         color: "#3b2412",
-        overflowX: "hidden",
-        // Mobile stacks the two pages into one scrolling column.
-        overflowY: isMobile ? "auto" : "hidden",
+        overflow: "hidden",
       }}
     >
       {/* Left page */}
@@ -809,11 +886,9 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
         </div>
       </div>
 
-      {/* Spine — uninterrupted top-to-bottom. Hidden on mobile, where the pages
-          stack vertically and the open-book metaphor doesn't apply. */}
+      {/* Spine — uninterrupted top-to-bottom (desktop spread only). */}
       <div
         style={{
-          display: isMobile ? "none" : "block",
           background:
             "linear-gradient(90deg, #a8804a 0%, #6b4423 50%, #a8804a 100%)",
           boxShadow: "inset 0 0 4px rgba(0,0,0,0.5)",
