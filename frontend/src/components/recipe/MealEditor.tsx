@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { IngredientAmount, PlannedMeal } from "../../types";
 import { mealTypeLabel } from "../../constants/mealTypes";
+import { useIsMobile } from "../../hooks/useIsMobile";
 
 interface Props {
   meal: PlannedMeal;
@@ -39,6 +40,7 @@ const smallBtn: React.CSSProperties = {
 // meal_type / meal_type_label are NOT editable — the backend edit endpoint
 // preserves the slot, so we carry them through untouched.
 export function MealEditor({ meal, onSave, onCancel, saving = false, error = null }: Props) {
+  const isMobile = useIsMobile();
   const [name, setName] = useState(meal.name);
   const [time, setTime] = useState<string>(
     meal.total_time_minutes != null ? String(meal.total_time_minutes) : "",
@@ -142,7 +144,7 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
         {ingredients.map((ing, idx) => (
           <div
             key={ing._key}
-            style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.3rem" }}
+            style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.3rem", flexWrap: isMobile ? "wrap" : "nowrap" }}
           >
             <input
               type="text"
@@ -150,7 +152,7 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
               maxLength={100}
               placeholder="Ingredient"
               onChange={(e) => setIngredientAt(ing._key, { name: e.target.value })}
-              style={{ ...inputStyle, flex: 2 }}
+              style={{ ...inputStyle, flex: isMobile ? "1 1 100%" : 2 }}
               aria-label={`Ingredient ${idx + 1} name`}
             />
             <input

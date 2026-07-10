@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useIsMobile } from "../hooks/useIsMobile";
 import {
   useFridge,
   useGenerateRecipe,
@@ -36,6 +37,7 @@ const COOKNOW_COOK_KEY = "cookmode:cooknow";
 // LLM on the cook action — it just persists + debits fridge + marks cooked.
 export function CookNowForm() {
   const { userId } = useAuth();
+  const isMobile = useIsMobile();
   const { data: fridgeItems } = useFridge(userId);
   const generateMutation = useGenerateRecipe();
   const cookMutation = useCookRecipe();
@@ -176,7 +178,7 @@ export function CookNowForm() {
         to debit the fridge — no shopping list, no multi-day planning.
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "1rem" }}>
         <label>
           Meal type
           <select
@@ -228,7 +230,7 @@ export function CookNowForm() {
           Only use what's in the fridge
         </label>
 
-        <label style={{ gridColumn: "span 2" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           Taste preferences (comma separated)
           <input
             type="text"
@@ -239,7 +241,7 @@ export function CookNowForm() {
           />
         </label>
 
-        <label style={{ gridColumn: "span 2" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           Ingredients to avoid (comma separated)
           <input
             type="text"
@@ -250,7 +252,7 @@ export function CookNowForm() {
           />
         </label>
 
-        <label style={{ gridColumn: "span 2" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           Ingredients to feature
           <IngredientChipInput
             values={ingredientsToUse}
@@ -260,7 +262,7 @@ export function CookNowForm() {
           />
         </label>
 
-        <label style={{ gridColumn: "span 2" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           Note (optional)
           <input
             type="text"

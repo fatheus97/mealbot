@@ -12,6 +12,7 @@ export function DemoBanner() {
         top: 0,
         left: 0,
         right: 0,
+        boxSizing: "border-box",
         background: "#1565c0",
         color: "white",
         padding: "0.5rem 1rem",

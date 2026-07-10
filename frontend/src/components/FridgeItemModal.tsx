@@ -61,7 +61,8 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
           color: "#111",
           borderRadius: "10px",
           padding: "1.5rem",
-          width: "340px",
+          width: "min(340px, calc(100vw - 1.5rem))",
+          boxSizing: "border-box",
           boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
           border: "1px solid #e0e0e0",
         }}

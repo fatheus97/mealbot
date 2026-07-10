@@ -64,6 +64,29 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Phone breakpoint. Component layouts are inline-styled and go responsive via
+   the useIsMobile() hook (inline styles beat stylesheets, so @media can't reach
+   them); this block only tunes base ELEMENT styles, which have no inline
+   override — so it still lands even on tightly-padded buttons/inputs. Keep the
+   px breakpoint in sync with BREAKPOINTS.mobile in hooks/useIsMobile.ts. */
+@media (max-width: 640px) {
+  h1 {
+    font-size: 2em;
+  }
+  /* Comfortable 40px tap targets. min-height wins because no component sets an
+     inline height on these — only padding. */
+  button {
+    min-height: 40px;
+  }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    min-height: 40px;
+    /* iOS zooms the page when a focused field's font-size is < 16px. */
+    font-size: 16px;
+  }
+}
 /*
 !* Hide number input spinners (Chrome, Edge, Safari) *!
 input[type="number"]::-webkit-outer-spin-button,
