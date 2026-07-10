@@ -3,6 +3,7 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookMode } from './CookMode';
 import { parseDurationSeconds, tokenizeStepTimers } from './cookMode.utils';
+import { setMobileViewport } from '../../test/test-utils';
 import type { PlannedMeal } from '../../types';
 
 const KEY = 'cookmode:test:0:0';
@@ -53,6 +54,35 @@ describe('CookMode', () => {
     renderCookMode();
     expect(screen.getByText('Chop the onion')).toBeInTheDocument();
     expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
+  });
+
+  it('shows the ingredients panel as a full-screen overlay on mobile', async () => {
+    setMobileViewport(true);
+    const user = userEvent.setup();
+    renderCookMode();
+    // No panel until toggled.
+    expect(document.querySelector('aside')).toBeNull();
+    await user.click(screen.getByRole('button', { name: /^ingredients$/i }));
+
+    const aside = document.querySelector('aside');
+    expect(aside).not.toBeNull();
+    // Mobile branch: full-screen overlay (absolute inset:0), not the desktop
+    // side panel (which is position:static with a fixed width).
+    expect(aside!.style.position).toBe('absolute');
+    expect(aside!.textContent).toMatch(/tomato/i);
+    // Still dismissable via the toggle.
+    await user.click(screen.getByRole('button', { name: /^ingredients$/i }));
+    expect(document.querySelector('aside')).toBeNull();
+  });
+
+  it('shows the ingredients panel as a side panel (not absolute) on desktop', async () => {
+    setMobileViewport(false);
+    const user = userEvent.setup();
+    renderCookMode();
+    await user.click(screen.getByRole('button', { name: /^ingredients$/i }));
+    const aside = document.querySelector('aside');
+    expect(aside).not.toBeNull();
+    expect(aside!.style.position).not.toBe('absolute');
   });
 
   it('advances with Next and persists the step to localStorage', async () => {

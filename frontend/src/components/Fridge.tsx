@@ -307,6 +307,19 @@ export function Fridge() {
     );
   }
 
+  // A group's batches ordered earliest-expiration first (null dates last).
+  // Shared by the table (renderMultiBatchGroup) and card (renderMultiBatchCard)
+  // renderers so their sub-row ordering can't drift apart.
+  const sortedBatchIndices = (group: GroupedItem): number[] =>
+    [...group.flatIndices].sort((a, b) => {
+      const aDate = fridge[a].expiration_date ?? "";
+      const bDate = fridge[b].expiration_date ?? "";
+      if (!aDate && !bDate) return 0;
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      return aDate.localeCompare(bDate);
+    });
+
   const renderSingleRow = (group: GroupedItem) => {
     const idx = group.flatIndices[0];
     const item = fridge[idx];
@@ -363,14 +376,7 @@ export function Fridge() {
 
     // Sub-rows (when expanded), sorted by expiration date (earliest first, null last)
     if (isExpanded) {
-      const sortedIndices = [...group.flatIndices].sort((a, b) => {
-        const aDate = fridge[a].expiration_date ?? "";
-        const bDate = fridge[b].expiration_date ?? "";
-        if (!aDate && !bDate) return 0;
-        if (!aDate) return 1;
-        if (!bDate) return -1;
-        return aDate.localeCompare(bDate);
-      });
+      const sortedIndices = sortedBatchIndices(group);
       sortedIndices.forEach((flatIdx, batchIdx) => {
         const item = fridge[flatIdx];
         rows.push(
@@ -456,14 +462,7 @@ export function Fridge() {
 
   const renderMultiBatchCard = (group: GroupedItem) => {
     const isExpanded = expandedGroups.has(group.key);
-    const sortedIndices = [...group.flatIndices].sort((a, b) => {
-      const aDate = fridge[a].expiration_date ?? "";
-      const bDate = fridge[b].expiration_date ?? "";
-      if (!aDate && !bDate) return 0;
-      if (!aDate) return 1;
-      if (!bDate) return -1;
-      return aDate.localeCompare(bDate);
-    });
+    const sortedIndices = sortedBatchIndices(group);
     return (
       <div key={group.key} style={cardStyle}>
         <div style={{ ...cardHeaderRow, cursor: "pointer" }} onClick={() => toggleGroup(group.key)}>
