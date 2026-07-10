@@ -64,10 +64,24 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmError, setConfirmError] = useState("");
   const [notice, setNotice] = useState("");
+  // Camera is being acquired (permission prompt open) — disables the file input
+  // and the button so a competing action can't race the in-flight getUserMedia.
+  const [cameraOpening, setCameraOpening] = useState(false);
+  // The preview <video> has metadata (a real frame), so Capture is safe to hit.
+  const [videoReady, setVideoReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
+  // Guards against a second openCamera() (e.g. rapid double-tap of "Take photo")
+  // racing the first — two getUserMedia calls would strand the first stream.
+  const openingRef = useRef(false);
+  // A ref mirror of `state` so the async openCamera() can read the CURRENT state
+  // after its await (the closure's `state` is stale).
+  const stateRef = useRef<ScannerState>(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const scanMutation = useScanReceipt();
   const mergeMutation = useMergeFridge();
@@ -95,9 +109,13 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     }
   }, [state]);
 
-  // Safety net: stop the camera if the component unmounts mid-capture, and mark
-  // unmounted so an in-flight openCamera() doesn't strand a stream (below).
+  // Safety net: stop the camera if the component unmounts mid-capture, and track
+  // mounted state so an in-flight openCamera() doesn't strand a stream (below).
+  // The setup body MUST reset mountedRef to true: under StrictMode (dev) React
+  // runs setup→cleanup→setup on mount, and without this the cleanup's `= false`
+  // would stick, making openCamera always think it's unmounted.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       const stream = streamRef.current;
@@ -107,14 +125,21 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   }, []);
 
   const openCamera = async () => {
+    // Ignore re-entrant calls while a prompt/stream is already in flight or open.
+    if (openingRef.current || streamRef.current) return;
+    openingRef.current = true;
+    setCameraOpening(true);
+    setVideoReady(false);
     setErrorMessage("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
       });
-      // Unmounted while the permission prompt was open — the cleanup already ran,
-      // so stop this just-acquired stream ourselves instead of leaking it.
-      if (!mountedRef.current) {
+      // If we're no longer in a state where the camera should open — unmounted,
+      // or the user did something else during the (non-modal) permission prompt
+      // like pick a file — stop this just-acquired stream instead of clobbering
+      // that action and leaking the camera.
+      if (!mountedRef.current || stateRef.current !== "idle") {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
@@ -132,6 +157,9 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             : "Couldn't open the camera — you can upload a photo instead.",
       );
       setState("error");
+    } finally {
+      openingRef.current = false;
+      setCameraOpening(false);
     }
   };
 
@@ -308,11 +336,11 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                 accept="image/jpeg,image/png,application/pdf,.pdf"
                 aria-label="Select receipt image or PDF"
                 onChange={handleFileChange}
-                disabled={scanMutation.isPending}
+                disabled={scanMutation.isPending || cameraOpening}
               />
               {cameraSupported && (
-                <button onClick={openCamera} disabled={scanMutation.isPending}>
-                  📷 Take photo
+                <button onClick={openCamera} disabled={scanMutation.isPending || cameraOpening}>
+                  {cameraOpening ? "Opening camera…" : "📷 Take photo"}
                 </button>
               )}
             </>
@@ -330,14 +358,17 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             muted
             playsInline
             aria-label="Camera preview"
+            onLoadedMetadata={() => setVideoReady(true)}
             style={{ width: "100%", maxWidth: 480, borderRadius: 8, background: "#000" }}
           />
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
             <button
               onClick={capturePhoto}
+              disabled={!videoReady}
+              title={videoReady ? undefined : "Waiting for the camera…"}
               style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: 4 }}
             >
-              Capture
+              {videoReady ? "Capture" : "Starting camera…"}
             </button>
             <button onClick={closeCamera}>Cancel</button>
           </div>

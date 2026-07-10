@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider } from '../contexts/AuthContext';
 import { ReceiptScanner } from './ReceiptScanner';
 import { renderWithProviders, setMobileViewport } from '../test/test-utils';
 
@@ -384,12 +387,54 @@ describe('ReceiptScanner', () => {
 
       await user.click(screen.getByRole('button', { name: /take photo/i }));
 
+      const video = await screen.findByLabelText(/camera preview/i);
+      expect(getUserMedia).toHaveBeenCalledWith({ video: { facingMode: 'environment' } });
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+      // Capture is gated until the video reports a frame (avoids a black capture).
+      expect(screen.getByRole('button', { name: /starting camera/i })).toBeDisabled();
+      fireEvent.loadedMetadata(video);
+      expect(screen.getByRole('button', { name: /^capture$/i })).toBeEnabled();
+    });
+
+    it('disables the file input while the camera is being acquired', async () => {
+      // getUserMedia stays pending so the "opening" window is observable.
+      const getUserMedia = vi.fn(() => new Promise<MediaStream>(() => {}));
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: { getUserMedia },
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      // The file input can't race the in-flight getUserMedia (clobber/leak fix).
+      expect(screen.getByLabelText(/select receipt image/i)).toBeDisabled();
+      expect(screen.getByRole('button', { name: /opening camera/i })).toBeDisabled();
+    });
+
+    it('opens under StrictMode (mountedRef reset on the simulated remount)', async () => {
+      // Regression guard: StrictMode runs effect setup→cleanup→setup; if the
+      // mount effect doesn't reset mountedRef=true, openCamera treats the live
+      // component as unmounted and the preview never appears.
+      mockCamera('granted');
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const user = userEvent.setup();
+      render(
+        <StrictMode>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <ReceiptScanner currentFridge={[]} />
+            </AuthProvider>
+          </QueryClientProvider>
+        </StrictMode>,
+      );
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
       await waitFor(() =>
         expect(screen.getByLabelText(/camera preview/i)).toBeInTheDocument(),
       );
-      expect(getUserMedia).toHaveBeenCalledWith({ video: { facingMode: 'environment' } });
-      expect(screen.getByRole('button', { name: /^capture$/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
     });
 
     it('falls back to file upload with a message when permission is denied', async () => {
@@ -420,6 +465,32 @@ describe('ReceiptScanner', () => {
       // Back to idle — file input visible again.
       expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
       expect(screen.queryByLabelText(/camera preview/i)).not.toBeInTheDocument();
+    });
+
+    it('does not double-open on rapid re-clicks (no stranded stream)', async () => {
+      // getUserMedia stays pending so both clicks land while "opening".
+      let resolveStream!: (s: MediaStream) => void;
+      const stop = vi.fn();
+      const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+      const getUserMedia = vi.fn(
+        () => new Promise<MediaStream>((r) => { resolveStream = r; }),
+      );
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: { getUserMedia },
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      const btn = screen.getByRole('button', { name: /take photo/i });
+      await user.click(btn); // opening (getUserMedia pending)
+      await user.click(btn); // guarded — must NOT fire a second getUserMedia
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+
+      resolveStream(stream);
+      await waitFor(() =>
+        expect(screen.getByLabelText(/camera preview/i)).toBeInTheDocument(),
+      );
     });
   });
 });
