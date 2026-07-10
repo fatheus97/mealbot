@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlanCatalog } from "./PlanCatalog";
 import { AuthProvider } from "../contexts/AuthContext";
+import { setMobileViewport } from "../test/test-utils";
 import type { ReactNode } from "react";
 import type { MealPlanSummary } from "../types";
 
@@ -97,6 +98,29 @@ describe("PlanCatalog", () => {
       expect(screen.getByText(/2d \/ 3 meals \/ 2p/)).toBeInTheDocument();
       expect(screen.getByText(/planned \(0\/6\)/)).toBeInTheDocument();
     });
+  });
+
+  it("stacks each plan into two rows on mobile so the actions don't clip", async () => {
+    loginUser();
+    setMobileViewport(true);
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([SAMPLE_PLAN]),
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await waitFor(() =>
+      expect(screen.getByText(/2d \/ 3 meals \/ 2p/)).toBeInTheDocument(),
+    );
+
+    // The row card (info block over the action buttons) stacks vertically on
+    // mobile instead of a single overflowing row.
+    const infoBlock = screen.getByText(/2d \/ 3 meals \/ 2p/).closest("div");
+    const rowCard = infoBlock?.parentElement;
+    expect(rowCard?.style.flexDirection).toBe("column");
+    // Both actions still present and reachable.
+    expect(screen.getByRole("button", { name: /open/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /delete/i })).toBeInTheDocument();
   });
 
   it("calls onOpenPlan when Open button clicked", async () => {
