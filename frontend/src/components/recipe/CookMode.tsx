@@ -285,6 +285,11 @@ export function CookMode({
     if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return;
     move(dx < 0 ? 1 : -1);
   };
+  // If the OS cancels the gesture mid-swipe (incoming call, notification), drop
+  // the start point so a later touchend can't act on a stale position.
+  const onStepTouchCancel = () => {
+    touchStartRef.current = null;
+  };
 
   const startTimer = (seconds: number) => {
     // Same lower + upper bound as auto-detected durations, so a fat-fingered
@@ -372,6 +377,7 @@ export function CookMode({
         <div
           onTouchStart={onStepTouchStart}
           onTouchEnd={onStepTouchEnd}
+          onTouchCancel={onStepTouchCancel}
           style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", overflowY: "auto" }}
         >
           <p style={{ fontSize: "1.6rem", lineHeight: 1.5, maxWidth: "40rem", margin: 0 }}>
