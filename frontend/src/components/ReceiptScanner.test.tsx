@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReceiptScanner } from './ReceiptScanner';
@@ -25,6 +25,25 @@ beforeEach(() => {
 
 function createFile(name = 'receipt.jpg', type = 'image/jpeg'): File {
   return new File(['fake-image-data'], name, { type });
+}
+
+/** Install a navigator.mediaDevices.getUserMedia mock. Returns the spy + the
+ *  per-track stop() spy so tests can assert the camera is released. */
+function mockCamera(behavior: 'granted' | 'denied' | 'notfound') {
+  const stop = vi.fn();
+  const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+  const getUserMedia = vi.fn(() =>
+    behavior === 'granted'
+      ? Promise.resolve(stream)
+      : Promise.reject(
+          new DOMException('x', behavior === 'denied' ? 'NotAllowedError' : 'NotFoundError'),
+        ),
+  );
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia },
+  });
+  return { getUserMedia, stop };
 }
 
 describe('ReceiptScanner', () => {
@@ -344,5 +363,63 @@ describe('ReceiptScanner', () => {
 
     expect(screen.queryByDisplayValue('chicken')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+  });
+
+  describe('camera capture', () => {
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'mediaDevices');
+    });
+
+    it('hides "Take photo" when getUserMedia is unavailable', () => {
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      expect(screen.queryByRole('button', { name: /take photo/i })).not.toBeInTheDocument();
+      // File upload is still the available path.
+      expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
+    });
+
+    it('opens a live camera preview when permission is granted', async () => {
+      const { getUserMedia } = mockCamera('granted');
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+
+      await waitFor(() =>
+        expect(screen.getByLabelText(/camera preview/i)).toBeInTheDocument(),
+      );
+      expect(getUserMedia).toHaveBeenCalledWith({ video: { facingMode: 'environment' } });
+      expect(screen.getByRole('button', { name: /^capture$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+    });
+
+    it('falls back to file upload with a message when permission is denied', async () => {
+      mockCamera('denied');
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+
+      await waitFor(() =>
+        expect(screen.getByText(/permission denied/i)).toBeInTheDocument(),
+      );
+      // Fallback preserved: no preview, file input still present.
+      expect(screen.queryByLabelText(/camera preview/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
+    });
+
+    it('releases the camera (stops tracks) on cancel', async () => {
+      const { stop } = mockCamera('granted');
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      await waitFor(() => screen.getByRole('button', { name: /^cancel$/i }));
+      await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      expect(stop).toHaveBeenCalled();
+      // Back to idle — file input visible again.
+      expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/camera preview/i)).not.toBeInTheDocument();
+    });
   });
 });

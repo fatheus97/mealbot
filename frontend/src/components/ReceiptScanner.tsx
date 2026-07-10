@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
@@ -6,7 +6,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import type { ScannedItemType, StockItem } from "../types";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 
-type ScannerState = "idle" | "scanning" | "review" | "error";
+type ScannerState = "idle" | "scanning" | "review" | "error" | "camera";
 
 interface ReceiptScannerProps {
   currentFridge: StockItem[];
@@ -65,9 +65,111 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const [confirmError, setConfirmError] = useState("");
   const [notice, setNotice] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
 
   const scanMutation = useScanReceipt();
   const mergeMutation = useMergeFridge();
+
+  // getUserMedia needs a secure context (HTTPS or localhost) and the API present.
+  // Evaluated at render (not module load) so it reflects the live environment.
+  const cameraSupported =
+    typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+
+  // Release the camera (stop every track) — call on capture, cancel, and unmount
+  // so a live camera indicator never lingers after the user is done.
+  const stopCamera = () => {
+    const stream = streamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+  };
+
+  // Attach the live stream once the <video> for the camera state has mounted.
+  useEffect(() => {
+    if (state === "camera" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [state]);
+
+  // Safety net: stop the camera if the component unmounts mid-capture, and mark
+  // unmounted so an in-flight openCamera() doesn't strand a stream (below).
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      const stream = streamRef.current;
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, []);
+
+  const openCamera = async () => {
+    setErrorMessage("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      // Unmounted while the permission prompt was open — the cleanup already ran,
+      // so stop this just-acquired stream ourselves instead of leaking it.
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setState("camera");
+    } catch (err) {
+      // Permission denied / no camera / insecure context — degrade to file upload
+      // (the idle/error state still renders the file input).
+      const name = err instanceof DOMException ? err.name : "";
+      setErrorMessage(
+        name === "NotAllowedError"
+          ? "Camera permission denied — you can upload a photo instead."
+          : name === "NotFoundError"
+            ? "No camera found — you can upload a photo instead."
+            : "Couldn't open the camera — you can upload a photo instead.",
+      );
+      setState("error");
+    }
+  };
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      stopCamera();
+      setErrorMessage("Couldn't capture the photo — try uploading instead.");
+      setState("error");
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // canvas → JPEG deliberately: gives us format control (sidesteps iOS HEIC,
+    // which the backend rejects) AND compresses the phone photo before upload.
+    canvas.toBlob(
+      (blob) => {
+        stopCamera();
+        if (!blob) {
+          setErrorMessage("Couldn't capture the photo — try uploading instead.");
+          setState("error");
+          return;
+        }
+        void handleScan(new File([blob], "receipt.jpg", { type: "image/jpeg" }));
+      },
+      "image/jpeg",
+      0.85,
+    );
+  };
+
+  const closeCamera = () => {
+    stopCamera();
+    setState("idle");
+  };
 
   const handleScan = async (file: File) => {
     setState("scanning");
@@ -199,15 +301,46 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               </button>
             </>
           ) : (
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,application/pdf,.pdf"
-              aria-label="Select receipt image or PDF"
-              onChange={handleFileChange}
-              disabled={scanMutation.isPending}
-            />
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,application/pdf,.pdf"
+                aria-label="Select receipt image or PDF"
+                onChange={handleFileChange}
+                disabled={scanMutation.isPending}
+              />
+              {cameraSupported && (
+                <button onClick={openCamera} disabled={scanMutation.isPending}>
+                  📷 Take photo
+                </button>
+              )}
+            </>
           )}
+        </div>
+      )}
+
+      {/* Camera capture state — live preview + snap. Snapping draws the frame to
+          a canvas → JPEG → the same handleScan() path as an uploaded file. */}
+      {state === "camera" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            aria-label="Camera preview"
+            style={{ width: "100%", maxWidth: 480, borderRadius: 8, background: "#000" }}
+          />
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button
+              onClick={capturePhoto}
+              style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: 4 }}
+            >
+              Capture
+            </button>
+            <button onClick={closeCamera}>Cancel</button>
+          </div>
         </div>
       )}
 
