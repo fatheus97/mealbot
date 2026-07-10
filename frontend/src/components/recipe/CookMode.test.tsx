@@ -103,6 +103,38 @@ describe('CookMode', () => {
     expect(screen.getByText('Chop the onion')).toBeInTheDocument();
   });
 
+  it('swipes left for next step and right for previous', () => {
+    renderCookMode();
+    // The step-content div (parent of the step <p>) carries the touch handlers
+    // and persists across step changes.
+    const stepArea = screen.getByText('Chop the onion').parentElement!;
+
+    // Swipe left (finger moves right → left) → next step.
+    fireEvent.touchStart(stepArea, { changedTouches: [{ clientX: 300, clientY: 200 }] });
+    fireEvent.touchEnd(stepArea, { changedTouches: [{ clientX: 200, clientY: 208 }] });
+    expect(screen.getByLabelText('Step 2 of 3')).toBeInTheDocument();
+
+    // Swipe right → previous step.
+    fireEvent.touchStart(stepArea, { changedTouches: [{ clientX: 200, clientY: 200 }] });
+    fireEvent.touchEnd(stepArea, { changedTouches: [{ clientX: 320, clientY: 196 }] });
+    expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
+  });
+
+  it('ignores taps and vertical scrolls (only decisive horizontal swipes page)', () => {
+    renderCookMode();
+    const stepArea = screen.getByText('Chop the onion').parentElement!;
+
+    // Tap (no movement) — must not navigate.
+    fireEvent.touchStart(stepArea, { changedTouches: [{ clientX: 200, clientY: 200 }] });
+    fireEvent.touchEnd(stepArea, { changedTouches: [{ clientX: 205, clientY: 202 }] });
+    expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
+
+    // Vertical-dominant drag (scrolling a long step) — must not navigate.
+    fireEvent.touchStart(stepArea, { changedTouches: [{ clientX: 200, clientY: 100 }] });
+    fireEvent.touchEnd(stepArea, { changedTouches: [{ clientX: 230, clientY: 300 }] });
+    expect(screen.getByLabelText('Step 1 of 3')).toBeInTheDocument();
+  });
+
   it('resumes from the saved step on mount', () => {
     localStorage.setItem(KEY, JSON.stringify({ step: 2 }));
     renderCookMode();
