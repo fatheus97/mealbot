@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
@@ -6,7 +6,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import type { ScannedItemType, StockItem } from "../types";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 
-type ScannerState = "idle" | "scanning" | "review" | "error";
+type ScannerState = "idle" | "scanning" | "review" | "error" | "camera";
 
 interface ReceiptScannerProps {
   currentFridge: StockItem[];
@@ -64,10 +64,159 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmError, setConfirmError] = useState("");
   const [notice, setNotice] = useState("");
+  // Camera is being acquired (permission prompt open) — disables the file input
+  // and the button so a competing action can't race the in-flight getUserMedia.
+  const [cameraOpening, setCameraOpening] = useState(false);
+  // The preview <video> has metadata (a real frame), so Capture is safe to hit.
+  const [videoReady, setVideoReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
+  // Guards against a second openCamera() (e.g. rapid double-tap of "Take photo")
+  // racing the first — two getUserMedia calls would strand the first stream.
+  const openingRef = useRef(false);
+  // Guards the async canvas.toBlob() encode in capturePhoto the same way
+  // openingRef guards getUserMedia — one capture at a time, and a cancel/unmount
+  // during the encode drops the result instead of firing a scan.
+  const capturingRef = useRef(false);
+  // A ref mirror of `state` so the async openCamera()/capturePhoto() can read the
+  // CURRENT state after their await (the closure's `state` is stale).
+  const stateRef = useRef<ScannerState>(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const scanMutation = useScanReceipt();
   const mergeMutation = useMergeFridge();
+
+  // getUserMedia needs a secure context (HTTPS or localhost) and the API present.
+  // Evaluated at render (not module load) so it reflects the live environment.
+  const cameraSupported =
+    typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+
+  // Release the camera (stop every track) — call on capture, cancel, and unmount
+  // so a live camera indicator never lingers after the user is done.
+  const stopCamera = () => {
+    capturingRef.current = false;
+    const stream = streamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+  };
+
+  // Attach the live stream once the <video> for the camera state has mounted.
+  useEffect(() => {
+    if (state === "camera" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [state]);
+
+  // Safety net: stop the camera if the component unmounts mid-capture, and track
+  // mounted state so an in-flight openCamera() doesn't strand a stream (below).
+  // The setup body MUST reset mountedRef to true: under StrictMode (dev) React
+  // runs setup→cleanup→setup on mount, and without this the cleanup's `= false`
+  // would stick, making openCamera always think it's unmounted.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const stream = streamRef.current;
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, []);
+
+  const openCamera = async () => {
+    // Ignore re-entrant calls while a prompt/stream is already in flight or open.
+    if (openingRef.current || streamRef.current) return;
+    openingRef.current = true;
+    setCameraOpening(true);
+    setVideoReady(false);
+    setErrorMessage("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      // If we're no longer in a state where the camera should open — unmounted,
+      // or the user did something else during the (non-modal) permission prompt
+      // that moved us into a busy state (scanning/review/camera) — stop this
+      // just-acquired stream instead of clobbering that action and leaking the
+      // camera. "idle" and "error" are both openable (the button shows in both,
+      // so retry-after-denial must still work).
+      const openableState =
+        stateRef.current === "idle" || stateRef.current === "error";
+      if (!mountedRef.current || !openableState) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setState("camera");
+    } catch (err) {
+      // Permission denied / no camera / insecure context — degrade to file upload
+      // (the idle/error state still renders the file input).
+      const name = err instanceof DOMException ? err.name : "";
+      setErrorMessage(
+        name === "NotAllowedError"
+          ? "Camera permission denied — you can upload a photo instead."
+          : name === "NotFoundError"
+            ? "No camera found — you can upload a photo instead."
+            : "Couldn't open the camera — you can upload a photo instead.",
+      );
+      setState("error");
+    } finally {
+      openingRef.current = false;
+      setCameraOpening(false);
+    }
+  };
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    // Guard re-entry: a double-tap of Capture must not fire two encodes → two
+    // scans + two telemetry rows for one photo.
+    if (!video || capturingRef.current) return;
+    capturingRef.current = true;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      stopCamera(); // resets capturingRef
+      setErrorMessage("Couldn't capture the photo — try uploading instead.");
+      setState("error");
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // canvas → JPEG deliberately: gives us format control (sidesteps iOS HEIC,
+    // which the backend rejects) AND compresses the phone photo before upload.
+    canvas.toBlob(
+      (blob) => {
+        // If the user cancelled (Cancel → idle) or the component unmounted while
+        // the encode ran, drop the result — don't fire a /scan they backed out
+        // of. Still release the camera.
+        if (!mountedRef.current || stateRef.current !== "camera") {
+          stopCamera();
+          return;
+        }
+        stopCamera(); // resets capturingRef
+        if (!blob) {
+          setErrorMessage("Couldn't capture the photo — try uploading instead.");
+          setState("error");
+          return;
+        }
+        void handleScan(new File([blob], "receipt.jpg", { type: "image/jpeg" }));
+      },
+      "image/jpeg",
+      0.85,
+    );
+  };
+
+  const closeCamera = () => {
+    stopCamera();
+    setState("idle");
+  };
 
   const handleScan = async (file: File) => {
     setState("scanning");
@@ -199,15 +348,49 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               </button>
             </>
           ) : (
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,application/pdf,.pdf"
-              aria-label="Select receipt image or PDF"
-              onChange={handleFileChange}
-              disabled={scanMutation.isPending}
-            />
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,application/pdf,.pdf"
+                aria-label="Select receipt image or PDF"
+                onChange={handleFileChange}
+                disabled={scanMutation.isPending || cameraOpening}
+              />
+              {cameraSupported && (
+                <button onClick={openCamera} disabled={scanMutation.isPending || cameraOpening}>
+                  {cameraOpening ? "Opening camera…" : "📷 Take photo"}
+                </button>
+              )}
+            </>
           )}
+        </div>
+      )}
+
+      {/* Camera capture state — live preview + snap. Snapping draws the frame to
+          a canvas → JPEG → the same handleScan() path as an uploaded file. */}
+      {state === "camera" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            aria-label="Camera preview"
+            onLoadedMetadata={() => setVideoReady(true)}
+            style={{ width: "100%", maxWidth: 480, borderRadius: 8, background: "#000" }}
+          />
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button
+              onClick={capturePhoto}
+              disabled={!videoReady}
+              title={videoReady ? undefined : "Waiting for the camera…"}
+              style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: 4 }}
+            >
+              {videoReady ? "Capture" : "Starting camera…"}
+            </button>
+            <button onClick={closeCamera}>Cancel</button>
+          </div>
         </div>
       )}
 
