@@ -8,6 +8,12 @@ python-multipart~=0.0.32
 instructor~=1.15
 openai~=2.0
 google-genai~=2.10
+# REQUIRED by instructor's Gemini structured-output path — it derefs the $refs
+# in nested Pydantic schemas (e.g. MealPlanResponse) before sending to Gemini.
+# NOT dead code: without it every real Gemini call raises ConfigurationError →
+# 502 on scan/recipe/plan. The test suite mocks the LLM so CI can't catch its
+# absence; see tests/test_llm_deps.py. (Regression: dropped in #169, restored.)
+jsonref~=1.1
 
 #For DB
 sqlmodel~=0.0.38
