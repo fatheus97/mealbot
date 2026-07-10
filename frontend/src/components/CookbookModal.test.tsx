@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import { CookbookModal } from "./CookbookModal";
+import { setMobileViewport } from "../test/test-utils";
 
 vi.mock("../api", () => ({
   authFetch: vi.fn(),
@@ -91,6 +92,43 @@ describe("CookbookModal", () => {
     expect(screen.getByText("Steps")).toBeInTheDocument();
     expect(screen.getByText(/Dice chicken/)).toBeInTheDocument();
     expect(screen.getByText(/chicken breast \(300g\)/)).toBeInTheDocument();
+  });
+
+  it("renders a single-column recipe view on mobile (not the open-book spread)", async () => {
+    setMobileViewport(true);
+    mockedAuthFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(TWO_RECIPES),
+    });
+
+    const onClose = vi.fn();
+    render(<CookbookModal onClose={onClose} />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await waitFor(() => screen.getByText("Chicken Curry"));
+    await user.click(screen.getByText("Chicken Curry"));
+
+    // Mobile header: Back + Close pinned at the top (the ✕ was landing mid-page
+    // in the stacked-spread bug). All recipe content flows in one column.
+    expect(screen.getByRole("button", { name: /^← back$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /close cookbook/i })).toBeInTheDocument();
+    expect(screen.getByText("Chicken Curry")).toBeInTheDocument();
+    expect(screen.getByText("Ingredients")).toBeInTheDocument();
+    expect(screen.getByText("Steps")).toBeInTheDocument();
+    expect(screen.getByText(/chicken breast \(300g\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Dice chicken/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove from cookbook/i })).toBeInTheDocument();
+    // The desktop spread's "Back to index" label isn't used on mobile.
+    expect(screen.queryByText(/back to index/i)).not.toBeInTheDocument();
+
+    // The mobile header handlers actually fire (separate JSX tree from desktop —
+    // guard against a future edit silently dropping one). Back → index.
+    await user.click(screen.getByRole("button", { name: /^← back$/i }));
+    expect(screen.getByPlaceholderText(/Search recipes/)).toBeInTheDocument();
+    // Re-open and Close → onClose.
+    await user.click(screen.getByText("Chicken Curry"));
+    await user.click(screen.getByRole("button", { name: /close cookbook/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("returns to the index from the spread via Back", async () => {
