@@ -29,4 +29,23 @@ export function renderWithProviders(
   return { ...render(ui, { wrapper: Wrapper, ...options }), queryClient };
 }
 
+/**
+ * Install a `matchMedia` mock so `useIsMobile()` reports the given viewport in
+ * tests. jsdom ships no `matchMedia`, so without this every test renders the
+ * desktop branch — call this before rendering to exercise the mobile branch.
+ * Cleared automatically after each test (see src/test/setup.ts).
+ */
+export function setMobileViewport(isMobile: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: isMobile && /max-width/.test(query),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
 export { createTestQueryClient };

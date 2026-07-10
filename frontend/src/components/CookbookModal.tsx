@@ -4,6 +4,7 @@ import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { mealTypeLabel } from "../constants/mealTypes";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type { CookbookItem } from "../types";
 
 interface Props {
@@ -609,6 +610,7 @@ function useFitFontSize(
   maxPx: number,
   minPx: number,
   depKey: unknown,
+  enabled = true,
 ): void {
   // Pure DOM mutation — no state, no re-renders. The previous version
   // tracked fontPx in useState and called setFontPx() on every shrink
@@ -618,6 +620,14 @@ function useFitFontSize(
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
+    // Disabled (mobile single-column layout): the pages aren't the fixed-height
+    // book anymore — they flow and the modal scrolls — so keep full size for
+    // legibility instead of shrinking toward 12px.
+    if (!enabled) {
+      el.style.fontSize = `${maxPx}px`;
+      return;
+    }
 
     // Wait for the cover-widening transition (300ms + 20ms hold) before
     // measuring. Without the delay, the first rAF runs while the cover
@@ -649,7 +659,7 @@ function useFitFontSize(
       cancelAnimationFrame(raf);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depKey, maxPx, minPx]);
+  }, [depKey, maxPx, minPx, enabled]);
 }
 
 
@@ -691,10 +701,13 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
   // Per-page auto-fit. Ingredients and steps shrink independently so a
   // long ingredients list doesn't shrink steps along with it. depKey is the
   // recipe id so a new selection re-runs the fit pass.
+  const isMobile = useIsMobile();
   const ingredientsRef = useRef<HTMLDivElement | null>(null);
   const stepsRef = useRef<HTMLDivElement | null>(null);
-  useFitFontSize(ingredientsRef, 16, 12, item.meal_entry_id);
-  useFitFontSize(stepsRef, 16, 12, item.meal_entry_id);
+  // On mobile the two pages stack into one scrolling column, so skip the
+  // fit-to-fixed-height shrink and keep text legible.
+  useFitFontSize(ingredientsRef, 16, 12, item.meal_entry_id, !isMobile);
+  useFitFontSize(stepsRef, 16, 12, item.meal_entry_id, !isMobile);
   const pageStyleBase = {
     padding: "1rem 1.4rem 1.25rem",
     display: "flex",
@@ -703,8 +716,10 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
     position: "relative" as const,
   };
   const pageScrollStyle = {
-    overflowY: "auto" as const,
-    flex: 1,
+    // Desktop: each page is its own fixed-height scroll area. Mobile: pages flow
+    // at natural height and the whole spread scrolls as one column.
+    overflowY: isMobile ? ("visible" as const) : ("auto" as const),
+    flex: isMobile ? "0 0 auto" : 1,
     minHeight: 0,
     scrollbarWidth: "none" as const,
     msOverflowStyle: "none" as const,
@@ -735,12 +750,14 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
         flex: 1,
         minHeight: 0,
         display: "grid",
-        gridTemplateColumns: "1fr 10px 1fr",
+        gridTemplateColumns: isMobile ? "1fr" : "1fr 10px 1fr",
         backgroundColor: "#f5e9c8",
         borderRadius: "4px",
         boxShadow: "inset 0 0 0 1px #c8a86b",
         color: "#3b2412",
-        overflow: "hidden",
+        overflowX: "hidden",
+        // Mobile stacks the two pages into one scrolling column.
+        overflowY: isMobile ? "auto" : "hidden",
       }}
     >
       {/* Left page */}
@@ -792,9 +809,11 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
         </div>
       </div>
 
-      {/* Spine — uninterrupted top-to-bottom. */}
+      {/* Spine — uninterrupted top-to-bottom. Hidden on mobile, where the pages
+          stack vertically and the open-book metaphor doesn't apply. */}
       <div
         style={{
+          display: isMobile ? "none" : "block",
           background:
             "linear-gradient(90deg, #a8804a 0%, #6b4423 50%, #a8804a 100%)",
           boxShadow: "inset 0 0 4px rgba(0,0,0,0.5)",

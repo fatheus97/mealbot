@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useFridge, useUpdateFridge } from "../hooks/useServerState";
 import type { StockItem } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
@@ -46,6 +47,7 @@ function formatDate(iso: string | null | undefined, fallback = "\u2014"): string
 
 export function Fridge() {
   const { userId } = useAuth();
+  const isMobile = useIsMobile();
 
   const { data: serverFridge, isLoading, error: fetchError } = useFridge(userId);
   const updateFridgeMutation = useUpdateFridge();
@@ -305,6 +307,19 @@ export function Fridge() {
     );
   }
 
+  // A group's batches ordered earliest-expiration first (null dates last).
+  // Shared by the table (renderMultiBatchGroup) and card (renderMultiBatchCard)
+  // renderers so their sub-row ordering can't drift apart.
+  const sortedBatchIndices = (group: GroupedItem): number[] =>
+    [...group.flatIndices].sort((a, b) => {
+      const aDate = fridge[a].expiration_date ?? "";
+      const bDate = fridge[b].expiration_date ?? "";
+      if (!aDate && !bDate) return 0;
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      return aDate.localeCompare(bDate);
+    });
+
   const renderSingleRow = (group: GroupedItem) => {
     const idx = group.flatIndices[0];
     const item = fridge[idx];
@@ -361,14 +376,7 @@ export function Fridge() {
 
     // Sub-rows (when expanded), sorted by expiration date (earliest first, null last)
     if (isExpanded) {
-      const sortedIndices = [...group.flatIndices].sort((a, b) => {
-        const aDate = fridge[a].expiration_date ?? "";
-        const bDate = fridge[b].expiration_date ?? "";
-        if (!aDate && !bDate) return 0;
-        if (!aDate) return 1;
-        if (!bDate) return -1;
-        return aDate.localeCompare(bDate);
-      });
+      const sortedIndices = sortedBatchIndices(group);
       sortedIndices.forEach((flatIdx, batchIdx) => {
         const item = fridge[flatIdx];
         rows.push(
@@ -400,6 +408,108 @@ export function Fridge() {
     return rows;
   };
 
+  // --- Mobile card layout (the 5-col table is unusable at phone widths) ---
+  const cardStyle: React.CSSProperties = {
+    border: "1px solid #334155",
+    borderRadius: 8,
+    padding: "0.6rem 0.75rem",
+    marginBottom: "0.5rem",
+  };
+  const cardHeaderRow: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.4rem",
+    flexWrap: "wrap",
+  };
+  const cardMeta: React.CSSProperties = {
+    display: "flex",
+    gap: "0.75rem",
+    flexWrap: "wrap",
+    fontSize: "0.85rem",
+    color: "#94a3b8",
+    margin: "0.35rem 0",
+  };
+  const cardActions: React.CSSProperties = { display: "flex", gap: "0.4rem" };
+  const cardActionBtn: React.CSSProperties = { flex: 1, padding: "0.4rem" };
+  const useSoonBadge: React.CSSProperties = {
+    fontSize: "0.7rem",
+    color: "#fca5a5",
+    border: "1px solid #7f1d1d",
+    borderRadius: 4,
+    padding: "0.05rem 0.4rem",
+  };
+
+  const renderSingleCard = (group: GroupedItem) => {
+    const idx = group.flatIndices[0];
+    const item = fridge[idx];
+    return (
+      <div key={item._editId} style={cardStyle}>
+        <div style={cardHeaderRow}>
+          <strong>{item.name || "—"}</strong>
+          {item.need_to_use && <span style={useSoonBadge}>use soon</span>}
+        </div>
+        <div style={cardMeta}>
+          <span>{Math.round(item.quantity_grams)} g</span>
+          <span>exp {formatDate(item.expiration_date)}</span>
+        </div>
+        <div style={cardActions}>
+          <button style={cardActionBtn} onClick={() => openEditModal(idx)}>Edit</button>
+          <button style={cardActionBtn} onClick={() => requestRemoveItem(idx)}>Remove</button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMultiBatchCard = (group: GroupedItem) => {
+    const isExpanded = expandedGroups.has(group.key);
+    const sortedIndices = sortedBatchIndices(group);
+    return (
+      <div key={group.key} style={cardStyle}>
+        <div style={{ ...cardHeaderRow, cursor: "pointer" }} onClick={() => toggleGroup(group.key)}>
+          <span style={{ fontSize: "0.8rem", color: "#888" }}>{isExpanded ? "▼" : "▶"}</span>
+          <strong>{group.displayName}</strong>
+          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>({group.batchCount} batches)</span>
+          {group.needToUse && <span style={useSoonBadge}>use soon</span>}
+        </div>
+        <div style={cardMeta}>
+          <span>{Math.round(group.totalQuantity)} g total</span>
+          <span>earliest {formatDate(group.earliestExpiration)}</span>
+        </div>
+        <div style={cardActions}>
+          <button style={cardActionBtn} onClick={() => requestRemoveGroup(group)}>Remove all</button>
+        </div>
+        {isExpanded && sortedIndices.map((flatIdx, batchIdx) => {
+          const item = fridge[flatIdx];
+          return (
+            <div
+              key={`${group.key}_batch_${batchIdx}`}
+              style={{ ...cardStyle, marginTop: "0.5rem", marginBottom: 0, backgroundColor: "#0f172a" }}
+            >
+              <div style={cardHeaderRow}>
+                <span style={{ color: "#94a3b8" }}>Batch {batchIdx + 1}</span>
+                {item.need_to_use && <span style={useSoonBadge}>use soon</span>}
+              </div>
+              <div style={cardMeta}>
+                <span>{Math.round(item.quantity_grams)} g</span>
+                <span>exp {formatDate(item.expiration_date)}</span>
+              </div>
+              <div style={cardActions}>
+                <button style={cardActionBtn} onClick={() => openEditModal(flatIdx)}>Edit</button>
+                <button style={cardActionBtn} onClick={() => requestRemoveItem(flatIdx)}>Remove</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const mobileSortLabels: Record<SortKey, string> = {
+    name: "Name",
+    quantity: "Qty",
+    expires: "Expires",
+  };
+
   return (
     <section style={{ marginBottom: "2rem" }}>
       <div
@@ -426,35 +536,73 @@ export function Fridge() {
             </p>
           )}
 
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
-                <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("name")}>
-                  Ingredient{sortKey === "name" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
-                </th>
-                <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("quantity")}>
-                  Qty (g){sortKey === "quantity" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
-                </th>
-                <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("expires")}>
-                  Expires{sortKey === "expires" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
-                </th>
-                <th>Need to use?</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
+          {isMobile ? (
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  flexWrap: "wrap",
+                  margin: "0.25rem 0 0.75rem",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <span style={{ color: "#888" }}>Sort:</span>
+                {(["name", "quantity", "expires"] as SortKey[]).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => toggleSort(k)}
+                    style={{
+                      padding: "0.25rem 0.6rem",
+                      fontSize: "0.85rem",
+                      minHeight: "unset",
+                      borderColor: sortKey === k ? "#646cff" : undefined,
+                    }}
+                  >
+                    {mobileSortLabels[k]}
+                    {sortKey === k ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                ))}
+              </div>
               {sortedGroups.map((group) =>
                 group.batchCount === 1
-                  ? renderSingleRow(group)
-                  : renderMultiBatchGroup(group)
+                  ? renderSingleCard(group)
+                  : renderMultiBatchCard(group)
               )}
-              {fridge.length === 0 && !isLoading && (
-                <tr>
-                  <td colSpan={5}>Fridge is empty.</td>
+              {fridge.length === 0 && !isLoading && <p>Fridge is empty.</p>}
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("name")}>
+                    Ingredient{sortKey === "name" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("quantity")}>
+                    Qty (g){sortKey === "quantity" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
+                  </th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("expires")}>
+                    Expires{sortKey === "expires" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
+                  </th>
+                  <th>Need to use?</th>
+                  <th>Action</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sortedGroups.map((group) =>
+                  group.batchCount === 1
+                    ? renderSingleRow(group)
+                    : renderMultiBatchGroup(group)
+                )}
+                {fridge.length === 0 && !isLoading && (
+                  <tr>
+                    <td colSpan={5}>Fridge is empty.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
 
           <div style={{ marginTop: "0.5rem" }}>
             <button onClick={openAddModal}>Add ingredient</button>

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReceiptScanner } from './ReceiptScanner';
-import { renderWithProviders } from '../test/test-utils';
+import { renderWithProviders, setMobileViewport } from '../test/test-utils';
 
 vi.mock('../api', () => ({
   authFetch: vi.fn(),
@@ -77,6 +77,37 @@ describe('ReceiptScanner', () => {
     // Should show Add to Fridge and Cancel buttons
     expect(screen.getByRole('button', { name: /add to fridge/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+  });
+
+  it('renders review items as cards (not a table) on mobile, edits still flow', async () => {
+    setMobileViewport(true);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+        { name: 'rice', quantity_grams: 1000, need_to_use: true, item_type: 'ingredient' as const },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await waitFor(() =>
+      expect(screen.getByDisplayValue('chicken breast')).toBeInTheDocument(),
+    );
+
+    // Mobile branch: the 7-col editable table becomes labelled cards.
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/item 1 name/i)).toBeInTheDocument();
+    const qty = screen.getByLabelText(/item 1 quantity/i);
+    // Edits still flow through the same updateReviewItem handler + qty validation.
+    await user.clear(qty);
+    await user.type(qty, '250');
+    expect(qty).toHaveValue('250');
+    // Result label recomputes from the edited value (derive() is shared with the
+    // table renderer), and the confirm control is preserved.
+    expect(screen.getByText(/250g \(new\)/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add to fridge/i })).toBeInTheDocument();
   });
 
   it('shows delta for existing fridge items', async () => {

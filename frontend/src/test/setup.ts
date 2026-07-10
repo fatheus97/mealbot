@@ -36,4 +36,7 @@ vi.stubGlobal('sessionStorage', createMemoryStorage());
 afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
+  // Reset any viewport matchMedia mock (see test-utils setMobileViewport) so a
+  // mobile test can't leak into the next test's default (desktop) rendering.
+  Reflect.deleteProperty(window, 'matchMedia');
 });

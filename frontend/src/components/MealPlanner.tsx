@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
 import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
@@ -40,6 +41,7 @@ interface MealPlannerProps {
 
 export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
   const { userId } = useAuth();
+  const isMobile = useIsMobile();
   const generatePlanMutation = useGeneratePlan();
   const regenerateMutation = useRegeneratePlan();
   const confirmMutation = useConfirmPlan();
@@ -413,7 +415,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       {effectiveMode === "cook_now" && <CookNowForm />}
 
       {effectiveMode === "plan_ahead" && (<>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
         <label>
           Days to plan:
           <input type="number" value={days} onChange={(e) => setDays(Number(e.target.value) || 1)} min={1} max={7} style={{ width: "100%", marginTop: "0.25rem" }} />
@@ -446,7 +448,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           <input type="number" value={peopleCount} onChange={(e) => setPeopleCount(Number(e.target.value) || 1)} min={1} max={10} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
 
-        <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={stockOnly}
@@ -455,17 +457,17 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           Use only stock ingredients (no shopping)
         </label>
 
-        <label style={{ gridColumn: "span 2" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           Taste Preferences (comma separated):
           <input type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder="e.g. spicy, savory, Asian" style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
 
-        <label style={{ gridColumn: "span 2" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           Ingredients to Avoid (comma separated):
           <input type="text" value={avoidIngredients} onChange={(e) => setAvoidIngredients(e.target.value)} placeholder="e.g. peanuts, cilantro" style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
 
-        <label style={{ gridColumn: "span 2" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           Ingredients to use up (this run only):
           <IngredientChipInput
             values={ingredientsToUse}
@@ -475,7 +477,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           />
         </label>
 
-        <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+        <label style={{ gridColumn: isMobile ? "auto" : "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={customizeDays}
@@ -488,7 +490,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         </label>
 
         {customizeDays && (
-          <div style={{ gridColumn: "span 2", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+          <div style={{ gridColumn: isMobile ? "auto" : "span 2", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             {Array.from({ length: days }).map((_, dayIdx) => {
               const layout = dayLayouts[dayIdx] ?? userDefaultLayout;
               const expanded = expandedDays.has(dayIdx);
@@ -655,7 +657,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                        borderRadius: "4px",
                      }}
                    >
-                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                        {!isConfirmed && (
                          <button
                            onClick={() => toggleFreeze(idx, mealIdx)}

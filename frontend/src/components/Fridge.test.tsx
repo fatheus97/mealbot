@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Fridge } from './Fridge';
 import { AuthProvider } from '../contexts/AuthContext';
+import { setMobileViewport } from '../test/test-utils';
 import type { ReactNode } from 'react';
 
 vi.mock('../api', () => ({
@@ -54,6 +55,32 @@ describe('Fridge', () => {
   it('shows "Please log in" when no userId', () => {
     render(<Fridge />, { wrapper: createWrapper() });
     expect(screen.getByText(/please log in/i)).toBeInTheDocument();
+  });
+
+  it('renders items as cards (not a table) on a mobile viewport', async () => {
+    loginUser();
+    setMobileViewport(true);
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { name: 'Chicken', quantity_grams: 500, need_to_use: false },
+          { name: 'Rice', quantity_grams: 1000, need_to_use: true },
+        ]),
+    });
+
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Chicken')).toBeInTheDocument());
+
+    // Mobile branch: the 5-col table is replaced by cards + sort chips.
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Name/ })).toBeInTheDocument();
+    // Each item is a card with its own Edit/Remove (still wired to the same handlers).
+    expect(screen.getAllByRole('button', { name: /^Edit$/ })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Remove$/ })).toHaveLength(2);
+    // need_to_use item surfaces the "use soon" badge.
+    expect(screen.getByText(/use soon/i)).toBeInTheDocument();
   });
 
   it('renders server items as read-only text', async () => {

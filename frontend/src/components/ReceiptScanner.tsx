@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import type { ChangeEvent } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type { ScannedItemType, StockItem } from "../types";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 
@@ -53,6 +54,7 @@ const buildDemoScanItems = (): ReviewItem[] => {
 
 export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const { isDemo } = useAuth();
+  const isMobile = useIsMobile();
   const [state, setState] = useState<ScannerState>("idle");
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   // machine_generation id for the scan on screen — echoed back on merge so the
@@ -228,93 +230,165 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
           {reviewItems.length === 0 ? (
             <p>No food items found in receipt.</p>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "0.5rem" }}>
-              <thead>
-                <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
-                  <th>Ingredient</th>
-                  <th>Type</th>
-                  <th>Added Qty (g)</th>
-                  <th>Expires</th>
-                  <th>Result</th>
-                  <th>Need to use?</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reviewItems.map((item, index) => {
-                  const addedNum = parseQty(item.addedQty);
-                  const isInvalid = Number.isNaN(addedNum);
-                  const isNew = item.existingQty === 0;
-                  const resultLabel = isInvalid
-                    ? "—"
-                    : isNew
-                      ? `${addedNum}g (new)`
-                      : `+${addedNum} → ${item.existingQty + addedNum}g`;
-                  return (
-                    <tr key={index} style={{ borderBottom: "1px solid #eee" }}>
-                      <td>
-                        <input
-                          type="text"
-                          value={item.name}
-                          onChange={(e) => updateReviewItem(index, "name", e.target.value)}
-                        />
-                      </td>
-                      <td>
-                        <span style={{
-                          fontSize: "0.75rem",
-                          padding: "0.15rem 0.4rem",
-                          borderRadius: "4px",
-                          backgroundColor: item.itemType === "ingredient" ? "#1e3a2f" : "#3b1e2f",
-                          color: item.itemType === "ingredient" ? "#4ade80" : "#f9a8d4",
-                        }}>
-                          {item.itemType === "ingredient" ? "ingredient" : "snack"}
-                        </span>
-                      </td>
-                      <td>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={item.addedQty}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === "" || /^\d*\.?\d*$/.test(v)) {
-                              updateReviewItem(index, "addedQty", v);
-                              setConfirmError("");
-                            }
-                          }}
-                          style={{
-                            width: "80px",
-                            border: isInvalid ? "1px solid #ef4444" : undefined,
-                          }}
-                          aria-invalid={isInvalid}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="date"
-                          value={item.expirationDate ?? ""}
-                          onChange={(e) => updateReviewItem(index, "expirationDate", e.target.value || null)}
-                          style={{ width: "130px" }}
-                        />
-                      </td>
-                      <td style={{ color: isNew && !isInvalid ? "#4ade80" : "inherit" }}>
-                        {resultLabel}
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={item.needToUse}
-                          onChange={() => updateReviewItem(index, "needToUse", !item.needToUse)}
-                        />
-                      </td>
-                      <td>
-                        <button onClick={() => removeReviewItem(index)}>Remove</button>
-                      </td>
+            (() => {
+              const typeBadge = (item: ReviewItem) => ({
+                fontSize: "0.75rem",
+                padding: "0.15rem 0.4rem",
+                borderRadius: "4px",
+                backgroundColor: item.itemType === "ingredient" ? "#1e3a2f" : "#3b1e2f",
+                color: item.itemType === "ingredient" ? "#4ade80" : "#f9a8d4",
+              });
+              const derive = (item: ReviewItem) => {
+                const addedNum = parseQty(item.addedQty);
+                const isInvalid = Number.isNaN(addedNum);
+                const isNew = item.existingQty === 0;
+                const resultLabel = isInvalid
+                  ? "—"
+                  : isNew
+                    ? `${addedNum}g (new)`
+                    : `+${addedNum} → ${item.existingQty + addedNum}g`;
+                return { addedNum, isInvalid, isNew, resultLabel };
+              };
+              const onQtyChange = (index: number) => (e: ChangeEvent<HTMLInputElement>) => {
+                const v = e.target.value;
+                if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                  updateReviewItem(index, "addedQty", v);
+                  setConfirmError("");
+                }
+              };
+
+              if (isMobile) {
+                return (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    {reviewItems.map((item, index) => {
+                      const { isInvalid, isNew, resultLabel } = derive(item);
+                      return (
+                        <div key={index} style={{ border: "1px solid #334155", borderRadius: 8, padding: "0.6rem 0.75rem", marginBottom: "0.5rem" }}>
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => updateReviewItem(index, "name", e.target.value)}
+                            aria-label={`Item ${index + 1} name`}
+                            style={{ width: "100%", boxSizing: "border-box" }}
+                          />
+                          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", margin: "0.4rem 0" }}>
+                            <span style={typeBadge(item)}>
+                              {item.itemType === "ingredient" ? "ingredient" : "snack"}
+                            </span>
+                            <span style={{ fontSize: "0.85rem", color: isNew && !isInvalid ? "#4ade80" : "#94a3b8" }}>
+                              {resultLabel}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+                            <label style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.8rem" }}>
+                              Qty (g)
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={item.addedQty}
+                                onChange={onQtyChange(index)}
+                                style={{ width: "6rem", border: isInvalid ? "1px solid #ef4444" : undefined }}
+                                aria-invalid={isInvalid}
+                                aria-label={`Item ${index + 1} quantity`}
+                              />
+                            </label>
+                            <label style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.8rem" }}>
+                              Expires
+                              <input
+                                type="date"
+                                value={item.expirationDate ?? ""}
+                                onChange={(e) => updateReviewItem(index, "expirationDate", e.target.value || null)}
+                                aria-label={`Item ${index + 1} expiration date`}
+                              />
+                            </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem" }}>
+                              <input
+                                type="checkbox"
+                                checked={item.needToUse}
+                                onChange={() => updateReviewItem(index, "needToUse", !item.needToUse)}
+                                aria-label={`Item ${index + 1} need to use soon`}
+                              />
+                              use soon
+                            </label>
+                          </div>
+                          <button onClick={() => removeReviewItem(index)} style={{ width: "100%", marginTop: "0.5rem" }}>
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              return (
+                <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "0.5rem" }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
+                      <th>Ingredient</th>
+                      <th>Type</th>
+                      <th>Added Qty (g)</th>
+                      <th>Expires</th>
+                      <th>Result</th>
+                      <th>Need to use?</th>
+                      <th>Action</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {reviewItems.map((item, index) => {
+                      const { isInvalid, isNew, resultLabel } = derive(item);
+                      return (
+                        <tr key={index} style={{ borderBottom: "1px solid #eee" }}>
+                          <td>
+                            <input
+                              type="text"
+                              value={item.name}
+                              onChange={(e) => updateReviewItem(index, "name", e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <span style={typeBadge(item)}>
+                              {item.itemType === "ingredient" ? "ingredient" : "snack"}
+                            </span>
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={item.addedQty}
+                              onChange={onQtyChange(index)}
+                              style={{ width: "80px", border: isInvalid ? "1px solid #ef4444" : undefined }}
+                              aria-invalid={isInvalid}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="date"
+                              value={item.expirationDate ?? ""}
+                              onChange={(e) => updateReviewItem(index, "expirationDate", e.target.value || null)}
+                              style={{ width: "130px" }}
+                            />
+                          </td>
+                          <td style={{ color: isNew && !isInvalid ? "#4ade80" : "inherit" }}>
+                            {resultLabel}
+                          </td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={item.needToUse}
+                              onChange={() => updateReviewItem(index, "needToUse", !item.needToUse)}
+                            />
+                          </td>
+                          <td>
+                            <button onClick={() => removeReviewItem(index)}>Remove</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()
           )}
           {confirmError && (
             <p style={{ color: "#f87171", margin: "0.25rem 0 0.5rem" }}>{confirmError}</p>

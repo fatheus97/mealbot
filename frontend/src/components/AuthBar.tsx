@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
 import { SettingsPopup } from "./SettingsPopup";
 
 export function AuthBar() {
   const { userId, email, login, logout, loginDemo, demoEnabled, register, registrationEnabled } = useAuth();
+  const isMobile = useIsMobile();
   const [inputEmail, setInputEmail] = useState(email);
   const [inputPassword, setInputPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -57,7 +59,7 @@ export function AuthBar() {
   return (
     <section style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#f0f8ff", color: "#111", borderRadius: "8px" }}>
       <h2>{userId ? "Welcome" : "Login"}</h2>
-      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: isMobile ? "stretch" : "center", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap" }}>
         {!userId && (
           <>
             <input
@@ -108,8 +110,8 @@ export function AuthBar() {
           </>
         )}
         {userId && (
-          <div style={{ display: "flex", gap: "1rem", alignItems: "center", position: "relative" }}>
-             <span>✅ {email}</span>
+          <div style={{ display: "flex", gap: "1rem", alignItems: "center", position: "relative", flexWrap: "wrap" }}>
+             <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>✅ {email}</span>
              <button
                onClick={() => setShowSettings(!showSettings)}
                style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", padding: "0.25rem" }}

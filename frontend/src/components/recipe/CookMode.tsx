@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { PlannedMeal } from "../../types";
 import { mealTypeLabel } from "../../constants/mealTypes";
 import { tokenizeStepTimers } from "./cookMode.utils";
+import { useIsMobile } from "../../hooks/useIsMobile";
 
 interface Props {
   meal: PlannedMeal;
@@ -86,6 +87,7 @@ export function CookMode({
   donePending = false,
   doneError = null,
 }: Props) {
+  const isMobile = useIsMobile();
   const total = meal.steps.length;
   const [current, setCurrent] = useState<number>(() => Math.min(readStep(storageKey), Math.max(0, total - 1)));
   const [showIngredients, setShowIngredients] = useState(false);
@@ -450,11 +452,16 @@ export function CookMode({
         </div>
       </div>
 
-      {/* Ingredients side panel — a flex sibling, so it narrows the main column
-          instead of covering it. */}
+      {/* Ingredients panel. Desktop: a flex sibling that narrows the main column.
+          Mobile: a full-screen overlay (40vw would leave the step text too
+          cramped on a phone), toggled on/off over the steps. */}
       {showIngredients && (
         <aside
-          style={{ width: "min(20rem, 40vw)", flexShrink: 0, background: "#0f172a", borderLeft: "1px solid #1e293b", padding: "1rem", overflowY: "auto", boxSizing: "border-box" }}
+          style={
+            isMobile
+              ? { position: "absolute", inset: 0, zIndex: 10, background: "#0f172a", padding: "1rem", overflowY: "auto", boxSizing: "border-box" }
+              : { width: "min(20rem, 40vw)", flexShrink: 0, background: "#0f172a", borderLeft: "1px solid #1e293b", padding: "1rem", overflowY: "auto", boxSizing: "border-box" }
+          }
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
             <strong>Ingredients</strong>
