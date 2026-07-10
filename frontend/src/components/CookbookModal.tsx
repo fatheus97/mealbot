@@ -776,7 +776,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
           <button
             type="button"
             onClick={onBack}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#7a5a2e", fontFamily: "inherit", fontSize: "0.9rem", padding: "0.25rem 0" }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#7a5a2e", fontFamily: "inherit", fontSize: "0.95rem", padding: "0.5rem 0.6rem 0.5rem 0", minHeight: 44 }}
           >
             ← Back
           </button>
@@ -784,7 +784,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
             type="button"
             aria-label="Close cookbook"
             onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#7a5a2e", fontSize: "1.35rem", lineHeight: 1, padding: "0.25rem 0.4rem" }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#7a5a2e", fontSize: "1.4rem", lineHeight: 1, padding: "0.5rem 0.6rem", minHeight: 44, minWidth: 44 }}
           >
             ✕
           </button>

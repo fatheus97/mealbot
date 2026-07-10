@@ -102,7 +102,8 @@ describe("CookbookModal", () => {
       json: () => Promise.resolve(TWO_RECIPES),
     });
 
-    render(<CookbookModal onClose={() => {}} />, { wrapper: createWrapper() });
+    const onClose = vi.fn();
+    render(<CookbookModal onClose={onClose} />, { wrapper: createWrapper() });
     const user = userEvent.setup();
     await waitFor(() => screen.getByText("Chicken Curry"));
     await user.click(screen.getByText("Chicken Curry"));
@@ -119,6 +120,15 @@ describe("CookbookModal", () => {
     expect(screen.getByRole("button", { name: /remove from cookbook/i })).toBeInTheDocument();
     // The desktop spread's "Back to index" label isn't used on mobile.
     expect(screen.queryByText(/back to index/i)).not.toBeInTheDocument();
+
+    // The mobile header handlers actually fire (separate JSX tree from desktop —
+    // guard against a future edit silently dropping one). Back → index.
+    await user.click(screen.getByRole("button", { name: /^← back$/i }));
+    expect(screen.getByPlaceholderText(/Search recipes/)).toBeInTheDocument();
+    // Re-open and Close → onClose.
+    await user.click(screen.getByText("Chicken Curry"));
+    await user.click(screen.getByRole("button", { name: /close cookbook/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("returns to the index from the spread via Back", async () => {
