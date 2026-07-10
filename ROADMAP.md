@@ -2,9 +2,9 @@
 
 > Structured from personal notes (`confirm_cok.md`) and reconciled against the
 > actual codebase on **2026-07-02**, re-reconciled **2026-07-10** after the
-> in-recipe UX thrust, the edit-telemetry work, and two production-hardening
-> passes landed. Where the notes and the code disagreed, the code wins and the
-> discrepancy is called out.
+> in-recipe UX thrust, the edit-telemetry work, two production-hardening passes,
+> and the mobile-friendly + camera-capture thrust landed. Where the notes and the
+> code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
 
@@ -61,6 +61,9 @@ Shipped and verified in the codebase:
   (PDF/embedding) isolated on a dedicated bounded thread pool so it can't
   queue-starve auth, list pagination + catalog index, deps current (Python 3.14,
   node 26, plugin-react v6).
+- **Mobile** (shipped 2026-07-10, #176–180): responsive across the app via a
+  `useIsMobile()` hook (inline styles can't use CSS `@media`), plus camera
+  receipt capture (`getUserMedia` → canvas → JPEG). Verified on a real iPhone.
 
 **Everything below is what's left.**
 
@@ -88,8 +91,8 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 |---|---|---|---|---|
 | **Editable results** | ✅ | — | — | **Shipped 2026-07-02.** Recipe name/ingredients/steps editable in place (`MealEditor`) via `PATCH /plan/.../meals/{id}` (`edit_meal`), including edit-after-confirm. Was the enabler for edit telemetry (now shipped) and "user edits as feedback" (capture done, consumption pending). |
 | **Nicer UI** | 🟡 | L | — | Cookbook is genuinely polished; the core planner is functional-but-plain inline styles. Open-ended — worth scoping to specific screens rather than "make it nice". |
-| **Mobile-friendly UI** | 🟡 | M | — | Layout uses flex/grid + 960px cap but **no responsive breakpoint media queries** (only `prefers-color-scheme`/`prefers-reduced-motion` exist), untested on real devices. Pairs naturally with camera capture. |
-| **Camera capture** | ⬜ | S–M | mobile | Receipt scanner is **file-upload only**; no `getUserMedia`/camera. Most valuable on mobile. |
+| **Mobile-friendly UI** | ✅ | — | — | **Shipped 2026-07-10** (#176 + on-device fixes #178/#179/#180). Inline styles can't be reached by CSS `@media`, so responsiveness is JS-driven via a `useIsMobile()` hook components branch on; tables→cards, form grids→1-col, cookbook spread→single column, cook-mode ingredients→overlay + step-swipe. On-device iPhone QA caught bugs the static pass missed (AuthBar/plan-list overflow, broken cookbook view). |
+| **Camera capture** | ✅ | — | — | **Shipped 2026-07-10** (#177). "Take photo" → `getUserMedia` → canvas → JPEG (sidesteps iOS HEIC + compresses) into the existing scan flow; graceful file-upload fallback. Two adversarial-review rounds caught 6 defects (stream leak, StrictMode dead-camera, races). |
 | **Request correlation IDs (I-3)** | ⬜ | M | — | No trace/request IDs, no structured JSON logging. Middleware + `ContextVar` + JSON formatter + log-call updates. Own PR. |
 | **Frontend E2E (U-8)** | ⬜ | M–L | — | No Playwright/Cypress. Deferred until a workflow needs it; low urgency for a solo alpha. |
 
@@ -135,24 +138,28 @@ payment or goes public.
 Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs the below
      │
      ├─ ✅ done: editable results, real-time cooking mode, edit-telemetry CAPTURE,
-     │          two prod-hardening passes
+     │          two prod-hardening passes, mobile-friendly UI + camera capture
      │
-     ├─ Beta polish thrust: mobile-friendly ─► camera capture   (if users on phones)
      ├─ close the loop: user-edits-as-feedback  (capture is done — now CONSUME it)
      │
      └─ Monetization track: token-usage tracking ─► paygate
                 calendar dates ─► leftovers + calendar browsing
 ```
 
-**The in-recipe UX thrust is shipped, so the next decision is which improvement
-earns the most from real usage.** Highest-signal candidates now:
-1. **Mobile-friendly + camera capture** — if alpha users are on phones, this is
-   the biggest UX gap (no responsive breakpoints; receipt scan is upload-only).
-2. **Close the edit-feedback loop** — the capture data is accumulating unused;
-   consuming it (edits → better generations) is the payoff the telemetry was for,
-   and a genuine product differentiator.
-3. **Monetization groundwork** (token tracking → paygate) — only worth starting
-   when charging is near-term.
+**The in-recipe UX thrust AND the mobile+camera thrust are shipped, so the next
+decision is which improvement earns the most from real usage.** Highest-signal
+candidates now:
+1. **Close the edit-feedback loop** — the `MachineCorrection` capture data is
+   accumulating **unused**; consuming it (edits → better generations) is the
+   payoff the telemetry was built for, and a genuine product differentiator.
+   Needs a design choice on *how* edits influence generation (prompt context /
+   few-shot / per-user preference) + enough correction volume to be worthwhile.
+2. **Monetization groundwork** — token-usage tracking (nothing captured today)
+   → paygate. Only worth starting when charging is near-term; token tracking is
+   also just good cost-hygiene regardless.
+3. **Cheap hygiene wins** (S each): `authsession` cleanup job (unbounded table
+   growth), password-change endpoint. Low-risk, unblock nothing, reduce risk.
 
-Which one depends on a signal only you have: *are alpha users on mobile, and is
-enough correction data accumulating to make the feedback loop worthwhile yet?*
+Which of #1 vs #2 depends on a signal only you have: *is enough correction data
+accumulating to make the feedback loop measurably better yet, and how near-term
+is charging?*
