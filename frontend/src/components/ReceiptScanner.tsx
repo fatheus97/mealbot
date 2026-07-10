@@ -76,8 +76,12 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   // Guards against a second openCamera() (e.g. rapid double-tap of "Take photo")
   // racing the first — two getUserMedia calls would strand the first stream.
   const openingRef = useRef(false);
-  // A ref mirror of `state` so the async openCamera() can read the CURRENT state
-  // after its await (the closure's `state` is stale).
+  // Guards the async canvas.toBlob() encode in capturePhoto the same way
+  // openingRef guards getUserMedia — one capture at a time, and a cancel/unmount
+  // during the encode drops the result instead of firing a scan.
+  const capturingRef = useRef(false);
+  // A ref mirror of `state` so the async openCamera()/capturePhoto() can read the
+  // CURRENT state after their await (the closure's `state` is stale).
   const stateRef = useRef<ScannerState>(state);
   useEffect(() => {
     stateRef.current = state;
@@ -94,6 +98,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   // Release the camera (stop every track) — call on capture, cancel, and unmount
   // so a live camera indicator never lingers after the user is done.
   const stopCamera = () => {
+    capturingRef.current = false;
     const stream = streamRef.current;
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
@@ -169,13 +174,16 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
   const capturePhoto = () => {
     const video = videoRef.current;
-    if (!video) return;
+    // Guard re-entry: a double-tap of Capture must not fire two encodes → two
+    // scans + two telemetry rows for one photo.
+    if (!video || capturingRef.current) return;
+    capturingRef.current = true;
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      stopCamera();
+      stopCamera(); // resets capturingRef
       setErrorMessage("Couldn't capture the photo — try uploading instead.");
       setState("error");
       return;
@@ -185,7 +193,14 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     // which the backend rejects) AND compresses the phone photo before upload.
     canvas.toBlob(
       (blob) => {
-        stopCamera();
+        // If the user cancelled (Cancel → idle) or the component unmounted while
+        // the encode ran, drop the result — don't fire a /scan they backed out
+        // of. Still release the camera.
+        if (!mountedRef.current || stateRef.current !== "camera") {
+          stopCamera();
+          return;
+        }
+        stopCamera(); // resets capturingRef
         if (!blob) {
           setErrorMessage("Couldn't capture the photo — try uploading instead.");
           setState("error");

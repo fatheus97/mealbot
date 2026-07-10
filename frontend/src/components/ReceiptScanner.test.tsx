@@ -49,6 +49,23 @@ function mockCamera(behavior: 'granted' | 'denied' | 'notfound') {
   return { getUserMedia, stop };
 }
 
+/** Stub canvas 2D + toBlob (jsdom implements neither). mode 'deferred' holds the
+ *  toBlob callback so a test can fire it after a cancel/double-tap. */
+function mockCanvas(mode: 'sync' | 'deferred') {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+  let deferred: (() => void) | null = null;
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+    ((cb: BlobCallback) => {
+      const blob = new Blob(['jpeg-bytes'], { type: 'image/jpeg' });
+      if (mode === 'sync') cb(blob);
+      else deferred = () => cb(blob);
+    }) as HTMLCanvasElement['toBlob'],
+  );
+  return { flush: () => deferred?.() };
+}
+
 describe('ReceiptScanner', () => {
   it('renders file input (no scan button — upload auto-triggers)', () => {
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
@@ -520,6 +537,56 @@ describe('ReceiptScanner', () => {
       await waitFor(() =>
         expect(screen.getByLabelText(/camera preview/i)).toBeInTheDocument(),
       );
+    });
+
+    it('captures a photo and scans it (canvas → JPEG → handleScan)', async () => {
+      mockCamera('granted');
+      mockCanvas('sync');
+      mockedScanReceipt.mockResolvedValue({ generation_id: 3, items: [] });
+
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      fireEvent.loadedMetadata(await screen.findByLabelText(/camera preview/i));
+      await user.click(screen.getByRole('button', { name: /^capture$/i }));
+
+      await waitFor(() => expect(mockedScanReceipt).toHaveBeenCalledTimes(1));
+      const file = mockedScanReceipt.mock.calls[0][0] as File;
+      expect(file.name).toBe('receipt.jpg');
+      expect(file.type).toBe('image/jpeg');
+    });
+
+    it('drops the capture (no scan) if the user cancels during the encode', async () => {
+      mockCamera('granted');
+      const canvas = mockCanvas('deferred');
+
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      fireEvent.loadedMetadata(await screen.findByLabelText(/camera preview/i));
+      await user.click(screen.getByRole('button', { name: /^capture$/i })); // toBlob pending
+      await user.click(screen.getByRole('button', { name: /^cancel$/i })); // → idle
+      canvas.flush(); // toBlob callback fires after the cancel
+
+      expect(mockedScanReceipt).not.toHaveBeenCalled();
+      expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
+    });
+
+    it('does not double-scan on a rapid double-tap of Capture', async () => {
+      mockCamera('granted');
+      const canvas = mockCanvas('deferred');
+      mockedScanReceipt.mockResolvedValue({ generation_id: 3, items: [] });
+
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      fireEvent.loadedMetadata(await screen.findByLabelText(/camera preview/i));
+      const capture = screen.getByRole('button', { name: /^capture$/i });
+      await user.click(capture); // capturing → toBlob pending
+      await user.click(capture); // guarded — no second encode
+      canvas.flush();
+
+      await waitFor(() => expect(mockedScanReceipt).toHaveBeenCalledTimes(1));
     });
   });
 });
