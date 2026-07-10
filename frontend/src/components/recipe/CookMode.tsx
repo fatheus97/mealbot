@@ -266,6 +266,31 @@ export function CookMode({
     });
   };
 
+  // Touch swipe to page between steps (mobile), alongside the Back/Next buttons
+  // and the ← → keys. Swipe left → next step, swipe right → previous step.
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const onStepTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const t = e.changedTouches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const onStepTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    // Only a decisive HORIZONTAL swipe navigates — ignore taps (e.g. timer
+    // chips) and vertical scrolls of a long step.
+    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return;
+    move(dx < 0 ? 1 : -1);
+  };
+  // If the OS cancels the gesture mid-swipe (incoming call, notification), drop
+  // the start point so a later touchend can't act on a stale position.
+  const onStepTouchCancel = () => {
+    touchStartRef.current = null;
+  };
+
   const startTimer = (seconds: number) => {
     // Same lower + upper bound as auto-detected durations, so a fat-fingered
     // manual entry can't spawn a multi-day timer.
@@ -347,8 +372,14 @@ export function CookMode({
           <div style={{ height: "100%", width: `${Math.min(100, ((current + 1) / Math.max(1, total)) * 100)}%`, background: "#22c55e", borderRadius: "2px", transition: "width 0.2s" }} />
         </div>
 
-        {/* Current step (durations are tappable timers) */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", overflowY: "auto" }}>
+        {/* Current step (durations are tappable timers). Swipe left/right here
+            pages between steps on touch devices. */}
+        <div
+          onTouchStart={onStepTouchStart}
+          onTouchEnd={onStepTouchEnd}
+          onTouchCancel={onStepTouchCancel}
+          style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", overflowY: "auto" }}
+        >
           <p style={{ fontSize: "1.6rem", lineHeight: 1.5, maxWidth: "40rem", margin: 0 }}>
             {tokenizeStepTimers(step).map((seg, i) => {
               const secs = seg.seconds;
