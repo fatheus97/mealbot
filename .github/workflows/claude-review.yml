@@ -17,16 +17,23 @@ jobs:
         with:
           fetch-depth: 1
 
-      # Pinned by SHA to v1.0.112 — the floating `v1` tag was advanced past
-      # this point and the newer release ships a broken native installer
-      # (https://github.com/anthropics/claude-code-action/issues/1254). Symptom:
-      # the action exits with "ReferenceError: Claude Code native binary not
-      # found at /home/runner/.local/bin/claude". Bump only after that issue
-      # is resolved upstream.
+      # Pinned by SHA to v1.0.166 (commit f87768c = annotated tag v1.0.166,
+      # bundles Claude Code 2.1.202). This pin reviewed PRs #173–#180 cleanly.
+      # The review turn began silently erroring on 2026-07-10 with NO change
+      # here — the model turn returns is_error:true after an empty ~2s turn
+      # (most likely an expired / usage-limited CLAUDE_CODE_OAUTH_TOKEN), which
+      # the action redacts as "full output hidden for security". That is a
+      # runtime failure, NOT the pin. Before bumping, test on a throwaway PR and
+      # confirm a REAL review body is posted, not just the track_progress stub.
       - uses: anthropics/claude-code-action@f87768c6d25f92ae6efa7175e223ef77d4cbf97f  # v1.0.166
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
+          # Temporary diagnostic: unhides the SDK error the action otherwise
+          # redacts ("full output hidden for security"), so an errored empty
+          # turn shows its actual cause in the job log. Safe on a private,
+          # single-owner repo. Remove once the review turn is healthy again.
+          show_full_output: true
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
@@ -61,3 +68,30 @@ jobs:
             Post top-level feedback with `gh pr comment`. Use inline comments for specific code issues.
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+      # A silent no-op review (errored / empty model turn) posts only the
+      # ~164-char track_progress stub yet the job still concludes SUCCESS — that
+      # is exactly how #181–#183 merged UNREVIEWED with a green `review` check.
+      # This guard makes that state a RED check: it requires either inline review
+      # comments or a claude[bot] comment substantially longer than the stub.
+      # `review` is not a required status check, so this signals loudly without
+      # blocking auto-merge — but a red `review` must be treated as "not reviewed"
+      # by the merge decision (human or orchestrator), never merged past.
+      - name: Ensure a real review was posted
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          inline=$(gh api "repos/$REPO/pulls/$PR/comments" --jq 'length')
+          maxbody=$(gh api "repos/$REPO/issues/$PR/comments" \
+            --jq '[.[] | select(.user.login | test("claude"; "i")) | (.body | length)] | max // 0')
+          echo "inline review comments: $inline"
+          echo "longest claude[bot] comment: $maxbody chars"
+          if [ "$inline" -gt 0 ] || [ "$maxbody" -gt 300 ]; then
+            echo "✅ Real review detected."
+          else
+            echo "::error::Claude PR Review produced no real review — only the progress stub (${maxbody} chars, ${inline} inline). The review turn errored (likely an empty model turn); check the job log (show_full_output: true) and rotate the CLAUDE_CODE_OAUTH_TOKEN secret."
+            exit 1
+          fi
