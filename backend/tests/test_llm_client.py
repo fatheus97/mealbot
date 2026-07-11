@@ -1,5 +1,6 @@
 """Tests for LLM client: mock mode, quota detection, fallback chain."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,7 +12,7 @@ from openai import RateLimitError as OpenAIRateLimitError
 from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry
-from app.llm.client import LLMClient
+from app.llm.client import LLMClient, check_model_chain_keys
 from app.models.plan_models import SingleDayResponse
 
 
@@ -536,6 +537,93 @@ class TestFallbackBackoff:
         # 2**0 + jitter vs 2**1 + jitter — second strictly greater
         # (minimum second = 2.0, maximum first = 1.5)
         assert first_delay < second_delay
+
+
+class TestModelChainKeyCheck:
+    """Startup validation: check_model_chain_keys() logs (never raises) so a
+    keyless chain entry is visible at boot, not silent until it's hit."""
+
+    @patch("app.llm.client.settings")
+    def test_keyless_primary_logs_error(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_settings.model_chain = _chain("gemini/gemini-2.5-flash", "openai/gpt-4o-mini")
+        mock_settings.gemini_api_key = None
+        mock_settings.openai_api_key = "real"
+        mock_settings.deepseek_api_key = None
+
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("primary provider 'gemini'" in r.getMessage() for r in errors)
+
+    @patch("app.llm.client.settings")
+    def test_keyless_fallback_logs_warning_not_error(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_settings.model_chain = _chain("gemini/gemini-2.5-flash", "openai/gpt-4o-mini")
+        mock_settings.gemini_api_key = "real"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("fallback provider 'openai'" in r.getMessage() for r in warnings)
+        # Primary is keyed → no ERROR.
+        assert not [r for r in caplog.records if r.levelno == logging.ERROR]
+
+    @patch("app.llm.client.settings")
+    def test_single_provider_chain_logs_info_nudge(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_settings.model_chain = _chain(
+            "gemini/gemini-2.5-flash", "gemini/gemini-2.5-flash-lite"
+        )
+        mock_settings.gemini_api_key = "real"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+
+        # Fully keyed → nothing above INFO; single-provider nudge present.
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(
+            "single-provider" in r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.INFO
+        )
+
+    @patch("app.llm.client.settings")
+    def test_fully_wired_multiprovider_is_quiet(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_settings.model_chain = _chain("gemini/gemini-2.5-flash", "openai/gpt-4o-mini")
+        mock_settings.gemini_api_key = "real"
+        mock_settings.openai_api_key = "real"
+        mock_settings.deepseek_api_key = None
+
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not [r for r in caplog.records if "single-provider" in r.getMessage()]
+
+    @patch("app.llm.client.settings")
+    def test_empty_chain_logs_error(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_settings.model_chain = []
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+        assert any(
+            "empty" in r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.ERROR
+        )
 
 
 class TestMissingApiKey:
