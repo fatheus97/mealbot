@@ -23,6 +23,7 @@ from app.core.executors import shutdown_parse_executor, start_parse_executor
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
 from app.core.rate_limit import limiter
 from app.core.security_headers import security_headers_middleware
+from app.llm.client import check_model_chain_keys
 from app.services.recipe_retriever import get_embedding_model
 
 # Configure the root logger
@@ -46,6 +47,10 @@ async def lifespan(fastAPI: FastAPI):
     # their own TextEmbedding instance and leak memory.
     # Offload to a thread: model load deserializes ~90MB of weights and would
     # otherwise block the event loop, starving the /health probe during startup.
+    # Surface LLM-chain misconfiguration (keyless primary / dead fallback /
+    # single-provider chain) in the boot logs rather than mid-incident. Cheap,
+    # log-only, never raises.
+    check_model_chain_keys()
     logger.info("Initializing embedding model")
     await asyncio.to_thread(get_embedding_model)
     logger.info("Embedding model ready")

@@ -15,6 +15,30 @@ class ModelEntry(BaseModel):
     model: str
 
 
+# Values that mean "not configured". The .env.example ships literal placeholders
+# (your_key_here); an operator who copies it without editing leaves a truthy-but-
+# useless key. Treating these as unset turns a confusing runtime 401 ("Incorrect
+# API key: your_..._here", raised only when the provider is actually hit) into an
+# honest "provider has no key" — surfaced at startup by check_model_chain_keys()
+# and as a clear 500 from LLMClient._get_client instead.
+_PLACEHOLDER_API_KEYS = frozenset({"your_key_here", "changeme", "change_me"})
+
+
+def normalize_optional_key(value: str | None) -> str | None:
+    """Collapse blank / placeholder API keys to None; pass real keys through."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    lowered = value.lower()
+    if lowered in _PLACEHOLDER_API_KEYS or (
+        lowered.startswith("your_") and lowered.endswith("_here")
+    ):
+        return None
+    return value
+
+
 class Settings(BaseSettings):
     # Ordered model fallback chain — "provider/model,provider/model,..."
     # First model is primary; subsequent models are tried on quota errors (429).
@@ -29,6 +53,11 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     deepseek_api_key: str | None = None
+
+    @field_validator("openai_api_key", "gemini_api_key", "deepseek_api_key", mode="after")
+    @classmethod
+    def _blank_placeholder_keys(cls, v: str | None) -> str | None:
+        return normalize_optional_key(v)
 
     # When True, LLMClient will return a deterministic fake JSON response
     llm_mock: bool = False

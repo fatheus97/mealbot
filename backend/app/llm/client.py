@@ -522,4 +522,60 @@ class LLMClient:
             ]
         })
 
+# Maps each provider to the Settings attribute holding its (already
+# placeholder-normalized) API key. Kept next to the check that consumes it.
+_PROVIDER_KEY_ATTR: dict[LLMProvider, str] = {
+    LLMProvider.GEMINI: "gemini_api_key",
+    LLMProvider.OPENAI: "openai_api_key",
+    LLMProvider.DEEPSEEK: "deepseek_api_key",
+}
+
+
+def check_model_chain_keys() -> None:
+    """Log — at startup — whether every provider in the configured fallback chain
+    actually has an API key. Deliberately never raises: a misconfigured *fallback*
+    shouldn't block boot, but a keyless entry should be loud in the logs instead
+    of silent until it's hit mid-incident (the worst time to discover it).
+
+    - Keyless PRIMARY (head of chain) → ERROR: no LLM call can succeed.
+    - Keyless FALLBACK entry → WARNING: works until that provider is reached,
+      then the "fallback" is a no-op.
+    - Fully-keyed but single-provider chain → INFO nudge: a provider-wide outage
+      (this session's jsonref bug, a quota wall, a Google outage) has no escape
+      hatch. Add a funded non-primary entry to LLM_MODELS for real resilience.
+    """
+    chain = settings.model_chain
+    if not chain:
+        logger.error("LLM model chain is empty — no LLM calls can be served.")
+        return
+
+    for position, entry in enumerate(chain):
+        key_attr = _PROVIDER_KEY_ATTR.get(entry.provider)
+        has_key = bool(getattr(settings, key_attr, None)) if key_attr else False
+        if has_key:
+            continue
+        env_var = key_attr.upper() if key_attr else "the provider key"
+        if position == 0:
+            logger.error(
+                "LLM primary provider '%s' (model=%s) has no API key — every LLM "
+                "call will fail until %s is set.",
+                entry.provider.value, entry.model, env_var,
+            )
+        else:
+            logger.warning(
+                "LLM fallback provider '%s' (model=%s, chain position %d) has no "
+                "API key — fallback to it is a no-op. Set %s for cross-provider "
+                "resilience.",
+                entry.provider.value, entry.model, position, env_var,
+            )
+
+    if len({entry.provider for entry in chain}) == 1:
+        only = chain[0].provider.value
+        logger.info(
+            "LLM model chain is single-provider (%s) — a provider-wide outage has "
+            "no fallback. Add a funded non-%s entry to LLM_MODELS for resilience.",
+            only, only,
+        )
+
+
 llm_client = LLMClient()
