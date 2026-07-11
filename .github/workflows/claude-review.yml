@@ -18,22 +18,16 @@ jobs:
           fetch-depth: 1
 
       # Pinned by SHA to v1.0.166 (commit f87768c = annotated tag v1.0.166,
-      # bundles Claude Code 2.1.202). This pin reviewed PRs #173–#180 cleanly.
-      # The review turn began silently erroring on 2026-07-10 with NO change
-      # here — the model turn returns is_error:true after an empty ~2s turn
-      # (most likely an expired / usage-limited CLAUDE_CODE_OAUTH_TOKEN), which
-      # the action redacts as "full output hidden for security". That is a
-      # runtime failure, NOT the pin. Before bumping, test on a throwaway PR and
-      # confirm a REAL review body is posted, not just the track_progress stub.
+      # bundles Claude Code 2.1.202). Reviewed PRs #173–#180 cleanly, then
+      # silently stubbed #181–#183 (2026-07-10) — root cause was a dead
+      # CLAUDE_CODE_OAUTH_TOKEN (401 authentication_failed), NOT the pin;
+      # fixed by rotating the secret. The guard step below now turns a silent
+      # no-op review RED. Before bumping this pin, test on a NORMAL (non-workflow)
+      # PR — a workflow-editing PR makes the action skip validation and not run.
       - uses: anthropics/claude-code-action@f87768c6d25f92ae6efa7175e223ef77d4cbf97f  # v1.0.166
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
-          # Temporary diagnostic: unhides the SDK error the action otherwise
-          # redacts ("full output hidden for security"), so an errored empty
-          # turn shows its actual cause in the job log. Safe on a private,
-          # single-owner repo. Remove once the review turn is healthy again.
-          show_full_output: true
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
