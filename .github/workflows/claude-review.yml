@@ -59,9 +59,22 @@ jobs:
               other call-to-action that triggers a follow-up agent. Your
               output is feedback in PR comments, nothing else.
 
+            DO NOT RE-RAISE ALREADY-DISMISSED FINDINGS (this PR may have prior review rounds):
+            - Before finalizing, read the existing review threads and their replies:
+              `gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments`
+              (inline review comments + replies) and `gh pr view ${{ github.event.pull_request.number }} --json comments`.
+            - If a candidate finding was raised in a prior round and the author replied DISMISSING it
+              (false positive / hallucination / wrong / by-design / deliberate out-of-scope), do NOT raise it
+              again as a new or blocking inline comment. The author (Opus) is the final authority and has
+              justified the dismissal. At most mention it ONCE in the top-level summary, explicitly labelled
+              "previously dismissed — not re-raising", and only if the code has since changed in a way that
+              genuinely reintroduces the concern.
+            - Findings the author FIXED must simply not reappear. Raise only genuinely NEW issues, or ones the
+              current code still exhibits that were never addressed.
+
             Post top-level feedback with `gh pr comment`. Use inline comments for specific code issues.
           claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*)"
 
       # A silent no-op review (errored / empty model turn) posts only the
       # ~164-char track_progress stub yet the job still concludes SUCCESS — that
