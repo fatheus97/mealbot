@@ -49,9 +49,14 @@ _DEFAULT_RANGE_DAYS = 30
 
 
 def _resolve_range(from_date: date | None, to_date: date | None) -> tuple[date, date]:
-    """Resolve/validate the [from, to] window; default to the last 30 days."""
+    """Resolve/validate the [from, to] window; default to the last 30 days.
+
+    ``to`` is clamped to today: there is no data in the future, and it prevents a
+    far-future date (e.g. ``date.max``) from overflowing when the handler later
+    computes ``to + 1 day`` — which would 500 instead of behaving sanely.
+    """
     today = datetime.now(UTC).date()
-    to_d = to_date or today
+    to_d = min(to_date or today, today)
     from_d = from_date or (to_d - timedelta(days=_DEFAULT_RANGE_DAYS))
     if from_d > to_d:
         raise HTTPException(status_code=422, detail="`from` must be on or before `to`")

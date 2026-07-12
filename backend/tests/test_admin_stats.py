@@ -243,3 +243,17 @@ class TestValidation:
             headers=auth_headers,
         )
         assert resp.status_code == 422
+
+    async def test_far_future_to_does_not_500(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        # `to` at date.max previously overflowed on `to + 1 day` → 500. It's now
+        # clamped to today, so the request succeeds (empty window is fine).
+        await _make_admin(db_session, test_user)
+        for path in ("/api/admin/stats/usage", "/api/admin/stats/activity"):
+            resp = await client.get(f"{path}?to=9999-12-31", headers=auth_headers)
+            assert resp.status_code == 200, path
