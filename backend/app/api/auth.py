@@ -38,7 +38,7 @@ from app.core.security import (
 )
 from app.db import get_session
 from app.models.db_models import AuthSession, User
-from app.models.user_schemas import LoginRequest, UserRead
+from app.models.user_schemas import LoginRequest, UserRead, user_to_read
 from app.services.demo_user import cleanup_expired_demo_users, create_ephemeral_demo_user
 
 logger = logging.getLogger(__name__)
@@ -65,19 +65,9 @@ def _truncate_user_agent(raw: str | None) -> str | None:
 
 
 def _to_read(u: User) -> UserRead:
-    return UserRead(
-        id=u.id,  # type: ignore[arg-type]  # always populated post-flush
-        email=u.email,
-        country=u.country,
-        language=u.language,
-        measurement_system=u.measurement_system,
-        variability=u.variability,
-        include_spices=u.include_spices,
-        track_snacks=u.track_snacks,
-        onboarding_completed=u.onboarding_completed,
-        is_demo=u.is_demo,
-        default_day_layout=None,  # not relevant on login response; full GET /users carries it
-    )
+    # Shared mapper (keeps login/demo in sync with GET /users); login responses
+    # omit default_day_layout — the full GET /users carries it.
+    return user_to_read(u)
 
 
 async def _issue_session_and_set_cookies(

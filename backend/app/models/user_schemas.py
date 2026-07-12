@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 import re
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlmodel import SQLModel
 
 from app.core.meal_types import MealType
+
+if TYPE_CHECKING:
+    from app.models.db_models import User
 
 # These are pure Pydantic/SQLModel schemas for API communication
 # They do NOT have table=True because they aren't database tables
@@ -40,7 +46,32 @@ class UserRead(UserBase):
     track_snacks: bool
     onboarding_completed: bool
     is_demo: bool = False
+    is_admin: bool = False
     default_day_layout: list[MealType] | None = None
+
+
+def user_to_read(
+    u: User, default_day_layout: list[MealType] | None = None
+) -> UserRead:
+    """Single mapping of a User row → UserRead, so every producer (profile,
+    login, demo) stays in sync when a field is added. Previously duplicated in
+    api/user.py and api/auth.py, which is how `is_admin` was missed on the login
+    response. Callers pass the already-sanitized ``default_day_layout`` (login
+    responses omit it → None)."""
+    return UserRead(
+        id=u.id,  # type: ignore[arg-type]  # always populated post-flush
+        email=u.email,
+        country=u.country,
+        language=u.language,
+        measurement_system=u.measurement_system,
+        variability=u.variability,
+        include_spices=u.include_spices,
+        track_snacks=u.track_snacks,
+        onboarding_completed=u.onboarding_completed,
+        is_demo=u.is_demo,
+        is_admin=u.is_admin,
+        default_day_layout=default_day_layout,
+    )
 
 class UserUpdate(SQLModel):
     country: str | None = None
