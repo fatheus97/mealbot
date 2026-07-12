@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 
 import jwt
@@ -10,6 +11,8 @@ from app.core.security import ALGORITHM
 from app.db import get_session
 from app.llm.usage import LlmCallUsage, capture_llm_usage
 from app.models.db_models import User
+
+logger = logging.getLogger(__name__)
 
 
 def get_access_token_from_cookie(request: Request) -> str:
@@ -63,6 +66,24 @@ async def get_current_user(
         raise credentials_exception
 
     return user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Gate admin-only endpoints. 403 for a non-admin (a valid but unprivileged
+    user); get_current_user already handles 401 for unauthenticated requests.
+
+    ``is_admin`` is server-set only (create_user --admin / direct DB update), so
+    this is a pure attribute check. Logs granted access as a lightweight audit
+    trail until a real audit log lands (admin epic, Phase 5)."""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    logger.info("admin_access user_id=%s", current_user.id)
+    return current_user
 
 
 async def usage_capture() -> AsyncIterator[list[LlmCallUsage]]:

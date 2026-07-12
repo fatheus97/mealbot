@@ -16,7 +16,13 @@ from app.core.rate_limit import limiter
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
-from app.models.user_schemas import MessageResponse, UserCreate, UserRead, UserUpdate
+from app.models.user_schemas import (
+    MessageResponse,
+    UserCreate,
+    UserRead,
+    UserUpdate,
+    user_to_read,
+)
 
 _VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
 
@@ -42,19 +48,7 @@ _ALLOWED_VARIABILITY = {"traditional", "experimental"}
 
 
 def _to_read(u: User) -> UserRead:
-    return UserRead(
-        id=u.id,
-        email=u.email,
-        country=u.country,
-        language=u.language,
-        measurement_system=u.measurement_system,
-        variability=u.variability,
-        include_spices=u.include_spices,
-        track_snacks=u.track_snacks,
-        onboarding_completed=u.onboarding_completed,
-        is_demo=u.is_demo,
-        default_day_layout=_sanitize_layout(u.default_day_layout),
-    )
+    return user_to_read(u, default_day_layout=_sanitize_layout(u.default_day_layout))
 
 
 # //api/users/register

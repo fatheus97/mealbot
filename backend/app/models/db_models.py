@@ -57,6 +57,13 @@ class User(SQLModel, table=True):
     # with a mismatched version are rejected in get_current_user.
     token_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
 
+    # Grants access to the admin API (require_admin dependency). Set server-side
+    # ONLY — via the create_user CLI (--admin) or a direct DB update; there is no
+    # self-service path and no endpoint that writes it. Defaults false.
+    is_admin: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
+
     fridge_items: list[StockItem] = Relationship(back_populates="user")
     meal_plans: list[MealPlan] = Relationship(back_populates="user")
     meal_entries: list[MealEntry] = Relationship(back_populates="user")
