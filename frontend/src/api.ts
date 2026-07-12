@@ -1,15 +1,20 @@
 // frontend/src/api.ts
 import type {
+  ActivityStatsResponse,
   CookRecipeRequest,
   FavoriteRecipeRequest,
   MealEditRequest,
   MealEntrySummary,
   MealPlanResponse,
+  OverviewStats,
   PlannedMeal,
   ScannedItemsResponse,
   SingleRecipeRequest,
   SingleRecipeResponse,
+  StatGranularity,
   StockItem,
+  UsageByUserResponse,
+  UsageStatsResponse,
   UserProfile,
 } from "./types";
 
@@ -197,6 +202,49 @@ export async function updateMeal(
     }
     throw new Error(detail ?? `Meal update failed: ${res.status}`);
   }
+  return res.json();
+}
+
+// --- Admin stats (require an admin session; the backend gates with 403) ---
+
+function statRange(from?: string, to?: string, granularity?: StatGranularity): string {
+  const p = new URLSearchParams();
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  if (granularity) p.set("granularity", granularity);
+  const qs = p.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function fetchAdminOverview(): Promise<OverviewStats> {
+  const res = await authFetch("/admin/stats/overview");
+  if (!res.ok) throw new Error(`Admin overview failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminUsage(
+  from?: string,
+  to?: string,
+  granularity: StatGranularity = "day",
+): Promise<UsageStatsResponse> {
+  const res = await authFetch(`/admin/stats/usage${statRange(from, to, granularity)}`);
+  if (!res.ok) throw new Error(`Admin usage failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminUsageByUser(limit = 20): Promise<UsageByUserResponse> {
+  const res = await authFetch(`/admin/stats/usage/by-user?limit=${limit}`);
+  if (!res.ok) throw new Error(`Admin usage-by-user failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminActivity(
+  from?: string,
+  to?: string,
+  granularity: StatGranularity = "day",
+): Promise<ActivityStatsResponse> {
+  const res = await authFetch(`/admin/stats/activity${statRange(from, to, granularity)}`);
+  if (!res.ok) throw new Error(`Admin activity failed: ${res.status}`);
   return res.json();
 }
 

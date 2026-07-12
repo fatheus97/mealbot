@@ -171,6 +171,85 @@ describe('AuthContext logout', () => {
   });
 });
 
+describe('AuthContext admin flag', () => {
+  const adminProfile = {
+    id: 9,
+    email: 'admin@test.com',
+    country: null,
+    language: 'English',
+    measurement_system: 'metric',
+    variability: 'traditional',
+    include_spices: true,
+    track_snacks: true,
+    onboarding_completed: true,
+    is_demo: false,
+    is_admin: true,
+    default_day_layout: null,
+  };
+
+  it('login sets isAdmin and persists the hint for an admin profile', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/auth/login')) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(adminProfile) });
+      }
+      return Promise.resolve(okEmpty());
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await result.current.login('admin@test.com', 'pass');
+    });
+
+    expect(result.current.isAdmin).toBe(true);
+    expect(localStorage.getItem('mealbot_is_admin')).toBe('true');
+  });
+
+  it('logout clears isAdmin and its hint', async () => {
+    localStorage.setItem('mealbot_user_id', '1');
+    localStorage.setItem('mealbot_is_admin', 'true');
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/auth/logout')) {
+        return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve(okEmpty());
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    expect(result.current.isAdmin).toBe(true); // seeded from the hint
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(result.current.isAdmin).toBe(false);
+    expect(localStorage.getItem('mealbot_is_admin')).toBeNull();
+  });
+
+  it('bootstrap downgrades a stale admin hint when /users returns is_admin:false', async () => {
+    // The exact scenario the PR claims to have verified: a browser carrying a
+    // stale mealbot_is_admin=true whose live session is now a non-admin.
+    localStorage.setItem('mealbot_user_id', '5');
+    localStorage.setItem('mealbot_user_email', 'x@y.com');
+    localStorage.setItem('mealbot_is_admin', 'true');
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/users')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ...adminProfile, id: 5, email: 'x@y.com', is_admin: false }),
+        });
+      }
+      return Promise.resolve(okEmpty());
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    // Reconciled to false once /users resolves; the stale hint is cleared.
+    await waitFor(() => expect(result.current.isAdmin).toBe(false));
+    expect(localStorage.getItem('mealbot_is_admin')).toBeNull();
+  });
+});
+
 describe('AuthContext misc', () => {
   it('setOnboardingCompleted persists flag', () => {
     const { result } = renderHook(() => useAuth(), { wrapper });

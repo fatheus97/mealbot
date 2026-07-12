@@ -22,6 +22,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isDemo, setIsDemo] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_demo") === "true"
   );
+  const [isAdmin, setIsAdmin] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_is_admin") === "true"
+  );
   // null = /config not yet resolved; boolean = resolved value. Using null
   // as the unresolved sentinel lets the UI avoid a flash of the wrong
   // copy (e.g. rendering the "closed alpha" notice for the 50-200ms
@@ -34,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserId(profile.id);
     setEmail(profile.email);
     setIsDemo(demoFlag);
+    setIsAdmin(Boolean(profile.is_admin));
     setOnboardingCompletedState(profile.onboarding_completed);
     window.localStorage.setItem("mealbot_user_id", String(profile.id));
     window.localStorage.setItem("mealbot_user_email", profile.email);
@@ -41,6 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem("mealbot_is_demo", "true");
     } else {
       window.localStorage.removeItem("mealbot_is_demo");
+    }
+    if (profile.is_admin) {
+      window.localStorage.setItem("mealbot_is_admin", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_is_admin");
     }
     if (profile.onboarding_completed) {
       window.localStorage.setItem("mealbot_onboarding", "true");
@@ -53,11 +62,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserId(null);
     setEmail("");
     setIsDemo(false);
+    setIsAdmin(false);
     setOnboardingCompletedState(false);
     window.localStorage.removeItem("mealbot_user_id");
     window.localStorage.removeItem("mealbot_user_email");
     window.localStorage.removeItem("mealbot_onboarding");
     window.localStorage.removeItem("mealbot_is_demo");
+    window.localStorage.removeItem("mealbot_is_admin");
 
     // Prevent cross-account leakage: drop cached server data and reset
     // the persisted preferences store to defaults. Component-local state
@@ -191,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, demoEnabled, registrationEnabled, login, logout, setOnboardingCompleted, loginDemo, register }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, login, logout, setOnboardingCompleted, loginDemo, register }}>
       {children}
     </AuthContext.Provider>
   );
