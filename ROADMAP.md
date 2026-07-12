@@ -3,8 +3,10 @@
 > Structured from personal notes (`confirm_cok.md`) and reconciled against the
 > actual codebase on **2026-07-02**, re-reconciled **2026-07-10** after the
 > in-recipe UX thrust, the edit-telemetry work, two production-hardening passes,
-> and the mobile-friendly + camera-capture thrust landed. Where the notes and the
-> code disagreed, the code wins and the discrepancy is called out.
+> and the mobile-friendly + camera-capture thrust, then again **2026-07-11** after
+> the stability run (LLM outage recovery, chain-resilience prep, CI review-gate
+> fix). Where the notes and the code disagreed, the code wins and the discrepancy
+> is called out.
 
 ## How to read this
 
@@ -48,13 +50,21 @@ Shipped and verified in the codebase:
   cookbook-only retrieval at 100+ favorites.
 - **Fridge**: inventory with expiration + need-to-use flags, receipt OCR scan,
   merge flow.
-- **LLM**: multi-provider fallback chain (Gemini 2.5 Flash → Flash Lite →
-  OpenAI/DeepSeek), `instructor`-enforced Pydantic output, retry/backoff/timeout,
-  baby-food diet mode, avoid/need-to-use tested across 50 scenarios.
+- **LLM**: `instructor`-enforced Pydantic output, retry/backoff/timeout over a
+  model fallback chain, baby-food diet mode, avoid/need-to-use tested across 50
+  scenarios. ⚠️ The configured chain is currently **all-Gemini** — the in-repo
+  default is `gemini-2.5-flash` → `gemini-2.5-flash-lite` (config.py); the deployed
+  `LLM_MODELS` env sets a longer all-Gemini list. Cross-provider fallback is *prepped*
+  (#183: placeholder-key normalization + a startup check that logs a keyless or
+  single-provider chain) but **inert** until a funded non-Gemini key is added to
+  `LLM_MODELS` — the OpenAI key is a placeholder and the DeepSeek key is unfunded.
+  See Cross-cutting.
 - **Infra/CI**: prod compose + Caddy auto-HTTPS, non-root multi-stage images,
   one-shot `migrate` service, SSH auto-deploy (`deploy.sh` + `deploy.yml`),
   registration lock + `create_user` CLI, CI (pytest/mypy-strict/ruff/eslint/build
-  /gitleaks) + Claude AI PR review, Dependabot auto-merge.
+  /gitleaks) + Claude AI PR review (with a guard step that fails the check when
+  only a stub is posted, so a broken review can't pass green — #184), Dependabot
+  auto-merge.
 - **Hardening** (two `/review-for-prod` passes: #79–84 Apr, #165–173 Jul, 0
   CRITICAL): bcrypt offloaded off the event loop + constant-time login, all LLM
   templates prompt-injection fenced, untrusted input bounded, untrusted-parse
@@ -64,6 +74,12 @@ Shipped and verified in the codebase:
 - **Mobile** (shipped 2026-07-10, #176–180): responsive across the app via a
   `useIsMobile()` hook (inline styles can't use CSS `@media`), plus camera
   receipt capture (`getUserMedia` → canvas → JPEG). Verified on a real iPhone.
+- **Stability (2026-07-10→11)**: recovered a prod LLM outage — a dropped
+  `jsonref` dep broke every Gemini structured-output call (#182, + a guard test
+  since the mocked-LLM suite couldn't catch it); shipped LLM-chain resilience prep
+  (#183); and fixed a silently-broken CI review gate — a dead `CLAUDE_CODE_OAUTH_TOKEN`
+  (401) made reviews no-op green, so #184/#187 added a guard that turns a no-op
+  review red (owner rotated the token, verified restored).
 
 **Everything below is what's left.**
 
@@ -120,6 +136,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | **Non-root SSH hardening** | 🟡 | S | Server-side, not in repo. Create a personal sudo user, disable root SSH login. Low urgency, easy to forget — do it at deploy time. |
 | **`authsession` cleanup job** | ⬜ | S | Daily sweep: `DELETE FROM authsession WHERE expires_at < now() - INTERVAL '7 days'` (SQLModel-derived table name is `authsession`, no underscore). Index depends on scope: a full-table sweep wants `(expires_at)`; a per-user sweep is already served by the existing `(user_id, expires_at)`. Only add `revoked_at` to the index if the query filters on it. |
 | **Password change + token rotation** | ⬜ | S | Endpoint doesn't exist; becomes a one-liner once built (`revoke_all_sessions_for_user` + bump `token_version`). |
+| **Cross-provider LLM fallback** | 🟡 | S | Prep shipped (#183): placeholder keys normalize to unset + a startup check logs a keyless/single-provider chain. The active `LLM_MODELS` is all-Gemini, so a Gemini-wide outage (quota, API, a dep break like #182) has no escape hatch. To enable: fund the existing DeepSeek key (or set a real OpenAI key) and append a non-Gemini entry to `LLM_MODELS` — a one-line change once a working key exists. |
 
 ---
 
