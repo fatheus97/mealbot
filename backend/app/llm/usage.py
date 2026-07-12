@@ -102,11 +102,22 @@ def usage_from_completion(
         return None
 
 
+# A single call's token count realistically stays well under a million (context
+# windows cap ~1-2M). Clamp so a malformed/garbage provider value can't exceed
+# the int32 LlmUsage columns and raise at flush — that would poison the caller's
+# transaction, and on the plan/regenerate paths that commit is NOT guarded, so a
+# flush error would 500 the user and lose the just-generated plan. These counts
+# come from the provider response, not the server, so they are treated as
+# untrusted. (Postgres promotes SUM(int) to bigint, so aggregates don't overflow.)
+_MAX_TOKEN_COUNT = 2_000_000_000  # < int32 max (2_147_483_647)
+
+
 def _as_int(value: object) -> int:
-    """Coerce a provider token count (may be None) to a non-negative int."""
+    """Coerce a provider token count (may be None/garbage) to a bounded
+    non-negative int that always fits the int32 column."""
     if value is None:
         return 0
     try:
-        return max(0, int(value))  # type: ignore[call-overload]
+        return min(max(0, int(value)), _MAX_TOKEN_COUNT)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return 0

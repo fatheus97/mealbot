@@ -1,6 +1,7 @@
 """Tests for LLM client: mock mode, quota detection, fallback chain."""
 
 import logging
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry
 from app.llm.client import LLMClient, check_model_chain_keys
+from app.llm.usage import capture_llm_usage
 from app.models.plan_models import SingleDayResponse
 
 
@@ -673,3 +675,64 @@ class TestMissingApiKey:
             await client.chat_json("sys", "usr", SingleDayResponse)
         assert exc_info.value.status_code == 500
         assert "DeepSeek API key" in exc_info.value.detail
+
+
+class TestClientUsageCapture:
+    """The client→usage-bucket seam: a successful call must append normalized
+    usage to the active capture bucket; mock-mode must record nothing.
+
+    Guards record_call_usage in _call_with_fallback — the fallback-chain tests
+    return completion=None (usage extraction yields None), so they never reach
+    it. Deleting that line keeps them green but fails these.
+    """
+
+    @patch("app.llm.client.settings")
+    async def test_successful_call_appends_usage(
+        self, mock_settings: MagicMock
+    ) -> None:
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain("gemini/gemini-2.5-flash")
+        mock_settings.gemini_api_key = "fake-key"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        client = LLMClient()
+        expected = _mock_single_day()
+        completion = SimpleNamespace(
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=11, candidates_token_count=5, total_token_count=254
+            )
+        )
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            return_value=(expected, completion)
+        )
+        client.gemini_client = mock_gemini
+
+        with capture_llm_usage() as bucket:
+            result = await client.chat_json("sys", "usr", SingleDayResponse)
+
+        assert result == expected
+        assert len(bucket) == 1
+        usage = bucket[0]
+        assert usage.provider == "gemini"
+        assert usage.model == "gemini-2.5-flash"
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
+            11,
+            5,
+            254,
+        )
+
+    @patch("app.llm.client.settings")
+    async def test_mock_mode_records_no_usage(
+        self, mock_settings: MagicMock
+    ) -> None:
+        mock_settings.llm_mock = True
+        mock_settings.gemini_api_key = None
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        client = LLMClient()
+        with capture_llm_usage() as bucket:
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        assert bucket == []

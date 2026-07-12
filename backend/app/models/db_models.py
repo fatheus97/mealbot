@@ -260,6 +260,15 @@ class LlmUsage(SQLModel, table=True):
     reasoning/"thinking" tokens that are billed but excluded from prompt+
     completion (e.g. Gemini 2.5's total ≫ prompt+candidates), so total is the
     billing-relevant figure.
+
+    Scope — this is a **lower bound on billed spend, not exact billing**:
+    * Only successful, committed user actions are recorded (usage rides the
+      action's transaction). A generation that fails or rolls back records
+      nothing, even though its succeeded calls consumed tokens.
+    * Only the final successful attempt is counted; `instructor`'s internal
+      structured-output validation retries are billed but not captured here.
+    Good enough for cost trends / relative per-user & per-surface comparison;
+    reconcile against the provider's own billing for exact figures.
     """
 
     id: int | None = Field(default=None, primary_key=True)

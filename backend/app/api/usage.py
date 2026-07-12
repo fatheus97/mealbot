@@ -31,7 +31,9 @@ async def get_my_usage(
     """Return the current user's LLM token usage, broken down by surface.
 
     Aggregated in one grouped query; the roll-up total is summed from the
-    per-surface rows so the two are always consistent.
+    per-surface rows so the two are always consistent. Totals are a lower bound
+    on billed spend (successful committed actions only, final attempt only) —
+    see LlmUsage for the exact scope.
     """
     result = await session.execute(
         select(
