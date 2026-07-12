@@ -52,8 +52,9 @@ Shipped and verified in the codebase:
   merge flow.
 - **LLM**: `instructor`-enforced Pydantic output, retry/backoff/timeout over a
   model fallback chain, baby-food diet mode, avoid/need-to-use tested across 50
-  scenarios. ⚠️ The configured chain is currently **all-Gemini** (flash-latest →
-  flash-lite → 2.5-flash → 2.5-flash-lite). Cross-provider fallback is *prepped*
+  scenarios. ⚠️ The configured chain is currently **all-Gemini** — the in-repo
+  default is `gemini-2.5-flash` → `gemini-2.5-flash-lite` (config.py); the deployed
+  `LLM_MODELS` env sets a longer all-Gemini list. Cross-provider fallback is *prepped*
   (#183: placeholder-key normalization + a startup check that logs a keyless or
   single-provider chain) but **inert** until a funded non-Gemini key is added to
   `LLM_MODELS` — the OpenAI key is a placeholder and the DeepSeek key is unfunded.
