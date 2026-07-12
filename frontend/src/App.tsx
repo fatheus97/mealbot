@@ -9,6 +9,7 @@ import { PlanCatalog } from "./components/PlanCatalog";
 import { MealPlanner } from "./components/MealPlanner";
 import { OnboardingModal } from "./components/OnboardingModal";
 import { CookbookFab } from "./components/CookbookFab";
+import { AdminDashboard } from "./components/admin/AdminDashboard";
 import type { MealPlanResponse, MealPlanSummary } from "./types";
 
 interface OpenedPlan {
@@ -16,7 +17,7 @@ interface OpenedPlan {
   summary: MealPlanSummary;
 }
 
-function MainLayout() {
+function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
   const { userId, onboardingCompleted, isDemo } = useAuth();
   const isMobile = useIsMobile();
   // openedPlan and other component-local state in this subtree are scoped to a
@@ -37,7 +38,34 @@ function MainLayout() {
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding, fontFamily: "sans-serif" }}>
       <DemoBanner />
-      <h1 style={{ borderBottom: "2px solid #333", paddingBottom: "0.5rem" }}>🤖 Mealbot Planner</h1>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "0.5rem",
+          borderBottom: "2px solid #333",
+          paddingBottom: "0.5rem",
+        }}
+      >
+        <h1 style={{ margin: 0 }}>🤖 Mealbot Planner</h1>
+        {onOpenAdmin && (
+          <button
+            onClick={onOpenAdmin}
+            style={{
+              padding: "0.35rem 0.75rem",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              background: "#fff",
+              cursor: "pointer",
+              fontSize: 14,
+              whiteSpace: "nowrap",
+            }}
+          >
+            🛠️ Admin
+          </button>
+        )}
+      </div>
       <AuthBar />
       <Fridge />
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
@@ -54,10 +82,21 @@ function MainLayout() {
 }
 
 function AuthRoot() {
-  const { userId } = useAuth();
+  const { userId, isAdmin } = useAuth();
+  const [view, setView] = useState<"main" | "admin">("main");
   // Remounts the entire authenticated subtree when the active user changes,
   // so no component-local state from a previous session survives login/logout.
-  return <MainLayout key={userId ?? "anon"} />;
+  // The `&& isAdmin` guard means a logout (isAdmin → false) drops out of the
+  // admin view even though `view` state itself isn't keyed to userId.
+  if (view === "admin" && isAdmin) {
+    return <AdminDashboard key={userId ?? "anon"} onExit={() => setView("main")} />;
+  }
+  return (
+    <MainLayout
+      key={userId ?? "anon"}
+      onOpenAdmin={isAdmin ? () => setView("admin") : undefined}
+    />
+  );
 }
 
 export default function App() {

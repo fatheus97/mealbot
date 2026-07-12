@@ -192,6 +192,7 @@ export interface AuthLoginResponse {
   track_snacks: boolean;
   onboarding_completed: boolean;
   is_demo: boolean;
+  is_admin: boolean;
   default_day_layout: MealType[] | null;
 }
 
@@ -200,6 +201,7 @@ export interface AuthState {
   email: string;
   onboardingCompleted: boolean;
   isDemo: boolean;
+  isAdmin: boolean;
   // null until /api/config resolves, then boolean. Using null as the
   // unresolved sentinel lets the UI avoid a flash of the wrong copy
   // (e.g. rendering a "closed alpha" notice before registration_enabled
@@ -223,8 +225,86 @@ export interface UserProfile {
   include_spices: boolean;
   track_snacks: boolean;
   onboarding_completed: boolean;
+  is_admin: boolean;
   // Preferred shape of a single day's meals. null = user hasn't set one;
   // plan generation falls back to the legacy meals_per_day counter.
   default_day_layout: MealType[] | null;
+}
+
+// --- Admin stats API (mirror backend app/models/admin_schemas.py) ---
+
+export type StatGranularity = "day" | "week" | "month";
+
+export interface SurfaceCount {
+  surface: string;
+  count: number;
+}
+
+export interface OverviewStats {
+  total_users: number;
+  active_users_30d: number;
+  demo_users: number;
+  admin_users: number;
+  llm_calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  generations_by_surface: SurfaceCount[];
+}
+
+export interface UsageBucket {
+  period: string; // ISO date
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface SurfaceUsageAgg {
+  surface: string;
+  calls: number;
+  total_tokens: number;
+}
+
+export interface ProviderUsageAgg {
+  provider: string;
+  calls: number;
+  total_tokens: number;
+}
+
+export interface UsageStatsResponse {
+  from_date: string;
+  to_date: string;
+  granularity: string;
+  series: UsageBucket[];
+  by_surface: SurfaceUsageAgg[];
+  by_provider: ProviderUsageAgg[];
+}
+
+export interface UserUsageAgg {
+  user_id: number;
+  email: string;
+  calls: number;
+  total_tokens: number;
+  avg_tokens_per_call: number;
+}
+
+export interface UsageByUserResponse {
+  users_with_usage: number;
+  avg_tokens_per_user: number;
+  top_users: UserUsageAgg[];
+}
+
+export interface ActivityBucket {
+  period: string; // ISO date
+  generations: number;
+}
+
+export interface ActivityStatsResponse {
+  from_date: string;
+  to_date: string;
+  granularity: string;
+  series: ActivityBucket[];
+  by_surface: SurfaceCount[];
 }
 
