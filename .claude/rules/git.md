@@ -29,6 +29,16 @@ cycle defeats the point.
   regardless of severity label. Fix each item, commit, push, and wait for
   the next review. Low-severity items count; fix them unless the reviewer
   explicitly marks them as optional / non-blocking.
+- **Never leave a review finding unaddressed — every finding is EITHER fixed OR
+  answered.** For each finding (any severity, including cosmetic / nits): fix it,
+  OR reply on its thread stating why it won't be actioned — false positive,
+  hallucination, wrong / by-design, or a deliberate out-of-scope follow-up — then
+  resolve the thread. **Silently ignoring a finding is not allowed.** First verify
+  the finding against the actual code (the AI review can overcorrect or contradict
+  itself — see feedback_verify_review_comments). As the Opus author you have final
+  say over the Sonnet review and MAY overrule it, but only with a written
+  justification on the thread, and you still respect these rules + branch
+  protection — you don't get to skip the reply just because you disagree.
 - Stop looping when every CI check is green AND the latest AI review contains no
   actionable items. An affirmative sign-off ("ready to merge", "no remaining
   issues") is sufficient but not required — absence of issues is the signal.
