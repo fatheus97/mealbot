@@ -247,6 +247,65 @@ class MachineGeneration(SQLModel, table=True):
     output_json: str = Field(nullable=False)
 
 
+class LlmUsage(SQLModel, table=True):
+    """Per-call LLM token usage, captured at call time. One row per successful,
+    non-mock LLM call.
+
+    Best-effort telemetry with the same contract as MachineGeneration — it rides
+    the user action's transaction (recorded iff the action commits) and a failed
+    write never surfaces to the user. See app.services.token_usage.
+    ``surface``/``provider``/``model`` are server-set constants, but the token
+    counts are **provider-supplied, not server-controlled** — they're clamped in
+    app.llm.usage._as_int to fit the int32 columns. That clamp is load-bearing,
+    not belt-and-suspenders: it's the only thing stopping a malformed provider
+    count from raising at flush and poisoning the caller's (on the plan paths,
+    unguarded) transaction.
+
+    ``total_tokens`` is stored as its own column, not derived: providers count
+    reasoning/"thinking" tokens that are billed but excluded from prompt+
+    completion (e.g. Gemini 2.5's total ≫ prompt+candidates), so total is the
+    billing-relevant figure.
+
+    Scope — this is a **lower bound on billed spend, not exact billing**:
+    * Usage rides the user action's transaction, so a request that raises before
+      it commits records nothing — and because a multi-call request (a multi-day
+      plan, a regenerate) accumulates all its calls into one bucket committed at
+      the end, one failed call discards the **whole request's** usage, including
+      the earlier calls that already succeeded and were billed. (A future phase
+      that needs exact billing should record each call in its own transaction so
+      partial-failure spend survives; see ROADMAP.)
+    * Only the final successful attempt is counted; `instructor`'s internal
+      structured-output validation retries are billed but not captured here.
+    Good enough for cost trends / relative per-user & per-surface comparison;
+    reconcile against the provider's own billing for exact figures.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    # CASCADE: usage is scoped to a user; demo-user cleanup takes it along.
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    # Which flow the call served: "meal_plan" | "single_recipe" | "receipt_scan"
+    # | "regenerate". Loose str, server-set from token_usage.USAGE_SURFACES.
+    surface: str = Field(index=True, nullable=False)
+    # "gemini" | "openai" | "deepseek".
+    provider: str = Field(nullable=False)
+    # The concrete model that served the call, e.g. "gemini-2.5-flash".
+    model: str = Field(nullable=False)
+    prompt_tokens: int = Field(nullable=False)
+    completion_tokens: int = Field(nullable=False)
+    total_tokens: int = Field(nullable=False)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+    )
+    # Loose link to the owning plan when the surface has one (meal_plan,
+    # regenerate); NULL otherwise. SET NULL so deleting a plan doesn't destroy
+    # the cost signal.
+    meal_plan_id: int | None = Field(
+        default=None, foreign_key="mealplan.id", index=True, ondelete="SET NULL"
+    )
+
+
 class MachineCorrection(SQLModel, table=True):
     """Append-only record of a user editing/committing machine-generated
     content.
