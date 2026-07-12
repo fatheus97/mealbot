@@ -84,10 +84,19 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
 function AuthRoot() {
   const { userId, isAdmin } = useAuth();
   const [view, setView] = useState<"main" | "admin">("main");
-  // Remounts the entire authenticated subtree when the active user changes,
-  // so no component-local state from a previous session survives login/logout.
-  // The `&& isAdmin` guard means a logout (isAdmin → false) drops out of the
-  // admin view even though `view` state itself isn't keyed to userId.
+  const [seenUserId, setSeenUserId] = useState<number | null>(userId);
+  // Reset the view whenever the active user changes (login / logout / switch).
+  // `view` lives here (not keyed to userId), so without this a force-logout that
+  // happened while in the admin view would carry `view="admin"` into the next
+  // session and drop the next admin straight onto the dashboard. Adjusting state
+  // during render (the React "reset on prop change" pattern) re-renders
+  // immediately with the corrected view — no flash.
+  if (userId !== seenUserId) {
+    setSeenUserId(userId);
+    setView("main");
+  }
+  // The `&& isAdmin` guard also means a logout (isAdmin → false) drops out of the
+  // admin view immediately.
   if (view === "admin" && isAdmin) {
     return <AdminDashboard key={userId ?? "anon"} onExit={() => setView("main")} />;
   }
