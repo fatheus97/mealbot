@@ -124,6 +124,11 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
     usage.data?.by_surface.map((s) => ({ label: s.surface, value: s.total_tokens })) ?? [];
   const providerBars: Bar[] =
     usage.data?.by_provider.map((p) => ({ label: p.provider, value: p.total_tokens })) ?? [];
+  const genSurfaceBars: Bar[] =
+    overview.data?.generations_by_surface.map((s) => ({ label: s.surface, value: s.count })) ??
+    [];
+  const activitySurfaceBars: Bar[] =
+    activity.data?.by_surface.map((s) => ({ label: s.surface, value: s.count })) ?? [];
 
   return (
     <div
@@ -151,29 +156,37 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
       <Section title="Overview">
         <QueryState isLoading={overview.isLoading} error={overview.error}>
           {overview.data && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
-                gap: "0.75rem",
-              }}
-            >
-              <StatCard
-                label="Users"
-                value={overview.data.total_users.toLocaleString()}
-                sub={`${overview.data.active_users_30d} active (30d)`}
-              />
-              <StatCard
-                label="Demo / Admin"
-                value={`${overview.data.demo_users} / ${overview.data.admin_users}`}
-              />
-              <StatCard label="LLM calls" value={overview.data.llm_calls.toLocaleString()} />
-              <StatCard
-                label="Total tokens"
-                value={overview.data.total_tokens.toLocaleString()}
-                sub={`${overview.data.prompt_tokens.toLocaleString()} in · ${overview.data.completion_tokens.toLocaleString()} out`}
-              />
-            </div>
+            <>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
+                  gap: "0.75rem",
+                }}
+              >
+                <StatCard
+                  label="Users"
+                  value={overview.data.total_users.toLocaleString()}
+                  sub={`${overview.data.active_users_30d} active (30d)`}
+                />
+                <StatCard
+                  label="Demo / Admin"
+                  value={`${overview.data.demo_users} / ${overview.data.admin_users}`}
+                />
+                <StatCard label="LLM calls" value={overview.data.llm_calls.toLocaleString()} />
+                <StatCard
+                  label="Total tokens"
+                  value={overview.data.total_tokens.toLocaleString()}
+                  sub={`${overview.data.prompt_tokens.toLocaleString()} in · ${overview.data.completion_tokens.toLocaleString()} out`}
+                />
+              </div>
+              <div style={{ marginTop: "1.25rem" }}>
+                <div style={{ fontSize: 13, color: "#374151", marginBottom: 6 }}>
+                  Generations by feature (all-time)
+                </div>
+                <BarChart data={genSurfaceBars} color="#8b5cf6" height={120} maxLabels={6} />
+              </div>
+            </>
           )}
         </QueryState>
       </Section>
@@ -204,6 +217,10 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
       <Section title="Generation activity — last 30 days">
         <QueryState isLoading={activity.isLoading} error={activity.error}>
           <BarChart data={activitySeries} color="#f59e0b" />
+          <div style={{ marginTop: "1.25rem" }}>
+            <div style={{ fontSize: 13, color: "#374151", marginBottom: 6 }}>By feature</div>
+            <BarChart data={activitySurfaceBars} color="#ef4444" height={120} maxLabels={6} />
+          </div>
         </QueryState>
       </Section>
 
