@@ -18,11 +18,12 @@ from typing import Literal, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, usage_capture
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
+from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealPlan, User
 from app.models.plan_models import (
     ConsumedBatch,
@@ -52,6 +53,7 @@ from app.services.telemetry import (
     record_generation,
     resolve_owned_generation,
 )
+from app.services.token_usage import record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,7 @@ async def generate_recipe(
     payload: SingleRecipeRequest,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> SingleRecipeResponse:
     """Generate a single recipe. No plan is persisted (preview), but a
     MachineGeneration telemetry row IS written — best-effort with a guarded
@@ -187,6 +190,13 @@ async def generate_recipe(
         surface="single_recipe",
         output_json=recipe.model_dump_json(),
         request_json=payload.model_dump_json(),
+    )
+    # Token accounting for the generation call(s), on the same guarded commit.
+    record_llm_usage(
+        session,
+        user_id=current_user.id,
+        surface="single_recipe",
+        usages=usages,
     )
     try:
         await session.commit()

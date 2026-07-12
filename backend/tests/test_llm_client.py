@@ -242,13 +242,13 @@ class TestFallbackChain:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(return_value=expected)
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(return_value=(expected, None))
         client.gemini_client = mock_gemini
 
         result = await client.chat_json("sys", "usr", SingleDayResponse)
         assert result == expected
-        assert mock_gemini.chat.completions.create.await_count == 1
-        assert mock_gemini.chat.completions.create.call_args.kwargs["model"] == "gemini-2.5-flash"
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 1
+        assert mock_gemini.chat.completions.create_with_completion.call_args.kwargs["model"] == "gemini-2.5-flash"
 
     @patch("app.llm.client.settings")
     async def test_fallback_on_429(self, mock_settings: MagicMock) -> None:
@@ -262,15 +262,15 @@ class TestFallbackChain:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
-            side_effect=[_quota_error_gemini(), expected],
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_quota_error_gemini(), (expected, None)],
         )
         client.gemini_client = mock_gemini
 
         result = await client.chat_json("sys", "usr", SingleDayResponse)
         assert result == expected
-        assert mock_gemini.chat.completions.create.await_count == 2
-        second_call = mock_gemini.chat.completions.create.call_args_list[1]
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 2
+        second_call = mock_gemini.chat.completions.create_with_completion.call_args_list[1]
         assert second_call.kwargs["model"] == "gemini-2.5-flash-lite"
 
     @patch("app.llm.client.settings")
@@ -287,14 +287,14 @@ class TestFallbackChain:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
-            side_effect=[_quota_error_gemini(), _quota_error_gemini(), expected],
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_quota_error_gemini(), _quota_error_gemini(), (expected, None)],
         )
         client.gemini_client = mock_gemini
 
         result = await client.chat_json("sys", "usr", SingleDayResponse)
         assert result == expected
-        assert mock_gemini.chat.completions.create.await_count == 3
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 3
 
     @patch("app.llm.client.settings")
     async def test_all_fail_429(self, mock_settings: MagicMock) -> None:
@@ -307,7 +307,7 @@ class TestFallbackChain:
 
         client = LLMClient()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
             side_effect=[_quota_error_gemini(), _quota_error_gemini()],
         )
         client.gemini_client = mock_gemini
@@ -327,7 +327,7 @@ class TestFallbackChain:
 
         client = LLMClient()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
             side_effect=GeminiClientError(400, {"error": {"message": "Bad request"}}),
         )
         client.gemini_client = mock_gemini
@@ -335,7 +335,7 @@ class TestFallbackChain:
         with pytest.raises(HTTPException) as exc_info:
             await client.chat_json("sys", "usr", SingleDayResponse)
         assert exc_info.value.status_code == 502
-        assert mock_gemini.chat.completions.create.await_count == 1
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 1
 
     @patch("app.llm.client.settings")
     async def test_fallback_on_404_model_not_found(self, mock_settings: MagicMock) -> None:
@@ -356,15 +356,15 @@ class TestFallbackChain:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
-            side_effect=[_model_not_found_gemini(), expected],
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_model_not_found_gemini(), (expected, None)],
         )
         client.gemini_client = mock_gemini
 
         result = await client.chat_json("sys", "usr", SingleDayResponse)
         assert result == expected
-        assert mock_gemini.chat.completions.create.await_count == 2
-        second_call = mock_gemini.chat.completions.create.call_args_list[1]
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 2
+        second_call = mock_gemini.chat.completions.create_with_completion.call_args_list[1]
         assert second_call.kwargs["model"] == "gemini-2.5-flash"
 
     @patch("app.llm.client.settings")
@@ -386,15 +386,15 @@ class TestFallbackChain:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
-            side_effect=[_service_unavailable_gemini(), expected],
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_service_unavailable_gemini(), (expected, None)],
         )
         client.gemini_client = mock_gemini
 
         result = await client.chat_json("sys", "usr", SingleDayResponse)
         assert result == expected
-        assert mock_gemini.chat.completions.create.await_count == 2
-        second_call = mock_gemini.chat.completions.create.call_args_list[1]
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 2
+        second_call = mock_gemini.chat.completions.create_with_completion.call_args_list[1]
         assert second_call.kwargs["model"] == "gemini-2.5-flash"
 
     @patch("app.llm.client.settings")
@@ -410,17 +410,17 @@ class TestFallbackChain:
         expected = _mock_single_day()
 
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(side_effect=_quota_error_gemini())
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(side_effect=_quota_error_gemini())
         client.gemini_client = mock_gemini
 
         mock_openai = MagicMock()
-        mock_openai.chat.completions.create = AsyncMock(return_value=expected)
+        mock_openai.chat.completions.create_with_completion = AsyncMock(return_value=(expected, None))
         client.openai_client = mock_openai
 
         result = await client.chat_json("sys", "usr", SingleDayResponse)
         assert result == expected
-        assert mock_gemini.chat.completions.create.await_count == 1
-        assert mock_openai.chat.completions.create.await_count == 1
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 1
+        assert mock_openai.chat.completions.create_with_completion.await_count == 1
 
     @patch("app.llm.client.settings")
     async def test_deepseek_402_gemini_fallback(self, mock_settings: MagicMock) -> None:
@@ -435,17 +435,17 @@ class TestFallbackChain:
         expected = _mock_single_day()
 
         mock_deepseek = MagicMock()
-        mock_deepseek.chat.completions.create = AsyncMock(side_effect=_payment_required_error())
+        mock_deepseek.chat.completions.create_with_completion = AsyncMock(side_effect=_payment_required_error())
         client.deepseek_client = mock_deepseek
 
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(return_value=expected)
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(return_value=(expected, None))
         client.gemini_client = mock_gemini
 
         result = await client.chat_json("sys", "usr", SingleDayResponse)
         assert result == expected
-        assert mock_deepseek.chat.completions.create.await_count == 1
-        assert mock_gemini.chat.completions.create.await_count == 1
+        assert mock_deepseek.chat.completions.create_with_completion.await_count == 1
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 1
 
 
 class TestFallbackBackoff:
@@ -466,8 +466,8 @@ class TestFallbackBackoff:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
-            side_effect=[_quota_error_gemini(), expected],
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_quota_error_gemini(), (expected, None)],
         )
         client.gemini_client = mock_gemini
 
@@ -493,8 +493,8 @@ class TestFallbackBackoff:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
-            side_effect=[_model_not_found_gemini(), expected],
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_model_not_found_gemini(), (expected, None)],
         )
         client.gemini_client = mock_gemini
 
@@ -520,11 +520,11 @@ class TestFallbackBackoff:
         client = LLMClient()
         expected = _mock_single_day()
         mock_gemini = MagicMock()
-        mock_gemini.chat.completions.create = AsyncMock(
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
             side_effect=[
                 _quota_error_gemini(),
                 _service_unavailable_gemini(),
-                expected,
+                (expected, None),
             ],
         )
         client.gemini_client = mock_gemini

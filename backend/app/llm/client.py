@@ -21,6 +21,7 @@ from openai.types.chat import ChatCompletionSystemMessageParam
 from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry, settings
+from app.llm.usage import record_call_usage, usage_from_completion
 
 logger = logging.getLogger(__name__)
 
@@ -135,16 +136,28 @@ class LLMClient:
                     entry.model,
                     response_model.__name__,
                 )
-                result = await client.chat.completions.create(
+                # create_with_completion also returns the raw provider response,
+                # which carries the token-usage metadata. Capturing it here means
+                # only the SUCCESSFUL attempt in the fallback chain is counted —
+                # failed attempts raise before this point.
+                result, completion = await client.chat.completions.create_with_completion(
                     model=entry.model,
                     response_model=response_model,
                     max_retries=MAX_LLM_RETRIES,
                     **kwargs,
                 )
+                usage = usage_from_completion(
+                    entry.provider.value, entry.model, completion
+                )
+                if usage is not None:
+                    record_call_usage(usage)
                 logger.info(
-                    "LLM call completed: provider=%s model=%s",
+                    "LLM call completed: provider=%s model=%s tokens(prompt/completion/total)=%s/%s/%s",
                     entry.provider.value,
                     entry.model,
+                    usage.prompt_tokens if usage else "?",
+                    usage.completion_tokens if usage else "?",
+                    usage.total_tokens if usage else "?",
                 )
                 return result  # type: ignore[return-value]
             except Exception as e:

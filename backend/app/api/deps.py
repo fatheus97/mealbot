@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,7 @@ from app.core.config import settings
 from app.core.cookies import ACCESS_COOKIE_NAME
 from app.core.security import ALGORITHM
 from app.db import get_session
+from app.llm.usage import LlmCallUsage, capture_llm_usage
 from app.models.db_models import User
 
 
@@ -60,3 +63,16 @@ async def get_current_user(
         raise credentials_exception
 
     return user
+
+
+async def usage_capture() -> AsyncIterator[list[LlmCallUsage]]:
+    """Request-scoped LLM-usage capture. Every non-mock LLM call made while
+    handling the request appends to the yielded list (see app.llm.usage). The
+    route drains it into ``record_llm_usage`` next to its ``record_generation``.
+
+    A yield-dependency so the ContextVar is set for the whole handler and reset
+    at request teardown; the handler and its awaited LLM calls share the task,
+    so the client sees the active bucket.
+    """
+    with capture_llm_usage() as bucket:
+        yield bucket

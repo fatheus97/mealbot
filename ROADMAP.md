@@ -120,12 +120,31 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 |---|---|---|---|---|
 | **Real-time cooking mode** | ✅ | — | — | **Shipped 2026-07-02** (#152). `CookMode` — fullscreen tick-box checklist for ingredients/steps while cooking (`cookMode.utils.ts`, tested). |
 | **Leftovers meal_type** | ⬜ | M | calendar dates (soft) | "Cook a bigger dinner, eat it as lunch tomorrow." Needs enum value + prompt handling + schema + UI. Inherently date-aware — pairs with calendar. |
-| **Token-usage tracking** | ⬜ | M | — | **Prerequisite for paygate & expense monitoring.** ⚠️ Notes marked this done; code has *nothing*. Capture prompt/completion tokens from LLM responses → usage table → per-user cost. |
+| **Token-usage tracking** | 🟡 | M | — | **Phase 1 of the Admin & operations epic (below).** Capture half landing: `LlmUsage` table + per-call capture (ContextVar bucket → recorder, best-effort, mock-mode skipped) + `GET /api/usage/me` per-user/per-surface totals. `total_tokens` stored verbatim (Gemini counts billed reasoning tokens beyond prompt+completion). Prerequisite for paygate + the admin stats dashboard. |
 | **Paygate** | ⬜ | L | token-usage | 2-week trial then $4/mo. Needs billing provider (Stripe/Paddle), subscription state, gating middleware, and cost visibility (above). |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
 | **User edits as feedback** | 🟡 | M | — | **Capture half is shipped** (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt). Remaining: **consume** it — feed corrections into future generations (e.g. as prompt context, few-shot examples, or a per-user preference signal). Nothing in `meal_planner`/`recipe_retriever` reads the correction tables yet. Needs a design choice on how edits influence generation. |
 | **Plans ↔ calendar dates** | ⬜ | M–L | — | `MealPlan` has no date fields (day-index is positional). Add scheduled dates + calendar browsing of recipes/plans. Unlocks leftovers + real scheduling. |
 | **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. |
+
+---
+
+## Milestone: Admin & operations
+
+An admin subsystem for running the app: cost/usage visibility, then a real admin
+dashboard, and eventually user management. **Built as phased, independently-
+shippable PRs** — each phase is useful on its own and de-risks the next. Stats
+are **aggregated in Postgres** (SUM/AVG/COUNT/`date_trunc`), not pulled row-by-row
+into the backend/frontend; endpoints are designed around dashboard cards (some
+bundle related metrics) rather than one endpoint per number.
+
+| Phase | Status | Effort | Deps | Notes |
+|---|---|---|---|---|
+| **1. LLM usage tracking** | 🟡 | M | — | *In progress.* `LlmUsage` capture (ContextVar bucket → best-effort recorder, mock-skipped) + migration + `GET /api/usage/me` (per-user, per-surface). See Full release → Token-usage tracking. |
+| **2. Admin role (RBAC)** | ⬜ | S | — | `is_admin` on `User` + migration + a `require_admin` dependency; grant via the existing `create_user` CLI (`--admin`). No self-service. Security-critical foundation — non-admin → 403, tested. |
+| **3. Admin stats API** | ⬜ | M | 1, 2 | DB-aggregated, behind `require_admin`: `overview` (bundled headline metrics), `usage?from&to&granularity` (token time series by surface/provider), `usage/by-user` (top users, avg/user, avg/call), `activity` (from the existing `MachineGeneration` telemetry), read-only `users` list. |
+| **4. Admin dashboard (frontend)** | ⬜ | M–L | 3 | An `/admin` route gated on `is_admin`; cards + charts + tables over the Phase-3 endpoints. Needs a lightweight chart approach (no chart lib in the app yet). Read-only stats first. |
+| **5+. Admin user management** | ⬜ | L | 2, 4 | View / edit / disable users, reset onboarding, audit log, feature flags. **Sensitive** (touches other users' data + access) → deliberately deferred; build with tight authz + an audit trail. |
 
 ---
 

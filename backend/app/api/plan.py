@@ -8,11 +8,12 @@ from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, usage_capture
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
+from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
     FavoriteToggleRequest,
@@ -49,6 +50,7 @@ from app.services.telemetry import (
     record_correction,
     record_generation,
 )
+from app.services.token_usage import record_llm_usage
 from app.utils import compute_shopping_list_from_plan, subtract_used_from_fridge
 
 logger = logging.getLogger(__name__)
@@ -211,6 +213,7 @@ async def plan_meals_for_user(
     payload: MealPlanRequest = ...,  # type: ignore[assignment]
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:
 
     # Defense-in-depth: even though PATCH /api/users whitelists both fields,
@@ -286,6 +289,15 @@ async def plan_meals_for_user(
         request_json=plan.request_json,
         meal_plan_id=plan.id,
     )
+    # Token accounting for this plan's generation call(s) — shares the plan's
+    # transaction, linked to the plan.
+    record_llm_usage(
+        session,
+        user_id=current_user.id,
+        surface="meal_plan",
+        usages=usages,
+        meal_plan_id=plan.id,
+    )
 
     await session.commit()
     await session.refresh(plan)
@@ -303,6 +315,7 @@ async def regenerate_plan(
     body: RegeneratePlanRequest,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:
     """Regenerate unfrozen meals in an existing plan, keeping frozen meals intact."""
 
@@ -474,6 +487,14 @@ async def regenerate_plan(
             surface="regenerate",
             output_json=plan.response_json,
             request_json=body.model_dump_json(),
+            meal_plan_id=plan.id,
+        )
+        # Token accounting for the regenerated slots' LLM call(s).
+        record_llm_usage(
+            session,
+            user_id=current_user.id,
+            surface="regenerate",
+            usages=usages,
             meal_plan_id=plan.id,
         )
 

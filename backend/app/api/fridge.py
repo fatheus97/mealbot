@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, usage_capture
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
+from app.llm.usage import LlmCallUsage
 from app.models.db_models import User
 from app.models.plan_models import ScannedItemDTO, ScannedItemsResponse, StockItemDTO
 from app.services.fridge_service import (
@@ -27,6 +28,7 @@ from app.services.telemetry import (
     record_generation,
     resolve_owned_generation,
 )
+from app.services.token_usage import record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,7 @@ async def scan_receipt(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> ScannedItemsResponse:
     """Upload a receipt image or PDF and extract grocery items via LLM.
 
@@ -202,6 +205,13 @@ async def scan_receipt(
                 "language": user_language,
             }
         ),
+    )
+    # Token accounting for the scan + normalization call(s), same guarded commit.
+    record_llm_usage(
+        session,
+        user_id=current_user.id,
+        surface="receipt_scan",
+        usages=usages,
     )
     try:
         await session.commit()

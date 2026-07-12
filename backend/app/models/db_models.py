@@ -247,6 +247,47 @@ class MachineGeneration(SQLModel, table=True):
     output_json: str = Field(nullable=False)
 
 
+class LlmUsage(SQLModel, table=True):
+    """Per-call LLM token usage, captured at call time. One row per successful,
+    non-mock LLM call.
+
+    Best-effort telemetry with the same contract as MachineGeneration — it rides
+    the user action's transaction (recorded iff the action commits) and a failed
+    write never surfaces to the user. See app.services.token_usage. Values are
+    all server-controlled ints/strings so a flush can't fail on real data.
+
+    ``total_tokens`` is stored as its own column, not derived: providers count
+    reasoning/"thinking" tokens that are billed but excluded from prompt+
+    completion (e.g. Gemini 2.5's total ≫ prompt+candidates), so total is the
+    billing-relevant figure.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    # CASCADE: usage is scoped to a user; demo-user cleanup takes it along.
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    # Which flow the call served: "meal_plan" | "single_recipe" | "receipt_scan"
+    # | "regenerate". Loose str, server-set from token_usage.USAGE_SURFACES.
+    surface: str = Field(index=True, nullable=False)
+    # "gemini" | "openai" | "deepseek".
+    provider: str = Field(nullable=False)
+    # The concrete model that served the call, e.g. "gemini-2.5-flash".
+    model: str = Field(nullable=False)
+    prompt_tokens: int = Field(nullable=False)
+    completion_tokens: int = Field(nullable=False)
+    total_tokens: int = Field(nullable=False)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+    )
+    # Loose link to the owning plan when the surface has one (meal_plan,
+    # regenerate); NULL otherwise. SET NULL so deleting a plan doesn't destroy
+    # the cost signal.
+    meal_plan_id: int | None = Field(
+        default=None, foreign_key="mealplan.id", index=True, ondelete="SET NULL"
+    )
+
+
 class MachineCorrection(SQLModel, table=True):
     """Append-only record of a user editing/committing machine-generated
     content.
