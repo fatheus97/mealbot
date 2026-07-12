@@ -57,6 +57,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
               border: "1px solid #d1d5db",
               borderRadius: 6,
               background: "#fff",
+              color: "#111827",
               cursor: "pointer",
               fontSize: 14,
               whiteSpace: "nowrap",

@@ -99,6 +99,7 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
         border: "1px solid #d1d5db",
         borderRadius: 6,
         background: "#fff",
+        color: "#111827",
         cursor: "pointer",
         fontSize: 14,
       }}
@@ -131,27 +132,33 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
     activity.data?.by_surface.map((s) => ({ label: s.surface, value: s.count })) ?? [];
 
   return (
-    <div
-      style={{
-        maxWidth: 1100,
-        margin: "0 auto",
-        padding: isMobile ? "1rem 0.75rem 3rem" : "1.5rem 1rem 3rem",
-        fontFamily: "sans-serif",
-      }}
-    >
+    // Self-contained light surface + explicit dark base text color, so the
+    // dashboard reads correctly regardless of the OS/browser color scheme.
+    // index.css is the Vite default (dark-by-default); the rest of the app leans
+    // on the adaptive default text color, which these hardcoded colors don't —
+    // pinning the surface here keeps every element legible in light AND dark mode.
+    <div style={{ background: "#f9fafb", color: "#1f2937", minHeight: "100vh" }}>
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "1rem",
-          borderBottom: "2px solid #333",
-          paddingBottom: "0.6rem",
+          maxWidth: 1100,
+          margin: "0 auto",
+          padding: isMobile ? "1rem 0.75rem 3rem" : "1.5rem 1rem 3rem",
+          fontFamily: "sans-serif",
         }}
       >
-        <h1 style={{ margin: 0, fontSize: isMobile ? 20 : 26 }}>🛠️ Admin Dashboard</h1>
-        {backButton}
-      </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "1rem",
+            borderBottom: "2px solid #333",
+            paddingBottom: "0.6rem",
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: isMobile ? 20 : 26 }}>🛠️ Admin Dashboard</h1>
+          {backButton}
+        </div>
 
       <Section title="Overview">
         <QueryState isLoading={overview.isLoading} error={overview.error}>
@@ -271,6 +278,7 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
           )}
         </QueryState>
       </Section>
+      </div>
     </div>
   );
 }
