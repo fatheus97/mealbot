@@ -5,8 +5,11 @@ request-scoped bucket; the route drains that bucket and calls
 ``record_llm_usage`` next to its ``record_generation`` call, so the usage rows
 ride the same transaction (recorded iff the user action commits).
 
-Same contract as app.services.telemetry — never raises, values are all
-server-controlled, ``surface`` is a server-side constant.
+Same contract as app.services.telemetry — never raises, ``surface`` is a
+server-side constant. Unlike the telemetry helpers, the token counts (and
+provider/model) on each ``LlmCallUsage`` come from the provider response, not
+the server; they are bounded in app.llm.usage._as_int so a malformed count can't
+raise at flush and poison the caller's (on the plan paths, unguarded) commit.
 """
 
 import logging
