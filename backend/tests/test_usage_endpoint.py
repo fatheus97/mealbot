@@ -4,10 +4,12 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.config import settings
 from app.core.meal_types import MealType
 from app.core.security import get_password_hash
 from app.llm.client import llm_client
@@ -153,23 +155,30 @@ class TestUsageRecordedByGenerationRoute:
     layer, leaving the bucket empty — so this is the sole guard on the wiring
     (Depends(usage_capture) + record_llm_usage in the route)."""
 
-    @patch.object(llm_client, "gemini_client")
+    @patch.object(llm_client, "_get_client")
     async def test_plan_generation_persists_usage_row(
         self,
-        mock_gemini: MagicMock,
+        mock_get_client: MagicMock,
         client: AsyncClient,
         auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        # Force the real (non-mock) client path regardless of the CI env's
+        # LLM_MOCK, and stub whatever provider heads the chain — so this is
+        # independent of LLM_MOCK / LLM_MODELS.
+        monkeypatch.setattr(settings, "llm_mock", False)
         completion = SimpleNamespace(
             usage_metadata=SimpleNamespace(
                 prompt_token_count=30, candidates_token_count=10, total_token_count=300
             )
         )
-        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+        stub_client = MagicMock()
+        stub_client.chat.completions.create_with_completion = AsyncMock(
             return_value=(_fake_day(), completion)
         )
+        mock_get_client.return_value = stub_client
 
         resp = await client.post(
             "/api/plan?days=1",
@@ -188,6 +197,5 @@ class TestUsageRecordedByGenerationRoute:
         assert len(rows) == 1
         row = rows[0]
         assert row.surface == "meal_plan"
-        assert row.provider == "gemini"
         assert row.total_tokens == 300
         assert row.meal_plan_id is not None

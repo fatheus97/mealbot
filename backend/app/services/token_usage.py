@@ -36,7 +36,13 @@ def record_llm_usage(
     meal_plan_id: int | None = None,
 ) -> None:
     """Stage one LlmUsage row per captured call on ``session`` (committed by the
-    caller). No-op for an empty ``usages``. Never raises."""
+    caller). No-op for an empty ``usages``. Never raises.
+
+    Rides the caller's transaction, so if the request raises before it commits,
+    the whole request's usage is dropped — including earlier calls that already
+    succeeded (a multi-day plan batches all days into one bucket). See LlmUsage
+    for the full billing-scope caveat.
+    """
     try:
         if surface not in USAGE_SURFACES:
             raise ValueError(f"unknown usage surface {surface!r}")

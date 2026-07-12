@@ -253,8 +253,13 @@ class LlmUsage(SQLModel, table=True):
 
     Best-effort telemetry with the same contract as MachineGeneration — it rides
     the user action's transaction (recorded iff the action commits) and a failed
-    write never surfaces to the user. See app.services.token_usage. Values are
-    all server-controlled ints/strings so a flush can't fail on real data.
+    write never surfaces to the user. See app.services.token_usage.
+    ``surface``/``provider``/``model`` are server-set constants, but the token
+    counts are **provider-supplied, not server-controlled** — they're clamped in
+    app.llm.usage._as_int to fit the int32 columns. That clamp is load-bearing,
+    not belt-and-suspenders: it's the only thing stopping a malformed provider
+    count from raising at flush and poisoning the caller's (on the plan paths,
+    unguarded) transaction.
 
     ``total_tokens`` is stored as its own column, not derived: providers count
     reasoning/"thinking" tokens that are billed but excluded from prompt+
@@ -262,9 +267,13 @@ class LlmUsage(SQLModel, table=True):
     billing-relevant figure.
 
     Scope — this is a **lower bound on billed spend, not exact billing**:
-    * Only successful, committed user actions are recorded (usage rides the
-      action's transaction). A generation that fails or rolls back records
-      nothing, even though its succeeded calls consumed tokens.
+    * Usage rides the user action's transaction, so a request that raises before
+      it commits records nothing — and because a multi-call request (a multi-day
+      plan, a regenerate) accumulates all its calls into one bucket committed at
+      the end, one failed call discards the **whole request's** usage, including
+      the earlier calls that already succeeded and were billed. (A future phase
+      that needs exact billing should record each call in its own transaction so
+      partial-failure spend survives; see ROADMAP.)
     * Only the final successful attempt is counted; `instructor`'s internal
       structured-output validation retries are billed but not captured here.
     Good enough for cost trends / relative per-user & per-surface comparison;
