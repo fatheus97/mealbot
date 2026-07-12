@@ -5,8 +5,9 @@
 > in-recipe UX thrust, the edit-telemetry work, two production-hardening passes,
 > and the mobile-friendly + camera-capture thrust, then again **2026-07-11** after
 > the stability run (LLM outage recovery, chain-resilience prep, CI review-gate
-> fix). Where the notes and the code disagreed, the code wins and the discrepancy
-> is called out.
+> fix), and **2026-07-12** after the full Admin & operations epic shipped
+> (usage tracking → RBAC → stats API → dashboard, #189/#191/#192/#193). Where the
+> notes and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
 
@@ -120,7 +121,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 |---|---|---|---|---|
 | **Real-time cooking mode** | ✅ | — | — | **Shipped 2026-07-02** (#152). `CookMode` — fullscreen tick-box checklist for ingredients/steps while cooking (`cookMode.utils.ts`, tested). |
 | **Leftovers meal_type** | ⬜ | M | calendar dates (soft) | "Cook a bigger dinner, eat it as lunch tomorrow." Needs enum value + prompt handling + schema + UI. Inherently date-aware — pairs with calendar. |
-| **Token-usage tracking** | 🟡 | M | — | **Phase 1 of the Admin & operations epic (below).** Capture half landing: `LlmUsage` table + per-call capture (ContextVar bucket → recorder, best-effort, mock-mode skipped) + `GET /api/usage/me` per-user/per-surface totals. `total_tokens` stored verbatim (Gemini counts billed reasoning tokens beyond prompt+completion). Prerequisite for paygate + the admin stats dashboard. |
+| **Token-usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189)** as Phase 1 of the Admin epic (below): `LlmUsage` capture + `GET /api/usage/me` + the admin stats surface it in a dashboard. Still the prerequisite for the paygate; note the billing-lower-bound caveat on `LlmUsage` if exact per-user billing is needed. |
 | **Paygate** | ⬜ | L | token-usage | 2-week trial then $4/mo. Needs billing provider (Stripe/Paddle), subscription state, gating middleware, and cost visibility (above). ⚠️ If exact per-user billing is required, first upgrade usage recording: Phase 1 records per-*request* on the action's transaction, so a partial multi-call failure drops already-billed calls (a lower bound). Record each call in its own transaction for exactness. |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
 | **User edits as feedback** | 🟡 | M | — | **Capture half is shipped** (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt). Remaining: **consume** it — feed corrections into future generations (e.g. as prompt context, few-shot examples, or a per-user preference signal). Nothing in `meal_planner`/`recipe_retriever` reads the correction tables yet. Needs a design choice on how edits influence generation. |
@@ -140,11 +141,11 @@ bundle related metrics) rather than one endpoint per number.
 
 | Phase | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
-| **1. LLM usage tracking** | 🟡 | M | — | *In progress.* `LlmUsage` capture (ContextVar bucket → best-effort recorder, mock-skipped) + migration + `GET /api/usage/me` (per-user, per-surface). See Full release → Token-usage tracking. |
-| **2. Admin role (RBAC)** | ⬜ | S | — | `is_admin` on `User` + migration + a `require_admin` dependency; grant via the existing `create_user` CLI (`--admin`). No self-service. Security-critical foundation — non-admin → 403, tested. |
-| **3. Admin stats API** | ⬜ | M | 1, 2 | DB-aggregated, behind `require_admin`: `overview` (bundled headline metrics), `usage?from&to&granularity` (token time series by surface/provider), `usage/by-user` (top users, avg/user, avg/call), `activity` (from the existing `MachineGeneration` telemetry), read-only `users` list. |
-| **4. Admin dashboard (frontend)** | ⬜ | M–L | 3 | An `/admin` route gated on `is_admin`; cards + charts + tables over the Phase-3 endpoints. Needs a lightweight chart approach (no chart lib in the app yet). Read-only stats first. |
-| **5+. Admin user management** | ⬜ | L | 2, 4 | View / edit / disable users, reset onboarding, audit log, feature flags. **Sensitive** (touches other users' data + access) → deliberately deferred; build with tight authz + an audit trail. |
+| **1. LLM usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189).** `LlmUsage` capture (request-scoped ContextVar bucket → best-effort recorder, mock-skipped) + migration + `GET /api/usage/me` (per-user, per-surface). `total_tokens` stored verbatim (Gemini bills reasoning tokens beyond prompt+completion). |
+| **2. Admin role (RBAC)** | ✅ | — | — | **Shipped 2026-07-12 (#191).** `is_admin` on `User` + migration + a fail-closed `require_admin` dependency; grant via `create_user --admin` (server-set only, no self-service — non-admin → 403). Consolidated the two divergent `_to_read` mappers so the login response carries `is_admin`. |
+| **3. Admin stats API** | ✅ | — | — | **Shipped 2026-07-12 (#192).** DB-aggregated, behind `require_admin`: `overview`, `usage?from&to&granularity` (date_trunc time series + by-surface/provider), `usage/by-user` (top users, avg/user, avg/call), `activity` (from `MachineGeneration`). Range bounded to 366d, `granularity` a Literal. |
+| **4. Admin dashboard (frontend)** | ✅ | — | — | **Shipped 2026-07-12 (#193).** State-based `/admin` view gated on `is_admin` (real gate is the backend 403); stat cards + hand-rolled CSS `BarChart` (no chart-lib dep) + top-users table over the Phase-3 endpoints. Verified end-to-end in the browser. |
+| **5+. Admin user management** | ⬜ | L | 2, 4 | **Deferred (awaiting go-ahead).** View / edit / disable users, reset onboarding, audit log, feature flags. **Sensitive** (touches other users' data + access) → build with tight authz + an audit trail. |
 
 ---
 
