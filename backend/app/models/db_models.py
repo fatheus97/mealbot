@@ -254,9 +254,10 @@ class LlmUsage(SQLModel, table=True):
     Best-effort telemetry with the same contract as MachineGeneration — it rides
     the user action's transaction (recorded iff the action commits) and a failed
     write never surfaces to the user. See app.services.token_usage.
-    ``surface``/``provider``/``model`` are server-set constants, but the token
-    counts are **provider-supplied, not server-controlled** — they're clamped in
-    app.llm.usage._as_int to fit the int32 columns. That clamp is load-bearing,
+    ``surface``/``provider``/``model`` are server-controlled (``surface`` is a
+    constant; ``provider``/``model`` come from our LLM_MODELS config), but the
+    token counts are **provider-supplied, not server-controlled** — they're
+    clamped in app.llm.usage._as_int to fit the int32 columns. That clamp is load-bearing,
     not belt-and-suspenders: it's the only thing stopping a malformed provider
     count from raising at flush and poisoning the caller's (on the plan paths,
     unguarded) transaction.
