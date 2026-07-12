@@ -111,7 +111,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | **Mobile-friendly UI** | ✅ | — | — | **Shipped 2026-07-10** (#176 + on-device fixes #178/#179/#180). Inline styles can't be reached by CSS `@media`, so responsiveness is JS-driven via a `useIsMobile()` hook components branch on; tables→cards, form grids→1-col, cookbook spread→single column, cook-mode ingredients→overlay + step-swipe. On-device iPhone QA caught bugs the static pass missed (AuthBar/plan-list overflow, broken cookbook view). |
 | **Camera capture** | ✅ | — | — | **Shipped 2026-07-10** (#177). "Take photo" → `getUserMedia` → canvas → JPEG (sidesteps iOS HEIC + compresses) into the existing scan flow; graceful file-upload fallback. Two adversarial-review rounds caught 6 defects (stream leak, StrictMode dead-camera, races). |
 | **Request correlation IDs (I-3)** | ⬜ | M | — | No trace/request IDs, no structured JSON logging. Middleware + `ContextVar` + JSON formatter + log-call updates. Own PR. |
-| **Frontend E2E (U-8)** | ⬜ | M–L | — | No Playwright/Cypress. Deferred until a workflow needs it; low urgency for a solo alpha. |
+| **Frontend E2E / visual regression (U-8)** | ⬜ | M–L | — | No Playwright/Cypress. **Deferred by choice (2026-07-12):** repeated dark-mode white-on-white bugs prompted a lighter guardrail instead — a checked-in `.claude/rules/frontend.md` mandating a manual dark+light preview check on every UI change (#196). Automated Playwright screenshot/visual-regression (light+dark baselines) is the eventual fix but carries a re-baselining + CI-env-consistency tax; revisit if the rule stops catching regressions. |
 
 ---
 
@@ -175,28 +175,35 @@ payment or goes public.
 Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs the below
      │
      ├─ ✅ done: editable results, real-time cooking mode, edit-telemetry CAPTURE,
-     │          two prod-hardening passes, mobile-friendly UI + camera capture
+     │          two prod-hardening passes, mobile UI + camera, the 07-11 stability
+     │          run, and the full Admin epic (usage tracking → RBAC → stats → dash)
      │
      ├─ close the loop: user-edits-as-feedback  (capture is done — now CONSUME it)
      │
-     └─ Monetization track: token-usage tracking ─► paygate
+     └─ Monetization track: token-usage tracking ✅ (#189) ─► paygate (next)
                 calendar dates ─► leftovers + calendar browsing
 ```
 
-**The in-recipe UX thrust AND the mobile+camera thrust are shipped, so the next
-decision is which improvement earns the most from real usage.** Highest-signal
+**The in-recipe UX, mobile+camera, and the whole Admin epic are shipped — the
+next decision is which improvement earns the most from real usage.** Highest-signal
 candidates now:
 1. **Close the edit-feedback loop** — the `MachineCorrection` capture data is
    accumulating **unused**; consuming it (edits → better generations) is the
    payoff the telemetry was built for, and a genuine product differentiator.
    Needs a design choice on *how* edits influence generation (prompt context /
    few-shot / per-user preference) + enough correction volume to be worthwhile.
-2. **Monetization groundwork** — token-usage tracking (nothing captured today)
-   → paygate. Only worth starting when charging is near-term; token tracking is
-   also just good cost-hygiene regardless.
+2. **Monetization → paygate** — token-usage tracking is now SHIPPED (#189) and
+   surfaced in the admin dashboard, so the paygate is unblocked: billing provider
+   (Stripe/Paddle), subscription state, gating middleware. Start only when
+   charging is near-term; if *exact* per-user billing matters, first do the
+   per-call-transaction usage upgrade (see the paygate row's caveat).
 3. **Cheap hygiene wins** (S each): `authsession` cleanup job (unbounded table
-   growth), password-change endpoint. Low-risk, unblock nothing, reduce risk.
+   growth), password-change endpoint. Low-risk, reduce risk, unblock nothing.
+4. **Cross-provider LLM fallback** (S) — the resilience gap the 07-10 outage
+   exposed is still open (chain is all-Gemini); a one-line `LLM_MODELS` change
+   once a funded non-Gemini key exists. Needs you to fund DeepSeek / add an
+   OpenAI key first.
 
 Which of #1 vs #2 depends on a signal only you have: *is enough correction data
 accumulating to make the feedback loop measurably better yet, and how near-term
-is charging?*
+is charging?* If neither is ripe, #3/#4 are quick risk-reducers.
