@@ -91,6 +91,17 @@ async def record_sale_from_invoice(
     if isinstance(address, dict) and isinstance(address.get("country"), str):
         country = address["country"].upper()
 
+    # B2B is inferred from the presence of a (self-declared) tax id on the
+    # invoice. CAVEAT: the invoice snapshot's customer_tax_ids is only
+    # [{type, value}] — it carries no verification status (that lives on the
+    # Customer object, which would need a separate API call). So a consumer who
+    # types a tax id at Checkout is counted as B2B and dropped from the OSS €10k
+    # bucket, which UNDER-counts cross-border exposure — the opposite of the safe
+    # (over-counting) direction the CZ window takes. Acceptable for an admin-only
+    # early-warning aid: the dashboard note flags it, and tax_id_collection only
+    # surfaces the field behind Stripe's "I'm a business" toggle, so the
+    # false-positive rate is low. Revisit (verify against customer.tax_ids) if
+    # real B2B customers appear.
     tax_ids = invoice.get("customer_tax_ids")
     is_business = isinstance(tax_ids, list) and len(tax_ids) > 0
 
@@ -238,7 +249,10 @@ async def compute_revenue_stats(
             threshold=eu_threshold,
             unit="EUR",
             pct=(eu_current / eu_threshold) if eu_threshold else 0.0,
-            note=f"B2C sales to other EU countries in {ref.year} (excl. Czechia & B2B).",
+            note=(
+                f"B2C sales to other EU countries in {ref.year} (excl. Czechia & B2B). "
+                "B2B = self-declared tax id, so this may under-count if a consumer entered one."
+            ),
         ),
         ThresholdProgress(
             key="cz_domestic",
