@@ -36,9 +36,22 @@ def billing_configured() -> bool:
 
 
 def _require_stripe() -> None:
+    """Set the API key + network policy for outbound (API-key) Stripe calls.
+
+    Configures an explicit request timeout and retry count (per
+    .claude/rules/fastapi.md — every external call needs both). The SDK's 80s
+    default timeout is far longer than any other external call in this app; a
+    hung Stripe request would otherwise pin an asyncio.to_thread worker for over
+    a minute. The http client is built once (default_http_client starts None).
+    """
     if not settings.stripe_secret_key:
         raise RuntimeError("Stripe is not configured (STRIPE_SECRET_KEY missing)")
     stripe.api_key = settings.stripe_secret_key
+    stripe.max_network_retries = settings.stripe_max_retries
+    if stripe.default_http_client is None:
+        stripe.default_http_client = stripe.new_default_http_client(
+            timeout=settings.stripe_timeout_seconds
+        )
 
 
 def is_entitled(user: User) -> bool:
@@ -106,13 +119,20 @@ def apply_subscription(
 
 
 async def _ensure_customer(user: User, session: AsyncSession) -> str:
-    """Return the user's Stripe customer id, creating the customer on first use."""
+    """Return the user's Stripe customer id, creating the customer on first use.
+
+    The check-then-act below can race (two concurrent /checkout calls — double
+    click, two tabs), so the create is keyed by user id with an idempotency key:
+    a duplicate create returns the SAME Customer instead of orphaning a second
+    one in the Stripe dashboard.
+    """
     if user.stripe_customer_id:
         return user.stripe_customer_id
     customer = await asyncio.to_thread(
         stripe.Customer.create,
         email=user.email,
         metadata={"user_id": str(user.id)},
+        idempotency_key=f"customer_create_user_{user.id}",
     )
     user.stripe_customer_id = customer.id
     session.add(user)
@@ -161,8 +181,14 @@ async def create_portal_session(user: User) -> str:
 
 
 def construct_event(payload: bytes, sig_header: str) -> stripe.Event:
-    """Verify the Stripe-Signature and parse the event (raises on bad signature)."""
-    _require_stripe()
+    """Verify the Stripe-Signature and parse the event (raises on bad signature).
+
+    Signature verification is pure HMAC over the webhook secret — it needs
+    neither the API key nor a network call. So we deliberately do NOT route
+    through _require_stripe(): a partially-configured env (webhook secret set,
+    API key missing/typo'd) must still verify webhooks, or Stripe would
+    eventually auto-disable an endpoint that fails every delivery.
+    """
     if not settings.stripe_webhook_secret:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET not configured")
     return stripe.Webhook.construct_event(

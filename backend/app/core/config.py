@@ -105,6 +105,12 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:5173"
     # 14-day free trial before the first charge.
     trial_period_days: int = 14
+    # Outbound-Stripe network policy (per .claude/rules/fastapi.md: every external
+    # call needs an explicit timeout + retry). The SDK default is 80s / 2 retries;
+    # 20s is plenty for control-plane calls and keeps a hung request from tying up
+    # an asyncio.to_thread worker for over a minute.
+    stripe_timeout_seconds: int = 20
+    stripe_max_retries: int = 2
 
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive

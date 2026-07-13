@@ -8,6 +8,7 @@ the mirrored state on the right user.
 """
 
 import pytest
+import stripe
 from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -298,6 +299,17 @@ async def test_portal_returns_url(client: AsyncClient, test_user: User, monkeypa
 # --------------------------------------------------------------------------- #
 # Webhook
 # --------------------------------------------------------------------------- #
+def test_construct_event_does_not_require_api_key(monkeypatch):
+    """Webhook signature verification is pure HMAC over the webhook secret — it
+    must NOT depend on STRIPE_SECRET_KEY. A partially-configured env (webhook
+    secret set, API key missing) must still reach signature verification (and
+    fail there on a bad signature), not raise a 'key missing' RuntimeError."""
+    monkeypatch.setattr(settings, "stripe_secret_key", None)
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test_secret")
+    with pytest.raises(stripe.SignatureVerificationError):
+        stripe_service.construct_event(b"{}", "t=1,v1=deadbeef")
+
+
 async def test_webhook_400_on_bad_signature(client: AsyncClient, monkeypatch):
     def _raise(payload, sig):
         raise ValueError("bad signature")
