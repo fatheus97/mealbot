@@ -10,6 +10,9 @@ import { MealPlanner } from "./components/MealPlanner";
 import { OnboardingModal } from "./components/OnboardingModal";
 import { CookbookFab } from "./components/CookbookFab";
 import { AdminDashboard } from "./components/admin/AdminDashboard";
+import { SubscriptionBanner } from "./components/billing/SubscriptionBanner";
+import { PaywallModal } from "./components/billing/PaywallModal";
+import { BillingReturnHandler } from "./components/billing/BillingReturnHandler";
 import type { MealPlanResponse, MealPlanSummary } from "./types";
 
 interface OpenedPlan {
@@ -68,6 +71,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
         )}
       </div>
       <AuthBar />
+      {userId && <SubscriptionBanner />}
       <Fridge />
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
       <MealPlanner
@@ -114,6 +118,11 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <AuthRoot />
+        {/* Global billing surfaces — the paywall opens on any 402, and the
+            return handler re-syncs after a Stripe redirect. Both are inert
+            (render null) until triggered. */}
+        <PaywallModal />
+        <BillingReturnHandler />
       </AuthProvider>
     </ErrorBoundary>
   );

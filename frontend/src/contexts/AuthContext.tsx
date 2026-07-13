@@ -25,6 +25,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_admin") === "true"
   );
+  // Billing render hints (same pattern as isAdmin): avoid a wrong-copy flash of
+  // the subscription banner on reload. Reconciled by the bootstrap /users call.
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>(
+    () => window.localStorage.getItem("mealbot_subscription_status") || "none"
+  );
+  const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(
+    () => window.localStorage.getItem("mealbot_current_period_end")
+  );
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_is_subscribed") === "true"
+  );
   // null = /config not yet resolved; boolean = resolved value. Using null
   // as the unresolved sentinel lets the UI avoid a flash of the wrong
   // copy (e.g. rendering the "closed alpha" notice for the 50-200ms
@@ -39,8 +50,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsDemo(demoFlag);
     setIsAdmin(Boolean(profile.is_admin));
     setOnboardingCompletedState(profile.onboarding_completed);
+    // Billing state (defensive ?? / Boolean so a pre-billing cached payload or a
+    // test mock without these fields degrades to "not subscribed", not undefined).
+    const subStatus = profile.subscription_status ?? "none";
+    setSubscriptionStatus(subStatus);
+    setCurrentPeriodEnd(profile.current_period_end ?? null);
+    setIsSubscribed(Boolean(profile.is_subscribed));
     window.localStorage.setItem("mealbot_user_id", String(profile.id));
     window.localStorage.setItem("mealbot_user_email", profile.email);
+    window.localStorage.setItem("mealbot_subscription_status", subStatus);
+    if (profile.current_period_end) {
+      window.localStorage.setItem("mealbot_current_period_end", profile.current_period_end);
+    } else {
+      window.localStorage.removeItem("mealbot_current_period_end");
+    }
+    if (profile.is_subscribed) {
+      window.localStorage.setItem("mealbot_is_subscribed", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_is_subscribed");
+    }
     if (demoFlag) {
       window.localStorage.setItem("mealbot_is_demo", "true");
     } else {
@@ -64,11 +92,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsDemo(false);
     setIsAdmin(false);
     setOnboardingCompletedState(false);
+    setSubscriptionStatus("none");
+    setCurrentPeriodEnd(null);
+    setIsSubscribed(false);
     window.localStorage.removeItem("mealbot_user_id");
     window.localStorage.removeItem("mealbot_user_email");
     window.localStorage.removeItem("mealbot_onboarding");
     window.localStorage.removeItem("mealbot_is_demo");
     window.localStorage.removeItem("mealbot_is_admin");
+    window.localStorage.removeItem("mealbot_subscription_status");
+    window.localStorage.removeItem("mealbot_current_period_end");
+    window.localStorage.removeItem("mealbot_is_subscribed");
 
     // Prevent cross-account leakage: drop cached server data and reset
     // the persisted preferences store to defaults. Component-local state
@@ -123,6 +157,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const refreshProfile = useCallback(async (): Promise<void> => {
+    // Re-sync billing state after a Stripe redirect. The webhook that flips the
+    // subscription can land just after the browser returns, so callers may retry.
+    // Swallow network blips (same as the bootstrap effect) — callers use
+    // `void refreshProfile()`, so a throw would surface as an unhandled rejection.
+    try {
+      const r = await authFetch("/users");
+      if (!r?.ok) return;
+      const profile = (await r.json()) as AuthLoginResponse;
+      if (profile && typeof profile.id === "number" && typeof profile.email === "string") {
+        applyProfile(profile, Boolean(profile.is_demo));
+      }
+    } catch {
+      // Transient failure — leave the current (hinted) state in place.
+    }
+  }, [applyProfile]);
 
   const setOnboardingCompleted = (value: boolean) => {
     setOnboardingCompletedState(value);
@@ -202,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, login, logout, setOnboardingCompleted, loginDemo, register }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, subscriptionStatus, currentPeriodEnd, isSubscribed, login, logout, setOnboardingCompleted, loginDemo, register, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
