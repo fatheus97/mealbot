@@ -133,7 +133,8 @@ class Settings(BaseSettings):
     alert_email_to: str | None = None
     # Day of month to send the monthly identifikovaná-osoba reminder — ahead of
     # the FÚ 25th deadline for self-assessing VAT on Stripe's foreign-service fees.
-    vat_reminder_day: int = 20
+    # Bounded to 1..25 so the reminder can never fire after the 25th it references.
+    vat_reminder_day: int = Field(default=20, ge=1, le=25)
 
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive

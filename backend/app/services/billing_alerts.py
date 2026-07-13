@@ -97,8 +97,9 @@ async def _maybe_send_reminder(
 ) -> str | None:
     """Monthly identifikovaná-osoba reminder — purely time-based, so it runs
     independently of the revenue aggregation (a stats failure must not suppress
-    it). Fires on/after the configured day, clamped to the month's length so a
-    day > the month's last day (e.g. 31 in February) still triggers."""
+    it). Fires on/after the configured day, clamped to the month's length as a
+    defensive guard (config already bounds vat_reminder_day to 1..25, so the
+    clamp only matters if that constraint is ever bypassed)."""
     last_day = calendar.monthrange(now.year, now.month)[1]
     trigger_day = min(settings.vat_reminder_day, last_day)
     if now.day < trigger_day:
