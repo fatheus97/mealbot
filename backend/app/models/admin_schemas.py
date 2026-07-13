@@ -4,7 +4,7 @@ All aggregation happens in SQL; these are the typed shapes the dashboard renders
 Maps are modelled as lists of typed items (not dict) so responses stay schema'd.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -86,3 +86,54 @@ class ActivityStatsResponse(BaseModel):
     granularity: str
     series: list[ActivityBucket]
     by_surface: list[SurfaceCount]
+
+
+# --- Revenue & VAT (subscription sales ledger) ---
+
+
+class ThresholdProgress(BaseModel):
+    """One VAT threshold and how close cumulative sales are to it."""
+
+    key: str  # "eu_oss" | "cz_domestic"
+    label: str
+    current: float  # in `unit`
+    threshold: float  # in `unit`
+    unit: str  # "EUR" | "CZK"
+    pct: float  # current / threshold (uncapped; the UI clamps the bar)
+    note: str
+
+
+class CountryRevenue(BaseModel):
+    country: str | None  # ISO alpha-2, NULL when Stripe gave none
+    is_eu: bool
+    amount_cents: int  # EUR minor units
+    sales: int
+
+
+class SaleRow(BaseModel):
+    occurred_at: datetime
+    amount_cents: int
+    currency: str
+    country: str | None
+    is_business: bool
+
+
+class RevenueStats(BaseModel):
+    """Revenue totals + VAT-threshold progress for the admin dashboard.
+
+    All monetary aggregates are in EUR minor units (the subscription price is
+    EUR). Sales in any other currency are excluded from the sums and surfaced via
+    ``non_eur_sales_count`` so the dashboard can flag them rather than silently
+    mixing currencies.
+    """
+
+    currency: str  # reporting currency for the aggregates, "eur"
+    total_cents: int
+    sales_count: int
+    eu_cross_border_b2c_cents: int
+    cz_domestic_cents: int
+    non_eur_sales_count: int
+    eur_czk_rate: float
+    thresholds: list[ThresholdProgress]
+    by_country: list[CountryRevenue]
+    recent: list[SaleRow]

@@ -381,3 +381,47 @@ class MachineCorrection(SQLModel, table=True):
     before_json: str | None = Field(default=None)
     # What the user committed (JSON). The core signal.
     after_json: str = Field(nullable=False)
+
+
+class SaleRecord(SQLModel, table=True):
+    """One successful subscription payment, captured from the Stripe
+    ``invoice.paid`` webhook. An append-only revenue ledger that powers VAT
+    threshold tracking (EU €10k OSS cross-border-B2C; CZ 2M CZK turnover).
+
+    Rows persist beyond the user (``ondelete="SET NULL"``): a deleted account
+    (e.g. demo cleanup, GDPR erasure) must not destroy the revenue/tax record.
+    ``country`` + ``is_business`` are the categorisation axes; amounts are stored
+    in the currency's minor unit exactly as Stripe reports them (no lossy FX at
+    write time — conversion to CZK for the domestic threshold is done at read
+    time with a configurable rate).
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    # Idempotency key: one row per Stripe invoice, so a webhook replay is a no-op
+    # (the recorder checks for an existing row before inserting).
+    stripe_invoice_id: str = Field(
+        sa_column=Column(String, unique=True, index=True, nullable=False)
+    )
+    stripe_customer_id: str | None = Field(default=None, index=True)
+    # SET NULL (not CASCADE): the sale outlives the user for tax record-keeping.
+    user_id: int | None = Field(
+        default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
+    )
+    # Amount actually paid, in the currency's minor unit (e.g. euro cents), as
+    # Stripe's invoice.amount_paid reports it. int is ample per invoice.
+    amount_cents: int = Field(nullable=False)
+    # ISO-4217, lowercase (Stripe's convention), e.g. "eur".
+    currency: str = Field(nullable=False)
+    # Billing country, ISO-3166-1 alpha-2 upper (e.g. "DE"), from the invoice's
+    # customer address. NULL when Stripe supplied none. Drives EU-vs-CZ split.
+    country: str | None = Field(default=None, index=True)
+    # True when the customer supplied a (VAT) tax id → B2B, which is excluded
+    # from the €10k cross-border B2C threshold.
+    is_business: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
+    # Economic time of the sale (Stripe invoice paid time), UTC-naive to match
+    # the rest of the schema. Indexed for rolling-window aggregation.
+    occurred_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+    )

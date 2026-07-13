@@ -19,7 +19,7 @@ from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.billing_schemas import BillingUrlResponse, WebhookAck
 from app.models.db_models import User
-from app.services import stripe_service
+from app.services import revenue_service, stripe_service
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +92,12 @@ async def stripe_webhook(
         raise HTTPException(status_code=400, detail="Invalid webhook.") from None
 
     event_type = str(event.get("type", ""))
+    created = event.get("created")
+    event_created = created if isinstance(created, int) else None
+
     if event_type.startswith("customer.subscription."):
         obj = event["data"]["object"]
         customer_id = obj.get("customer")
-        created = event.get("created")
-        event_created = created if isinstance(created, int) else None
         if customer_id:
             result = await session.execute(
                 select(User).where(col(User.stripe_customer_id) == str(customer_id))
@@ -118,5 +119,15 @@ async def stripe_webhook(
                         "billing_sync_skip_stale user_id=%s event=%s created=%s",
                         user.id, event_type, event_created,
                     )
+    elif event_type == "invoice.paid":
+        # Record actual revenue for VAT-threshold tracking (idempotent on the
+        # invoice id, so replays are safe).
+        invoice = event["data"]["object"]
+        recorded = await revenue_service.record_sale_from_invoice(
+            session, dict(invoice), event_created=event_created
+        )
+        if recorded:
+            await session.commit()
+            logger.info("sale_recorded invoice=%s", invoice.get("id"))
 
     return WebhookAck(received=True)

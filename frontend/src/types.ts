@@ -332,3 +332,43 @@ export interface ActivityStatsResponse {
   by_surface: SurfaceCount[];
 }
 
+// --- Revenue & VAT (mirror backend admin_schemas RevenueStats) ---
+
+export interface ThresholdProgress {
+  key: "eu_oss" | "cz_domestic" | string;
+  label: string;
+  current: number;
+  threshold: number;
+  unit: "EUR" | "CZK" | string;
+  pct: number; // current/threshold, uncapped
+  note: string;
+}
+
+export interface CountryRevenue {
+  country: string | null;
+  is_eu: boolean;
+  amount_cents: number;
+  sales: number;
+}
+
+export interface SaleRow {
+  occurred_at: string;
+  amount_cents: number;
+  currency: string;
+  country: string | null;
+  is_business: boolean;
+}
+
+export interface RevenueStats {
+  currency: string;
+  total_cents: number;
+  sales_count: number;
+  eu_cross_border_b2c_cents: number;
+  cz_domestic_cents: number;
+  non_eur_sales_count: number;
+  eur_czk_rate: number;
+  thresholds: ThresholdProgress[];
+  by_country: CountryRevenue[];
+  recent: SaleRow[];
+}
+
