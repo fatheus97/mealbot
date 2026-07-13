@@ -8,7 +8,7 @@ from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.api.deps import get_current_user, usage_capture
+from app.api.deps import get_current_user, require_active_subscription, usage_capture
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
@@ -211,7 +211,7 @@ async def plan_meals_for_user(
     request: Request,
     days: int = Query(ge=1, le=7, description="Number of days to plan (1-7)"),
     payload: MealPlanRequest = ...,  # type: ignore[assignment]
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:
@@ -313,7 +313,7 @@ async def regenerate_plan(
     request: Request,
     plan_id: int,
     body: RegeneratePlanRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:

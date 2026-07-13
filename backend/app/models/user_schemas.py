@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -48,6 +49,12 @@ class UserRead(UserBase):
     is_demo: bool = False
     is_admin: bool = False
     default_day_layout: list[MealType] | None = None
+    # Billing: the raw mirrored fields drive the status banner; ``is_subscribed``
+    # is the single server-computed entitlement the SPA gates paid UI on (so it
+    # never has to re-derive billing_enabled / admin / demo bypass rules).
+    subscription_status: str = "none"
+    current_period_end: datetime | None = None
+    is_subscribed: bool = False
 
 
 def user_to_read(
@@ -58,6 +65,11 @@ def user_to_read(
     api/user.py and api/auth.py, which is how `is_admin` was missed on the login
     response. Callers pass the already-sanitized ``default_day_layout`` (login
     responses omit it → None)."""
+    # Local import: keeps the schemas layer free of a module-load dependency on
+    # the services layer, and is_entitled is the one source of truth for the
+    # entitlement rule (billing-off / admin / demo bypass all live there).
+    from app.services.stripe_service import is_entitled
+
     return UserRead(
         id=u.id,  # type: ignore[arg-type]  # always populated post-flush
         email=u.email,
@@ -71,6 +83,9 @@ def user_to_read(
         is_demo=u.is_demo,
         is_admin=u.is_admin,
         default_day_layout=default_day_layout,
+        subscription_status=u.subscription_status,
+        current_period_end=u.current_period_end,
+        is_subscribed=is_entitled(u),
     )
 
 class UserUpdate(SQLModel):
