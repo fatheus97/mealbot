@@ -3,9 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../contexts/AuthContext";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { BarChart, type Bar } from "./BarChart";
+import { RevenuePanel } from "./RevenuePanel";
 import {
   fetchAdminActivity,
   fetchAdminOverview,
+  fetchAdminRevenue,
   fetchAdminUsage,
   fetchAdminUsageByUser,
 } from "../../api";
@@ -88,6 +90,11 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
   const activity = useQuery({
     queryKey: ["admin", "activity", "day"],
     queryFn: () => fetchAdminActivity(undefined, undefined, "day"),
+    enabled: isAdmin,
+  });
+  const revenue = useQuery({
+    queryKey: ["admin", "revenue"],
+    queryFn: fetchAdminRevenue,
     enabled: isAdmin,
   });
 
@@ -195,6 +202,12 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
               </div>
             </>
           )}
+        </QueryState>
+      </Section>
+
+      <Section title="Revenue & VAT">
+        <QueryState isLoading={revenue.isLoading} error={revenue.error}>
+          {revenue.data && <RevenuePanel stats={revenue.data} />}
         </QueryState>
       </Section>
 

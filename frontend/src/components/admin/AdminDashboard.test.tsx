@@ -6,6 +6,7 @@ import * as api from "../../api";
 import type {
   ActivityStatsResponse,
   OverviewStats,
+  RevenueStats,
   UsageByUserResponse,
   UsageStatsResponse,
 } from "../../types";
@@ -17,6 +18,7 @@ vi.mock("../../api", () => ({
   fetchAdminUsage: vi.fn(),
   fetchAdminUsageByUser: vi.fn(),
   fetchAdminActivity: vi.fn(),
+  fetchAdminRevenue: vi.fn(),
 }));
 
 const OVERVIEW: OverviewStats = {
@@ -59,6 +61,19 @@ const ACTIVITY: ActivityStatsResponse = {
   by_surface: [{ surface: "meal_plan", count: 4 }],
 };
 
+const REVENUE: RevenueStats = {
+  currency: "eur",
+  total_cents: 0,
+  sales_count: 0,
+  eu_cross_border_b2c_cents: 0,
+  cz_domestic_cents: 0,
+  non_eur_sales_count: 0,
+  eur_czk_rate: 25,
+  thresholds: [],
+  by_country: [],
+  recent: [],
+};
+
 beforeEach(() => {
   vi.clearAllMocks(); // reset call history between tests (keeps implementations)
   window.localStorage.clear();
@@ -66,6 +81,7 @@ beforeEach(() => {
   vi.mocked(api.fetchAdminUsage).mockResolvedValue(USAGE);
   vi.mocked(api.fetchAdminUsageByUser).mockResolvedValue(BY_USER);
   vi.mocked(api.fetchAdminActivity).mockResolvedValue(ACTIVITY);
+  vi.mocked(api.fetchAdminRevenue).mockResolvedValue(REVENUE);
 });
 
 describe("AdminDashboard", () => {

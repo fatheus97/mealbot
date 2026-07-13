@@ -22,6 +22,7 @@ from app.models.admin_schemas import (
     ActivityStatsResponse,
     OverviewStats,
     ProviderUsageAgg,
+    RevenueStats,
     SurfaceCount,
     SurfaceUsageAgg,
     UsageBucket,
@@ -30,6 +31,7 @@ from app.models.admin_schemas import (
     UserUsageAgg,
 )
 from app.models.db_models import LlmUsage, MachineGeneration, User
+from app.services import revenue_service
 
 logger = logging.getLogger(__name__)
 
@@ -317,3 +319,14 @@ async def stats_activity(
             SurfaceCount(surface=str(row[0]), count=int(row[1])) for row in surface_rows
         ],
     )
+
+
+@router.get("/stats/revenue", response_model=RevenueStats)
+async def stats_revenue(
+    session: AsyncSession = Depends(get_session),
+) -> RevenueStats:
+    """Subscription revenue totals + VAT-threshold progress (EU OSS €10k, CZ
+    domestic 2M CZK). Totals are all-time; each threshold is computed over its
+    own statutory window (EU OSS: current calendar year; CZ: rolling 12 months) —
+    see compute_revenue_stats."""
+    return await revenue_service.compute_revenue_stats(session)

@@ -8,6 +8,7 @@ import type {
   MealPlanResponse,
   OverviewStats,
   PlannedMeal,
+  RevenueStats,
   ScannedItemsResponse,
   SingleRecipeRequest,
   SingleRecipeResponse,
@@ -296,6 +297,12 @@ export async function fetchAdminActivity(
 ): Promise<ActivityStatsResponse> {
   const res = await authFetch(`/admin/stats/activity${statRange(from, to, granularity)}`);
   if (!res.ok) throw new Error(`Admin activity failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminRevenue(): Promise<RevenueStats> {
+  const res = await authFetch("/admin/stats/revenue");
+  if (!res.ok) throw new Error(`Admin revenue failed: ${res.status}`);
   return res.json();
 }
 

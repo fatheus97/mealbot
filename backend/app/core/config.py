@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     stripe_timeout_seconds: int = 20
     stripe_max_retries: int = 2
 
+    # --- VAT threshold tracking (revenue dashboard) ---
+    # EU cross-border B2C distance-selling / OSS threshold: once cumulative B2C
+    # sales to OTHER EU countries pass €10k, destination VAT (OSS) is required.
+    vat_eu_oss_threshold_eur: float = 10_000.0
+    # CZ domestic VAT-registration turnover threshold (obrat), CZK.
+    vat_cz_domestic_threshold_czk: float = 2_000_000.0
+    # Approximate EUR→CZK rate for the (EUR-priced) CZK threshold display. This is
+    # an early-warning aid, not accounting — override with the real rate as needed.
+    eur_czk_rate: float = 25.0
+
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive
     # without re-prompting the user.
