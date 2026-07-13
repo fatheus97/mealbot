@@ -92,6 +92,20 @@ class Settings(BaseSettings):
 
     registration_enabled: bool = False
 
+    # --- Billing (Stripe subscriptions) ---
+    # Master switch. While False, the generation endpoints are NOT gated and
+    # nothing about billing is enforced — lets the code ship + deploy before the
+    # Stripe account is live. Flip True (with live keys) to turn the paywall on.
+    billing_enabled: bool = False
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    # The recurring Price (e.g. €10/mo) the Checkout subscribes the user to.
+    stripe_price_id: str | None = None
+    # Absolute base URL of the SPA — Checkout/Portal redirect back here.
+    frontend_base_url: str = "http://localhost:5173"
+    # 14-day free trial before the first charge.
+    trial_period_days: int = 14
+
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive
     # without re-prompting the user.

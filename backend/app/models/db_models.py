@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
-from sqlalchemy import Boolean, Index, text
+from sqlalchemy import BigInteger, Boolean, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, Relationship, SQLModel, String
 
@@ -62,6 +62,28 @@ class User(SQLModel, table=True):
     # self-service path and no endpoint that writes it. Defaults false.
     is_admin: bool = Field(
         default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
+
+    # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
+    # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
+    # source of truth. ---
+    stripe_customer_id: str | None = Field(default=None, index=True)
+    stripe_subscription_id: str | None = Field(default=None)
+    # "none" | "trialing" | "active" | "past_due" | "canceled" — loose str (mirrors
+    # Stripe's subscription.status). Entitlement = trialing/active/past_due.
+    subscription_status: str = Field(
+        default="none", sa_column_kwargs={"server_default": "none"}, nullable=False
+    )
+    current_period_end: datetime | None = Field(default=None)
+    # Monotonic ordering watermark: the Unix-epoch ``created`` of the most recent
+    # Stripe subscription event we applied. Stripe does NOT guarantee webhook
+    # delivery order, so apply_subscription ignores any event older than this —
+    # stopping a delayed pre-cancellation "active" from resurrecting a canceled
+    # user (revenue leak) and a stale "canceled" from locking out a payer. Stored
+    # as an epoch int (not a datetime) so the comparison is timezone-unambiguous;
+    # BigInteger so it survives 2038.
+    subscription_event_ts: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
     )
 
     fridge_items: list[StockItem] = Relationship(back_populates="user")

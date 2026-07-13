@@ -86,6 +86,25 @@ async def require_admin(
     return current_user
 
 
+async def require_active_subscription(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Gate paid (generation) features. 402 when the caller isn't entitled.
+
+    Entitlement (see stripe_service.is_entitled): a no-op while ``billing_enabled``
+    is false, and always bypassed for admins + demo users. 402 (Payment Required)
+    lets the SPA distinguish "pay to continue" from a 401 (re-login) or 403 (admin).
+    """
+    from app.services import stripe_service
+
+    if not stripe_service.is_entitled(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="An active subscription is required for this feature.",
+        )
+    return current_user
+
+
 async def usage_capture() -> AsyncIterator[list[LlmCallUsage]]:
     """Request-scoped LLM-usage capture. Every non-mock LLM call made while
     handling the request appends to the yielded list (see app.llm.usage). The

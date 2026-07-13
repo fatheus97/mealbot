@@ -35,3 +35,6 @@ pypdf~=6.14
 bcrypt~=5.0
 PyJWT~=2.13
 slowapi~=0.1.10
+
+# Billing / payments
+stripe~=12.4

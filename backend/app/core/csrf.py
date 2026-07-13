@@ -40,6 +40,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     "/api/auth/logout",
     "/api/auth/demo",
     "/api/users/register",
+    # Stripe posts here server-to-server with no CSRF cookie; it is authenticated
+    # by the Stripe-Signature HMAC (verified in the handler), not double-submit.
+    "/api/billing/webhook",
 })
 
 

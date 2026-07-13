@@ -18,7 +18,7 @@ from typing import Literal, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, usage_capture
+from app.api.deps import get_current_user, require_active_subscription, usage_capture
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
@@ -117,7 +117,7 @@ def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest
 async def generate_recipe(
     request: Request,
     payload: SingleRecipeRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> SingleRecipeResponse:
