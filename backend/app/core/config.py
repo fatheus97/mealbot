@@ -122,6 +122,19 @@ class Settings(BaseSettings):
     # an early-warning aid, not accounting — override with the real rate as needed.
     eur_czk_rate: float = 25.0
 
+    # --- Alert emails (Resend) ---
+    # The scheduled billing-alerts job emails the operator at 80%/100% of a VAT
+    # threshold and once a month (identifikovaná-osoba reminder). All optional —
+    # alerts are a no-op until an API key + recipient are set.
+    resend_api_key: str | None = None
+    # Default sender works without domain verification (Resend's shared domain);
+    # switch to a verified from-address on your own domain for production.
+    alert_email_from: str = "onboarding@resend.dev"
+    alert_email_to: str | None = None
+    # Day of month to send the monthly identifikovaná-osoba reminder — ahead of
+    # the FÚ 25th deadline for self-assessing VAT on Stripe's foreign-service fees.
+    vat_reminder_day: int = 20
+
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive
     # without re-prompting the user.

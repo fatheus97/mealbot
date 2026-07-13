@@ -425,3 +425,23 @@ class SaleRecord(SQLModel, table=True):
     occurred_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC), index=True, nullable=False
     )
+
+
+class BillingAlert(SQLModel, table=True):
+    """Dedupe ledger for operator alert emails so the scheduled billing-alerts job
+    sends each one exactly once. ``dedupe_key`` is unique — a job re-run (or an
+    accidental overlapping run) can't double-send.
+
+    Keys:
+      threshold:<key>:<year>:<level>   e.g. "threshold:eu_oss:2026:80"
+      vat_reminder:<year>-<month>      e.g. "vat_reminder:2026-07"
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    dedupe_key: str = Field(
+        sa_column=Column(String, unique=True, index=True, nullable=False)
+    )
+    kind: str = Field(nullable=False)  # "threshold" | "vat_reminder"
+    sent_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )

@@ -38,3 +38,6 @@ slowapi~=0.1.10
 
 # Billing / payments
 stripe~=12.4
+
+# Alert emails (Resend) — used directly by app/services/email_service.py
+httpx~=0.28
