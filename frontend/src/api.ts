@@ -20,6 +20,18 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
+// Thrown by the generation calls when the backend gates them with 402 (billing
+// on + not entitled). A distinct type so the UI can render the friendly
+// "subscription required" copy instead of a raw "…failed: 402" string; the
+// paywall modal itself is opened globally via the `mealbot:paywall` event that
+// authFetch dispatches, so callers don't have to wire it up.
+export class PaywallError extends Error {
+  constructor(message = "A subscription is required to use this feature.") {
+    super(message);
+    this.name = "PaywallError";
+  }
+}
+
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE_NAME = "mealbot_csrf";
 
@@ -93,7 +105,44 @@ export async function authFetch(
     window.dispatchEvent(new Event("mealbot:logout"));
   }
 
+  // 402 = paywall (billing on + caller not entitled). Open the modal globally so
+  // any current or future gated call surfaces it without per-call-site wiring.
+  // Callers still see the 402 response and throw their own (Paywall)Error.
+  if (response.status === 402) {
+    window.dispatchEvent(new Event("mealbot:paywall"));
+  }
+
   return response;
+}
+
+export async function createCheckoutSession(): Promise<string> {
+  const res = await authFetch("/billing/checkout", { method: "POST" });
+  if (!res.ok) {
+    throw new Error(await extractBillingError(res, "Could not start checkout"));
+  }
+  const data = (await res.json()) as { url: string };
+  return data.url;
+}
+
+export async function createPortalSession(): Promise<string> {
+  const res = await authFetch("/billing/portal", { method: "POST" });
+  if (!res.ok) {
+    throw new Error(await extractBillingError(res, "Could not open the billing portal"));
+  }
+  const data = (await res.json()) as { url: string };
+  return data.url;
+}
+
+async function extractBillingError(res: Response, fallback: string): Promise<string> {
+  // 503 when billing is off/unconfigured; 400 when there's no customer yet.
+  // Surface the backend's `detail` string when present.
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") return parsed.detail;
+  } catch {
+    // non-JSON body — use the fallback
+  }
+  return `${fallback} (${res.status})`;
 }
 
 export async function fetchUserProfile(): Promise<UserProfile> {
@@ -121,6 +170,7 @@ export async function scanReceipt(file: File): Promise<ScannedItemsResponse> {
     method: "POST",
     body: formData,
   });
+  if (res.status === 402) throw new PaywallError();
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Receipt scan failed: ${res.status} - ${txt}`);
@@ -143,6 +193,7 @@ export async function generateRecipe(
     method: "POST",
     body: JSON.stringify(payload),
   });
+  if (res.status === 402) throw new PaywallError();
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Recipe generation failed: ${res.status} - ${txt}`);

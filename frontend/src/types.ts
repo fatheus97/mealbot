@@ -181,6 +181,17 @@ export interface ScannedItemsResponse {
 // Server-side response of POST /api/auth/login (and /demo). Same shape as
 // GET /api/users — the SPA stores the relevant fields and lets the user
 // keep working without a follow-up profile fetch.
+// Loose string (mirrors Stripe's subscription.status, which the backend stores
+// verbatim). The known values we render specially are the four below; anything
+// else falls through to the generic "not subscribed" path.
+export type SubscriptionStatus =
+  | "none"
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | string;
+
 export interface AuthLoginResponse {
   id: number;
   email: string;
@@ -194,6 +205,11 @@ export interface AuthLoginResponse {
   is_demo: boolean;
   is_admin: boolean;
   default_day_layout: MealType[] | null;
+  // Billing (mirror of Stripe). is_subscribed is the server-computed entitlement
+  // the SPA gates paid UI on; the raw status + period end drive the banner copy.
+  subscription_status: SubscriptionStatus;
+  current_period_end: string | null;
+  is_subscribed: boolean;
 }
 
 export interface AuthState {
@@ -208,11 +224,19 @@ export interface AuthState {
   // resolves to true).
   demoEnabled: boolean | null;
   registrationEnabled: boolean | null;
+  // Billing state, sourced from the same profile payload as the rest. null-ish
+  // defaults ("none"/null/false) hold until the profile resolves.
+  subscriptionStatus: SubscriptionStatus;
+  currentPeriodEnd: string | null;
+  isSubscribed: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setOnboardingCompleted: (value: boolean) => void;
   loginDemo: () => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
+  // Re-fetch /users to re-sync subscription state (used after returning from
+  // Stripe Checkout, where the webhook may land a beat after the redirect).
+  refreshProfile: () => Promise<void>;
 }
 
 export interface UserProfile {

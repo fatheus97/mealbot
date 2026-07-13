@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
-import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, scanReceipt, updateMeal, updateUserProfile } from '../api';
+import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, PaywallError, scanReceipt, updateMeal, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -369,6 +369,7 @@ export function useGeneratePlan() {
         method: "POST",
         body: JSON.stringify(request),
       });
+      if (res.status === 402) throw new PaywallError();
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(`Plan generation failed: ${res.status} - ${txt}`);
@@ -415,6 +416,7 @@ export function useRegeneratePlan() {
         method: "POST",
         body: JSON.stringify(request),
       });
+      if (res.status === 402) throw new PaywallError();
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(`Regeneration failed: ${res.status} - ${txt}`);
