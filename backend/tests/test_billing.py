@@ -158,6 +158,68 @@ def test_apply_subscription_equal_timestamp_still_applies():
     assert user.subscription_status == "active"
 
 
+async def test_ensure_customer_uses_stable_idempotency_key(
+    test_user: User, db_session: AsyncSession, monkeypatch
+):
+    """The Customer create must carry a per-user idempotency key so two racing
+    /checkout calls resolve to the same Customer (no orphaned duplicate)."""
+    captured: dict = {}
+
+    class _FakeCustomer:
+        id = "cus_fake"
+
+    def _fake_create(**kwargs):
+        captured.update(kwargs)
+        return _FakeCustomer()
+
+    monkeypatch.setattr(stripe.Customer, "create", _fake_create)
+
+    cid = await stripe_service._ensure_customer(test_user, db_session)
+
+    assert cid == "cus_fake"
+    assert test_user.stripe_customer_id == "cus_fake"
+    assert captured["idempotency_key"] == f"customer_create_user_{test_user.id}"
+    assert captured["metadata"] == {"user_id": str(test_user.id)}
+
+
+async def test_ensure_customer_returns_existing_without_create(
+    test_user: User, db_session: AsyncSession, monkeypatch
+):
+    """A user that already has a customer id must not hit Stripe again."""
+    test_user.stripe_customer_id = "cus_existing"
+
+    def _boom(**kwargs):
+        raise AssertionError("Customer.create must not be called")
+
+    monkeypatch.setattr(stripe.Customer, "create", _boom)
+    cid = await stripe_service._ensure_customer(test_user, db_session)
+    assert cid == "cus_existing"
+
+
+def test_require_stripe_configures_timeout_and_retries(monkeypatch):
+    """_require_stripe sets the API key + an explicit timeout/retry policy so
+    outbound calls don't silently inherit the SDK's 80s default."""
+    # setattr registers the originals for auto-restore, so this can't leak state.
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_max_retries", 3)
+    monkeypatch.setattr(settings, "stripe_timeout_seconds", 12)
+
+    stripe_service._require_stripe()
+
+    assert stripe.api_key == "sk_test_x"
+    assert stripe.max_network_retries == 3
+    assert stripe.default_http_client is not None
+
+
+def test_require_stripe_raises_without_secret_key(monkeypatch):
+    monkeypatch.setattr(settings, "stripe_secret_key", None)
+    with pytest.raises(RuntimeError):
+        stripe_service._require_stripe()
+
+
 def test_billing_configured(monkeypatch):
     monkeypatch.setattr(settings, "stripe_secret_key", None)
     monkeypatch.setattr(settings, "stripe_price_id", None)
