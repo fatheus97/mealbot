@@ -13,6 +13,7 @@ export function PaywallModal() {
   const [open, setOpen] = useState(false);
   const { startCheckout, checkoutPending, error, reset } = useBilling();
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const laterRef = useRef<HTMLButtonElement | null>(null);
   const trialRef = useRef<HTMLButtonElement | null>(null);
 
@@ -42,9 +43,13 @@ export function PaywallModal() {
   // Move focus into the dialog on open (the non-committal "Maybe later", matching
   // ConfirmDialog's focus-the-safe-choice convention) so keyboard/AT users land
   // inside the modal rather than on the now-obscured trigger behind the backdrop.
+  // While a redirect is pending both buttons are disabled (a disabled control
+  // reverts focus to <body>), so pin focus to the dialog container instead.
   useEffect(() => {
-    if (open) laterRef.current?.focus();
-  }, [open]);
+    if (!open) return;
+    if (checkoutPending) dialogRef.current?.focus();
+    else laterRef.current?.focus();
+  }, [open, checkoutPending]);
 
   // Minimal focus trap: the dialog has exactly two tabbable controls, so cycling
   // Tab / Shift+Tab between them is exhaustive and keeps focus off the page behind.
@@ -53,6 +58,13 @@ export function PaywallModal() {
     const later = laterRef.current;
     const trial = trialRef.current;
     if (!later || !trial) return;
+    // Both buttons disabled (checkout in flight) → no focusable control inside,
+    // so keep focus pinned to the dialog rather than letting Tab reach the page.
+    if (later.disabled && trial.disabled) {
+      e.preventDefault();
+      dialogRef.current?.focus();
+      return;
+    }
     const active = document.activeElement;
     if (e.shiftKey) {
       if (active === later) {
@@ -69,14 +81,17 @@ export function PaywallModal() {
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      tabIndex={-1}
       onKeyDown={handleDialogKeyDown}
       style={{
         position: "fixed",
         inset: 0,
         backgroundColor: "rgba(0, 0, 0, 0.45)",
+        outline: "none",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

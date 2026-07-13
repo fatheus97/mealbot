@@ -3,13 +3,17 @@ import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PaywallModal } from "./PaywallModal";
 
-const { startCheckout, reset } = vi.hoisted(() => ({ startCheckout: vi.fn(), reset: vi.fn() }));
+const { startCheckout, reset, billingState } = vi.hoisted(() => ({
+  startCheckout: vi.fn(),
+  reset: vi.fn(),
+  billingState: { checkoutPending: false },
+}));
 
 vi.mock("../../hooks/useBilling", () => ({
   useBilling: () => ({
     startCheckout,
     openPortal: vi.fn(),
-    checkoutPending: false,
+    checkoutPending: billingState.checkoutPending,
     portalPending: false,
     error: null,
     reset,
@@ -26,6 +30,7 @@ describe("PaywallModal", () => {
   beforeEach(() => {
     startCheckout.mockClear();
     reset.mockClear();
+    billingState.checkoutPending = false;
   });
 
   it("is closed until the paywall event fires", () => {
@@ -62,5 +67,14 @@ describe("PaywallModal", () => {
     render(<PaywallModal />);
     firePaywall();
     expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("pins focus to the dialog while checkout is pending (both buttons disabled)", () => {
+    billingState.checkoutPending = true;
+    render(<PaywallModal />);
+    firePaywall();
+    // With both controls disabled, focus must stay inside the dialog, not revert
+    // to <body> and let Tab escape to the page behind the backdrop.
+    expect(screen.getByRole("dialog")).toHaveFocus();
   });
 });

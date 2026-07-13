@@ -161,11 +161,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = useCallback(async (): Promise<void> => {
     // Re-sync billing state after a Stripe redirect. The webhook that flips the
     // subscription can land just after the browser returns, so callers may retry.
-    const r = await authFetch("/users");
-    if (!r?.ok) return;
-    const profile = (await r.json()) as AuthLoginResponse;
-    if (profile && typeof profile.id === "number" && typeof profile.email === "string") {
-      applyProfile(profile, Boolean(profile.is_demo));
+    // Swallow network blips (same as the bootstrap effect) — callers use
+    // `void refreshProfile()`, so a throw would surface as an unhandled rejection.
+    try {
+      const r = await authFetch("/users");
+      if (!r?.ok) return;
+      const profile = (await r.json()) as AuthLoginResponse;
+      if (profile && typeof profile.id === "number" && typeof profile.email === "string") {
+        applyProfile(profile, Boolean(profile.is_demo));
+      }
+    } catch {
+      // Transient failure — leave the current (hinted) state in place.
     }
   }, [applyProfile]);
 
