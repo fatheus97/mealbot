@@ -196,18 +196,33 @@ async def refresh(
     revoked_at = _ensure_aware(auth_session.revoked_at) if auth_session.revoked_at else None
 
     if revoked_at is not None:
-        # Distinguish a benign multi-tab race from real refresh-token theft.
+        # A revoked row splits two ways by whether it was ever rotated:
+        #
+        #  * replaced_by_id IS NULL — ended by an explicit revoke (logout,
+        #    logout-all, password change, or a prior theft sweep), never
+        #    superseded by a rotation. Replaying its cookie is a stale-session
+        #    replay, NOT theft: return a plain 401 and do NOT re-revoke or bump
+        #    token_version. Cascading here would break password change, which
+        #    mass-revokes every session and then keeps the current device alive —
+        #    the first stale device to refresh would otherwise bump token_version
+        #    again and revoke the very session we just kept, logging that device
+        #    out too (and firing a spurious theft alarm on a routine change).
+        #
+        #  * replaced_by_id IS NOT NULL — rotated and superseded, so a replay is
+        #    genuine refresh-token reuse: a benign multi-tab race inside the grace
+        #    window (mint a parallel session), or theft outside it.
+        if auth_session.replaced_by_id is None:
+            clear_auth_cookies(response)
+            raise HTTPException(
+                status_code=401, detail="Session ended; please log in again"
+            )
+
         # Two tabs with synchronised expired access tokens both call
-        # /auth/refresh; one rotates first, the other arrives milliseconds
-        # later and sees the row already revoked. Within the grace window
-        # (and only if the row was actually rotated, not revoked by logout
-        # / theft), mint the loser a parallel session instead of revoking
-        # everything.
+        # /auth/refresh; one rotates first, the other arrives milliseconds later
+        # and sees the row already revoked. Within the grace window, mint the
+        # loser a parallel session instead of revoking everything.
         grace_window = timedelta(seconds=settings.refresh_grace_seconds)
-        if (
-            auth_session.replaced_by_id is not None
-            and (now - revoked_at) <= grace_window
-        ):
+        if (now - revoked_at) <= grace_window:
             user_for_grace = await session.get(User, auth_session.user_id)
             if user_for_grace is None:
                 clear_auth_cookies(response)

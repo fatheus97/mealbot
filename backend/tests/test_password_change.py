@@ -166,35 +166,58 @@ class TestChangePasswordRejection:
 
 
 class TestChangePasswordRevokesOtherDevices:
-    async def test_other_device_token_and_refresh_die(
+    async def test_other_device_locked_out_but_changer_stays_logged_in(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
     ):
-        # Device 1 logs in; capture its access + refresh before device 2 logs in.
-        await _login(unauthed_client)
-        dev1_access = unauthed_client.cookies.get(ACCESS_COOKIE_NAME)
-        dev1_refresh = unauthed_client.cookies.get(REFRESH_COOKIE_NAME)
-        assert dev1_access and dev1_refresh
+        """The core promise: OTHER devices die, the changing device survives —
+        even after a stale device auto-refreshes. Regression guard for the
+        theft-cascade bug where the other device's /auth/refresh (revoked row,
+        replaced_by_id NULL) tripped the theft branch, bumped token_version a
+        SECOND time, and logged the password-changer out.
 
-        # Device 2 = "current" device changing the password.
-        unauthed_client.cookies.clear()
-        await _login(unauthed_client)
-        resp = await unauthed_client.post(
-            "/api/auth/password",
-            json={"current_password": TEST_PASSWORD, "new_password": NEW_PASSWORD},
-        )
-        assert resp.status_code == 204
-        # Device 2 stays authenticated (rotated cookies from the 204).
-        assert (await unauthed_client.get("/api/users")).status_code == 200
+        Two independent clients (one cookie jar each) model two real devices —
+        the auth flow rotates cookies per-jar, which a single shared jar can't
+        represent.
+        """
+        from httpx import ASGITransport
 
-        # Device 1's access token now fails on the tv bump.
-        unauthed_client.cookies.set(ACCESS_COOKIE_NAME, dev1_access)
-        assert (await unauthed_client.get("/api/users")).status_code == 401
+        from app.main import app
 
-        # Device 1's refresh token is revoked → replay rejected.
-        unauthed_client.cookies.set(
-            REFRESH_COOKIE_NAME, dev1_refresh, path="/api/auth",
-        )
-        assert (await unauthed_client.post("/api/auth/refresh")).status_code == 401
+        # unauthed_client already installed the get_session -> db_session override
+        # on `app`; these extra clients ride the same app + override.
+        transport = ASGITransport(app=app)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as dev_a,
+            AsyncClient(transport=transport, base_url="http://test") as dev_b,
+        ):
+            await _login(dev_a)
+            await _login(dev_b)
+            old_tv = test_user.token_version
+
+            # Device A changes the password (its jar auto-rotates on the 204).
+            resp = await dev_a.post(
+                "/api/auth/password",
+                json={"current_password": TEST_PASSWORD, "new_password": NEW_PASSWORD},
+            )
+            assert resp.status_code == 204
+            await db_session.refresh(test_user)
+            assert test_user.token_version == old_tv + 1
+            assert (await dev_a.get("/api/users")).status_code == 200
+
+            # Device B reacts to its now-stale access token, then auto-refreshes.
+            assert (await dev_b.get("/api/users")).status_code == 401
+            # Ended session → plain 401, NOT a theft cascade.
+            assert (await dev_b.post("/api/auth/refresh")).status_code == 401
+
+            # The cascade did NOT fire: token_version still +1 (not +2).
+            await db_session.refresh(test_user)
+            assert test_user.token_version == old_tv + 1
+
+            # Device A is STILL logged in — the endpoint's whole point.
+            after = await dev_a.get("/api/users")
+            assert after.status_code == 200, (
+                "password-changer was logged out by another device's refresh"
+            )
 
 
 class TestChangePasswordCsrf:

@@ -89,6 +89,40 @@ async def test_refresh_reuse_outside_grace_revokes_all_sessions_and_bumps_tv(
 
 
 @pytest.mark.usefixtures("test_user")
+async def test_mass_revoke_replay_is_ended_session_not_theft(
+    unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
+):
+    """Replaying a refresh token revoked by an explicit mass-revoke (logout-all,
+    and likewise password change) is a stale-session replay, NOT theft. Such a
+    row was never rotated (replaced_by_id IS NULL), so refresh must return a
+    plain 401 WITHOUT re-revoking or bumping token_version again — otherwise the
+    cascade would, after a password change, log the just-kept device out.
+    """
+    await unauthed_client.post(
+        "/api/auth/login",
+        json={"email": TEST_EMAIL, "password": TEST_PASSWORD},
+    )
+    captured_refresh = unauthed_client.cookies.get(REFRESH_COOKIE_NAME)
+    assert captured_refresh is not None
+
+    # logout-all mass-revokes (replaced_by_id stays NULL) and bumps tv once.
+    assert (await unauthed_client.post("/api/auth/logout-all")).status_code == 204
+    await db_session.refresh(test_user)
+    tv_after_logout_all = test_user.token_version
+
+    # Replay the pre-logout refresh token.
+    unauthed_client.cookies.set(REFRESH_COOKIE_NAME, captured_refresh, path="/api/auth")
+    replay = await unauthed_client.post("/api/auth/refresh")
+    assert replay.status_code == 401
+
+    # No theft cascade: token_version is unchanged from the logout-all value.
+    await db_session.refresh(test_user)
+    assert test_user.token_version == tv_after_logout_all, (
+        "mass-revoke replay wrongly triggered the theft path (extra tv bump)"
+    )
+
+
+@pytest.mark.usefixtures("test_user")
 async def test_refresh_reuse_within_grace_mints_parallel_session(
     unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
 ):
