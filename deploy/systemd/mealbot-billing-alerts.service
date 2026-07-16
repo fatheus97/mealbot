@@ -1,0 +1,44 @@
+# mealbot — daily billing / VAT-threshold alert job.
+#
+# Runs `app.scripts.billing_alerts` once, then exits (Type=oneshot). Scheduled
+# by mealbot-billing-alerts.timer; installable/testable on its own via
+# `systemctl start mealbot-billing-alerts.service`.
+#
+# Deliberately has NO [Install] section: it must run ONLY when the timer (or an
+# operator) triggers it, never at boot. Enable the .timer, not this unit.
+#
+# See deploy/systemd/README.md for install steps and the required .env vars.
+
+[Unit]
+Description=mealbot daily billing/VAT-threshold alert job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# Docker must be up before we shell out to `docker compose`. This matters for
+# the timer's Persistent=true catch-up run after a reboot, where the timer can
+# fire before the Docker daemon is ready.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run as the same non-root, docker-group user the CI deploy uses (see
+# scripts/deploy.sh's forced-command setup) rather than root — least privilege
+# for the host invoker, consistent with the rest of the deploy pipeline. This
+# user must exist and be in the `docker` group; change it if your deploy user
+# is named differently.
+User=deploy
+# Same directory + compose files the prod stack is operated from (see
+# scripts/deploy.sh). Adjust if your checkout lives elsewhere.
+WorkingDirectory=/opt/mealbot
+# A one-off container (not `docker compose exec`) so the job still runs during
+# the brief window when the backend container is restarting (e.g. mid-deploy).
+# --no-deps because the long-running stack already has `db` up; this job only
+# reads/writes existing tables, so it needs no migrate/startup chain. `-T`
+# disables pseudo-TTY allocation — under systemd there's no controlling
+# terminal, and leaning on Compose's TTY auto-detect is a known cron/systemd
+# footgun. The container inherits the app's .env (RESEND_API_KEY, ALERT_EMAIL_TO,
+# DATABASE_URL, ...), so the job is a harmless no-op until the alert vars are set.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps -T backend python -m app.scripts.billing_alerts
+# A hung docker pull / DB connection must not wedge the unit indefinitely. Real
+# runs finish in seconds; the ledger query is bounded by the db statement_timeout.
+TimeoutStartSec=300

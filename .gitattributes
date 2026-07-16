@@ -1,0 +1,4 @@
+# systemd unit files run on the Linux VPS — force LF so a Windows checkout
+# (core.autocrlf) can't introduce CRLF that breaks unit parsing.
+*.service text eol=lf
+*.timer   text eol=lf
