@@ -127,8 +127,11 @@ async def stripe_webhook(
                     )
     elif event_type == "invoice.paid":
         # Record actual revenue for VAT-threshold tracking (idempotent on the
-        # invoice id, so replays are safe).
-        invoice = event["data"]["object"]
+        # invoice id, so replays are safe). Read off event_dict for the same
+        # stripe>=15 reason as the subscription branch above: the raw
+        # StripeObject is no longer a dict, so dict(invoice) / invoice.get()
+        # raise — but to_dict() already gave us a fully-native, recursive dict.
+        invoice = event_dict["data"]["object"]
         recorded = await revenue_service.record_sale_from_invoice(
             session, dict(invoice), event_created=event_created
         )
