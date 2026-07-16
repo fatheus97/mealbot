@@ -87,6 +87,22 @@ describe("SubscriptionBanner", () => {
     expect(screen.queryByText(/renews/i)).not.toBeInTheDocument();
   });
 
+  it("says 'canceled — ends' (not 'update your card') when past_due AND canceled", () => {
+    mockedUseAuth.mockReturnValue(
+      authState({
+        isSubscribed: true,
+        subscriptionStatus: "past_due",
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: "2026-07-28T00:00:00Z",
+      }),
+    );
+    render(<SubscriptionBanner />);
+    expect(screen.getByText(/canceled/i)).toBeInTheDocument();
+    expect(screen.getByText(/ends/i)).toBeInTheDocument();
+    expect(screen.queryByText(/update your card/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /manage/i })).toBeInTheDocument();
+  });
+
   it("shows the past_due warning and Update payment → portal", async () => {
     mockedUseAuth.mockReturnValue(authState({ isSubscribed: true, subscriptionStatus: "past_due" }));
     render(<SubscriptionBanner />);

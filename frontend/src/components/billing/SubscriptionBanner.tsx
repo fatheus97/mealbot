@@ -43,8 +43,12 @@ export function SubscriptionBanner() {
   const periodDate = formatDate(currentPeriodEnd);
 
   // When canceled-but-still-active (cancel_at_period_end), the period end is when
-  // access ENDS, not when it renews — say so instead of "renews".
-  const canceling = cancelAtPeriodEnd && (variant === "trialing" || variant === "active");
+  // access ENDS, not when it renews — say so instead of "renews". A subscription
+  // can be past_due AND canceled at once (card fails, then the user cancels), in
+  // which case "update your card to keep access" is wrong — access ends anyway.
+  const canceling =
+    cancelAtPeriodEnd &&
+    (variant === "trialing" || variant === "active" || variant === "past_due");
   // A "canceled — ends {date}" message shouldn't sit on the positive green/blue
   // surface; use the cautionary amber one so colour matches the copy.
   const surface = canceling ? SURFACE.subscribe : SURFACE[variant];
@@ -62,7 +66,9 @@ export function SubscriptionBanner() {
       : variant === "active"
         ? `${canceling ? "🚫 Subscription canceled" : "✓ Subscribed"}${dateSuffix}.`
         : variant === "past_due"
-          ? "⚠️ Payment failed — update your card to keep access."
+          ? canceling
+            ? `🚫 Subscription canceled${dateSuffix}.`
+            : "⚠️ Payment failed — update your card to keep access."
           : "Subscribe to keep generating meal plans & recipes.";
 
   // past_due sends the user to the Portal to fix their card; the rest either
@@ -71,11 +77,11 @@ export function SubscriptionBanner() {
   const onClick = isManage ? openPortal : startCheckout;
   const pending = isManage ? portalPending : checkoutPending;
   const label = isManage
-    ? variant === "past_due"
+    ? !canceling && variant === "past_due"
       ? "Update payment"
       : "Manage"
     : "Subscribe";
-  const primary = variant === "subscribe" || variant === "past_due";
+  const primary = !canceling && (variant === "subscribe" || variant === "past_due");
 
   return (
     <div
