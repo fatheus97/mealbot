@@ -404,13 +404,26 @@ async def test_webhook_400_on_bad_signature(client: AsyncClient, monkeypatch):
     assert resp.status_code == 400
 
 
+def _stripe_event(payload: dict) -> stripe.Event:
+    """Wrap a webhook payload in a real ``stripe.Event`` (a stripe>=15
+    ``StripeObject``, NOT a plain dict) so these tests exercise the actual SDK
+    runtime. Plain-dict fixtures hide that v15 dropped the dict methods from
+    ``StripeObject`` (``.get()`` raises AttributeError, ``dict(obj)`` raises
+    TypeError) — the mocked-path blind spot that let the jsonref outage ship.
+    ``id``/``object`` are defaulted so callers specify only the fields under test.
+    """
+    payload.setdefault("id", "evt_test")
+    payload.setdefault("object", "event")
+    return stripe.Event.construct_from(payload, "sk_test")
+
+
 async def test_webhook_updates_subscription_state(
     client: AsyncClient, test_user: User, db_session: AsyncSession, monkeypatch
 ):
     test_user.stripe_customer_id = "cus_hook"
     await db_session.flush()
 
-    event = {
+    event = _stripe_event({
         "type": "customer.subscription.updated",
         "data": {
             "object": {
@@ -420,7 +433,7 @@ async def test_webhook_updates_subscription_state(
                 "current_period_end": 1893456000,
             }
         },
-    }
+    })
     monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: event)
 
     resp = await client.post(
@@ -445,16 +458,16 @@ async def test_webhook_out_of_order_delivery_does_not_resurrect_access(
     test_user.stripe_customer_id = "cus_race"
     await db_session.flush()
 
-    cancel_event = {
+    cancel_event = _stripe_event({
         "type": "customer.subscription.deleted",
         "created": 200,
         "data": {"object": {"id": "sub_r", "customer": "cus_race", "status": "canceled"}},
-    }
-    stale_active_event = {
+    })
+    stale_active_event = _stripe_event({
         "type": "customer.subscription.updated",
         "created": 100,  # generated BEFORE the cancellation, delivered AFTER
         "data": {"object": {"id": "sub_r", "customer": "cus_race", "status": "active"}},
-    }
+    })
 
     # Cancellation lands first.
     monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: cancel_event)
@@ -476,10 +489,10 @@ async def test_webhook_out_of_order_delivery_does_not_resurrect_access(
 
 
 async def test_webhook_unknown_customer_is_noop(client: AsyncClient, monkeypatch):
-    event = {
+    event = _stripe_event({
         "type": "customer.subscription.updated",
         "data": {"object": {"id": "sub_x", "customer": "cus_nobody", "status": "active"}},
-    }
+    })
     monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: event)
     resp = await client.post(
         "/api/billing/webhook", content=b"{}", headers={"stripe-signature": "sig"}
@@ -492,10 +505,10 @@ async def test_webhook_ignores_unrelated_event(
     client: AsyncClient, test_user: User, monkeypatch
 ):
     test_user.stripe_customer_id = "cus_hook"
-    event = {
+    event = _stripe_event({
         "type": "invoice.paid",
         "data": {"object": {"customer": "cus_hook"}},
-    }
+    })
     monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: event)
     resp = await client.post(
         "/api/billing/webhook", content=b"{}", headers={"stripe-signature": "sig"}

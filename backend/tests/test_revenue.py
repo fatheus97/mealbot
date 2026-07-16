@@ -5,6 +5,7 @@ the admin endpoint gate, and the invoice.paid webhook path."""
 from datetime import datetime
 
 import pytest
+import stripe
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -257,11 +258,15 @@ async def test_revenue_endpoint_returns_stats_for_admin(
 async def test_webhook_invoice_paid_records_sale(
     client: AsyncClient, db_session: AsyncSession, monkeypatch
 ):
-    event = {
+    # Real stripe.Event (v15 StripeObject, not a plain dict) so the webhook
+    # handler's event.to_dict() path is exercised against the actual SDK runtime.
+    event = stripe.Event.construct_from({
+        "id": "evt_wh",
+        "object": "event",
         "type": "invoice.paid",
         "created": 1_700_000_000,
         "data": {"object": _invoice(id="in_wh", customer="cus_wh", amount_paid=1500, country="FR")},
-    }
+    }, "sk_test")
     monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: event)
     resp = await client.post(
         "/api/billing/webhook", content=b"{}", headers={"stripe-signature": "sig"}
