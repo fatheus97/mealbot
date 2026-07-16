@@ -121,7 +121,11 @@ class AuthSession(SQLModel, table=True):
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
     last_used_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
-    expires_at: datetime = Field(nullable=False)
+    # Indexed (standalone) so the periodic cleanup sweep — a global
+    # DELETE ... WHERE expires_at < cutoff — is index-served. The existing
+    # composite (user_id, expires_at) index is user_id-leading and can't serve
+    # a filter on expires_at alone. See services/authsession_cleanup.
+    expires_at: datetime = Field(nullable=False, index=True)
     revoked_at: datetime | None = Field(default=None)
     # Truncated User-Agent for future "Active sessions" UI; pure metadata,
     # never trusted for auth decisions.

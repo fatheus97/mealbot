@@ -1,0 +1,26 @@
+# Schedules mealbot-authsession-cleanup.service once a day.
+#
+# This is the unit you enable:
+#   systemctl enable --now mealbot-authsession-cleanup.timer
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=Schedule the mealbot daily expired-auth-session cleanup job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# Once a day at 03:30 server-local time — an off-peak hour, and deliberately
+# staggered away from the 08:00 billing-alerts timer so the two never contend
+# for the small Hetzner box at once. The job is idempotent (a second run finds
+# nothing to delete), so an occasional double/missed run is harmless.
+OnCalendar=*-*-* 03:30:00
+# If the box was powered off at 03:30, run as soon as it's back up so a reboot
+# or maintenance window doesn't silently skip a day's sweep.
+Persistent=true
+# Small jitter so this doesn't fire at the exact same instant as any other
+# timer competing for the box.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
