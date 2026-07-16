@@ -70,6 +70,13 @@ async def sweep_expired_auth_sessions(
     # anyway. Nulling an ancient forensic pointer is harmless: the row is far
     # past any refresh grace window, so the reuse-detection logic never consults
     # it.
+    #
+    # This UPDATE seq-scans authsession (``replaced_by_id`` is intentionally
+    # unindexed): it's written on every rotation, so an index would tax the hot
+    # /auth/refresh path to speed a once-nightly, off-peak batch that usually
+    # matches zero rows — the wrong trade. The scan is over the table this very
+    # job keeps bounded, runs at 03:30, and is capped by the 30s DB
+    # statement_timeout, so it fails safe rather than wedging.
     await session.execute(
         update(AuthSession)
         .where(col(AuthSession.replaced_by_id).in_(doomed))
