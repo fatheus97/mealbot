@@ -91,12 +91,18 @@ async def stripe_webhook(
         logger.exception("Webhook construction failed")
         raise HTTPException(status_code=400, detail="Invalid webhook.") from None
 
-    event_type = str(event.get("type", ""))
-    created = event.get("created")
+    # stripe>=15: Event/StripeObject no longer subclasses dict, so .get() and
+    # dict(stripe_obj) raise at runtime (AttributeError / TypeError). to_dict()
+    # returns a fully-native, recursively-converted dict — verified against
+    # stripe 15.3.0 that nested data.object also becomes a plain dict — so read
+    # everything off that. Preserves .get() default-when-absent semantics.
+    event_dict = event.to_dict()
+    event_type = str(event_dict.get("type", ""))
+    created = event_dict.get("created")
     event_created = created if isinstance(created, int) else None
 
     if event_type.startswith("customer.subscription."):
-        obj = event["data"]["object"]
+        obj = event_dict["data"]["object"]
         customer_id = obj.get("customer")
         if customer_id:
             result = await session.execute(
