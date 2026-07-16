@@ -209,7 +209,12 @@ export interface AuthLoginResponse {
   // the SPA gates paid UI on; the raw status + period end drive the banner copy.
   subscription_status: SubscriptionStatus;
   current_period_end: string | null;
+  // True once canceled but still active until current_period_end (status stays
+  // trialing/active) — drives "ends" vs "renews" wording.
+  cancel_at_period_end: boolean;
   is_subscribed: boolean;
+  // Complimentary ("friendlist") access — the SPA hides subscription billing UI.
+  is_comped: boolean;
 }
 
 export interface AuthState {
@@ -228,7 +233,9 @@ export interface AuthState {
   // defaults ("none"/null/false) hold until the profile resolves.
   subscriptionStatus: SubscriptionStatus;
   currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
   isSubscribed: boolean;
+  isComped: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setOnboardingCompleted: (value: boolean) => void;
