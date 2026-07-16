@@ -319,7 +319,10 @@ async def logout(
 
 
 @router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
-@limiter.limit("20/minute")
+# Bucket by user, not IP (same rationale as change_password below): this route
+# is authenticated, so users behind one shared NAT/office IP must not collide
+# into a single bucket and 429 each other out of logging their devices out.
+@limiter.limit("20/minute", key_func=user_id_key_func)
 async def logout_all(
     request: Request,
     response: Response,
