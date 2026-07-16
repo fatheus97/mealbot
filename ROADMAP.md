@@ -183,11 +183,11 @@ shippable PRs, each through pre-PR adversarial review + the CI/AI-review loop.
 | **5. Pre-launch prep + go-live** | ✅ | #212 | `is_comped` ("friendlist") bypass + a migration that **grandfathers** every existing non-demo user; `create_user --comp`; cancel-at-period-end banner UX. Went live on prod 2026-07-16 (live keys + live webhook + `BILLING_ENABLED=true`). |
 | **6. Stripe SDK 12.4 → 15.3** | ✅ | #211 | SDK major bump + webhook adaptation (stripe≥15 `StripeObject` is no longer a dict → read `event.to_dict()`). Caught + fixed a real live-path bug where `invoice.paid` would 500 and never record revenue; hardened webhook tests to use real `stripe.Event` objects. |
 
-**Open follow-up (not blocking):** the stripe 15.3 default outbound API version
-(`basil` → `dahlia`) is unvalidated against the real Stripe API (CI mocks it) — do
-one real/sandbox checkout → portal round-trip to confirm. Optionally verify a
-Resend sender domain so alerts send from your own address instead of
-`onboarding@resend.dev` (which only delivers to the account owner until then).
+**Open follow-up (not blocking):** optionally verify a Resend sender domain so
+alerts send from your own address instead of `onboarding@resend.dev` (which only
+delivers to the account owner until then). *(The stripe 15.3 `basil` → `dahlia`
+outbound-API-version concern is closed — a real checkout → portal → webhook
+round-trip was run on prod 2026-07-16 and billing works end-to-end.)*
 
 ---
 
@@ -196,7 +196,7 @@ Resend sender domain so alerts send from your own address instead of
 | Item | Status | Effort | Notes |
 |---|---|---|---|
 | **Non-root SSH hardening** | 🟡 | S | Server-side, not in repo. Create a personal sudo user, disable root SSH login. Low urgency, easy to forget — do it at deploy time. |
-| **`authsession` cleanup job** | ✅ | — | **Shipped 2026-07-16 (#215).** Nightly service sweep (`sweep_expired_auth_sessions`, retention 7d) + thin CLI + standalone `ix_authsession_expires_at` index (auto-applied via the `migrate` service). Sever-then-delete keeps it FK-safe over the `replaced_by_id` chain regardless of expiry ordering (a demo-user `int()`-truncation edge the review caught). **⚠️ The systemd timer needs a one-time manual VPS install** (like the billing-alerts timer): `deploy/systemd/mealbot-authsession-cleanup.{service,timer}`, steps in `deploy/systemd/README.md` §2. Until installed, the table still grows. |
+| **`authsession` cleanup job** | ✅ | — | **Shipped 2026-07-16 (#215).** Nightly service sweep (`sweep_expired_auth_sessions`, retention 7d) + thin CLI + standalone `ix_authsession_expires_at` index (auto-applied via the `migrate` service). Sever-then-delete keeps it FK-safe over the `replaced_by_id` chain regardless of expiry ordering (a demo-user `int()`-truncation edge the review caught). The systemd timer is **installed + enabled on the VPS** (2026-07-16), running daily ~03:30 as the non-root `deploy` user, so the table now self-prunes (rows expired > 7d). Units: `deploy/systemd/mealbot-authsession-cleanup.{service,timer}`; (re)install steps for a box rebuild are in `deploy/systemd/README.md` §2. |
 | **Password change + token rotation** | ✅ | — | **Shipped 2026-07-16 (#216).** `POST /auth/password`: re-verify current → rehash → revoke all sessions + bump `token_version` → keep the current device logged in. Also fixed the shared `refresh` handler so a mass-revoked (never-rotated, `replaced_by_id IS NULL`) token replay is an *ended session* (plain 401), not false theft — the pre-push adversarial review caught that this broke multi-device change. Backend only; a "Change password" settings form is a fast-follow. Follow-up: `logout_all` still IP-rate-limited (should key by user like this endpoint now does). |
 | **Cross-provider LLM fallback** | 🟡 | S | Prep shipped (#183): placeholder keys normalize to unset + a startup check logs a keyless/single-provider chain. The active `LLM_MODELS` is all-Gemini, so a Gemini-wide outage (quota, API, a dep break like #182) has no escape hatch. To enable: fund the existing DeepSeek key (or set a real OpenAI key) and append a non-Gemini entry to `LLM_MODELS` — a one-line change once a working key exists. |
 
@@ -237,15 +237,16 @@ earns the most from real usage. Highest-signal candidates now:
    few-shot / per-user preference) + enough correction volume to be worthwhile.
    With the paygate live, this is the clear next product bet.
 2. ~~**Cheap hygiene wins** (S each): `authsession` cleanup job, password-change
-   endpoint.~~ **Both shipped + deployed 2026-07-16 (#215, #216).** One manual
-   step remains: install the cleanup systemd timer on the VPS (see Cross-cutting).
+   endpoint.~~ **Both shipped + deployed 2026-07-16 (#215, #216)** — and the cleanup systemd
+   timer is now installed + enabled on the VPS, so this track is fully closed.
 3. **Cross-provider LLM fallback** (S) — the resilience gap the 07-10 outage
    exposed is still open (chain is all-Gemini); a one-line `LLM_MODELS` change
    once a funded non-Gemini key exists. Needs you to fund DeepSeek / add an
    OpenAI key first.
-4. **Billing follow-ups** (S) — validate the stripe 15.3 `dahlia` outbound API
-   version with one real checkout → portal round-trip (CI mocks Stripe), and
-   optionally verify a Resend sender domain so alerts send from your own address.
+4. **Billing follow-ups** (S) — optionally verify a Resend sender domain so
+   alerts send from your own address. *(The stripe 15.3 `dahlia`
+   outbound-API-version validation is done — a real checkout → portal → webhook
+   round-trip ran on prod 2026-07-16 and billing works.)*
 
 The edit-feedback loop (#1) is the standout — it's the differentiator the telemetry
-groundwork was laid for. #2/#3/#4 are quick risk-reducers whenever.
+groundwork was laid for. #3/#4 are quick risk-reducers whenever.
