@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 _MAX_LAYOUT_SLOTS = 8
 
 
+def validate_password_complexity(v: str) -> str:
+    """Shared complexity rule for any new password (registration + change).
+
+    Length bounds live on the Field (min 8 / max 128); this enforces the
+    character-class mix. Kept as a module function so UserCreate and
+    PasswordChangeRequest can't drift apart on what counts as a valid password.
+    """
+    if not re.search(r"[A-Z]", v):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", v):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not re.search(r"\d", v):
+        raise ValueError("Password must contain at least one digit")
+    return v
+
+
 class UserBase(SQLModel):
     email: EmailStr
 
@@ -29,13 +45,21 @@ class UserCreate(UserBase):
     @field_validator("password")
     @classmethod
     def password_complexity(cls, v: str) -> str:
-        if not re.search(r"[A-Z]", v):
-            raise ValueError("Password must contain at least one uppercase letter")
-        if not re.search(r"[a-z]", v):
-            raise ValueError("Password must contain at least one lowercase letter")
-        if not re.search(r"\d", v):
-            raise ValueError("Password must contain at least one digit")
-        return v
+        return validate_password_complexity(v)
+
+
+class PasswordChangeRequest(BaseModel):
+    """Body for POST /auth/password. The current password is re-verified
+    server-side (a stale/hijacked access token alone must not let an attacker
+    change it), so it only needs a length bound, not the complexity rule."""
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
 
 class UserRead(UserBase):
     id: int
