@@ -1,0 +1,26 @@
+# Schedules mealbot-billing-alerts.service once a day.
+#
+# This is the unit you enable:
+#   systemctl enable --now mealbot-billing-alerts.timer
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=Schedule the mealbot daily billing/VAT-threshold alert job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# Once a day at 08:00 server-local time. The job is idempotent — alerts are
+# deduped via the BillingAlert table — so an occasional double/missed run is
+# safe. 08:00 keeps the monthly identifikovaná-osoba reminder well ahead of the
+# FÚ 25th filing deadline (the script gates that reminder to days 1..25).
+OnCalendar=*-*-* 08:00:00
+# If the box was powered off at 08:00, run as soon as it's back up — so a reboot
+# or maintenance window doesn't silently skip a day's threshold check.
+Persistent=true
+# Small jitter so this doesn't fire at the exact same instant as any other
+# 08:00 cron/timer competing for the small Hetzner box.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
