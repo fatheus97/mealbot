@@ -33,8 +33,12 @@ set, the timer still runs harmlessly and logs `Alert email not configured … sk
 
 ## Install (one-time, on the VPS)
 
-The units assume the repo lives at `/opt/mealbot` (matches `scripts/deploy.sh`).
-If your checkout is elsewhere, edit `WorkingDirectory=` in the `.service` first.
+The units assume the repo lives at `/opt/mealbot` and that the job runs as a
+non-root **`deploy`** user in the `docker` group (the same restricted user
+`scripts/deploy.sh` runs under — not root). If your checkout path or deploy
+user differ, edit `WorkingDirectory=` / `User=` in the `.service` first. If you
+have no dedicated docker-group user, either create one or remove the `User=`
+line to fall back to root (less ideal — see the comment in the unit).
 
 ```bash
 # from your host, SSH into the box:
