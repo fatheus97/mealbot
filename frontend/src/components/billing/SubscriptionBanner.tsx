@@ -21,12 +21,15 @@ const SURFACE: Record<Variant, { bg: string; color: string; border: string }> = 
 };
 
 export function SubscriptionBanner() {
-  const { isDemo, subscriptionStatus, currentPeriodEnd, isSubscribed } = useAuth();
+  const { isDemo, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped } = useAuth();
   const { startCheckout, openPortal, checkoutPending, portalPending, error } = useBilling();
 
-  // Demo accounts can't subscribe. A billing-off / admin / bypass user is
-  // entitled with status "none" → nothing to show (handled by the variant below).
-  if (isDemo) return null;
+  // Demo and comped ("friendlist") accounts get their access without a
+  // subscription, so subscription billing UI is noise (and can be misleading — a
+  // comped user with a stray past_due sub would otherwise see a false "update
+  // your card" warning). A billing-off / admin user is entitled with status
+  // "none" → nothing to show (handled by the variant below).
+  if (isDemo || isComped) return null;
 
   let variant: Variant | null = null;
   if (subscriptionStatus === "past_due") variant = "past_due";
@@ -37,16 +40,35 @@ export function SubscriptionBanner() {
 
   if (!variant) return null;
 
-  const renews = formatDate(currentPeriodEnd);
-  const surface = SURFACE[variant];
+  const periodDate = formatDate(currentPeriodEnd);
+
+  // When canceled-but-still-active (cancel_at_period_end), the period end is when
+  // access ENDS, not when it renews — say so instead of "renews". A subscription
+  // can be past_due AND canceled at once (card fails, then the user cancels), in
+  // which case "update your card to keep access" is wrong — access ends anyway.
+  const canceling =
+    cancelAtPeriodEnd &&
+    (variant === "trialing" || variant === "active" || variant === "past_due");
+  // A "canceled — ends {date}" message shouldn't sit on the positive green/blue
+  // surface; use the cautionary amber one so colour matches the copy.
+  const surface = canceling ? SURFACE.subscribe : SURFACE[variant];
+  const dateSuffix = periodDate
+    ? canceling
+      ? ` — ends ${periodDate}`
+      : variant === "active"
+        ? ` · renews ${periodDate}`
+        : ` — renews ${periodDate}`
+    : "";
 
   const message =
     variant === "trialing"
-      ? `🎉 Free trial${renews ? ` — renews ${renews}` : ""}.`
+      ? `${canceling ? "🚫 Trial canceled" : "🎉 Free trial"}${dateSuffix}.`
       : variant === "active"
-        ? `✓ Subscribed${renews ? ` · renews ${renews}` : ""}.`
+        ? `${canceling ? "🚫 Subscription canceled" : "✓ Subscribed"}${dateSuffix}.`
         : variant === "past_due"
-          ? "⚠️ Payment failed — update your card to keep access."
+          ? canceling
+            ? `🚫 Subscription canceled${dateSuffix}.`
+            : "⚠️ Payment failed — update your card to keep access."
           : "Subscribe to keep generating meal plans & recipes.";
 
   // past_due sends the user to the Portal to fix their card; the rest either
@@ -55,11 +77,11 @@ export function SubscriptionBanner() {
   const onClick = isManage ? openPortal : startCheckout;
   const pending = isManage ? portalPending : checkoutPending;
   const label = isManage
-    ? variant === "past_due"
+    ? !canceling && variant === "past_due"
       ? "Update payment"
       : "Manage"
     : "Subscribe";
-  const primary = variant === "subscribe" || variant === "past_due";
+  const primary = !canceling && (variant === "subscribe" || variant === "past_due");
 
   return (
     <div

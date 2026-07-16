@@ -89,6 +89,23 @@ class TestCreateUserCli:
         ).scalars().first()
         assert user is not None
         assert user.is_admin is False
+        assert user.is_comped is False
+
+    async def test_comp_flag_creates_comped_user(
+        self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._patch_factory(monkeypatch, db_session)
+        await create_user_script.create_user(
+            "clifriend@example.com", "FriendPass123", is_comped=True
+        )
+        user = (
+            await db_session.execute(
+                select(User).where(User.email == "clifriend@example.com")
+            )
+        ).scalars().first()
+        assert user is not None
+        assert user.is_comped is True
+        assert user.is_admin is False
 
 
 class TestUserReadExposesIsAdmin:
