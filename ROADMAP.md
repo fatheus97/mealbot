@@ -6,7 +6,9 @@
 > and the mobile-friendly + camera-capture thrust, then again **2026-07-11** after
 > the stability run (LLM outage recovery, chain-resilience prep, CI review-gate
 > fix), and **2026-07-12** after the full Admin & operations epic shipped
-> (usage tracking → RBAC → stats API → dashboard, #189/#191/#192/#193). Where the
+> (usage tracking → RBAC → stats API → dashboard, #189/#191/#192/#193), and
+> **2026-07-16** after the **Stripe subscription paygate shipped and went live**
+> (the Monetization / Billing milestone below — #199–202, #211–213). Where the
 > notes and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
@@ -81,6 +83,15 @@ Shipped and verified in the codebase:
   (#183); and fixed a silently-broken CI review gate — a dead `CLAUDE_CODE_OAUTH_TOKEN`
   (401) made reviews no-op green, so #184/#187 added a guard that turns a no-op
   review red (owner rotated the token, verified restored).
+- **Billing / paygate** (LIVE 2026-07-16): Stripe subscriptions (**€10/mo** EUR,
+  14-day trial), a `require_active_subscription` **402** gate on the four
+  generation endpoints, entitlement as a local read on webhook-mirrored
+  subscription state (admin/demo/comped bypass, monotonic out-of-order guard),
+  Customer Portal, an append-only revenue ledger with **EU-OSS €10k / CZ 2M CZK
+  VAT-threshold** tracking in the admin dashboard, operator email alerts at
+  80%/100% (Resend, daily systemd timer), existing alpha users **grandfathered**
+  (`is_comped`) so nobody was surprise-paywalled, and cancel-at-period-end UX. On
+  stripe SDK 15.3. See the Monetization / Billing milestone below.
 
 **Everything below is what's left.**
 
@@ -121,8 +132,8 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 |---|---|---|---|---|
 | **Real-time cooking mode** | ✅ | — | — | **Shipped 2026-07-02** (#152). `CookMode` — fullscreen tick-box checklist for ingredients/steps while cooking (`cookMode.utils.ts`, tested). |
 | **Leftovers meal_type** | ⬜ | M | calendar dates (soft) | "Cook a bigger dinner, eat it as lunch tomorrow." Needs enum value + prompt handling + schema + UI. Inherently date-aware — pairs with calendar. |
-| **Token-usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189)** as Phase 1 of the Admin epic (below): `LlmUsage` capture + `GET /api/usage/me` + the admin stats surface it in a dashboard. Still the prerequisite for the paygate; note the billing-lower-bound caveat on `LlmUsage` if exact per-user billing is needed. |
-| **Paygate** | ⬜ | L | token-usage | 2-week trial then $4/mo. Needs billing provider (Stripe/Paddle), subscription state, gating middleware, and cost visibility (above). ⚠️ If exact per-user billing is required, first upgrade usage recording: Phase 1 records per-*request* on the action's transaction, so a partial multi-call failure drops already-billed calls (a lower bound). Record each call in its own transaction for exactness. |
+| **Token-usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189)** as Phase 1 of the Admin epic (below): `LlmUsage` capture + `GET /api/usage/me` + the admin stats surface it in a dashboard. Was the prereq for the paygate (now shipped + live). The paygate bills a **flat subscription**, not per-usage, so the `LlmUsage` lower-bound caveat doesn't affect billing. |
+| **Paygate** | ✅ | — | — | **SHIPPED + LIVE 2026-07-16** — see the **Monetization / Billing** milestone below. Flat **€10/mo** EUR subscription (14-day trial), not usage-metered, so the per-call-billing-exactness caveat never applied. #199–202 + #211–213. |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
 | **User edits as feedback** | 🟡 | M | — | **Capture half is shipped** (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt). Remaining: **consume** it — feed corrections into future generations (e.g. as prompt context, few-shot examples, or a per-user preference signal). Nothing in `meal_planner`/`recipe_retriever` reads the correction tables yet. Needs a design choice on how edits influence generation. |
 | **Plans ↔ calendar dates** | ⬜ | M–L | — | `MealPlan` has no date fields (day-index is positional). Add scheduled dates + calendar browsing of recipes/plans. Unlocks leftovers + real scheduling. |
@@ -149,6 +160,34 @@ bundle related metrics) rather than one endpoint per number.
 
 ---
 
+## Milestone: Monetization / Billing — ✅ shipped & LIVE (2026-07-16)
+
+A Stripe **subscription** paygate: €10/mo EUR, 14-day trial. Stripe is the
+**payment processor** (2.9% + €0.30), **not** merchant-of-record, so the operator
+(Czech OSVČ, neplátce DPH) handles their own VAT/OSS — which is *why* the revenue +
+VAT-threshold tracking exists. Shipped behind `BILLING_ENABLED`; entitlement is a
+**local read** on webhook-mirrored subscription state, so the paywall check stays a
+cheap DB read. Every existing non-demo alpha user was **grandfathered** (`is_comped`)
+before flip-on, so the launch paywalled only *new* signups. Built as independently-
+shippable PRs, each through pre-PR adversarial review + the CI/AI-review loop.
+
+| Phase | Status | PR | Notes |
+|---|---|---|---|
+| **1. Backend core (402 gate)** | ✅ | #199 | `stripe_service` entitlement (admin/demo/comped bypass; billing-off ⇒ all entitled), `require_active_subscription` → **402** on the four generation endpoints, `/api/billing/{checkout,portal,webhook}`. Webhook is the sole mirror writer — HMAC-verified, CSRF-exempt, guarded by a monotonic `subscription_event_ts` watermark against out-of-order Stripe delivery. |
+| **2. Frontend paywall UI** | ✅ | #200 | `authFetch` dispatches `mealbot:paywall` on any 402 → event-driven `PaywallModal`; `SubscriptionBanner` (trialing/active/past_due/subscribe, theme-safe surfaces); `BillingReturnHandler` re-syncs on Stripe return; `AuthContext` mirrors `is_subscribed`/status/period-end. |
+| **3. Revenue + VAT threshold tracking** | ✅ | #201 | Append-only `SaleRecord` ledger from the `invoice.paid` webhook (idempotent `ON CONFLICT DO NOTHING`). `compute_revenue_stats` = all-time totals + two **statutorily-windowed** thresholds (EU-OSS €10k cross-border B2C in the calendar year; CZ 2M CZK trailing-12mo turnover). Admin **Revenue & VAT** dashboard. |
+| **4. Operator alert emails** | ✅ | #202 + #213 | `billing_alerts` emails at 80%/100% of each threshold + a monthly *identifikovaná osoba* reminder (Resend, never-raises). Scheduled by a committed **systemd timer** (`deploy/systemd/`, #213) running the job daily as the non-root `deploy` user. |
+| **5. Pre-launch prep + go-live** | ✅ | #212 | `is_comped` ("friendlist") bypass + a migration that **grandfathers** every existing non-demo user; `create_user --comp`; cancel-at-period-end banner UX. Went live on prod 2026-07-16 (live keys + live webhook + `BILLING_ENABLED=true`). |
+| **6. Stripe SDK 12.4 → 15.3** | ✅ | #211 | SDK major bump + webhook adaptation (stripe≥15 `StripeObject` is no longer a dict → read `event.to_dict()`). Caught + fixed a real live-path bug where `invoice.paid` would 500 and never record revenue; hardened webhook tests to use real `stripe.Event` objects. |
+
+**Open follow-up (not blocking):** the stripe 15.3 default outbound API version
+(`basil` → `dahlia`) is unvalidated against the real Stripe API (CI mocks it) — do
+one real/sandbox checkout → portal round-trip to confirm. Optionally verify a
+Resend sender domain so alerts send from your own address instead of
+`onboarding@resend.dev` (which only delivers to the account owner until then).
+
+---
+
 ## Cross-cutting / security loose ends
 
 | Item | Status | Effort | Notes |
@@ -164,8 +203,9 @@ bundle related metrics) rather than one endpoint per number.
 
 Trivy/CodeQL/SAST · coverage gates (codecov) · ruff-format/black · auto-merge for
 human PRs · pre-commit hooks · blue-green/zero-downtime deploy · staging env ·
-multi-region/CDN · load testing. Revisit most of these when the app takes
-payment or goes public.
+multi-region/CDN · load testing. **The app now takes payment (2026-07-16)** — so
+several of these (staging env, zero-downtime deploy, coverage gates, SAST) are
+worth revisiting as it hardens toward a public launch.
 
 ---
 
@@ -180,30 +220,28 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │
      ├─ close the loop: user-edits-as-feedback  (capture is done — now CONSUME it)
      │
-     └─ Monetization track: token-usage tracking ✅ (#189) ─► paygate (next)
+     └─ Monetization track: token-usage tracking ✅ (#189) ─► paygate ✅ LIVE (#199–213)
                 calendar dates ─► leftovers + calendar browsing
 ```
 
-**The in-recipe UX, mobile+camera, and the whole Admin epic are shipped — the
-next decision is which improvement earns the most from real usage.** Highest-signal
-candidates now:
+**The in-recipe UX, mobile+camera, the Admin epic, and now the Stripe paygate are
+all shipped and live — monetization is on.** The next decision is which improvement
+earns the most from real usage. Highest-signal candidates now:
 1. **Close the edit-feedback loop** — the `MachineCorrection` capture data is
    accumulating **unused**; consuming it (edits → better generations) is the
    payoff the telemetry was built for, and a genuine product differentiator.
    Needs a design choice on *how* edits influence generation (prompt context /
    few-shot / per-user preference) + enough correction volume to be worthwhile.
-2. **Monetization → paygate** — token-usage tracking is now SHIPPED (#189) and
-   surfaced in the admin dashboard, so the paygate is unblocked: billing provider
-   (Stripe/Paddle), subscription state, gating middleware. Start only when
-   charging is near-term; if *exact* per-user billing matters, first do the
-   per-call-transaction usage upgrade (see the paygate row's caveat).
-3. **Cheap hygiene wins** (S each): `authsession` cleanup job (unbounded table
+   With the paygate live, this is the clear next product bet.
+2. **Cheap hygiene wins** (S each): `authsession` cleanup job (unbounded table
    growth), password-change endpoint. Low-risk, reduce risk, unblock nothing.
-4. **Cross-provider LLM fallback** (S) — the resilience gap the 07-10 outage
+3. **Cross-provider LLM fallback** (S) — the resilience gap the 07-10 outage
    exposed is still open (chain is all-Gemini); a one-line `LLM_MODELS` change
    once a funded non-Gemini key exists. Needs you to fund DeepSeek / add an
    OpenAI key first.
+4. **Billing follow-ups** (S) — validate the stripe 15.3 `dahlia` outbound API
+   version with one real checkout → portal round-trip (CI mocks Stripe), and
+   optionally verify a Resend sender domain so alerts send from your own address.
 
-Which of #1 vs #2 depends on a signal only you have: *is enough correction data
-accumulating to make the feedback loop measurably better yet, and how near-term
-is charging?* If neither is ripe, #3/#4 are quick risk-reducers.
+The edit-feedback loop (#1) is the standout — it's the differentiator the telemetry
+groundwork was laid for. #2/#3/#4 are quick risk-reducers whenever.
