@@ -54,7 +54,11 @@ class UserRead(UserBase):
     # never has to re-derive billing_enabled / admin / demo bypass rules).
     subscription_status: str = "none"
     current_period_end: datetime | None = None
+    cancel_at_period_end: bool = False
     is_subscribed: bool = False
+    # Complimentary ("friendlist") access — the SPA hides subscription billing UI
+    # for these users (their entitlement comes from comp, not a subscription).
+    is_comped: bool = False
 
 
 def user_to_read(
@@ -85,7 +89,9 @@ def user_to_read(
         default_day_layout=default_day_layout,
         subscription_status=u.subscription_status,
         current_period_end=u.current_period_end,
+        cancel_at_period_end=u.cancel_at_period_end,
         is_subscribed=is_entitled(u),
+        is_comped=u.is_comped,
     )
 
 class UserUpdate(SQLModel):

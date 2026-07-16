@@ -22,6 +22,13 @@ describe("BillingReturnHandler", () => {
     expect(window.location.search).toBe("?keep=1");
   });
 
+  it("strips ?billing=managed (portal return) and refreshes the profile", async () => {
+    window.history.replaceState({}, "", "/?billing=managed");
+    render(<BillingReturnHandler />);
+    await waitFor(() => expect(refreshProfile).toHaveBeenCalled());
+    expect(window.location.search).toBe("");
+  });
+
   it("strips ?billing=cancel without refreshing", async () => {
     window.history.replaceState({}, "", "/?billing=cancel");
     render(<BillingReturnHandler />);

@@ -22,7 +22,7 @@ alembic~=1.18
 pydantic[email]~=2.13
 
 # For RAG features
-pgvector~=0.4
+pgvector~=0.5
 # Pinned to a single 0.x minor: a fastembed minor bump can change the default
 # model / embedding dimensions and silently break RAG (a Dependabot bump makes
 # that an explicit, reviewed change instead of an implicit pull).

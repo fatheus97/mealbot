@@ -83,6 +83,17 @@ def _disable_cookie_secure(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "cookie_secure", False)
 
 
+@pytest.fixture(autouse=True)
+def _billing_disabled_by_default(monkeypatch: pytest.MonkeyPatch):
+    """Force the paygate OFF for every test by default, so the suite is
+    deterministic regardless of the ambient BILLING_ENABLED (a developer's local
+    .env may have it on for manual Stripe testing). Without this, every gated
+    generation endpoint would 402 whenever billing happens to be enabled in the
+    environment. Billing tests that exercise the paywall re-enable it locally via
+    ``monkeypatch.setattr(settings, "billing_enabled", True)``."""
+    monkeypatch.setattr(settings, "billing_enabled", False)
+
+
 @pytest.fixture
 async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
     """
