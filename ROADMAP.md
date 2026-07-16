@@ -8,8 +8,11 @@
 > fix), and **2026-07-12** after the full Admin & operations epic shipped
 > (usage tracking → RBAC → stats API → dashboard, #189/#191/#192/#193), and
 > **2026-07-16** after the **Stripe subscription paygate shipped and went live**
-> (the Monetization / Billing milestone below — #199–202, #211–213). Where the
-> notes and the code disagreed, the code wins and the discrepancy is called out.
+> (the Monetization / Billing milestone below — #199–202, #211–213), and the
+> same-day **post-launch hardening** that cleared two Cross-cutting loose ends —
+> the `authsession` cleanup job (#215) and the password-change endpoint (#216).
+> Where the notes and the code disagreed, the code wins and the discrepancy is
+> called out.
 
 ## How to read this
 
@@ -193,8 +196,8 @@ Resend sender domain so alerts send from your own address instead of
 | Item | Status | Effort | Notes |
 |---|---|---|---|
 | **Non-root SSH hardening** | 🟡 | S | Server-side, not in repo. Create a personal sudo user, disable root SSH login. Low urgency, easy to forget — do it at deploy time. |
-| **`authsession` cleanup job** | ⬜ | S | Daily sweep: `DELETE FROM authsession WHERE expires_at < now() - INTERVAL '7 days'` (SQLModel-derived table name is `authsession`, no underscore). Index depends on scope: a full-table sweep wants `(expires_at)`; a per-user sweep is already served by the existing `(user_id, expires_at)`. Only add `revoked_at` to the index if the query filters on it. |
-| **Password change + token rotation** | ⬜ | S | Endpoint doesn't exist; becomes a one-liner once built (`revoke_all_sessions_for_user` + bump `token_version`). |
+| **`authsession` cleanup job** | ✅ | — | **Shipped 2026-07-16 (#215).** Nightly service sweep (`sweep_expired_auth_sessions`, retention 7d) + thin CLI + standalone `ix_authsession_expires_at` index (auto-applied via the `migrate` service). Sever-then-delete keeps it FK-safe over the `replaced_by_id` chain regardless of expiry ordering (a demo-user `int()`-truncation edge the review caught). **⚠️ The systemd timer needs a one-time manual VPS install** (like the billing-alerts timer): `deploy/systemd/mealbot-authsession-cleanup.{service,timer}`, steps in `deploy/systemd/README.md` §2. Until installed, the table still grows. |
+| **Password change + token rotation** | ✅ | — | **Shipped 2026-07-16 (#216).** `POST /auth/password`: re-verify current → rehash → revoke all sessions + bump `token_version` → keep the current device logged in. Also fixed the shared `refresh` handler so a mass-revoked (never-rotated, `replaced_by_id IS NULL`) token replay is an *ended session* (plain 401), not false theft — the pre-push adversarial review caught that this broke multi-device change. Backend only; a "Change password" settings form is a fast-follow. Follow-up: `logout_all` still IP-rate-limited (should key by user like this endpoint now does). |
 | **Cross-provider LLM fallback** | 🟡 | S | Prep shipped (#183): placeholder keys normalize to unset + a startup check logs a keyless/single-provider chain. The active `LLM_MODELS` is all-Gemini, so a Gemini-wide outage (quota, API, a dep break like #182) has no escape hatch. To enable: fund the existing DeepSeek key (or set a real OpenAI key) and append a non-Gemini entry to `LLM_MODELS` — a one-line change once a working key exists. |
 
 ---
@@ -233,8 +236,9 @@ earns the most from real usage. Highest-signal candidates now:
    Needs a design choice on *how* edits influence generation (prompt context /
    few-shot / per-user preference) + enough correction volume to be worthwhile.
    With the paygate live, this is the clear next product bet.
-2. **Cheap hygiene wins** (S each): `authsession` cleanup job (unbounded table
-   growth), password-change endpoint. Low-risk, reduce risk, unblock nothing.
+2. ~~**Cheap hygiene wins** (S each): `authsession` cleanup job, password-change
+   endpoint.~~ **Both shipped + deployed 2026-07-16 (#215, #216).** One manual
+   step remains: install the cleanup systemd timer on the VPS (see Cross-cutting).
 3. **Cross-provider LLM fallback** (S) — the resilience gap the 07-10 outage
    exposed is still open (chain is all-Gemini); a one-line `LLM_MODELS` change
    once a funded non-Gemini key exists. Needs you to fund DeepSeek / add an
