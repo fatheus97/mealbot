@@ -16,7 +16,7 @@ google-genai~=2.10
 jsonref~=1.1
 
 #For DB
-sqlmodel~=0.0.38
+sqlmodel~=0.0.39
 psycopg[binary,pool]~=3.3
 alembic~=1.18
 pydantic[email]~=2.13
