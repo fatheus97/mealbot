@@ -51,6 +51,12 @@ def test_is_entitled_demo_bypasses_paywall(monkeypatch):
     assert stripe_service.is_entitled(_user(is_demo=True)) is True
 
 
+def test_is_entitled_comped_bypasses_paywall(monkeypatch):
+    # Comped ("friendlist"/grandfathered) users keep access without subscribing.
+    monkeypatch.setattr(settings, "billing_enabled", True)
+    assert stripe_service.is_entitled(_user(is_comped=True)) is True
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
@@ -82,6 +88,19 @@ def test_apply_subscription_mirrors_top_level_fields():
     assert user.subscription_status == "active"
     assert user.current_period_end is not None
     assert user.current_period_end.year == 2030
+
+
+def test_apply_subscription_mirrors_cancel_at_period_end():
+    user = _user()
+    stripe_service.apply_subscription(
+        user, {"id": "s", "status": "trialing", "cancel_at_period_end": True}
+    )
+    assert user.cancel_at_period_end is True
+    # Reactivating (un-canceling) in the portal flips it back.
+    stripe_service.apply_subscription(
+        user, {"id": "s", "status": "trialing", "cancel_at_period_end": False}
+    )
+    assert user.cancel_at_period_end is False
 
 
 def test_apply_subscription_reads_item_level_period_end():
@@ -508,9 +527,21 @@ def test_user_to_read_exposes_subscription(monkeypatch):
     monkeypatch.setattr(settings, "billing_enabled", True)
     u = _user(subscription_status="active")
     u.id = 1
+    u.cancel_at_period_end = True
     read = user_to_read(u)
     assert read.subscription_status == "active"
     assert read.is_subscribed is True
+    assert read.cancel_at_period_end is True
+    assert read.is_comped is False
+
+
+def test_user_to_read_exposes_is_comped(monkeypatch):
+    from app.models.user_schemas import user_to_read
+
+    u = _user(is_comped=True)
+    u.id = 2
+    read = user_to_read(u)
+    assert read.is_comped is True
 
 
 # --------------------------------------------------------------------------- #

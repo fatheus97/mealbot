@@ -27,7 +27,9 @@ function authState(overrides: Record<string, unknown> = {}) {
     isDemo: false,
     subscriptionStatus: "none",
     currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
     isSubscribed: false,
+    isComped: false,
     ...overrides,
   };
 }
@@ -50,6 +52,15 @@ describe("SubscriptionBanner", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("renders nothing for a comped user even with a stray subscription status", () => {
+    // Comped access shouldn't show billing UI — not even a false past_due warning.
+    mockedUseAuth.mockReturnValue(
+      authState({ isComped: true, isSubscribed: true, subscriptionStatus: "past_due" }),
+    );
+    const { container } = render(<SubscriptionBanner />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("shows the trial banner and Manage → portal", async () => {
     mockedUseAuth.mockReturnValue(
       authState({ isSubscribed: true, subscriptionStatus: "trialing", currentPeriodEnd: "2026-08-01T00:00:00Z" }),
@@ -59,6 +70,37 @@ describe("SubscriptionBanner", () => {
     await userEvent.click(screen.getByRole("button", { name: /manage/i }));
     expect(openPortal).toHaveBeenCalledTimes(1);
     expect(startCheckout).not.toHaveBeenCalled();
+  });
+
+  it("says 'ends' (not 'renews') when canceled at period end", () => {
+    mockedUseAuth.mockReturnValue(
+      authState({
+        isSubscribed: true,
+        subscriptionStatus: "trialing",
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: "2026-07-28T00:00:00Z",
+      }),
+    );
+    render(<SubscriptionBanner />);
+    expect(screen.getByText(/canceled/i)).toBeInTheDocument();
+    expect(screen.getByText(/ends/i)).toBeInTheDocument();
+    expect(screen.queryByText(/renews/i)).not.toBeInTheDocument();
+  });
+
+  it("says 'canceled — ends' (not 'update your card') when past_due AND canceled", () => {
+    mockedUseAuth.mockReturnValue(
+      authState({
+        isSubscribed: true,
+        subscriptionStatus: "past_due",
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: "2026-07-28T00:00:00Z",
+      }),
+    );
+    render(<SubscriptionBanner />);
+    expect(screen.getByText(/canceled/i)).toBeInTheDocument();
+    expect(screen.getByText(/ends/i)).toBeInTheDocument();
+    expect(screen.queryByText(/update your card/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /manage/i })).toBeInTheDocument();
   });
 
   it("shows the past_due warning and Update payment → portal", async () => {
