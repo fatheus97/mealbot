@@ -62,7 +62,9 @@ def is_entitled(user: User) -> bool:
     """
     if not settings.billing_enabled:
         return True
-    if user.is_admin or user.is_demo:
+    # Admins, demo accounts, and comped ("friendlist"/grandfathered) users bypass
+    # the paywall regardless of subscription state.
+    if user.is_admin or user.is_demo or user.is_comped:
         return True
     return user.subscription_status in ENTITLED_STATUSES
 
@@ -110,6 +112,7 @@ def apply_subscription(
     status = subscription.get("status")
     if isinstance(status, str):
         user.subscription_status = status
+    user.cancel_at_period_end = bool(subscription.get("cancel_at_period_end"))
     period_end = _extract_period_end(subscription)
     if period_end is not None:
         user.current_period_end = datetime.fromtimestamp(period_end, tz=UTC)
@@ -175,7 +178,9 @@ async def create_portal_session(user: User) -> str:
     portal = await asyncio.to_thread(
         stripe.billing_portal.Session.create,
         customer=user.stripe_customer_id,
-        return_url=f"{settings.frontend_base_url}/",
+        # ?billing=managed lets the SPA re-sync the profile on return (a cancel /
+        # card update just happened) instead of showing stale state until reload.
+        return_url=f"{settings.frontend_base_url}/?billing=managed",
     )
     return portal.url
 

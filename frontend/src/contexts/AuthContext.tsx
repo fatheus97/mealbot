@@ -33,8 +33,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(
     () => window.localStorage.getItem("mealbot_current_period_end")
   );
+  const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_cancel_at_period_end") === "true"
+  );
   const [isSubscribed, setIsSubscribed] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_subscribed") === "true"
+  );
+  const [isComped, setIsComped] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_is_comped") === "true"
   );
   // null = /config not yet resolved; boolean = resolved value. Using null
   // as the unresolved sentinel lets the UI avoid a flash of the wrong
@@ -55,7 +61,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const subStatus = profile.subscription_status ?? "none";
     setSubscriptionStatus(subStatus);
     setCurrentPeriodEnd(profile.current_period_end ?? null);
+    setCancelAtPeriodEnd(Boolean(profile.cancel_at_period_end));
     setIsSubscribed(Boolean(profile.is_subscribed));
+    setIsComped(Boolean(profile.is_comped));
     window.localStorage.setItem("mealbot_user_id", String(profile.id));
     window.localStorage.setItem("mealbot_user_email", profile.email);
     window.localStorage.setItem("mealbot_subscription_status", subStatus);
@@ -64,10 +72,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       window.localStorage.removeItem("mealbot_current_period_end");
     }
+    if (profile.cancel_at_period_end) {
+      window.localStorage.setItem("mealbot_cancel_at_period_end", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_cancel_at_period_end");
+    }
     if (profile.is_subscribed) {
       window.localStorage.setItem("mealbot_is_subscribed", "true");
     } else {
       window.localStorage.removeItem("mealbot_is_subscribed");
+    }
+    if (profile.is_comped) {
+      window.localStorage.setItem("mealbot_is_comped", "true");
+    } else {
+      window.localStorage.removeItem("mealbot_is_comped");
     }
     if (demoFlag) {
       window.localStorage.setItem("mealbot_is_demo", "true");
@@ -94,7 +112,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOnboardingCompletedState(false);
     setSubscriptionStatus("none");
     setCurrentPeriodEnd(null);
+    setCancelAtPeriodEnd(false);
     setIsSubscribed(false);
+    setIsComped(false);
     window.localStorage.removeItem("mealbot_user_id");
     window.localStorage.removeItem("mealbot_user_email");
     window.localStorage.removeItem("mealbot_onboarding");
@@ -102,7 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.localStorage.removeItem("mealbot_is_admin");
     window.localStorage.removeItem("mealbot_subscription_status");
     window.localStorage.removeItem("mealbot_current_period_end");
+    window.localStorage.removeItem("mealbot_cancel_at_period_end");
     window.localStorage.removeItem("mealbot_is_subscribed");
+    window.localStorage.removeItem("mealbot_is_comped");
 
     // Prevent cross-account leakage: drop cached server data and reset
     // the persisted preferences store to defaults. Component-local state
@@ -253,7 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, subscriptionStatus, currentPeriodEnd, isSubscribed, login, logout, setOnboardingCompleted, loginDemo, register, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
