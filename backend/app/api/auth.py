@@ -27,18 +27,24 @@ from app.core.cookies import (
     clear_auth_cookies,
     set_auth_cookies,
 )
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
     create_refresh_token,
     generate_csrf_token,
+    get_password_hash,
     hash_refresh_token,
     verify_password,
 )
 from app.db import get_session
 from app.models.db_models import AuthSession, User
-from app.models.user_schemas import LoginRequest, UserRead, user_to_read
+from app.models.user_schemas import (
+    LoginRequest,
+    PasswordChangeRequest,
+    UserRead,
+    user_to_read,
+)
 from app.services.demo_user import cleanup_expired_demo_users, create_ephemeral_demo_user
 
 logger = logging.getLogger(__name__)
@@ -190,18 +196,33 @@ async def refresh(
     revoked_at = _ensure_aware(auth_session.revoked_at) if auth_session.revoked_at else None
 
     if revoked_at is not None:
-        # Distinguish a benign multi-tab race from real refresh-token theft.
+        # A revoked row splits two ways by whether it was ever rotated:
+        #
+        #  * replaced_by_id IS NULL — ended by an explicit revoke (logout,
+        #    logout-all, password change, or a prior theft sweep), never
+        #    superseded by a rotation. Replaying its cookie is a stale-session
+        #    replay, NOT theft: return a plain 401 and do NOT re-revoke or bump
+        #    token_version. Cascading here would break password change, which
+        #    mass-revokes every session and then keeps the current device alive —
+        #    the first stale device to refresh would otherwise bump token_version
+        #    again and revoke the very session we just kept, logging that device
+        #    out too (and firing a spurious theft alarm on a routine change).
+        #
+        #  * replaced_by_id IS NOT NULL — rotated and superseded, so a replay is
+        #    genuine refresh-token reuse: a benign multi-tab race inside the grace
+        #    window (mint a parallel session), or theft outside it.
+        if auth_session.replaced_by_id is None:
+            clear_auth_cookies(response)
+            raise HTTPException(
+                status_code=401, detail="Session ended; please log in again"
+            )
+
         # Two tabs with synchronised expired access tokens both call
-        # /auth/refresh; one rotates first, the other arrives milliseconds
-        # later and sees the row already revoked. Within the grace window
-        # (and only if the row was actually rotated, not revoked by logout
-        # / theft), mint the loser a parallel session instead of revoking
-        # everything.
+        # /auth/refresh; one rotates first, the other arrives milliseconds later
+        # and sees the row already revoked. Within the grace window, mint the
+        # loser a parallel session instead of revoking everything.
         grace_window = timedelta(seconds=settings.refresh_grace_seconds)
-        if (
-            auth_session.replaced_by_id is not None
-            and (now - revoked_at) <= grace_window
-        ):
+        if (now - revoked_at) <= grace_window:
             user_for_grace = await session.get(User, auth_session.user_id)
             if user_for_grace is None:
                 clear_auth_cookies(response)
@@ -315,6 +336,77 @@ async def logout_all(
     await session.commit()
     clear_auth_cookies(response)
     logger.info("logout_all user_id=%s", current_user.id)
+    return None
+
+
+@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+# Bucket by user, not IP: this is authenticated, so users behind one NAT/office
+# IP must not share a bucket and 429 each other out of a security-sensitive,
+# low-frequency action (matches billing/plan/etc.). The unauthenticated endpoints
+# above have no user to key by and stay IP-based.
+@limiter.limit("5/minute", key_func=user_id_key_func)
+async def change_password(
+    request: Request,
+    response: Response,
+    body: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Change the caller's password.
+
+    Re-verifies the current password (a valid access token alone must not be
+    enough — that's the whole point of asking for it), then rotates security
+    state: revoke every existing session and bump token_version so all *other*
+    devices and any in-flight access tokens die immediately, and mint a fresh
+    session for THIS device so the caller isn't logged out of the browser they
+    just changed it in.
+
+    NOT CSRF-exempt (the caller already holds the CSRF cookie) — a password
+    change is exactly the state change double-submit protects. The bcrypt
+    verify/hash steps run off the event loop (~50-100ms each).
+    """
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
+
+    current_ok = await asyncio.to_thread(
+        verify_password, body.current_password, current_user.hashed_password
+    )
+    if not current_ok:
+        logger.warning("password_change_bad_current user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+
+    # Reject a no-op change (new == current, checked against the still-current
+    # stored hash) — it would pointlessly nuke every session for no security
+    # gain. Done before re-hashing so the comparison is against the old hash.
+    if await asyncio.to_thread(
+        verify_password, body.new_password, current_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password",
+        )
+
+    now = datetime.now(UTC)
+    current_user.hashed_password = await asyncio.to_thread(
+        get_password_hash, body.new_password
+    )
+    # Bump token_version BEFORE issuing so the freshly-minted access token
+    # carries the new version; the revoke sweep runs before the new INSERT so
+    # this device's new session survives it.
+    current_user.token_version += 1
+    await _revoke_all_user_sessions(session, current_user.id, now)
+    await _issue_session_and_set_cookies(
+        response=response,
+        session=session,
+        user=current_user,
+        user_agent=request.headers.get("user-agent"),
+    )
+    session.add(current_user)
+    await session.commit()
+    logger.info("password_changed user_id=%s", current_user.id)
     return None
 
 
