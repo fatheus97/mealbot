@@ -27,7 +27,7 @@ from app.core.cookies import (
     clear_auth_cookies,
     set_auth_cookies,
 )
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -340,7 +340,11 @@ async def logout_all(
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
-@limiter.limit("5/minute")
+# Bucket by user, not IP: this is authenticated, so users behind one NAT/office
+# IP must not share a bucket and 429 each other out of a security-sensitive,
+# low-frequency action (matches billing/plan/etc.). The unauthenticated endpoints
+# above have no user to key by and stay IP-based.
+@limiter.limit("5/minute", key_func=user_id_key_func)
 async def change_password(
     request: Request,
     response: Response,
