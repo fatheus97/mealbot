@@ -1,0 +1,44 @@
+# mealbot — daily expired-auth-session cleanup job.
+#
+# Runs `app.scripts.authsession_cleanup` once, then exits (Type=oneshot).
+# Scheduled by mealbot-authsession-cleanup.timer; installable/testable on its
+# own via `systemctl start mealbot-authsession-cleanup.service`.
+#
+# Deliberately has NO [Install] section: it must run ONLY when the timer (or an
+# operator) triggers it, never at boot. Enable the .timer, not this unit.
+#
+# See deploy/systemd/README.md for install steps.
+
+[Unit]
+Description=mealbot daily expired-auth-session cleanup job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# Docker must be up before we shell out to `docker compose`. This matters for
+# the timer's Persistent=true catch-up run after a reboot, where the timer can
+# fire before the Docker daemon is ready.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run as the same non-root, docker-group user the CI deploy uses (see
+# scripts/deploy.sh's forced-command setup) rather than root — least privilege,
+# consistent with the rest of the deploy pipeline. This user must exist and be
+# in the `docker` group; change it if your deploy user is named differently.
+User=deploy
+# Same directory + compose files the prod stack is operated from (see
+# scripts/deploy.sh). Adjust if your checkout lives elsewhere.
+WorkingDirectory=/opt/mealbot
+# A one-off container (not `docker compose exec`) so the job still runs during
+# the brief window when the backend container is restarting (e.g. mid-deploy).
+# --no-deps because the long-running stack already has `db` up; this job only
+# deletes existing rows, so it needs no migrate/startup chain. `-T` disables
+# pseudo-TTY allocation — under systemd there's no controlling terminal, and
+# leaning on Compose's TTY auto-detect is a known cron/systemd footgun. The
+# container inherits the app's .env (DATABASE_URL, ...), so it needs no extra
+# config to reach the database.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps -T backend python -m app.scripts.authsession_cleanup
+# A hung docker pull / DB connection must not wedge the unit indefinitely. Real
+# runs finish in seconds; the delete is index-served and bounded by the db
+# statement_timeout.
+TimeoutStartSec=300
