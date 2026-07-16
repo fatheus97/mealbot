@@ -18,9 +18,9 @@ scheduler or a real clock; the thin CLI wrapper lives in
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col
+from sqlmodel import col, select
 
 from app.models.db_models import AuthSession
 
@@ -42,13 +42,17 @@ async def sweep_expired_auth_sessions(
     commits.
 
     FK-safety over the ``replaced_by_id`` self-reference (a rotated row points
-    to its successor): the referencing row is always the *older* one and so
-    expires no later than the successor it points to. Therefore a row can only
-    become deletable once every row that references it is already deletable too
-    — deleting strictly by ``expires_at`` never orphans a live pointer. Even
-    when a whole rotation chain crosses the cutoff together, Postgres defers the
-    ``NO ACTION`` FK check to end-of-statement, so removing them in one DELETE
-    is fine.
+    to its successor): the sweep first NULLs that pointer on any *surviving* row
+    that references a row about to be deleted, then deletes — so it is correct
+    regardless of how the two rows' ``expires_at`` are ordered. This matters
+    because that ordering is NOT guaranteed: for a demo user
+    ``_refresh_ttl_for_user`` truncates the rotated TTL with ``int()``, so the
+    successor can expire up to ~1s *before* the row that points at it. Without
+    the pre-sever, a cutoff landing in that sub-second gap would delete the
+    successor while a still-live predecessor references it — a Postgres
+    ``NO ACTION`` violation that aborts the whole DELETE and wedges the job.
+    Severing first keeps the sweep robust without coupling it to (or loosening)
+    that function's demo-cap semantics.
 
     ``now`` must be timezone-aware: the column is ``TIMESTAMPTZ``, so a naive
     value would raise on comparison rather than silently mis-compare.
@@ -57,6 +61,22 @@ async def sweep_expired_auth_sessions(
         raise ValueError("retention_days must be non-negative")
 
     cutoff = now - timedelta(days=retention_days)
+    doomed = select(col(AuthSession.id)).where(col(AuthSession.expires_at) < cutoff)
+
+    # Sever the forensic pointer on rows we're KEEPING that reference a doomed
+    # row, so the delete below can't hit a live self-FK. Normally a no-op (a
+    # surviving row rarely points into the delete set); the ``expires_at >=
+    # cutoff`` guard limits the write to survivors — doomed rows are about to go
+    # anyway. Nulling an ancient forensic pointer is harmless: the row is far
+    # past any refresh grace window, so the reuse-detection logic never consults
+    # it.
+    await session.execute(
+        update(AuthSession)
+        .where(col(AuthSession.replaced_by_id).in_(doomed))
+        .where(col(AuthSession.expires_at) >= cutoff)
+        .values(replaced_by_id=None)
+    )
+
     # DELETE ... RETURNING id, then count the returned rows — an exact count in
     # one round-trip, and typed cleanly (reading CursorResult.rowcount would need
     # an Any-typed cast, which the code standards forbid).

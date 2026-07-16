@@ -169,6 +169,38 @@ async def test_fk_safe_deleting_referencing_row_while_successor_stays(
     assert remaining == [active_successor.id]
 
 
+async def test_fk_safe_deleting_successor_while_referencing_row_survives(
+    db_session: AsyncSession, test_user: User,
+):
+    """The subtle demo-user case: the successor (referenced) row can expire
+    BEFORE the predecessor (referencing) that points at it — because
+    _refresh_ttl_for_user truncates a demo rotation's TTL with int(). Here the
+    successor crosses the cutoff while the predecessor doesn't. Pre-fix this
+    would abort the whole DELETE with a NO ACTION FK violation; the sweep must
+    instead delete the successor, keep the predecessor, and NULL its now-dangling
+    replaced_by_id.
+    """
+    successor = await _add_session(
+        db_session, test_user, expires_at=NOW - timedelta(days=8),  # doomed
+    )
+    predecessor = await _add_session(
+        db_session, test_user,
+        expires_at=NOW - timedelta(days=3),  # survives (within grace)
+        revoked_at=NOW - timedelta(days=3),
+        replaced_by_id=successor.id,
+    )
+    deleted = await sweep_expired_auth_sessions(db_session, NOW, retention_days=7)
+    await db_session.commit()
+    assert deleted == 1
+    remaining = (await db_session.execute(
+        select(AuthSession.id).where(AuthSession.user_id == test_user.id)
+    )).scalars().all()
+    assert remaining == [predecessor.id]
+    # The dangling pointer was severed rather than left referencing a dead row.
+    await db_session.refresh(predecessor)
+    assert predecessor.replaced_by_id is None
+
+
 async def test_no_matching_rows_returns_zero(
     db_session: AsyncSession, test_user: User,
 ):
