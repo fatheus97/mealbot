@@ -64,6 +64,14 @@ class User(SQLModel, table=True):
         default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
     )
 
+    # Complimentary ("friendlist") access — bypasses the subscription paywall like
+    # admin/demo do (see stripe_service.is_entitled). Used to grandfather existing
+    # users when billing is switched on, and to comp friends/testers. Server-set
+    # only (create_user --comp / direct DB update); no self-service path.
+    is_comped: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
+
     # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
     # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
     # source of truth. ---
@@ -75,6 +83,13 @@ class User(SQLModel, table=True):
         default="none", sa_column_kwargs={"server_default": "none"}, nullable=False
     )
     current_period_end: datetime | None = Field(default=None)
+    # Mirror of Stripe's cancel_at_period_end: True once the customer has canceled
+    # but still has access until current_period_end. Status stays trialing/active
+    # in this window, so this flag is what distinguishes "will renew" from "will
+    # end" in the UI.
+    cancel_at_period_end: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
     # Monotonic ordering watermark: the Unix-epoch ``created`` of the most recent
     # Stripe subscription event we applied. Stripe does NOT guarantee webhook
     # delivery order, so apply_subscription ignores any event older than this —
