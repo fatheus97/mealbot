@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlanCatalog } from "./PlanCatalog";
@@ -7,7 +7,6 @@ import { AuthProvider } from "../contexts/AuthContext";
 import { setMobileViewport } from "../test/test-utils";
 import type { ReactNode } from "react";
 import type { MealPlanSummary } from "../types";
-import { formatISODate } from "../utils/planDates";
 
 vi.mock("../api", () => ({
   authFetch: vi.fn(),
@@ -102,9 +101,13 @@ describe("PlanCatalog", () => {
     });
   });
 
-  it("shows the scheduled date only for scheduled plans", async () => {
+  it("shows an editable schedule date on every plan (prefilled when scheduled)", async () => {
     loginUser();
-    const scheduled: MealPlanSummary = { ...SAMPLE_PLAN, id: 2, start_date: "2026-08-01" };
+    const scheduled: MealPlanSummary = {
+      ...SAMPLE_PLAN,
+      id: 2,
+      start_date: "2026-08-01",
+    };
     mockedAuthFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve([scheduled, SAMPLE_PLAN]),
@@ -112,14 +115,41 @@ describe("PlanCatalog", () => {
 
     render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
 
+    // Scheduled plan → date input prefilled; unscheduled plan → empty input.
+    const schedInput = await screen.findByLabelText(/reschedule plan 2/i);
+    expect(schedInput).toHaveValue("2026-08-01");
+    const unschedInput = screen.getByLabelText(/reschedule plan 1/i);
+    expect(unschedInput).toHaveValue("");
+  });
+
+  it("reschedules a plan inline via the date input (PATCH)", async () => {
+    loginUser();
+    const scheduled: MealPlanSummary = {
+      ...SAMPLE_PLAN,
+      id: 2,
+      start_date: "2026-08-01",
+    };
+    mockedAuthFetch.mockImplementation((_url: string, opts?: { method?: string }) => {
+      if (opts?.method === "PATCH")
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ plan_id: 2, start_date: "2026-08-20" }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([scheduled]) });
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+
+    const input = await screen.findByLabelText(/reschedule plan 2/i);
+    fireEvent.change(input, { target: { value: "2026-08-20" } });
+
     await waitFor(() =>
-      // Locale-agnostic: assert the same formatter the component uses.
-      expect(
-        screen.getByText(formatISODate("2026-08-01"), { exact: false }),
-      ).toBeInTheDocument(),
+      expect(mockedAuthFetch).toHaveBeenCalledWith("/plan/2", {
+        method: "PATCH",
+        body: JSON.stringify({ start_date: "2026-08-20" }),
+      }),
     );
-    // Exactly one 📅 marker — the unscheduled plan (start_date null) shows none.
-    expect(screen.getAllByText("📅")).toHaveLength(1);
   });
 
   it("stacks each plan into two rows on mobile so the actions don't clip", async () => {

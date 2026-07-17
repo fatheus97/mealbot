@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { usePlanList, useDeletePlan } from "../hooks/useServerState";
+import { usePlanList, useDeletePlan, useReschedulePlan } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { formatISODate } from "../utils/planDates";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 
 const STATUS_COLORS: Record<PlanStatus, { bg: string; text: string }> = {
@@ -23,10 +22,15 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   const isMobile = useIsMobile();
   const { data: plans, isLoading } = usePlanList(userId);
   const deleteMutation = useDeletePlan();
+  const rescheduleMutation = useReschedulePlan();
   const [expanded, setExpanded] = useState(true);
   const [loadingPlanId, setLoadingPlanId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  // Bumped on a failed reschedule to remount the (uncontrolled) date inputs
+  // back onto the server value.
+  const [rescheduleNonce, setRescheduleNonce] = useState(0);
 
   if (!userId) return null;
 
@@ -96,6 +100,11 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
               {openError}
             </p>
           )}
+          {rescheduleError && (
+            <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: 0 }}>
+              {rescheduleError}
+            </p>
+          )}
 
           {plans && plans.length === 0 && (
             <p style={{ color: "#888", fontSize: "0.9rem" }}>
@@ -135,16 +144,36 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                       <span style={{ color: "#333" }}>
                         {plan.days}d / {plan.meals_per_day} meals / {plan.people_count}p
                       </span>
-                      {/* Scheduled date. Uses the local-parse formatter (NOT the
-                          created_at formatDate above, whose `new Date(str)` would
-                          shift a date-only string by a day in negative-UTC zones).
-                          Card bg is an explicit light surface, so #555 is safe. */}
-                      {plan.start_date && (
-                        <span style={{ color: "#555", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                          <span aria-hidden>📅</span>
-                          {formatISODate(plan.start_date)}
-                        </span>
-                      )}
+                      {/* Editable schedule date — reschedule (or clear) any plan
+                          right here, not only inside the calendar. Uncontrolled
+                          (key + defaultValue) so a successful move remounts on the
+                          new server date without snap-back; a failed one resets via
+                          the nonce bump. A date input is already YYYY-MM-DD, so no
+                          UTC-shifting `new Date(str)` is involved. */}
+                      <label style={{ color: "#555", display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.85rem" }}>
+                        <span aria-hidden>📅</span>
+                        <input
+                          key={`${plan.start_date}-${rescheduleNonce}`}
+                          type="date"
+                          aria-label={`Reschedule plan ${plan.id}`}
+                          defaultValue={plan.start_date ?? ""}
+                          onChange={(e) =>
+                            rescheduleMutation.mutate(
+                              { planId: plan.id, startDate: e.target.value || null },
+                              {
+                                onSuccess: () => setRescheduleError(null),
+                                onError: () => {
+                                  setRescheduleError(
+                                    "Couldn't update that plan's date. Please try again.",
+                                  );
+                                  setRescheduleNonce((n) => n + 1);
+                                },
+                              },
+                            )
+                          }
+                          style={{ padding: "0.15rem 0.3rem", fontSize: "0.8rem" }}
+                        />
+                      </label>
                       <span
                         style={{
                           padding: "0.15rem 0.5rem",

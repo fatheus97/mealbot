@@ -122,6 +122,10 @@ export function usePlanCalendar(
       if (!res.ok) throw new Error(`Calendar fetch failed: ${res.status}`);
       return res.json();
     },
+    // Always refetch when the calendar (re)opens. The app-wide default is a
+    // 5-min staleTime (main.tsx), which otherwise leaves the calendar showing a
+    // stale month for minutes after a plan is confirmed/rescheduled elsewhere.
+    staleTime: 0,
     enabled: userId !== null && !!from && !!to,
   });
 }
@@ -170,6 +174,9 @@ export function useDeletePlan() {
       if (!res.ok) throw new Error(await extractErrorDetail(res, "Plan delete failed"));
     },
     onSuccess: () => {
+      // A delete removes the plan from calendar eligibility too — refresh it
+      // (belt-and-suspenders with usePlanCalendar's staleTime:0).
+      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
       return queryClient.invalidateQueries({ queryKey: ['planList'] });
     },
   });
@@ -196,6 +203,10 @@ export function useConfirmPlan() {
     onSuccess: (_, { planId }) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      // A confirm is what makes a scheduled plan appear on the calendar, so
+      // refresh it too (belt-and-suspenders alongside usePlanCalendar's
+      // staleTime:0 — covers the case where the calendar is already mounted).
+      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
       // Confirm creates the meal entry rows server-side. Without this,
       // an un-confirm → regenerate → re-confirm cycle leaves the cache
       // holding the empty array refetched during un-confirm, so per-meal
@@ -362,6 +373,9 @@ export function useUnconfirmPlan() {
     onSuccess: (_, planId) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      // Un-confirm clears confirmed_at, which /plan/calendar filters on, so the
+      // plan drops off the calendar — refresh it (with usePlanCalendar's staleTime:0).
+      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
       // Server deletes all meal entries; clear the cache so any reader
       // outside the isConfirmed gate doesn't see stale rows.
       queryClient.invalidateQueries({ queryKey: ['mealEntries', planId] });

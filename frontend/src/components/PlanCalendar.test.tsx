@@ -130,8 +130,8 @@ describe("PlanCalendar", () => {
       wrapper: createWrapper(),
     });
 
-    const entry = await screen.findByText(/Chicken Curry/);
-    await user.click(entry);
+    await screen.findByText(/Chicken Curry/);
+    await user.click(screen.getByRole("button", { name: /^open/i }));
 
     await waitFor(() => expect(mockedFetchPlan).toHaveBeenCalledWith(5));
     expect(onOpenPlan).toHaveBeenCalledWith(
