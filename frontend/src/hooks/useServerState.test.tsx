@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan } from './useServerState';
+import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, usePlanCalendar, useReschedulePlan } from './useServerState';
 import type { ReactNode } from 'react';
 
 // Mock the api module
@@ -291,6 +291,70 @@ describe('useRegeneratePlan', () => {
     expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/5/regenerate', {
       method: 'POST',
       body: JSON.stringify(request),
+    });
+  });
+});
+
+describe('usePlanCalendar', () => {
+  it('fetches the calendar for the given window', async () => {
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ plans: [] }),
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => usePlanCalendar(1, '2026-08-01', '2026-08-31'),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith(
+      '/plan/calendar?from=2026-08-01&to=2026-08-31',
+    );
+  });
+
+  it('is disabled (no fetch) without a userId', () => {
+    mockedAuthFetch.mockClear();
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => usePlanCalendar(null, '2026-08-01', '2026-08-31'),
+      { wrapper },
+    );
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockedAuthFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('useReschedulePlan', () => {
+  it('PATCHes the plan with the new start_date', async () => {
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ plan_id: 9, start_date: '2026-08-20' }),
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useReschedulePlan(), { wrapper });
+    result.current.mutate({ planId: 9, startDate: '2026-08-20' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/9', {
+      method: 'PATCH',
+      body: JSON.stringify({ start_date: '2026-08-20' }),
+    });
+  });
+
+  it('sends null to unschedule', async () => {
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ plan_id: 9, start_date: null }),
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useReschedulePlan(), { wrapper });
+    result.current.mutate({ planId: 9, startDate: null });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/9', {
+      method: 'PATCH',
+      body: JSON.stringify({ start_date: null }),
     });
   });
 });

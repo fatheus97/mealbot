@@ -98,6 +98,29 @@ export interface MealPlanSummary {
   finished_at: string | null;
 }
 
+// Result of PATCH /api/plan/{id} — the plan's new (possibly cleared) schedule.
+export interface PlanScheduleResponse {
+  plan_id: number;
+  start_date: string | null;
+}
+
+// GET /api/plan/calendar — scheduled plans overlapping a window, each expanded
+// into per-day cells the calendar places on the grid.
+export interface CalendarDay {
+  date: string; // "YYYY-MM-DD"
+  day_index: number; // 1-based day within the plan
+  meals: string[];
+}
+export interface CalendarPlanEntry {
+  plan_id: number;
+  start_date: string;
+  status: PlanStatus;
+  days: CalendarDay[];
+}
+export interface CalendarResponse {
+  plans: CalendarPlanEntry[];
+}
+
 export interface FinishPlanResponse {
   status: "finished";
   finished_at: string;

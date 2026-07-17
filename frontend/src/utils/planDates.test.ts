@@ -5,6 +5,12 @@ import {
   parseISODateLocal,
   dayDateLabel,
   formatISODate,
+  startOfMonthISO,
+  addMonthsISO,
+  monthLabelOf,
+  monthMatrix,
+  isSameMonthISO,
+  dayOfMonth,
 } from "./planDates";
 
 describe("planDates", () => {
@@ -67,6 +73,47 @@ describe("planDates", () => {
       const s = formatISODate("2026-07-21");
       expect(s).toContain("21");
       expect(s).toContain("2026");
+    });
+  });
+
+  describe("month-grid helpers", () => {
+    it("startOfMonthISO returns the 1st of the month", () => {
+      expect(startOfMonthISO("2026-08-15")).toBe("2026-08-01");
+      expect(startOfMonthISO("2026-02-28")).toBe("2026-02-01");
+    });
+
+    it("addMonthsISO moves whole months and rolls over the year", () => {
+      expect(addMonthsISO("2026-08-01", 1)).toBe("2026-09-01");
+      expect(addMonthsISO("2026-01-15", -1)).toBe("2025-12-01");
+      expect(addMonthsISO("2026-12-10", 1)).toBe("2027-01-01");
+    });
+
+    it("monthMatrix is a 6×7 Sunday-start rectangle covering the month", () => {
+      const weeks = monthMatrix("2026-08-01");
+      expect(weeks).toHaveLength(6);
+      weeks.forEach((w) => expect(w).toHaveLength(7));
+      // First cell is a Sunday, on/before the 1st.
+      expect(parseISODateLocal(weeks[0][0]).getDay()).toBe(0);
+      const flat = weeks.flat();
+      expect(flat).toContain("2026-08-01");
+      expect(flat).toContain("2026-08-31");
+      // Aug 1 2026 is a Saturday → the grid starts the prior Sunday (Jul 26).
+      expect(weeks[0][0]).toBe("2026-07-26");
+    });
+
+    it("isSameMonthISO compares calendar month + year", () => {
+      expect(isSameMonthISO("2026-08-31", "2026-08-01")).toBe(true);
+      expect(isSameMonthISO("2026-09-01", "2026-08-01")).toBe(false);
+      expect(isSameMonthISO("2025-08-15", "2026-08-01")).toBe(false);
+    });
+
+    it("dayOfMonth returns the day number", () => {
+      expect(dayOfMonth("2026-08-05")).toBe(5);
+      expect(dayOfMonth("2026-08-31")).toBe(31);
+    });
+
+    it("monthLabelOf includes the year", () => {
+      expect(monthLabelOf("2026-08-10")).toContain("2026");
     });
   });
 });

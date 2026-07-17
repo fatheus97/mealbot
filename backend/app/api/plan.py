@@ -1,12 +1,12 @@
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.api.deps import get_current_user, require_active_subscription, usage_capture
 from app.core.country_whitelist import normalize_country
@@ -16,6 +16,9 @@ from app.db import get_session
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
+    CalendarDay,
+    CalendarPlanEntry,
+    CalendarResponse,
     ConfirmPlanRequest,
     FavoriteToggleRequest,
     FinishPlanResponse,
@@ -131,6 +134,103 @@ async def list_plans(
         )
         for plan, total_meals, cooked_meals in rows
     ]
+
+
+# GET /api/plan/calendar — scheduled plans overlapping a date window.
+# MUST be registered before GET /{plan_id}, or "calendar" is parsed as a plan_id
+# (→ 422). Read-only; no rate limit, matching the other plan GETs.
+@router.get("/calendar", response_model=CalendarResponse)
+async def plan_calendar(
+    request: Request,
+    from_date: date = Query(
+        ..., alias="from", description="Window start (YYYY-MM-DD), inclusive."
+    ),
+    to_date: date = Query(
+        ..., alias="to", description="Window end (YYYY-MM-DD), inclusive."
+    ),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CalendarResponse:
+    """The current user's confirmed, scheduled ('planned') plans whose date span
+    overlaps [from, to], each expanded into per-day cells (with meal names) the
+    frontend places on the grid. Bounded to a 92-day window."""
+    if to_date < from_date:
+        raise HTTPException(status_code=422, detail="`to` must be on or after `from`.")
+    if (to_date - from_date).days > 92:
+        raise HTTPException(
+            status_code=422, detail="Date range too large (max 92 days)."
+        )
+
+    # A planned plan spans [start_date, start_date + days - 1]; `days` is capped
+    # at 7 (the POST /plan limit), so any plan overlapping [from, to] starts on
+    # or after from - 6. We PREFILTER on start_date in [from - 7, to] — a coarse
+    # superset that avoids date arithmetic on the days column in SQL — then
+    # re-check exact overlap in Python below. Without that re-check a plan whose
+    # whole span sits in the pre-window band (ends before `from`) would be
+    # over-included.
+    lower_bound = from_date - timedelta(days=7)
+
+    total_count = func.count(col(MealEntry.id)).label("total_meals")
+    cooked_count = func.count(col(MealEntry.cooked_at)).label("cooked_meals")
+    stmt = (
+        select(MealPlan, total_count, cooked_count)
+        .outerjoin(MealEntry, col(MealEntry.meal_plan_id) == col(MealPlan.id))
+        .where(
+            col(MealPlan.user_id) == current_user.id,
+            col(MealPlan.confirmed_at).is_not(None),
+            col(MealPlan.kind) == "planned",
+            col(MealPlan.start_date).is_not(None),
+            col(MealPlan.start_date) >= lower_bound,
+            col(MealPlan.start_date) <= to_date,
+        )
+        .group_by(col(MealPlan.id))
+        .order_by(col(MealPlan.start_date))
+    )
+    rows = (await session.execute(stmt)).all()
+
+    plan_ids = [plan.id for plan, _t, _c in rows if plan.id is not None]
+    # plan_id → day_index → [meal names]
+    meals_by_plan: dict[int, dict[int, list[str]]] = {}
+    if plan_ids:
+        e_stmt = (
+            select(MealEntry)
+            .where(col(MealEntry.meal_plan_id).in_(plan_ids))
+            .order_by(col(MealEntry.day_index), col(MealEntry.meal_index))
+        )
+        for entry in (await session.execute(e_stmt)).scalars().all():
+            meals_by_plan.setdefault(entry.meal_plan_id, {}).setdefault(
+                entry.day_index, []
+            ).append(entry.name)
+
+    plans: list[CalendarPlanEntry] = []
+    for plan, total_meals, cooked_meals in rows:
+        # Narrowed by the WHERE (id assigned post-flush; start_date IS NOT NULL).
+        assert plan.id is not None and plan.start_date is not None
+        # Exact overlap re-check: the SQL band is a loose superset, so drop any
+        # plan whose last day falls before the window starts.
+        plan_end = plan.start_date + timedelta(days=plan.days - 1)
+        if plan_end < from_date:
+            continue
+        by_day = meals_by_plan.get(plan.id, {})
+        cells = [
+            CalendarDay(
+                date=plan.start_date + timedelta(days=d - 1),
+                day_index=d,
+                meals=by_day.get(d, []),
+            )
+            for d in range(1, plan.days + 1)
+        ]
+        plans.append(
+            CalendarPlanEntry(
+                plan_id=plan.id,
+                start_date=plan.start_date,
+                status=derive_plan_status(
+                    total_meals, cooked_meals, plan.finished_at
+                ),
+                days=cells,
+            )
+        )
+    return CalendarResponse(plans=plans)
 
 
 # GET /api/plan/{plan_id} — Get full plan detail

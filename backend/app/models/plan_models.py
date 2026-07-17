@@ -354,6 +354,27 @@ class PlanScheduleResponse(BaseModel):
     start_date: date | None = None
 
 
+class CalendarDay(BaseModel):
+    """One real-world day of a scheduled plan, for the calendar grid."""
+    date: date
+    day_index: int  # 1-based day within the plan
+    meals: list[str]  # meal names on this day (may be empty)
+
+
+class CalendarPlanEntry(BaseModel):
+    """A scheduled plan expanded across its real-world dates for the calendar."""
+    plan_id: int
+    start_date: date
+    status: Literal["planned", "active", "cooked", "finished"]
+    days: list[CalendarDay]
+
+
+class CalendarResponse(BaseModel):
+    """GET /plan/calendar — the user's scheduled plans overlapping a date window,
+    each expanded into per-day cells the frontend places on the grid."""
+    plans: list[CalendarPlanEntry]
+
+
 class FrozenMeal(BaseModel):
     """Identifies a meal the user wants to keep unchanged during regeneration."""
     day_index: int = Field(ge=0, description="0-based day index in the plan")

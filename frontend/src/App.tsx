@@ -9,6 +9,7 @@ import { PlanCatalog } from "./components/PlanCatalog";
 import { MealPlanner } from "./components/MealPlanner";
 import { OnboardingModal } from "./components/OnboardingModal";
 import { CookbookFab } from "./components/CookbookFab";
+import { CalendarFab } from "./components/CalendarFab";
 import { AdminDashboard } from "./components/admin/AdminDashboard";
 import { SubscriptionBanner } from "./components/billing/SubscriptionBanner";
 import { PaywallModal } from "./components/billing/PaywallModal";
@@ -82,6 +83,9 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
       />
       {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
       {userId && <CookbookFab />}
+      {userId && (
+        <CalendarFab onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
+      )}
     </div>
   );
 }

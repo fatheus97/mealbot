@@ -53,3 +53,59 @@ export function formatISODate(iso: string): string {
     year: "numeric",
   });
 }
+
+// --- Month grid (calendar view) ---
+
+/** First day of the month containing `iso`, as "YYYY-MM-DD". */
+export function startOfMonthISO(iso: string): string {
+  const d = parseISODateLocal(iso);
+  return toISODate(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+/** First-of-month `n` months away from `iso` (n may be negative). */
+export function addMonthsISO(iso: string, n: number): string {
+  const d = parseISODateLocal(iso);
+  return toISODate(new Date(d.getFullYear(), d.getMonth() + n, 1));
+}
+
+/** e.g. "August 2026" for any date in that month. */
+export function monthLabelOf(iso: string): string {
+  return parseISODateLocal(iso).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/**
+ * 6 weeks × 7 ISO dates (Sunday-start) covering the month of `monthCursorISO`,
+ * padded with the trailing/leading days of the adjacent months so the grid is
+ * always a full rectangle. weeks[0][0] is the first cell, weeks[5][6] the last —
+ * use those as the API window bounds (≤ 42 days, well under the 92-day cap).
+ */
+export function monthMatrix(monthCursorISO: string): string[][] {
+  const first = parseISODateLocal(startOfMonthISO(monthCursorISO));
+  const cursor = new Date(first);
+  cursor.setDate(first.getDate() - first.getDay()); // rewind to the week's Sunday
+  const weeks: string[][] = [];
+  for (let w = 0; w < 6; w++) {
+    const week: string[] = [];
+    for (let d = 0; d < 7; d++) {
+      week.push(toISODate(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+/** True when `iso` is in the same calendar month as `monthCursorISO`. */
+export function isSameMonthISO(iso: string, monthCursorISO: string): boolean {
+  const a = parseISODateLocal(iso);
+  const b = parseISODateLocal(monthCursorISO);
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
+/** Day-of-month number, e.g. "2026-08-05" → 5. */
+export function dayOfMonth(iso: string): number {
+  return parseISODateLocal(iso).getDate();
+}
