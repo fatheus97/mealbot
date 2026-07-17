@@ -159,6 +159,28 @@ describe("PlanCalendar", () => {
     );
   });
 
+  it("surfaces a reschedule failure instead of failing silently", async () => {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url === "/config") return Promise.resolve(okJson({}));
+      if (url.startsWith("/plan/calendar")) return Promise.resolve(okJson(CALENDAR));
+      if (url === "/plan") return Promise.resolve(okJson(PLAN_LIST));
+      if (opts?.method === "PATCH")
+        return Promise.resolve({ ok: false, status: 429, json: () => Promise.resolve({}) });
+      return Promise.resolve(okJson({}));
+    });
+    render(<PlanCalendar onClose={vi.fn()} onOpenPlan={vi.fn()} />, {
+      wrapper: createWrapper(),
+    });
+
+    const input = await screen.findByLabelText(/reschedule plan 5/i);
+    fireEvent.change(input, { target: { value: "2026-08-20" } });
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/Couldn't reschedule/i),
+    );
+  });
+
   it("hides the weekday grid on mobile (agenda fallback) but keeps the list", async () => {
     setMobileViewport(true);
     loginUser();

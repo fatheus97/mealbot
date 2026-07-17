@@ -319,6 +319,14 @@ class TestCalendar:
         assert len(plans) == 1
         assert plans[0]["plan_id"] == plan_id
 
+    async def test_excludes_plan_ending_before_window(self, client: AsyncClient):
+        # A plan entirely in the [from-7, from-1] pre-window band: its start_date
+        # passes the coarse SQL prefilter, but its span ends before `from`, so the
+        # exact overlap re-check must drop it (no phantom entries in the list).
+        await self._confirmed_scheduled(client, start_date="2026-08-02", days=1)
+        resp = await client.get("/api/plan/calendar?from=2026-08-08&to=2026-08-31")
+        assert resp.json()["plans"] == []
+
     async def test_excludes_unscheduled_plan(self, client: AsyncClient):
         # Confirmed but no start_date → never on the calendar.
         resp = await _create_plan(client, days=1)

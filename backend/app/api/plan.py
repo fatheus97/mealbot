@@ -162,10 +162,12 @@ async def plan_calendar(
         )
 
     # A planned plan spans [start_date, start_date + days - 1]; `days` is capped
-    # at 7 (the POST /plan limit), so any plan overlapping [from, to] must start
-    # within [from - 6, to]. Filtering on start_date alone (a bounded window)
-    # avoids date arithmetic on the days column; exact per-day placement is done
-    # in Python below. -7 is a safe inclusive lower bound.
+    # at 7 (the POST /plan limit), so any plan overlapping [from, to] starts on
+    # or after from - 6. We PREFILTER on start_date in [from - 7, to] — a coarse
+    # superset that avoids date arithmetic on the days column in SQL — then
+    # re-check exact overlap in Python below. Without that re-check a plan whose
+    # whole span sits in the pre-window band (ends before `from`) would be
+    # over-included.
     lower_bound = from_date - timedelta(days=7)
 
     total_count = func.count(col(MealEntry.id)).label("total_meals")
@@ -204,6 +206,11 @@ async def plan_calendar(
     for plan, total_meals, cooked_meals in rows:
         # Narrowed by the WHERE (id assigned post-flush; start_date IS NOT NULL).
         assert plan.id is not None and plan.start_date is not None
+        # Exact overlap re-check: the SQL band is a loose superset, so drop any
+        # plan whose last day falls before the window starts.
+        plan_end = plan.start_date + timedelta(days=plan.days - 1)
+        if plan_end < from_date:
+            continue
         by_day = meals_by_plan.get(plan.id, {})
         cells = [
             CalendarDay(

@@ -76,6 +76,10 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
   const [monthCursor, setMonthCursor] = useState<string>(() => startOfMonthISO(todayISO()));
   const [openingId, setOpeningId] = useState<number | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  // Bumped on a failed reschedule so the (uncontrolled) date inputs remount on
+  // the server value — otherwise a failed input keeps showing the unsaved date.
+  const [inputNonce, setInputNonce] = useState(0);
 
   const weeks = monthMatrix(monthCursor);
   const from = weeks[0][0];
@@ -219,6 +223,11 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
               {openError}
             </p>
           )}
+          {rescheduleError && (
+            <p role="alert" style={{ color: "#b91c1c", fontSize: "0.85rem", marginTop: 0 }}>
+              {rescheduleError}
+            </p>
+          )}
 
           {/* Actionable list: open a plan, or reschedule / unschedule its date.
               On mobile this is the whole calendar (agenda); on desktop it sits
@@ -267,15 +276,25 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                           flips and the input remounts on the new date — no
                           snap-back flicker. */}
                       <input
-                        key={p.start_date}
+                        key={`${p.start_date}-${inputNonce}`}
                         type="date"
                         aria-label={`Reschedule plan ${p.plan_id}`}
                         defaultValue={p.start_date}
                         onChange={(e) =>
-                          rescheduleMutation.mutate({
-                            planId: p.plan_id,
-                            startDate: e.target.value || null,
-                          })
+                          rescheduleMutation.mutate(
+                            { planId: p.plan_id, startDate: e.target.value || null },
+                            {
+                              onSuccess: () => setRescheduleError(null),
+                              onError: () => {
+                                setRescheduleError(
+                                  "Couldn't reschedule that plan. Please try again.",
+                                );
+                                // Remount the inputs so the failed one snaps back
+                                // to the server date instead of an unsaved value.
+                                setInputNonce((n) => n + 1);
+                              },
+                            },
+                          )
                         }
                         style={{ padding: "0.2rem 0.3rem", fontSize: "0.8rem" }}
                       />
