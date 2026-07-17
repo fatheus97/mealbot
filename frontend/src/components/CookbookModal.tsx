@@ -150,7 +150,6 @@ export function CookbookModal({ onClose }: Props) {
         .cookbook-scroll-hide::-webkit-scrollbar { display: none; }
       `}</style>
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
           // Closed-book index is narrow (single cover); the open-book spread
           // doubles the width so two parchment pages fit side-by-side.
