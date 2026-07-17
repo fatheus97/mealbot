@@ -5,6 +5,7 @@ import { RecipeSteps } from "./recipe/RecipeSteps";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { mealTypeLabel } from "../constants/mealTypes";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { ModalShell } from "./ModalShell";
 import type { CookbookItem } from "../types";
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
 // Two-view modal: index page → per-recipe spread (ingredients left, steps
 // right). Mimics opening a real cookbook. Backdrop click closes; ESC closes.
 export function CookbookModal({ onClose }: Props) {
+  const isMobile = useIsMobile();
   const [view, setView] = useState<"index" | "spread">("index");
   const [selected, setSelected] = useState<CookbookItem | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<CookbookItem | null>(null);
@@ -125,21 +127,14 @@ export function CookbookModal({ onClose }: Props) {
       : null;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Cookbook"
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0,0,0,0.55)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-        padding: "1rem",
-      }}
+    <ModalShell
+      onClose={onClose}
+      ariaLabel="Cookbook"
+      // The cookbook keeps its own Escape handler (spread → index, then close)
+      // and its own scroll-lock (both effects above), so opt out of ModalShell's
+      // versions — otherwise the same keypress / overflow toggle is handled twice.
+      closeOnEscape={false}
+      lockBodyScroll={false}
     >
       {/* Outer cover — dark leather. Always rendered at fixed dimensions so
           searching, opening a recipe, or paging never resizes the book. The
@@ -155,19 +150,23 @@ export function CookbookModal({ onClose }: Props) {
         .cookbook-scroll-hide::-webkit-scrollbar { display: none; }
       `}</style>
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
           // Closed-book index is narrow (single cover); the open-book spread
           // doubles the width so two parchment pages fit side-by-side.
-          width:
-            view === "index"
+          // Mobile: fill ModalShell's full-screen backdrop edge-to-edge (no
+          // floating card, no rounded corners) — this is the "big edges on
+          // mobile" fix. Desktop: the fixed-size leather book (narrow closed
+          // index vs. wider open spread).
+          width: isMobile
+            ? "100%"
+            : view === "index"
               ? "min(95%, 440px)"
               : "min(98%, 880px)",
-          height: "min(92vh, 640px)",
+          height: isMobile ? "100%" : "min(92vh, 640px)",
           backgroundColor: "#3b2412",
           backgroundImage:
             "linear-gradient(135deg, #4a2d16 0%, #2d1a0a 50%, #4a2d16 100%)",
-          borderRadius: "8px",
+          borderRadius: isMobile ? 0 : "8px",
           // 6px bottom padding on the index view pulls the scroll viewport
           // up off the cover's bottom rim so text mid-scroll never renders
           // under the rim shadow. The spread view keeps its uniform 16px
@@ -223,7 +222,7 @@ export function CookbookModal({ onClose }: Props) {
           onCancel={cancelRemove}
         />
       )}
-    </div>
+    </ModalShell>
   );
 }
 
