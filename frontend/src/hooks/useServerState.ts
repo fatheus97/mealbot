@@ -146,12 +146,13 @@ export function useConfirmPlan() {
     mutationFn: async ({ planId, startDate }: { planId: number; startDate?: string | null }): Promise<StockItem[]> => {
       // Always send a JSON body. The backend body is optional, but authFetch sets
       // Content-Type: application/json unconditionally, so a bodyless POST would
-      // still carry that header with an empty payload. A null start_date is a
-      // no-op server-side (it keeps any date set at generation), so this is safe
-      // even when the user never picked a date.
+      // still carry that header with an empty payload. `|| null` coerces BOTH
+      // undefined AND "" (the date input cleared) to null: a null start_date is
+      // a no-op server-side (keeps any date set at generation), whereas "" would
+      // be rejected as an invalid date (422).
       const res = await authFetch(`/plan/${planId}/confirm`, {
         method: "POST",
-        body: JSON.stringify({ start_date: startDate ?? null }),
+        body: JSON.stringify({ start_date: startDate || null }),
       });
       if (!res.ok) throw new Error(`Confirm failed: ${res.status}`);
       return res.json();

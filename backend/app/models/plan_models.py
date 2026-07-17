@@ -306,8 +306,9 @@ class MealPlanResponse(BaseModel):
     """Multi-day plan returned by the /plan endpoint."""
     plan_id: int | None
     # Real-world date of Day 1 (None = unscheduled). Stamped from the MealPlan
-    # column on read (the same pattern as plan_id) — never persisted inside
-    # response_json, so there is no second copy to drift.
+    # column on every read (the same pattern as plan_id): the copy serialized
+    # into response_json is an inert placeholder that reads always overwrite, so
+    # the column stays authoritative and there's no second copy to drift.
     start_date: date | None = None
     days: list[SingleDayResponse]
     shopping_list: list[IngredientAmount]

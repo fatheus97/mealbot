@@ -251,6 +251,23 @@ describe('useConfirmPlan', () => {
       body: JSON.stringify({ start_date: null }),
     });
   });
+
+  it('coerces a cleared date ("") to null (empty string would 422 as an invalid date)', async () => {
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([]),
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConfirmPlan(), { wrapper });
+    result.current.mutate({ planId: 4, startDate: '' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/4/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ start_date: null }),
+    });
+  });
 });
 
 describe('useRegeneratePlan', () => {

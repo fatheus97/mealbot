@@ -244,6 +244,14 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     confirmMutation.mutate({ planId: currentPlan.plan_id, startDate }, {
       onSuccess: () => {
         setIsConfirmed(true);
+        // Sync currentPlan.start_date with what confirm persisted, so the
+        // confirmed-plan day headers (which switch to reading currentPlan once
+        // isConfirmed) match the server: a real date overrides; a cleared date
+        // ("" -> null) is a no-op that keeps the existing date — mirroring the
+        // backend confirm semantics.
+        setCurrentPlan((prev) =>
+          prev ? { ...prev, start_date: startDate || prev.start_date } : prev,
+        );
         // Freezing is only meaningful pre-confirm (as a regenerate hint).
         // Clear the set so the frozen-blue styling doesn't mask the
         // cooked-green styling on the same meal post-confirm.
@@ -665,9 +673,14 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
              <div key={idx} style={{ marginBottom: "1.5rem" }}>
                <h4 style={{ borderBottom: "1px solid #ddd", paddingBottom: "0.5rem" }}>
                  Day {idx + 1}
-                 {dayDateLabel(currentPlan.start_date, idx) && (
+                 {/* Pre-confirm, the date follows the (editable) Start-date field
+                     so the preview updates live; once confirmed or viewing an
+                     opened plan, it reads the server value on currentPlan (which
+                     handleConfirm keeps in sync) so an edit to the field can't
+                     misrepresent a plan whose date is already committed. */}
+                 {dayDateLabel(isConfirmed ? currentPlan.start_date : startDate, idx) && (
                    <span style={{ marginLeft: "0.6rem", color: "#666", fontSize: "0.85rem", fontWeight: 400 }}>
-                     {dayDateLabel(currentPlan.start_date, idx)}
+                     {dayDateLabel(isConfirmed ? currentPlan.start_date : startDate, idx)}
                    </span>
                  )}
                </h4>

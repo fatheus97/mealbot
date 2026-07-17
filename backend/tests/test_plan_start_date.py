@@ -224,3 +224,46 @@ class TestReschedule:
         # Owner's date is untouched.
         detail = await client.get(f"/api/plan/{plan_id}")
         assert detail.json()["start_date"] == "2026-08-01"
+
+
+class TestStartDateThroughRegenerate:
+    """Regenerate must carry start_date through like every other read — the
+    column-only value is stamped onto the response, not read from response_json.
+    """
+
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    async def test_partial_regenerate_preserves_start_date(
+        self, mock_partial: AsyncMock, client: AsyncClient
+    ):
+        resp = await _create_plan(client, start_date="2026-08-01", meals_per_day=2)
+        plan_id = resp.json()["plan_id"]
+        assert resp.json()["start_date"] == "2026-08-01"
+
+        # Freeze meal 0, regenerate meal 1 (partial path).
+        mock_partial.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Regenerated Meal",
+                    meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="tofu", quantity_grams=250)],
+                    steps=["Fry"],
+                )
+            ]
+        )
+        regen = await client.post(
+            f"/api/plan/{plan_id}/regenerate",
+            json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
+        )
+        assert regen.status_code == 200
+        assert regen.json()["start_date"] == "2026-08-01"
+
+    async def test_all_frozen_regenerate_preserves_start_date(self, client: AsyncClient):
+        # All meals frozen → the early-return path (no LLM call).
+        resp = await _create_plan(client, start_date="2026-08-01", meals_per_day=1)
+        plan_id = resp.json()["plan_id"]
+        regen = await client.post(
+            f"/api/plan/{plan_id}/regenerate",
+            json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
+        )
+        assert regen.status_code == 200
+        assert regen.json()["start_date"] == "2026-08-01"

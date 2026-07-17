@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
+import { dayDateLabel } from '../utils/planDates';
 import type { ReactNode } from 'react';
 
 vi.mock('../api', () => ({
@@ -350,6 +351,44 @@ describe('MealPlanner', () => {
     render(<MealPlanner />, { wrapper: createWrapper() });
 
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('renders real-world dates in the day headers of a scheduled plan', async () => {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url.includes('/meals'))
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      return Promise.resolve(okEmpty());
+    });
+
+    // An opened (confirmed) plan reads its date from the server value on
+    // currentPlan; Day 1 falls on start_date, Day 2 the next day.
+    const initialPlan = {
+      plan_id: 91,
+      start_date: '2026-08-01',
+      days: [
+        { meals: [{ name: 'Day1 Meal', meal_type: 'lunch', ingredients: [], steps: [] }] },
+        { meals: [{ name: 'Day2 Meal', meal_type: 'dinner', ingredients: [], steps: [] }] },
+      ],
+      shopping_list: [],
+    };
+    const initialSummary = {
+      id: 91, start_date: '2026-08-01', created_at: new Date().toISOString(), days: 2,
+      meals_per_day: 1, people_count: 2, status: 'planned' as const, total_meals: 2,
+      cooked_meals: 0, finished_at: null,
+    };
+
+    render(
+      <MealPlanner initialPlan={initialPlan} initialSummary={initialSummary} />,
+      { wrapper: createWrapper() },
+    );
+
+    // Locale-agnostic: assert the exact labels the component's own formatter produces.
+    await waitFor(() =>
+      expect(screen.getByText(dayDateLabel('2026-08-01', 0)!, { exact: false })).toBeInTheDocument(),
+    );
+    expect(screen.getByText(dayDateLabel('2026-08-01', 1)!, { exact: false })).toBeInTheDocument();
   });
 
   it('renders total cook time badge only when present', async () => {

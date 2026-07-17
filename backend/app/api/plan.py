@@ -409,6 +409,9 @@ async def regenerate_plan(
     # 4) If all meals are frozen, return existing plan unchanged
     total_meals = sum(len(d.meals) for d in original_resp.days)
     if len(frozen_set) >= total_meals:
+        # Honor the contract that every MealPlanResponse read carries the
+        # schedule date (response_json holds only an inert null placeholder).
+        original_resp.start_date = plan.start_date
         return original_resp
 
     # 5) Re-load current fridge from DB
@@ -520,6 +523,12 @@ async def regenerate_plan(
     # 8) Persist updated response (no MealEntry rows pre-confirm)
     plan.response_json = response_obj.model_dump_json()
     session.add(plan)
+
+    # Stamp the schedule date from the column (like plan_id) AFTER serializing
+    # response_json above, so the stored blob keeps its inert null placeholder
+    # while the returned response still honors the "every read carries
+    # start_date" contract. Read pre-commit while the attribute is loaded.
+    response_obj.start_date = plan.start_date
 
     # Telemetry: a regenerate replaces response_json, so it is a *new* machine
     # generation. Recording it keeps latest_generation_id() — and thus a later
