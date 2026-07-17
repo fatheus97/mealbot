@@ -174,6 +174,9 @@ export function useDeletePlan() {
       if (!res.ok) throw new Error(await extractErrorDetail(res, "Plan delete failed"));
     },
     onSuccess: () => {
+      // A delete removes the plan from calendar eligibility too — refresh it
+      // (belt-and-suspenders with usePlanCalendar's staleTime:0).
+      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
       return queryClient.invalidateQueries({ queryKey: ['planList'] });
     },
   });
@@ -370,6 +373,9 @@ export function useUnconfirmPlan() {
     onSuccess: (_, planId) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      // Un-confirm clears confirmed_at, which /plan/calendar filters on, so the
+      // plan drops off the calendar — refresh it (with usePlanCalendar's staleTime:0).
+      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
       // Server deletes all meal entries; clear the cache so any reader
       // outside the isConfirmed gate doesn't see stale rows.
       queryClient.invalidateQueries({ queryKey: ['mealEntries', planId] });

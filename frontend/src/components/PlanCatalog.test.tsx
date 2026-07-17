@@ -103,11 +103,9 @@ describe("PlanCatalog", () => {
 
   it("shows an editable schedule date on every plan (prefilled when scheduled)", async () => {
     loginUser();
-    // Distinct created_at so the two date inputs have distinct aria-labels.
     const scheduled: MealPlanSummary = {
       ...SAMPLE_PLAN,
       id: 2,
-      created_at: "2026-04-15T12:00:00Z",
       start_date: "2026-08-01",
     };
     mockedAuthFetch.mockResolvedValueOnce({
@@ -118,9 +116,9 @@ describe("PlanCatalog", () => {
     render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
 
     // Scheduled plan → date input prefilled; unscheduled plan → empty input.
-    const schedInput = await screen.findByLabelText(/schedule date for plan from apr 15/i);
+    const schedInput = await screen.findByLabelText(/reschedule plan 2/i);
     expect(schedInput).toHaveValue("2026-08-01");
-    const unschedInput = screen.getByLabelText(/schedule date for plan from mar 10/i);
+    const unschedInput = screen.getByLabelText(/reschedule plan 1/i);
     expect(unschedInput).toHaveValue("");
   });
 
@@ -129,7 +127,6 @@ describe("PlanCatalog", () => {
     const scheduled: MealPlanSummary = {
       ...SAMPLE_PLAN,
       id: 2,
-      created_at: "2026-04-15T12:00:00Z",
       start_date: "2026-08-01",
     };
     mockedAuthFetch.mockImplementation((_url: string, opts?: { method?: string }) => {
@@ -144,7 +141,7 @@ describe("PlanCatalog", () => {
 
     render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
 
-    const input = await screen.findByLabelText(/schedule date for plan from apr 15/i);
+    const input = await screen.findByLabelText(/reschedule plan 2/i);
     fireEvent.change(input, { target: { value: "2026-08-20" } });
 
     await waitFor(() =>

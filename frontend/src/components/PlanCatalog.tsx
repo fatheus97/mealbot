@@ -155,7 +155,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                         <input
                           key={`${plan.start_date}-${rescheduleNonce}`}
                           type="date"
-                          aria-label={`Schedule date for plan from ${formatDate(plan.created_at)}`}
+                          aria-label={`Reschedule plan ${plan.id}`}
                           defaultValue={plan.start_date ?? ""}
                           onChange={(e) =>
                             rescheduleMutation.mutate(
