@@ -318,7 +318,12 @@ class ConfirmPlanRequest(BaseModel):
     """Optional body for POST /plan/{id}/confirm — lets the user pin (or
     override) the plan's calendar start date at confirm time. The whole body is
     optional: a client that doesn't schedule POSTs nothing and keeps whatever
-    date was set at generation (or NULL)."""
+    date was set at generation (or NULL).
+
+    NOTE null-semantics: here a null (or absent) start_date is a NO-OP that keeps
+    the existing date. This is the OPPOSITE of PlanScheduleUpdate (PATCH), where
+    null CLEARS the schedule — same field name, opposite meaning. To unschedule,
+    use PATCH /plan/{id}, not confirm."""
     start_date: date | None = None
 
     @field_validator("start_date")
@@ -328,8 +333,13 @@ class ConfirmPlanRequest(BaseModel):
 
 
 class PlanScheduleUpdate(BaseModel):
-    """Body for PATCH /plan/{id} — reschedule a plan. A null start_date clears
-    the schedule (back to "unscheduled")."""
+    """Body for PATCH /plan/{id} — reschedule a plan.
+
+    NOTE null-semantics: reschedule_plan writes start_date UNCONDITIONALLY, so a
+    null (or absent → `{}`) start_date CLEARS the schedule (back to
+    "unscheduled"). This is the OPPOSITE of ConfirmPlanRequest, where null is a
+    no-op that keeps the existing date. Send null here only when you actually
+    intend to unschedule — do not `PATCH {}` expecting a "leave it alone" no-op."""
     start_date: date | None = None
 
     @field_validator("start_date")

@@ -6,7 +6,7 @@ on read, never persisted inside response_json.
 """
 from unittest.mock import AsyncMock, patch
 
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.meal_types import MealType
@@ -42,7 +42,7 @@ async def _create_plan(
     days: int = 1,
     start_date: str | None = None,
     meals_per_day: int = 1,
-) -> dict:
+) -> Response:
     """Generate a plan (LLM mocked). Optional start_date query param."""
     url = f"/api/plan?days={days}"
     if start_date is not None:
