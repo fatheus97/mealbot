@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
+import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
 import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, PaywallError, scanReceipt, updateMeal, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
@@ -106,6 +106,42 @@ export function usePlanList(userId: number | null) {
       return res.json();
     },
     enabled: userId !== null,
+  });
+}
+
+// Scheduled plans overlapping [from, to] (YYYY-MM-DD), for the calendar grid.
+export function usePlanCalendar(
+  userId: number | null,
+  from: string,
+  to: string,
+) {
+  return useQuery({
+    queryKey: ['planCalendar', userId, from, to],
+    queryFn: async (): Promise<CalendarResponse> => {
+      const res = await authFetch(`/plan/calendar?from=${from}&to=${to}`);
+      if (!res.ok) throw new Error(`Calendar fetch failed: ${res.status}`);
+      return res.json();
+    },
+    enabled: userId !== null && !!from && !!to,
+  });
+}
+
+// Reschedule (or unschedule, with start_date null) a plan's calendar date.
+export function useReschedulePlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ planId, startDate }: { planId: number; startDate: string | null }): Promise<PlanScheduleResponse> => {
+      const res = await authFetch(`/plan/${planId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ start_date: startDate }),
+      });
+      if (!res.ok) throw new Error(`Reschedule failed: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planList'] });
+      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
+    },
   });
 }
 

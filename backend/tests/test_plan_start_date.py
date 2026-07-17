@@ -267,3 +267,97 @@ class TestStartDateThroughRegenerate:
         )
         assert regen.status_code == 200
         assert regen.json()["start_date"] == "2026-08-01"
+
+
+class TestCalendar:
+    """GET /plan/calendar — confirmed, scheduled plans overlapping a window,
+    expanded into per-day cells."""
+
+    async def _confirmed_scheduled(
+        self, client: AsyncClient, *, start_date: str, days: int = 1, meals_per_day: int = 1
+    ) -> int:
+        resp = await _create_plan(
+            client, days=days, start_date=start_date, meals_per_day=meals_per_day
+        )
+        plan_id = resp.json()["plan_id"]
+        confirm = await client.post(f"/api/plan/{plan_id}/confirm", json={})
+        assert confirm.status_code == 200
+        return plan_id
+
+    async def test_empty_window(self, client: AsyncClient):
+        resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
+        assert resp.status_code == 200
+        assert resp.json() == {"plans": []}
+
+    async def test_scheduled_plan_expanded_with_dates_and_meals(self, client: AsyncClient):
+        plan_id = await self._confirmed_scheduled(
+            client, start_date="2026-08-10", days=2, meals_per_day=1
+        )
+        resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
+        assert resp.status_code == 200
+        plans = resp.json()["plans"]
+        assert len(plans) == 1
+        p = plans[0]
+        assert p["plan_id"] == plan_id
+        assert p["start_date"] == "2026-08-10"
+        # Day N maps to start_date + (N-1).
+        assert [d["date"] for d in p["days"]] == ["2026-08-10", "2026-08-11"]
+        assert [d["day_index"] for d in p["days"]] == [1, 2]
+        assert len(p["days"][0]["meals"]) == 1  # populated from confirmed entries
+        assert p["status"] in ("planned", "active", "cooked", "finished")
+
+    async def test_excludes_plan_outside_window(self, client: AsyncClient):
+        await self._confirmed_scheduled(client, start_date="2026-09-15", days=1)
+        resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
+        assert resp.json()["plans"] == []
+
+    async def test_includes_plan_spanning_into_window(self, client: AsyncClient):
+        # A 3-day plan starting Jul 30 covers Jul 30/31 + Aug 1 → overlaps August.
+        plan_id = await self._confirmed_scheduled(client, start_date="2026-07-30", days=3)
+        resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
+        plans = resp.json()["plans"]
+        assert len(plans) == 1
+        assert plans[0]["plan_id"] == plan_id
+
+    async def test_excludes_unscheduled_plan(self, client: AsyncClient):
+        # Confirmed but no start_date → never on the calendar.
+        resp = await _create_plan(client, days=1)
+        plan_id = resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", json={})
+        cal = await client.get("/api/plan/calendar?from=2026-01-01&to=2026-03-01")
+        assert cal.json()["plans"] == []
+
+    async def test_excludes_unconfirmed_plan(self, client: AsyncClient):
+        await _create_plan(client, days=1, start_date="2026-08-10")  # not confirmed
+        resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
+        assert resp.json()["plans"] == []
+
+    async def test_range_validation(self, client: AsyncClient):
+        inverted = await client.get("/api/plan/calendar?from=2026-08-31&to=2026-08-01")
+        assert inverted.status_code == 422
+        too_wide = await client.get("/api/plan/calendar?from=2026-01-01&to=2026-12-31")
+        assert too_wide.status_code == 422
+
+    async def test_scoped_to_current_user(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from app.api.deps import get_current_user
+        from app.core.security import get_password_hash
+        from app.main import app
+
+        await self._confirmed_scheduled(client, start_date="2026-08-10", days=1)
+
+        other = User(email="cal-other@test.com", hashed_password=get_password_hash("x"))
+        db_session.add(other)
+        await db_session.flush()
+
+        async def as_other() -> User:
+            return other
+
+        original = app.dependency_overrides[get_current_user]
+        app.dependency_overrides[get_current_user] = as_other
+        try:
+            resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
+            assert resp.json()["plans"] == []  # other user sees nothing
+        finally:
+            app.dependency_overrides[get_current_user] = original
