@@ -95,6 +95,16 @@ Shipped and verified in the codebase:
   80%/100% (Resend, daily systemd timer), existing alpha users **grandfathered**
   (`is_comped`) so nobody was surprise-paywalled, and cancel-at-period-end UX. On
   stripe SDK 15.3. See the Monetization / Billing milestone below.
+- **Calendar & scheduling** (shipped 2026-07-17, #220–222): plans carry an
+  optional `MealPlan.start_date` (nullable; day N = `start_date + (N-1)`, legacy
+  plans backfill to NULL/unscheduled), set at generation / overridable at confirm
+  / reschedulable via `PATCH /plan/{id}`. Inline dates on day headers + catalog
+  cards, plus a month-grid calendar (`PlanCalendar`, blue 📅 FAB over
+  `GET /api/plan/calendar`) with reschedule-from-calendar. Built on a reusable
+  `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" →
+  full-screen). All date math is local-time (dodges the `new Date("YYYY-MM-DD")`
+  UTC off-by-one); two pre-push adversarial-review passes caught 10 real bugs the
+  test suites missed.
 
 **Everything below is what's left.**
 
@@ -134,12 +144,12 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
 | **Real-time cooking mode** | ✅ | — | — | **Shipped 2026-07-02** (#152). `CookMode` — fullscreen tick-box checklist for ingredients/steps while cooking (`cookMode.utils.ts`, tested). |
-| **Leftovers meal_type** | ⬜ | M | calendar dates (soft) | "Cook a bigger dinner, eat it as lunch tomorrow." Needs enum value + prompt handling + schema + UI. Inherently date-aware — pairs with calendar. |
+| **Leftovers meal_type** | ⬜ | M | calendar dates ✅ (shipped) | "Cook a bigger dinner, eat it as lunch tomorrow." Needs enum value + prompt handling + schema + UI. **Now UNBLOCKED** — the soft calendar-dates dep shipped 2026-07-17 (#220–222), so plans/meals have real dates to reason about. The natural next feature to build on the calendar. |
 | **Token-usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189)** as Phase 1 of the Admin epic (below): `LlmUsage` capture + `GET /api/usage/me` + the admin stats surface it in a dashboard. Was the prereq for the paygate (now shipped + live). The paygate bills a **flat subscription**, not per-usage, so the `LlmUsage` lower-bound caveat doesn't affect billing. |
 | **Paygate** | ✅ | — | — | **SHIPPED + LIVE 2026-07-16** — see the **Monetization / Billing** milestone below. Flat **€10/mo** EUR subscription (14-day trial), not usage-metered, so the per-call-billing-exactness caveat never applied. #199–202 + #211–213. |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
 | **User edits as feedback** | 🟡 | M | — | **Capture half is shipped** (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt). Remaining: **consume** it — feed corrections into future generations (e.g. as prompt context, few-shot examples, or a per-user preference signal). Nothing in `meal_planner`/`recipe_retriever` reads the correction tables yet. Needs a design choice on how edits influence generation. |
-| **Plans ↔ calendar dates** | ⬜ | M–L | — | `MealPlan` has no date fields (day-index is positional). Add scheduled dates + calendar browsing of recipes/plans. Unlocks leftovers + real scheduling. |
+| **Plans ↔ calendar dates** | ✅ | — | — | **Shipped 2026-07-17 (#220–222).** `MealPlan.start_date` (nullable date; day N = `start_date + (N-1)`, backfills NULL/unscheduled), set at generation (`?start_date=`) / overridable at confirm / reschedulable via `PATCH /plan/{id}`; inline dates on day headers + catalog cards; a month-grid calendar (`PlanCalendar`, blue 📅 FAB) over `GET /api/plan/calendar` with reschedule-from-calendar. Built on a reusable `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" → true full-screen). Two pre-push adversarial-review passes caught **10 real bugs** across #221/#222 that the test suites missed. **Unlocks leftovers + real scheduling.** |
 | **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. |
 
 ---
@@ -219,12 +229,16 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │
      ├─ ✅ done: editable results, real-time cooking mode, edit-telemetry CAPTURE,
      │          two prod-hardening passes, mobile UI + camera, the 07-11 stability
-     │          run, and the full Admin epic (usage tracking → RBAC → stats → dash)
+     │          run, the full Admin epic (usage tracking → RBAC → stats → dash),
+     │          post-launch hardening (#215/#216/#218), and the calendar-dates
+     │          thrust (#220 ModalShell + cookbook mobile → #221 start_date →
+     │          #222 month-grid calendar)
      │
      ├─ close the loop: user-edits-as-feedback  (capture is done — now CONSUME it)
      │
-     └─ Monetization track: token-usage tracking ✅ (#189) ─► paygate ✅ LIVE (#199–213)
-                calendar dates ─► leftovers + calendar browsing
+     ├─ Monetization track: token-usage tracking ✅ (#189) ─► paygate ✅ LIVE (#199–213)
+     │
+     └─ calendar dates ✅ (#220–222) ─► leftovers (now UNBLOCKED) + real scheduling
 ```
 
 **The in-recipe UX, mobile+camera, the Admin epic, and now the Stripe paygate are
@@ -247,6 +261,10 @@ earns the most from real usage. Highest-signal candidates now:
    alerts send from your own address. *(The stripe 15.3 `dahlia`
    outbound-API-version validation is done — a real checkout → portal → webhook
    round-trip ran on prod 2026-07-16 and billing works.)*
+5. **Leftovers (`meal_type`)** (M) — now UNBLOCKED by the calendar-dates thrust
+   (#220–222): plans/meals finally carry real dates. "Cook a bigger dinner, eat
+   it as lunch tomorrow" = an enum value + prompt handling + schema + UI on top
+   of the calendar. The obvious feature to build on the fresh scheduling layer.
 
 The edit-feedback loop (#1) is the standout — it's the differentiator the telemetry
 groundwork was laid for. #3/#4 are quick risk-reducers whenever.
