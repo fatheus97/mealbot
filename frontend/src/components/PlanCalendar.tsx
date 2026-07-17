@@ -13,8 +13,18 @@ import {
   monthMatrix,
   isSameMonthISO,
   dayOfMonth,
+  parseISODateLocal,
 } from "../utils/planDates";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
+
+/** "Sat Aug 1" — a short weekday+date label for the agenda/list rows. */
+function shortDayLabel(iso: string): string {
+  return parseISODateLocal(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 // Status → chip colours (same palette as PlanCatalog). The whole calendar is an
 // explicit light surface (#fff / dark text), so these fixed colours stay legible
@@ -201,15 +211,41 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                       {dayOfMonth(date)}
                     </span>
                     {chips.map((c, i) => (
+                      // All of that day's meals, stacked in day-layout order
+                      // (breakfast → … → dinner). One button per plan-day → open.
                       <button
                         key={`${c.plan_id}-${i}`}
                         onClick={() => handleOpen(c.plan_id)}
                         disabled={openingId === c.plan_id}
                         title={c.meals.join(", ") || `Plan #${c.plan_id}`}
-                        style={chipStyle(c.status)}
+                        style={{
+                          backgroundColor: STATUS_COLORS[c.status].bg,
+                          color: STATUS_COLORS[c.status].text,
+                          border: "none",
+                          borderRadius: 4,
+                          padding: "2px 4px",
+                          fontSize: "0.68rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          textAlign: "left",
+                          width: "100%",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 1,
+                        }}
                       >
-                        {c.meals[0] ?? "Plan"}
-                        {c.meals.length > 1 ? ` +${c.meals.length - 1}` : ""}
+                        {c.meals.length > 0 ? (
+                          c.meals.map((m, j) => (
+                            <span
+                              key={j}
+                              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}
+                            >
+                              {m}
+                            </span>
+                          ))
+                        ) : (
+                          <span>Plan</span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -244,31 +280,22 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
               </p>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-              {plans.map((p) => {
-                const firstMeal = p.days.flatMap((d) => d.meals)[0];
-                return (
-                  <div
-                    key={p.plan_id}
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      padding: "0.5rem 0.6rem",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 6,
-                      backgroundColor: "#f9fafb",
-                    }}
-                  >
+              {plans.map((p) => (
+                <div
+                  key={p.plan_id}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.35rem",
+                    padding: "0.55rem 0.65rem",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 6,
+                    backgroundColor: "#f9fafb",
+                  }}
+                >
+                  {/* Header row: status · reschedule · open */}
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem" }}>
                     <span style={{ ...chipStyle(p.status), cursor: "default" }}>{p.status}</span>
-                    <button
-                      onClick={() => handleOpen(p.plan_id)}
-                      disabled={openingId === p.plan_id}
-                      style={{ background: "none", border: "none", color: "#1d4ed8", cursor: "pointer", fontWeight: 600, padding: 0, textAlign: "left", flex: 1, minWidth: 130 }}
-                    >
-                      {firstMeal ?? `Plan #${p.plan_id}`}
-                      {p.days.length > 1 ? ` · ${p.days.length} days` : ""}
-                    </button>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem", color: "#374151" }}>
                       <span aria-hidden>📅</span>
                       {/* Uncontrolled + keyed on the server value: picking a new
@@ -299,9 +326,28 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                         style={{ padding: "0.2rem 0.3rem", fontSize: "0.8rem" }}
                       />
                     </label>
+                    <span style={{ flex: 1 }} />
+                    <button
+                      onClick={() => handleOpen(p.plan_id)}
+                      disabled={openingId === p.plan_id}
+                      style={{ background: "none", border: "none", color: "#1d4ed8", cursor: "pointer", fontWeight: 600, padding: 0, fontSize: "0.85rem" }}
+                    >
+                      {openingId === p.plan_id ? "Opening…" : "Open →"}
+                    </button>
                   </div>
-                );
-              })}
+                  {/* Every day's meals, in day-layout order (breakfast → dinner). */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {p.days.map((d) => (
+                      <div key={d.day_index} style={{ fontSize: "0.8rem", color: "#374151", lineHeight: 1.3 }}>
+                        <strong style={{ color: "#6b7280", fontWeight: 600, marginRight: "0.4rem" }}>
+                          {shortDayLabel(d.date)}
+                        </strong>
+                        {d.meals.length ? d.meals.join(" · ") : "—"}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
