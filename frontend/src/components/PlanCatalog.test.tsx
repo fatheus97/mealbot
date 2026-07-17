@@ -7,6 +7,7 @@ import { AuthProvider } from "../contexts/AuthContext";
 import { setMobileViewport } from "../test/test-utils";
 import type { ReactNode } from "react";
 import type { MealPlanSummary } from "../types";
+import { formatISODate } from "../utils/planDates";
 
 vi.mock("../api", () => ({
   authFetch: vi.fn(),
@@ -47,6 +48,7 @@ const SAMPLE_PLAN: MealPlanSummary = {
   days: 2,
   meals_per_day: 3,
   people_count: 2,
+  start_date: null,
   status: "planned",
   total_meals: 6,
   cooked_meals: 0,
@@ -98,6 +100,26 @@ describe("PlanCatalog", () => {
       expect(screen.getByText(/2d \/ 3 meals \/ 2p/)).toBeInTheDocument();
       expect(screen.getByText(/planned \(0\/6\)/)).toBeInTheDocument();
     });
+  });
+
+  it("shows the scheduled date only for scheduled plans", async () => {
+    loginUser();
+    const scheduled: MealPlanSummary = { ...SAMPLE_PLAN, id: 2, start_date: "2026-08-01" };
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([scheduled, SAMPLE_PLAN]),
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      // Locale-agnostic: assert the same formatter the component uses.
+      expect(
+        screen.getByText(formatISODate("2026-08-01"), { exact: false }),
+      ).toBeInTheDocument(),
+    );
+    // Exactly one 📅 marker — the unscheduled plan (start_date null) shows none.
+    expect(screen.getAllByText("📅")).toHaveLength(1);
   });
 
   it("stacks each plan into two rows on mobile so the actions don't clip", async () => {

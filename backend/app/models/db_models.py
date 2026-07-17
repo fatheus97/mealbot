@@ -159,6 +159,16 @@ class MealPlan(SQLModel, table=True):
     meals_per_day: int
     people_count: int
 
+    # Calendar scheduling: the real-world date the plan's Day 1 falls on. Day N
+    # (1-based, MealEntry.day_index) maps to start_date + (N - 1). NULL =
+    # unscheduled — every legacy plan backfills to NULL, and the frontend renders
+    # those by positional day index exactly as before. The API stamps it onto
+    # MealPlanResponse from this column on every read, the same pattern as
+    # plan_id: whatever placeholder sits in the serialized response_json is
+    # always overwritten from here, so this column stays the single source of
+    # truth (no authoritative second copy to drift).
+    start_date: date | None = Field(default=None)
+
     # "planned" = the classic multi-day plan flow; "cook_now" = a one-shot
     # single-recipe cook (Phase 4). Kept as a plain str (not an enum column)
     # because future kinds are plausible and loose str avoids a migration

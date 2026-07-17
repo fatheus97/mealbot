@@ -1,8 +1,8 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from app.db import get_session
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
+    ConfirmPlanRequest,
     FavoriteToggleRequest,
     FinishPlanResponse,
     IngredientAmount,
@@ -25,9 +26,12 @@ from app.models.plan_models import (
     MealPlanResponse,
     MealPlanSummary,
     PlannedMeal,
+    PlanScheduleResponse,
+    PlanScheduleUpdate,
     RegeneratePlanRequest,
     SingleDayResponse,
     StockItemDTO,
+    validate_plan_start_date,
 )
 from app.services.fridge_service import (
     get_fridge_items,
@@ -119,6 +123,7 @@ async def list_plans(
             days=plan.days,
             meals_per_day=plan.meals_per_day,
             people_count=plan.people_count,
+            start_date=plan.start_date,
             status=derive_plan_status(total_meals, cooked_meals, plan.finished_at),
             total_meals=total_meals,
             cooked_meals=cooked_meals,
@@ -151,6 +156,9 @@ async def get_plan_detail(
         ) from exc
 
     plan_obj.plan_id = plan.id
+    # Stamp the scheduling date from the column (like plan_id) — it lives on the
+    # row, not inside response_json.
+    plan_obj.start_date = plan.start_date
     return plan_obj
 
 
@@ -204,12 +212,43 @@ async def delete_plan(
     return Response(status_code=204)
 
 
+# PATCH /api/plan/{plan_id} — reschedule (or unschedule) the calendar date
+@router.patch("/{plan_id}", response_model=PlanScheduleResponse)
+@limiter.limit("20/minute", key_func=user_id_key_func)
+async def reschedule_plan(
+    request: Request,
+    plan_id: int,
+    payload: PlanScheduleUpdate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> PlanScheduleResponse:
+    """Set or clear a plan's calendar start date. A null start_date unschedules
+    the plan — it drops off the calendar but keeps its positional day ordering.
+    Works on any owned plan (whether it was dated at generation, at confirm, or
+    never)."""
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    plan.start_date = payload.start_date
+    session.add(plan)
+    await session.commit()
+    await session.refresh(plan)
+
+    assert plan.id is not None  # narrowed by the successful load above
+    return PlanScheduleResponse(plan_id=plan.id, start_date=plan.start_date)
+
+
 # POST /api/plan — Create plan (MealEntry rows created on confirm, not here)
 @router.post("", response_model=MealPlanResponse)
 @limiter.limit("3/minute", key_func=user_id_key_func)
 async def plan_meals_for_user(
     request: Request,
     days: int = Query(ge=1, le=7, description="Number of days to plan (1-7)"),
+    start_date: date | None = Query(
+        default=None,
+        description="Optional calendar date the plan's Day 1 maps to (YYYY-MM-DD).",
+    ),
     payload: MealPlanRequest = ...,  # type: ignore[assignment]
     current_user: User = Depends(require_active_subscription),
     session: AsyncSession = Depends(get_session),
@@ -243,6 +282,12 @@ async def plan_meals_for_user(
             ),
         )
 
+    # Validate the schedule date up front — fail fast before burning an LLM call.
+    try:
+        validate_plan_start_date(start_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     try:
         meal_plan, shopping_items, _initial_fridge = await generate_plan_days(
             session, current_user, payload, days,
@@ -267,6 +312,7 @@ async def plan_meals_for_user(
     plan = MealPlan(
         user_id=current_user.id,
         days=days,
+        start_date=start_date,
         meals_per_day=payload.meals_per_day,
         people_count=payload.people_count,
         request_json=payload.model_dump_json(),
@@ -302,6 +348,7 @@ async def plan_meals_for_user(
     await session.commit()
     await session.refresh(plan)
     response_obj.plan_id = plan.id
+    response_obj.start_date = plan.start_date
 
     return response_obj
 
@@ -362,6 +409,9 @@ async def regenerate_plan(
     # 4) If all meals are frozen, return existing plan unchanged
     total_meals = sum(len(d.meals) for d in original_resp.days)
     if len(frozen_set) >= total_meals:
+        # Honor the contract that every MealPlanResponse read carries the
+        # schedule date (response_json holds only an inert null placeholder).
+        original_resp.start_date = plan.start_date
         return original_resp
 
     # 5) Re-load current fridge from DB
@@ -474,6 +524,12 @@ async def regenerate_plan(
     plan.response_json = response_obj.model_dump_json()
     session.add(plan)
 
+    # Stamp the schedule date from the column (like plan_id) AFTER serializing
+    # response_json above, so the stored blob keeps its inert null placeholder
+    # while the returned response still honors the "every read carries
+    # start_date" contract. Read pre-commit while the attribute is loaded.
+    response_obj.start_date = plan.start_date
+
     # Telemetry: a regenerate replaces response_json, so it is a *new* machine
     # generation. Recording it keeps latest_generation_id() — and thus a later
     # meal edit's generation_id link and before_json — consistent with the
@@ -509,6 +565,7 @@ async def regenerate_plan(
 async def confirm_plan(
     request: Request,
     plan_id: int,
+    payload: ConfirmPlanRequest | None = Body(default=None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[StockItemDTO]:
@@ -528,6 +585,12 @@ async def confirm_plan(
     # Idempotence guard (do not subtract twice)
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
         return await get_fridge_items(session, current_user.id)
+
+    # Pin the calendar date at confirm time if the client supplied one (overrides
+    # any date set at generation). Staged here; the single commit below persists
+    # it atomically with the fridge debit. Reschedule later via PATCH /plan/{id}.
+    if payload is not None and payload.start_date is not None:
+        plan.start_date = payload.start_date
 
     # Parse stored plan response
     try:

@@ -29,6 +29,27 @@ def _strip_prompt_fence_tags(v: object) -> object:
     return v
 
 
+# Calendar scheduling bounds. A plan can be dated a little into the past (you can
+# backfill a plan you already started cooking) or the future, but a start_date
+# outside a wide, sane window is a typo / overflow / abuse that would junk the
+# calendar view — reject it at the API boundary.
+_MIN_PLAN_YEAR = 2020
+_MAX_PLAN_YEARS_AHEAD = 5
+
+
+def validate_plan_start_date(v: date | None) -> date | None:
+    """Reject clearly-bogus plan start dates. Leap-safe (compares the year, not a
+    year-shifted date). ``None`` is always allowed — it means "unscheduled"."""
+    if v is None:
+        return None
+    max_year = date.today().year + _MAX_PLAN_YEARS_AHEAD
+    if not (_MIN_PLAN_YEAR <= v.year <= max_year):
+        raise ValueError(
+            f"start_date year must be between {_MIN_PLAN_YEAR} and {max_year}"
+        )
+    return v
+
+
 class StockItemDTO(BaseModel):
     # Client-controlled on PUT /fridge and POST /fridge/merge, and each name is
     # templated into the LLM system prompt — so bound it like the other hostile-
@@ -284,8 +305,54 @@ class SingleDayResponse(BaseModel):
 class MealPlanResponse(BaseModel):
     """Multi-day plan returned by the /plan endpoint."""
     plan_id: int | None
+    # Real-world date of Day 1 (None = unscheduled). Stamped from the MealPlan
+    # column on every read (the same pattern as plan_id): the copy serialized
+    # into response_json is an inert placeholder that reads always overwrite, so
+    # the column stays authoritative and there's no second copy to drift.
+    start_date: date | None = None
     days: list[SingleDayResponse]
     shopping_list: list[IngredientAmount]
+
+
+class ConfirmPlanRequest(BaseModel):
+    """Optional body for POST /plan/{id}/confirm — lets the user pin (or
+    override) the plan's calendar start date at confirm time. The whole body is
+    optional: a client that doesn't schedule POSTs nothing and keeps whatever
+    date was set at generation (or NULL).
+
+    NOTE null-semantics: here a null (or absent) start_date is a NO-OP that keeps
+    the existing date. This is the OPPOSITE of PlanScheduleUpdate (PATCH), where
+    null CLEARS the schedule — same field name, opposite meaning. To unschedule,
+    use PATCH /plan/{id}, not confirm."""
+    start_date: date | None = None
+
+    @field_validator("start_date")
+    @classmethod
+    def _bound_start_date(cls, v: date | None) -> date | None:
+        return validate_plan_start_date(v)
+
+
+class PlanScheduleUpdate(BaseModel):
+    """Body for PATCH /plan/{id} — reschedule a plan.
+
+    NOTE null-semantics: reschedule_plan writes start_date UNCONDITIONALLY, so a
+    null (or absent → `{}`) start_date CLEARS the schedule (back to
+    "unscheduled"). This is the OPPOSITE of ConfirmPlanRequest, where null is a
+    no-op that keeps the existing date. Send null here only when you actually
+    intend to unschedule — do not `PATCH {}` expecting a "leave it alone" no-op."""
+    start_date: date | None = None
+
+    @field_validator("start_date")
+    @classmethod
+    def _bound_start_date(cls, v: date | None) -> date | None:
+        return validate_plan_start_date(v)
+
+
+class PlanScheduleResponse(BaseModel):
+    """Result of a reschedule — the plan id and its new (possibly null) date."""
+    plan_id: int
+    start_date: date | None = None
+
 
 class FrozenMeal(BaseModel):
     """Identifies a meal the user wants to keep unchanged during regeneration."""
@@ -481,6 +548,9 @@ class MealPlanSummary(BaseModel):
     days: int
     meals_per_day: int
     people_count: int
+    # Real-world date of Day 1 (None = unscheduled). Powers date labels on the
+    # catalog cards and the calendar view's plan placement.
+    start_date: date | None = None
     status: Literal["planned", "active", "cooked", "finished"]
     total_meals: int
     cooked_meals: int
