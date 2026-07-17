@@ -315,6 +315,7 @@ describe('MealPlanner', () => {
 
     const initialPlan = {
       plan_id: 99,
+      start_date: null,
       days: [
         {
           meals: [
@@ -416,6 +417,7 @@ describe('MealPlanner', () => {
 
     const initialPlan = {
       plan_id: 77,
+      start_date: null,
       days: [
         {
           meals: [
@@ -439,6 +441,7 @@ describe('MealPlanner', () => {
 
     const initialPlan = {
       plan_id: 77,
+      start_date: null,
       days: [
         {
           meals: [
@@ -469,6 +472,7 @@ describe('MealPlanner', () => {
 
     const initialPlan = {
       plan_id: 77,
+      start_date: null,
       days: [
         {
           meals: [
@@ -584,11 +588,13 @@ describe('MealPlanner', () => {
 
     const initialPlan = {
       plan_id: 60,
+      start_date: null,
       days: [{ meals: [{ name: 'Eggs', meal_type: 'breakfast', ingredients: [], steps: [] }] }],
       shopping_list: [],
     };
     const initialSummary = {
       id: 60,
+      start_date: null,
       created_at: new Date().toISOString(),
       days: 1,
       meals_per_day: 1,
@@ -636,11 +642,13 @@ describe('MealPlanner', () => {
 
     const initialPlan = {
       plan_id: 70,
+      start_date: null,
       days: [{ meals: [{ name: 'Stew', meal_type: 'dinner', ingredients: [], steps: [] }] }],
       shopping_list: [],
     };
     const initialSummary = {
       id: 70,
+      start_date: null,
       created_at: new Date().toISOString(),
       days: 1,
       meals_per_day: 1,
@@ -697,11 +705,12 @@ describe('MealPlanner', () => {
 
     const initialPlan = {
       plan_id: 80,
+      start_date: null,
       days: [{ meals: [{ name: 'Stew', meal_type: 'dinner', ingredients: [], steps: [] }] }],
       shopping_list: [],
     };
     const initialSummary = {
-      id: 80, created_at: new Date().toISOString(), days: 1, meals_per_day: 1,
+      id: 80, start_date: null, created_at: new Date().toISOString(), days: 1, meals_per_day: 1,
       people_count: 2, status: 'finished' as const, total_meals: 1, cooked_meals: 0,
       finished_at: new Date().toISOString(),
     };

@@ -13,6 +13,7 @@ import { CookNowForm } from "./CookNowForm";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { mealTypeLabel, type MealType } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType, PlannedMeal } from "../types";
+import { todayISO, dayDateLabel } from "../utils/planDates";
 
 // Fallback seed for a single day when the user has no saved default layout.
 // main_course is the least opinionated single-meal day; the editor lets the
@@ -64,6 +65,9 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // when a different plan is opened, so prop→state sync via useEffect is
   // unnecessary and was flagged by react-hooks/set-state-in-effect.
   const [currentPlan, setCurrentPlan] = useState<MealPlanResponse | null>(initialPlan ?? null);
+  // Calendar start date (YYYY-MM-DD) sent at generation and confirm. A fresh
+  // plan defaults to today; an opened plan seeds from its own scheduled date.
+  const [startDate, setStartDate] = useState<string>(initialPlan?.start_date ?? todayISO());
   const [frozenMeals, setFrozenMeals] = useState<Set<string>>(new Set());
   const [isConfirmed, setIsConfirmed] = useState(initialPlan != null);
   const [isFinished, setIsFinished] = useState(initialSummary?.finished_at != null);
@@ -215,7 +219,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     setFrozenMeals(new Set());
     setIsConfirmed(false);
     setIsFinished(false);
-    generatePlanMutation.mutate({ userId, days, request }, {
+    generatePlanMutation.mutate({ userId, days, startDate, request }, {
       onSuccess: (data) => setCurrentPlan(data),
     });
   };
@@ -237,7 +241,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
 
   const handleConfirm = () => {
     if (!currentPlan?.plan_id) return;
-    confirmMutation.mutate(currentPlan.plan_id, {
+    confirmMutation.mutate({ planId: currentPlan.plan_id, startDate }, {
       onSuccess: () => {
         setIsConfirmed(true);
         // Freezing is only meaningful pre-confirm (as a regenerate hint).
@@ -521,6 +525,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                   >
                     <span style={{ marginRight: "0.4rem" }}>{expanded ? "▼" : "▶"}</span>
                     <strong>Day {dayIdx + 1}</strong>
+                    {dayDateLabel(startDate, dayIdx) && (
+                      <span style={{ marginLeft: "0.5rem", color: "#666", fontSize: "0.85rem", fontWeight: 400 }}>
+                        {dayDateLabel(startDate, dayIdx)}
+                      </span>
+                    )}
                     <span style={{ marginLeft: "0.75rem", color: "#666", fontSize: "0.85rem" }}>
                       {layout.map((mt) => mealTypeLabel(mt)).join(" · ")}
                     </span>
@@ -539,6 +548,22 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             })}
           </div>
         )}
+      </div>
+
+      {/* Start date — Day 1 maps to this real-world date. No explicit text
+          colour on the label so it stays legible in both themes (it sits on the
+          adaptive page background, not an explicit surface). */}
+      <div style={{ marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+        <label htmlFor="plan-start-date" style={{ fontSize: "1rem" }}>
+          Start date
+        </label>
+        <input
+          id="plan-start-date"
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          style={{ padding: "0.35rem 0.5rem", fontSize: "1rem" }}
+        />
       </div>
 
       <button onClick={handleGenerate} disabled={generatePlanMutation.isPending} style={{ padding: "0.5rem 2rem", fontSize: "1.1rem" }}>
@@ -638,7 +663,14 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           )}
           {currentPlan.days.map((dayPlan, idx) => (
              <div key={idx} style={{ marginBottom: "1.5rem" }}>
-               <h4 style={{ borderBottom: "1px solid #ddd", paddingBottom: "0.5rem" }}>Day {idx + 1}</h4>
+               <h4 style={{ borderBottom: "1px solid #ddd", paddingBottom: "0.5rem" }}>
+                 Day {idx + 1}
+                 {dayDateLabel(currentPlan.start_date, idx) && (
+                   <span style={{ marginLeft: "0.6rem", color: "#666", fontSize: "0.85rem", fontWeight: 400 }}>
+                     {dayDateLabel(currentPlan.start_date, idx)}
+                   </span>
+                 )}
+               </h4>
                {dayPlan.meals.map((meal, mealIdx) => {
                  const isFrozen = frozenMeals.has(`${idx}-${mealIdx}`);
                  const entry = findEntry(idx, mealIdx);

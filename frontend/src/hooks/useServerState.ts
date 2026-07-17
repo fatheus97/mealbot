@@ -143,12 +143,20 @@ export function useConfirmPlan() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (planId: number): Promise<StockItem[]> => {
-      const res = await authFetch(`/plan/${planId}/confirm`, { method: "POST" });
+    mutationFn: async ({ planId, startDate }: { planId: number; startDate?: string | null }): Promise<StockItem[]> => {
+      // Always send a JSON body. The backend body is optional, but authFetch sets
+      // Content-Type: application/json unconditionally, so a bodyless POST would
+      // still carry that header with an empty payload. A null start_date is a
+      // no-op server-side (it keeps any date set at generation), so this is safe
+      // even when the user never picked a date.
+      const res = await authFetch(`/plan/${planId}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ start_date: startDate ?? null }),
+      });
       if (!res.ok) throw new Error(`Confirm failed: ${res.status}`);
       return res.json();
     },
-    onSuccess: (_, planId) => {
+    onSuccess: (_, { planId }) => {
       queryClient.invalidateQueries({ queryKey: ['planList'] });
       queryClient.invalidateQueries({ queryKey: ['fridge'] });
       // Confirm creates the meal entry rows server-side. Without this,
@@ -364,8 +372,9 @@ export function useGeneratePlan() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ days, request }: { userId: number; days: number; request: MealPlanRequest }): Promise<MealPlanResponse> => {
-      const res = await authFetch(`/plan?days=${days}`, {
+    mutationFn: async ({ days, startDate, request }: { userId: number; days: number; startDate?: string | null; request: MealPlanRequest }): Promise<MealPlanResponse> => {
+      const dateParam = startDate ? `&start_date=${startDate}` : "";
+      const res = await authFetch(`/plan?days=${days}${dateParam}`, {
         method: "POST",
         body: JSON.stringify(request),
       });

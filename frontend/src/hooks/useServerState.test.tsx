@@ -161,6 +161,35 @@ describe('useGeneratePlan', () => {
       body: JSON.stringify(request),
     });
   });
+
+  it('appends start_date to the query string when provided', async () => {
+    const plan = { plan_id: 2, start_date: '2026-08-01', days: [], shopping_list: [] };
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(plan),
+    });
+    const request = {
+      ingredients: [],
+      taste_preferences: [],
+      avoid_ingredients: [],
+      ingredients_to_use: [],
+      diet_type: null,
+      meals_per_day: 1,
+      people_count: 2,
+      past_meals: [],
+    };
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useGeneratePlan(), { wrapper });
+    result.current.mutate({ userId: 1, days: 2, startDate: '2026-08-01', request });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith('/plan?days=2&start_date=2026-08-01', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  });
 });
 
 describe('useConfirmPlan', () => {
@@ -180,11 +209,47 @@ describe('useConfirmPlan', () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
 
     const { result } = renderHook(() => useConfirmPlan(), { wrapper });
-    result.current.mutate(7);
+    result.current.mutate({ planId: 7 });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['mealEntries', 7] });
+  });
+
+  it('sends the chosen start_date in the confirm body', async () => {
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([]),
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConfirmPlan(), { wrapper });
+    result.current.mutate({ planId: 9, startDate: '2026-08-01' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/9/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ start_date: '2026-08-01' }),
+    });
+  });
+
+  it('confirms with a null start_date body when the user picked no date', async () => {
+    // authFetch always sends Content-Type: application/json, so we always send a
+    // real body; null means "keep whatever date was set at generation".
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([]),
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConfirmPlan(), { wrapper });
+    result.current.mutate({ planId: 3 });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/3/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ start_date: null }),
+    });
   });
 });
 

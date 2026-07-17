@@ -47,6 +47,9 @@ export interface SingleDayPlan {
 
 export interface MealPlanResponse {
   plan_id: number;
+  // Real-world date of Day 1 as "YYYY-MM-DD" (null = unscheduled). Day N falls
+  // on start_date + (N - 1). See utils/planDates.
+  start_date: string | null;
   days: SingleDayPlan[];
   shopping_list: IngredientAmount[];
 }
@@ -87,6 +90,8 @@ export interface MealPlanSummary {
   days: number;
   meals_per_day: number;
   people_count: number;
+  // Scheduled real-world date of Day 1 as "YYYY-MM-DD" (null = unscheduled).
+  start_date: string | null;
   status: PlanStatus;
   total_meals: number;
   cooked_meals: number;

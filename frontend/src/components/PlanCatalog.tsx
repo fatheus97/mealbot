@@ -4,6 +4,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { usePlanList, useDeletePlan } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { formatISODate } from "../utils/planDates";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 
 const STATUS_COLORS: Record<PlanStatus, { bg: string; text: string }> = {
@@ -134,6 +135,16 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                       <span style={{ color: "#333" }}>
                         {plan.days}d / {plan.meals_per_day} meals / {plan.people_count}p
                       </span>
+                      {/* Scheduled date. Uses the local-parse formatter (NOT the
+                          created_at formatDate above, whose `new Date(str)` would
+                          shift a date-only string by a day in negative-UTC zones).
+                          Card bg is an explicit light surface, so #555 is safe. */}
+                      {plan.start_date && (
+                        <span style={{ color: "#555", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                          <span aria-hidden>📅</span>
+                          {formatISODate(plan.start_date)}
+                        </span>
+                      )}
                       <span
                         style={{
                           padding: "0.15rem 0.5rem",
