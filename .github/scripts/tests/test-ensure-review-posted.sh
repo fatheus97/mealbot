@@ -124,6 +124,17 @@ PART_LIST='- [x] Gather context (diff since last review, prior review threads)
   mention 55555 "Reviewed the retry logic; see the earlier job" 900
 } | jq -s '.' >"$work/cross-run.json"
 
+# --- The IN-PROGRESS shape, verbatim from PR #231 run 29700278618 while the
+# review was still running. Note it differs from the finished shape: no banner,
+# a "### Reviewing PR #N" heading, and the backlink is "[View job run](...)" on
+# its own line rather than "[View job](...)" on line 1. The action rewrites the
+# comment into the banner form when it finishes, so the guard only ever sees this
+# if it is evaluated too early — or if the run dies without rewriting.
+# At 313 chars it also clears the old 300-char length floor.
+jq -n '[{ user: { login: "claude[bot]", type: "Bot" },
+  body: "### Reviewing PR #231\n\n- [x] Gather context (PR description, diff, prior review threads)\n- [ ] Read ROADMAP.md diff\n- [ ] Check prior review rounds for dismissed findings\n- [ ] Post review feedback\n\n<img src=\"https://github.com/user-attachments/assets/5ac382c7.png\" width=\"14px\" height=\"14px\" />\n\n[View job run](https://github.com/fatheus97/mealbot/actions/runs/29700278618)" }]' \
+  >"$work/in-progress.json"
+
 # --- PR #185: a "finished" banner over an empty model turn (the #181–#183 shape).
 comment 4945588626 "**Claude finished @fatheus97's task in 3s**" "" 0 | jq -s '.' >"$work/empty-stub.json"
 
@@ -192,6 +203,8 @@ check "action posted nothing for this run" \
   FAIL "$work/rerun-succeeded.json" 99999999999 "no comment for this run"
 check "empty-turn stub under a finished banner (PR #185)" \
   FAIL "$work/empty-stub.json" 4945588626 "chars of review content"
+check "the live in-progress checklist (PR #231) is not a completed review" \
+  FAIL "$work/in-progress.json" 29700278618 "no completion marker"
 check "run id must not prefix-match a longer run id" \
   FAIL "$work/prefix.json" 9981 "no comment for this run"
 check "PR with no comments at all" \

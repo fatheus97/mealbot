@@ -92,17 +92,19 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
     else "it posted only \(content_len) chars of review content — that is the chrome of an empty turn, not a review"
     end;
 
-  # A run is identified by the "[View job](.../actions/runs/<id>)" backlink the
-  # action puts on the FIRST LINE of its track_progress comment. 73 of the 74
-  # historical comments carry it in exactly that position; the lone exception is
-  # PR #197 run 29195401264, where the reviewer separately posted its write-up
-  # with `gh pr comment` and merely mentioned the URL in prose.
+  # A run is identified by the job backlink the action embeds as a MARKDOWN LINK
+  # labelled "View job...". Both shapes of the track_progress comment carry it:
   #
-  # Requiring the line-1 link form — rather than the URL anywhere in the body —
-  # is what stops a comment belonging to a DIFFERENT run from being credited to
-  # this one just by quoting its job URL, and the literal ")" also stops run 998
-  # from claiming the comments of run 9981. Excluding a prose mention costs
-  # nothing: the tracking comment being judged always carries the link.
+  #   in progress : "[View job run](.../actions/runs/<id>)" on its own line,
+  #                 under a "### Reviewing PR #N" heading
+  #   finished    : "**Claude finished ...** —— [View job](.../actions/runs/<id>)"
+  #                 rewritten onto line 1
+  #
+  # Matching the link FORM rather than the bare URL is what stops a comment
+  # belonging to a DIFFERENT run from being credited to this one just by quoting
+  # its job URL in prose — which is exactly how PR #197 run 29195401264 refers to
+  # its job from a separately posted write-up. The literal ")" additionally stops
+  # run 998 from claiming the comments of run 9981.
   #
   # (Apostrophes are avoided in this jq program: it is single-quoted in bash.)
   #
@@ -118,8 +120,7 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
   # independent barrier.
   [ ((add // [])[])
     | select((.user.login | test("^claude(-code)?\\[bot\\]$")) and .user.type == "Bot")
-    | select(.body | split("\n")[0]
-             | test("\\[View job\\]\\([^)]*actions/runs/" + $run + "\\)")) ] as $mine
+    | select(.body | test("\\[View job[^\\]]*\\]\\([^)]*actions/runs/" + $run + "\\)")) ] as $mine
   | ($mine | map(select(completed))) as $done
   | if ($mine | length) == 0 then
       "FAIL\tit posted no comment for this run (actions/runs/\($run)), so the review never ran. Either the action failed before posting (check the job log with show_full_output: true, and the CLAUDE_CODE_OAUTH_TOKEN secret), or it declined to run at all — which is expected on a PR that edits .github/workflows/."
