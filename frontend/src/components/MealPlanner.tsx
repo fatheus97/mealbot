@@ -10,6 +10,7 @@ import { usePreferencesStore } from "../store/usePreferencesStore";
 import { mealTypeLabel, type MealType } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType, PlannedMeal } from "../types";
 import { todayISO, dayDateLabel } from "../utils/planDates";
+import { leftoverSourceLabel } from "../utils/leftovers";
 
 // Fallback seed for a single day when the user has no saved default layout.
 // main_course is the least opinionated single-meal day; the editor lets the
@@ -697,6 +698,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                      isCooking={isCooking}
                      isConfirmed={isConfirmed}
                      isFinished={isFinished}
+                     // SAME start-date expression as the day header above, or
+                     // the badge and the header disagree while the user is
+                     // editing the date pre-confirm.
+                     leftoverSource={leftoverSourceLabel(
+                       currentPlan,
+                       meal.leftover_of,
+                       isConfirmed ? currentPlan.start_date : startDate,
+                     )}
+                     isMobile={isMobile}
                      cookStorageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
                      cookTogglePending={cookMutation.isPending || uncookMutation.isPending}
                      cookPending={cookMutation.isPending}

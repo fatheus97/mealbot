@@ -32,8 +32,42 @@ const CALENDAR = {
       start_date: "2026-08-10",
       status: "planned",
       days: [
-        { date: "2026-08-10", day_index: 1, meals: ["Chicken Curry"] },
-        { date: "2026-08-11", day_index: 2, meals: ["Tomato Soup"] },
+        // CalendarMeal objects, not name strings. Day 2 is leftovers of day 1
+        // so every render path (grid chip, agenda, title) is exercised.
+        {
+          date: "2026-08-10",
+          day_index: 1,
+          meals: [
+            {
+              name: "Chicken Curry",
+              is_leftover: false,
+              source_date: null,
+              source_name: null,
+            },
+          ],
+        },
+        {
+          date: "2026-08-11",
+          day_index: 2,
+          meals: [
+            {
+              name: "Tomato Soup",
+              is_leftover: false,
+              source_date: null,
+              source_name: null,
+            },
+            // Same-day leftover of the soup (valid: an earlier slot the same
+            // day). Deliberately NOT "Leftovers: Chicken Curry" — that would
+            // also match the existing /Chicken Curry/ assertions and make them
+            // ambiguous, which is a fixture problem, not a real one.
+            {
+              name: "Leftovers: Tomato Soup",
+              is_leftover: true,
+              source_date: "2026-08-11",
+              source_name: "Tomato Soup",
+            },
+          ],
+        },
       ],
     },
   ],

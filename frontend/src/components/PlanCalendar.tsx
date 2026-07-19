@@ -14,8 +14,10 @@ import {
   isSameMonthISO,
   dayOfMonth,
   parseISODateLocal,
+  formatISODate,
 } from "../utils/planDates";
-import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
+import { calendarLeftoverTitle } from "../utils/leftovers";
+import type { CalendarMeal, MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 
 /** "Sat Aug 1" — a short weekday+date label for the agenda/list rows. */
 function shortDayLabel(iso: string): string {
@@ -77,7 +79,10 @@ interface PlanCalendarProps {
 interface DayChip {
   plan_id: number;
   status: PlanStatus;
-  meals: string[];
+  // Objects, not names: a leftover needs a marker and its provenance. Kept in
+  // lockstep with CalendarDay.meals — widening one without the other renders
+  // "[object Object]" with no type error at the join site.
+  meals: CalendarMeal[];
 }
 
 export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
@@ -217,7 +222,17 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                         key={`${c.plan_id}-${i}`}
                         onClick={() => handleOpen(c.plan_id)}
                         disabled={openingId === c.plan_id}
-                        title={c.meals.join(", ") || `Plan #${c.plan_id}`}
+                        title={
+                          c.meals
+                            .map((m) =>
+                              m.is_leftover
+                                ? `${m.name} (${calendarLeftoverTitle(
+                                    m.source_date, m.source_name, formatISODate,
+                                  ).toLowerCase()})`
+                                : m.name,
+                            )
+                            .join(", ") || `Plan #${c.plan_id}`
+                        }
                         style={{
                           backgroundColor: STATUS_COLORS[c.status].bg,
                           color: STATUS_COLORS[c.status].text,
@@ -235,12 +250,26 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                         }}
                       >
                         {c.meals.length > 0 ? (
+                          // A leftover gets a glyph + italic ONLY. Deliberately
+                          // no background colour: the chip background already
+                          // encodes plan status (STATUS_COLORS), and a second
+                          // colour axis on the same element collides. And no
+                          // extra sub-line — the cell is minHeight 82 with
+                          // overflow hidden and no scroll, so anything taller
+                          // silently clips the later meals of that day.
                           c.meals.map((m, j) => (
                             <span
                               key={j}
-                              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}
+                              style={{
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                maxWidth: "100%",
+                                fontStyle: m.is_leftover ? "italic" : "normal",
+                                fontWeight: m.is_leftover ? 400 : 600,
+                              }}
                             >
-                              {m}
+                              {m.is_leftover ? `↻ ${m.name}` : m.name}
                             </span>
                           ))
                         ) : (
@@ -342,7 +371,32 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                         <strong style={{ color: "#6b7280", fontWeight: 600, marginRight: "0.4rem" }}>
                           {shortDayLabel(d.date)}
                         </strong>
-                        {d.meals.length ? d.meals.join(" · ") : "—"}
+                        {/* A JSX map, not .join(" · ") — the meals are objects
+                            now, and joining them would silently render
+                            "[object Object]" with no type error. This list IS
+                            the entire mobile calendar (there is no grid below
+                            768px), so it carries the leftover marker too. */}
+                        {d.meals.length
+                          ? d.meals.map((m, j) => (
+                              <span key={j}>
+                                {j > 0 && " · "}
+                                <span
+                                  title={
+                                    m.is_leftover
+                                      ? calendarLeftoverTitle(
+                                          m.source_date, m.source_name, formatISODate,
+                                        )
+                                      : undefined
+                                  }
+                                  style={{
+                                    fontStyle: m.is_leftover ? "italic" : "normal",
+                                  }}
+                                >
+                                  {m.is_leftover ? `↻ ${m.name}` : m.name}
+                                </span>
+                              </span>
+                            ))
+                          : "—"}
                       </div>
                     ))}
                   </div>

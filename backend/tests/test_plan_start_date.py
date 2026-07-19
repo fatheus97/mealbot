@@ -8,9 +8,10 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.core.meal_types import MealType
-from app.models.db_models import MealPlan, User
+from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -369,3 +370,105 @@ class TestCalendar:
             assert resp.json()["plans"] == []  # other user sees nothing
         finally:
             app.dependency_overrides[get_current_user] = original
+
+
+class TestCalendarMealShape:
+    """GET /api/plan/calendar returns objects per meal, not bare name strings.
+
+    No test previously asserted the shape of `meals` at all — which is exactly
+    the gap that lets a frontend `.join()` over objects render "[object Object]"
+    with no type error and no test failure.
+    """
+
+    async def test_ordinary_meals_are_plain_objects(
+        self, client: AsyncClient, auth_headers: dict,
+    ):
+        resp = await _create_plan(client, days=1, start_date="2026-08-01")
+        plan_id = resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        cal = await client.get(
+            "/api/plan/calendar?from=2026-08-01&to=2026-08-07", headers=auth_headers,
+        )
+        assert cal.status_code == 200
+        meals = cal.json()["plans"][0]["days"][0]["meals"]
+        assert meals, "expected at least one meal on day 1"
+        m = meals[0]
+        assert isinstance(m, dict)
+        assert isinstance(m["name"], str) and m["name"]
+        assert m["is_leftover"] is False
+        assert m["source_date"] is None
+        assert m["source_name"] is None
+
+    async def test_leftover_meal_carries_resolved_provenance(
+        self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
+    ):
+        """source_date is resolved SERVER-side from the plan's start_date and the
+        1-based projection column. The client cannot derive it — the source day
+        can fall outside the rendered window."""
+        resp = await _create_plan(client, days=2, start_date="2026-08-01")
+        plan_id = resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        # Mark day 2's meal as leftovers of day 1's, directly on the projection
+        # (the calendar reads these columns, never meal_json).
+        entry = (
+            await db_session.execute(
+                select(MealEntry).where(
+                    MealEntry.meal_plan_id == plan_id,
+                    MealEntry.day_index == 2,
+                    MealEntry.meal_index == 1,
+                )
+            )
+        ).scalars().one()
+        entry.leftover_of_day_index = 1
+        entry.leftover_of_meal_index = 1
+        entry.leftover_source_name = "Sunday Roast"
+        db_session.add(entry)
+        await db_session.commit()
+
+        cal = await client.get(
+            "/api/plan/calendar?from=2026-08-01&to=2026-08-07", headers=auth_headers,
+        )
+        assert cal.status_code == 200
+        days = cal.json()["plans"][0]["days"]
+        leftover = days[1]["meals"][0]
+        assert leftover["is_leftover"] is True
+        assert leftover["source_name"] == "Sunday Roast"
+        # Plan starts 2026-08-01; source is 1-based day 1 → 2026-08-01.
+        assert leftover["source_date"] == "2026-08-01"
+        # Day 1's own meal is unaffected.
+        assert days[0]["meals"][0]["is_leftover"] is False
+
+    async def test_missing_source_name_degrades_without_failing(
+        self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
+    ):
+        """A link with no stored source name must still render as a leftover
+        rather than 500 the whole calendar."""
+        resp = await _create_plan(client, days=2, start_date="2026-08-01")
+        plan_id = resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        entry = (
+            await db_session.execute(
+                select(MealEntry).where(
+                    MealEntry.meal_plan_id == plan_id,
+                    MealEntry.day_index == 2,
+                    MealEntry.meal_index == 1,
+                )
+            )
+        ).scalars().one()
+        entry.leftover_of_day_index = 1
+        entry.leftover_of_meal_index = 1
+        entry.leftover_source_name = None
+        db_session.add(entry)
+        await db_session.commit()
+
+        cal = await client.get(
+            "/api/plan/calendar?from=2026-08-01&to=2026-08-07", headers=auth_headers,
+        )
+        assert cal.status_code == 200
+        leftover = cal.json()["plans"][0]["days"][1]["meals"][0]
+        assert leftover["is_leftover"] is True
+        assert leftover["source_name"] is None
+        assert leftover["source_date"] == "2026-08-01"

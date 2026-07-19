@@ -18,6 +18,7 @@ from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
     CalendarDay,
+    CalendarMeal,
     CalendarPlanEntry,
     CalendarResponse,
     ConfirmPlanRequest,
@@ -198,8 +199,12 @@ async def plan_calendar(
     rows = (await session.execute(stmt)).all()
 
     plan_ids = [plan.id for plan, _t, _c in rows if plan.id is not None]
-    # plan_id → day_index → [meal names]
-    meals_by_plan: dict[int, dict[int, list[str]]] = {}
+    # plan_id → day_index → [(name, leftover_of_day_index, source_name)]
+    # Leftover fields come straight off the projection columns — meal_json is an
+    # opaque str, and parsing every blob in a 92-day window would put a
+    # ValidationError 500 on a hot read path.
+    RawMeal = tuple[str, int | None, str | None]
+    meals_by_plan: dict[int, dict[int, list[RawMeal]]] = {}
     if plan_ids:
         e_stmt = (
             select(MealEntry)
@@ -209,7 +214,9 @@ async def plan_calendar(
         for entry in (await session.execute(e_stmt)).scalars().all():
             meals_by_plan.setdefault(entry.meal_plan_id, {}).setdefault(
                 entry.day_index, []
-            ).append(entry.name)
+            ).append(
+                (entry.name, entry.leftover_of_day_index, entry.leftover_source_name)
+            )
 
     plans: list[CalendarPlanEntry] = []
     for plan, total_meals, cooked_meals in rows:
@@ -221,11 +228,29 @@ async def plan_calendar(
         if plan_end < from_date:
             continue
         by_day = meals_by_plan.get(plan.id, {})
+
+        def _to_calendar_meal(raw: RawMeal, start: date) -> CalendarMeal:
+            name, src_day, src_name = raw
+            if src_day is None:
+                return CalendarMeal(name=name)
+            # src_day is 1-based (MealEntry convention), so day N sits on
+            # start_date + (N - 1). Resolve here: the source day can fall
+            # outside the requested window, so the client can't work it out.
+            return CalendarMeal(
+                name=name,
+                is_leftover=True,
+                source_date=start + timedelta(days=src_day - 1),
+                source_name=src_name,
+            )
+
         cells = [
             CalendarDay(
                 date=plan.start_date + timedelta(days=d - 1),
                 day_index=d,
-                meals=by_day.get(d, []),
+                meals=[
+                    _to_calendar_meal(raw, plan.start_date)
+                    for raw in by_day.get(d, [])
+                ],
             )
             for d in range(1, plan.days + 1)
         ]

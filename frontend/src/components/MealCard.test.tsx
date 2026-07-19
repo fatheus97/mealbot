@@ -197,3 +197,79 @@ describe("MealCard", () => {
     });
   });
 });
+
+
+describe("MealCard — leftovers", () => {
+  const LEFTOVER: PlannedMeal = {
+    name: "Leftovers: Chicken curry",
+    meal_type: "light_lunch",
+    meal_type_label: "Light lunch",
+    ingredients: [],
+    steps: ["Reheat the Chicken curry you cooked earlier and serve."],
+    total_time_minutes: 15,
+    leftover_of: { day_index: 0, meal_index: 0 },
+  };
+
+  const SOURCE_LABEL = "Sun Jul 19 · Hot dinner — Chicken curry";
+
+  it("shows the provenance badge with the full label on desktop", () => {
+    renderCard({ meal: LEFTOVER, leftoverSource: SOURCE_LABEL, isMobile: false });
+    expect(screen.getByText(/Leftovers from Sun Jul 19/)).toBeInTheDocument();
+  });
+
+  it("shows the compact badge on mobile with the full label in title", () => {
+    renderCard({ meal: LEFTOVER, leftoverSource: SOURCE_LABEL, isMobile: true });
+    const badge = screen.getByText("↻ Leftovers");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveAttribute("title", `Leftovers from ${SOURCE_LABEL}`);
+  });
+
+  it("degrades to the compact badge when the source cannot be resolved", () => {
+    // A stale link in a stored plan resolves to null rather than throwing.
+    renderCard({ meal: LEFTOVER, leftoverSource: null, isMobile: false });
+    expect(screen.getByText("↻ Leftovers")).toBeInTheDocument();
+  });
+
+  it("replaces the ingredients list with a provenance line", () => {
+    renderCard({ meal: LEFTOVER, leftoverSource: SOURCE_LABEL });
+    // An empty "Ingredients:" list would read as a bug — a leftover has none
+    // of its own, they were bought with the source.
+    expect(screen.queryByText("Ingredients:")).not.toBeInTheDocument();
+    expect(screen.getByText(/nothing extra to buy/)).toBeInTheDocument();
+  });
+
+  it("hides Freeze — the server freezes link groups atomically", () => {
+    renderCard({ meal: LEFTOVER, leftoverSource: SOURCE_LABEL, isConfirmed: false });
+    expect(screen.queryByRole("button", { name: /Freeze/ })).not.toBeInTheDocument();
+  });
+
+  it("still offers Freeze on an ordinary meal", () => {
+    renderCard({ isConfirmed: false });
+    expect(screen.getByRole("button", { name: /Freeze/ })).toBeInTheDocument();
+  });
+
+  it("hides Start cooking even though the leftover has a step", () => {
+    // Gated on isLeftover explicitly, NOT on steps.length: the reheat step
+    // would otherwise open cook mode and write progress under
+    // cookmode:${planId}:${day}:${meal} for a meal that isn't being cooked.
+    renderCard({
+      meal: LEFTOVER,
+      leftoverSource: SOURCE_LABEL,
+      isConfirmed: true,
+      entry: ENTRY,
+    });
+    expect(screen.queryByRole("button", { name: /Start cooking/ })).not.toBeInTheDocument();
+    // But it can still be marked cooked — a leftover does get eaten.
+    expect(screen.getByRole("button", { name: /^Cook$/ })).toBeInTheDocument();
+  });
+
+  it("leaves an ordinary meal's Start cooking intact", () => {
+    renderCard({ isConfirmed: true, entry: ENTRY });
+    expect(screen.getByRole("button", { name: /Start cooking/ })).toBeInTheDocument();
+  });
+
+  it("shows no badge on an ordinary meal", () => {
+    renderCard({ leftoverSource: null });
+    expect(screen.queryByText(/Leftovers/)).not.toBeInTheDocument();
+  });
+});
