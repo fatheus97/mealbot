@@ -13,8 +13,11 @@
 > the `authsession` cleanup job (#215) and the password-change endpoint (#216),
 > and **2026-07-17** after the **calendar-dates thrust** — plan `start_date` plus
 > a month-grid calendar built on a reusable `ModalShell` (#220–222), and the
-> post-use UX polish that followed (#224). Where the notes and the code
-> disagreed, the code wins and the discrepancy is called out.
+> post-use UX polish that followed (#224), and **2026-07-19** after the
+> **leftovers thrust** — modelled as a LINK to an earlier meal rather than the
+> `meal_type` enum value the notes proposed (#226–229, #232, #234, #235). Where
+> the notes and the code disagreed, the code wins and the discrepancy is called
+> out.
 
 ## How to read this
 
@@ -120,6 +123,28 @@ Shipped and verified in the codebase:
   adversarial-review passes caught 10 real bugs the test suites missed (#221/#222);
   the #224 polish itself came from real-world use, and its PR review caught 2 more.
 
+- **Leftovers** (shipped + LIVE 2026-07-19, #226–229 / #232 / #234 / #235):
+  "cook a bigger dinner, eat it as tomorrow's lunch". A meal can carry
+  `leftover_of → {day_index, meal_index}` pointing at an **earlier** meal in the
+  same plan; it consumes no extra stock, is excluded from the shopping list and
+  the fridge debit, and shows its provenance in the planner and on the calendar.
+  Built as a **link rather than a `meal_type` value** — an enum entry would have
+  destroyed the slot taxonomy and lost *which* meal the food came from. The LLM
+  never authors a link (each day is a separate call that sees only prior meal
+  names, so it cannot produce a correct cross-day index); the server assigns
+  deterministically and tells the model one thing: cook a double batch of that
+  slot. Scaling is LLM-side because the prompt requires every step to restate its
+  amounts inline, so a Python multiply would desync steps from the ingredient
+  list. Shipped as 7 slices, the risky accounting landing **dormant** first:
+  schema + L1–L11 invariants (#227) → shopping-list/fridge accounting (#228) →
+  server-side assignment + batch prompt (#229) → group-atomic regeneration + edit
+  fan-out (#232) → planner/calendar UI (#234) → flag flip (#235), on top of a
+  mechanical `MealCard` extraction (#226). `LEFTOVERS_ENABLED` survives as a kill
+  switch. Pre-push adversarial review caught **10 real defects** across the
+  thrust that green suites missed, and mutation testing repeatedly found guards
+  with no killing test — including one test that shadowed the very helper it
+  claimed to cover.
+
 **Everything below is what's left.**
 
 ---
@@ -170,7 +195,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
 | **Real-time cooking mode** | ✅ | — | — | **Shipped 2026-07-02** (#152). `CookMode` — fullscreen tick-box checklist for ingredients/steps while cooking (`cookMode.utils.ts`, tested). |
-| **Leftovers meal_type** | ⬜ | M | calendar dates ✅ (shipped) | "Cook a bigger dinner, eat it as lunch tomorrow." Needs enum value + prompt handling + schema + UI. **Now UNBLOCKED** — the soft calendar-dates dep shipped 2026-07-17 (#220–222), so plans/meals have real dates to reason about. The natural next feature to build on the calendar. |
+| **Leftovers** | ✅ | — | — | **Shipped + LIVE 2026-07-19** (#226–229, #232, #234, #235). "Cook a bigger dinner, eat it as tomorrow's lunch." Modelled as a **LINK**, not the `meal_type` enum value the notes proposed: `PlannedMeal.leftover_of → {day_index, meal_index}`. An enum value would have destroyed the slot taxonomy (a reheated roast is still a main course) *and* lost which meal the food came from, making portion scaling, shopping-list dedupe and calendar provenance impossible. The LLM never authors a link — generation is one call per day and sees only prior meal *names*, so it structurally cannot produce a correct cross-day index; links are assigned server-side and the model is told exactly one thing: cook a double batch of one slot. Scaling is LLM-side, never a Python multiply (the prompt requires every step to restate its amounts inline). See the ✅ entry in "Where we actually are" for the full slice list. |
 | **Token-usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189)** as Phase 1 of the Admin epic (below): `LlmUsage` capture + `GET /api/usage/me` + the admin stats surface it in a dashboard. Was the prereq for the paygate (now shipped + live). The paygate bills a **flat subscription**, not per-usage, so the `LlmUsage` lower-bound caveat doesn't affect billing. |
 | **Paygate** | ✅ | — | — | **SHIPPED + LIVE 2026-07-16** — see the **Monetization / Billing** milestone below. Flat **€10/mo** EUR subscription (14-day trial), not usage-metered, so the per-call-billing-exactness caveat never applied. #199–202 + #211–213. |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
@@ -264,7 +289,7 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │
      ├─ Monetization track: token-usage tracking ✅ (#189) ─► paygate ✅ LIVE (#199–213)
      │
-     └─ calendar dates ✅ (#220–222, #224) ─► leftovers (now UNBLOCKED) + real scheduling
+     └─ calendar dates ✅ (#220–222, #224) ─► leftovers ✅ (#226–229, #232, #234, #235)
 ```
 
 **The in-recipe UX, mobile+camera, the Admin epic, and now the Stripe paygate are
@@ -287,10 +312,10 @@ earns the most from real usage. Highest-signal candidates now:
    alerts send from your own address. *(The stripe 15.3 `dahlia`
    outbound-API-version validation is done — a real checkout → portal → webhook
    round-trip ran on prod 2026-07-16 and billing works.)*
-5. **Leftovers (`meal_type`)** (M) — now UNBLOCKED by the calendar-dates thrust
-   (#220–222): plans/meals finally carry real dates. "Cook a bigger dinner, eat
-   it as lunch tomorrow" = an enum value + prompt handling + schema + UI on top
-   of the calendar. The obvious feature to build on the fresh scheduling layer.
+5. ~~**Leftovers (`meal_type`)** (M) — unblocked by the calendar-dates thrust.~~
+   **SHIPPED + LIVE 2026-07-19** (#226–229, #232, #234, #235) — and built as a
+   **link**, not a `meal_type` value; see the Full-release entry for why that
+   distinction mattered.
 
 The edit-feedback loop (#1) is the standout — it's the differentiator the telemetry
 groundwork was laid for. #3/#4 are quick risk-reducers whenever.

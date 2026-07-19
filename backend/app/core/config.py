@@ -65,14 +65,23 @@ class Settings(BaseSettings):
     use_rag: bool = False
 
     # Master switch for leftover planning ("cook a bigger dinner, eat it as
-    # tomorrow's lunch"). OFF until the feature is complete — regeneration and
-    # the edit fan-out are not built yet, and a link that survives a regenerate
-    # silently retargets to a different dish, making the plan under-buy.
+    # tomorrow's lunch"). ON — the feature is complete:
+    #   schema + invariants (#227), shopping-list and fridge accounting (#228),
+    #   server-side assignment + batch-cooking prompt (#229), regeneration
+    #   group-freezing and the edit fan-out (#232), planner and calendar UI (#234).
     #
-    # This is the rollout gate, deliberately NOT the request field: MealPlanRequest
-    # is bound straight from the public request body, so a client could otherwise
-    # reach a half-built path just by reading the auto-generated schema.
-    leftovers_enabled: bool = False
+    # Kept as a setting rather than deleted so it stays a kill switch: if
+    # leftovers misbehave in the wild, LEFTOVERS_ENABLED=false in the prod .env
+    # stops NEW links being created without a deploy or a code change. Existing
+    # plans keep their links and stay coherent — the flag gates creation only,
+    # and regeneration's group-expansion runs regardless (see plan.py).
+    #
+    # This is the rollout gate, deliberately NOT the request field:
+    # MealPlanRequest is bound straight from the public request body, so the
+    # endpoint overwrites payload.leftover_policy from this setting the same way
+    # it overwrites include_spices. That overwrite is unconditional in BOTH
+    # directions — a client can neither opt in nor opt out.
+    leftovers_enabled: bool = True
 
     # RAG thresholds
     rag_min_results: int = 3
