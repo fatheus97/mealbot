@@ -2,3 +2,7 @@
 # (core.autocrlf) can't introduce CRLF that breaks unit parsing.
 *.service text eol=lf
 *.timer   text eol=lf
+
+# Same reasoning for shell scripts executed on the CI runners and the VPS:
+# CRLF makes bash fail with "\r: command not found".
+*.sh      text eol=lf
