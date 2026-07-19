@@ -22,7 +22,9 @@ from app.models.plan_models import (
 )
 from app.services.leftovers import (
     LeftoverAssignment,
+    expand_leftover_groups,
     leftover_dependents,
+    leftover_source_names,
     plan_leftover_links,
     portions_for_day,
     validate_leftover_graph,
@@ -545,3 +547,89 @@ class TestPlannerNeverChains:
                     f"chain for layout {combo} over {n_days} days: "
                     f"{sorted(targets & sources)}"
                 )
+
+
+class TestExpandLeftoverGroups:
+    """Regeneration replaces meals POSITIONALLY and never changes list lengths
+    (`merged_meals[idx] = next(new_meal_iter)`), so a link whose source is
+    regenerated stays IN BOUNDS and resolves cleanly — to a different dish.
+    Nothing raises, nothing logs, and the plan under-buys because the leftover's
+    ingredients were already excluded from the shopping list.
+
+    A bounds check cannot see that. Freezing groups atomically makes it
+    unreachable instead of something to detect afterwards.
+    """
+
+    def _linked_plan(self) -> MealPlanResponse:
+        # day0: [source, other]; day1: [leftover-of-day0.meal0, other]
+        return plan(
+            [meal("Roast"), meal("Soup")],
+            [meal("Reheat", leftover_of=(0, 0)), meal("Salad")],
+        )
+
+    def test_no_links_leaves_the_set_alone(self):
+        p = plan([meal("A"), meal("B")], [meal("C"), meal("D")])
+        assert expand_leftover_groups({(0, 0)}, p) == {(0, 0)}
+
+    def test_freezing_the_source_freezes_its_leftover(self):
+        p = self._linked_plan()
+        assert expand_leftover_groups({(0, 0)}, p) == {(0, 0), (1, 0)}
+
+    def test_freezing_the_leftover_freezes_its_source(self):
+        p = self._linked_plan()
+        assert expand_leftover_groups({(1, 0)}, p) == {(0, 0), (1, 0)}
+
+    def test_unrelated_frozen_meals_are_untouched(self):
+        p = self._linked_plan()
+        assert expand_leftover_groups({(0, 1)}, p) == {(0, 1)}
+
+    def test_empty_stays_empty(self):
+        assert expand_leftover_groups(set(), self._linked_plan()) == set()
+
+    def test_does_not_mutate_the_caller_set(self):
+        p = self._linked_plan()
+        original = {(0, 0)}
+        expand_leftover_groups(original, p)
+        assert original == {(0, 0)}
+
+    def test_fan_in_pulls_in_every_dependent(self):
+        # One source feeding two leftovers: freezing any member freezes all three.
+        p = plan(
+            [meal("Roast")],
+            [meal("Mon", leftover_of=(0, 0))],
+            [meal("Tue", leftover_of=(0, 0))],
+        )
+        expected = {(0, 0), (1, 0), (2, 0)}
+        assert expand_leftover_groups({(0, 0)}, p) == expected
+        assert expand_leftover_groups({(1, 0)}, p) == expected
+        assert expand_leftover_groups({(2, 0)}, p) == expected
+
+    def test_reaches_a_fixed_point_across_separate_groups(self):
+        # Two independent groups; freezing one member of each pulls in only
+        # that group's members.
+        p = plan(
+            [meal("RoastA"), meal("RoastB")],
+            [meal("FromA", leftover_of=(0, 0)), meal("FromB", leftover_of=(0, 1))],
+        )
+        assert expand_leftover_groups({(1, 0)}, p) == {(0, 0), (1, 0)}
+        assert expand_leftover_groups({(1, 1)}, p) == {(0, 1), (1, 1)}
+
+    def test_out_of_range_link_does_not_crash(self):
+        # A stored blob can hold a stale link; expansion must degrade, not raise.
+        p = plan([meal("A")], [meal("B", leftover_of=(0, 0))])
+        p.days[1].meals[0].leftover_of = LeftoverRef(day_index=9, meal_index=9)
+        assert expand_leftover_groups({(1, 0)}, p) == {(1, 0), (9, 9)}
+
+
+class TestLeftoverSourceNames:
+    def test_snapshots_each_leftovers_source_name(self):
+        p = plan([meal("Sunday Roast")], [meal("Reheat", leftover_of=(0, 0))])
+        assert leftover_source_names(p) == {(1, 0): "Sunday Roast"}
+
+    def test_empty_without_links(self):
+        assert leftover_source_names(plan([meal("A")], [meal("B")])) == {}
+
+    def test_skips_an_unresolvable_link(self):
+        p = plan([meal("A")], [meal("B", leftover_of=(0, 0))])
+        p.days[1].meals[0].leftover_of = LeftoverRef(day_index=9, meal_index=0)
+        assert leftover_source_names(p) == {}

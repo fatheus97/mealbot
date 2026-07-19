@@ -46,6 +46,8 @@ from app.services.fridge_service import (
 )
 from app.services.leftovers import (
     LeftoverAssignment,
+    leftover_display_name,
+    leftover_steps,
     plan_leftover_links,
     portions_for_day,
     validate_leftover_graph,
@@ -507,18 +509,15 @@ def _materialise_leftover(
         return None
 
     original = day.meals[slot_index]
-    # PlannedMeal.name is capped at 200 chars; a long source name would push
-    # "Leftovers: <name>" over it and raise OUTSIDE the guarded generation
-    # block, 500ing the whole request.
-    name = f"Leftovers: {source_meal.name}"[:200]
+    # Shared with the edit fan-out (see leftovers.leftover_display_name) so the
+    # two can't drift and so a later rename can tell generated text from a name
+    # the user has since customised.
     day.meals[slot_index] = PlannedMeal(
-        name=name,
+        name=leftover_display_name(source_meal.name),
         meal_type=original.meal_type,
         meal_type_label=original.meal_type_label,
         ingredients=[],
-        steps=[
-            f"Reheat the {source_meal.name} you cooked earlier and serve."[:1000],
-        ],
+        steps=leftover_steps(source_meal.name),
         total_time_minutes=15,
         leftover_of=src,
     )
