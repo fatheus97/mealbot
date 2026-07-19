@@ -522,11 +522,29 @@ class PlanScheduleResponse(BaseModel):
     start_date: date | None = None
 
 
+class CalendarMeal(BaseModel):
+    """One meal on a calendar day.
+
+    Widened from a bare name string so the grid can mark leftovers and show
+    where the food came from.
+
+    `source_date` is resolved SERVER-side. The client cannot derive it: the
+    source day may fall outside the month currently rendered, and the calendar
+    payload only carries the days in the requested window. Nullable — a link
+    whose source can't be resolved degrades to an unadorned "leftovers" marker
+    rather than failing the whole calendar.
+    """
+    name: str
+    is_leftover: bool = False
+    source_date: date | None = None
+    source_name: str | None = None
+
+
 class CalendarDay(BaseModel):
     """One real-world day of a scheduled plan, for the calendar grid."""
     date: date
     day_index: int  # 1-based day within the plan
-    meals: list[str]  # meal names on this day (may be empty)
+    meals: list[CalendarMeal]  # meals on this day, in slot order (may be empty)
 
 
 class CalendarPlanEntry(BaseModel):

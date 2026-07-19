@@ -4,6 +4,7 @@ import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
 import { CookMode } from "./recipe/CookMode";
 import { mealTypeLabel } from "../constants/mealTypes";
+import { LEFTOVER_SHORT_LABEL } from "../utils/leftovers";
 import type { MealEntrySummary, PlannedMeal } from "../types";
 
 // One meal inside a rendered plan: the action row (freeze / cook / edit /
@@ -31,6 +32,13 @@ interface MealCardProps {
   isCooking: boolean;
   isConfirmed: boolean;
   isFinished: boolean;
+  // Resolved provenance for a leftover, e.g.
+  // "Sun Jul 19 · Hot dinner — Chicken curry". null for an ordinary meal AND
+  // for a leftover whose source can't be resolved — the card degrades to a
+  // bare marker rather than breaking.
+  leftoverSource?: string | null;
+  // Drives the compact badge; the full label stays in `title`.
+  isMobile?: boolean;
   // localStorage key for cook-mode progress, owned by the parent so the
   // plan/day/meal coordinates stay in one place.
   cookStorageKey: string;
@@ -66,6 +74,8 @@ export function MealCard({
   isCooking,
   isConfirmed,
   isFinished,
+  leftoverSource = null,
+  isMobile = false,
   cookStorageKey,
   cookTogglePending,
   cookPending,
@@ -83,19 +93,38 @@ export function MealCard({
   onFinishCooking,
   onFavoriteToggle,
 }: MealCardProps) {
+  // A leftover is identified by the LINK, never by an empty ingredient list —
+  // an ordinary meal could legitimately have no ingredients.
+  const isLeftover = meal.leftover_of != null;
+
+  // Explicit precedence instead of a fourth nested ternary. Cooked wins (it is
+  // the most recent fact about the meal), then frozen (an active user choice),
+  // then leftover (a static property).
+  const accent = isCooked
+    ? { border: "#16a34a", bg: "#f0fdf4" }
+    : isFrozen
+      ? { border: "#4a90d9", bg: "#eef4fb" }
+      : isLeftover
+        ? { border: "#a78bfa", bg: "#f5f3ff" }
+        : { border: "transparent", bg: "transparent" };
+
   return (
     <div
       style={{
         marginLeft: "1rem",
         marginBottom: "1rem",
         padding: "0.5rem",
-        borderLeft: isFrozen ? "3px solid #4a90d9" : isCooked ? "3px solid #16a34a" : "3px solid transparent",
-        backgroundColor: isFrozen ? "#eef4fb" : isCooked ? "#f0fdf4" : "transparent",
+        borderLeft: `3px solid ${accent.border}`,
+        backgroundColor: accent.bg,
         borderRadius: "4px",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-        {!isConfirmed && (
+        {/* Freezing is hidden on a leftover: the server freezes a link group
+            atomically (source + its leftovers together), so a per-meal toggle
+            here would imply control the user doesn't have. Freeze the source
+            instead and the leftover follows. */}
+        {!isConfirmed && !isLeftover && (
           <button
             onClick={onToggleFreeze}
             title={isFrozen ? "Unfreeze this meal" : "Freeze this meal"}
@@ -156,7 +185,12 @@ export function MealCard({
             Edit
           </button>
         )}
-        {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && (meal.steps?.length ?? 0) > 0 && (
+        {/* Gated on isLeftover EXPLICITLY, not on steps.length. A leftover has
+            a reheat step, so a length check would let cook mode open and write
+            progress under cookmode:${planId}:${day}:${meal} for a meal that
+            isn't being cooked. Marking it cooked via the Cook button is still
+            correct and stays available. */}
+        {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && !isLeftover && (meal.steps?.length ?? 0) > 0 && (
           <button
             onClick={onStartCooking}
             title="Cook this recipe step by step"
@@ -174,6 +208,30 @@ export function MealCard({
           </button>
         )}
         <strong>{mealTypeLabel(meal.meal_type, meal.meal_type_label).toUpperCase()}:</strong> {meal.name}
+        {isLeftover && (
+          // Explicit color paired with the background — the card sits on
+          // MealPlanner's light surface, but this badge carries its own pair so
+          // it stays legible if it's ever reused elsewhere.
+          // Short form on mobile: the full label eats a whole line at 375px
+          // next to four buttons, and the header row already wraps.
+          <span
+            title={leftoverSource ? `Leftovers from ${leftoverSource}` : "Leftovers"}
+            style={{
+              marginLeft: "0.4rem",
+              padding: "0.1rem 0.45rem",
+              borderRadius: "10px",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              backgroundColor: "#ede9fe",
+              color: "#5b21b6",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isMobile || !leftoverSource
+              ? LEFTOVER_SHORT_LABEL
+              : `↻ Leftovers from ${leftoverSource}`}
+          </span>
+        )}
         {meal.total_time_minutes != null && (
           <span
             style={{ marginLeft: "0.5rem", fontSize: "0.85em", color: "#666" }}
@@ -183,10 +241,23 @@ export function MealCard({
           </span>
         )}
         {entry && (
+          // Disabled — not hidden — on a leftover. The backend 422s a favorite
+          // on one (a content-free "reheat of X" embedded in the global RAG
+          // corpus would be served back to future generations as a proven
+          // recipe with no ingredients), and useFavoriteMeal has no onError, so
+          // an enabled star would be a control that silently never works.
+          // Disabling with an explanation is better than removing it: the star
+          // is present on every other meal, so its absence would just look like
+          // a bug.
           <FavoriteStar
             isFavorite={entry.is_favorite}
             onToggle={onFavoriteToggle}
-            disabled={favoritePending}
+            disabled={favoritePending || isLeftover}
+            title={
+              isLeftover
+                ? "Leftovers can't be saved to the cookbook — star the original meal instead"
+                : undefined
+            }
           />
         )}
       </div>
@@ -201,10 +272,23 @@ export function MealCard({
         />
       ) : (
         <>
-          <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
-            <em>Ingredients:</em>{" "}
-            <IngredientsList ingredients={meal.ingredients ?? []} />
-          </div>
+          {/* A leftover has no ingredients of its own — they were bought and
+              cooked with the source meal — so an empty "Ingredients:" list
+              would read as a bug. Say where the food came from instead. */}
+          {isLeftover ? (
+            <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
+              <em>
+                {leftoverSource
+                  ? `Uses leftovers from ${leftoverSource} — nothing extra to buy.`
+                  : "Uses leftovers from an earlier meal — nothing extra to buy."}
+              </em>
+            </div>
+          ) : (
+            <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
+              <em>Ingredients:</em>{" "}
+              <IngredientsList ingredients={meal.ingredients ?? []} />
+            </div>
+          )}
 
           <div style={{ fontSize: "0.9em" }}>
             <RecipeSteps steps={meal.steps ?? []} />

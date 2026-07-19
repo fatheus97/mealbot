@@ -29,6 +29,13 @@ export interface MealPlanRequest {
   day_layouts?: MealType[][] | null;
 }
 
+// Pointer to the meal a leftover was cooked as part of. 0-BASED, addressing
+// positions inside MealPlanResponse.days — mirrors the backend LeftoverRef.
+export interface LeftoverRef {
+  day_index: number;
+  meal_index: number;
+}
+
 export interface PlannedMeal {
   name: string;
   // Server returns the strict MealType enum on freshly-generated meals, but
@@ -39,6 +46,10 @@ export interface PlannedMeal {
   ingredients: IngredientAmount[];
   steps: string[];
   total_time_minutes?: number | null;
+  // Set only by the server when this meal is a reheat of an earlier one in the
+  // same plan; null/absent for an ordinary meal. Optional so plans fetched
+  // before the field existed still parse.
+  leftover_of?: LeftoverRef | null;
 }
 
 export interface SingleDayPlan {
@@ -106,10 +117,21 @@ export interface PlanScheduleResponse {
 
 // GET /api/plan/calendar — scheduled plans overlapping a window, each expanded
 // into per-day cells the calendar places on the grid.
+// One meal on a calendar day. An OBJECT, not a bare name — a leftover needs a
+// marker and its provenance. `source_date` is resolved server-side because the
+// source day can fall outside the rendered month; nullable, so the UI degrades
+// to an unadorned marker rather than breaking.
+export interface CalendarMeal {
+  name: string;
+  is_leftover: boolean;
+  source_date: string | null; // "YYYY-MM-DD"
+  source_name: string | null;
+}
+
 export interface CalendarDay {
   date: string; // "YYYY-MM-DD"
   day_index: number; // 1-based day within the plan
-  meals: string[];
+  meals: CalendarMeal[];
 }
 export interface CalendarPlanEntry {
   plan_id: number;
