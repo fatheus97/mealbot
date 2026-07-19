@@ -4,7 +4,7 @@ import re
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
 
@@ -225,7 +225,42 @@ class ConsumedBatch(BaseModel):
     need_to_use: bool = False
 
 
-class PlannedMeal(BaseModel):
+class LeftoverRef(BaseModel):
+    """Pointer to the SOURCE meal a leftover was cooked as part of.
+
+    Indices are **0-based**, matching FrozenMeal and the positions inside
+    MealPlanResponse.days — NOT MealEntry.day_index/meal_index, which are
+    1-based. Cross the two only via plan_service._ref_to_entry_coords so the
+    conversion exists in exactly one place; an off-by-one here never 404s, it
+    silently resolves to a real neighbouring meal.
+
+    Intra-plan only, deliberately: there is no plan_id field. A cross-plan
+    pointer would dangle the moment the source plan is deleted, and stable
+    cross-plan meal identity doesn't exist (MealEntry rows are deleted and
+    re-minted on unconfirm/re-confirm).
+    """
+    day_index: int = Field(ge=0, description="0-based day index within THIS plan.")
+    meal_index: int = Field(ge=0, description="0-based meal index within that day.")
+
+
+# NOTE: a model's docstring becomes the `description` of its JSON schema, and
+# GeneratedMeal's schema is sent to the LLM verbatim as the structured-output
+# contract. Keep that docstring SHORT and addressed to the model; internal
+# rationale belongs in comments like this one, out of the prompt.
+#
+# GeneratedMeal exists so `leftover_of` can never appear in a structured-output
+# schema. Generation runs one call per day and the prompt carries only bare meal
+# *names* from prior days, so the model structurally cannot author a correct
+# cross-day index — it would emit confident garbage (instructor/Gemini guarantee
+# shape, never semantics). Links are assigned server-side instead; see
+# app/services/leftovers.py.
+#
+# Keeping LeftoverRef out of the LLM schema also avoids introducing a new
+# $defs/$ref shape into Gemini structured output — the exact surface that broke
+# every generation call in prod when jsonref was dropped (#169/#182), which
+# mocked-LLM CI could not catch.
+class GeneratedMeal(BaseModel):
+    """A single meal in a day's plan."""
     # Bounds apply to the client-write path (Cook Now /recipe/cook) — the LLM
     # output path doesn't reach these limits in practice, but sizing them here
     # rather than at the API layer keeps all PlannedMeal use-sites protected.
@@ -271,6 +306,57 @@ class PlannedMeal(BaseModel):
         return v
 
 
+class PlannedMeal(GeneratedMeal):
+    """A meal as stored and served: the generated content plus server-assigned
+    fields the LLM never produces.
+
+    Subclasses GeneratedMeal so the field list exists once and can't drift.
+    """
+    # Set only by the server (app/services/leftovers.py). None = an ordinary
+    # meal. Optional so legacy meal_json / response_json blobs written before
+    # this feature still parse — same rationale as total_time_minutes.
+    #
+    # Client-write paths strip this rather than honouring it: /recipe/cook and
+    # /recipe/favorite build 1-day/1-meal plans where a link is nonsense by
+    # construction, and MealEditRequest deliberately doesn't carry the field
+    # (same reason it omits meal_type — an edit must not smuggle in data a
+    # freshly-generated meal couldn't hold).
+    leftover_of: LeftoverRef | None = Field(
+        default=None,
+        description=(
+            "If set, this meal is a reheat of an earlier meal in the same plan "
+            "and consumes no additional ingredients."
+        ),
+    )
+
+    @property
+    def is_leftover(self) -> bool:
+        """Read this at every summation/debit site rather than testing
+        `ingredients == []` — an ordinary meal could legitimately end up with
+        an empty ingredient list, and conflating the two would silently skip
+        its fridge debit."""
+        return self.leftover_of is not None
+
+    @model_validator(mode="after")
+    def _leftover_carries_no_ingredients(self) -> PlannedMeal:
+        # A leftover's ingredients were bought and debited with its source, so
+        # carrying them here would double-count in three places at once: the
+        # shopping list, the day-to-day fridge simulation during generation,
+        # and the FIFO debit at confirm. allocate_fifo never raises on
+        # shortage, so that double-debit would return 200 and stay invisible
+        # until the fridge is diffed by hand.
+        #
+        # This is the innermost of two belts; the summation sites also skip on
+        # is_leftover explicitly. Correctness must not rest on the list merely
+        # happening to be empty.
+        if self.leftover_of is not None and self.ingredients:
+            raise ValueError(
+                "a leftover meal must carry no ingredients "
+                "(they belong to its source meal)"
+            )
+        return self
+
+
 class MealEditRequest(BaseModel):
     """User-edited content for a single meal (name, ingredients, steps, time).
 
@@ -297,8 +383,23 @@ class MealEditRequest(BaseModel):
         return v
 
 
+# The structured-output schema handed to the LLM for one day. Built on
+# GeneratedMeal, not PlannedMeal, so leftover_of stays out of the model's schema
+# entirely. Convert to SingleDayResponse via to_planned_day right after the call.
+# (Docstring stays short — it is sent to the model; see GeneratedMeal.)
+class LlmDayResponse(BaseModel):
+    """One day of a meal plan."""
+    meals: list[GeneratedMeal]
+
+    def to_planned_day(self) -> SingleDayResponse:
+        """Widen raw model output into stored meals (leftover_of defaults None)."""
+        return SingleDayResponse(
+            meals=[PlannedMeal.model_validate(m.model_dump()) for m in self.meals]
+        )
+
+
 class SingleDayResponse(BaseModel):
-    """LLM response for a single day (raw output from the model)."""
+    """A single day of a plan as stored and served."""
     meals: list[PlannedMeal]
 
 

@@ -9,7 +9,12 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.config import settings
 from app.llm.client import llm_client
-from app.models.plan_models import MealPlanRequest, PlannedMeal, SingleDayResponse
+from app.models.plan_models import (
+    LlmDayResponse,
+    MealPlanRequest,
+    PlannedMeal,
+    SingleDayResponse,
+)
 from app.services.recipe_retriever import MealHit, retrieve_rated_meals
 
 if TYPE_CHECKING:
@@ -53,14 +58,17 @@ async def generate_single_day(
         "day_index": day_index,
     }
 
-    # AI-01: Pass the Pydantic schema as response_model
-    response = await llm_client.chat_json(
+    # AI-01: Pass the Pydantic schema as response_model. LlmDayResponse, not
+    # SingleDayResponse — leftover_of is server-assigned and must not enter the
+    # model's schema (see GeneratedMeal).
+    raw = await llm_client.chat_json(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        response_model=SingleDayResponse,
+        response_model=LlmDayResponse,
         mock_context=mock_context,
         mock=mock,
     )
+    response = raw.to_planned_day()
 
     if slot_layout is not None:
         returned = [m.meal_type.value for m in response.meals]
@@ -97,12 +105,13 @@ async def generate_partial_day(
         replaced_meals=replaced_meals or [],
     )
 
-    response = await llm_client.chat_json(
+    raw = await llm_client.chat_json(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        response_model=SingleDayResponse,
+        response_model=LlmDayResponse,
         mock=mock,
     )
+    response = raw.to_planned_day()
 
     # Validate that returned meals match requested slots. ``.value`` gives the
     # raw enum string so the comparison is str-vs-str regardless of how the
@@ -192,12 +201,13 @@ async def generate_single_day_with_rag(
 
     logger.info("RAG: using %d retrieved meals for generation", len(retrieved_meals))
 
-    response = await llm_client.chat_json(
+    raw = await llm_client.chat_json(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        response_model=SingleDayResponse,
+        response_model=LlmDayResponse,
         mock=mock,
     )
+    response = raw.to_planned_day()
 
     if slot_layout is not None:
         returned = [m.meal_type.value for m in response.meals]

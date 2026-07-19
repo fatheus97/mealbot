@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_active_subscription, usage_capture
@@ -33,6 +34,7 @@ from app.models.plan_models import (
     MealEntrySummary,
     MealPlanRequest,
     MealPlanResponse,
+    PlannedMeal,
     SingleDayResponse,
     SingleRecipeRequest,
     SingleRecipeResponse,
@@ -58,6 +60,40 @@ from app.services.token_usage import record_llm_usage
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/recipe", tags=["recipe"])
+
+
+def _recipe_was_edited(stored_output_json: str, submitted: PlannedMeal) -> bool:
+    """True when the user changed the generated recipe before cooking/starring.
+
+    PARSE-then-compare, deliberately not a raw string compare. The two blobs are
+    only string-comparable while both come from an identical PlannedMeal
+    serialization — and PlannedMeal now carries a server-defaulted field
+    (`leftover_of`). Every generation stored before that field existed lacks the
+    key, while a fresh `model_dump_json()` includes it, so a raw compare would
+    report EVERY historical generation as "edited" and write a phantom
+    MachineCorrection against it. That would irreversibly poison the
+    learn-from-edits corpus — the exact hazard the previous comment here warned
+    about ("re-parse both sides into PlannedMeal here if that ever lands").
+    This is that landing.
+
+    Round-tripping the stored side through today's model applies today's
+    defaults to both sides, so only real user edits register.
+
+    A blob that no longer parses can't be normalized; fall back to the raw
+    compare for it. That can over-report an edit on a corrupt row, which is the
+    tolerable direction — such a row is unusable as training data either way,
+    and the alternative (silently dropping real corrections) is worse.
+    """
+    submitted_json = submitted.model_dump_json()
+    try:
+        stored = PlannedMeal.model_validate_json(stored_output_json)
+    except ValidationError:
+        logger.warning(
+            "Generation output_json no longer parses as PlannedMeal — "
+            "falling back to a raw compare for edit detection"
+        )
+        return stored_output_json != submitted_json
+    return stored.model_dump_json() != submitted_json
 
 
 def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest:
@@ -244,6 +280,13 @@ async def cook_recipe(
             ),
         )
 
+    # leftover_of is server-assigned; strip whatever the client sent. This is a
+    # 1-day/1-meal plan, so a link is nonsense by construction (it could only
+    # ever point at this meal itself). Silently nulled rather than 422'd —
+    # there's no user-actionable error here, and the field isn't part of the
+    # documented request shape.
+    payload.recipe.leftover_of = None
+
     # Build a 1-day / 1-meal SingleDayResponse + MealPlanResponse so we can
     # reuse persist_meal_entries verbatim.
     day = SingleDayResponse(meals=[payload.recipe])
@@ -277,14 +320,11 @@ async def cook_recipe(
         session, payload.generation_id, current_user.id, surface="single_recipe"
     )
     if gen is not None:
-        # Raw JSON-string compare — correct only while both sides come from the
-        # same PlannedMeal serialization. If a field with a server-side default
-        # is later ADDED to PlannedMeal, output_json blobs stored before it will
-        # lack the key while a fresh dump includes it, so every pre-existing
-        # generation would compare as "edited" until backfilled. Re-parse both
-        # sides into PlannedMeal here if that ever lands.
+        # Schema-tolerant compare — see _recipe_was_edited. The RECORDED blobs
+        # stay raw on both sides (fidelity for the training corpus); only the
+        # edited/not-edited decision is normalized.
         after_json = payload.recipe.model_dump_json()
-        if gen.output_json != after_json:
+        if _recipe_was_edited(gen.output_json, payload.recipe):
             record_correction(
                 session,
                 user_id=current_user.id,
@@ -368,6 +408,10 @@ async def favorite_recipe(
             ),
         )
 
+    # Server-assigned field; strip it on this client-write path too (same
+    # reasoning as /recipe/cook).
+    payload.recipe.leftover_of = None
+
     day = SingleDayResponse(meals=[payload.recipe])
     plan_obj = MealPlanResponse(
         plan_id=None,
@@ -396,14 +440,9 @@ async def favorite_recipe(
         session, payload.generation_id, current_user.id, surface="single_recipe"
     )
     if gen is not None:
-        # Raw JSON-string compare — correct only while both sides come from the
-        # same PlannedMeal serialization. If a field with a server-side default
-        # is later ADDED to PlannedMeal, output_json blobs stored before it will
-        # lack the key while a fresh dump includes it, so every pre-existing
-        # generation would compare as "edited" until backfilled. Re-parse both
-        # sides into PlannedMeal here if that ever lands.
+        # Schema-tolerant compare — see _recipe_was_edited.
         after_json = payload.recipe.model_dump_json()
-        if gen.output_json != after_json:
+        if _recipe_was_edited(gen.output_json, payload.recipe):
             record_correction(
                 session,
                 user_id=current_user.id,

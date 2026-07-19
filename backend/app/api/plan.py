@@ -976,7 +976,23 @@ async def edit_meal(
 
     existing = day_meals[meal_index]
 
-    # Preserve slot identity; rewrite only content.
+    # A leftover has no ingredients of its own by invariant (they belong to its
+    # source meal), so accepting some here would fail PlannedMeal's validator
+    # below as an uncaught 500. Reject it as the 422 it is. Name/steps edits on
+    # a leftover stay allowed — a reheating note is legitimate.
+    if existing.leftover_of is not None and body.ingredients:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This meal is leftovers from an earlier meal and carries no "
+                "ingredients of its own — edit the source meal instead."
+            ),
+        )
+
+    # Preserve slot identity; rewrite only content. This is an explicit
+    # field-by-field rebuild, so every server-assigned field MUST be carried
+    # over by hand — anything omitted is silently destroyed by an unrelated
+    # edit. MealEditRequest deliberately cannot supply these.
     updated_meal = PlannedMeal(
         name=body.name,
         meal_type=existing.meal_type,
@@ -984,6 +1000,7 @@ async def edit_meal(
         ingredients=body.ingredients,
         steps=body.steps,
         total_time_minutes=body.total_time_minutes,
+        leftover_of=existing.leftover_of,
     )
     day_meals[meal_index] = updated_meal
     plan.response_json = plan_obj.model_dump_json()

@@ -244,6 +244,29 @@ class MealEntry(SQLModel, table=True):
     # those — expiration_date and need_to_use are not recoverable.
     consumed_snapshot_json: str | None = Field(default=None)
 
+    # --- Leftover projection (see app/services/leftovers.py) ---
+    #
+    # Derived from PlannedMeal.leftover_of in response_json, which stays
+    # canonical; these columns are recomputed by persist_meal_entries on every
+    # (re-)confirm. Denormalized here because meal_json is an opaque `str`, not
+    # JSONB — nothing inside it is SQL-queryable, and the calendar endpoint
+    # reads plain columns precisely so it never has to parse (and risk a
+    # ValidationError 500 on) every blob in a 92-day window.
+    #
+    # 1-BASED, matching day_index/meal_index on this table — NOT the 0-based
+    # LeftoverRef in the blob. Cross only via plan_service._ref_to_entry_coords.
+    #
+    # Intentionally no FK: these rows are bulk-deleted on unconfirm and
+    # re-minted on re-confirm, so entry ids aren't stable enough to reference.
+    # NULL on every existing row and on any non-leftover meal.
+    leftover_of_day_index: int | None = Field(default=None)
+    leftover_of_meal_index: int | None = Field(default=None)
+    # Denormalized source name so the calendar and plan lists can show
+    # provenance with no extra query and no blob parsing. Also the identity
+    # check that detects a link silently retargeted by regeneration — which
+    # never goes out of bounds, so a bounds check alone would not catch it.
+    leftover_source_name: str | None = Field(default=None)
+
     # RAG embedding — 384d from all-MiniLM-L6-v2, generated when is_favorite=True
     embedding: list[float] | None = Field(
         default=None, sa_column=Column(Vector(384), nullable=True)
