@@ -32,6 +32,7 @@ from app.models.plan_models import (
     MealPlanRequest,
     MealPlanResponse,
     PlannedMeal,
+    ShoppingListItem,
     SingleDayResponse,
     StockItemDTO,
 )
@@ -447,7 +448,7 @@ async def generate_plan_days(
     user: User,
     payload: MealPlanRequest,
     days: int,
-) -> tuple[list[SingleDayResponse], list[IngredientAmount], list[StockItemDTO]]:
+) -> tuple[list[SingleDayResponse], list[ShoppingListItem], list[StockItemDTO]]:
     """Generate a day-by-day meal plan.
 
     Returns (days, shopping_list, initial_fridge_snapshot). The snapshot is
@@ -526,7 +527,7 @@ async def generate_plan_days(
         remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
         past_meals.extend(m.name for m in single_day.meals)
 
-    shopping_items: list[IngredientAmount] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
+    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
     if payload.stock_only:
         if shopping_items:
             logger.warning(

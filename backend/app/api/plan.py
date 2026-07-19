@@ -22,7 +22,6 @@ from app.models.plan_models import (
     ConfirmPlanRequest,
     FavoriteToggleRequest,
     FinishPlanResponse,
-    IngredientAmount,
     MealEditRequest,
     MealEntrySummary,
     MealPlanRequest,
@@ -32,6 +31,7 @@ from app.models.plan_models import (
     PlanScheduleResponse,
     PlanScheduleUpdate,
     RegeneratePlanRequest,
+    ShoppingListItem,
     SingleDayResponse,
     StockItemDTO,
     validate_plan_start_date,
@@ -604,7 +604,7 @@ async def regenerate_plan(
         past_meals.extend(m.name for m in new_only)
 
     # 7) Recompute shopping list
-    shopping_items: list[IngredientAmount] = compute_shopping_list_from_plan(new_days, initial_fridge)
+    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(new_days, initial_fridge)
     if original_req.stock_only:
         if shopping_items:
             logger.warning(

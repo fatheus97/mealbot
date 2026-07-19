@@ -5,7 +5,9 @@ from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
     LeftoverRef,
+    MealPlanResponse,
     PlannedMeal,
+    ShoppingListItem,
     SingleDayResponse,
     StockItemDTO,
 )
@@ -109,14 +111,20 @@ class TestLeftoverSkipsAreDefenceInDepth:
 
 
 class TestShoppingListAggregateIsNotCapped:
-    """The shopping list SUMS one ingredient across every meal in the plan, but
-    IngredientAmount's 30kg cap bounds a SINGLE meal's amount. Building the
-    aggregate through the validating constructor makes a legitimate plan raise
-    uncaught -> 500 on generate/regenerate. Batch cooking (the whole point of
-    leftovers) makes large totals more likely, not less.
+    """The shopping list SUMS one ingredient across every meal, but
+    IngredientAmount's 30kg cap bounds a SINGLE meal's amount. Hence the
+    separate ShoppingListItem type, which carries no upper cap.
+
+    Bypassing validation at construction (model_construct) is NOT sufficient and
+    was an earlier, worse attempt at this fix: Pydantic only skips re-validation
+    for live model instances. The shopping list is serialized into
+    response_json, and every read rebuilds MealPlanResponse from raw JSON — so a
+    capped aggregate wouldn't fail at generation, it would make the stored plan
+    PERMANENTLY UNOPENABLE (500 on every read, no way to edit it back in range).
+    test_large_aggregate_survives_the_json_round_trip is the guard for that.
 
     Same call StockItemDTO already documents for itself: no upper cap on a value
-    that is reconstructed from summed quantities.
+    reconstructed from summed quantities.
     """
 
     def test_aggregate_above_the_per_meal_cap_does_not_raise(self):
@@ -142,6 +150,41 @@ class TestShoppingListAggregateIsNotCapped:
         # Relaxing the aggregate must NOT relax the per-ingredient input bound.
         with pytest.raises(ValidationError):
             IngredientAmount(name="rice", quantity_grams=30001)
+
+    def test_large_aggregate_survives_the_json_round_trip(self):
+        """THE guard the earlier model_construct fix missed.
+
+        Construction-time validation is only half the story: the plan is stored
+        as response_json and EVERY read rebuilds MealPlanResponse from raw JSON,
+        re-running field validation from scratch. If the aggregate were still
+        capped, this round-trip would raise — turning a plan that generated fine
+        into one that can never be opened again.
+        """
+        plan = [_day([_meal([("rice", 20000)]), _meal([("rice", 20000)])])]
+        resp = MealPlanResponse(
+            plan_id=1,
+            start_date=None,
+            days=plan,
+            shopping_list=compute_shopping_list_from_plan(plan, []),
+        )
+        blob = resp.model_dump_json()
+        reloaded = MealPlanResponse.model_validate_json(blob)
+        assert reloaded.shopping_list[0].quantity_grams == 40000
+
+    def test_legacy_blob_with_is_spice_still_parses(self):
+        """Shopping-list entries written while this was an IngredientAmount
+        carry an extra is_spice key. Pydantic ignores unknown fields, so old
+        plans must keep loading."""
+        item = ShoppingListItem.model_validate(
+            {"name": "rice", "quantity_grams": 500, "is_spice": False}
+        )
+        assert item.quantity_grams == 500
+
+    def test_shopping_list_item_rejects_nan_and_nonpositive(self):
+        with pytest.raises(ValidationError):
+            ShoppingListItem(name="rice", quantity_grams=float("nan"))
+        with pytest.raises(ValidationError):
+            ShoppingListItem(name="rice", quantity_grams=0)
 
 
 # --- compute_shopping_list_from_plan ---

@@ -9,6 +9,7 @@ from app.models.plan_models import (
     MealPlanRequest,
     MealPlanResponse,
     PlannedMeal,
+    ShoppingListItem,
     SingleDayResponse,
     StockItemDTO,
 )
@@ -334,7 +335,7 @@ class TestMealPlanResponseSerialization:
                     ]
                 )
             ],
-            shopping_list=[IngredientAmount(name="tofu", quantity_grams=300)],
+            shopping_list=[ShoppingListItem(name="tofu", quantity_grams=300)],
         )
 
         json_str = response.model_dump_json()
@@ -378,7 +379,7 @@ class TestMealPlanResponseSerialization:
                     ]
                 )
             ],
-            shopping_list=[IngredientAmount(name="chicken", quantity_grams=300)],
+            shopping_list=[ShoppingListItem(name="chicken", quantity_grams=300)],
         )
         restored = MealPlanResponse.model_validate_json(response.model_dump_json())
         ings = restored.days[0].meals[0].ingredients

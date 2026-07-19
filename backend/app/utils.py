@@ -1,12 +1,18 @@
 from collections import defaultdict
 
-from app.models.plan_models import IngredientAmount, PlannedMeal, SingleDayResponse, StockItemDTO
+from app.models.plan_models import (
+    IngredientAmount,
+    PlannedMeal,
+    ShoppingListItem,
+    SingleDayResponse,
+    StockItemDTO,
+)
 
 
 def compute_shopping_list_from_plan(
     days: list[SingleDayResponse],
     initial_fridge: list[StockItemDTO],
-) -> list[IngredientAmount]:
+) -> list[ShoppingListItem]:
     """
     Compute how much needs to be bought for the whole plan, based on:
     - total required grams from all meals,
@@ -45,32 +51,21 @@ def compute_shopping_list_from_plan(
         # remember original casing
         pretty_name.setdefault(key, item.name)
 
-    # Compute what we actually need to buy.
-    #
-    # model_construct, NOT the validating constructor: `missing` is a SUM across
-    # every meal in the plan, and IngredientAmount.validate_realistic_amount caps
-    # a SINGLE meal's amount at 30kg. A legitimate multi-day plan can total more
-    # than that for one staple (and batch cooking, which is what leftovers are
-    # for, makes it likelier) — the aggregate would then raise here, uncaught, as
-    # a 500 on generate/regenerate.
-    #
-    # This is the same call StockItemDTO already documents for itself: no upper
-    # cap, "because this DTO is also reconstructed internally from summed
-    # quantities which can legitimately exceed any single-value cap".
-    #
-    # Safe to skip validation: both inputs are already-validated values — the
-    # name comes from a validated fridge item or a validated ingredient name, and
-    # `missing` is a positive float by the check just below.
-    shopping: list[IngredientAmount] = []
+    # Compute what we actually need to buy. ShoppingListItem, not
+    # IngredientAmount: `missing` is a SUM across every meal, so the per-meal
+    # sanity cap must not apply to it (see ShoppingListItem's docstring — a
+    # capped aggregate would make the stored plan permanently unopenable, not
+    # just fail here). Normal validating construction is correct now that the
+    # type carries the right bounds.
+    shopping: list[ShoppingListItem] = []
     for key, needed in required.items():
         have = available.get(key, 0.0)
         missing = needed - have
         if missing > 1e-6:
             shopping.append(
-                IngredientAmount.model_construct(
+                ShoppingListItem(
                     name=pretty_name.get(key, key),
                     quantity_grams=missing,
-                    is_spice=False,
                 )
             )
 

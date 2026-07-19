@@ -230,6 +230,44 @@ class IngredientAmount(BaseModel):
         return v
 
 
+class ShoppingListItem(BaseModel):
+    """One line of a plan's shopping list: how much of an ingredient to BUY.
+
+    Deliberately NOT IngredientAmount. This is an AGGREGATE — one ingredient
+    summed across every meal in the plan, minus what the fridge already holds —
+    so IngredientAmount's per-meal sanity cap does not apply. A legitimate
+    multi-day plan can need more than 30kg of one staple, and batch cooking
+    (what leftovers are for) makes that likelier.
+
+    Applying the per-meal cap here isn't merely wrong, it's UNRECOVERABLE. The
+    shopping list is serialized into MealPlan.response_json, and every read
+    re-validates that blob from raw JSON — so a cap violation wouldn't fail at
+    generation, it would make the stored plan permanently unopenable (500 from
+    get_plan_detail, with no way to edit it back into range). That is precisely
+    the failure mode the leftovers design avoids elsewhere by validating on
+    write and degrading on read. Bypassing validation at construction time does
+    NOT help: Pydantic only skips re-validation for live model instances, never
+    for the JSON round-trip.
+
+    Same call StockItemDTO already documents for itself, for the same reason.
+
+    Still bounded where bounding matters: the name is length-capped and
+    fence-stripped like every other LLM/client-facing string, and the quantity
+    must be a positive real (allow_inf_nan=False keeps NaN out of the
+    arithmetic — see IngredientAmount for what NaN does to the fridge).
+
+    Wire-compatible with the old shape: blobs written when this was an
+    IngredientAmount carry an extra `is_spice` key, which Pydantic ignores.
+    """
+    name: str = Field(..., max_length=100)
+    quantity_grams: float = Field(..., gt=0, allow_inf_nan=False)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        return _strip_prompt_fence_tags(v)
+
+
 class ConsumedBatch(BaseModel):
     """A specific fridge batch (with its expiration + need_to_use) charged to a meal at confirm time."""
     name: str
@@ -425,7 +463,7 @@ class MealPlanResponse(BaseModel):
     # the column stays authoritative and there's no second copy to drift.
     start_date: date | None = None
     days: list[SingleDayResponse]
-    shopping_list: list[IngredientAmount]
+    shopping_list: list[ShoppingListItem]
 
 
 class ConfirmPlanRequest(BaseModel):
