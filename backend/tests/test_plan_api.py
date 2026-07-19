@@ -3,9 +3,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.core.config import settings
 from app.core.meal_types import MealType
+from app.models.db_models import MealEntry
 from app.models.plan_models import (
     IngredientAmount,
     MealPlanResponse,
@@ -868,3 +871,348 @@ class TestLeftoverCannotBeFavorited:
             headers=auth_headers, json={"is_favorite": True},
         )
         assert allowed.status_code == 200
+
+
+class TestRegenerateIsLeftoverSafe:
+    """Regeneration replaces meals POSITIONALLY without changing list lengths,
+    so a link whose source is regenerated stays in bounds and resolves to a
+    DIFFERENT dish — silently, with the plan then under-buying because the
+    leftover's ingredients were already excluded from the shopping list.
+
+    Group expansion makes that unreachable; these tests pin it end to end.
+    """
+
+    async def _plan_with_link(self, client: AsyncClient, auth_headers: dict) -> dict:
+        await client.patch(
+            "/api/users", headers=auth_headers,
+            json={"default_day_layout": ["hot_dinner", "light_lunch"]},
+        )
+        resp = await client.post(
+            "/api/plan?days=2", headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # day1.meal1 is leftovers of day0.meal0
+        assert body["days"][1]["meals"][1]["leftover_of"] == {
+            "day_index": 0, "meal_index": 0,
+        }
+        return body
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    async def test_freezing_the_leftover_also_freezes_its_source(
+        self, mock_partial: AsyncMock, mock_gen: AsyncMock,
+        client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """Freezing only the leftover must pull its source into the frozen set,
+        or the source gets regenerated and the link silently retargets."""
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        mock_partial.side_effect = lambda *a, **kw: SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Brand New Dish", meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                    steps=["new"],
+                )
+            ]
+        )
+        body = await self._plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        # Freeze ONLY the leftover (day 1, meal 1).
+        resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate", headers=auth_headers,
+            json={"frozen_meals": [{"day_index": 1, "meal_index": 1}]},
+        )
+        assert resp.status_code == 200
+        new_body = resp.json()
+
+        # The source must be untouched — expansion froze it too.
+        assert new_body["days"][0]["meals"][0]["name"] == body["days"][0]["meals"][0]["name"]
+        # And the link still points at the same dish.
+        leftover = new_body["days"][1]["meals"][1]
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}
+        assert leftover["name"] == body["days"][1]["meals"][1]["name"]
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    async def test_regenerating_the_group_drops_the_link(
+        self, mock_partial: AsyncMock, mock_gen: AsyncMock,
+        client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """When nothing in the group is frozen, both slots are regenerated into
+        fresh independent dishes. The link must be DROPPED: the source was not
+        asked to cook a bigger batch, so the leftover's food does not exist."""
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        mock_partial.side_effect = lambda *a, **kw: SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name=f"New Dish {i}", meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                    steps=["new"],
+                )
+                for i in range(4)
+            ]
+        )
+        body = await self._plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate", headers=auth_headers,
+            json={"frozen_meals": [{"day_index": 0, "meal_index": 1}]},
+        )
+        assert resp.status_code == 200
+        new_body = resp.json()
+
+        for day in new_body["days"]:
+            for m in day["meals"]:
+                assert m["leftover_of"] is None, "stale link survived regeneration"
+        # No leftover means nothing is excluded from the list any more, so the
+        # plan buys for every meal — no silent under-buy.
+        assert new_body["shopping_list"]
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_all_frozen_early_return_preserves_links(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """The all-frozen path returns the stored plan untouched. Intact by
+        construction — pinned so a future refactor cannot quietly break it."""
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        frozen = [
+            {"day_index": d, "meal_index": m}
+            for d in range(2) for m in range(2)
+        ]
+        resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate", headers=auth_headers,
+            json={"frozen_meals": frozen},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["days"][1]["meals"][1]["leftover_of"] == {
+            "day_index": 0, "meal_index": 0,
+        }
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    async def test_link_dropped_even_when_the_new_source_reuses_the_name(
+        self, mock_partial: AsyncMock, mock_gen: AsyncMock,
+        client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """The case NEITHER the meal-replacement nor the identity check covers.
+
+        Regenerating a slot normally drops the link for free, because the slot
+        gets a whole new PlannedMeal whose leftover_of is None. But
+        `except StopIteration: break` in the merge leaves the ORIGINAL meal —
+        link and all — at any unfrozen index the LLM under-filled. So "unfrozen"
+        does NOT imply "replaced".
+
+        Stack that with a regenerated source that happens to REUSE its name and
+        the identity check passes too: the link survives, pointing at a dish
+        that was never batch-cooked. The leftover's ingredients stay excluded
+        from the shopping list, so the plan silently under-buys.
+
+        Only the group-was-regenerated drop catches this. Verified by mutation.
+        """
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+        source_name = body["days"][0]["meals"][0]["name"]
+
+        # ONE meal per call for a 2-slot day: index 0 is replaced, index 1 keeps
+        # its original (which on day 1 is the leftover, link intact). The
+        # replacement reuses the source's name so the identity check sees no
+        # change.
+        mock_partial.side_effect = lambda *a, **kw: SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name=source_name,
+                    meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="rice", quantity_grams=999)],
+                    steps=["completely different method"],
+                )
+            ]
+        )
+
+        resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate", headers=auth_headers,
+            json={"frozen_meals": []},
+        )
+        assert resp.status_code == 200
+        for day in resp.json()["days"]:
+            for m in day["meals"]:
+                assert m["leftover_of"] is None, (
+                    "a stale link survived: the leftover slot kept its original "
+                    "meal (short LLM response) and the new source reused the "
+                    "old name, so neither replacement nor identity caught it"
+                )
+
+
+class TestEditSourceFansOutToLeftovers:
+    """A leftover's display name and its MealEntry.leftover_source_name both
+    embed the source's name. Without a fan-out a rename leaves stale text in
+    GET /plan/{id}/meals, the calendar grid and the cookbook — and breaks the
+    identity check that detects a silently-retargeted link."""
+
+    async def _confirmed_plan_with_link(
+        self, client: AsyncClient, auth_headers: dict,
+    ) -> dict:
+        await client.patch(
+            "/api/users", headers=auth_headers,
+            json={"default_day_layout": ["hot_dinner", "light_lunch"]},
+        )
+        resp = await client.post(
+            "/api/plan?days=2", headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        body = resp.json()
+        confirm = await client.post(
+            "/api/plan/" + str(body["plan_id"]) + "/confirm", headers=auth_headers,
+        )
+        assert confirm.status_code == 200
+        return body
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_renaming_the_source_updates_its_leftovers(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._confirmed_plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0", headers=auth_headers,
+            json={
+                "name": "Renamed Roast",
+                "ingredients": [{"name": "rice", "quantity_grams": 200}],
+                "steps": ["roast"],
+            },
+        )
+        assert resp.status_code == 200
+
+        plan_resp = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
+        leftover = plan_resp.json()["days"][1]["meals"][1]
+        assert leftover["name"] == "Leftovers: Renamed Roast"
+        assert "Renamed Roast" in leftover["steps"][0]
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}
+
+        # The projection the calendar and plan list read from must agree.
+        entries = (
+            await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)
+        ).json()
+        dep = next(e for e in entries if e["day_index"] == 2 and e["meal_index"] == 2)
+        assert dep["name"] == "Leftovers: Renamed Roast"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_editing_only_steps_does_not_touch_dependents(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """The fan-out is keyed on the NAME changing — an unrelated content edit
+        must not rewrite dependents."""
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._confirmed_plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+        before = body["days"][1]["meals"][1]["name"]
+
+        source_name = body["days"][0]["meals"][0]["name"]
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0", headers=auth_headers,
+            json={
+                "name": source_name,  # unchanged
+                "ingredients": [{"name": "rice", "quantity_grams": 250}],
+                "steps": ["roast differently"],
+            },
+        )
+        assert resp.status_code == 200
+
+        plan_resp = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
+        assert plan_resp.json()["days"][1]["meals"][1]["name"] == before
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_fan_out_updates_the_projection_columns(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        db_session: AsyncSession, leftovers_on,
+    ):
+        """Asserts leftover_source_name and meal_json on the MealEntry row
+        DIRECTLY, because no endpoint exposes either field — MealEntrySummary
+        projects only id/day/meal/name/meal_type/cooked_at/is_favorite.
+
+        Without this the fan-out's projection writes have no killing test:
+        deleting them leaves the whole suite green while the denormalized source
+        name goes permanently stale on a confirmed plan. That field is what
+        detects a link silently retargeted by regeneration, so a stale value
+        degrades the safety net this slice exists to add.
+        """
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._confirmed_plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0", headers=auth_headers,
+            json={
+                "name": "Renamed Roast",
+                "ingredients": [{"name": "rice", "quantity_grams": 200}],
+                "steps": ["roast"],
+            },
+        )
+        assert resp.status_code == 200
+
+        dep_entry = (
+            await db_session.execute(
+                select(MealEntry).where(
+                    MealEntry.meal_plan_id == plan_id,
+                    MealEntry.day_index == 2,
+                    MealEntry.meal_index == 2,
+                )
+            )
+        ).scalars().one()
+        assert dep_entry.leftover_source_name == "Renamed Roast"
+        assert "Renamed Roast" in dep_entry.meal_json
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_fan_out_does_not_clobber_a_user_edited_leftover(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """Editing a leftover's name and steps is explicitly allowed (only
+        ingredients are rejected), and response_json is the ONLY copy. A later
+        rename of the source must not destroy that wording.
+
+        Only text still matching what the generator produced gets refreshed.
+        """
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._confirmed_plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        # User customises the leftover.
+        custom = await client.patch(
+            f"/api/plan/{plan_id}/days/1/meals/1", headers=auth_headers,
+            json={
+                "name": "Tuesday lunch box",
+                "ingredients": [],
+                "steps": ["Pack cold, add dressing at the office."],
+            },
+        )
+        assert custom.status_code == 200
+
+        # Then renames the source.
+        renamed = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0", headers=auth_headers,
+            json={
+                "name": "Renamed Roast",
+                "ingredients": [{"name": "rice", "quantity_grams": 200}],
+                "steps": ["roast"],
+            },
+        )
+        assert renamed.status_code == 200
+
+        leftover = (
+            await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
+        ).json()["days"][1]["meals"][1]
+        assert leftover["name"] == "Tuesday lunch box", "user's name was clobbered"
+        assert leftover["steps"] == [
+            "Pack cold, add dressing at the office."
+        ], "user's steps were clobbered"
+        # The link itself survives — only the display text was the user's.
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}

@@ -301,6 +301,95 @@ def validate_leftover_graph(
     return violations
 
 
+def leftover_display_name(source_name: str) -> str:
+    """The generated name for a leftover of `source_name`.
+
+    Defined once and shared by the code that CREATES a leftover and the code
+    that renames one after its source is edited — so the two can never drift,
+    and so "is this still the generated text, or did the user customise it?"
+    is an exact comparison rather than a guess.
+
+    Truncated to PlannedMeal.name's 200-char cap: a long source name would
+    otherwise raise outside the guarded generation block and 500 the request.
+    """
+    return f"Leftovers: {source_name}"[:200]
+
+
+def leftover_steps(source_name: str) -> list[str]:
+    """The generated steps for a leftover of `source_name`. See
+    leftover_display_name for why this is shared."""
+    return [f"Reheat the {source_name} you cooked earlier and serve."[:1000]]
+
+
+def expand_leftover_groups(
+    frozen: set[tuple[int, int]], plan: MealPlanResponse
+) -> set[tuple[int, int]]:
+    """Grow `frozen` so every leftover link group is entirely in or entirely out.
+
+    A "group" is a source meal plus every leftover pointing at it. Regeneration
+    replaces meals POSITIONALLY and never changes list lengths
+    (``merged_meals[idx] = next(new_meal_iter)``), so a link's indices stay in
+    bounds and resolve cleanly — to a completely different dish. Nothing raises,
+    nothing logs, and the plan silently under-buys because the leftover's
+    ingredients were already excluded from the shopping list.
+
+    A bounds check cannot catch that. This is the structural fix: freeze or
+    regenerate a group ATOMICALLY, so "source regenerated while its leftover was
+    frozen" (and the mirror) cannot arise in the first place.
+
+    Rule: if ANY member of a group is frozen, freeze the whole group. Chosen
+    over the inverse (unfreeze all) because it is the conservative direction —
+    it preserves what the user explicitly asked to keep, and the regenerate
+    endpoint already treats freezing as the deliberate act.
+
+    Returns a NEW set; the caller's is not mutated.
+    """
+    expanded = set(frozen)
+    # Iterate to a fixed point: freezing a source can pull in dependents whose
+    # own sources then need freezing too. Bounded by the number of meals.
+    while True:
+        added: set[tuple[int, int]] = set()
+        for day_index, day in enumerate(plan.days):
+            for meal_index, m in enumerate(day.meals):
+                if m.leftover_of is None:
+                    continue
+                src = (m.leftover_of.day_index, m.leftover_of.meal_index)
+                here = (day_index, meal_index)
+                # Either end frozen pulls the other in.
+                if here in expanded and src not in expanded:
+                    added.add(src)
+                elif src in expanded and here not in expanded:
+                    added.add(here)
+        if not added:
+            return expanded
+        expanded |= added
+
+
+def leftover_source_names(plan: MealPlanResponse) -> dict[tuple[int, int], str]:
+    """Snapshot each leftover's CURRENT source name, keyed by the leftover's own
+    0-based position.
+
+    Taken before a regeneration so the result can be compared afterwards: if the
+    source at those indices is now a different dish, the link silently
+    retargeted. Identity is the only detector that works here — the indices
+    remain valid by construction, so a bounds check sees nothing wrong.
+    """
+    names: dict[tuple[int, int], str] = {}
+    for day_index, day in enumerate(plan.days):
+        for meal_index, m in enumerate(day.meals):
+            if m.leftover_of is None:
+                continue
+            try:
+                names[(day_index, meal_index)] = (
+                    plan.days[m.leftover_of.day_index]
+                    .meals[m.leftover_of.meal_index]
+                    .name
+                )
+            except IndexError:
+                continue
+    return names
+
+
 def leftover_dependents(
     plan: MealPlanResponse, day_index: int, meal_index: int
 ) -> list[tuple[int, int]]:
