@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from app.api.deps import get_current_user, require_active_subscription, usage_capture
+from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
@@ -372,6 +373,17 @@ async def plan_meals_for_user(
     payload.variability = cast(Variability, var_raw)
 
     payload.include_spices = bool(current_user.include_spices)
+
+    # Server-owned, exactly like the fields above: overwrite whatever the client
+    # sent. MealPlanRequest is bound from the public request body, so leaving
+    # this client-settable would let anyone reading the auto-generated schema
+    # opt into a half-built feature (regeneration + edit fan-out land in the
+    # next slice; until then a link that survives a regenerate silently
+    # retargets to a different dish and the plan under-buys).
+    #
+    # When leftovers ship for real this becomes a per-user preference read off
+    # the User row, the same way include_spices is above.
+    payload.leftover_policy = "auto" if settings.leftovers_enabled else "none"
 
     if payload.day_layouts is not None and len(payload.day_layouts) != days:
         raise HTTPException(

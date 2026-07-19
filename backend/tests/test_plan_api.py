@@ -1,8 +1,10 @@
 import logging
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from httpx import AsyncClient
 
+from app.core.config import settings
 from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
@@ -633,9 +635,20 @@ def _fake_two_slot_day() -> SingleDayResponse:
     )
 
 
+@pytest.fixture
+def leftovers_on(monkeypatch: pytest.MonkeyPatch):
+    """Enable leftover planning for a test.
+
+    The feature is gated on settings.leftovers_enabled, NOT on the request
+    field — the endpoint overwrites payload.leftover_policy from the setting so
+    a client can't opt into a half-built path via the public schema.
+    """
+    monkeypatch.setattr(settings, "leftovers_enabled", True)
+
+
 class TestLeftoverPolicyEndToEnd:
-    """generate_plan_days with leftover_policy="auto" — the first slice where a
-    link actually gets created. The LLM is mocked, so what's under test is the
+    """generate_plan_days with leftovers enabled — the first slice where a link
+    actually gets created. The LLM is mocked, so what's under test is the
     server-side assignment, the batch instruction it sends, and the accounting
     that follows from it.
     """
@@ -647,36 +660,60 @@ class TestLeftoverPolicyEndToEnd:
         assert resp.status_code == 200
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
-    async def test_default_policy_creates_no_links(
+    async def test_disabled_by_default_creates_no_links(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
-        """Opt-in: omitting leftover_policy must behave exactly as before, with
-        no links and no batch instruction."""
+        """settings.leftovers_enabled is OFF by default: behaviour is exactly as
+        before this feature, with no links and no batch instruction."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
-        await self._set_layout(client, auth_headers, ["hot_dinner"])
+        await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
 
         resp = await client.post(
             "/api/plan?days=2", headers=auth_headers,
-            json={"meals_per_day": 1, "people_count": 2},
+            json={"meals_per_day": 2, "people_count": 2},
         )
         assert resp.status_code == 200
-        body = resp.json()
-        for day in body["days"]:
+        for day in resp.json()["days"]:
             for m in day["meals"]:
                 assert m["leftover_of"] is None
         for call in mock_gen.await_args_list:
-            assert call.kwargs["slot_portions"] in (None, [1])
+            assert call.kwargs["slot_portions"] == [1, 1]
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_client_cannot_opt_in_via_the_request_body(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        """THE rollout gate. MealPlanRequest is bound from the public request
+        body, so without a server-side overwrite anyone reading the
+        auto-generated schema could enable a half-built feature (regeneration
+        and the edit fan-out land in the next slice). The endpoint overwrites
+        leftover_policy from settings, exactly as it does include_spices."""
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
+
+        resp = await client.post(
+            "/api/plan?days=2", headers=auth_headers,
+            json={
+                "meals_per_day": 2,
+                "people_count": 2,
+                "leftover_policy": "auto",  # ignored: settings say otherwise
+            },
+        )
+        assert resp.status_code == 200
+        for day in resp.json()["days"]:
+            for m in day["meals"]:
+                assert m["leftover_of"] is None, "client opted into a gated feature"
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_auto_policy_links_lunch_to_previous_dinner(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
     ):
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
 
         resp = await client.post(
             "/api/plan?days=2", headers=auth_headers,
-            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "auto"},
+            json={"meals_per_day": 2, "people_count": 2},
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -695,7 +732,7 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_leftover_is_excluded_from_past_meals(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
     ):
         """past_meals is an anti-repetition signal. A leftover appearing there
         would push the model away from the very dish it was told to reuse."""
@@ -704,7 +741,7 @@ class TestLeftoverPolicyEndToEnd:
 
         resp = await client.post(
             "/api/plan?days=3", headers=auth_headers,
-            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "auto"},
+            json={"meals_per_day": 2, "people_count": 2},
         )
         assert resp.status_code == 200
 
@@ -715,38 +752,40 @@ class TestLeftoverPolicyEndToEnd:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_shopping_list_does_not_double_buy_the_leftover(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """The end-to-end payoff: the leftover's food is bought once, with the
-        source meal, not twice."""
+        source meal, not twice.
+
+        Toggles the setting between the two requests rather than the request
+        body — the endpoint overwrites the body value, which is the point.
+        """
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
+        body = {"meals_per_day": 2, "people_count": 2}
 
-        auto = await client.post(
-            "/api/plan?days=2", headers=auth_headers,
-            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "auto"},
-        )
-        assert auto.status_code == 200
-        auto_rice = next(
-            i["quantity_grams"] for i in auto.json()["shopping_list"] if i["name"] == "rice"
+        monkeypatch.setattr(settings, "leftovers_enabled", False)
+        off = await client.post("/api/plan?days=2", headers=auth_headers, json=body)
+        assert off.status_code == 200
+        off_rice = next(
+            i["quantity_grams"] for i in off.json()["shopping_list"] if i["name"] == "rice"
         )
 
-        none_resp = await client.post(
-            "/api/plan?days=2", headers=auth_headers,
-            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "none"},
-        )
-        assert none_resp.status_code == 200
-        none_rice = next(
-            i["quantity_grams"] for i in none_resp.json()["shopping_list"] if i["name"] == "rice"
+        monkeypatch.setattr(settings, "leftovers_enabled", True)
+        on = await client.post("/api/plan?days=2", headers=auth_headers, json=body)
+        assert on.status_code == 200
+        on_rice = next(
+            i["quantity_grams"] for i in on.json()["shopping_list"] if i["name"] == "rice"
         )
 
         # One of the four meals became a leftover, so exactly one meal's worth
         # of rice drops out of the list.
-        assert auto_rice < none_rice
-        assert none_rice - auto_rice == 200
+        assert on_rice < off_rice
+        assert off_rice - on_rice == 200
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_auto_policy_without_a_layout_creates_no_links(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
     ):
         """The legacy meals_per_day path has no resolved layout, so we can't
         know which slot to scale — no links, rather than a wrong one."""
@@ -754,7 +793,7 @@ class TestLeftoverPolicyEndToEnd:
 
         resp = await client.post(
             "/api/plan?days=2", headers=auth_headers,
-            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "auto"},
+            json={"meals_per_day": 2, "people_count": 2},
         )
         assert resp.status_code == 200
         for day in resp.json()["days"]:
@@ -765,7 +804,7 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_generated_plan_satisfies_the_graph_invariants(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
     ):
         """The planner and the invariant checker must agree — the contract most
         likely to drift silently as either side evolves."""
@@ -776,7 +815,7 @@ class TestLeftoverPolicyEndToEnd:
 
         resp = await client.post(
             "/api/plan?days=4", headers=auth_headers,
-            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "auto"},
+            json={"meals_per_day": 2, "people_count": 2},
         )
         assert resp.status_code == 200
         plan_obj = MealPlanResponse.model_validate(resp.json())
@@ -798,7 +837,7 @@ class TestLeftoverCannotBeFavorited:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_favoriting_a_leftover_is_rejected(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
     ):
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         await client.patch(
@@ -807,7 +846,7 @@ class TestLeftoverCannotBeFavorited:
         )
         plan_resp = await client.post(
             "/api/plan?days=2", headers=auth_headers,
-            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "auto"},
+            json={"meals_per_day": 2, "people_count": 2},
         )
         plan_id = plan_resp.json()["plan_id"]
         await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
