@@ -124,8 +124,16 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 `/health`. Registration locked, demo mode on. Nothing left to do here.
 
 **Operating the deployment** (reference):
+- **Deploys are automatic — merging to `main` IS the deploy.**
+  `.github/workflows/deploy.yml` fires on `push: branches: [main]`, SSHes to the
+  box (forced `command=".../deploy.sh"`), and `deploy.sh` pulls `origin/main` and
+  rebuilds. A squash-merge is live on trymealbot.com in ~2 min, migrations
+  included (the one-shot `migrate` service). Check a deploy with
+  `gh run list --workflow=deploy.yml`. *(Caveat: a Dependabot **bot** auto-merge
+  does not trigger the workflow — a normal merge does.)*
 - Access: SSH to the server (host + credentials kept in local notes, out of the repo).
-- Deploy updates: `cd /opt/mealbot && git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (migrations auto-run via the `migrate` service — no manual `alembic upgrade head`).
+- Manual deploy — **fallback only** (if deploy.yml failed, or an out-of-band change
+  on the box): `cd /opt/mealbot && git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
 - Create alpha users: `docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m app.scripts.create_user --email EMAIL --password PASSWORD`.
 
 > Loose end tracked in Cross-cutting: tighten SSH access (dedicated sudo user
