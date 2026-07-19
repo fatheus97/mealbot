@@ -28,6 +28,7 @@ from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
     ConsumedBatch,
     IngredientAmount,
+    LeftoverRef,
     MealPlanRequest,
     MealPlanResponse,
     PlannedMeal,
@@ -98,6 +99,49 @@ def parse_meal_ingredients(entry: MealEntry) -> list[IngredientAmount]:
     """Parse a MealEntry's JSON back into ingredient list (excluding spices)."""
     meal = PlannedMeal.model_validate_json(entry.meal_json)
     return [ing for ing in meal.ingredients if not ing.is_spice]
+
+
+def _ref_to_entry_coords(ref: LeftoverRef | None) -> tuple[int | None, int | None]:
+    """THE single 0-based -> 1-based crossing point for leftover links.
+
+    LeftoverRef indices are 0-based (they address positions inside
+    response_json, matching FrozenMeal); MealEntry.day_index/meal_index are
+    1-based. This codebase deliberately mixes both conventions, and an
+    off-by-one in a leftover pointer never 404s — it resolves to a real
+    neighbouring meal and renders confidently wrong. Keep the +1 here and
+    nowhere else.
+    """
+    if ref is None:
+        return None, None
+    return ref.day_index + 1, ref.meal_index + 1
+
+
+def _leftover_source_name(
+    plan_obj: MealPlanResponse, ref: LeftoverRef | None
+) -> str | None:
+    """Name of the meal `ref` points at, or None if unset/unresolvable.
+
+    Stored denormalized on MealEntry so provenance renders without parsing
+    meal_json, and so a link silently retargeted by regeneration can be
+    detected by comparing names (the indices stay in bounds, so a bounds check
+    cannot see it).
+
+    Returns None rather than raising on an out-of-range ref: this runs during
+    persistence, where refusing to write the whole plan over a bad pointer
+    would be a worse failure than losing a display string.
+    """
+    if ref is None:
+        return None
+    try:
+        return plan_obj.days[ref.day_index].meals[ref.meal_index].name
+    except IndexError:
+        logger.warning(
+            "leftover_of points outside the plan (day %d meal %d) — "
+            "storing no source name",
+            ref.day_index,
+            ref.meal_index,
+        )
+        return None
 
 
 def batches_from_entry(entry: MealEntry) -> list[ConsumedBatch]:
@@ -342,6 +386,7 @@ def persist_meal_entries(
                 snapshot_json = json.dumps(
                     [b.model_dump(mode="json") for b in batches]
                 )
+            lo_day, lo_meal = _ref_to_entry_coords(meal.leftover_of)
             entries.append(
                 MealEntry(
                     user_id=user_id,
@@ -353,6 +398,9 @@ def persist_meal_entries(
                     meal_json=meal.model_dump_json(),
                     cooked_at=cooked_at,
                     consumed_snapshot_json=snapshot_json,
+                    leftover_of_day_index=lo_day,
+                    leftover_of_meal_index=lo_meal,
+                    leftover_source_name=_leftover_source_name(plan_obj, meal.leftover_of),
                 )
             )
 

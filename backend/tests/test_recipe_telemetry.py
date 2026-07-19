@@ -170,6 +170,124 @@ class TestCorrectionCapture:
         assert corrs == []
 
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_legacy_generation_blob_is_not_reported_as_edited(
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session: AsyncSession,
+        test_user: User,
+    ):
+        """A generation stored BEFORE PlannedMeal gained `leftover_of` lacks that
+        key, while a fresh model_dump_json() includes it as null.
+
+        A raw string compare would therefore call every historical generation
+        "edited" and write a phantom MachineCorrection against it — silently
+        poisoning the whole learn-from-edits corpus with fabricated deltas. The
+        endpoint parses both sides through the current model instead, so only
+        real user edits register.
+
+        This is the regression test for the hazard the old comment at
+        recipe.py warned about ("re-parse both sides ... if that ever lands").
+        """
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500},
+                  {"name": "carrot", "quantity_grams": 300}],
+        )
+        recipe = _fake_recipe()
+
+        # Hand-build the pre-feature blob: an exact dump minus the new key.
+        legacy_payload = recipe.model_dump(mode="json")
+        legacy_payload.pop("leftover_of")
+        assert "leftover_of" not in legacy_payload
+        import json as _json
+
+        gen = MachineGeneration(
+            user_id=test_user.id,
+            surface="single_recipe",
+            output_json=_json.dumps(legacy_payload),
+            request_json="{}",
+        )
+        db_session.add(gen)
+        await db_session.commit()
+        await db_session.refresh(gen)
+
+        # Cook it completely unedited.
+        resp = await client.post(
+            "/api/recipe/cook",
+            headers=auth_headers,
+            json=_cook_body(recipe.model_dump(mode="json"), gen.id),
+        )
+        assert resp.status_code == 200
+
+        await db_session.commit()
+        corrs = (
+            await db_session.execute(
+                select(MachineCorrection).where(
+                    MachineCorrection.user_id == test_user.id
+                )
+            )
+        ).scalars().all()
+        assert corrs == [], (
+            "an unedited cook of a pre-leftover_of generation recorded a "
+            "phantom correction — the edit-telemetry corpus is being poisoned"
+        )
+
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_legacy_generation_blob_still_detects_a_real_edit(
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+        db_session: AsyncSession,
+        test_user: User,
+    ):
+        """The schema-tolerant compare must not go blind: a genuine edit against
+        a legacy blob still records a correction."""
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500},
+                  {"name": "carrot", "quantity_grams": 300}],
+        )
+        recipe = _fake_recipe()
+        legacy_payload = recipe.model_dump(mode="json")
+        legacy_payload.pop("leftover_of")
+        import json as _json
+
+        gen = MachineGeneration(
+            user_id=test_user.id,
+            surface="single_recipe",
+            output_json=_json.dumps(legacy_payload),
+            request_json="{}",
+        )
+        db_session.add(gen)
+        await db_session.commit()
+        await db_session.refresh(gen)
+
+        edited = recipe.model_dump(mode="json")
+        edited["name"] = "Renamed by the user"
+
+        resp = await client.post(
+            "/api/recipe/cook",
+            headers=auth_headers,
+            json=_cook_body(edited, gen.id),
+        )
+        assert resp.status_code == 200
+
+        await db_session.commit()
+        corrs = (
+            await db_session.execute(
+                select(MachineCorrection).where(
+                    MachineCorrection.user_id == test_user.id
+                )
+            )
+        ).scalars().all()
+        assert len(corrs) == 1
+
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_cook_foreign_generation_id_not_linked(
         self,
         mock_gen: AsyncMock,

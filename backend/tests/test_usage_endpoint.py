@@ -14,7 +14,7 @@ from app.core.meal_types import MealType
 from app.core.security import get_password_hash
 from app.llm.client import llm_client
 from app.models.db_models import LlmUsage, User
-from app.models.plan_models import IngredientAmount, PlannedMeal, SingleDayResponse
+from app.models.plan_models import GeneratedMeal, IngredientAmount, LlmDayResponse
 
 
 def _usage(
@@ -31,10 +31,12 @@ def _usage(
     )
 
 
-def _fake_day() -> SingleDayResponse:
-    return SingleDayResponse(
+def _fake_day() -> LlmDayResponse:
+    # Mirrors what llm_client.chat_json returns for a day generation: the
+    # LLM-facing schema (leftover_of is server-assigned and absent from it).
+    return LlmDayResponse(
         meals=[
-            PlannedMeal(
+            GeneratedMeal(
                 name="Test Lunch",
                 meal_type=MealType.LIGHT_LUNCH,
                 ingredients=[

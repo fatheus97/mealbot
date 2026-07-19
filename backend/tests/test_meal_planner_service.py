@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.core.meal_types import MealType
 from app.models.plan_models import (
+    GeneratedMeal,
     IngredientAmount,
+    LlmDayResponse,
     MealPlanRequest,
     PlannedMeal,
     SingleDayResponse,
@@ -37,13 +39,20 @@ def _make_request(**overrides: Any) -> MealPlanRequest:
     return MealPlanRequest(**defaults)
 
 
-def _make_single_day_response(
+def _make_llm_day_response(
     meal_name: str = "Test Meal",
     meal_type: MealType = MealType.LIGHT_LUNCH,
-) -> SingleDayResponse:
-    return SingleDayResponse(
+) -> LlmDayResponse:
+    """What llm_client.chat_json actually returns for a day generation.
+
+    LlmDayResponse/GeneratedMeal, not SingleDayResponse/PlannedMeal: leftover_of
+    is server-assigned and deliberately absent from the LLM-facing schema, and
+    the service widens the raw response via to_planned_day(). Mocking the
+    stored type here would let a mismatch pass unnoticed.
+    """
+    return LlmDayResponse(
         meals=[
-            PlannedMeal(
+            GeneratedMeal(
                 name=meal_name,
                 meal_type=meal_type,
                 ingredients=[IngredientAmount(name="chicken", quantity_grams=200)],
@@ -56,22 +65,25 @@ def _make_single_day_response(
 class TestGenerateSingleDay:
     @patch("app.services.meal_planner.llm_client")
     async def test_calls_llm_with_correct_response_model(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         req = _make_request()
         result = await generate_single_day(req)
 
+        # The service widens the raw LLM response into the stored type.
         assert isinstance(result, SingleDayResponse)
         assert len(result.meals) == 1
+        assert result.meals[0].leftover_of is None
         mock_llm.chat_json.assert_awaited_once()
 
-        # Verify response_model is SingleDayResponse
+        # The LLM is asked for LlmDayResponse, NOT SingleDayResponse — that is
+        # what keeps leftover_of out of the structured-output schema.
         call_kwargs = mock_llm.chat_json.call_args
-        assert call_kwargs.kwargs["response_model"] == SingleDayResponse
+        assert call_kwargs.kwargs["response_model"] == LlmDayResponse
 
     @patch("app.services.meal_planner.llm_client")
     async def test_passes_system_prompt(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         await generate_single_day(_make_request())
 
@@ -80,7 +92,7 @@ class TestGenerateSingleDay:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_user_prompt_rendered_from_template(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         req = _make_request(taste_preferences=["asian", "spicy"])
         await generate_single_day(req)
@@ -94,7 +106,7 @@ class TestGenerateSingleDay:
 class TestGeneratePartialDay:
     @patch("app.services.meal_planner.llm_client")
     async def test_partial_day_returns_response(self, mock_llm: MagicMock):
-        new_meal = _make_single_day_response("New Dinner", MealType.HOT_DINNER)
+        new_meal = _make_llm_day_response("New Dinner", MealType.HOT_DINNER)
         mock_llm.chat_json = AsyncMock(return_value=new_meal)
 
         frozen_meals = [
@@ -119,9 +131,9 @@ class TestGeneratePartialDay:
     @patch("app.services.meal_planner.llm_client")
     async def test_warns_on_mismatched_meal_types(self, mock_llm: MagicMock, caplog):
         """When LLM returns wrong meal_types, should log warning but still return."""
-        wrong_type = SingleDayResponse(
+        wrong_type = LlmDayResponse(
             meals=[
-                PlannedMeal(
+                GeneratedMeal(
                     name="Wrong Breakfast",
                     meal_type=MealType.SAVORY_BREAKFAST,  # Expected hot_dinner
                     ingredients=[IngredientAmount(name="eggs", quantity_grams=100)],
@@ -148,7 +160,7 @@ class TestGeneratePartialDay:
         """When a slot_layout is supplied, the prompt must list the exact
         meal_types in order so the LLM can't freelance the day structure."""
         mock_llm.chat_json = AsyncMock(
-            return_value=_make_single_day_response("Soup", MealType.SOUP),
+            return_value=_make_llm_day_response("Soup", MealType.SOUP),
         )
 
         layout = [MealType.SWEET_BREAKFAST.value, MealType.SNACK.value, MealType.SOUP.value]
@@ -167,7 +179,7 @@ class TestGeneratePartialDay:
     async def test_single_day_no_slot_layout_keeps_legacy_prompt(
         self, mock_llm: MagicMock,
     ):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request(meals_per_day=4), day_index=1)
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert "exactly one day with 4 meals" in prompt
@@ -179,7 +191,7 @@ class TestGeneratePartialDay:
     ):
         # LLM returns snack where the layout asked for soup → warn, don't raise.
         mock_llm.chat_json = AsyncMock(
-            return_value=_make_single_day_response("Oops", MealType.SNACK),
+            return_value=_make_llm_day_response("Oops", MealType.SNACK),
         )
 
         with caplog.at_level(logging.WARNING, logger="app.services.meal_planner"):
@@ -198,7 +210,10 @@ class TestGeneratePartialDay:
     ):
         """Covers the translation path explicitly: an LLM response that somehow
         emits a legacy value (or a stored row re-serialized) still deserializes."""
-        legacy_response = SingleDayResponse.model_validate(
+        # Validated as LlmDayResponse: the legacy-value translator lives on
+        # GeneratedMeal, so this also pins that PlannedMeal still inherits it
+        # through the to_planned_day() widening.
+        legacy_response = LlmDayResponse.model_validate(
             {
                 "meals": [
                     {
@@ -227,7 +242,7 @@ class TestGeneratePartialDay:
 class TestPromptContent:
     @patch("app.services.meal_planner.llm_client")
     async def test_ingredients_to_use_section_rendered(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request(ingredients_to_use=["rajčata", "tofu"]))
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert "Priority ingredients to use this run" in prompt
@@ -236,7 +251,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_ingredients_to_use_none_specified_when_empty(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request(ingredients_to_use=[]))
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         # User-origin list fields are now wrapped in <user_content> tags for
@@ -250,7 +265,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_total_time_minutes_in_schema_and_rules(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request())
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         # Schema block contains the field
@@ -261,7 +276,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_total_time_minutes_in_partial_prompt(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER))
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response("Dinner", MealType.HOT_DINNER))
         await generate_partial_day(
             _make_request(), frozen_meals=[], slots_to_generate=["dinner"],
         )
@@ -270,7 +285,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_replaced_meals_block_rendered_when_provided(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER))
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response("Dinner", MealType.HOT_DINNER))
         await generate_partial_day(
             _make_request(),
             frozen_meals=[],
@@ -286,7 +301,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_replaced_meals_block_none_when_empty(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER))
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response("Dinner", MealType.HOT_DINNER))
         await generate_partial_day(
             _make_request(),
             frozen_meals=[],
@@ -300,7 +315,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_baby_food_block_rendered_only_when_selected(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request(diet_type="baby_food"))
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert "INFANT FOOD MODE" in prompt
@@ -308,7 +323,7 @@ class TestPromptContent:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_baby_food_block_absent_when_other_diet(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request(diet_type="vegetarian"))
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         # Unique block-only phrase — "INFANT FOOD MODE" also appears in the
@@ -320,7 +335,7 @@ class TestPromptContent:
     async def test_taste_preferences_elevated_to_priority(self, mock_llm: MagicMock):
         """Regression: taste preferences must appear as a numbered priority,
         not just passive context, so the LLM honors them."""
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request(taste_preferences=["sladké", "pečené"]))
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert "HONOR TASTE PREFERENCES STRONGLY" in prompt
@@ -363,7 +378,7 @@ class TestRagPromptContent:
         mock_settings.rag_min_results = 1
         mock_settings.rag_max_context_meals = 3
         mock_retrieve.return_value = [self._rag_hit()]
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         req = _make_request(ingredients_to_use=["rajčata", "tofu"])
         result = await generate_single_day_with_rag(req, session=MagicMock(), user_id=1)
@@ -391,7 +406,7 @@ class TestRagPromptContent:
         mock_settings.rag_min_results = 1
         mock_settings.rag_max_context_meals = 3
         mock_retrieve.return_value = [self._rag_hit()]
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         await generate_single_day_with_rag(
             _make_request(diet_type="baby_food"), session=MagicMock(), user_id=1
@@ -413,7 +428,7 @@ class TestRagPromptContent:
         mock_settings.rag_min_results = 1
         mock_settings.rag_max_context_meals = 3
         mock_retrieve.return_value = [self._rag_hit()]
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         await generate_single_day_with_rag(
             _make_request(taste_preferences=["sladké", "pečené"]),
@@ -438,7 +453,7 @@ class TestRagPromptContent:
         mock_settings.rag_min_results = 1
         mock_settings.rag_max_context_meals = 3
         mock_retrieve.return_value = [self._rag_hit()]
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         await generate_single_day_with_rag(_make_request(), session=MagicMock(), user_id=1)
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
@@ -451,7 +466,7 @@ class TestNonRagPromptSuppressesRetrievedMeals:
 
     @patch("app.services.meal_planner.llm_client")
     async def test_non_rag_prompt_has_no_retrieved_meals_block(self, mock_llm: MagicMock):
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request())
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert "Highly-rated retrieved meals" not in prompt
@@ -463,7 +478,7 @@ class TestStockOnlyPrompt:
     @patch("app.services.meal_planner.llm_client")
     async def test_stock_only_constraint_in_prompt(self, mock_llm: MagicMock):
         """When stock_only=True, the rendered prompt must contain the stock-only constraint."""
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         await generate_single_day(_make_request(stock_only=True))
 
@@ -474,7 +489,7 @@ class TestStockOnlyPrompt:
     @patch("app.services.meal_planner.llm_client")
     async def test_stock_only_false_no_constraint(self, mock_llm: MagicMock):
         """When stock_only=False (default), prompt encourages non-stock ingredients."""
-        mock_llm.chat_json = AsyncMock(return_value=_make_single_day_response())
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         await generate_single_day(_make_request(stock_only=False))
 
@@ -488,7 +503,7 @@ class TestStockOnlyPrompt:
     async def test_partial_day_stock_only_constraint(self, mock_llm: MagicMock):
         """Partial regeneration prompt also contains stock-only constraint."""
         mock_llm.chat_json = AsyncMock(
-            return_value=_make_single_day_response("Dinner", MealType.HOT_DINNER)
+            return_value=_make_llm_day_response("Dinner", MealType.HOT_DINNER)
         )
 
         await generate_partial_day(
