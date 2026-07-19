@@ -40,6 +40,12 @@ from app.models.plan_models import (
 from app.services.fridge_service import (
     get_fridge_items,
 )
+from app.services.leftovers import (
+    expand_leftover_groups,
+    leftover_dependents,
+    leftover_source_names,
+    validate_leftover_graph,
+)
 from app.services.meal_planner import generate_partial_day
 from app.services.plan_service import (
     PlanGenerationError,
@@ -518,6 +524,30 @@ async def regenerate_plan(
                 detail=f"meal_index {fm.meal_index} out of bounds for day {fm.day_index}",
             )
 
+    # 3b) Grow the frozen set so every leftover link group is atomically in or
+    # out. Regeneration replaces meals POSITIONALLY without changing list
+    # lengths, so a link whose source is regenerated stays in bounds and
+    # resolves to a different dish — silently, and the plan then under-buys
+    # because the leftover's ingredients were already excluded from the
+    # shopping list. Freezing groups together makes that unreachable rather
+    # than something to detect afterwards.
+    #
+    # Runs regardless of settings.leftovers_enabled: the flag gates CREATING
+    # links, but a plan generated while it was on must stay coherent if it is
+    # later turned off.
+    expanded_frozen = expand_leftover_groups(frozen_set, original_resp)
+    if expanded_frozen != frozen_set:
+        logger.info(
+            "Expanded frozen set for leftover groups: %s -> %s",
+            sorted(frozen_set), sorted(expanded_frozen),
+        )
+    frozen_set = expanded_frozen
+
+    # Each leftover's source name as it stands NOW. Compared after the merge to
+    # catch a silent retarget; the indices stay valid either way, so identity is
+    # the only usable detector.
+    source_names_before = leftover_source_names(original_resp)
+
     # 4) If all meals are frozen, return existing plan unchanged
     total_meals = sum(len(d.meals) for d in original_resp.days)
     if len(frozen_set) >= total_meals:
@@ -614,6 +644,67 @@ async def regenerate_plan(
         new_only = [merged_meals[i] for i in unfrozen_indices]
         remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, new_only)
         past_meals.extend(m.name for m in new_only)
+
+    # 6b) Reconcile leftover links against what actually got regenerated.
+    #
+    # Group expansion guarantees a link is either fully frozen (source and
+    # leftover both untouched) or fully regenerated (both slots now hold fresh
+    # independent dishes). In the second case the link is meaningless: the LLM
+    # produced a real meal in the leftover slot and the source was NOT asked to
+    # cook a bigger batch, so the food does not exist. Drop it.
+    #
+    # Re-deriving a link here instead was considered and rejected for now: it
+    # would need the batch instruction to reach generate_partial_day and the
+    # source to be re-scaled, and getting that half-right silently under-buys.
+    # Dropping is honest — the user asked for new meals and gets new meals.
+    for day_index, day in enumerate(new_days):
+        for meal_index, m in enumerate(day.meals):
+            if m.leftover_of is None:
+                continue
+            here = (day_index, meal_index)
+            if here not in frozen_set:
+                logger.info(
+                    "Dropping leftover link at day%d.meal%d — its group was regenerated",
+                    day_index, meal_index,
+                )
+                m.leftover_of = None
+                continue
+            # Backstop. Unreachable if expansion is correct, so a hit here is a
+            # bug, not a normal path — hence ERROR. Driven off the source NAME,
+            # never off the frozen/unfrozen bookkeeping: `except StopIteration:
+            # break` above can leave the ORIGINAL meal at an unfrozen index, so
+            # "every unfrozen index now holds a new meal" is not true.
+            expected = source_names_before.get(here)
+            try:
+                actual = (
+                    new_days[m.leftover_of.day_index]
+                    .meals[m.leftover_of.meal_index]
+                    .name
+                )
+            except IndexError:
+                actual = None
+            if expected is not None and actual != expected:
+                logger.error(
+                    "Leftover link at day%d.meal%d silently retargeted "
+                    "(%r -> %r) — nulling",
+                    day_index, meal_index, expected, actual,
+                )
+                m.leftover_of = None
+
+    # Final backstop before the shopping list is frozen: a bad link baked in
+    # here is replayed by every later read.
+    violations = validate_leftover_graph(
+        MealPlanResponse(
+            plan_id=plan.id, start_date=plan.start_date,
+            days=new_days, shopping_list=[],
+        ),
+        repair=True,
+    )
+    if violations:
+        logger.warning(
+            "Repaired %d invalid leftover link(s) during regeneration: %s",
+            len(violations), "; ".join(violations),
+        )
 
     # 7) Recompute shopping list
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(new_days, initial_fridge)
@@ -1032,6 +1123,31 @@ async def edit_meal(
         leftover_of=existing.leftover_of,
     )
     day_meals[meal_index] = updated_meal
+
+    # Fan out a rename to this meal's leftovers. Their display name and the
+    # denormalized MealEntry.leftover_source_name both embed the source's name,
+    # so without this a rename leaves stale text in GET /plan/{id}/meals, the
+    # calendar grid, and the cookbook — and breaks the identity check that
+    # detects a silently-retargeted link during regeneration.
+    #
+    # Only the NAME propagates. Ingredients deliberately do not: the shopping
+    # list is frozen at generation and edit_meal does not recompute it (post
+    # confirm that would disagree with the FIFO debit already executed).
+    dependents: list[tuple[int, int]] = []
+    if existing.name != updated_meal.name:
+        dependents = leftover_dependents(plan_obj, day_index, meal_index)
+        for d_i, m_i in dependents:
+            dep = plan_obj.days[d_i].meals[m_i]
+            dep.name = f"Leftovers: {updated_meal.name}"[:200]
+            dep.steps = [
+                f"Reheat the {updated_meal.name} you cooked earlier and serve."[:1000]
+            ]
+        if dependents:
+            logger.info(
+                "Renamed source day%d.meal%d — updated %d dependent leftover(s)",
+                day_index, meal_index, len(dependents),
+            )
+
     plan.response_json = plan_obj.model_dump_json()
     session.add(plan)
 
@@ -1062,6 +1178,37 @@ async def edit_meal(
                         "Failed to re-embed edited favorite meal entry %d", entry.id
                     )
             session.add(entry)
+
+            # Same rename, same transaction, on the projection rows. Entry
+            # indices are 1-based; response_json positions are 0-based.
+            for d_i, m_i in dependents:
+                dep_entry = (
+                    await session.execute(
+                        select(MealEntry).where(
+                            MealEntry.meal_plan_id == plan_id,
+                            MealEntry.day_index == d_i + 1,
+                            MealEntry.meal_index == m_i + 1,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if dep_entry is None:
+                    # Same all-or-nothing posture as the missing-entry branch
+                    # below: half-updating leaves response_json and the
+                    # projection permanently disagreeing about the same meal.
+                    logger.error(
+                        "No MealEntry for dependent leftover at day %d meal %d "
+                        "on confirmed plan %d — aborting the rename fan-out",
+                        d_i + 1, m_i + 1, plan_id,
+                    )
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Stored plan data is inconsistent; edit aborted.",
+                    )
+                dep_meal = plan_obj.days[d_i].meals[m_i]
+                dep_entry.name = dep_meal.name
+                dep_entry.leftover_source_name = updated_meal.name
+                dep_entry.meal_json = dep_meal.model_dump_json()
+                session.add(dep_entry)
         else:
             # response_json and MealEntry.meal_json are the two sources of truth
             # for a confirmed plan; a missing entry here means they'd diverge
