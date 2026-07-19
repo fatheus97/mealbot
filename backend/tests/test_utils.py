@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from app.core.meal_types import MealType
 from app.models.plan_models import (
@@ -105,6 +106,42 @@ class TestLeftoverSkipsAreDefenceInDepth:
             fridge, [_meal([("rice", 200)]), _leftover_carrying_ingredients()]
         )
         assert after[0].quantity_grams == 300, "leftover drained the simulated fridge"
+
+
+class TestShoppingListAggregateIsNotCapped:
+    """The shopping list SUMS one ingredient across every meal in the plan, but
+    IngredientAmount's 30kg cap bounds a SINGLE meal's amount. Building the
+    aggregate through the validating constructor makes a legitimate plan raise
+    uncaught -> 500 on generate/regenerate. Batch cooking (the whole point of
+    leftovers) makes large totals more likely, not less.
+
+    Same call StockItemDTO already documents for itself: no upper cap on a value
+    that is reconstructed from summed quantities.
+    """
+
+    def test_aggregate_above_the_per_meal_cap_does_not_raise(self):
+        # 4 meals x 9kg of one staple = 36kg total, each individually legal.
+        plan = [_day([_meal([("rice", 9000)]) for _ in range(4)])]
+        result = compute_shopping_list_from_plan(plan, [])
+        assert len(result) == 1
+        assert result[0].quantity_grams == 36000
+
+    def test_aggregate_across_days_above_the_cap(self):
+        plan = [_day([_meal([("rice", 20000)])]), _day([_meal([("rice", 20000)])])]
+        result = compute_shopping_list_from_plan(plan, [])
+        assert result[0].quantity_grams == 40000
+
+    def test_fridge_stock_still_subtracted_from_a_large_aggregate(self):
+        plan = [_day([_meal([("rice", 20000)]), _meal([("rice", 20000)])])]
+        result = compute_shopping_list_from_plan(
+            plan, [StockItemDTO(name="rice", quantity_grams=5000)]
+        )
+        assert result[0].quantity_grams == 35000
+
+    def test_per_meal_cap_still_enforced_on_input(self):
+        # Relaxing the aggregate must NOT relax the per-ingredient input bound.
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="rice", quantity_grams=30001)
 
 
 # --- compute_shopping_list_from_plan ---

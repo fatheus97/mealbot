@@ -106,6 +106,22 @@ class TestIngredientAmountValidation:
         ing = IngredientAmount(name="potatoes", quantity_grams=12000)
         assert ing.quantity_grams == 12000
 
+    def test_nan_quantity_rejected(self):
+        """NaN passes BOTH cap comparisons (NaN <= 0 and NaN > 30000 are each
+        False), so without allow_inf_nan=False it validates clean and then
+        poisons the FIFO debit: allocate_fifo computes min(NaN, batch) = NaN and
+        flatten_fridge_batches' `> 0` filter drops the whole batch, silently
+        deleting the user's stock. Reachable from every client-write path
+        carrying an IngredientAmount, since json.loads accepts a bare NaN."""
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="rice", quantity_grams=float("nan"))
+
+    def test_infinity_quantity_rejected(self):
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="rice", quantity_grams=float("inf"))
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="rice", quantity_grams=float("-inf"))
+
     def test_small_valid_quantity(self):
         ing = IngredientAmount(name="salt", quantity_grams=0.5)
         assert ing.quantity_grams == 0.5

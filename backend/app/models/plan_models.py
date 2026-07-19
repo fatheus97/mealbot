@@ -197,7 +197,15 @@ class IngredientAmount(BaseModel):
     # column or meal_json blob with unbounded data.
     name: str = Field(..., max_length=100,
                       description="The canonical name of the ingredient (e.g., 'chicken breast').")
-    quantity_grams: float = Field(...,
+    # allow_inf_nan=False, matching StockItemDTO/ScannedItemDTO above. Without it
+    # NaN passes validate_realistic_amount outright — NaN <= 0 and NaN > 30000
+    # are BOTH False — and then poisons the FIFO debit: allocate_fifo computes
+    # min(NaN, batch) = NaN, and flatten_fridge_batches' `> 0` filter drops the
+    # whole batch, silently deleting the user's stock with a 200 response.
+    # Verified reachable: json.loads (Starlette's body parser) accepts a bare NaN
+    # literal, so any client-write path carrying an IngredientAmount could send
+    # one — MealEditRequest, CookRecipeRequest.recipe, FavoriteRecipeRequest.recipe.
+    quantity_grams: float = Field(..., allow_inf_nan=False,
                                   description="The weight in grams. If the recipe uses volume (cups), estimate the weight.")
     is_spice: bool = Field(default=False, description="True for spices/herbs/seasonings when include_spices is off.")
 
