@@ -3,9 +3,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.core.config import settings
 from app.core.meal_types import MealType
+from app.models.db_models import MealEntry
 from app.models.plan_models import (
     IngredientAmount,
     MealPlanResponse,
@@ -1126,3 +1129,90 @@ class TestEditSourceFansOutToLeftovers:
 
         plan_resp = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
         assert plan_resp.json()["days"][1]["meals"][1]["name"] == before
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_fan_out_updates_the_projection_columns(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        db_session: AsyncSession, leftovers_on,
+    ):
+        """Asserts leftover_source_name and meal_json on the MealEntry row
+        DIRECTLY, because no endpoint exposes either field — MealEntrySummary
+        projects only id/day/meal/name/meal_type/cooked_at/is_favorite.
+
+        Without this the fan-out's projection writes have no killing test:
+        deleting them leaves the whole suite green while the denormalized source
+        name goes permanently stale on a confirmed plan. That field is what
+        detects a link silently retargeted by regeneration, so a stale value
+        degrades the safety net this slice exists to add.
+        """
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._confirmed_plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        resp = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0", headers=auth_headers,
+            json={
+                "name": "Renamed Roast",
+                "ingredients": [{"name": "rice", "quantity_grams": 200}],
+                "steps": ["roast"],
+            },
+        )
+        assert resp.status_code == 200
+
+        dep_entry = (
+            await db_session.execute(
+                select(MealEntry).where(
+                    MealEntry.meal_plan_id == plan_id,
+                    MealEntry.day_index == 2,
+                    MealEntry.meal_index == 2,
+                )
+            )
+        ).scalars().one()
+        assert dep_entry.leftover_source_name == "Renamed Roast"
+        assert "Renamed Roast" in dep_entry.meal_json
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_fan_out_does_not_clobber_a_user_edited_leftover(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """Editing a leftover's name and steps is explicitly allowed (only
+        ingredients are rejected), and response_json is the ONLY copy. A later
+        rename of the source must not destroy that wording.
+
+        Only text still matching what the generator produced gets refreshed.
+        """
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        body = await self._confirmed_plan_with_link(client, auth_headers)
+        plan_id = body["plan_id"]
+
+        # User customises the leftover.
+        custom = await client.patch(
+            f"/api/plan/{plan_id}/days/1/meals/1", headers=auth_headers,
+            json={
+                "name": "Tuesday lunch box",
+                "ingredients": [],
+                "steps": ["Pack cold, add dressing at the office."],
+            },
+        )
+        assert custom.status_code == 200
+
+        # Then renames the source.
+        renamed = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0", headers=auth_headers,
+            json={
+                "name": "Renamed Roast",
+                "ingredients": [{"name": "rice", "quantity_grams": 200}],
+                "steps": ["roast"],
+            },
+        )
+        assert renamed.status_code == 200
+
+        leftover = (
+            await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
+        ).json()["days"][1]["meals"][1]
+        assert leftover["name"] == "Tuesday lunch box", "user's name was clobbered"
+        assert leftover["steps"] == [
+            "Pack cold, add dressing at the office."
+        ], "user's steps were clobbered"
+        # The link itself survives — only the display text was the user's.
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}

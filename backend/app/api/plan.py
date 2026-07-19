@@ -43,7 +43,9 @@ from app.services.fridge_service import (
 from app.services.leftovers import (
     expand_leftover_groups,
     leftover_dependents,
+    leftover_display_name,
     leftover_source_names,
+    leftover_steps,
     validate_leftover_graph,
 )
 from app.services.meal_planner import generate_partial_day
@@ -1124,27 +1126,35 @@ async def edit_meal(
     )
     day_meals[meal_index] = updated_meal
 
-    # Fan out a rename to this meal's leftovers. Their display name and the
+    # Fan a rename out to this meal's leftovers: their display text and the
     # denormalized MealEntry.leftover_source_name both embed the source's name,
     # so without this a rename leaves stale text in GET /plan/{id}/meals, the
-    # calendar grid, and the cookbook — and breaks the identity check that
-    # detects a silently-retargeted link during regeneration.
+    # calendar grid, and the cookbook.
     #
-    # Only the NAME propagates. Ingredients deliberately do not: the shopping
-    # list is frozen at generation and edit_meal does not recompute it (post
-    # confirm that would disagree with the FIFO debit already executed).
+    # ONLY text that is still the GENERATED text is rewritten. Editing a
+    # leftover's name and steps is explicitly allowed above (a reheating note is
+    # legitimate), and response_json is the only copy — clobbering a user's own
+    # wording here would destroy it unrecoverably. Compare against what the
+    # generator would have produced for the OLD source name; anything else is
+    # the user's and stays untouched.
+    #
+    # Ingredients never propagate: the shopping list is frozen at generation and
+    # edit_meal deliberately does not recompute it (post-confirm that would
+    # disagree with the FIFO debit already executed).
     dependents: list[tuple[int, int]] = []
     if existing.name != updated_meal.name:
         dependents = leftover_dependents(plan_obj, day_index, meal_index)
+        was_generated_name = leftover_display_name(existing.name)
+        was_generated_steps = leftover_steps(existing.name)
         for d_i, m_i in dependents:
             dep = plan_obj.days[d_i].meals[m_i]
-            dep.name = f"Leftovers: {updated_meal.name}"[:200]
-            dep.steps = [
-                f"Reheat the {updated_meal.name} you cooked earlier and serve."[:1000]
-            ]
+            if dep.name == was_generated_name:
+                dep.name = leftover_display_name(updated_meal.name)
+            if dep.steps == was_generated_steps:
+                dep.steps = leftover_steps(updated_meal.name)
         if dependents:
             logger.info(
-                "Renamed source day%d.meal%d — updated %d dependent leftover(s)",
+                "Renamed source day%d.meal%d — refreshed %d dependent leftover(s)",
                 day_index, meal_index, len(dependents),
             )
 

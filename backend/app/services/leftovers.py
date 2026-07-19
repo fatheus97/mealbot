@@ -301,6 +301,26 @@ def validate_leftover_graph(
     return violations
 
 
+def leftover_display_name(source_name: str) -> str:
+    """The generated name for a leftover of `source_name`.
+
+    Defined once and shared by the code that CREATES a leftover and the code
+    that renames one after its source is edited — so the two can never drift,
+    and so "is this still the generated text, or did the user customise it?"
+    is an exact comparison rather than a guess.
+
+    Truncated to PlannedMeal.name's 200-char cap: a long source name would
+    otherwise raise outside the guarded generation block and 500 the request.
+    """
+    return f"Leftovers: {source_name}"[:200]
+
+
+def leftover_steps(source_name: str) -> list[str]:
+    """The generated steps for a leftover of `source_name`. See
+    leftover_display_name for why this is shared."""
+    return [f"Reheat the {source_name} you cooked earlier and serve."[:1000]]
+
+
 def expand_leftover_groups(
     frozen: set[tuple[int, int]], plan: MealPlanResponse
 ) -> set[tuple[int, int]]:
