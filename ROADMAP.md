@@ -128,9 +128,13 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
   `.github/workflows/deploy.yml` fires on `push: branches: [main]`, SSHes to the
   box (forced `command=".../deploy.sh"`), and `deploy.sh` pulls `origin/main` and
   rebuilds. A squash-merge is live on trymealbot.com in ~2 min, migrations
-  included (the one-shot `migrate` service). Check a deploy with
-  `gh run list --workflow=deploy.yml`. *(Caveat: a Dependabot **bot** auto-merge
-  does not trigger the workflow — a normal merge does.)*
+  included — `deploy.sh` runs `alembic upgrade head` **explicitly before** the
+  container swap, so if a migration fails the old containers keep serving traffic
+  (`scripts/deploy.sh:8,27,30`). The compose `migrate` service also fires during
+  the `up -d` swap, but on this path it's a redundant no-op safety net — **don't
+  "simplify away" the explicit step**, it's what buys the zero-downtime ordering.
+  Check a deploy with `gh run list --workflow=deploy.yml`. *(Caveat: a Dependabot
+  **bot** auto-merge does not trigger the workflow — a normal merge does.)*
 - Access: SSH to the server (host + credentials kept in local notes, out of the repo).
 - Manual deploy — **fallback only** (if deploy.yml failed, or an out-of-band change
   on the box): `cd /opt/mealbot && git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
