@@ -70,9 +70,10 @@ Shipped and verified in the codebase:
 - **Infra/CI**: prod compose + Caddy auto-HTTPS, non-root multi-stage images,
   one-shot `migrate` service, SSH auto-deploy (`deploy.sh` + `deploy.yml`),
   registration lock + `create_user` CLI, CI (pytest/mypy-strict/ruff/eslint/build
-  /gitleaks) + Claude AI PR review (with a guard step that fails the check when
-  only a stub is posted, so a broken review can't pass green — #184), Dependabot
-  auto-merge.
+  /gitleaks) + Claude AI PR review (with a guard step that reds the check when
+  the review did not actually complete — #184, rewritten in #230 after it was
+  caught passing an errored review; unit-tested by the `review-guard` CI job),
+  Dependabot auto-merge.
 - **Hardening** (two `/review-for-prod` passes: #79–84 Apr, #165–173 Jul, 0
   CRITICAL): bcrypt offloaded off the event loop + constant-time login, all LLM
   templates prompt-injection fenced, untrusted input bounded, untrusted-parse
@@ -87,7 +88,13 @@ Shipped and verified in the codebase:
   since the mocked-LLM suite couldn't catch it); shipped LLM-chain resilience prep
   (#183); and fixed a silently-broken CI review gate — a dead `CLAUDE_CODE_OAUTH_TOKEN`
   (401) made reviews no-op green, so #184/#187 added a guard that turns a no-op
-  review red (owner rotated the token, verified restored).
+  review red (owner rotated the token, verified restored). **That guard was itself
+  holed** — it counted comments across the whole PR, so any PR whose first review
+  round succeeded was exempt on every later push, and it passed an errored review
+  on #229. Rewritten in #230: scoped to the current run via the job backlink, and
+  it measures review *content* (banner/checklist stripped) rather than comment
+  length — #229's dead comment is 540 chars but only 36 of content. Replaying all
+  74 `claude[bot]` comments on #185–#229 gives 71 green / 1 red (the #185 stub).
 - **Billing / paygate** (LIVE 2026-07-16): Stripe subscriptions (**€10/mo** EUR,
   14-day trial), a `require_active_subscription` **402** gate on the four
   generation endpoints, entitlement as a local read on webhook-mirrored
