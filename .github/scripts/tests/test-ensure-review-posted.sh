@@ -124,6 +124,39 @@ PART_LIST='- [x] Gather context (diff since last review, prior review threads)
   mention 55555 "Reviewed the retry logic; see the earlier job" 900
 } | jq -s '.' >"$work/cross-run.json"
 
+# --- The IN-PROGRESS shape, verbatim from PR #231 run 29700278618 while the
+# review was still running. Note it differs from the finished shape: no banner,
+# a "### Reviewing PR #N" heading, and the backlink is "[View job run](...)" on
+# its own line rather than "[View job](...)" on line 1. The action rewrites the
+# comment into the banner form when it finishes, so the guard only ever sees this
+# if it is evaluated too early — or if the run dies without rewriting.
+# At 313 chars it also clears the old 300-char length floor.
+jq -n '[{ user: { login: "claude[bot]", type: "Bot" },
+  body: "### Reviewing PR #231\n\n- [x] Gather context (PR description, diff, prior review threads)\n- [ ] Read ROADMAP.md diff\n- [ ] Check prior review rounds for dismissed findings\n- [ ] Post review feedback\n\n<img src=\"https://github.com/user-attachments/assets/5ac382c7.png\" width=\"14px\" height=\"14px\" />\n\n[View job run](https://github.com/fatheus97/mealbot/actions/runs/29700278618)" }]' \
+  >"$work/in-progress.json"
+
+# --- Run 88888 errored; run 99999 then posted a completed review that QUOTES
+# 88888's backlink verbatim, as a full markdown link rather than a bare URL —
+# plausible here, since the reviewer reads prior rounds and this guard is itself
+# the subject under review. Matching the link form alone would credit 88888 with
+# 99999's review; taking each comment FIRST backlink as its own run does not.
+jq -n --arg pad "$(head -c 1500 /dev/zero | tr '\0' 'x')" '
+  [ { user: { login: "claude[bot]", type: "Bot" },
+      body: ("**Claude encountered an error after 1m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/88888)\n\n---\n- [ ] Post final review\n") },
+    { user: { login: "claude[bot]", type: "Bot" },
+      body: ("**Claude finished @fatheus97 task in 2m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/99999)\n\n---\n- [x] Post final review\n\nThe previous round left this comment:\n\n> **Claude encountered an error after 1m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/88888)\n\n" + $pad) } ]' \
+  >"$work/quoted-backlink.json"
+
+# --- The in-progress shape puts its backlink LAST, so prose above it quoting
+# another run wins the "first link" test and the comment is attributed to run
+# 88888 rather than its own run 77777. Pinned deliberately: neither run can be
+# greened by it (an in-progress comment never satisfies `completed`), so the only
+# cost is a misleading rejection reason. If a future change makes attribution
+# positional again, this fixture is where it has to be argued.
+jq -n '[{ user: { login: "claude[bot]", type: "Bot" },
+  body: "### Reviewing PR #999\n\n- [x] Gather context\n- [ ] Post final review\n\nPrior round: [View job](https://github.com/fatheus97/mealbot/actions/runs/88888)\n\n[View job run](https://github.com/fatheus97/mealbot/actions/runs/77777)" }]' \
+  >"$work/in-progress-quoting-another-run.json"
+
 # --- PR #185: a "finished" banner over an empty model turn (the #181–#183 shape).
 comment 4945588626 "**Claude finished @fatheus97's task in 3s**" "" 0 | jq -s '.' >"$work/empty-stub.json"
 
@@ -192,6 +225,8 @@ check "action posted nothing for this run" \
   FAIL "$work/rerun-succeeded.json" 99999999999 "no comment for this run"
 check "empty-turn stub under a finished banner (PR #185)" \
   FAIL "$work/empty-stub.json" 4945588626 "chars of review content"
+check "the live in-progress checklist (PR #231) is not a completed review" \
+  FAIL "$work/in-progress.json" 29700278618 "no completion marker"
 check "run id must not prefix-match a longer run id" \
   FAIL "$work/prefix.json" 9981 "no comment for this run"
 check "PR with no comments at all" \
@@ -206,6 +241,16 @@ check "bot login typed as a User cannot satisfy the guard" \
   FAIL "$work/user-typed-impostor.json" 779 "no comment for this run"
 check "another run's review quoting this run's job URL is not credited" \
   FAIL "$work/cross-run.json" 55555 "errored out partway through"
+check "another run's review quoting this run's backlink as a markdown link is not credited" \
+  FAIL "$work/quoted-backlink.json" 88888 "errored out partway through"
+check "the quoting run itself still passes" \
+  PASS "$work/quoted-backlink.json" 99999
+# Documented limitation, pinned in both directions: neither the comment's real run
+# nor the quoted one can be greened by an in-progress body.
+check "in-progress comment quoting another run greens neither run (its own)" \
+  FAIL "$work/in-progress-quoting-another-run.json" 77777 "no comment for this run"
+check "in-progress comment quoting another run greens neither run (the quoted one)" \
+  FAIL "$work/in-progress-quoting-another-run.json" 88888 "no completion marker"
 
 # An unticked checklist under a *finished* banner — the "exited 0 but the review
 # never actually finished" case, distinct from the errored banner above.

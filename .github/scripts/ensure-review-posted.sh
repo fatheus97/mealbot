@@ -74,6 +74,24 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
     | if $i == null then $l else $l[0:$i] end;
 
   def first_line: (lines[0] // "");
+
+  # The run this comment BELONGS to: the first "[View job...](.../actions/runs/N)"
+  # markdown link in the body. A later one is someone else being quoted.
+  #
+  # "First link is the own link" is STRUCTURAL for a finished comment — the action
+  # rewrites the banner, carrying the link, onto line 1 — but only EMPIRICAL for an
+  # in-progress comment, where the link is the last line with the checklist above
+  # it. Prose quoting another run above that trailing link would misattribute the
+  # comment. That is knowingly accepted, not overlooked: an in-progress comment can
+  # never satisfy `completed` (no "Claude finished" on line 1), so the worst case is
+  # a misleading rejection REASON, never a false green in either direction. The
+  # `in-progress-quoting-another-run` fixture pins that behaviour so a future change
+  # here has to confront it deliberately. Resist the temptation to make this smarter
+  # by position: two of this guard three historical bugs came from exactly that.
+  def own_run:
+    ( .body
+      | match("\\[View job[^\\]]*\\]\\([^)]*actions/runs/([0-9]+)\\)")
+      | .captures[0].string ) // "";
   def content_len: lines | map(select(is_chrome | not)) | join("\n") | length;
   def stalled: head_block | map(test("^- \\[ \\]")) | any;
 
@@ -92,17 +110,25 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
     else "it posted only \(content_len) chars of review content — that is the chrome of an empty turn, not a review"
     end;
 
-  # A run is identified by the "[View job](.../actions/runs/<id>)" backlink the
-  # action puts on the FIRST LINE of its track_progress comment. 73 of the 74
-  # historical comments carry it in exactly that position; the lone exception is
-  # PR #197 run 29195401264, where the reviewer separately posted its write-up
-  # with `gh pr comment` and merely mentioned the URL in prose.
+  # A run is identified by the job backlink the action embeds as a MARKDOWN LINK
+  # labelled "View job...". Both shapes of the track_progress comment carry it:
   #
-  # Requiring the line-1 link form — rather than the URL anywhere in the body —
-  # is what stops a comment belonging to a DIFFERENT run from being credited to
-  # this one just by quoting its job URL, and the literal ")" also stops run 998
-  # from claiming the comments of run 9981. Excluding a prose mention costs
-  # nothing: the tracking comment being judged always carries the link.
+  #   in progress : "[View job run](.../actions/runs/<id>)" on its own line,
+  #                 under a "### Reviewing PR #N" heading
+  #   finished    : "**Claude finished ...** —— [View job](.../actions/runs/<id>)"
+  #                 rewritten onto line 1
+  #
+  # Matching the link FORM rather than the bare URL is what stops a comment
+  # belonging to a DIFFERENT run from being credited to this one just by quoting
+  # its job URL in prose — which is exactly how PR #197 run 29195401264 refers to
+  # its job from a separately posted write-up.
+  #
+  # Taking the FIRST such link as the comment OWN run closes the remaining gap:
+  # a review that quotes an older tracking comment verbatim — plausible on this
+  # repo, where the reviewer reads prior rounds and the subject under review is
+  # this very guard — carries a foreign backlink in its prose, but its own
+  # banner link is on line 1 and therefore wins. Comparing for equality also
+  # stops run 998 from claiming the comments of run 9981.
   #
   # (Apostrophes are avoided in this jq program: it is single-quoted in bash.)
   #
@@ -118,8 +144,7 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
   # independent barrier.
   [ ((add // [])[])
     | select((.user.login | test("^claude(-code)?\\[bot\\]$")) and .user.type == "Bot")
-    | select(.body | split("\n")[0]
-             | test("\\[View job\\]\\([^)]*actions/runs/" + $run + "\\)")) ] as $mine
+    | select(own_run == $run) ] as $mine
   | ($mine | map(select(completed))) as $done
   | if ($mine | length) == 0 then
       "FAIL\tit posted no comment for this run (actions/runs/\($run)), so the review never ran. Either the action failed before posting (check the job log with show_full_output: true, and the CLAUDE_CODE_OAUTH_TOKEN secret), or it declined to run at all — which is expected on a PR that edits .github/workflows/."
