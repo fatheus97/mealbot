@@ -62,8 +62,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/recipe", tags=["recipe"])
 
 
-def _recipe_was_edited(stored_output_json: str, submitted: PlannedMeal) -> bool:
+def _recipe_was_edited(stored_output_json: str, submitted_json: str) -> bool:
     """True when the user changed the generated recipe before cooking/starring.
+
+    Takes the submitted side ALREADY serialized: both call sites need that exact
+    string for record_correction's after_json, so passing the model here would
+    dump it a second time per request.
 
     PARSE-then-compare, deliberately not a raw string compare. The two blobs are
     only string-comparable while both come from an identical PlannedMeal
@@ -84,7 +88,6 @@ def _recipe_was_edited(stored_output_json: str, submitted: PlannedMeal) -> bool:
     tolerable direction — such a row is unusable as training data either way,
     and the alternative (silently dropping real corrections) is worse.
     """
-    submitted_json = submitted.model_dump_json()
     try:
         stored = PlannedMeal.model_validate_json(stored_output_json)
     except ValidationError:
@@ -324,7 +327,7 @@ async def cook_recipe(
         # stay raw on both sides (fidelity for the training corpus); only the
         # edited/not-edited decision is normalized.
         after_json = payload.recipe.model_dump_json()
-        if _recipe_was_edited(gen.output_json, payload.recipe):
+        if _recipe_was_edited(gen.output_json, after_json):
             record_correction(
                 session,
                 user_id=current_user.id,
@@ -442,7 +445,7 @@ async def favorite_recipe(
     if gen is not None:
         # Schema-tolerant compare — see _recipe_was_edited.
         after_json = payload.recipe.model_dump_json()
-        if _recipe_was_edited(gen.output_json, payload.recipe):
+        if _recipe_was_edited(gen.output_json, after_json):
             record_correction(
                 session,
                 user_id=current_user.id,

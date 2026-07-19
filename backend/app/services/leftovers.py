@@ -55,6 +55,17 @@ def validate_leftover_graph(
     * **L8** the leftover carries none of its own (also enforced on the model;
       belt and braces, because a double-debit here is silent).
 
+    Three rules in the L1-L11 series are absent from the checks above because
+    they are enforced structurally rather than at runtime:
+
+    * **L6** (no cycles) — implied by L3 + L4: strict backward ordering makes a
+      cycle unconstructible, since any cycle needs at least one forward edge.
+      Pinned by a test so the invariant survives if L4 is ever loosened.
+    * **L9** (no cross-plan refs) — impossible by construction: LeftoverRef has
+      no plan_id field. See its docstring for why that is deliberate.
+    * **L10** (day 0 meal 0 can never be a leftover) — falls out of L3/L4, but
+      tested explicitly because it is the single most likely bad value.
+
     Fan-in is deliberately ALLOWED (L11): a Sunday roast may feed both Monday's
     and Tuesday's lunch. The portion multiplier is 1 + the number of dependents.
     """
