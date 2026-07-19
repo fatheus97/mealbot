@@ -10,9 +10,11 @@
 > **2026-07-16** after the **Stripe subscription paygate shipped and went live**
 > (the Monetization / Billing milestone below — #199–202, #211–213), and the
 > same-day **post-launch hardening** that cleared two Cross-cutting loose ends —
-> the `authsession` cleanup job (#215) and the password-change endpoint (#216).
-> Where the notes and the code disagreed, the code wins and the discrepancy is
-> called out.
+> the `authsession` cleanup job (#215) and the password-change endpoint (#216),
+> and **2026-07-17** after the **calendar-dates thrust** — plan `start_date` plus
+> a month-grid calendar built on a reusable `ModalShell` (#220–222), and the
+> post-use UX polish that followed (#224). Where the notes and the code
+> disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
 
@@ -95,16 +97,21 @@ Shipped and verified in the codebase:
   80%/100% (Resend, daily systemd timer), existing alpha users **grandfathered**
   (`is_comped`) so nobody was surprise-paywalled, and cancel-at-period-end UX. On
   stripe SDK 15.3. See the Monetization / Billing milestone below.
-- **Calendar & scheduling** (shipped 2026-07-17, #220–222): plans carry an
+- **Calendar & scheduling** (shipped 2026-07-17, #220–222 + #224): plans carry an
   optional `MealPlan.start_date` (nullable; day N = `start_date + (N-1)`, legacy
   plans backfill to NULL/unscheduled), set at generation / overridable at confirm
-  / reschedulable via `PATCH /plan/{id}`. Inline dates on day headers + catalog
+  / reschedulable via `PATCH /plan/{id}` — editable inline on every plan in **My
+  Plans** as well as from the calendar. Inline dates on day headers + catalog
   cards, plus a month-grid calendar (`PlanCalendar`, blue 📅 FAB over
-  `GET /api/plan/calendar`) with reschedule-from-calendar. Built on a reusable
-  `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" →
-  full-screen). All date math is local-time (dodges the `new Date("YYYY-MM-DD")`
-  UTC off-by-one); two pre-push adversarial-review passes caught 10 real bugs the
-  test suites missed.
+  `GET /api/plan/calendar`) that shows **every meal per day**, stacked in
+  day-layout order (breakfast → dinner), with reschedule-from-calendar. Built on a
+  reusable `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges"
+  → full-screen). All date math is local-time (dodges the `new Date("YYYY-MM-DD")`
+  UTC off-by-one); the calendar query is `staleTime: 0` and is invalidated on
+  confirm/delete/un-confirm, so it never shows a stale month (#224 — the app-wide
+  5-min staleTime used to delay a newly confirmed plan by minutes). Two pre-push
+  adversarial-review passes caught 10 real bugs the test suites missed (#221/#222);
+  the #224 polish itself came from real-world use, and its PR review caught 2 more.
 
 **Everything below is what's left.**
 
@@ -149,7 +156,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | **Paygate** | ✅ | — | — | **SHIPPED + LIVE 2026-07-16** — see the **Monetization / Billing** milestone below. Flat **€10/mo** EUR subscription (14-day trial), not usage-metered, so the per-call-billing-exactness caveat never applied. #199–202 + #211–213. |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
 | **User edits as feedback** | 🟡 | M | — | **Capture half is shipped** (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt). Remaining: **consume** it — feed corrections into future generations (e.g. as prompt context, few-shot examples, or a per-user preference signal). Nothing in `meal_planner`/`recipe_retriever` reads the correction tables yet. Needs a design choice on how edits influence generation. |
-| **Plans ↔ calendar dates** | ✅ | — | — | **Shipped 2026-07-17 (#220–222).** `MealPlan.start_date` (nullable date; day N = `start_date + (N-1)`, backfills NULL/unscheduled), set at generation (`?start_date=`) / overridable at confirm / reschedulable via `PATCH /plan/{id}`; inline dates on day headers + catalog cards; a month-grid calendar (`PlanCalendar`, blue 📅 FAB) over `GET /api/plan/calendar` with reschedule-from-calendar. Built on a reusable `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" → true full-screen). Two pre-push adversarial-review passes caught **10 real bugs** across #221/#222 that the test suites missed. **Unlocks leftovers + real scheduling.** |
+| **Plans ↔ calendar dates** | ✅ | — | — | **Shipped 2026-07-17 (#220–222, polished in #224).** `MealPlan.start_date` (nullable date; day N = `start_date + (N-1)`, backfills NULL/unscheduled), set at generation (`?start_date=`) / overridable at confirm / reschedulable via `PATCH /plan/{id}` — editable inline on every plan in **My Plans** as well as from the calendar; inline dates on day headers + catalog cards; a month-grid calendar (`PlanCalendar`, blue 📅 FAB) over `GET /api/plan/calendar` showing **every meal per day** stacked in day-layout order (breakfast → dinner), with reschedule-from-calendar and no stale-month lag (`staleTime: 0` + invalidation on confirm/delete/un-confirm). Built on a reusable `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" → true full-screen). Two pre-push adversarial-review passes caught **10 real bugs** across #221/#222 that the test suites missed. **Unlocks leftovers + real scheduling.** |
 | **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. |
 
 ---
@@ -232,13 +239,13 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │          run, the full Admin epic (usage tracking → RBAC → stats → dash),
      │          post-launch hardening (#215/#216/#218), and the calendar-dates
      │          thrust (#220 ModalShell + cookbook mobile → #221 start_date →
-     │          #222 month-grid calendar)
+     │          #222 month-grid calendar → #224 UX polish)
      │
      ├─ close the loop: user-edits-as-feedback  (capture is done — now CONSUME it)
      │
      ├─ Monetization track: token-usage tracking ✅ (#189) ─► paygate ✅ LIVE (#199–213)
      │
-     └─ calendar dates ✅ (#220–222) ─► leftovers (now UNBLOCKED) + real scheduling
+     └─ calendar dates ✅ (#220–222, #224) ─► leftovers (now UNBLOCKED) + real scheduling
 ```
 
 **The in-recipe UX, mobile+camera, the Admin epic, and now the Stripe paygate are
