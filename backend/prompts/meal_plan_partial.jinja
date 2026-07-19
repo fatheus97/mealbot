@@ -73,6 +73,18 @@ The user just REJECTED the following meals in this plan and asked for replacemen
 
 Generate ONLY the following meal slots: {{ slots_to_generate | join(', ') }}
 The output JSON must contain EXACTLY {{ slots_to_generate | length }} meal(s) with meal_type values matching the slots above.
+{%- if slot_portions %}
+{%- for slot in slots_to_generate %}
+{%- if slot_portions[loop.index0] > 1 %}
+— COOK A {{ "DOUBLE" if slot_portions[loop.index0] == 2 else "TRIPLE" }} BATCH of the "{{ slot }}" meal:
+  give ingredient amounts for {{ people_count * slot_portions[loop.index0] }} people
+  ({{ slot_portions[loop.index0] }} servings-worth), because the extra portion is
+  deliberately kept as leftovers for another day. Restate the SCALED amount inline
+  in every step — the steps must agree with the ingredient list. This is intentional
+  repetition: do NOT vary it away to satisfy any variety rule below.
+{%- endif %}
+{%- endfor %}
+{%- endif %}
 
 Your priorities, IN THIS ORDER, are:
 1) AVOID ALL ingredients listed in "Ingredients to avoid" and their synonyms and hyponyms.

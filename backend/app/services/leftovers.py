@@ -24,10 +24,146 @@ plan_service falls back, RAG skips the hit).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
-from app.models.plan_models import MealPlanResponse
+from app.core.meal_types import MealType
+from app.models.plan_models import LeftoverRef, MealPlanResponse
 
 logger = logging.getLogger(__name__)
+
+
+# Slots worth cooking a bigger batch of: substantial, reheat well, scale cleanly.
+# Deliberately conservative — a bad suggestion here is worse than no suggestion,
+# because the user has to notice and undo it.
+BATCH_FRIENDLY_SOURCE_SLOTS: frozenset[MealType] = frozenset(
+    {MealType.HOT_DINNER, MealType.MAIN_COURSE, MealType.SOUP}
+)
+
+# Slots a leftover can legitimately fill. Lunch is the natural one; a repeat
+# dinner is deliberately NOT included — eating the same dinner twice running is
+# a worse experience than the feature is worth.
+LEFTOVER_TARGET_SLOTS: frozenset[MealType] = frozenset(
+    {MealType.LIGHT_LUNCH, MealType.MAIN_COURSE}
+)
+
+# Per-plan cap. A week where half the meals are reheats reads as the planner
+# being lazy rather than efficient.
+DEFAULT_MAX_LEFTOVERS_PER_PLAN = 2
+
+
+@dataclass(frozen=True)
+class LeftoverAssignment:
+    """A decision to make the meal at (day_index, meal_index) leftovers of
+    `source`. All indices 0-based, matching LeftoverRef and response_json.
+    """
+    day_index: int
+    meal_index: int
+    source: LeftoverRef
+
+
+def plan_leftover_links(
+    layouts: list[list[str] | None],
+    *,
+    max_links: int = DEFAULT_MAX_LEFTOVERS_PER_PLAN,
+) -> list[LeftoverAssignment]:
+    """Decide which meals should be leftovers, from the day layouts alone.
+
+    Pure and deterministic — no LLM, no I/O, no randomness. That is the point:
+    the model structurally cannot author a correct cross-day index (each day is
+    a separate call that sees only prior meal *names*), so it would emit
+    confident garbage. The server decides instead, and then tells the model one
+    concrete thing: cook a bigger batch of that one slot.
+
+    A day whose layout is None is skipped entirely. Without a resolved layout we
+    don't know what slot N will be until after generation, so we couldn't tell
+    the model to scale the right dish — and scaling is the whole mechanism. The
+    legacy meals_per_day path therefore never gets leftovers, by construction.
+
+    Rules, chosen so the result is predictable rather than clever:
+      * Look back exactly ONE day. A Thursday lunch reheating Monday's dinner is
+        not something anyone actually wants to eat.
+      * One leftover per source (no fan-in from the planner). The graph permits
+        fan-in and the portion maths handles it, but generating it automatically
+        would mean a triple batch, which strains both fridge space and goodwill.
+      * At most one leftover per day.
+      * A source is never itself a leftover — enforced structurally, since a
+        source must sit in a batch-friendly slot and day 0 can never hold one.
+    """
+    assignments: list[LeftoverAssignment] = []
+    used_sources: set[tuple[int, int]] = set()
+
+    for day_index in range(1, len(layouts)):
+        if len(assignments) >= max_links:
+            break
+        today = layouts[day_index]
+        prev = layouts[day_index - 1]
+        if not today or not prev:
+            continue
+
+        target_index = _first_slot_in(today, LEFTOVER_TARGET_SLOTS)
+        if target_index is None:
+            continue
+
+        source_index = _first_slot_in(
+            prev,
+            BATCH_FRIENDLY_SOURCE_SLOTS,
+            excluding={m for (d, m) in used_sources if d == day_index - 1},
+        )
+        if source_index is None:
+            continue
+
+        used_sources.add((day_index - 1, source_index))
+        assignments.append(
+            LeftoverAssignment(
+                day_index=day_index,
+                meal_index=target_index,
+                source=LeftoverRef(
+                    day_index=day_index - 1, meal_index=source_index
+                ),
+            )
+        )
+
+    return assignments
+
+
+def _first_slot_in(
+    layout: list[str],
+    wanted: frozenset[MealType],
+    *,
+    excluding: set[int] | None = None,
+) -> int | None:
+    """Index of the first slot whose meal_type is in `wanted`, else None.
+
+    Compares raw strings against enum values so an unknown/legacy slot string
+    simply doesn't match, rather than raising.
+    """
+    skip = excluding or set()
+    wanted_values = {m.value for m in wanted}
+    for i, slot in enumerate(layout):
+        if i in skip:
+            continue
+        if slot in wanted_values:
+            return i
+    return None
+
+
+def portions_for_day(
+    assignments: list[LeftoverAssignment], day_index: int, slot_count: int
+) -> list[int]:
+    """How many servings-worth to cook for each slot of `day_index`.
+
+    1 for an ordinary slot; 1 + the number of leftovers pointing at it for a
+    source slot. Handed to the prompt so the LLM scales the recipe ITSELF —
+    never post-multiplied in Python, because the prompt requires every step to
+    restate its amounts inline ("Add 200 g flour"). Scaling only
+    ingredients[*].quantity_grams would leave the steps contradicting the
+    ingredient list, which is a visible, trust-destroying bug in cooking mode.
+    """
+    portions = [1] * slot_count
+    for a in assignments:
+        if a.source.day_index == day_index and a.source.meal_index < slot_count:
+            portions[a.source.meal_index] += 1
+    return portions
 
 
 def validate_leftover_graph(

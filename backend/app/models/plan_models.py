@@ -107,6 +107,17 @@ class MealPlanRequest(BaseModel):
         default_factory=list,
         description="Meal names eaten recently (to avoid similar dishes).",
     )
+    # "auto" lets the server link a later light meal to an earlier batch-friendly
+    # one ("cook a bigger dinner, eat it as tomorrow's lunch"). Defaults to
+    # "none" so the behaviour is opt-in while it proves out; flipping this
+    # default is a deliberate one-line change of its own.
+    #
+    # Only ever set server-side on the generation path — the LLM never sees it
+    # and never authors a link (see app/services/leftovers.py).
+    leftover_policy: Literal["none", "auto"] = Field(
+        default="none",
+        description="Whether the server may plan leftover meals for this plan.",
+    )
 
     language: str = Field(
         default="English",

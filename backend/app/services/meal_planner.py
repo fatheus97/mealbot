@@ -35,9 +35,18 @@ async def generate_single_day(
     day_index: int = 1,
     mock: bool = False,
     slot_layout: list[str] | None = None,
+    slot_portions: list[int] | None = None,
 ) -> SingleDayResponse:
     """
     Generates a meal plan for a single day with strict schema enforcement.
+
+    ``slot_portions`` is parallel to ``slot_layout``: how many servings-worth to
+    cook per slot (1 = normal). A value > 1 renders a COOK A DOUBLE/TRIPLE BATCH
+    instruction, because that slot's extra portion is deliberately kept as a
+    leftover for a later day. The scaling is done BY THE MODEL, never by
+    multiplying quantity_grams afterwards — the prompt requires every step to
+    restate its amounts inline, so a Python multiply would leave the steps
+    contradicting the ingredient list.
 
     When ``slot_layout`` is provided (Phase 3+), the prompt instructs the LLM
     to produce exactly those meal_type values in that order. We log a warning
@@ -50,6 +59,7 @@ async def generate_single_day(
     user_prompt = template.render(
         **req.model_dump(),
         slot_layout=slot_layout,
+        slot_portions=slot_portions,
     )
 
     mock_context = {
@@ -88,6 +98,7 @@ async def generate_partial_day(
     slots_to_generate: list[str],
     replaced_meals: list[str] | None = None,
     mock: bool = False,
+    slot_portions: list[int] | None = None,
 ) -> SingleDayResponse:
     """
     Generates only the unfrozen meal slots for a single day,
@@ -103,6 +114,7 @@ async def generate_partial_day(
         frozen_meals=[m.model_dump() for m in frozen_meals],
         slots_to_generate=slots_to_generate,
         replaced_meals=replaced_meals or [],
+        slot_portions=slot_portions,
     )
 
     raw = await llm_client.chat_json(
@@ -142,6 +154,7 @@ async def generate_single_day_with_rag(
     user_id: int,
     mock: bool = False,
     slot_layout: list[str] | None = None,
+    slot_portions: list[int] | None = None,
 ) -> SingleDayResponse | None:
     """
     Attempt RAG generation using highly-rated meals from all users.
@@ -197,6 +210,7 @@ async def generate_single_day_with_rag(
         **req.model_dump(),
         retrieved_meals=retrieved_meals,
         slot_layout=slot_layout,
+        slot_portions=slot_portions,
     )
 
     logger.info("RAG: using %d retrieved meals for generation", len(retrieved_meals))

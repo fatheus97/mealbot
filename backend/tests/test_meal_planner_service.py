@@ -515,3 +515,122 @@ class TestStockOnlyPrompt:
         call_kwargs = mock_llm.chat_json.call_args
         user_prompt = call_kwargs.kwargs["user_prompt"]
         assert "STOCK-ONLY MODE" in user_prompt
+
+
+class TestBatchCookingPrompt:
+    """The batch-cooking instruction must render on ALL THREE generation paths.
+
+    TestRagPromptContent exists because features added to the non-RAG path once
+    silently vanished from the RAG path. Leftovers are especially exposed to
+    that: if the batch instruction is missing, generation still succeeds and the
+    plan still gets a leftover link — but the source meal was cooked at single
+    size, so the user is told to eat food that was never cooked. Silent and
+    only visible at the stove.
+    """
+
+    def _rag_hit(self) -> MealHit:
+        return MealHit(
+            meal_entry_id=1,
+            user_id=1,
+            name="Retrieved Meal",
+            meal_type="dinner",
+            meal_json=(
+                '{"name":"Retrieved Meal","meal_type":"dinner","meal_type_label":"Dinner",'
+                '"ingredients":[{"name":"rice","quantity_grams":200,"is_spice":false}],'
+                '"steps":["Cook rice"]}'
+            ),
+            cosine_distance=0.1,
+            adjusted_distance=0.1,
+        )
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_single_day_renders_the_batch_block(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+        await generate_single_day(
+            _make_request(people_count=2),
+            day_index=1,
+            slot_layout=["hot_dinner", "snack"],
+            slot_portions=[2, 1],
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "COOK A DOUBLE BATCH" in prompt
+        # people_count * portions — the model scales, we never post-multiply.
+        assert "for 4 people" in prompt
+        assert "2 servings-worth" in prompt
+        # The variety rule must carve out this slot, or the model resolves the
+        # contradiction itself by varying the batch away.
+        assert "EXCEPTION" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_triple_batch_wording(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+        await generate_single_day(
+            _make_request(people_count=3),
+            slot_layout=["hot_dinner"],
+            slot_portions=[3],
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "COOK A TRIPLE BATCH" in prompt
+        assert "for 9 people" in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_no_batch_block_when_all_portions_are_one(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+        await generate_single_day(
+            _make_request(), slot_layout=["hot_dinner", "snack"], slot_portions=[1, 1],
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "COOK A" not in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_no_batch_block_without_portions(self, mock_llm: MagicMock):
+        """The default path (leftover_policy="none") must be byte-identical to
+        before this feature — no stray instructions in every prompt."""
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+        await generate_single_day(_make_request(), slot_layout=["hot_dinner"])
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "COOK A" not in prompt
+        assert "EXCEPTION" not in prompt
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_partial_day_renders_the_batch_block(self, mock_llm: MagicMock):
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+        await generate_partial_day(
+            _make_request(people_count=2),
+            frozen_meals=[],
+            slots_to_generate=["hot_dinner"],
+            slot_portions=[2],
+        )
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "COOK A DOUBLE BATCH" in prompt
+        assert "for 4 people" in prompt
+        assert "do NOT vary it away" in prompt
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_path_renders_the_batch_block(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        """The path most likely to silently lose the feature."""
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+
+        result = await generate_single_day_with_rag(
+            _make_request(people_count=2),
+            session=MagicMock(),
+            user_id=1,
+            slot_layout=["hot_dinner"],
+            slot_portions=[2],
+        )
+        assert result is not None, "RAG should have fired with a relevant hit"
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "COOK A DOUBLE BATCH" in prompt
+        assert "for 4 people" in prompt
+        assert "Retrieved Meal" in prompt  # still the RAG prompt
