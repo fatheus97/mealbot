@@ -92,12 +92,19 @@ class TestIngredientAmountValidation:
             IngredientAmount(name="rice", quantity_grams=-100)
 
     def test_unrealistically_high_quantity_rejected(self):
-        with pytest.raises(ValidationError, match="10kg"):
-            IngredientAmount(name="rice", quantity_grams=10001)
+        with pytest.raises(ValidationError, match="30kg"):
+            IngredientAmount(name="rice", quantity_grams=30001)
 
     def test_boundary_valid_quantity(self):
-        ing = IngredientAmount(name="rice", quantity_grams=10000)
-        assert ing.quantity_grams == 10000
+        ing = IngredientAmount(name="rice", quantity_grams=30000)
+        assert ing.quantity_grams == 30000
+
+    def test_batch_cooking_quantity_accepted(self):
+        # The cap was raised 10kg -> 30kg for leftovers: a source meal cooked at
+        # 2-3x portions for a large household clears 10kg of a staple easily,
+        # and the old cap 500'd the whole plan endpoint when it did.
+        ing = IngredientAmount(name="potatoes", quantity_grams=12000)
+        assert ing.quantity_grams == 12000
 
     def test_small_valid_quantity(self):
         ing = IngredientAmount(name="salt", quantity_grams=0.5)

@@ -19,6 +19,17 @@ def compute_shopping_list_from_plan(
     required: dict[str, float] = defaultdict(float)
     for day in days:
         for meal in day.meals:
+            # A leftover's food was bought as part of its source meal (which was
+            # cooked in a larger batch), so counting its ingredients here would
+            # buy the same food twice. THE double-buy guard: the result is frozen
+            # into response_json and every read replays it rather than
+            # recomputing, so a miss here is permanent for that plan.
+            #
+            # Belt-and-braces with PlannedMeal's validator, which already forbids
+            # a leftover from carrying ingredients — don't rely on the list merely
+            # happening to be empty.
+            if meal.is_leftover:
+                continue
             for ing in meal.ingredients:
                 if ing.is_spice:
                     continue
@@ -64,6 +75,13 @@ def subtract_used_from_fridge(
     used_grams: defaultdict[str, float] = defaultdict(float)
 
     for meal in meals:
+        # Same reason as compute_shopping_list_from_plan: a leftover consumes
+        # nothing beyond its source. This function drives the SIMULATED fridge
+        # that generation walks forward day by day, so counting a leftover here
+        # would make day N+1's prompt see a fridge emptier than reality and plan
+        # around food that was never actually eaten.
+        if meal.is_leftover:
+            continue
         for ing in meal.ingredients:
             if ing.is_spice:
                 continue

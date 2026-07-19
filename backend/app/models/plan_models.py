@@ -212,8 +212,13 @@ class IngredientAmount(BaseModel):
     def validate_realistic_amount(cls, v):
         if v <= 0:
             raise ValueError("Quantity must be positive.")
-        if v > 10000:
-            raise ValueError("Quantity is unrealistically high (>10kg). Verify units.")
+        # Raised 10kg -> 30kg for batch cooking: a leftover means its source meal
+        # is cooked at 2-3x portions, and 6 people x 3 portions of a staple
+        # (potatoes, rice) clears 10kg per item easily. At the old cap that
+        # 500'd the whole plan endpoint. The validator's real job is catching a
+        # hallucinated `quantity_grams: 50000`, and 30kg still does that.
+        if v > 30000:
+            raise ValueError("Quantity is unrealistically high (>30kg). Verify units.")
         return v
 
 
