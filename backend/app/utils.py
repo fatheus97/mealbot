@@ -1,12 +1,18 @@
 from collections import defaultdict
 
-from app.models.plan_models import IngredientAmount, PlannedMeal, SingleDayResponse, StockItemDTO
+from app.models.plan_models import (
+    IngredientAmount,
+    PlannedMeal,
+    ShoppingListItem,
+    SingleDayResponse,
+    StockItemDTO,
+)
 
 
 def compute_shopping_list_from_plan(
     days: list[SingleDayResponse],
     initial_fridge: list[StockItemDTO],
-) -> list[IngredientAmount]:
+) -> list[ShoppingListItem]:
     """
     Compute how much needs to be bought for the whole plan, based on:
     - total required grams from all meals,
@@ -19,6 +25,17 @@ def compute_shopping_list_from_plan(
     required: dict[str, float] = defaultdict(float)
     for day in days:
         for meal in day.meals:
+            # A leftover's food was bought as part of its source meal (which was
+            # cooked in a larger batch), so counting its ingredients here would
+            # buy the same food twice. THE double-buy guard: the result is frozen
+            # into response_json and every read replays it rather than
+            # recomputing, so a miss here is permanent for that plan.
+            #
+            # Belt-and-braces with PlannedMeal's validator, which already forbids
+            # a leftover from carrying ingredients — don't rely on the list merely
+            # happening to be empty.
+            if meal.is_leftover:
+                continue
             for ing in meal.ingredients:
                 if ing.is_spice:
                     continue
@@ -34,14 +51,19 @@ def compute_shopping_list_from_plan(
         # remember original casing
         pretty_name.setdefault(key, item.name)
 
-    # Compute what we actually need to buy
-    shopping: list[IngredientAmount] = []
+    # Compute what we actually need to buy. ShoppingListItem, not
+    # IngredientAmount: `missing` is a SUM across every meal, so the per-meal
+    # sanity cap must not apply to it (see ShoppingListItem's docstring — a
+    # capped aggregate would make the stored plan permanently unopenable, not
+    # just fail here). Normal validating construction is correct now that the
+    # type carries the right bounds.
+    shopping: list[ShoppingListItem] = []
     for key, needed in required.items():
         have = available.get(key, 0.0)
         missing = needed - have
         if missing > 1e-6:
             shopping.append(
-                IngredientAmount(
+                ShoppingListItem(
                     name=pretty_name.get(key, key),
                     quantity_grams=missing,
                 )
@@ -64,6 +86,13 @@ def subtract_used_from_fridge(
     used_grams: defaultdict[str, float] = defaultdict(float)
 
     for meal in meals:
+        # Same reason as compute_shopping_list_from_plan: a leftover consumes
+        # nothing beyond its source. This function drives the SIMULATED fridge
+        # that generation walks forward day by day, so counting a leftover here
+        # would make day N+1's prompt see a fridge emptier than reality and plan
+        # around food that was never actually eaten.
+        if meal.is_leftover:
+            continue
         for ing in meal.ingredients:
             if ing.is_spice:
                 continue

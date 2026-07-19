@@ -197,7 +197,15 @@ class IngredientAmount(BaseModel):
     # column or meal_json blob with unbounded data.
     name: str = Field(..., max_length=100,
                       description="The canonical name of the ingredient (e.g., 'chicken breast').")
-    quantity_grams: float = Field(...,
+    # allow_inf_nan=False, matching StockItemDTO/ScannedItemDTO above. Without it
+    # NaN passes validate_realistic_amount outright — NaN <= 0 and NaN > 30000
+    # are BOTH False — and then poisons the FIFO debit: allocate_fifo computes
+    # min(NaN, batch) = NaN, and flatten_fridge_batches' `> 0` filter drops the
+    # whole batch, silently deleting the user's stock with a 200 response.
+    # Verified reachable: json.loads (Starlette's body parser) accepts a bare NaN
+    # literal, so any client-write path carrying an IngredientAmount could send
+    # one — MealEditRequest, CookRecipeRequest.recipe, FavoriteRecipeRequest.recipe.
+    quantity_grams: float = Field(..., allow_inf_nan=False,
                                   description="The weight in grams. If the recipe uses volume (cups), estimate the weight.")
     is_spice: bool = Field(default=False, description="True for spices/herbs/seasonings when include_spices is off.")
 
@@ -212,9 +220,52 @@ class IngredientAmount(BaseModel):
     def validate_realistic_amount(cls, v):
         if v <= 0:
             raise ValueError("Quantity must be positive.")
-        if v > 10000:
-            raise ValueError("Quantity is unrealistically high (>10kg). Verify units.")
+        # Raised 10kg -> 30kg for batch cooking: a leftover means its source meal
+        # is cooked at 2-3x portions, and 6 people x 3 portions of a staple
+        # (potatoes, rice) clears 10kg per item easily. At the old cap that
+        # 500'd the whole plan endpoint. The validator's real job is catching a
+        # hallucinated `quantity_grams: 50000`, and 30kg still does that.
+        if v > 30000:
+            raise ValueError("Quantity is unrealistically high (>30kg). Verify units.")
         return v
+
+
+class ShoppingListItem(BaseModel):
+    """One line of a plan's shopping list: how much of an ingredient to BUY.
+
+    Deliberately NOT IngredientAmount. This is an AGGREGATE — one ingredient
+    summed across every meal in the plan, minus what the fridge already holds —
+    so IngredientAmount's per-meal sanity cap does not apply. A legitimate
+    multi-day plan can need more than 30kg of one staple, and batch cooking
+    (what leftovers are for) makes that likelier.
+
+    Applying the per-meal cap here isn't merely wrong, it's UNRECOVERABLE. The
+    shopping list is serialized into MealPlan.response_json, and every read
+    re-validates that blob from raw JSON — so a cap violation wouldn't fail at
+    generation, it would make the stored plan permanently unopenable (500 from
+    get_plan_detail, with no way to edit it back into range). That is precisely
+    the failure mode the leftovers design avoids elsewhere by validating on
+    write and degrading on read. Bypassing validation at construction time does
+    NOT help: Pydantic only skips re-validation for live model instances, never
+    for the JSON round-trip.
+
+    Same call StockItemDTO already documents for itself, for the same reason.
+
+    Still bounded where bounding matters: the name is length-capped and
+    fence-stripped like every other LLM/client-facing string, and the quantity
+    must be a positive real (allow_inf_nan=False keeps NaN out of the
+    arithmetic — see IngredientAmount for what NaN does to the fridge).
+
+    Wire-compatible with the old shape: blobs written when this was an
+    IngredientAmount carry an extra `is_spice` key, which Pydantic ignores.
+    """
+    name: str = Field(..., max_length=100)
+    quantity_grams: float = Field(..., gt=0, allow_inf_nan=False)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        return _strip_prompt_fence_tags(v)
 
 
 class ConsumedBatch(BaseModel):
@@ -412,7 +463,7 @@ class MealPlanResponse(BaseModel):
     # the column stays authoritative and there's no second copy to drift.
     start_date: date | None = None
     days: list[SingleDayResponse]
-    shopping_list: list[IngredientAmount]
+    shopping_list: list[ShoppingListItem]
 
 
 class ConfirmPlanRequest(BaseModel):

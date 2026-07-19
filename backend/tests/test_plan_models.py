@@ -9,6 +9,7 @@ from app.models.plan_models import (
     MealPlanRequest,
     MealPlanResponse,
     PlannedMeal,
+    ShoppingListItem,
     SingleDayResponse,
     StockItemDTO,
 )
@@ -92,12 +93,35 @@ class TestIngredientAmountValidation:
             IngredientAmount(name="rice", quantity_grams=-100)
 
     def test_unrealistically_high_quantity_rejected(self):
-        with pytest.raises(ValidationError, match="10kg"):
-            IngredientAmount(name="rice", quantity_grams=10001)
+        with pytest.raises(ValidationError, match="30kg"):
+            IngredientAmount(name="rice", quantity_grams=30001)
 
     def test_boundary_valid_quantity(self):
-        ing = IngredientAmount(name="rice", quantity_grams=10000)
-        assert ing.quantity_grams == 10000
+        ing = IngredientAmount(name="rice", quantity_grams=30000)
+        assert ing.quantity_grams == 30000
+
+    def test_batch_cooking_quantity_accepted(self):
+        # The cap was raised 10kg -> 30kg for leftovers: a source meal cooked at
+        # 2-3x portions for a large household clears 10kg of a staple easily,
+        # and the old cap 500'd the whole plan endpoint when it did.
+        ing = IngredientAmount(name="potatoes", quantity_grams=12000)
+        assert ing.quantity_grams == 12000
+
+    def test_nan_quantity_rejected(self):
+        """NaN passes BOTH cap comparisons (NaN <= 0 and NaN > 30000 are each
+        False), so without allow_inf_nan=False it validates clean and then
+        poisons the FIFO debit: allocate_fifo computes min(NaN, batch) = NaN and
+        flatten_fridge_batches' `> 0` filter drops the whole batch, silently
+        deleting the user's stock. Reachable from every client-write path
+        carrying an IngredientAmount, since json.loads accepts a bare NaN."""
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="rice", quantity_grams=float("nan"))
+
+    def test_infinity_quantity_rejected(self):
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="rice", quantity_grams=float("inf"))
+        with pytest.raises(ValidationError):
+            IngredientAmount(name="rice", quantity_grams=float("-inf"))
 
     def test_small_valid_quantity(self):
         ing = IngredientAmount(name="salt", quantity_grams=0.5)
@@ -311,7 +335,7 @@ class TestMealPlanResponseSerialization:
                     ]
                 )
             ],
-            shopping_list=[IngredientAmount(name="tofu", quantity_grams=300)],
+            shopping_list=[ShoppingListItem(name="tofu", quantity_grams=300)],
         )
 
         json_str = response.model_dump_json()
@@ -355,7 +379,7 @@ class TestMealPlanResponseSerialization:
                     ]
                 )
             ],
-            shopping_list=[IngredientAmount(name="chicken", quantity_grams=300)],
+            shopping_list=[ShoppingListItem(name="chicken", quantity_grams=300)],
         )
         restored = MealPlanResponse.model_validate_json(response.model_dump_json())
         ings = restored.days[0].meals[0].ingredients

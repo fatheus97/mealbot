@@ -32,6 +32,7 @@ from app.models.plan_models import (
     MealPlanRequest,
     MealPlanResponse,
     PlannedMeal,
+    ShoppingListItem,
     SingleDayResponse,
     StockItemDTO,
 )
@@ -158,6 +159,21 @@ def batches_from_entry(entry: MealEntry) -> list[ConsumedBatch]:
     Corruption is logged and degrades that one entry to the fallback (or, if
     meal_json is also corrupt, to []) rather than 500ing the whole restore.
     """
+    # A leftover consumed nothing — its food was debited with its source meal.
+    # This MUST come first, ahead of the snapshot decode, because for a leftover
+    # the usual "safe" degradation is the dangerous one: a NULL or corrupt
+    # snapshot falls through to the fallback below, which reconstructs a full
+    # credit from meal_json and so INVENTS FOOD that was never debited. That
+    # phantom credit then also becomes a phantom re-debit demand on reopen ->
+    # PlanReopenShortageError -> 409 on a plan that needs no stock at all, and
+    # since editing is blocked on a finished plan the user would be stuck with
+    # no way out through the UI.
+    #
+    # Second belt: PlannedMeal forbids a leftover from carrying ingredients, so
+    # even the fallback would return [] — but correctness here must not depend
+    # on that.
+    if entry.leftover_of_day_index is not None:
+        return []
     if entry.consumed_snapshot_json:
         try:
             raw = json.loads(entry.consumed_snapshot_json)
@@ -215,6 +231,21 @@ async def confirm_plan_fridge(
     snapshots: dict[tuple[int, int], list[ConsumedBatch]] = {}
     for day_index, day in enumerate(plan_obj.days, start=1):
         for meal_index, meal in enumerate(day.meals, start=1):
+            if meal.is_leftover:
+                # Debiting here would charge the fridge twice for one batch of
+                # food. allocate_fifo NEVER raises on shortage (missing name ->
+                # continue, short stock -> silent partial allocation), so that
+                # double-debit would return 200 and stay invisible until someone
+                # diffs the fridge by hand — and generate_plan_days reads
+                # StockItem directly, so the NEXT plan would be generated against
+                # a phantom-empty fridge.
+                #
+                # Write the empty list EXPLICITLY. persist_meal_entries uses
+                # .get((d, m), []) so omitting the key happens to produce "[]"
+                # today, but that's incidental — and NULL vs "[]" is exactly the
+                # distinction batches_from_entry's fallback turns dangerous.
+                snapshots[(day_index, meal_index)] = []
+                continue
             meal_ingredients = [ing for ing in meal.ingredients if not ing.is_spice]
             snapshots[(day_index, meal_index)] = allocate_fifo(
                 batches_by_name, meal_ingredients
@@ -279,7 +310,10 @@ async def finish_plan_fridge(
 
     plan.finished_at = datetime.now(UTC)
     session.add(plan)
-    return len(uncooked_entries)
+    # Count only meals that actually returned ingredients. A leftover restores
+    # nothing (batches_from_entry short-circuits it), so counting it would tell
+    # the user N meals' worth of food went back when the real number is lower.
+    return sum(1 for e in uncooked_entries if e.leftover_of_day_index is None)
 
 
 async def reopen_plan_fridge(
@@ -414,7 +448,7 @@ async def generate_plan_days(
     user: User,
     payload: MealPlanRequest,
     days: int,
-) -> tuple[list[SingleDayResponse], list[IngredientAmount], list[StockItemDTO]]:
+) -> tuple[list[SingleDayResponse], list[ShoppingListItem], list[StockItemDTO]]:
     """Generate a day-by-day meal plan.
 
     Returns (days, shopping_list, initial_fridge_snapshot). The snapshot is
@@ -493,7 +527,7 @@ async def generate_plan_days(
         remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
         past_meals.extend(m.name for m in single_day.meals)
 
-    shopping_items: list[IngredientAmount] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
+    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
     if payload.stock_only:
         if shopping_items:
             logger.warning(
