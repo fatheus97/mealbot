@@ -132,3 +132,13 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+
+  # The Claude PR Review guard decides whether a review actually happened; it has
+  # silently mis-decided twice (#184 shipped it, PR #229 exposed the hole). Its
+  # logic is therefore unit-tested like any other production code path.
+  review-guard:
+    name: review guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash .github/scripts/tests/test-ensure-review-posted.sh
