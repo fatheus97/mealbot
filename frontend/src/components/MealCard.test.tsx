@@ -174,6 +174,23 @@ describe("MealCard", () => {
       expect(screen.getByRole("button", { name: "Saving…" })).toBeInTheDocument();
     });
 
+    // REGRESSION GUARD for the two-prop split. cookTogglePending covers
+    // cook-OR-uncook (it disables the Cook/Cooked toggle); cookPending covers
+    // cook alone. Cook mode's done button must follow cookPending only, so an
+    // unrelated uncook in flight cannot disable it. This test fails if the two
+    // props are ever collapsed back into one -- which no other test would catch.
+    it("keeps the overlay's done button enabled while an unrelated uncook is in flight", () => {
+      renderCard({
+        isConfirmed: true,
+        isCooking: true,
+        entry: ENTRY,
+        meal: ONE_STEP,
+        cookTogglePending: true,
+        cookPending: false,
+      });
+      expect(screen.getByRole("button", { name: "Mark as cooked" })).toBeEnabled();
+    });
+
     it("surfaces a cook failure inside the overlay", () => {
       renderCard({ isConfirmed: true, isCooking: true, entry: ENTRY, cookFailed: true });
       expect(screen.getByText(/Couldn't mark as cooked/)).toBeInTheDocument();
