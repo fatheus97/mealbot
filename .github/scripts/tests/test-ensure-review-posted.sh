@@ -147,6 +147,16 @@ jq -n --arg pad "$(head -c 1500 /dev/zero | tr '\0' 'x')" '
       body: ("**Claude finished @fatheus97 task in 2m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/99999)\n\n---\n- [x] Post final review\n\nThe previous round left this comment:\n\n> **Claude encountered an error after 1m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/88888)\n\n" + $pad) } ]' \
   >"$work/quoted-backlink.json"
 
+# --- The in-progress shape puts its backlink LAST, so prose above it quoting
+# another run wins the "first link" test and the comment is attributed to run
+# 88888 rather than its own run 77777. Pinned deliberately: neither run can be
+# greened by it (an in-progress comment never satisfies `completed`), so the only
+# cost is a misleading rejection reason. If a future change makes attribution
+# positional again, this fixture is where it has to be argued.
+jq -n '[{ user: { login: "claude[bot]", type: "Bot" },
+  body: "### Reviewing PR #999\n\n- [x] Gather context\n- [ ] Post final review\n\nPrior round: [View job](https://github.com/fatheus97/mealbot/actions/runs/88888)\n\n[View job run](https://github.com/fatheus97/mealbot/actions/runs/77777)" }]' \
+  >"$work/in-progress-quoting-another-run.json"
+
 # --- PR #185: a "finished" banner over an empty model turn (the #181–#183 shape).
 comment 4945588626 "**Claude finished @fatheus97's task in 3s**" "" 0 | jq -s '.' >"$work/empty-stub.json"
 
@@ -235,6 +245,12 @@ check "another run's review quoting this run's backlink as a markdown link is no
   FAIL "$work/quoted-backlink.json" 88888 "errored out partway through"
 check "the quoting run itself still passes" \
   PASS "$work/quoted-backlink.json" 99999
+# Documented limitation, pinned in both directions: neither the comment's real run
+# nor the quoted one can be greened by an in-progress body.
+check "in-progress comment quoting another run greens neither run (its own)" \
+  FAIL "$work/in-progress-quoting-another-run.json" 77777 "no comment for this run"
+check "in-progress comment quoting another run greens neither run (the quoted one)" \
+  FAIL "$work/in-progress-quoting-another-run.json" 88888 "no completion marker"
 
 # An unticked checklist under a *finished* banner — the "exited 0 but the review
 # never actually finished" case, distinct from the errored banner above.

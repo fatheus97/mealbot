@@ -77,6 +77,17 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
 
   # The run this comment BELONGS to: the first "[View job...](.../actions/runs/N)"
   # markdown link in the body. A later one is someone else being quoted.
+  #
+  # "First link is the own link" is STRUCTURAL for a finished comment — the action
+  # rewrites the banner, carrying the link, onto line 1 — but only EMPIRICAL for an
+  # in-progress comment, where the link is the last line with the checklist above
+  # it. Prose quoting another run above that trailing link would misattribute the
+  # comment. That is knowingly accepted, not overlooked: an in-progress comment can
+  # never satisfy `completed` (no "Claude finished" on line 1), so the worst case is
+  # a misleading rejection REASON, never a false green in either direction. The
+  # `in-progress-quoting-another-run` fixture pins that behaviour so a future change
+  # here has to confront it deliberately. Resist the temptation to make this smarter
+  # by position: two of this guard three historical bugs came from exactly that.
   def own_run:
     ( .body
       | match("\\[View job[^\\]]*\\]\\([^)]*actions/runs/([0-9]+)\\)")
