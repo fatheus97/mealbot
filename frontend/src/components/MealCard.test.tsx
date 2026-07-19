@@ -268,6 +268,59 @@ describe("MealCard — leftovers", () => {
     expect(screen.getByRole("button", { name: /Start cooking/ })).toBeInTheDocument();
   });
 
+
+  describe("cookbook star", () => {
+    const LEFTOVER_MEAL: PlannedMeal = {
+      name: "Leftovers: Chicken curry",
+      meal_type: "light_lunch",
+      meal_type_label: "Light lunch",
+      ingredients: [],
+      steps: ["Reheat the Chicken curry you cooked earlier and serve."],
+      leftover_of: { day_index: 0, meal_index: 0 },
+    };
+
+    it("disables the star on a leftover and explains why", () => {
+      // The backend 422s a favorite on a leftover (it would poison the global
+      // RAG corpus with an ingredient-free "recipe"), and useFavoriteMeal has
+      // no onError — so an ENABLED star would be a control that silently never
+      // works. Every other gated affordance got an explicit !isLeftover; this
+      // one was missed.
+      renderCard({
+        meal: LEFTOVER_MEAL,
+        leftoverSource: "Sun Jul 19 · Hot dinner — Chicken curry",
+        isConfirmed: true,
+        entry: ENTRY,
+      });
+      const star = screen.getByRole("switch");
+      expect(star).toBeDisabled();
+      expect(star).toHaveAttribute("title", expect.stringContaining("star the original meal"));
+    });
+
+    it("does not fire onFavoriteToggle when the leftover's star is clicked", async () => {
+      const { props } = renderCard({
+        meal: LEFTOVER_MEAL,
+        leftoverSource: "Sun Jul 19 · Hot dinner — Chicken curry",
+        isConfirmed: true,
+        entry: ENTRY,
+      });
+      await userEvent.click(screen.getByRole("switch"));
+      expect(props.onFavoriteToggle).not.toHaveBeenCalled();
+    });
+
+    it("leaves the star enabled on an ordinary meal", async () => {
+      const { props } = renderCard({ isConfirmed: true, entry: ENTRY });
+      const star = screen.getByRole("switch");
+      expect(star).toBeEnabled();
+      await userEvent.click(star);
+      expect(props.onFavoriteToggle).toHaveBeenCalledOnce();
+    });
+
+    it("still disables the star while a favorite mutation is in flight", () => {
+      renderCard({ isConfirmed: true, entry: ENTRY, favoritePending: true });
+      expect(screen.getByRole("switch")).toBeDisabled();
+    });
+  });
+
   it("shows no badge on an ordinary meal", () => {
     renderCard({ leftoverSource: null });
     expect(screen.queryByText(/Leftovers/)).not.toBeInTheDocument();

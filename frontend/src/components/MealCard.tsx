@@ -241,10 +241,23 @@ export function MealCard({
           </span>
         )}
         {entry && (
+          // Disabled — not hidden — on a leftover. The backend 422s a favorite
+          // on one (a content-free "reheat of X" embedded in the global RAG
+          // corpus would be served back to future generations as a proven
+          // recipe with no ingredients), and useFavoriteMeal has no onError, so
+          // an enabled star would be a control that silently never works.
+          // Disabling with an explanation is better than removing it: the star
+          // is present on every other meal, so its absence would just look like
+          // a bug.
           <FavoriteStar
             isFavorite={entry.is_favorite}
             onToggle={onFavoriteToggle}
-            disabled={favoritePending}
+            disabled={favoritePending || isLeftover}
+            title={
+              isLeftover
+                ? "Leftovers can't be saved to the cookbook — star the original meal instead"
+                : undefined
+            }
           />
         )}
       </div>

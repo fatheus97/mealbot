@@ -42,6 +42,21 @@ export function leftoverSourceLabel(
 export const LEFTOVER_SHORT_LABEL = "↻ Leftovers";
 
 /**
+ * Downcase only the FIRST character, so a sentence reads naturally when
+ * embedded mid-phrase (e.g. inside parentheses).
+ *
+ * Lives here rather than in the component so it is importable — and therefore
+ * testable — on its own. `.toLowerCase()` on the whole string was the original
+ * bug: calendarLeftoverTitle returns "Leftovers from Aug 9, 2026 — Sunday
+ * Roast", so flattening it mangled both the month abbreviation and the source
+ * dish name, and the mobile agenda (which uses the helper untouched) then
+ * disagreed with the grid about the same data.
+ */
+export function lowerFirst(s: string): string {
+  return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+/**
  * Provenance line for a calendar chip, e.g. "Leftovers from Sun Aug 9 —
  * Sunday roast". Falls back gracefully when the server couldn't resolve the
  * source date or name.

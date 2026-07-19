@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { leftoverSourceLabel, calendarLeftoverTitle } from "./leftovers";
+import { leftoverSourceLabel, calendarLeftoverTitle, lowerFirst } from "./leftovers";
 import { formatISODate } from "./planDates";
 import type { MealPlanResponse } from "../types";
 
@@ -100,5 +100,21 @@ describe("calendarLeftoverTitle", () => {
   it("works with only a name", () => {
     const t = calendarLeftoverTitle(null, "Chicken Curry", formatISODate);
     expect(t).toContain("Chicken Curry");
+  });
+});
+
+describe("calendar tooltip casing", () => {
+  // The grid chip embeds this sentence in parentheses and needs a lowercase
+  // lead-in. Downcasing the WHOLE string flattened the month abbreviation and
+  // the source dish name — and the mobile agenda, which uses the helper
+  // untouched, then disagreed with the grid about the same data.
+  it("preserves the source name and month when lead-in is downcased", () => {
+    const full = calendarLeftoverTitle("2026-08-09", "Sunday Roast", formatISODate);
+    const embedded = lowerFirst(full);
+    expect(embedded).toContain("Sunday Roast");
+    expect(embedded).toMatch(/Aug/);
+    expect(embedded.startsWith("leftovers")).toBe(true);
+    expect(embedded).not.toContain("sunday roast");
+    expect(embedded).not.toContain("aug");
   });
 });

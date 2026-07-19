@@ -16,7 +16,7 @@ import {
   parseISODateLocal,
   formatISODate,
 } from "../utils/planDates";
-import { calendarLeftoverTitle } from "../utils/leftovers";
+import { calendarLeftoverTitle, lowerFirst } from "../utils/leftovers";
 import type { CalendarMeal, MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 
 /** "Sat Aug 1" — a short weekday+date label for the agenda/list rows. */
@@ -226,9 +226,11 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                           c.meals
                             .map((m) =>
                               m.is_leftover
-                                ? `${m.name} (${calendarLeftoverTitle(
-                                    m.source_date, m.source_name, formatISODate,
-                                  ).toLowerCase()})`
+                                ? `${m.name} (${lowerFirst(
+                                    calendarLeftoverTitle(
+                                      m.source_date, m.source_name, formatISODate,
+                                    ),
+                                  )})`
                                 : m.name,
                             )
                             .join(", ") || `Plan #${c.plan_id}`
