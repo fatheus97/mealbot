@@ -19,6 +19,16 @@
 # guard's inability to false-GREEN, so ambiguous states fail closed: a spurious
 # red costs one re-run, a spurious green merges unreviewed code.
 #
+# KNOWN PROPERTY — this script is checked out from the PR head
+# The action itself refuses to run when the workflow file differs from the one on
+# the default branch ("Workflow validation failed"), but that protection does not
+# extend to this script: a PR editing only .github/scripts/ runs its own version
+# of the guard against itself. That is accepted rather than fixed, because
+# pinning the guard to the default branch would make it impossible to iterate on
+# in a PR, and it grants no capability an author does not already have — `review`
+# is not a required check, so a red one can simply be merged past. The
+# `review-guard` CI job is the backstop for accidental weakening.
+#
 # HISTORY
 # v1 (#184) counted inline comments and the longest claude[bot] comment across
 # the WHOLE PR. On PR #229 run 29685796635 the review errored after 3m35s having
