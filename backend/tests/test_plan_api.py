@@ -786,3 +786,46 @@ class TestLeftoverPolicyEndToEnd:
             1 for d in plan_obj.days for m in d.meals if m.is_leftover
         )
         assert 0 < links <= 2
+
+
+class TestLeftoverCannotBeFavorited:
+    """A leftover is a content-free "reheat of X". Favoriting one embeds it into
+    the GLOBAL RAG corpus, where retrieve_rated_meals serves it back to future
+    generations as a proven favourite — showing the model a recipe with no
+    ingredients and telling it to adapt it. delete_plan only blocks on THIS
+    plan's favorites, so the source plan can also vanish underneath it.
+    """
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_favoriting_a_leftover_is_rejected(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        await client.patch(
+            "/api/users", headers=auth_headers,
+            json={"default_day_layout": ["hot_dinner", "light_lunch"]},
+        )
+        plan_resp = await client.post(
+            "/api/plan?days=2", headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2, "leftover_policy": "auto"},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
+
+        entries = (await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)).json()
+        leftover = next(e for e in entries if e["day_index"] == 2 and e["meal_index"] == 2)
+        ordinary = next(e for e in entries if e["day_index"] == 1 and e["meal_index"] == 1)
+
+        blocked = await client.post(
+            f"/api/plan/{plan_id}/meals/{leftover['id']}/favorite",
+            headers=auth_headers, json={"is_favorite": True},
+        )
+        assert blocked.status_code == 422
+        assert "cookbook" in blocked.json()["detail"].lower()
+
+        # The source meal is still favoritable — only the reheat is blocked.
+        allowed = await client.post(
+            f"/api/plan/{plan_id}/meals/{ordinary['id']}/favorite",
+            headers=auth_headers, json={"is_favorite": True},
+        )
+        assert allowed.status_code == 200

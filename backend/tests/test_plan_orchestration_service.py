@@ -24,8 +24,10 @@ from app.models.plan_models import (
     PlannedMeal,
     SingleDayResponse,
 )
+from app.services.leftovers import LeftoverAssignment
 from app.services.plan_service import (
     PlanReopenShortageError,
+    _materialise_leftover,
     _restore_entries,
     batches_from_entry,
     confirm_plan_fridge,
@@ -610,3 +612,128 @@ class TestLeftoverGuardsAreDefenceInDepth:
         assert len(batches) == 1
         assert batches[0].name == "rice"
         assert batches[0].quantity_grams == 200
+
+
+class TestMaterialiseLeftover:
+    """_materialise_leftover DESTROYS the dish the model generated for that slot.
+
+    That makes its guards and its return value load-bearing: it returns the
+    replaced meal so generate_plan_days can put it back if the link is later
+    repaired away. Without that, a repaired link leaves a content-free
+    "Leftovers: X" ghost — no ingredients, no link, and a step telling the user
+    to reheat a dish it no longer points at.
+    """
+
+    def _day(self, *meals: PlannedMeal) -> SingleDayResponse:
+        return SingleDayResponse(meals=list(meals))
+
+    def _dish(self, name: str = "Roast") -> PlannedMeal:
+        return PlannedMeal(
+            name=name,
+            meal_type=MealType.HOT_DINNER,
+            ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+            steps=["cook"],
+        )
+
+    def test_replaces_the_slot_and_returns_the_original(self):
+        source_day = self._day(self._dish("Sunday Roast"))
+        today = self._day(self._dish("Some Lunch"))
+        replaced = _materialise_leftover(
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            [source_day],
+        )
+        assert replaced is not None
+        assert replaced.name == "Some Lunch"  # the caller can restore this
+        assert today.meals[0].name == "Leftovers: Sunday Roast"
+        assert today.meals[0].ingredients == []
+        assert today.meals[0].leftover_of == LeftoverRef(day_index=0, meal_index=0)
+        # The slot's identity is preserved — meal_type is not overwritten.
+        assert today.meals[0].meal_type == MealType.HOT_DINNER
+
+    def test_refuses_to_chain_off_another_leftover(self):
+        """model_construct is required here, not incidental: a VALID leftover
+        always has empty ingredients, so the empty-source guard below would mask
+        this one and the test would pass with the chain check deleted (verified
+        by mutation). Giving the source both a link and ingredients isolates the
+        chain guard so it is actually pinned."""
+        chained_source = PlannedMeal.model_construct(
+            name="Leftovers: X",
+            meal_type=MealType.MAIN_COURSE,
+            meal_type_label="",
+            ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+            steps=["reheat"],
+            total_time_minutes=None,
+            leftover_of=LeftoverRef(day_index=0, meal_index=0),
+        )
+        source_day = SingleDayResponse.model_construct(meals=[chained_source])
+        today = self._day(self._dish("Real Dish"))
+        replaced = _materialise_leftover(
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            [source_day],
+        )
+        assert replaced is None
+        assert today.meals[0].name == "Real Dish"  # untouched
+
+    def test_refuses_a_valid_leftover_source_too(self):
+        """The realistic shape — a proper leftover (no ingredients) — must also
+        be refused, whichever guard catches it."""
+        source_day = self._day(
+            PlannedMeal(
+                name="Leftovers: X",
+                meal_type=MealType.MAIN_COURSE,
+                ingredients=[],
+                steps=["reheat"],
+                leftover_of=LeftoverRef(day_index=0, meal_index=0),
+            )
+        )
+        today = self._day(self._dish("Real Dish"))
+        assert _materialise_leftover(
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            [source_day],
+        ) is None
+        assert today.meals[0].name == "Real Dish"
+
+    def test_refuses_a_source_with_no_ingredients(self):
+        empty = PlannedMeal(
+            name="Empty", meal_type=MealType.SOUP, ingredients=[], steps=["x"],
+        )
+        today = self._day(self._dish("Real Dish"))
+        replaced = _materialise_leftover(
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            [self._day(empty)],
+        )
+        assert replaced is None
+        assert today.meals[0].name == "Real Dish"
+
+    def test_no_op_when_the_slot_is_missing_from_a_short_response(self):
+        today = self._day(self._dish())
+        replaced = _materialise_leftover(
+            today, 5, LeftoverAssignment(1, 5, LeftoverRef(day_index=0, meal_index=0)),
+            [self._day(self._dish())],
+        )
+        assert replaced is None
+        assert len(today.meals) == 1
+
+    def test_no_op_when_the_source_is_out_of_range(self):
+        today = self._day(self._dish("Real Dish"))
+        replaced = _materialise_leftover(
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=9, meal_index=0)),
+            [self._day(self._dish())],
+        )
+        assert replaced is None
+        assert today.meals[0].name == "Real Dish"
+
+    def test_long_source_name_is_truncated_not_raised(self):
+        """PlannedMeal.name caps at 200. "Leftovers: " + a 200-char source name
+        would exceed it and raise OUTSIDE the guarded generation block, 500ing
+        the whole request."""
+        long_name = "A" * 200
+        source_day = self._day(self._dish(long_name))
+        today = self._day(self._dish("Lunch"))
+        replaced = _materialise_leftover(
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            [source_day],
+        )
+        assert replaced is not None
+        assert len(today.meals[0].name) <= 200
+        assert today.meals[0].name.startswith("Leftovers: AAA")

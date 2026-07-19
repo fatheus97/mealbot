@@ -454,8 +454,13 @@ def _materialise_leftover(
     slot_index: int,
     assignment: LeftoverAssignment,
     previous_days: list[SingleDayResponse],
-) -> None:
+) -> PlannedMeal | None:
     """Turn the generated meal at `slot_index` into a leftover of its source.
+
+    Returns the meal it REPLACED, so the caller can put it back if the link is
+    later repaired away. This is destructive — without the original, a repaired
+    link leaves a content-free "Leftovers: X" ghost with no ingredients, no
+    link, and a step telling the user to reheat a dish it no longer points at.
 
     The model is never told about links, so it produced an ordinary dish in that
     slot. We replace it in place with a content-free reheat pointing at the
@@ -473,7 +478,7 @@ def _materialise_leftover(
             "Leftover slot %d missing from generated day (got %d meals) — skipping",
             slot_index, len(day.meals),
         )
-        return
+        return None
     src = assignment.source
     if src.day_index >= len(previous_days) or src.meal_index >= len(
         previous_days[src.day_index].meals
@@ -482,21 +487,42 @@ def _materialise_leftover(
             "Leftover source day%d.meal%d not present — leaving the slot as generated",
             src.day_index, src.meal_index,
         )
-        return
+        return None
 
     source_meal = previous_days[src.day_index].meals[src.meal_index]
+    # Refuse to build a chain or an empty-source link here as well as in the
+    # planner. The planner is the primary guard, but this is the last point
+    # before a real dish is destroyed, and both conditions are cheap to check.
+    if source_meal.is_leftover:
+        logger.warning(
+            "Leftover source day%d.meal%d is itself a leftover — not chaining",
+            src.day_index, src.meal_index,
+        )
+        return None
+    if not source_meal.ingredients:
+        logger.warning(
+            "Leftover source day%d.meal%d has no ingredients to share — skipping",
+            src.day_index, src.meal_index,
+        )
+        return None
+
     original = day.meals[slot_index]
+    # PlannedMeal.name is capped at 200 chars; a long source name would push
+    # "Leftovers: <name>" over it and raise OUTSIDE the guarded generation
+    # block, 500ing the whole request.
+    name = f"Leftovers: {source_meal.name}"[:200]
     day.meals[slot_index] = PlannedMeal(
-        name=f"Leftovers: {source_meal.name}",
+        name=name,
         meal_type=original.meal_type,
         meal_type_label=original.meal_type_label,
         ingredients=[],
         steps=[
-            f"Reheat the {source_meal.name} you cooked earlier and serve.",
+            f"Reheat the {source_meal.name} you cooked earlier and serve."[:1000],
         ],
         total_time_minutes=15,
         leftover_of=src,
     )
+    return original
 
 
 async def generate_plan_days(
@@ -579,6 +605,9 @@ async def generate_plan_days(
     leftovers_by_day: dict[int, dict[int, LeftoverAssignment]] = {}
     for a in leftover_plan:
         leftovers_by_day.setdefault(a.day_index, {})[a.meal_index] = a
+    # The real dishes that materialisation overwrote, so a link repaired away
+    # afterwards can be undone rather than leaving a content-free ghost.
+    displaced: dict[tuple[int, int], PlannedMeal] = {}
 
     for day_index in range(1, days + 1):
         day_req = payload.model_copy()
@@ -618,7 +647,9 @@ async def generate_plan_days(
         # The model generated a normal dish there (it is never told about links);
         # we discard it and point at the source instead.
         for slot_i, assignment in leftovers_by_day.get(day_i0, {}).items():
-            _materialise_leftover(single_day, slot_i, assignment, meal_plan)
+            replaced = _materialise_leftover(single_day, slot_i, assignment, meal_plan)
+            if replaced is not None:
+                displaced[(day_i0, slot_i)] = replaced
 
         meal_plan.append(single_day)
         remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
@@ -644,6 +675,19 @@ async def generate_plan_days(
                 "Repaired %d invalid leftover link(s) during generation: %s",
                 len(violations), "; ".join(violations),
             )
+            # Nulling the link is not enough on its own: materialisation already
+            # DESTROYED the dish the model generated for that slot, so a
+            # repaired meal would survive as a content-free "Leftovers: X" with
+            # no ingredients, no link, and a step telling the user to reheat
+            # something it no longer points at. Put the real dish back.
+            for (d_i, m_i), original in displaced.items():
+                if meal_plan[d_i].meals[m_i].leftover_of is None:
+                    meal_plan[d_i].meals[m_i] = original
+                    logger.warning(
+                        "Restored the generated meal at day%d.meal%d after its "
+                        "leftover link was repaired away",
+                        d_i, m_i,
+                    )
 
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
     if payload.stock_only:

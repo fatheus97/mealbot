@@ -847,6 +847,23 @@ async def favorite_meal(
     ):
         raise HTTPException(status_code=404, detail="Meal entry not found")
 
+    # A leftover is a content-free "reheat of X" — no ingredients, one step,
+    # and a pointer that means nothing outside its own plan. Favoriting one
+    # would embed it into the GLOBAL RAG corpus, where retrieve_rated_meals
+    # serves it back to future generations as a proven favourite: the model
+    # would be shown a recipe with no ingredients and told to adapt it.
+    # delete_plan only blocks on THIS plan's favorites, so the source plan can
+    # also vanish underneath it. Un-starring stays allowed (never trap a user
+    # with an entry they can't clear).
+    if body.is_favorite and entry.leftover_of_day_index is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Leftovers can't be saved to the cookbook — save the original "
+                "meal instead."
+            ),
+        )
+
     # Idempotent fast path
     if entry.is_favorite == body.is_favorite:
         return MealEntrySummary.from_entry(entry)

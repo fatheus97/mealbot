@@ -465,3 +465,83 @@ class TestPortionsForDay:
     def test_ignores_out_of_range_source_slots(self):
         links = [LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=9))]
         assert portions_for_day(links, 0, 2) == [1, 1]
+
+
+class TestPlannerNeverChains:
+    """MAIN_COURSE is in BOTH the source and the target set, so a slot turned
+    into a leftover on day D is a perfectly good source candidate on day D+1
+    unless explicitly excluded.
+
+    Unguarded, this produced day1.meal0 <- day0.meal0 AND day2.meal0 <-
+    day1.meal0 — a "Leftovers: Leftovers: X" meal with no ingredients that the
+    invariant checker then rejected, by which point the real dish generated for
+    that slot had already been destroyed.
+
+    The original tests missed it because they only used hot_dinner/light_lunch
+    layouts, where the two sets happen to be disjoint.
+    """
+
+    def test_main_course_only_layout_does_not_chain(self):
+        layouts: list[list[str] | None] = [["main_course", "snack"]] * 3
+        links = plan_leftover_links(layouts)
+        targets = {(a.day_index, a.meal_index) for a in links}
+        sources = {(a.source.day_index, a.source.meal_index) for a in links}
+        assert not (targets & sources), f"chain: {sorted(targets & sources)}"
+
+    def test_main_course_in_second_slot_does_not_chain(self):
+        layouts: list[list[str] | None] = [["sweet_breakfast", "main_course"]] * 3
+        links = plan_leftover_links(layouts)
+        targets = {(a.day_index, a.meal_index) for a in links}
+        sources = {(a.source.day_index, a.source.meal_index) for a in links}
+        assert not (targets & sources)
+
+    def test_main_course_layout_still_produces_a_valid_graph(self):
+        # The contract test, now on the layout that used to break it.
+        layouts: list[list[str] | None] = [["main_course", "snack"]] * 4
+        links = plan_leftover_links(layouts)
+        days = []
+        for d, layout in enumerate(layouts):
+            meals = []
+            for m in range(len(layout or [])):
+                ref = next(
+                    (a.source for a in links if a.day_index == d and a.meal_index == m),
+                    None,
+                )
+                meals.append(
+                    meal(
+                        f"d{d}m{m}",
+                        leftover_of=(ref.day_index, ref.meal_index) if ref else None,
+                    )
+                )
+            days.append(meals)
+        assert validate_leftover_graph(plan(*days)) == []
+
+    def test_mixed_layouts_do_not_chain(self):
+        layouts: list[list[str] | None] = [
+            ["hot_dinner", "main_course"],
+            ["main_course", "light_lunch"],
+            ["main_course", "light_lunch"],
+            ["soup", "main_course"],
+        ]
+        links = plan_leftover_links(layouts, max_links=99)
+        targets = {(a.day_index, a.meal_index) for a in links}
+        sources = {(a.source.day_index, a.source.meal_index) for a in links}
+        assert not (targets & sources)
+
+    def test_every_layout_shape_yields_a_valid_graph(self):
+        """Brute force over small layouts built from the slots that actually
+        overlap the two sets — the planner and the invariants must never
+        disagree, whatever the user configures."""
+        from itertools import product
+
+        slots = ["main_course", "hot_dinner", "light_lunch", "snack"]
+        for combo in product(slots, repeat=2):
+            for n_days in (2, 3, 4):
+                layouts: list[list[str] | None] = [list(combo)] * n_days
+                links = plan_leftover_links(layouts, max_links=99)
+                targets = {(a.day_index, a.meal_index) for a in links}
+                sources = {(a.source.day_index, a.source.meal_index) for a in links}
+                assert not (targets & sources), (
+                    f"chain for layout {combo} over {n_days} days: "
+                    f"{sorted(targets & sources)}"
+                )

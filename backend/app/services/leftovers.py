@@ -86,11 +86,19 @@ def plan_leftover_links(
         fan-in and the portion maths handles it, but generating it automatically
         would mean a triple batch, which strains both fridge space and goodwill.
       * At most one leftover per day.
-      * A source is never itself a leftover — enforced structurally, since a
-        source must sit in a batch-friendly slot and day 0 can never hold one.
+      * A source is NEVER itself a leftover (L5, no chains). This needs an
+        explicit check, not a structural argument: MAIN_COURSE is a member of
+        BOTH the source and target sets, so yesterday's leftover slot is a
+        perfectly good source candidate today unless we exclude it. Left
+        unguarded, [["main_course", "snack"]] * 3 produces
+        day1.meal0 <- day0.meal0 AND day2.meal0 <- day1.meal0, i.e. a
+        "Leftovers: Leftovers: X" meal that the invariant checker then rejects.
     """
     assignments: list[LeftoverAssignment] = []
     used_sources: set[tuple[int, int]] = set()
+    # Slots already turned INTO leftovers. Must be excluded from future source
+    # lookups or the planner chains (see above).
+    used_targets: set[tuple[int, int]] = set()
 
     for day_index in range(1, len(layouts)):
         if len(assignments) >= max_links:
@@ -100,19 +108,29 @@ def plan_leftover_links(
         if not today or not prev:
             continue
 
-        target_index = _first_slot_in(today, LEFTOVER_TARGET_SLOTS)
+        target_index = _first_slot_in(
+            today,
+            LEFTOVER_TARGET_SLOTS,
+            excluding={m for (d, m) in used_sources if d == day_index},
+        )
         if target_index is None:
             continue
 
+        prev_day = day_index - 1
         source_index = _first_slot_in(
             prev,
             BATCH_FRIENDLY_SOURCE_SLOTS,
-            excluding={m for (d, m) in used_sources if d == day_index - 1},
+            excluding={
+                m
+                for (d, m) in (used_sources | used_targets)
+                if d == prev_day
+            },
         )
         if source_index is None:
             continue
 
         used_sources.add((day_index - 1, source_index))
+        used_targets.add((day_index, target_index))
         assignments.append(
             LeftoverAssignment(
                 day_index=day_index,
