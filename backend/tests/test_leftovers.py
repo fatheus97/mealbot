@@ -186,12 +186,38 @@ class TestGraphInvariants:
         (v,) = validate_leftover_graph(p)
         assert "out of range" in v and "day_index 5" in v
 
+    # L2 must bound meal_index against the TARGET day's length, not the
+    # referring day's. Day layouts are per-day, so those lengths differ in
+    # general and meals_per_day is not the bound either.
+    #
+    # These two cases must be RAGGED to discriminate: with equal-length days
+    # both bounds coincide and a wrong implementation passes. They kill the
+    # mutant in both directions. Case 2 matters beyond coverage — L2 is the
+    # only guard before the direct `plan.days[d].meals[m]` index below it, so a
+    # wrong bound there is an uncaught IndexError (a 500 on an unopenable plan),
+    # exactly the failure this module is designed to avoid.
+
     def test_l2_meal_out_of_range_uses_the_target_days_length(self):
-        # Day 0 has one meal; day layouts are per-day so meals_per_day is not
-        # the bound.
-        p = plan([meal()], [meal("X", leftover_of=(0, 3))])
+        # Target day 0 is SHORTER than the referring day: ref (0,2) is out of
+        # range. A referring-day bound (3) would wrongly accept and then
+        # IndexError.
+        p = plan(
+            [meal()],
+            [meal("A"), meal("B"), meal("X", leftover_of=(0, 2))],
+        )
         (v,) = validate_leftover_graph(p)
-        assert "meal_index 3" in v and "out of range" in v
+        assert "meal_index 2" in v and "out of range" in v
+        assert "day 0 has 1 meals" in v  # pins WHICH day's length was used
+
+    def test_l2_accepts_a_ref_valid_only_under_the_target_days_length(self):
+        # Mirror: target day 0 is LONGER than the referring day. ref (0,2) is
+        # valid; a referring-day bound (1) would wrongly reject it, and under
+        # repair=True would silently delete a legitimate link.
+        p = plan(
+            [meal(), meal("B"), meal("C")],
+            [meal("X", leftover_of=(0, 2))],
+        )
+        assert validate_leftover_graph(p) == []
 
     # --- L3 self ---
 
