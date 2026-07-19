@@ -74,6 +74,13 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
     | if $i == null then $l else $l[0:$i] end;
 
   def first_line: (lines[0] // "");
+
+  # The run this comment BELONGS to: the first "[View job...](.../actions/runs/N)"
+  # markdown link in the body. A later one is someone else being quoted.
+  def own_run:
+    ( .body
+      | match("\\[View job[^\\]]*\\]\\([^)]*actions/runs/([0-9]+)\\)")
+      | .captures[0].string ) // "";
   def content_len: lines | map(select(is_chrome | not)) | join("\n") | length;
   def stalled: head_block | map(test("^- \\[ \\]")) | any;
 
@@ -103,8 +110,14 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
   # Matching the link FORM rather than the bare URL is what stops a comment
   # belonging to a DIFFERENT run from being credited to this one just by quoting
   # its job URL in prose — which is exactly how PR #197 run 29195401264 refers to
-  # its job from a separately posted write-up. The literal ")" additionally stops
-  # run 998 from claiming the comments of run 9981.
+  # its job from a separately posted write-up.
+  #
+  # Taking the FIRST such link as the comment OWN run closes the remaining gap:
+  # a review that quotes an older tracking comment verbatim — plausible on this
+  # repo, where the reviewer reads prior rounds and the subject under review is
+  # this very guard — carries a foreign backlink in its prose, but its own
+  # banner link is on line 1 and therefore wins. Comparing for equality also
+  # stops run 998 from claiming the comments of run 9981.
   #
   # (Apostrophes are avoided in this jq program: it is single-quoted in bash.)
   #
@@ -120,7 +133,7 @@ result=$(jq -s -r --arg run "$run_id" --argjson min "$MIN_CONTENT" '
   # independent barrier.
   [ ((add // [])[])
     | select((.user.login | test("^claude(-code)?\\[bot\\]$")) and .user.type == "Bot")
-    | select(.body | test("\\[View job[^\\]]*\\]\\([^)]*actions/runs/" + $run + "\\)")) ] as $mine
+    | select(own_run == $run) ] as $mine
   | ($mine | map(select(completed))) as $done
   | if ($mine | length) == 0 then
       "FAIL\tit posted no comment for this run (actions/runs/\($run)), so the review never ran. Either the action failed before posting (check the job log with show_full_output: true, and the CLAUDE_CODE_OAUTH_TOKEN secret), or it declined to run at all — which is expected on a PR that edits .github/workflows/."

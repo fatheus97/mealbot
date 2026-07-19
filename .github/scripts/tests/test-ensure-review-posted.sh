@@ -135,6 +135,18 @@ jq -n '[{ user: { login: "claude[bot]", type: "Bot" },
   body: "### Reviewing PR #231\n\n- [x] Gather context (PR description, diff, prior review threads)\n- [ ] Read ROADMAP.md diff\n- [ ] Check prior review rounds for dismissed findings\n- [ ] Post review feedback\n\n<img src=\"https://github.com/user-attachments/assets/5ac382c7.png\" width=\"14px\" height=\"14px\" />\n\n[View job run](https://github.com/fatheus97/mealbot/actions/runs/29700278618)" }]' \
   >"$work/in-progress.json"
 
+# --- Run 88888 errored; run 99999 then posted a completed review that QUOTES
+# 88888's backlink verbatim, as a full markdown link rather than a bare URL —
+# plausible here, since the reviewer reads prior rounds and this guard is itself
+# the subject under review. Matching the link form alone would credit 88888 with
+# 99999's review; taking each comment FIRST backlink as its own run does not.
+jq -n --arg pad "$(head -c 1500 /dev/zero | tr '\0' 'x')" '
+  [ { user: { login: "claude[bot]", type: "Bot" },
+      body: ("**Claude encountered an error after 1m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/88888)\n\n---\n- [ ] Post final review\n") },
+    { user: { login: "claude[bot]", type: "Bot" },
+      body: ("**Claude finished @fatheus97 task in 2m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/99999)\n\n---\n- [x] Post final review\n\nThe previous round left this comment:\n\n> **Claude encountered an error after 1m** —— [View job](https://github.com/fatheus97/mealbot/actions/runs/88888)\n\n" + $pad) } ]' \
+  >"$work/quoted-backlink.json"
+
 # --- PR #185: a "finished" banner over an empty model turn (the #181–#183 shape).
 comment 4945588626 "**Claude finished @fatheus97's task in 3s**" "" 0 | jq -s '.' >"$work/empty-stub.json"
 
@@ -219,6 +231,10 @@ check "bot login typed as a User cannot satisfy the guard" \
   FAIL "$work/user-typed-impostor.json" 779 "no comment for this run"
 check "another run's review quoting this run's job URL is not credited" \
   FAIL "$work/cross-run.json" 55555 "errored out partway through"
+check "another run's review quoting this run's backlink as a markdown link is not credited" \
+  FAIL "$work/quoted-backlink.json" 88888 "errored out partway through"
+check "the quoting run itself still passes" \
+  PASS "$work/quoted-backlink.json" 99999
 
 # An unticked checklist under a *finished* banner — the "exited 0 but the review
 # never actually finished" case, distinct from the errored banner above.
