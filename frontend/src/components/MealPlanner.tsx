@@ -2,11 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
-import { FavoriteStar } from "./FavoriteStar";
-import { IngredientsList } from "./recipe/IngredientsList";
-import { RecipeSteps } from "./recipe/RecipeSteps";
-import { MealEditor } from "./recipe/MealEditor";
-import { CookMode } from "./recipe/CookMode";
+import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
 import { CookNowForm } from "./CookNowForm";
@@ -691,159 +687,41 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                  const isEditing = editingMeal === `${idx}-${mealIdx}`;
                  const isCooking = cookingMeal === `${idx}-${mealIdx}`;
                  return (
-                   <div
+                   <MealCard
                      key={mealIdx}
-                     style={{
-                       marginLeft: "1rem",
-                       marginBottom: "1rem",
-                       padding: "0.5rem",
-                       borderLeft: isFrozen ? "3px solid #4a90d9" : isCooked ? "3px solid #16a34a" : "3px solid transparent",
-                       backgroundColor: isFrozen ? "#eef4fb" : isCooked ? "#f0fdf4" : "transparent",
-                       borderRadius: "4px",
+                     meal={meal}
+                     entry={entry}
+                     isFrozen={isFrozen}
+                     isCooked={isCooked}
+                     isEditing={isEditing}
+                     isCooking={isCooking}
+                     isConfirmed={isConfirmed}
+                     isFinished={isFinished}
+                     cookStorageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
+                     cookTogglePending={cookMutation.isPending || uncookMutation.isPending}
+                     cookPending={cookMutation.isPending}
+                     favoritePending={favoriteMutation.isPending}
+                     savePending={updateMealMutation.isPending}
+                     saveError={
+                       updateMealMutation.isError
+                         ? (updateMealMutation.error?.message ?? "Save failed")
+                         : null
+                     }
+                     cookFailed={cookMutation.isError}
+                     onToggleFreeze={() => toggleFreeze(idx, mealIdx)}
+                     onCookToggle={() => handleCookToggle(idx, mealIdx)}
+                     onStartEdit={() => setEditingMeal(`${idx}-${mealIdx}`)}
+                     onCancelEdit={() => setEditingMeal(null)}
+                     onSave={(updated) => handleSaveEdit(idx, mealIdx, updated)}
+                     onStartCooking={() => {
+                       cookMutation.reset(); // clear any prior cook error so it can't bleed into this session
+                       setEditingMeal(null);
+                       setCookingMeal(`${idx}-${mealIdx}`);
                      }}
-                   >
-                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                       {!isConfirmed && (
-                         <button
-                           onClick={() => toggleFreeze(idx, mealIdx)}
-                           title={isFrozen ? "Unfreeze this meal" : "Freeze this meal"}
-                           style={{
-                             background: "none",
-                             border: "1px solid #ccc",
-                             borderRadius: "4px",
-                             padding: "0.15rem 0.4rem",
-                             cursor: "pointer",
-                             fontSize: "0.85rem",
-                             color: isFrozen ? "#4a90d9" : "#888",
-                           }}
-                         >
-                           {isFrozen ? "Frozen" : "Freeze"}
-                         </button>
-                       )}
-                       {isConfirmed && !isFinished && entry && !isCooking && (
-                         <button
-                           onClick={() => handleCookToggle(idx, mealIdx)}
-                           disabled={cookMutation.isPending || uncookMutation.isPending}
-                           title={isCooked ? "Mark as not cooked" : "Mark as cooked"}
-                           style={{
-                             background: "none",
-                             border: `1px solid ${isCooked ? "#16a34a" : "#ccc"}`,
-                             borderRadius: "4px",
-                             padding: "0.15rem 0.4rem",
-                             cursor: "pointer",
-                             fontSize: "0.85rem",
-                             color: isCooked ? "#16a34a" : "#888",
-                           }}
-                         >
-                           {isCooked ? "Cooked" : "Cook"}
-                         </button>
-                       )}
-                       {isFinished && entry && (
-                         <span style={{
-                           fontSize: "0.85rem",
-                           color: isCooked ? "#16a34a" : "#888",
-                           fontStyle: "italic",
-                         }}>
-                           {isCooked ? "Cooked" : "Not cooked"}
-                         </span>
-                       )}
-                       {!isEditing && !isFinished && !isCooking && (
-                         <button
-                           onClick={() => setEditingMeal(`${idx}-${mealIdx}`)}
-                           title="Edit this recipe"
-                           style={{
-                             background: "none",
-                             border: "1px solid #ccc",
-                             borderRadius: "4px",
-                             padding: "0.15rem 0.4rem",
-                             cursor: "pointer",
-                             fontSize: "0.85rem",
-                             color: "#555",
-                           }}
-                         >
-                           Edit
-                         </button>
-                       )}
-                       {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && (meal.steps?.length ?? 0) > 0 && (
-                         <button
-                           onClick={() => {
-                             cookMutation.reset(); // clear any prior cook error so it can't bleed into this session
-                             setEditingMeal(null);
-                             setCookingMeal(`${idx}-${mealIdx}`);
-                           }}
-                           title="Cook this recipe step by step"
-                           style={{
-                             background: "none",
-                             border: "1px solid #16a34a",
-                             borderRadius: "4px",
-                             padding: "0.15rem 0.4rem",
-                             cursor: "pointer",
-                             fontSize: "0.85rem",
-                             color: "#16a34a",
-                           }}
-                         >
-                           Start cooking
-                         </button>
-                       )}
-                       <strong>{mealTypeLabel(meal.meal_type, meal.meal_type_label).toUpperCase()}:</strong> {meal.name}
-                       {meal.total_time_minutes != null && (
-                         <span
-                           style={{ marginLeft: "0.5rem", fontSize: "0.85em", color: "#666" }}
-                           aria-label={`Total time ${meal.total_time_minutes} minutes`}
-                         >
-                           · {meal.total_time_minutes} min
-                         </span>
-                       )}
-                       {entry && (
-                         <FavoriteStar
-                           isFavorite={entry.is_favorite}
-                           onToggle={(next) => handleFavoriteToggle(idx, mealIdx, next)}
-                           disabled={favoriteMutation.isPending}
-                         />
-                       )}
-                     </div>
-
-                     {isEditing ? (
-                       <MealEditor
-                         meal={meal}
-                         onSave={(updated) => handleSaveEdit(idx, mealIdx, updated)}
-                         onCancel={() => setEditingMeal(null)}
-                         saving={updateMealMutation.isPending}
-                         error={
-                           updateMealMutation.isError
-                             ? (updateMealMutation.error?.message ?? "Save failed")
-                             : null
-                         }
-                       />
-                     ) : (
-                       <>
-                         <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
-                           <em>Ingredients:</em>{" "}
-                           <IngredientsList ingredients={meal.ingredients ?? []} />
-                         </div>
-
-                         <div style={{ fontSize: "0.9em" }}>
-                           <RecipeSteps steps={meal.steps ?? []} />
-                         </div>
-                       </>
-                     )}
-                     {/* Fullscreen cooking overlay (portals to <body>). */}
-                     {isCooking && entry && (
-                       <CookMode
-                         meal={meal}
-                         storageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
-                         onDone={() => handleFinishCooking(idx, mealIdx)}
-                         onClose={() => setCookingMeal(null)}
-                         doneLabel="Mark as cooked"
-                         donePending={cookMutation.isPending}
-                         doneError={
-                           cookMutation.isError
-                             ? "Couldn't mark as cooked — check your connection and try again."
-                             : null
-                         }
-                       />
-                     )}
-                   </div>
+                     onStopCooking={() => setCookingMeal(null)}
+                     onFinishCooking={() => handleFinishCooking(idx, mealIdx)}
+                     onFavoriteToggle={(next) => handleFavoriteToggle(idx, mealIdx, next)}
+                   />
                  );
                })}
              </div>
