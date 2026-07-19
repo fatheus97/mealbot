@@ -107,6 +107,22 @@ class MealPlanRequest(BaseModel):
         default_factory=list,
         description="Meal names eaten recently (to avoid similar dishes).",
     )
+    # "auto" lets the server link a later light meal to an earlier batch-friendly
+    # one ("cook a bigger dinner, eat it as tomorrow's lunch").
+    #
+    # This model is bound straight from the public POST /api/plan body, so the
+    # value a client sends here is NOT trusted: the endpoint overwrites it from
+    # settings.leftovers_enabled, the same way it overwrites include_spices and
+    # the locale fields. That is what makes the rollout gate real rather than
+    # advisory — otherwise anyone reading the auto-generated schema could opt
+    # into the feature before it is finished.
+    #
+    # The LLM never sees this and never authors a link (see
+    # app/services/leftovers.py).
+    leftover_policy: Literal["none", "auto"] = Field(
+        default="none",
+        description="Whether the server may plan leftover meals for this plan.",
+    )
 
     language: str = Field(
         default="English",

@@ -80,13 +80,13 @@ Your priorities, IN THIS ORDER, are:
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) Use URGENT stock ingredients so nothing goes to waste.
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) Keep meals realistic and simple enough for a home cook.
 {% if retrieved_meals %}{% set ns.n = ns.n + 1 %}{{ ns.n }}) Prefer adapting the retrieved meals above — they are proven favourites.
-{% endif %}{% set ns.n = ns.n + 1 %}{{ ns.n }}) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.
+{% endif %}{% set ns.n = ns.n + 1 %}{{ ns.n }}) Optimise for variety and creativity, i.e. avoid past meals, same ingredients, and similarity between meals in this plan.{% if slot_portions and slot_portions | max > 1 %} EXCEPTION: a slot marked COOK A DOUBLE/TRIPLE BATCH above is intentional repetition — scale it as instructed and do NOT vary it away to satisfy this rule.{% endif %}
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) Use NON-URGENT stock ingredients.
 {% else %}
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) Keep meals realistic, delicious, and simple for a home cook. Use ANY ingredients you need — you are NOT limited to stock.
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) Prefer URGENT stock ingredients where they fit naturally. Never force them into a recipe.
 {% if retrieved_meals %}{% set ns.n = ns.n + 1 %}{{ ns.n }}) Prefer adapting the retrieved meals above — they are proven favourites. Adjust quantities and ingredients to match the user's fridge.
-{% endif %}{% set ns.n = ns.n + 1 %}{{ ns.n }}) Variety and creativity: avoid past meals, repeated ingredients, and samey flavour profiles — but NEVER at the expense of the hard-constraint priorities above.
+{% endif %}{% set ns.n = ns.n + 1 %}{{ ns.n }}) Variety and creativity: avoid past meals, repeated ingredients, and samey flavour profiles — but NEVER at the expense of the hard-constraint priorities above.{% if slot_portions and slot_portions | max > 1 %} EXCEPTION: a slot marked COOK A DOUBLE/TRIPLE BATCH above is intentional repetition — scale it as instructed and do NOT vary it away to satisfy this rule.{% endif %}
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) Use NON-URGENT stock ingredients when they make sense.
 {% endif %}
 
@@ -135,6 +135,13 @@ Other rules:
     for exactly {{ people_count }} people, in this order — you MUST emit the meal_type values below verbatim:
 {%- for slot in slot_layout %}
     {{ loop.index }}. {{ slot }}
+{%- if slot_portions and slot_portions[loop.index0] > 1 %}
+       COOK A {{ "DOUBLE" if slot_portions[loop.index0] == 2 else "TRIPLE" }} BATCH of this meal:
+       give ingredient amounts for {{ people_count * slot_portions[loop.index0] }} people
+       ({{ slot_portions[loop.index0] }} servings-worth), because the extra portion is
+       deliberately kept as leftovers for another day. Restate the SCALED amount
+       inline in every step — the steps must agree with the ingredient list.
+{%- endif %}
 {%- endfor %}
 — Do NOT substitute, reorder, add, or drop meal_type slots. The output `meal_type`
   field for meal N MUST equal the value listed at position N above.

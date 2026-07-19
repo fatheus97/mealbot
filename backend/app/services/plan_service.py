@@ -44,6 +44,12 @@ from app.services.fridge_service import (
     replace_fridge_items,
     restore_consumed_batches,
 )
+from app.services.leftovers import (
+    LeftoverAssignment,
+    plan_leftover_links,
+    portions_for_day,
+    validate_leftover_graph,
+)
 from app.services.meal_planner import (
     generate_single_day,
     generate_single_day_with_rag,
@@ -443,6 +449,82 @@ def persist_meal_entries(
     return entries
 
 
+def _materialise_leftover(
+    day: SingleDayResponse,
+    slot_index: int,
+    assignment: LeftoverAssignment,
+    previous_days: list[SingleDayResponse],
+) -> PlannedMeal | None:
+    """Turn the generated meal at `slot_index` into a leftover of its source.
+
+    Returns the meal it REPLACED, so the caller can put it back if the link is
+    later repaired away. This is destructive — without the original, a repaired
+    link leaves a content-free "Leftovers: X" ghost with no ingredients, no
+    link, and a step telling the user to reheat a dish it no longer points at.
+
+    The model is never told about links, so it produced an ordinary dish in that
+    slot. We replace it in place with a content-free reheat pointing at the
+    source meal, preserving the slot's meal_type so the day layout is unchanged.
+
+    Ingredients MUST be emptied: they belong to the source meal (which was
+    generated at a larger batch size), and PlannedMeal's validator enforces it.
+
+    No-ops if anything doesn't line up rather than raising — a generation that
+    returned fewer meals than the layout asked for should still yield a usable
+    plan, just without this leftover.
+    """
+    if slot_index >= len(day.meals):
+        logger.warning(
+            "Leftover slot %d missing from generated day (got %d meals) — skipping",
+            slot_index, len(day.meals),
+        )
+        return None
+    src = assignment.source
+    if src.day_index >= len(previous_days) or src.meal_index >= len(
+        previous_days[src.day_index].meals
+    ):
+        logger.warning(
+            "Leftover source day%d.meal%d not present — leaving the slot as generated",
+            src.day_index, src.meal_index,
+        )
+        return None
+
+    source_meal = previous_days[src.day_index].meals[src.meal_index]
+    # Refuse to build a chain or an empty-source link here as well as in the
+    # planner. The planner is the primary guard, but this is the last point
+    # before a real dish is destroyed, and both conditions are cheap to check.
+    if source_meal.is_leftover:
+        logger.warning(
+            "Leftover source day%d.meal%d is itself a leftover — not chaining",
+            src.day_index, src.meal_index,
+        )
+        return None
+    if not source_meal.ingredients:
+        logger.warning(
+            "Leftover source day%d.meal%d has no ingredients to share — skipping",
+            src.day_index, src.meal_index,
+        )
+        return None
+
+    original = day.meals[slot_index]
+    # PlannedMeal.name is capped at 200 chars; a long source name would push
+    # "Leftovers: <name>" over it and raise OUTSIDE the guarded generation
+    # block, 500ing the whole request.
+    name = f"Leftovers: {source_meal.name}"[:200]
+    day.meals[slot_index] = PlannedMeal(
+        name=name,
+        meal_type=original.meal_type,
+        meal_type_label=original.meal_type_label,
+        ingredients=[],
+        steps=[
+            f"Reheat the {source_meal.name} you cooked earlier and serve."[:1000],
+        ],
+        total_time_minutes=15,
+        leftover_of=src,
+    )
+    return original
+
+
 async def generate_plan_days(
     session: AsyncSession,
     user: User,
@@ -496,26 +578,64 @@ async def generate_plan_days(
             return [slot.value for slot in request_layouts[i]]
         return user_default
 
+    # Leftover links are decided UP FRONT, from the layouts alone, before any
+    # generation happens. That ordering is the whole design: each day is a
+    # separate LLM call that sees only prior meal *names*, so the model could
+    # never author a correct cross-day index — but knowing the links in advance
+    # lets us tell day D's call to cook a bigger batch of exactly one slot.
+    #
+    # Days with no resolved layout are skipped by the planner (see
+    # plan_leftover_links): without knowing what slot N will be, we can't tell
+    # the model which dish to scale.
+    layouts: list[list[str] | None] = [_resolve_layout(i) for i in range(days)]
+    leftover_plan: list[LeftoverAssignment] = (
+        plan_leftover_links(layouts) if payload.leftover_policy == "auto" else []
+    )
+    if leftover_plan:
+        logger.info(
+            "Planned %d leftover link(s): %s",
+            len(leftover_plan),
+            [
+                f"day{a.day_index}.meal{a.meal_index} <- "
+                f"day{a.source.day_index}.meal{a.source.meal_index}"
+                for a in leftover_plan
+            ],
+        )
+    # 0-based day -> {0-based slot: assignment} for the meals that BECOME leftovers.
+    leftovers_by_day: dict[int, dict[int, LeftoverAssignment]] = {}
+    for a in leftover_plan:
+        leftovers_by_day.setdefault(a.day_index, {})[a.meal_index] = a
+    # The real dishes that materialisation overwrote, so a link repaired away
+    # afterwards can be undone rather than leaving a content-free ghost.
+    displaced: dict[tuple[int, int], PlannedMeal] = {}
+
     for day_index in range(1, days + 1):
         day_req = payload.model_copy()
         day_req.stock_items = remaining_ingredients
         day_req.past_meals = past_meals
 
-        slot_layout = _resolve_layout(day_index - 1)
+        day_i0 = day_index - 1
+        slot_layout = _resolve_layout(day_i0)
+        # Ask for a bigger batch of any slot that feeds a later leftover.
+        slot_portions = (
+            portions_for_day(leftover_plan, day_i0, len(slot_layout))
+            if slot_layout
+            else None
+        )
 
         try:
             single_day: SingleDayResponse | None = None
             if settings.use_rag:
                 single_day = await generate_single_day_with_rag(
                     day_req, session, user.id, mock=user.is_demo,
-                    slot_layout=slot_layout,
+                    slot_layout=slot_layout, slot_portions=slot_portions,
                 )
                 if single_day:
                     logger.info("Day %d: used RAG pipeline", day_index)
             if single_day is None:
                 single_day = await generate_single_day(
                     day_req, day_index=day_index, mock=user.is_demo,
-                    slot_layout=slot_layout,
+                    slot_layout=slot_layout, slot_portions=slot_portions,
                 )
         except HTTPException:
             raise
@@ -523,9 +643,51 @@ async def generate_plan_days(
             logger.exception("Plan generation failed at day %d", day_index)
             raise PlanGenerationError(day_index) from exc
 
+        # Replace this day's planned-leftover slots with actual leftover meals.
+        # The model generated a normal dish there (it is never told about links);
+        # we discard it and point at the source instead.
+        for slot_i, assignment in leftovers_by_day.get(day_i0, {}).items():
+            replaced = _materialise_leftover(single_day, slot_i, assignment, meal_plan)
+            if replaced is not None:
+                displaced[(day_i0, slot_i)] = replaced
+
         meal_plan.append(single_day)
         remaining_ingredients = subtract_used_from_fridge(remaining_ingredients, single_day.meals)
-        past_meals.extend(m.name for m in single_day.meals)
+        # Leftovers are deliberately EXCLUDED from past_meals: that list is an
+        # anti-repetition signal, and a leftover reading as "already eaten"
+        # pushes the model away from the very dish it just planned to reuse.
+        past_meals.extend(m.name for m in single_day.meals if not m.is_leftover)
+
+    # Repair before the shopping list is computed: a bad link would otherwise be
+    # baked into a frozen shopping list that every later read replays. Repair
+    # (not raise) matches the module's validate-on-write / degrade-on-read
+    # policy — an invalid link is nulled and the meal survives as an ordinary
+    # one, rather than failing a plan the user already paid to generate.
+    if leftover_plan:
+        violations = validate_leftover_graph(
+            MealPlanResponse(
+                plan_id=None, start_date=None, days=meal_plan, shopping_list=[]
+            ),
+            repair=True,
+        )
+        if violations:
+            logger.warning(
+                "Repaired %d invalid leftover link(s) during generation: %s",
+                len(violations), "; ".join(violations),
+            )
+            # Nulling the link is not enough on its own: materialisation already
+            # DESTROYED the dish the model generated for that slot, so a
+            # repaired meal would survive as a content-free "Leftovers: X" with
+            # no ingredients, no link, and a step telling the user to reheat
+            # something it no longer points at. Put the real dish back.
+            for (d_i, m_i), original in displaced.items():
+                if meal_plan[d_i].meals[m_i].leftover_of is None:
+                    meal_plan[d_i].meals[m_i] = original
+                    logger.warning(
+                        "Restored the generated meal at day%d.meal%d after its "
+                        "leftover link was repaired away",
+                        d_i, m_i,
+                    )
 
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
     if payload.stock_only:

@@ -64,6 +64,16 @@ class Settings(BaseSettings):
 
     use_rag: bool = False
 
+    # Master switch for leftover planning ("cook a bigger dinner, eat it as
+    # tomorrow's lunch"). OFF until the feature is complete — regeneration and
+    # the edit fan-out are not built yet, and a link that survives a regenerate
+    # silently retargets to a different dish, making the plan under-buy.
+    #
+    # This is the rollout gate, deliberately NOT the request field: MealPlanRequest
+    # is bound straight from the public request body, so a client could otherwise
+    # reach a half-built path just by reading the auto-generated schema.
+    leftovers_enabled: bool = False
+
     # RAG thresholds
     rag_min_results: int = 3
     rag_max_distance: float = 0.4

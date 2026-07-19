@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from app.api.deps import get_current_user, require_active_subscription, usage_capture
+from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
@@ -372,6 +373,17 @@ async def plan_meals_for_user(
     payload.variability = cast(Variability, var_raw)
 
     payload.include_spices = bool(current_user.include_spices)
+
+    # Server-owned, exactly like the fields above: overwrite whatever the client
+    # sent. MealPlanRequest is bound from the public request body, so leaving
+    # this client-settable would let anyone reading the auto-generated schema
+    # opt into a half-built feature (regeneration + edit fan-out land in the
+    # next slice; until then a link that survives a regenerate silently
+    # retargets to a different dish and the plan under-buys).
+    #
+    # When leftovers ship for real this becomes a per-user preference read off
+    # the User row, the same way include_spices is above.
+    payload.leftover_policy = "auto" if settings.leftovers_enabled else "none"
 
     if payload.day_layouts is not None and len(payload.day_layouts) != days:
         raise HTTPException(
@@ -846,6 +858,23 @@ async def favorite_meal(
         or entry.user_id != current_user.id
     ):
         raise HTTPException(status_code=404, detail="Meal entry not found")
+
+    # A leftover is a content-free "reheat of X" — no ingredients, one step,
+    # and a pointer that means nothing outside its own plan. Favoriting one
+    # would embed it into the GLOBAL RAG corpus, where retrieve_rated_meals
+    # serves it back to future generations as a proven favourite: the model
+    # would be shown a recipe with no ingredients and told to adapt it.
+    # delete_plan only blocks on THIS plan's favorites, so the source plan can
+    # also vanish underneath it. Un-starring stays allowed (never trap a user
+    # with an entry they can't clear).
+    if body.is_favorite and entry.leftover_of_day_index is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Leftovers can't be saved to the cookbook — save the original "
+                "meal instead."
+            ),
+        )
 
     # Idempotent fast path
     if entry.is_favorite == body.is_favorite:
