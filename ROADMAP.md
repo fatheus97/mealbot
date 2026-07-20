@@ -13,11 +13,14 @@
 > the `authsession` cleanup job (#215) and the password-change endpoint (#216),
 > and **2026-07-17** after the **calendar-dates thrust** — plan `start_date` plus
 > a month-grid calendar built on a reusable `ModalShell` (#220–222), and the
-> post-use UX polish that followed (#224), and **2026-07-19** after the
+> post-use UX polish that followed (#224), and **2026-07-19→20** after the
 > **leftovers thrust** — modelled as a LINK to an earlier meal rather than the
-> `meal_type` enum value the notes proposed (#226–229, #232, #234, #235). Where
-> the notes and the code disagreed, the code wins and the discrepancy is called
-> out.
+> `meal_type` enum value the notes proposed (#226–229, #232, #234, #235). The
+> same pass **parked user-edits-as-feedback** (the capture keeps running, but
+> there aren't enough users to learn from yet) and added a **Growth / marketing
+> pipeline** milestone, since the binding constraint is now users rather than
+> features. Where the notes and the code disagreed, the code wins and the
+> discrepancy is called out.
 
 ## How to read this
 
@@ -123,7 +126,7 @@ Shipped and verified in the codebase:
   adversarial-review passes caught 10 real bugs the test suites missed (#221/#222);
   the #224 polish itself came from real-world use, and its PR review caught 2 more.
 
-- **Leftovers** (shipped + LIVE 2026-07-19, #226–229 / #232 / #234 / #235):
+- **Leftovers** (shipped + LIVE 2026-07-19→20, #226–229 / #232 / #234 / #235):
   "cook a bigger dinner, eat it as tomorrow's lunch". A meal can carry
   `leftover_of → {day_index, meal_index}` pointing at an **earlier** meal in the
   same plan; it consumes no extra stock, is excluded from the shopping list and
@@ -195,13 +198,58 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
 | **Real-time cooking mode** | ✅ | — | — | **Shipped 2026-07-02** (#152). `CookMode` — fullscreen tick-box checklist for ingredients/steps while cooking (`cookMode.utils.ts`, tested). |
-| **Leftovers** | ✅ | — | — | **Shipped + LIVE 2026-07-19** (#226–229, #232, #234, #235). "Cook a bigger dinner, eat it as tomorrow's lunch." Modelled as a **LINK**, not the `meal_type` enum value the notes proposed: `PlannedMeal.leftover_of → {day_index, meal_index}`. An enum value would have destroyed the slot taxonomy (a reheated roast is still a main course) *and* lost which meal the food came from, making portion scaling, shopping-list dedupe and calendar provenance impossible. The LLM never authors a link — generation is one call per day and sees only prior meal *names*, so it structurally cannot produce a correct cross-day index; links are assigned server-side and the model is told exactly one thing: cook a double batch of one slot. Scaling is LLM-side, never a Python multiply (the prompt requires every step to restate its amounts inline). See the ✅ entry in "Where we actually are" for the full slice list. |
+| **Leftovers** | ✅ | — | — | **Shipped + LIVE 2026-07-19→20** (#226–229, #232, #234, #235). "Cook a bigger dinner, eat it as tomorrow's lunch." Modelled as a **LINK**, not the `meal_type` enum value the notes proposed: `PlannedMeal.leftover_of → {day_index, meal_index}`. An enum value would have destroyed the slot taxonomy (a reheated roast is still a main course) *and* lost which meal the food came from, making portion scaling, shopping-list dedupe and calendar provenance impossible. The LLM never authors a link — generation is one call per day and sees only prior meal *names*, so it structurally cannot produce a correct cross-day index; links are assigned server-side and the model is told exactly one thing: cook a double batch of one slot. Scaling is LLM-side, never a Python multiply (the prompt requires every step to restate its amounts inline). See the ✅ entry in "Where we actually are" for the full slice list. |
 | **Token-usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189)** as Phase 1 of the Admin epic (below): `LlmUsage` capture + `GET /api/usage/me` + the admin stats surface it in a dashboard. Was the prereq for the paygate (now shipped + live). The paygate bills a **flat subscription**, not per-usage, so the `LlmUsage` lower-bound caveat doesn't affect billing. |
 | **Paygate** | ✅ | — | — | **SHIPPED + LIVE 2026-07-16** — see the **Monetization / Billing** milestone below. Flat **€10/mo** EUR subscription (14-day trial), not usage-metered, so the per-call-billing-exactness caveat never applied. #199–202 + #211–213. |
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
-| **User edits as feedback** | 🟡 | M | — | **Capture half is shipped** (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt). Remaining: **consume** it — feed corrections into future generations (e.g. as prompt context, few-shot examples, or a per-user preference signal). Nothing in `meal_planner`/`recipe_retriever` reads the correction tables yet. Needs a design choice on how edits influence generation. |
+| **User edits as feedback** | 🅿️ | M | **usage data** | **PARKED 2026-07-20 — not enough data to learn from.** The capture half is shipped and keeps running (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt), so nothing is lost by waiting — the corpus accumulates in the background. What's missing is *volume*: the app has very few active users, so consuming corrections now would fit a model to a handful of one-person quirks and make generations **worse**, which is a real risk on a paid product. Parked deliberately, not deprioritised: this is still the differentiator the telemetry was built for. **Un-park when** there's meaningful correction volume (check the admin dashboard's activity/generation counts). Remaining work is then the design choice — prompt context vs few-shot examples vs a per-user preference signal — plus consumption in `meal_planner`/`recipe_retriever`, which read no correction tables today. Gated on usage, and usage is gated on marketing (below). |
 | **Plans ↔ calendar dates** | ✅ | — | — | **Shipped 2026-07-17 (#220–222, polished in #224).** `MealPlan.start_date` (nullable date; day N = `start_date + (N-1)`, backfills NULL/unscheduled), set at generation (`?start_date=`) / overridable at confirm / reschedulable via `PATCH /plan/{id}` — editable inline on every plan in **My Plans** as well as from the calendar; inline dates on day headers + catalog cards; a month-grid calendar (`PlanCalendar`, blue 📅 FAB) over `GET /api/plan/calendar` showing **every meal per day** stacked in day-layout order (breakfast → dinner), with reschedule-from-calendar and no stale-month lag (`staleTime: 0` + invalidation on confirm/delete/un-confirm). Built on a reusable `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" → true full-screen). Two pre-push adversarial-review passes caught **10 real bugs** across #221/#222 that the test suites missed. **Unlocks leftovers + real scheduling.** |
 | **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. |
+
+---
+
+## Milestone: Growth / marketing pipeline
+
+**The bottleneck is users, not features.** The app is live, paid, and now
+feature-rich — but almost nobody is using it, which is why *user edits as
+feedback* had to be parked (no corrections to learn from) and why there is no
+signal about which features matter. Everything below exists to fix that.
+
+Owner's idea: a tool that promotes the app on Meta / Google / etc., regularly
+analyses campaign stats, and **redistributes budget toward what's working**.
+
+Two things must be true before any of that is worth building:
+
+1. **There has to be content to run.** Ads need creative — copy, screenshots,
+   probably short video of the plan→shop→cook loop. No amount of automation
+   substitutes for having something to show.
+2. **The funnel has to be measurable end-to-end.** Paying to acquire users into
+   a funnel you can't measure is burning money. Today there is admin usage/
+   revenue tracking but *no* attribution: nothing links a signup to a campaign,
+   and nothing measures signup → first plan → confirm → subscribe.
+
+⚠️ **The automation carries the same statistical trap as the parked
+edit-feedback loop.** Reallocating budget on a handful of conversions is
+fitting to noise — with a €10/mo product and a small budget, a "winning"
+campaign at n=3 is indistinguishable from luck. Any auto-reallocation needs a
+minimum-sample floor and a spend cap, or it will confidently chase randomness
+with real money. Build the measurement first and reallocate manually until the
+numbers are big enough to trust.
+
+| Phase | Status | Effort | Deps | Notes |
+|---|---|---|---|---|
+| **1. Activation funnel instrumentation** | ⬜ | M | — | The prerequisite. Event capture for signup → first plan generated → first confirm → first cook → subscribe, plus a UTM/referrer captured at signup and stored on `User`. Extends the existing admin stats surface rather than adding a third-party analytics dep. **Without this, phases 3–4 are unmeasurable and phase 2 is unaccountable.** |
+| **2. Landing page + campaign content** | ⬜ | M–L | — | Ads need somewhere to land and something to show. Currently `/` is the app itself behind a closed-alpha notice. Needs a real marketing page (value prop, screenshots, pricing, CTA) plus creative assets. Overlaps **SEO** in Full release — do them together; the SPA-isn't-crawler-friendly caveat applies, so a prerendered/static landing page is likely the answer. Mostly *not* an engineering task — the copy and visuals are the hard part. |
+| **3. Campaign management integration** | ⬜ | L | 1, 2 | Meta Marketing API and Google Ads API: create/pause campaigns, pull spend and conversion stats on a schedule. Real prerequisites outside the code — business accounts, app review, billing set up, and both platforms behave badly with tiny budgets and no conversion history. Store campaign + daily-stat rows so analysis is a local read, mirroring how billing mirrors Stripe. Treat every write as money-spending: dry-run mode first. |
+| **4. Budget reallocation** | ⬜ | L | 3 | The actual idea: score campaigns on cost-per-activation (not per-click) and shift budget toward the winners. **Needs guardrails before it needs cleverness** — a minimum-conversions-per-campaign floor before any reallocation, a hard daily spend ceiling, a max-change-per-step limit, and an operator alert on every automated change (reuse the existing Resend alert pipeline). Start advisory: report the recommendation and let the owner apply it, exactly as the VAT-threshold alerts do. Automate only once the recommendations have been right for a while. |
+
+> **Reality check on sequencing:** phases 1–2 are worth doing regardless of
+> whether the automation is ever built — instrumentation tells you what to fix,
+> and a landing page is needed for *any* acquisition channel including free
+> ones. Phases 3–4 only pay off at a spend level that justifies them. Cheaper
+> channels (a launch post, cooking/meal-prep communities, ProductHunt) cost
+> nothing but time and would also generate the usage data the edit-feedback loop
+> is waiting on.
 
 ---
 
@@ -285,22 +333,38 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │          thrust (#220 ModalShell + cookbook mobile → #221 start_date →
      │          #222 month-grid calendar → #224 UX polish)
      │
-     ├─ close the loop: user-edits-as-feedback  (capture is done — now CONSUME it)
+     ├─ 🅿️ user-edits-as-feedback — capture runs, CONSUMPTION parked until
+     │     there are enough users to learn from (see Full release)
      │
      ├─ Monetization track: token-usage tracking ✅ (#189) ─► paygate ✅ LIVE (#199–213)
      │
-     └─ calendar dates ✅ (#220–222, #224) ─► leftovers ✅ (#226–229, #232, #234, #235)
+     ├─ calendar dates ✅ (#220–222, #224) ─► leftovers ✅ (#226–229, #232, #234, #235)
+     │
+     └─ ⬅ THE BINDING CONSTRAINT IS NOW USERS, NOT FEATURES
+           funnel instrumentation ─► landing page + content ─► campaigns ─► budget
+           reallocation   (Growth / marketing milestone)
+                │
+                └─► usage data ─► un-parks the edit-feedback loop
 ```
 
-**The in-recipe UX, mobile+camera, the Admin epic, and now the Stripe paygate are
-all shipped and live — monetization is on.** The next decision is which improvement
-earns the most from real usage. Highest-signal candidates now:
-1. **Close the edit-feedback loop** — the `MachineCorrection` capture data is
-   accumulating **unused**; consuming it (edits → better generations) is the
-   payoff the telemetry was built for, and a genuine product differentiator.
-   Needs a design choice on *how* edits influence generation (prompt context /
-   few-shot / per-user preference) + enough correction volume to be worthwhile.
-   With the paygate live, this is the clear next product bet.
+**The product is in good shape and almost nobody is using it.** In-recipe UX,
+mobile + camera, the Admin epic, the Stripe paygate, calendar dates and leftovers
+are all shipped and live. The constraint has shifted: more features no longer
+obviously help, because there's no usage to tell us *which* features matter — and
+the one change that would learn from users is blocked on there being users.
+Highest-signal candidates now:
+1. **Growth / marketing** — the new milestone above. Start with **funnel
+   instrumentation** (phase 1): it's a prerequisite for every acquisition
+   channel, paid or free, and it's the only way to know whether anything is
+   working. Then a **landing page + content** (phase 2), which is needed for a
+   free launch post just as much as for paid ads. The campaign automation
+   (phases 3–4) only pays off at a spend level that justifies it — and needs
+   sample-size guardrails before it's allowed near real money.
+2. ~~**Close the edit-feedback loop**~~ — **PARKED 2026-07-20.** Capture keeps
+   running so nothing is lost, but there aren't enough active users to learn
+   from: consuming a handful of one-person corrections would make generations
+   *worse*. Un-parks itself once growth lands. Still the differentiator the
+   telemetry was built for — just not yet.
 2. ~~**Cheap hygiene wins** (S each): `authsession` cleanup job, password-change
    endpoint.~~ **Both shipped + deployed 2026-07-16 (#215, #216)** — and the cleanup systemd
    timer is now installed + enabled on the VPS, so this track is fully closed.
@@ -313,9 +377,11 @@ earns the most from real usage. Highest-signal candidates now:
    outbound-API-version validation is done — a real checkout → portal → webhook
    round-trip ran on prod 2026-07-16 and billing works.)*
 5. ~~**Leftovers (`meal_type`)** (M) — unblocked by the calendar-dates thrust.~~
-   **SHIPPED + LIVE 2026-07-19** (#226–229, #232, #234, #235) — and built as a
+   **SHIPPED + LIVE 2026-07-19→20** (#226–229, #232, #234, #235) — and built as a
    **link**, not a `meal_type` value; see the Full-release entry for why that
    distinction mattered.
 
-The edit-feedback loop (#1) is the standout — it's the differentiator the telemetry
-groundwork was laid for. #3/#4 are quick risk-reducers whenever.
+**Growth (#1) is the standout, and specifically the unglamorous first phase.**
+Instrumentation and a landing page aren't the exciting part of the idea, but
+without them the campaign automation optimises a number nobody can see. #3/#4
+stay quick risk-reducers whenever.
