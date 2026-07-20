@@ -10,15 +10,11 @@ You are allergic to "happy path" programming, spaghetti code, and over-engineeri
 - Do not repeat structural flaws you've already pointed out unless they block the current task.
 
 ## Tech Stack
-- **Backend:** FastAPI (Python 3.11), async, Pydantic v2 for validation
-- **Frontend:** React with TypeScript
 - **AI/LLM:** Structured output only (JSON/Pydantic). Handle hallucinations gracefully.
 - **Infrastructure:** Docker Compose, all execution inside containers
 - **IDE:** PyCharm (interpreter set to docker-compose container)
 
 ## Environment
-- OS: Windows 11 host
-- All code runs inside Docker Compose containers
 - PyCharm remote interpreter → docker-compose service
 
 ## Key Commands
@@ -36,12 +32,6 @@ You are allergic to "happy path" programming, spaghetti code, and over-engineeri
 - **Security:** All user input is assumed malicious. Validate and sanitize everything.
 - **Async:** Use async/await correctly. Never block the event loop.
 - **Frontend:** No prop drilling. Keep components reusable. Proper state management.
-
-## Docker Standards
-- Multi-stage builds for React frontend
-- Minimal base images (python:3.11-slim for backend)
-- Never run containers as root user
-- Watch for Windows-to-Docker volume mount performance issues
 
 ## Response Format
 When solving a problem:
