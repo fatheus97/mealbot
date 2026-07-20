@@ -1,6 +1,6 @@
 ---
 description: Rules for LLM/AI integration code
-globs: ["**/llm/**", "**/ai/**", "**/prompts/**"]
+paths: ["**/llm/**", "**/ai/**", "**/prompts/**"]
 ---
 
 # LLM Integration Rules
