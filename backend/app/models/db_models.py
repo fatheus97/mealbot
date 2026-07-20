@@ -140,6 +140,57 @@ class AuthSession(SQLModel, table=True):
     user: User = Relationship(back_populates="auth_sessions")
 
 
+class PasswordResetToken(SQLModel, table=True):
+    """One issued password-reset link.
+
+    Stored as sha256 hex, never plaintext — same rule as
+    ``AuthSession.refresh_token_hash``, and it matters more here: a leaked DB
+    dump of *usable* reset tokens is direct account takeover on every row,
+    with no password needed.
+
+    Single-use via ``used_at`` (kept rather than deleted so a replayed link is
+    distinguishable from an expired/forged one in the logs). ``expires_at`` is
+    indexed standalone so a *future* retention sweep (a global
+    ``DELETE ... WHERE expires_at < cutoff``) can be index-served — the
+    ``user_id`` index is user_id-leading and cannot serve a global cutoff
+    filter. **That sweep does not exist yet**; the index lands ahead of it, the
+    same way ``ix_authsession_expires_at`` (z6a7b8c9d0e1) preceded
+    ``services/authsession_cleanup``.
+
+    No ORM relationship to ``User`` on purpose: redemption looks the row up by
+    ``token_hash`` and then loads the user by id, so a back-reference would be
+    unused machinery on both sides.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
+    token_hash: str = Field(
+        sa_column=Column(String(64), unique=True, index=True, nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+    expires_at: datetime = Field(nullable=False, index=True)
+    used_at: datetime | None = Field(default=None)
+
+    __table_args__ = (
+        # "At most one LIVE token per user", enforced by the database rather
+        # than by the service remembering to supersede first. The mint path is
+        # a SELECT-then-INSERT with no lock, so concurrent requests can both
+        # pass the cooldown check; this turns that race into an IntegrityError
+        # the service handles, instead of two simultaneously-valid reset links.
+        # Declared here (not only in the migration) because the test schema is
+        # built from SQLModel.metadata — a migration-only constraint would be
+        # absent under pytest and the race handling would go untested.
+        Index(
+            "uq_passwordresettoken_one_live_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("used_at IS NULL"),
+        ),
+    )
+
+
 class StockItem(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)

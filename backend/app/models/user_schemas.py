@@ -61,6 +61,35 @@ class PasswordChangeRequest(BaseModel):
     def new_password_complexity(cls, v: str) -> str:
         return validate_password_complexity(v)
 
+class ForgotPasswordRequest(BaseModel):
+    """Body for POST /auth/forgot-password.
+
+    ``EmailStr`` rather than a bare ``str`` so obvious junk is rejected before
+    it reaches the DB — note this is the one way the endpoint can answer
+    differently for different inputs (422 on a malformed address), which is
+    safe: it leaks that the string isn't an email, never whether it's a user.
+    """
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Body for POST /auth/reset-password.
+
+    Possession of the emailed token stands in for the current password, so the
+    full complexity rule applies here (unlike PasswordChangeRequest, where
+    re-verifying the old password carries that weight).
+    """
+
+    token: str = Field(min_length=1, max_length=512)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
+
+
 class UserRead(UserBase):
     id: int
     country: str | None = None

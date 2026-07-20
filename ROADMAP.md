@@ -21,7 +21,11 @@
 > pipeline** milestone, since the binding constraint is now users rather than
 > features, plus seven new product items agreed with the owner in the same pass
 > (pantry staples, shopping-list export, repeat-this-week, waste tracking,
-> bigger leftover batches, nutrition/macros, household sharing). Where the notes
+> bigger leftover batches, nutrition/macros, household sharing), and finally
+> **2026-07-20 (same day, second pass)** after checking the *running deployment*
+> rather than the document and finding that **registration is still closed on
+> prod** — which gates the entire Growth milestone and had no entry anywhere.
+> That added the **Launch readiness** milestone. Where the notes
 > and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
@@ -217,12 +221,52 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 
 ---
 
+## Milestone: Launch readiness (open registration)
+
+> Added **2026-07-20** after checking prod rather than the document.
+> `GET https://trymealbot.com/api/config` returns
+> `{"demo_mode":true,"registration_enabled":false}`.
+
+**Registration is CLOSED on production.** `POST /api/users/register` returns 403
+("This is a private alpha") for everyone. This gates the entire Growth milestone
+below — instrumenting a funnel whose first step 403s measures nothing, and paying
+to drive traffic to it is the most expensive possible bug. Nothing else on this
+roadmap was tracking it.
+
+Opening it is one env var (`REGISTRATION_ENABLED=true`). **That flag flip is the
+actual launch**, and the items below exist to make it survivable.
+
+**What is NOT a blocker (verified, 2026-07-20):** opening registration does *not*
+expose the LLM budget. New users get `is_demo`/`is_comped`/`is_admin` all default
+`false`, so `is_entitled` sends them to a **402** on all four generation endpoints,
+and the only way past it is Stripe Checkout with `billing_address_collection="required"`
+and a payment method. A throwaway account cannot burn a cent of Gemini quota. The
+paygate is doing its job.
+
+| Item | Status | Effort | Deps | Notes |
+|---|---|---|---|---|
+| **Verified Resend sender domain** | ⬜ | S | — | **Promoted from "optional billing follow-up" to a launch blocker.** `alert_email_from` defaults to `onboarding@resend.dev` — Resend's *shared sandbox* domain, which only delivers to the Resend account owner. Fine while the only recipient is the operator; it silently breaks **all user-facing mail**. Password reset is undeliverable until a domain is verified, so this sits on the critical path to open registration. Owner task (DNS records), not code. |
+| **Password reset** | 🟡 | S–M | verified sender | **In progress 2026-07-20.** Until now the only recovery path for a forgotten password was the operator editing the row by hand — fine for a hand-picked alpha, untenable for strangers, and on a **paid** product a locked-out user is one who is still being billed. `POST /auth/{forgot,reset}-password` over a `PasswordResetToken` (sha256-stored, single-use, 30-min TTL). Cheap because #216 already built the rotate-security-state half (revoke all sessions + bump `token_version`) and #202 already wired Resend. |
+| **Funnel instrumentation** | ⬜ | M | — | Same item as Growth phase 1 — listed here because the **ordering matters**: it must land *before* the flag flips, not after. Attribution cannot be retrofitted onto a cohort that already arrived; open registration first and the first real users are permanently unmeasurable. |
+| **Flip `REGISTRATION_ENABLED=true`** | ⬜ | S | all of the above | The launch itself. One env var on the box. |
+
+> **Not blocking, worth knowing:** there is still no email *verification* on
+> signup, so addresses are unconfirmed (typos churn silently, and a reset link
+> goes to whatever was typed). Acceptable for launch — the paygate means an
+> unverified account can't consume anything — but revisit if signup abuse
+> appears.
+
+---
+
 ## Milestone: Growth / marketing pipeline
 
 **The bottleneck is users, not features.** The app is live, paid, and now
 feature-rich — but almost nobody is using it, which is why *user edits as
 feedback* had to be parked (no corrections to learn from) and why there is no
 signal about which features matter. Everything below exists to fix that.
+
+⚠️ **Gated on Launch readiness above** — registration is closed today, so every
+phase here is downstream of that flag flip.
 
 Owner's idea: a tool that promotes the app on Meta / Google / etc., regularly
 analyses campaign stats, and **redistributes budget toward what's working**.
@@ -301,9 +345,13 @@ shippable PRs, each through pre-PR adversarial review + the CI/AI-review loop.
 | **5. Pre-launch prep + go-live** | ✅ | #212 | `is_comped` ("friendlist") bypass + a migration that **grandfathers** every existing non-demo user; `create_user --comp`; cancel-at-period-end banner UX. Went live on prod 2026-07-16 (live keys + live webhook + `BILLING_ENABLED=true`). |
 | **6. Stripe SDK 12.4 → 15.3** | ✅ | #211 | SDK major bump + webhook adaptation (stripe≥15 `StripeObject` is no longer a dict → read `event.to_dict()`). Caught + fixed a real live-path bug where `invoice.paid` would 500 and never record revenue; hardened webhook tests to use real `stripe.Event` objects. |
 
-**Open follow-up (not blocking):** optionally verify a Resend sender domain so
-alerts send from your own address instead of `onboarding@resend.dev` (which only
-delivers to the account owner until then). *(The stripe 15.3 `basil` → `dahlia`
+**Open follow-up — reclassified 2026-07-20 as a LAUNCH BLOCKER:** verify a Resend
+sender domain. It was filed here as cosmetic ("alerts send from your own address
+instead of `onboarding@resend.dev`") because the operator *is* the only recipient
+of billing alerts, so the sandbox sender's owner-only delivery limit was
+invisible. It stops being invisible the moment anything mails a **user** —
+password reset is undeliverable until this is done. Tracked in **Launch
+readiness**. *(The stripe 15.3 `basil` → `dahlia`
 outbound-API-version concern is closed — a real checkout → portal → webhook
 round-trip was run on prod 2026-07-16 and billing works end-to-end.)*
 
@@ -316,6 +364,7 @@ round-trip was run on prod 2026-07-16 and billing works end-to-end.)*
 | **Non-root SSH hardening** | 🟡 | S | Server-side, not in repo. Create a personal sudo user, disable root SSH login. Low urgency, easy to forget — do it at deploy time. |
 | **`authsession` cleanup job** | ✅ | — | **Shipped 2026-07-16 (#215).** Nightly service sweep (`sweep_expired_auth_sessions`, retention 7d) + thin CLI + standalone `ix_authsession_expires_at` index (auto-applied via the `migrate` service). Sever-then-delete keeps it FK-safe over the `replaced_by_id` chain regardless of expiry ordering (a demo-user `int()`-truncation edge the review caught). The systemd timer is **installed + enabled on the VPS** (2026-07-16), running daily ~03:30 as the non-root `deploy` user, so the table now self-prunes (rows expired > 7d). Units: `deploy/systemd/mealbot-authsession-cleanup.{service,timer}`; (re)install steps for a box rebuild are in `deploy/systemd/README.md` §2. |
 | **Password change + token rotation** | ✅ | — | **Shipped 2026-07-16 (#216).** `POST /auth/password`: re-verify current → rehash → revoke all sessions + bump `token_version` → keep the current device logged in. Also fixed the shared `refresh` handler so a mass-revoked (never-rotated, `replaced_by_id IS NULL`) token replay is an *ended session* (plain 401), not false theft — the pre-push adversarial review caught that this broke multi-device change. Backend only; a "Change password" settings form is a fast-follow. Follow-up: `logout_all` still IP-rate-limited (should key by user like this endpoint now does). |
+| **`passwordresettoken` retention sweep** | ⬜ | S | Housekeeping, **not** a launch blocker. Reset tokens are stamped `used_at` and never deleted, so the table grows monotonically. `ix_passwordresettoken_expires_at` already exists for exactly this (a global `DELETE ... WHERE expires_at < cutoff`) — the index landed ahead of the job, same as `ix_authsession_expires_at` did before `authsession_cleanup`. Simpler than that one: no self-referencing FK to sever, so it's a plain DELETE plus a systemd oneshot. Insert volume is bounded by the 60s per-account cooldown, the 5/min IP limit and the one-live-token-per-user index, so it will not threaten the VPS in the meantime. |
 | **Cross-provider LLM fallback** | 🟡 | S | Prep shipped (#183): placeholder keys normalize to unset + a startup check logs a keyless/single-provider chain. The active `LLM_MODELS` is all-Gemini, so a Gemini-wide outage (quota, API, a dep break like #182) has no escape hatch. To enable: fund the existing DeepSeek key (or set a real OpenAI key) and append a non-Gemini entry to `LLM_MODELS` — a one-line change once a working key exists. |
 
 ---
@@ -350,9 +399,13 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      ├─ calendar dates ✅ (#220–222, #224) ─► leftovers ✅ (#226–229, #232, #234, #235)
      │
      └─ ⬅ THE BINDING CONSTRAINT IS NOW USERS, NOT FEATURES
-           funnel instrumentation ─► landing page + content ─► campaigns ─► budget
-           reallocation   (Growth / marketing milestone)
-                │
+           │
+           ├─ ⛔ REGISTRATION IS CLOSED ON PROD — everything below is gated on it
+           │     verified sender domain ─► password reset ─► funnel
+           │     instrumentation ─► FLIP REGISTRATION_ENABLED   (Launch readiness)
+           │
+           └─ then: landing page + content ─► campaigns ─► budget reallocation
+                │                              (Growth / marketing milestone)
                 └─► usage data ─► un-parks the edit-feedback loop
 ```
 
@@ -362,13 +415,16 @@ are all shipped and live. The constraint has shifted: more features no longer
 obviously help, because there's no usage to tell us *which* features matter — and
 the one change that would learn from users is blocked on there being users.
 Highest-signal candidates now:
-1. **Growth / marketing** — the new milestone above. Start with **funnel
-   instrumentation** (phase 1): it's a prerequisite for every acquisition
-   channel, paid or free, and it's the only way to know whether anything is
-   working. Then a **landing page + content** (phase 2), which is needed for a
-   free launch post just as much as for paid ads. The campaign automation
-   (phases 3–4) only pays off at a spend level that justifies it — and needs
-   sample-size guardrails before it's allowed near real money.
+1. **Launch readiness → Growth / marketing.** Checking prod on 2026-07-20 turned
+   up the thing that was actually first: **registration is closed**, so there is
+   no acquisition funnel to instrument or advertise into yet. Order is
+   **verified sender domain → password reset → funnel instrumentation → flip
+   `REGISTRATION_ENABLED`**, and only then Growth phase 2 (**landing page +
+   content**, needed for a free launch post as much as for paid ads). The
+   campaign automation (phases 3–4) only pays off at a spend level that
+   justifies it — and needs sample-size guardrails before it's allowed near real
+   money. Note funnel instrumentation must land *before* the flip, not after:
+   attribution can't be retrofitted onto a cohort that already arrived.
 2. ~~**Close the edit-feedback loop**~~ — **PARKED 2026-07-20.** Capture keeps
    running so nothing is lost, but there aren't enough active users to learn
    from: consuming a handful of one-person corrections would make generations
@@ -381,8 +437,12 @@ Highest-signal candidates now:
    exposed is still open (chain is all-Gemini); a one-line `LLM_MODELS` change
    once a funded non-Gemini key exists. Needs you to fund DeepSeek / add an
    OpenAI key first.
-5. **Billing follow-ups** (S) — optionally verify a Resend sender domain so
-   alerts send from your own address. *(The stripe 15.3 `dahlia`
+5. **Verified Resend sender domain** (S) — **no longer optional.** It was filed
+   as a cosmetic billing follow-up ("alerts send from your own address"), but
+   the sandbox `onboarding@resend.dev` sender only delivers to the Resend
+   account owner, which makes *every* user-facing email undeliverable. It is
+   therefore a hard prerequisite for password reset and so for opening
+   registration — see **Launch readiness**. *(The stripe 15.3 `dahlia`
    outbound-API-version validation is done — a real checkout → portal → webhook
    round-trip ran on prod 2026-07-16 and billing works.)*
 6. ~~**Leftovers (`meal_type`)** (M) — unblocked by the calendar-dates thrust.~~
