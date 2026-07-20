@@ -374,23 +374,23 @@ Highest-signal candidates now:
    from: consuming a handful of one-person corrections would make generations
    *worse*. Un-parks itself once growth lands. Still the differentiator the
    telemetry was built for — just not yet.
-2. ~~**Cheap hygiene wins** (S each): `authsession` cleanup job, password-change
+3. ~~**Cheap hygiene wins** (S each): `authsession` cleanup job, password-change
    endpoint.~~ **Both shipped + deployed 2026-07-16 (#215, #216)** — and the cleanup systemd
    timer is now installed + enabled on the VPS, so this track is fully closed.
-3. **Cross-provider LLM fallback** (S) — the resilience gap the 07-10 outage
+4. **Cross-provider LLM fallback** (S) — the resilience gap the 07-10 outage
    exposed is still open (chain is all-Gemini); a one-line `LLM_MODELS` change
    once a funded non-Gemini key exists. Needs you to fund DeepSeek / add an
    OpenAI key first.
-4. **Billing follow-ups** (S) — optionally verify a Resend sender domain so
+5. **Billing follow-ups** (S) — optionally verify a Resend sender domain so
    alerts send from your own address. *(The stripe 15.3 `dahlia`
    outbound-API-version validation is done — a real checkout → portal → webhook
    round-trip ran on prod 2026-07-16 and billing works.)*
-5. ~~**Leftovers (`meal_type`)** (M) — unblocked by the calendar-dates thrust.~~
+6. ~~**Leftovers (`meal_type`)** (M) — unblocked by the calendar-dates thrust.~~
    **SHIPPED + LIVE 2026-07-19→20** (#226–229, #232, #234, #235) — and built as a
    **link**, not a `meal_type` value; see the Full-release entry for why that
    distinction mattered.
 
-5. **Cheap product wins** (added 2026-07-20) — small items that improve the
+7. **Cheap product wins** (added 2026-07-20) — small items that improve the
    experience of anyone growth actually brings in, worth slotting between the
    bigger pieces: **pantry staples** (S — stop buying salt every week),
    **shopping list export/check-off** (S–M), **"repeat this week"** (S–M, drives
@@ -403,8 +403,9 @@ Highest-signal candidates now:
 
 **Growth (#1) is the standout, and specifically the unglamorous first phase.**
 Instrumentation and a landing page aren't the exciting part of the idea, but
-without them the campaign automation optimises a number nobody can see. #3/#4
-stay quick risk-reducers whenever.
+without them the campaign automation optimises a number nobody can see.
+**Cross-provider LLM fallback** (#4) and **billing follow-ups** (#5) stay quick
+risk-reducers whenever.
 
 **If you want something small between growth phases**, pantry staples is the
 highest ratio of daily-felt improvement to effort on this document.
