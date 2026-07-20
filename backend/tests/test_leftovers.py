@@ -459,13 +459,13 @@ class TestPortionsForDay:
         # Hand-built (the planner won't produce fan-in), but the portion maths
         # must handle it: two leftovers off one source = 3 servings-worth.
         links = [
-            LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
-            LeftoverAssignment(2, 0, LeftoverRef(day_index=0, meal_index=0)),
+            LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
+            LeftoverAssignment(2, 0, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
         ]
         assert portions_for_day(links, 0, 1) == [3]
 
     def test_ignores_out_of_range_source_slots(self):
-        links = [LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=9))]
+        links = [LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=9), "hot_dinner", "hot_dinner")]
         assert portions_for_day(links, 0, 2) == [1, 1]
 
 

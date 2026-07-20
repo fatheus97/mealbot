@@ -491,7 +491,40 @@ def _materialise_leftover(
         )
         return None
 
+    # SLOT IDENTITY. The link was decided from the LAYOUT before generation, but
+    # is applied to GENERATED meals afterwards — and the LLM is allowed to
+    # return a day's meals in a different order (meal_planner only warns and
+    # accepts). Positions are therefore not a reliable handle on slots.
+    #
+    # Without this check a reordered day silently retargets: for a layout of
+    # [hot_dinner, snack] returned as [snack, hot_dinner], the leftover would
+    # point at the SNACK — so tomorrow's lunch becomes "Leftovers: Toasted
+    # almonds" with no food behind it (it is excluded from the shopping list),
+    # while the double-batch dinner is served as an ordinary meal. Every L1-L11
+    # invariant still passes: they check indices and ingredients, never slots.
+    #
+    # Both ends are checked. A reordered TARGET day is just as bad in the other
+    # direction — the leftover would overwrite whichever dish landed at that
+    # position. Mismatch degrades to no link, consistent with the other guards
+    # here: the user gets two ordinary meals rather than a wrong one.
+    target_meal = day.meals[slot_index]
+    if target_meal.meal_type != assignment.target_meal_type:
+        logger.warning(
+            "Leftover target slot %d holds %s but the layout said %s "
+            "(LLM reordered the day) — skipping the link",
+            slot_index, target_meal.meal_type, assignment.target_meal_type,
+        )
+        return None
+
     source_meal = previous_days[src.day_index].meals[src.meal_index]
+    if source_meal.meal_type != assignment.source_meal_type:
+        logger.warning(
+            "Leftover source day%d.meal%d holds %s but the layout said %s "
+            "(LLM reordered that day) — skipping the link",
+            src.day_index, src.meal_index, source_meal.meal_type,
+            assignment.source_meal_type,
+        )
+        return None
     # Refuse to build a chain or an empty-source link here as well as in the
     # planner. The planner is the primary guard, but this is the last point
     # before a real dish is destroyed, and both conditions are cheap to check.
