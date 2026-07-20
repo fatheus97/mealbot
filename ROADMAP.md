@@ -19,11 +19,10 @@
 > same pass **parked user-edits-as-feedback** (the capture keeps running, but
 > there aren't enough users to learn from yet) and added a **Growth / marketing
 > pipeline** milestone, since the binding constraint is now users rather than
-> features, plus six new product items agreed with the owner in the same pass
+> features, plus seven new product items agreed with the owner in the same pass
 > (pantry staples, shopping-list export, repeat-this-week, waste tracking,
-> bigger leftover batches,
-> nutrition/macros, household sharing). Where the notes and the code disagreed,
-> the code wins and the discrepancy is called out.
+> bigger leftover batches, nutrition/macros, household sharing). Where the notes
+> and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
 
