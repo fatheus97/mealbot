@@ -1,6 +1,6 @@
 ---
 description: Rules for FastAPI backend code
-globs: ["backend/**/*.py", "app/**/*.py"]
+paths: ["backend/**/*.py", "app/**/*.py"]
 ---
 
 # FastAPI Rules

@@ -1,6 +1,6 @@
 ---
 description: Rules for Dockerfile and docker-compose changes
-globs: ["Dockerfile*", "docker-compose*.yml", ".dockerignore"]
+paths: ["Dockerfile*", "docker-compose*.yml", ".dockerignore"]
 ---
 
 # Docker Rules
