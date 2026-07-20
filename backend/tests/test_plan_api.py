@@ -640,13 +640,23 @@ def _fake_two_slot_day() -> SingleDayResponse:
 
 @pytest.fixture
 def leftovers_on(monkeypatch: pytest.MonkeyPatch):
-    """Enable leftover planning for a test.
+    """Pin leftover planning ON for a test.
+
+    Redundant against today's default (True) and kept deliberately: it states
+    the requirement at the test rather than inheriting it, so these tests keep
+    passing for the right reason if the default is ever flipped back — the
+    setting survives as a kill switch precisely so that can happen.
 
     The feature is gated on settings.leftovers_enabled, NOT on the request
-    field — the endpoint overwrites payload.leftover_policy from the setting so
-    a client can't opt into a half-built path via the public schema.
+    field — the endpoint overwrites payload.leftover_policy from the setting.
     """
     monkeypatch.setattr(settings, "leftovers_enabled", True)
+
+
+@pytest.fixture
+def leftovers_off(monkeypatch: pytest.MonkeyPatch):
+    """Pin leftover planning OFF — the kill-switch path."""
+    monkeypatch.setattr(settings, "leftovers_enabled", False)
 
 
 class TestLeftoverPolicyEndToEnd:
@@ -663,11 +673,32 @@ class TestLeftoverPolicyEndToEnd:
         assert resp.status_code == 200
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
-    async def test_disabled_by_default_creates_no_links(
+    async def test_enabled_by_default_creates_links(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):
-        """settings.leftovers_enabled is OFF by default: behaviour is exactly as
-        before this feature, with no links and no batch instruction."""
+        """The feature is ON by default now — no fixture, no request field.
+        This is what a real user gets."""
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
+
+        resp = await client.post(
+            "/api/plan?days=2", headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["days"][1]["meals"][1]["leftover_of"] == {
+            "day_index": 0, "meal_index": 0,
+        }
+        # And the source day was told to cook a double batch.
+        assert mock_gen.await_args_list[0].kwargs["slot_portions"] == [2, 1]
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_kill_switch_off_creates_no_links(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_off,
+    ):
+        """The setting outlives the rollout as a kill switch: LEFTOVERS_ENABLED
+        =false in the prod .env stops NEW links without a deploy. Behaviour must
+        fall back exactly to pre-feature — no links, no batch instruction."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
 
@@ -683,14 +714,13 @@ class TestLeftoverPolicyEndToEnd:
             assert call.kwargs["slot_portions"] == [1, 1]
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
-    async def test_client_cannot_opt_in_via_the_request_body(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    async def test_client_cannot_opt_in_when_the_switch_is_off(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_off,
     ):
-        """THE rollout gate. MealPlanRequest is bound from the public request
-        body, so without a server-side overwrite anyone reading the
-        auto-generated schema could enable a half-built feature (regeneration
-        and the edit fan-out land in the next slice). The endpoint overwrites
-        leftover_policy from settings, exactly as it does include_spices."""
+        """THE gate, direction 1. MealPlanRequest is bound from the public
+        request body, so without a server-side overwrite anyone reading the
+        auto-generated schema could switch the feature on for themselves —
+        including after an operator turned it OFF via the kill switch."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
 
@@ -699,13 +729,41 @@ class TestLeftoverPolicyEndToEnd:
             json={
                 "meals_per_day": 2,
                 "people_count": 2,
-                "leftover_policy": "auto",  # ignored: settings say otherwise
+                "leftover_policy": "auto",  # ignored: the setting says otherwise
             },
         )
         assert resp.status_code == 200
         for day in resp.json()["days"]:
             for m in day["meals"]:
-                assert m["leftover_of"] is None, "client opted into a gated feature"
+                assert m["leftover_of"] is None, "client opted into a disabled feature"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_client_cannot_opt_out_when_the_switch_is_on(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
+    ):
+        """THE gate, direction 2 — the one the flip makes reachable.
+
+        The overwrite is unconditional, so it governs BOTH directions: a client
+        sending "none" can no more opt out than one sending "auto" could opt in.
+        Worth pinning explicitly, because a naive `if body says none: honour it`
+        would look harmless and would quietly hand the rollout gate back to the
+        client. (If per-user opt-out is ever wanted it belongs on the User row,
+        read server-side like include_spices — not taken from the request.)"""
+        mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
+        await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
+
+        resp = await client.post(
+            "/api/plan?days=2", headers=auth_headers,
+            json={
+                "meals_per_day": 2,
+                "people_count": 2,
+                "leftover_policy": "none",  # ignored: the setting says otherwise
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["days"][1]["meals"][1]["leftover_of"] == {
+            "day_index": 0, "meal_index": 0,
+        }, "client opted out of an enabled feature"
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_auto_policy_links_lunch_to_previous_dinner(

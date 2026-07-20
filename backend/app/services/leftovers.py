@@ -55,10 +55,23 @@ DEFAULT_MAX_LEFTOVERS_PER_PLAN = 2
 class LeftoverAssignment:
     """A decision to make the meal at (day_index, meal_index) leftovers of
     `source`. All indices 0-based, matching LeftoverRef and response_json.
+
+    The two meal_type fields record which SLOTS this decision was made about,
+    taken from the layout at planning time. They exist because the decision is
+    made BEFORE generation but applied AFTER it, and the two can disagree: the
+    LLM is explicitly allowed to return a day's meals in a different order
+    (meal_planner only logs "accepting response as-is" — a retry loop would
+    double latency for a usually-cosmetic mismatch). Positions are therefore
+    not a reliable handle on slots, so _materialise_leftover re-checks both
+    ends before it destroys anything.
     """
     day_index: int
     meal_index: int
     source: LeftoverRef
+    # meal_type the SOURCE slot was expected to hold (raw enum value).
+    source_meal_type: str
+    # meal_type the TARGET slot was expected to hold.
+    target_meal_type: str
 
 
 def plan_leftover_links(
@@ -138,6 +151,8 @@ def plan_leftover_links(
                 source=LeftoverRef(
                     day_index=day_index - 1, meal_index=source_index
                 ),
+                source_meal_type=prev[source_index],
+                target_meal_type=today[target_index],
             )
         )
 

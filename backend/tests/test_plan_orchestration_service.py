@@ -639,7 +639,7 @@ class TestMaterialiseLeftover:
         source_day = self._day(self._dish("Sunday Roast"))
         today = self._day(self._dish("Some Lunch"))
         replaced = _materialise_leftover(
-            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
             [source_day],
         )
         assert replaced is not None
@@ -668,7 +668,7 @@ class TestMaterialiseLeftover:
         source_day = SingleDayResponse.model_construct(meals=[chained_source])
         today = self._day(self._dish("Real Dish"))
         replaced = _materialise_leftover(
-            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
             [source_day],
         )
         assert replaced is None
@@ -688,7 +688,7 @@ class TestMaterialiseLeftover:
         )
         today = self._day(self._dish("Real Dish"))
         assert _materialise_leftover(
-            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
             [source_day],
         ) is None
         assert today.meals[0].name == "Real Dish"
@@ -699,7 +699,7 @@ class TestMaterialiseLeftover:
         )
         today = self._day(self._dish("Real Dish"))
         replaced = _materialise_leftover(
-            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
             [self._day(empty)],
         )
         assert replaced is None
@@ -708,7 +708,7 @@ class TestMaterialiseLeftover:
     def test_no_op_when_the_slot_is_missing_from_a_short_response(self):
         today = self._day(self._dish())
         replaced = _materialise_leftover(
-            today, 5, LeftoverAssignment(1, 5, LeftoverRef(day_index=0, meal_index=0)),
+            today, 5, LeftoverAssignment(1, 5, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
             [self._day(self._dish())],
         )
         assert replaced is None
@@ -717,11 +717,79 @@ class TestMaterialiseLeftover:
     def test_no_op_when_the_source_is_out_of_range(self):
         today = self._day(self._dish("Real Dish"))
         replaced = _materialise_leftover(
-            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=9, meal_index=0)),
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=9, meal_index=0), "hot_dinner", "hot_dinner"),
             [self._day(self._dish())],
         )
         assert replaced is None
         assert today.meals[0].name == "Real Dish"
+
+    def test_refuses_a_source_slot_the_llm_reordered(self):
+        """THE production failure this guard exists for.
+
+        The link is decided from the LAYOUT before generation but applied to
+        GENERATED meals after it, and meal_planner explicitly tolerates the LLM
+        returning a day's meals in a different order ("accepting response
+        as-is"). So positions are not a reliable handle on slots.
+
+        Layout said the source slot was hot_dinner; the model actually put a
+        snack there. Linking anyway would make tomorrow's lunch "Leftovers:
+        <snack>" with NO food behind it — the leftover is excluded from the
+        shopping list, so nothing is bought for that meal. Every L1-L11
+        invariant still passes: they check indices and ingredients, never slots.
+        """
+        snack_at_the_dinner_slot = PlannedMeal(
+            name="Toasted almonds",
+            meal_type=MealType.SNACK,
+            ingredients=[IngredientAmount(name="almonds", quantity_grams=50)],
+            steps=["toast"],
+        )
+        today = self._day(self._dish("Real Lunch"))
+        replaced = _materialise_leftover(
+            today, 0,
+            LeftoverAssignment(
+                1, 0, LeftoverRef(day_index=0, meal_index=0),
+                "hot_dinner",  # what the layout asked for
+                "hot_dinner",
+            ),
+            [self._day(snack_at_the_dinner_slot)],
+        )
+        assert replaced is None
+        assert today.meals[0].name == "Real Lunch"  # the real dish survives
+
+    def test_refuses_a_target_slot_the_llm_reordered(self):
+        """The mirror. If the TARGET day is reordered, the leftover would
+        overwrite whichever dish happened to land at that position."""
+        soup_where_the_lunch_should_be = PlannedMeal(
+            name="Tomato soup",
+            meal_type=MealType.SOUP,
+            ingredients=[IngredientAmount(name="tomato", quantity_grams=300)],
+            steps=["simmer"],
+        )
+        today = self._day(soup_where_the_lunch_should_be)
+        replaced = _materialise_leftover(
+            today, 0,
+            LeftoverAssignment(
+                1, 0, LeftoverRef(day_index=0, meal_index=0),
+                "hot_dinner",
+                "light_lunch",  # layout said lunch; the model put soup here
+            ),
+            [self._day(self._dish("Sunday Roast"))],
+        )
+        assert replaced is None
+        assert today.meals[0].name == "Tomato soup"
+
+    def test_planner_records_the_slots_it_decided_about(self):
+        """The guard is only possible because the assignment carries the slots
+        from the layout — pin that they're populated and correct."""
+        from app.services.leftovers import plan_leftover_links
+
+        layouts: list[list[str] | None] = [
+            ["hot_dinner", "snack"],
+            ["light_lunch", "snack"],
+        ]
+        (a,) = plan_leftover_links(layouts)
+        assert a.source_meal_type == "hot_dinner"
+        assert a.target_meal_type == "light_lunch"
 
     def test_long_source_name_is_truncated_not_raised(self):
         """PlannedMeal.name caps at 200. "Leftovers: " + a 200-char source name
@@ -731,7 +799,7 @@ class TestMaterialiseLeftover:
         source_day = self._day(self._dish(long_name))
         today = self._day(self._dish("Lunch"))
         replaced = _materialise_leftover(
-            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0)),
+            today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
             [source_day],
         )
         assert replaced is not None
