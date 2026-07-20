@@ -12,7 +12,6 @@
   says otherwise for a specific PR. This standing grant IS the "explicit
   approval"; don't re-ask each time.
 - Always create feature branches for any changes
-```
 
 ## Autonomy
 
