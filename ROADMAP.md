@@ -19,8 +19,10 @@
 > same pass **parked user-edits-as-feedback** (the capture keeps running, but
 > there aren't enough users to learn from yet) and added a **Growth / marketing
 > pipeline** milestone, since the binding constraint is now users rather than
-> features. Where the notes and the code disagreed, the code wins and the
-> discrepancy is called out.
+> features, plus six new product items agreed with the owner in the same pass
+> (pantry staples, shopping-list export, repeat-this-week, waste tracking,
+> nutrition/macros, household sharing). Where the notes and the code disagreed,
+> the code wins and the discrepancy is called out.
 
 ## How to read this
 
@@ -204,7 +206,13 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | **SEO + usage stats** | ⬜ | S (SEO) / M (stats) | — | `robots.txt`/`sitemap`/meta tags are quick, but the React SPA isn't crawler-friendly without SSR/prerender — set expectations. "Usage stats" overlaps token-tracking. |
 | **User edits as feedback** | 🅿️ | M | **usage data** | **PARKED 2026-07-20 — not enough data to learn from.** The capture half is shipped and keeps running (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt), so nothing is lost by waiting — the corpus accumulates in the background. What's missing is *volume*: the app has very few active users, so consuming corrections now would fit a model to a handful of one-person quirks and make generations **worse**, which is a real risk on a paid product. Parked deliberately, not deprioritised: this is still the differentiator the telemetry was built for. **Un-park when** there's meaningful correction volume (check the admin dashboard's activity/generation counts). Remaining work is then the design choice — prompt context vs few-shot examples vs a per-user preference signal — plus consumption in `meal_planner`/`recipe_retriever`, which read no correction tables today. Gated on usage, and usage is gated on marketing (below). |
 | **Plans ↔ calendar dates** | ✅ | — | — | **Shipped 2026-07-17 (#220–222, polished in #224).** `MealPlan.start_date` (nullable date; day N = `start_date + (N-1)`, backfills NULL/unscheduled), set at generation (`?start_date=`) / overridable at confirm / reschedulable via `PATCH /plan/{id}` — editable inline on every plan in **My Plans** as well as from the calendar; inline dates on day headers + catalog cards; a month-grid calendar (`PlanCalendar`, blue 📅 FAB) over `GET /api/plan/calendar` showing **every meal per day** stacked in day-layout order (breakfast → dinner), with reschedule-from-calendar and no stale-month lag (`staleTime: 0` + invalidation on confirm/delete/un-confirm). Built on a reusable `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" → true full-screen). Two pre-push adversarial-review passes caught **10 real bugs** across #221/#222 that the test suites missed. **Unlocks leftovers + real scheduling.** |
-| **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. |
+| **Pantry staples ("always have") list** | ⬜ | S | — | The shopping list buys everything not currently in the fridge, so salt, oil, pepper, flour and sugar land on **every** list. A per-user staples list excluded from `compute_shopping_list_from_plan` strips that noise. Smallest item on this roadmap and felt on every single shop. Note the list is **frozen into `response_json` at generation** — changing staples must not retroactively rewrite existing plans, so apply the filter at generation time, not on read. |
+| **Shopping list export / check-off** | ⬜ | S–M | — | The list exists only inside the app, so people retype it or squint at a phone in the aisle. Copy-to-clipboard, mobile share sheet, and tickable items (local state is fine — no need to persist ticks server-side for v1). Delivers most of the practical value of **rohlik.cz integration** (L, below) at a fraction of the cost, and is worth doing first regardless of whether that ever happens. |
+| **"Repeat this week" / plan templates** | ⬜ | S–M | calendar dates ✅ | People eat in routines, but every plan starts from scratch. Copy an existing plan forward to a new `start_date` — cheap now that plans carry real dates and `PATCH /plan/{id}` already reschedules. Drives exactly the repeat usage the parked edit-feedback loop is waiting on. Decide up front whether a copy re-runs the LLM (fresh recipes, same shape) or duplicates the meals verbatim — verbatim is the cheaper and probably more useful v1. |
+| **Waste tracking** | ⬜ | M | — | The fridge already carries `expiration_date` and `need_to_use`, so capturing *what actually got binned* is a short step from what exists. Closes a real loop for the user **and** produces a number worth advertising ("cut your food waste 30%") — it feeds the **Growth / marketing** milestone as much as the product. Keep the capture ungamified and low-friction; a nag screen will just get dismissed. |
+| **Nutrition / macros** | ⬜ | M–L | — | `diet_type` already offers `high_protein` / `low_carb` but only nudges the prompt — the user never sees whether it worked. ⚠️ **Accepted with a caveat:** doing this properly needs a real food database (USDA FDC or similar), because LLM-estimated macros presented as fact on a paid, health-adjacent product is a liability. If it ships on LLM estimates alone, label them clearly as approximate and keep them out of anything that reads as medical/nutritional advice. Scope the data source before writing code. |
+| **Household / shared account** | ⬜ | L | — | `people_count` exists but a plan and fridge belong to one account, so a couple can't share either. Strong retention play — the classic reason a food app becomes "ours" rather than "mine". Real authorization surface though: every plan/fridge/cookbook query is currently scoped by `user_id`, so this touches ownership across the whole data model. Needs its own design pass (household entity vs. shared-access grants) and tight authz tests before any of it ships. |
+| **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. See **shopping list export** above for the cheap version of most of this value. |
 
 ---
 
@@ -381,7 +389,19 @@ Highest-signal candidates now:
    **link**, not a `meal_type` value; see the Full-release entry for why that
    distinction mattered.
 
+5. **Cheap product wins** (added 2026-07-20) — small items that improve the
+   experience of anyone growth actually brings in, worth slotting between the
+   bigger pieces: **pantry staples** (S — stop buying salt every week),
+   **shopping list export/check-off** (S–M), **"repeat this week"** (S–M, drives
+   repeat usage), and **waste tracking** (M, which doubles as marketing
+   material). **Nutrition/macros** and **household/shared account** are also on
+   the board but are genuinely larger and each carry a caveat — see their
+   Full-release entries.
+
 **Growth (#1) is the standout, and specifically the unglamorous first phase.**
 Instrumentation and a landing page aren't the exciting part of the idea, but
 without them the campaign automation optimises a number nobody can see. #3/#4
 stay quick risk-reducers whenever.
+
+**If you want something small between growth phases**, pantry staples is the
+highest ratio of daily-felt improvement to effort on this document.
