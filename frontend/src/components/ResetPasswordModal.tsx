@@ -2,10 +2,13 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { ModalShell } from "./ModalShell";
 import { resetPassword } from "../api";
 
-/** Mirrors backend validate_password_complexity — an inline hint only; the
- *  server is the real gate. */
+/** Mirrors the backend rules — validate_password_complexity plus the Field's
+ *  length bounds (min 8 / max 128) — as an inline hint only; the server is the
+ *  real gate. The max check spares a >128-char paste an inaccurate "needs a
+ *  digit"-style 422 (length-too-long isn't a complexity failure). */
 function passwordProblem(pw: string): string | null {
   if (pw.length < 8) return "at least 8 characters";
+  if (pw.length > 128) return "to be 128 characters or fewer";
   if (!/[A-Z]/.test(pw)) return "an upper-case letter";
   if (!/[a-z]/.test(pw)) return "a lower-case letter";
   if (!/\d/.test(pw)) return "a digit";

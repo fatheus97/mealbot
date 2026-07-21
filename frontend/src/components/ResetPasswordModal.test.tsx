@@ -59,6 +59,14 @@ describe('ResetPasswordModal', () => {
     expect(screen.getByText(/an upper-case letter/i)).toBeInTheDocument();
     expect(submit).toBeDisabled();
 
+    // Over the backend's 128-char cap: flagged as too long, not as a bogus
+    // complexity failure. paste() avoids typing 129 chars one keypress at a time.
+    await user.clear(pw);
+    await user.click(pw);
+    await user.paste('A1' + 'a'.repeat(127)); // 129 chars, otherwise valid
+    expect(screen.getByText(/128 characters or fewer/i)).toBeInTheDocument();
+    expect(submit).toBeDisabled();
+
     await user.clear(pw);
     await user.type(pw, 'ValidPass123');
     await user.type(confirm, 'Different123');
