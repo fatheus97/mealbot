@@ -92,11 +92,18 @@ class ActivityStatsResponse(BaseModel):
 
 
 class FunnelStage(BaseModel):
-    """One step of the overall signup→paid funnel, in order."""
+    """One step of the overall signup→paid funnel, in order.
+
+    ``count`` is distinct paywall-subject users (NOT demo/admin/comped) who
+    reached at least this stage. The generate→confirm→cook stages roll up, so
+    the counts are non-increasing across them; ``paid`` is a conversion outcome
+    and may exceed ``cooked`` (a user can subscribe without cooking). See
+    ``stats_funnel``.
+    """
 
     key: str  # "signed_up" | "generated" | "confirmed" | "cooked" | "paid"
     label: str
-    count: int  # distinct non-demo users who reached at least this stage
+    count: int
 
 
 class FunnelBySource(BaseModel):

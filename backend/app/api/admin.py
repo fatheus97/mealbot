@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
@@ -158,9 +158,9 @@ async def stats_funnel(
     Every milestone after signup is DERIVED at query time from the tables that
     already record it — there is no funnel-event table and no per-milestone write
     hook anywhere in the app. Each is a distinct-user subquery LEFT-JOINed onto
-    the user row, so ``count(sub.user_id)`` is "users in this group who reached
-    that stage" (each subquery yields at most one row per user, so the joins
-    don't fan out).
+    the user row (each yields at most one row per user, so the joins don't fan
+    out); a per-stage ``count(*) FILTER (...)`` then counts "users in this group
+    who reached at least this stage".
 
     - **generated** — a meal-creation generation (``MachineGeneration`` on a
       meal surface; receipt scans are a fridge action, not activation).
@@ -170,10 +170,24 @@ async def stats_funnel(
       which is the truest "converted to revenue" — unlike ``subscription_status``
       it survives a later cancellation.
 
-    Demo accounts are excluded (ephemeral, not real signups). Users with no UTM
-    — everyone who predates attribution, plus genuine direct traffic — bucket as
-    ``"direct"``. Overall totals are summed from the per-source rows so the two
-    views can never disagree. All-time; unbounded like the overview.
+    **The stages roll up so the funnel is monotonic.** ``generated`` comes from
+    best-effort telemetry that *postdates the app* (a plan generated before
+    ``MachineGeneration`` existed, or whose telemetry write was dropped, has no
+    row), while ``confirmed``/``cooked`` read durable columns. Counting them
+    independently would let ``generated`` render BELOW ``confirmed`` — impossible
+    for a funnel. So each stage counts anyone who reached it OR any later durable
+    stage: confirming/cooking/paying implies generation even when its telemetry
+    is missing. (``paid`` stays independent — a user can subscribe without
+    cooking, so ``paid`` may legitimately exceed ``cooked``.)
+
+    **Who counts:** exactly the users *subject to the paywall* —
+    ``NOT (is_demo OR is_admin OR is_comped)``, the same set ``is_entitled``
+    bypasses. A demo/admin/comped user is structurally incapable of appearing in
+    ``paid`` (they get access without paying), so including them would silently
+    depress every conversion rate. Users with no UTM — everyone who predates
+    attribution, plus genuine direct traffic — bucket as ``"direct"``. Overall
+    totals are summed from the per-source rows so the two views can never
+    disagree. All-time; unbounded like the overview.
     """
     generated_sub = (
         select(col(MachineGeneration.user_id).label("user_id"))
@@ -200,23 +214,36 @@ async def stats_funnel(
         .subquery()
     )
 
+    # Presence flags after the LEFT JOINs, then the monotonic rollup.
+    gen = generated_sub.c.user_id.is_not(None)
+    conf = confirmed_sub.c.user_id.is_not(None)
+    cook = cooked_sub.c.user_id.is_not(None)
+    paid = paid_sub.c.user_id.is_not(None)
+    reached_generated = or_(gen, conf, cook, paid)
+    reached_confirmed = or_(conf, cook)
+
     source_col = func.coalesce(col(User.signup_utm_source), "direct")
     rows = (
         await session.execute(
             select(
                 source_col.label("source"),
                 func.count().label("signed_up"),
-                func.count(generated_sub.c.user_id).label("generated"),
-                func.count(confirmed_sub.c.user_id).label("confirmed"),
-                func.count(cooked_sub.c.user_id).label("cooked"),
-                func.count(paid_sub.c.user_id).label("paid"),
+                func.count().filter(reached_generated).label("generated"),
+                func.count().filter(reached_confirmed).label("confirmed"),
+                func.count().filter(cook).label("cooked"),
+                func.count().filter(paid).label("paid"),
             )
             .select_from(User)
             .join(generated_sub, generated_sub.c.user_id == col(User.id), isouter=True)
             .join(confirmed_sub, confirmed_sub.c.user_id == col(User.id), isouter=True)
             .join(cooked_sub, cooked_sub.c.user_id == col(User.id), isouter=True)
             .join(paid_sub, paid_sub.c.user_id == col(User.id), isouter=True)
-            .where(col(User.is_demo).is_(False))
+            # Only users actually subject to the paywall (see docstring).
+            .where(
+                col(User.is_demo).is_(False),
+                col(User.is_admin).is_(False),
+                col(User.is_comped).is_(False),
+            )
             .group_by(source_col)
             .order_by(func.count().desc())
         )

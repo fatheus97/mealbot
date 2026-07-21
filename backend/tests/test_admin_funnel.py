@@ -38,12 +38,16 @@ async def _user(
     *,
     utm_source: str | None = None,
     is_demo: bool = False,
+    is_admin: bool = False,
+    is_comped: bool = False,
 ) -> int:
     u = User(
         email=email,
         hashed_password=get_password_hash("Password123"),
         signup_utm_source=utm_source,
         is_demo=is_demo,
+        is_admin=is_admin,
+        is_comped=is_comped,
     )
     db_session.add(u)
     await db_session.flush()
@@ -106,8 +110,9 @@ class TestFunnelAggregation:
         db_session: AsyncSession,
         test_user: User,
     ) -> None:
-        # test_user is the admin AND doubles as the "direct, signup-only" user
-        # (no UTM, no milestones) so it's accounted for rather than a surprise.
+        # test_user is only the admin making the request — admins are excluded
+        # from the funnel, so a separate regular user D provides the "direct"
+        # (no-UTM) row.
         await _make_admin(db_session, test_user)
 
         # A — google, full funnel: generated → confirmed → cooked → paid.
@@ -126,13 +131,16 @@ class TestFunnelAggregation:
         c = await _user(db_session, "c@x.com", utm_source="facebook")
         db_session.add_all([_gen(c), _plan(c, confirmed=True)])
 
+        # D — a regular direct signup (no UTM), signup only.
+        await _user(db_session, "d@x.com")
+
         # A demo user with a FULL funnel — must be excluded everywhere.
-        d = await _user(db_session, "demo@x.com", utm_source="google", is_demo=True)
-        d_plan = _plan(d, confirmed=True)
-        db_session.add_all([_gen(d), d_plan])
+        demo = await _user(db_session, "demo@x.com", utm_source="google", is_demo=True)
+        demo_plan = _plan(demo, confirmed=True)
+        db_session.add_all([_gen(demo), demo_plan])
         await db_session.flush()
-        assert d_plan.id is not None
-        db_session.add_all([_cooked_entry(d, d_plan.id), _sale(d, "inv_demo")])
+        assert demo_plan.id is not None
+        db_session.add_all([_cooked_entry(demo, demo_plan.id), _sale(demo, "inv_demo")])
         await db_session.flush()
 
         resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
@@ -140,7 +148,7 @@ class TestFunnelAggregation:
         body = resp.json()
 
         stages = {s["key"]: s["count"] for s in body["stages"]}
-        # test_user + A + B + C = 4 signups; the demo user is excluded.
+        # A + B + C + D = 4 signups; demo and the admin (test_user) are excluded.
         assert stages == {
             "signed_up": 4,
             "generated": 3,   # A, B, C
@@ -162,13 +170,76 @@ class TestFunnelAggregation:
             "source": "facebook", "signed_up": 1, "generated": 1,
             "confirmed": 1, "cooked": 0, "paid": 0,
         }
-        # test_user has no UTM → the "direct" bucket, signup only.
+        # D has no UTM → the "direct" bucket, signup only.
         assert by_source["direct"] == {
             "source": "direct", "signed_up": 1, "generated": 0,
             "confirmed": 0, "cooked": 0, "paid": 0,
         }
         # The demo user's "google" milestones must not have leaked in.
         assert "demo@x.com" not in {s["source"] for s in body["by_source"]}
+
+    async def test_funnel_is_monotonic_when_generation_telemetry_is_missing(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """THE bug the rollup exists for. `generated` is best-effort telemetry
+        that postdates the app; `confirmed`/`cooked` are durable columns. A user
+        who confirmed AND cooked but has NO MachineGeneration row (generated
+        before telemetry existed, or the write was dropped) must still count as
+        `generated` — otherwise the funnel dips then rises, which is impossible.
+        """
+        await _make_admin(db_session, test_user)
+        # Regular user: confirmed + cooked, but deliberately NO _gen(...) row.
+        u = await _user(db_session, "legacy@x.com", utm_source="google")
+        plan = _plan(u, confirmed=True)
+        db_session.add(plan)
+        await db_session.flush()
+        assert plan.id is not None
+        db_session.add(_cooked_entry(u, plan.id))
+        await db_session.flush()
+
+        resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
+        stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
+        # The confirmed+cooked user rolls up into generated despite no telemetry.
+        assert stages["generated"] == 1
+        assert stages["confirmed"] == 1
+        assert stages["cooked"] == 1
+        # And the funnel is non-increasing across the product-flow stages.
+        counts = [stages["signed_up"], stages["generated"], stages["confirmed"], stages["cooked"]]
+        assert counts == sorted(counts, reverse=True)
+
+    async def test_multi_row_user_is_counted_once(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Pins the `.distinct()` on the milestone subqueries: a user with TWO
+        generations and TWO sales (a renewal invoice) must count once, and must
+        not fan out the joins to inflate signed_up. Without .distinct() the
+        LEFT JOINs multiply this user's row and every count balloons."""
+        await _make_admin(db_session, test_user)
+        u = await _user(db_session, "heavy@x.com", utm_source="google")
+        db_session.add_all([
+            _gen(u),
+            _gen(u),                 # second generation
+            _sale(u, "inv_1"),
+            _sale(u, "inv_2"),       # renewal — second sale for the same user
+        ])
+        await db_session.flush()
+
+        resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
+        stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
+        assert stages["signed_up"] == 1   # not 2 or 4 from fan-out
+        assert stages["generated"] == 1
+        assert stages["paid"] == 1
+        google = next(s for s in resp.json()["by_source"] if s["source"] == "google")
+        assert google["signed_up"] == 1
+        assert google["paid"] == 1
 
     async def test_receipt_scan_is_not_activation(
         self,
@@ -186,10 +257,41 @@ class TestFunnelAggregation:
 
         resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
         stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
-        assert stages["signed_up"] == 2   # test_user + scanner
+        assert stages["signed_up"] == 1   # just scanner; admin excluded
         assert stages["generated"] == 0   # the receipt scan does not count
 
-    async def test_detached_sale_does_not_crash_or_count(
+    async def test_demo_admin_and_comped_users_are_excluded(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Only paywall-subject users count. Demo/admin/comped are structurally
+        exempt from paying, so including them would depress every conversion
+        rate. Each here has a full funnel and must appear NOWHERE."""
+        await _make_admin(db_session, test_user)
+        for email, kwargs in [
+            ("demo2@x.com", {"is_demo": True}),
+            ("admin2@x.com", {"is_admin": True}),
+            ("comped@x.com", {"is_comped": True}),
+        ]:
+            uid = await _user(db_session, email, utm_source="google", **kwargs)  # type: ignore[arg-type]
+            plan = _plan(uid, confirmed=True)
+            db_session.add_all([_gen(uid), plan])
+            await db_session.flush()
+            assert plan.id is not None
+            db_session.add_all([_cooked_entry(uid, plan.id), _sale(uid, f"inv_{email}")])
+        await db_session.flush()
+
+        resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
+        stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
+        assert stages == {
+            "signed_up": 0, "generated": 0, "confirmed": 0, "cooked": 0, "paid": 0,
+        }
+        assert resp.json()["by_source"] == []
+
+    async def test_detached_sale_does_not_inflate_paid(
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
@@ -197,21 +299,26 @@ class TestFunnelAggregation:
         test_user: User,
     ) -> None:
         """A SaleRecord whose user_id went NULL on account deletion must be
-        ignored, not counted or errored."""
+        ignored — with a genuine payer alongside it, so `paid == 1` actually
+        distinguishes the NULL-filter working from it being absent."""
         await _make_admin(db_session, test_user)
-        orphan = SaleRecord(
-            stripe_invoice_id="inv_orphan",
-            user_id=None,
-            amount_cents=1000,
-            currency="eur",
-        )
-        db_session.add(orphan)
+        payer = await _user(db_session, "payer@x.com", utm_source="google")
+        db_session.add_all([
+            _gen(payer),
+            _sale(payer, "inv_real"),
+            SaleRecord(  # orphaned: user was deleted, sale detached
+                stripe_invoice_id="inv_orphan",
+                user_id=None,
+                amount_cents=1000,
+                currency="eur",
+            ),
+        ])
         await db_session.flush()
 
         resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
         assert resp.status_code == 200
         stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
-        assert stages["paid"] == 0
+        assert stages["paid"] == 1   # the real payer; the orphan does not inflate
 
 
 class TestSignupAttributionCapture:
