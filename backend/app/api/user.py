@@ -76,7 +76,15 @@ async def register_user(
     # two requests can both pass the SELECT and then race to commit.
     # Offload bcrypt hashing (~50-100ms CPU) so it doesn't block the event loop.
     hashed_pw = await asyncio.to_thread(get_password_hash, user.password)
-    db_user = User(email=user.email, hashed_password=hashed_pw)
+    db_user = User(
+        email=user.email,
+        hashed_password=hashed_pw,
+        # First-touch attribution (already trimmed/truncated by UserCreate).
+        signup_utm_source=user.utm_source,
+        signup_utm_medium=user.utm_medium,
+        signup_utm_campaign=user.utm_campaign,
+        signup_referrer=user.referrer,
+    )
     session.add(db_user)
     try:
         await session.commit()

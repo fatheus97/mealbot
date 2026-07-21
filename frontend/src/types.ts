@@ -389,6 +389,28 @@ export interface ActivityStatsResponse {
   by_surface: SurfaceCount[];
 }
 
+// --- Activation funnel (mirror backend admin_schemas FunnelStatsResponse) ---
+
+export interface FunnelStage {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface FunnelBySource {
+  source: string;
+  signed_up: number;
+  generated: number;
+  confirmed: number;
+  cooked: number;
+  paid: number;
+}
+
+export interface FunnelStatsResponse {
+  stages: FunnelStage[];
+  by_source: FunnelBySource[];
+}
+
 // --- Revenue & VAT (mirror backend admin_schemas RevenueStats) ---
 
 export interface ThresholdProgress {

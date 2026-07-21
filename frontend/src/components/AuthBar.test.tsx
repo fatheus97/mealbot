@@ -265,6 +265,61 @@ describe('AuthBar', () => {
     expect(callUrls).toContain('/auth/login');
   });
 
+  it('replays stored first-touch attribution into the register payload', async () => {
+    // A prior landing captured this; register must forward it so the signup is
+    // traceable to its campaign.
+    localStorage.setItem(
+      'mealbot_attribution',
+      JSON.stringify({ utm_source: 'google', utm_medium: 'cpc', referrer: 'https://ph.example' }),
+    );
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ registration_enabled: true }),
+        } as unknown as Response);
+      }
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/users/register') {
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: () => Promise.resolve({ message: 'Registered' }),
+        } as unknown as Response);
+      }
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(profile({ id: 9, email: 'new@x.com' })),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+    const registerBtn = await screen.findByRole('button', { name: /^register$/i });
+    await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    await user.click(registerBtn);
+
+    await waitFor(() => {
+      expect(
+        mockedAuthFetch.mock.calls.some((c) => c[0] === '/users/register'),
+      ).toBe(true);
+    });
+    const registerCall = mockedAuthFetch.mock.calls.find((c) => c[0] === '/users/register')!;
+    const body = JSON.parse((registerCall[1] as RequestInit).body as string);
+    expect(body).toMatchObject({
+      email: 'new@x.com',
+      utm_source: 'google',
+      utm_medium: 'cpc',
+      referrer: 'https://ph.example',
+    });
+  });
+
   it('shows "account created" message when registration succeeds but auto-login fails', async () => {
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') {

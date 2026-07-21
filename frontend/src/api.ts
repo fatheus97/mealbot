@@ -2,6 +2,7 @@
 import type {
   ActivityStatsResponse,
   CookRecipeRequest,
+  FunnelStatsResponse,
   FavoriteRecipeRequest,
   MealEditRequest,
   MealEntrySummary,
@@ -351,6 +352,12 @@ export async function fetchAdminActivity(
 export async function fetchAdminRevenue(): Promise<RevenueStats> {
   const res = await authFetch("/admin/stats/revenue");
   if (!res.ok) throw new Error(`Admin revenue failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminFunnel(): Promise<FunnelStatsResponse> {
+  const res = await authFetch("/admin/stats/funnel");
+  if (!res.ok) throw new Error(`Admin funnel failed: ${res.status}`);
   return res.json();
 }
 
