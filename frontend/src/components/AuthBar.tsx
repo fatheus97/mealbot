@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
 import { SettingsPopup } from "./SettingsPopup";
+import { ForgotPasswordModal } from "./ForgotPasswordModal";
 
 export function AuthBar() {
   const { userId, email, login, logout, loginDemo, demoEnabled, register, registrationEnabled } = useAuth();
@@ -11,6 +12,7 @@ export function AuthBar() {
   const [inputPassword, setInputPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const handleLogin = async () => {
@@ -129,6 +131,31 @@ export function AuthBar() {
         <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.85rem" }}>
           {authError}
         </p>
+      )}
+      {!userId && (
+        <p style={{ marginTop: "0.75rem", marginBottom: 0, fontSize: "0.85rem" }}>
+          <button
+            type="button"
+            onClick={() => setShowForgot(true)}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "#007bff",
+              cursor: "pointer",
+              fontSize: "0.85rem",
+              textDecoration: "underline",
+            }}
+          >
+            Forgot your password?
+          </button>
+        </p>
+      )}
+      {showForgot && (
+        <ForgotPasswordModal
+          onClose={() => setShowForgot(false)}
+          initialEmail={inputEmail}
+        />
       )}
       {!userId && registrationEnabled === false && (
         <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "#555" }}>
