@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
@@ -20,6 +20,9 @@ from app.db import get_session
 from app.models.admin_schemas import (
     ActivityBucket,
     ActivityStatsResponse,
+    FunnelBySource,
+    FunnelStage,
+    FunnelStatsResponse,
     OverviewStats,
     ProviderUsageAgg,
     RevenueStats,
@@ -30,7 +33,14 @@ from app.models.admin_schemas import (
     UsageStatsResponse,
     UserUsageAgg,
 )
-from app.models.db_models import LlmUsage, MachineGeneration, User
+from app.models.db_models import (
+    LlmUsage,
+    MachineGeneration,
+    MealEntry,
+    MealPlan,
+    SaleRecord,
+    User,
+)
 from app.services import revenue_service
 
 logger = logging.getLogger(__name__)
@@ -48,6 +58,15 @@ Granularity = Literal["day", "week", "month"]
 # Bound the aggregation window so a single request can't scan an unbounded range.
 _MAX_RANGE_DAYS = 366
 _DEFAULT_RANGE_DAYS = 30
+
+# Generation surfaces that count as funnel "activation" — the user asked the AI
+# to CREATE a meal. Excludes "receipt_scan" (a fridge-input action, not meal
+# creation). See stats_funnel.
+_ACTIVATION_SURFACES = ("meal_plan", "single_recipe", "regenerate")
+
+# Cap on distinct acquisition-source rows in the funnel response; the tail folds
+# into an "other" bucket so the payload can't grow with unbounded UTM values.
+_MAX_FUNNEL_SOURCES = 20
 
 
 def _resolve_range(from_date: date | None, to_date: date | None) -> tuple[date, date]:
@@ -131,6 +150,154 @@ async def stats_overview(
             SurfaceCount(surface=str(row[0]), count=int(row[1])) for row in gen_rows
         ],
     )
+
+
+@router.get("/stats/funnel", response_model=FunnelStatsResponse)
+async def stats_funnel(
+    session: AsyncSession = Depends(get_session),
+) -> FunnelStatsResponse:
+    """Activation funnel: signup → generated → confirmed → cooked → paid, overall
+    and split by first-touch acquisition source.
+
+    Every milestone after signup is DERIVED at query time from the tables that
+    already record it — there is no funnel-event table and no per-milestone write
+    hook anywhere in the app. Each is a distinct-user subquery LEFT-JOINed onto
+    the user row (each yields at most one row per user, so the joins don't fan
+    out); a per-stage ``count(*) FILTER (...)`` then counts "users in this group
+    who reached at least this stage".
+
+    - **generated** — a meal-creation generation (``MachineGeneration`` on a
+      meal surface; receipt scans are a fridge action, not activation).
+    - **confirmed** — a plan with ``confirmed_at`` set.
+    - **cooked** — a meal with ``cooked_at`` set.
+    - **paid** — a row in the ``SaleRecord`` ledger (an actually-paid invoice),
+      which is the truest "converted to revenue" — unlike ``subscription_status``
+      it survives a later cancellation.
+
+    **The stages roll up so the funnel is monotonic.** ``generated`` comes from
+    best-effort telemetry that *postdates the app* (a plan generated before
+    ``MachineGeneration`` existed, or whose telemetry write was dropped, has no
+    row), while ``confirmed``/``cooked`` read durable columns. Counting them
+    independently would let ``generated`` render BELOW ``confirmed`` — impossible
+    for a funnel. So each stage counts anyone who reached it OR any later durable
+    stage: confirming/cooking/paying implies generation even when its telemetry
+    is missing. (``paid`` stays independent — a user can subscribe without
+    cooking, so ``paid`` may legitimately exceed ``cooked``.)
+
+    **Who counts:** exactly the users *subject to the paywall* —
+    ``NOT (is_demo OR is_admin OR is_comped)``, the same set ``is_entitled``
+    bypasses. A demo/admin/comped user is structurally incapable of appearing in
+    ``paid`` (they get access without paying), so including them would silently
+    depress every conversion rate. Users with no UTM — everyone who predates
+    attribution, plus genuine direct traffic — bucket as ``"direct"``. Overall
+    totals are summed from the per-source rows so the two views can never
+    disagree. All-time; unbounded like the overview.
+    """
+    generated_sub = (
+        select(col(MachineGeneration.user_id).label("user_id"))
+        .where(col(MachineGeneration.surface).in_(_ACTIVATION_SURFACES))
+        .distinct()
+        .subquery()
+    )
+    confirmed_sub = (
+        select(col(MealPlan.user_id).label("user_id"))
+        .where(col(MealPlan.confirmed_at).is_not(None))
+        .distinct()
+        .subquery()
+    )
+    cooked_sub = (
+        select(col(MealEntry.user_id).label("user_id"))
+        .where(col(MealEntry.cooked_at).is_not(None))
+        .distinct()
+        .subquery()
+    )
+    paid_sub = (
+        select(col(SaleRecord.user_id).label("user_id"))
+        .where(col(SaleRecord.user_id).is_not(None))
+        .distinct()
+        .subquery()
+    )
+
+    # Presence flags after the LEFT JOINs, then the monotonic rollup.
+    gen = generated_sub.c.user_id.is_not(None)
+    conf = confirmed_sub.c.user_id.is_not(None)
+    cook = cooked_sub.c.user_id.is_not(None)
+    paid = paid_sub.c.user_id.is_not(None)
+    reached_generated = or_(gen, conf, cook, paid)
+    reached_confirmed = or_(conf, cook)
+
+    source_col = func.coalesce(col(User.signup_utm_source), "direct")
+    rows = (
+        await session.execute(
+            select(
+                source_col.label("source"),
+                func.count().label("signed_up"),
+                func.count().filter(reached_generated).label("generated"),
+                func.count().filter(reached_confirmed).label("confirmed"),
+                func.count().filter(cook).label("cooked"),
+                func.count().filter(paid).label("paid"),
+            )
+            .select_from(User)
+            .join(generated_sub, generated_sub.c.user_id == col(User.id), isouter=True)
+            .join(confirmed_sub, confirmed_sub.c.user_id == col(User.id), isouter=True)
+            .join(cooked_sub, cooked_sub.c.user_id == col(User.id), isouter=True)
+            .join(paid_sub, paid_sub.c.user_id == col(User.id), isouter=True)
+            # Only users actually subject to the paywall (see docstring).
+            .where(
+                col(User.is_demo).is_(False),
+                col(User.is_admin).is_(False),
+                col(User.is_comped).is_(False),
+            )
+            .group_by(source_col)
+            .order_by(func.count().desc())
+        )
+    ).all()
+
+    # Rows arrive ordered by signed_up desc. UTM values are attacker-controllable
+    # (bounded but not allow-listed), so once registration opens a bot spraying
+    # unique utm_source values could grow this to one row per value. Keep the top
+    # N and fold the tail into a single "other" bucket. The tail's counts survive
+    # in "other", so the overall totals (summed from these rows below) stay exact.
+    ranked = [
+        FunnelBySource(
+            source=str(r.source),
+            signed_up=int(r.signed_up),
+            generated=int(r.generated),
+            confirmed=int(r.confirmed),
+            cooked=int(r.cooked),
+            paid=int(r.paid),
+        )
+        for r in rows
+    ]
+    if len(ranked) > _MAX_FUNNEL_SOURCES:
+        head, tail = ranked[:_MAX_FUNNEL_SOURCES], ranked[_MAX_FUNNEL_SOURCES:]
+        head.append(
+            FunnelBySource(
+                source="other",
+                signed_up=sum(s.signed_up for s in tail),
+                generated=sum(s.generated for s in tail),
+                confirmed=sum(s.confirmed for s in tail),
+                cooked=sum(s.cooked for s in tail),
+                paid=sum(s.paid for s in tail),
+            )
+        )
+        by_source = head
+    else:
+        by_source = ranked
+
+    # Overall totals summed from the per-source rows — one source of truth. Exact
+    # even after the "other" fold, because that bucket carries the tail's counts.
+    def _total(attr: str) -> int:
+        return sum(getattr(s, attr) for s in by_source)
+
+    stages = [
+        FunnelStage(key="signed_up", label="Signed up", count=_total("signed_up")),
+        FunnelStage(key="generated", label="Generated a recipe", count=_total("generated")),
+        FunnelStage(key="confirmed", label="Confirmed a plan", count=_total("confirmed")),
+        FunnelStage(key="cooked", label="Cooked a meal", count=_total("cooked")),
+        FunnelStage(key="paid", label="Subscribed", count=_total("paid")),
+    ]
+    return FunnelStatsResponse(stages=stages, by_source=by_source)
 
 
 @router.get("/stats/usage", response_model=UsageStatsResponse)

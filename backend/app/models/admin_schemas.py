@@ -88,6 +88,42 @@ class ActivityStatsResponse(BaseModel):
     by_surface: list[SurfaceCount]
 
 
+# --- Activation funnel ---
+
+
+class FunnelStage(BaseModel):
+    """One step of the overall signup→paid funnel, in order.
+
+    ``count`` is distinct paywall-subject users (NOT demo/admin/comped) who
+    reached at least this stage. The generate→confirm→cook stages roll up, so
+    the counts are non-increasing across them; ``paid`` is a conversion outcome
+    and may exceed ``cooked`` (a user can subscribe without cooking). See
+    ``stats_funnel``.
+    """
+
+    key: str  # "signed_up" | "generated" | "confirmed" | "cooked" | "paid"
+    label: str
+    count: int
+
+
+class FunnelBySource(BaseModel):
+    """The same funnel split by first-touch acquisition source. `source` is the
+    signup UTM source, or "direct" for users with none (incl. everyone who
+    signed up before attribution existed)."""
+
+    source: str
+    signed_up: int
+    generated: int
+    confirmed: int
+    cooked: int
+    paid: int
+
+
+class FunnelStatsResponse(BaseModel):
+    stages: list[FunnelStage]
+    by_source: list[FunnelBySource]
+
+
 # --- Revenue & VAT (subscription sales ledger) ---
 
 

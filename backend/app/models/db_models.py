@@ -101,6 +101,25 @@ class User(SQLModel, table=True):
         default=None, sa_column=Column(BigInteger, nullable=True)
     )
 
+    # --- Acquisition attribution (first-touch, captured once at signup) ---
+    # UTM parameters + referrer from the URL that first brought this user to the
+    # app, threaded through /users/register. This is the ONLY funnel data that
+    # cannot be derived from existing tables — every downstream milestone
+    # (generated / confirmed / cooked / paid) is read from MachineGeneration /
+    # MealPlan / MealEntry / SaleRecord at query time, so nothing else is stored.
+    #
+    # Attacker-controllable (they come from query params), so treated as
+    # untrusted: bounded length, stored verbatim, and only ever rendered as
+    # escaped React text on the admin dashboard — never interpolated anywhere.
+    # Nullable with no server_default: existing users (and any future
+    # UTM-less/direct signup) are simply NULL, which the funnel buckets as
+    # "direct". max_length mirrors the `country` cap rationale (bound
+    # pathological input); referrer is a URL so it gets a longer cap.
+    signup_utm_source: str | None = Field(default=None, max_length=200)
+    signup_utm_medium: str | None = Field(default=None, max_length=200)
+    signup_utm_campaign: str | None = Field(default=None, max_length=200)
+    signup_referrer: str | None = Field(default=None, max_length=500)
+
     fridge_items: list[StockItem] = Relationship(back_populates="user")
     meal_plans: list[MealPlan] = Relationship(back_populates="user")
     meal_entries: list[MealEntry] = Relationship(back_populates="user")

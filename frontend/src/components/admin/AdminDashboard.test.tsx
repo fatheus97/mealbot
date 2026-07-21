@@ -5,6 +5,7 @@ import { AdminDashboard } from "./AdminDashboard";
 import * as api from "../../api";
 import type {
   ActivityStatsResponse,
+  FunnelStatsResponse,
   OverviewStats,
   RevenueStats,
   UsageByUserResponse,
@@ -19,6 +20,7 @@ vi.mock("../../api", () => ({
   fetchAdminUsageByUser: vi.fn(),
   fetchAdminActivity: vi.fn(),
   fetchAdminRevenue: vi.fn(),
+  fetchAdminFunnel: vi.fn(),
 }));
 
 const OVERVIEW: OverviewStats = {
@@ -74,6 +76,17 @@ const REVENUE: RevenueStats = {
   recent: [],
 };
 
+const FUNNEL: FunnelStatsResponse = {
+  stages: [
+    { key: "signed_up", label: "Signed up", count: 5 },
+    { key: "generated", label: "Generated a recipe", count: 3 },
+    { key: "confirmed", label: "Confirmed a plan", count: 2 },
+    { key: "cooked", label: "Cooked a meal", count: 1 },
+    { key: "paid", label: "Subscribed", count: 1 },
+  ],
+  by_source: [{ source: "direct", signed_up: 5, generated: 3, confirmed: 2, cooked: 1, paid: 1 }],
+};
+
 beforeEach(() => {
   vi.clearAllMocks(); // reset call history between tests (keeps implementations)
   window.localStorage.clear();
@@ -82,6 +95,7 @@ beforeEach(() => {
   vi.mocked(api.fetchAdminUsageByUser).mockResolvedValue(BY_USER);
   vi.mocked(api.fetchAdminActivity).mockResolvedValue(ACTIVITY);
   vi.mocked(api.fetchAdminRevenue).mockResolvedValue(REVENUE);
+  vi.mocked(api.fetchAdminFunnel).mockResolvedValue(FUNNEL);
 });
 
 describe("AdminDashboard", () => {

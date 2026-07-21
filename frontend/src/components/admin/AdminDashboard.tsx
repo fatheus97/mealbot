@@ -4,8 +4,10 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { BarChart, type Bar } from "./BarChart";
 import { RevenuePanel } from "./RevenuePanel";
+import { FunnelPanel } from "./FunnelPanel";
 import {
   fetchAdminActivity,
+  fetchAdminFunnel,
   fetchAdminOverview,
   fetchAdminRevenue,
   fetchAdminUsage,
@@ -95,6 +97,11 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
   const revenue = useQuery({
     queryKey: ["admin", "revenue"],
     queryFn: fetchAdminRevenue,
+    enabled: isAdmin,
+  });
+  const funnel = useQuery({
+    queryKey: ["admin", "funnel"],
+    queryFn: fetchAdminFunnel,
     enabled: isAdmin,
   });
 
@@ -202,6 +209,12 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
               </div>
             </>
           )}
+        </QueryState>
+      </Section>
+
+      <Section title="Activation funnel">
+        <QueryState isLoading={funnel.isLoading} error={funnel.error}>
+          {funnel.data && <FunnelPanel stats={funnel.data} />}
         </QueryState>
       </Section>
 

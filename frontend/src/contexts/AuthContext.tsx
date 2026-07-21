@@ -4,6 +4,7 @@ import type { AuthLoginResponse, AuthState } from "../types";
 import { authFetch } from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError } from "./authErrors";
+import { captureAttribution, getStoredAttribution } from "../utils/attribution";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
@@ -137,6 +138,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   useEffect(() => {
+    // Capture first-touch acquisition attribution as early as possible, before
+    // any navigation drops the landing URL's ?utm_* params. No-op once stored.
+    captureAttribution();
+
     // Gate the "Try Demo" and "Register" buttons on backend feature flags so
     // we don't advertise features that would 4xx. Failure → resolve both to
     // false (safer default: hide everything we can't confirm is enabled).
@@ -226,7 +231,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // session without a second user interaction.
     const resp = await authFetch("/users/register", {
       method: "POST",
-      body: JSON.stringify({ email: newEmail, password }),
+      // Replay the first-touch attribution captured on landing so the signup is
+      // traceable to its campaign. Absent keys are simply omitted (→ NULL).
+      body: JSON.stringify({ email: newEmail, password, ...getStoredAttribution() }),
     });
     if (!resp.ok) {
       // 403 when registration_enabled flipped server-side between /config

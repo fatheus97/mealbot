@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from sqlmodel import SQLModel
 
 from app.core.meal_types import MealType
@@ -39,13 +39,48 @@ def validate_password_complexity(v: str) -> str:
 class UserBase(SQLModel):
     email: EmailStr
 
+_ATTRIBUTION_CAPS = {"referrer": 500}
+_ATTRIBUTION_DEFAULT_CAP = 200
+
+
 class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
+
+    # First-touch acquisition attribution from the landing URL. Optional so
+    # existing clients and a direct (no-UTM) signup keep working. Attacker-
+    # controllable, so cleaned in the validator below rather than trusted.
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    referrer: str | None = None
 
     @field_validator("password")
     @classmethod
     def password_complexity(cls, v: str) -> str:
         return validate_password_complexity(v)
+
+    @field_validator("utm_source", "utm_medium", "utm_campaign", "referrer", mode="before")
+    @classmethod
+    def _clean_attribution(cls, v: object, info: ValidationInfo) -> str | None:
+        """Trim, null out empties, TRUNCATE to the column bound, and lower-case
+        the UTM tags.
+
+        Truncation (not rejection) is deliberate: these come from the URL, so an
+        over-long referrer must never 422 an otherwise-valid signup — and it
+        must fit the String(n) column or the INSERT would error. Non-strings are
+        dropped defensively (a crafted body could send a list/number).
+
+        The three utm_* tags are lower-cased so ``Google`` and ``google`` don't
+        fragment into separate funnel rows; the referrer is a URL (path/query
+        case can be significant) and is kept verbatim."""
+        if not isinstance(v, str):
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        cap = _ATTRIBUTION_CAPS.get(info.field_name or "", _ATTRIBUTION_DEFAULT_CAP)
+        cleaned = v[:cap]
+        return cleaned if info.field_name == "referrer" else cleaned.lower()
 
 
 class PasswordChangeRequest(BaseModel):
