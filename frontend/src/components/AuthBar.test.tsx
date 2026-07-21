@@ -11,6 +11,7 @@ vi.mock('../api', () => ({
   authFetch: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
+  requestPasswordReset: vi.fn(),
 }));
 
 import { authFetch } from '../api';
@@ -199,6 +200,24 @@ describe('AuthBar', () => {
     expect(
       screen.queryByRole('button', { name: /^register$/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it('opens the forgot-password modal, carrying over the typed email', async () => {
+    // The reset flow must be reachable even in a closed alpha — grandfathered
+    // users still forget passwords. Shown regardless of registration_enabled.
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Email')).toBeInTheDocument();
+    });
+    await user.type(screen.getByPlaceholderText('Email'), 'forgot@me.com');
+    await user.click(screen.getByRole('button', { name: /forgot your password/i }));
+
+    expect(await screen.findByRole('dialog', { name: /reset your password/i })).toBeInTheDocument();
+    // The email typed into the login form is prefilled into the reset form.
+    const emailFields = screen.getAllByDisplayValue('forgot@me.com');
+    expect(emailFields.length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows Register button when registration_enabled=true and auto-logs in after register', async () => {

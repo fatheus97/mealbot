@@ -146,6 +146,54 @@ async function extractBillingError(res: Response, fallback: string): Promise<str
   return `${fallback} (${res.status})`;
 }
 
+// --- Password reset (both endpoints are unauthenticated) ---
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  // Resolves on any 2xx. The endpoint returns 204 for unknown *and* demo
+  // addresses too, on purpose (no account enumeration), so the caller must
+  // show the SAME neutral confirmation regardless — do not branch on "found".
+  const res = await authFetch("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  if (res.status === 429) {
+    throw new Error("Too many attempts. Please wait a minute and try again.");
+  }
+  if (!res.ok) {
+    // 422 = malformed email (Pydantic EmailStr). Anything else is unexpected.
+    if (res.status === 422) {
+      throw new Error("Please enter a valid email address.");
+    }
+    throw new Error(`Could not send the reset email (${res.status}).`);
+  }
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  const res = await authFetch("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+  if (res.ok) return;
+  // 400 carries a friendly `detail` string (invalid / expired / used link);
+  // 422 is a Pydantic list detail (weak password) — surface a clear message.
+  let detail: string | null = null;
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") detail = parsed.detail;
+  } catch {
+    // non-JSON body — fall through to a status-based message
+  }
+  if (res.status === 429) {
+    throw new Error("Too many attempts. Please wait a minute and try again.");
+  }
+  if (res.status === 422) {
+    throw new Error(
+      detail ?? "Password must be at least 8 characters with an upper- and lower-case letter and a digit.",
+    );
+  }
+  throw new Error(detail ?? `Could not reset your password (${res.status}).`);
+}
+
 export async function fetchUserProfile(): Promise<UserProfile> {
   const res = await authFetch("/users");
   if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`);
