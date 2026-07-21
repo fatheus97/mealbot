@@ -4,7 +4,7 @@
 > restrictions & allergies" feature (see `ROADMAP.md` → Full release + the
 > "Product direction: evidence-grounded" section). It is NOT medical or legal
 > advice.** Regulatory specifics (esp. EU allergen law) MUST be re-checked
-> against the current consolidated [EUR-Lex text of Reg. (EU) No 1169/2011]
+> against the current consolidated [EUR-Lex text of Reg. (EU) No 1169/2011](https://eur-lex.europa.eu/eli/reg/2011/1169/oj)
 > before any of this becomes user-facing behaviour or marketing copy.
 
 ## Status — read first
@@ -241,9 +241,13 @@ allergen chart · Monash FODMAP (3-phase; low-FODMAP+vegan) · NICE QS134 (coeli
 · NHLBI DASH · Academy of Nutrition & Dietetics vegetarian position · UK FSA PAL
 guidance + allergen-threshold board papers · World Allergy Organization Journal
 (PAL/UAP).
-**Secondary / analysis:** Univ. of Manchester food-allergen guidance · Hogan
-Lovells (free-from / thresholds legal analysis) · food-safety.com (FSA update).
+**Secondary / analysis:** [Univ. of Manchester food-allergen guidance](https://sites.manchester.ac.uk/foodallergens/information-for-food-businesses/eu-legal-requirements-on-food-allergen-labelling/) ·
+[Hogan Lovells (free-from / thresholds legal analysis)](https://www.hoganlovells.com/en/publications/precautionary-allergen-labelling-free-from-claims-and-the-establishment-of-thresholds) ·
+[food-safety.com (FSA update)](https://www.food-safety.com/articles/8852-uk-fsa-updates-guidance-on-precautionary-allergen-labeling-clarifies-vegan-vs-free-from) ·
+[World Allergy Organization Journal (PAL / unintended allergen presence)](https://www.worldallergyorganizationjournal.org/article/S1939-4551(24)00104-2/fulltext).
 
-*Full per-claim source URLs are inline above. This document is a design/reference
-input, not medical or legal advice; re-check EUR-Lex and get a legal read before
-shipping user-facing claims.*
+*Per-claim source URLs for the ✅/🔶 claims are inline above; this section adds
+the additional PAL / labelling references consulted for Part 4 (some inform the
+liability framing without being pinned to a single inline claim). This document
+is a design/reference input, not medical or legal advice; re-check EUR-Lex and
+get a legal read before shipping user-facing claims.*
