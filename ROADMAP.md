@@ -190,8 +190,11 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 - **Changing an env var** (e.g. `ALERT_EMAIL_FROM`, `REGISTRATION_ENABLED`): edit
   `/opt/mealbot/.env`, then recreate with **`up -d`**, never `restart` — `restart`
   reuses the container's old environment; only `up -d` re-reads the changed
-  `env_file`. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend`
-  (or no service name for the whole stack). Verify:
+  `env_file`. When the stack is **healthy**, a single service is fine:
+  `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend`.
+  **If anything is already down/unhealthy, recreate the WHOLE stack** (omit the
+  service name) so you don't strand caddy/frontend — see the recovery bullet
+  below. Verify:
   `... exec backend python -c "from app.core.config import settings; print(settings.<field>)"`.
 - **Prod down / connection refused** (recovery, learned from the 2026-07-21
   outage): the box refusing `:80`/`:443` means **Caddy is down**, not a code bug.
