@@ -25,7 +25,14 @@
 > **2026-07-20 (same day, second pass)** after checking the *running deployment*
 > rather than the document and finding that **registration is still closed on
 > prod** — which gates the entire Growth milestone and had no entry anywhere.
-> That added the **Launch readiness** milestone. Where the notes
+> That added the **Launch readiness** milestone, and finally **2026-07-21** after
+> **clearing that milestone's engineering**: password reset (#238/#239, E2E-
+> verified on prod), the funnel-instrumentation thrust (#240), and the owner
+> verifying the Resend sender domain + setting `ALERT_EMAIL_FROM` — so the launch
+> is now a single owner action (flip `REGISTRATION_ENABLED`). The same pass added
+> a **periodic Docker disk-cleanup** ops item and an **admin-dashboard polish**
+> item (both owner-requested after a build-cache disk outage), plus a prod
+> env-change / recovery runbook to *Operating the deployment*. Where the notes
 > and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
@@ -180,6 +187,24 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 - Manual deploy — **fallback only** (if deploy.yml failed, or an out-of-band change
   on the box): `cd /opt/mealbot && git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
 - Create alpha users: `docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m app.scripts.create_user --email EMAIL --password PASSWORD`.
+- **Changing an env var** (e.g. `ALERT_EMAIL_FROM`, `REGISTRATION_ENABLED`): edit
+  `/opt/mealbot/.env`, then recreate with **`up -d`**, never `restart` — `restart`
+  reuses the container's old environment; only `up -d` re-reads the changed
+  `env_file`. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend`
+  (or no service name for the whole stack). Verify:
+  `... exec backend python -c "from app.core.config import settings; print(settings.<field>)"`.
+- **Prod down / connection refused** (recovery, learned from the 2026-07-21
+  outage): the box refusing `:80`/`:443` means **Caddy is down**, not a code bug.
+  Caddy proxies `/api/*`+`/health` → `backend:8000` and everything else →
+  `frontend:80`, so the app needs **caddy AND frontend AND backend** all up. Fix:
+  `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` (whole
+  stack), then `... ps -a`. Note **`curl localhost:8000/health` refusing is
+  NORMAL** — the backend port is `!override []` in prod (not host-published), so
+  it's only reachable via Caddy; test through Caddy (`curl -sI https://trymealbot.com/health`).
+  Root cause was a half-up stack after a partial recreate; **avoid `down` followed
+  by a partial `up -d <service>`** — it strands caddy/frontend. Disk pressure can
+  cause the same crash — see the **Periodic Docker disk cleanup** item in
+  Cross-cutting.
 
 > Loose end tracked in Cross-cutting: tighten SSH access (dedicated sudo user
 > instead of root login).
@@ -243,12 +268,15 @@ and the only way past it is Stripe Checkout with `billing_address_collection="re
 and a payment method. A throwaway account cannot burn a cent of Gemini quota. The
 paygate is doing its job.
 
+**All engineering prerequisites are DONE and E2E-verified on prod (2026-07-21).
+The launch is now one owner action away: flip the flag.**
+
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
-| **Verified Resend sender domain** | ⬜ | S | — | **Promoted from "optional billing follow-up" to a launch blocker.** `alert_email_from` defaults to `onboarding@resend.dev` — Resend's *shared sandbox* domain, which only delivers to the Resend account owner. Fine while the only recipient is the operator; it silently breaks **all user-facing mail**. Password reset is undeliverable until a domain is verified, so this sits on the critical path to open registration. Owner task (DNS records), not code. |
-| **Password reset** | ✅ | — | verified sender | **SHIPPED + LIVE 2026-07-21** — backend #238, frontend UI #239. `POST /auth/{forgot,reset}-password` over a `PasswordResetToken` (sha256-stored, single-use, 30-min TTL, one-live-token-per-user partial unique index, row-locked redemption); the handler does zero inline work and dispatches the send as a background task so a hit and a miss are timing-identical (no enumeration oracle). Frontend: a "Forgot your password?" link → `ForgotPasswordModal` (neutral no-enumeration copy) and a global `ResetPasswordModal` that consumes `?reset_token=…` and scrubs it from the URL. Cheap because #216 already built the rotate-security-state half and #202 wired Resend. **Reset mail won't actually deliver until the Resend sender domain above is verified.** |
-| **Funnel instrumentation** | 🟡 | M | — | Same item as Growth phase 1 — listed here because the **ordering matters**: it must land *before* the flag flips, not after. Attribution cannot be retrofitted onto a cohort that already arrived; open registration first and the first real users are permanently unmeasurable. **In progress 2026-07-21.** |
-| **Flip `REGISTRATION_ENABLED=true`** | ⬜ | S | all of the above | The launch itself. One env var on the box. |
+| **Verified Resend sender domain** | ✅ | — | — | **DONE 2026-07-21.** Owner verified `trymealbot.com` in Resend (DNS is on **Cloudflare** — not Hetzner — nameservers `rafe`/`bruce.ns.cloudflare.com`; A record grey-clouded to the Hetzner box). `ALERT_EMAIL_FROM=noreply@trymealbot.com` set in the prod `.env` and picked up via `up -d backend`. Was mis-filed as an optional billing follow-up; it silently broke **all** user-facing mail (the sandbox `onboarding@resend.dev` only delivers to the Resend account owner). |
+| **Password reset** | ✅ | — | verified sender | **SHIPPED + LIVE + E2E-VERIFIED 2026-07-21** — backend #238, frontend UI #239. Owner ran the full flow on prod: forgot-password → link mail from `noreply@trymealbot.com` → reset → login with the new password. `PasswordResetToken` (sha256-stored, single-use, 30-min TTL, one-live-token-per-user partial unique index, row-locked redemption); the handler does zero inline work and dispatches the send as a background task so a hit and a miss are timing-identical (no enumeration oracle). Frontend: "Forgot your password?" → `ForgotPasswordModal` (neutral no-enumeration copy) + a global `ResetPasswordModal` that consumes `?reset_token=…` and scrubs it from the URL. |
+| **Funnel instrumentation** | ✅ | — | — | **SHIPPED + LIVE 2026-07-21 (#240).** UTM/referrer captured first-touch on `User`; every downstream milestone DERIVED at query time (no funnel-event table). `GET /admin/stats/funnel` — signup → generated → confirmed → cooked → paid, overall + by-source. Monotonic rollup (best-effort generation telemetry postdates the app, so a confirmed/cooked user with no generation row still counts as generated); counts only paywall-subject users (`NOT is_demo/is_admin/is_comped`); `by_source` capped top-20 + "other". Admin dashboard "Activation funnel" card. **Had to land before the flip — attribution can't be retrofitted onto a cohort that already arrived.** |
+| **Flip `REGISTRATION_ENABLED=true`** | ⬜ | S | all of the above | **The launch itself, and now the only step left.** One env var in the prod `.env`, then `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend` (`up -d`, NOT `restart` — see **Operating the deployment → Changing an env var** in the Alpha milestone above). |
 
 > **Not blocking, worth knowing:** there is still no email *verification* on
 > signup, so addresses are unconfirmed (typos churn silently, and a reset link
@@ -320,7 +348,8 @@ bundle related metrics) rather than one endpoint per number.
 | **1. LLM usage tracking** | ✅ | — | — | **Shipped 2026-07-12 (#189).** `LlmUsage` capture (request-scoped ContextVar bucket → best-effort recorder, mock-skipped) + migration + `GET /api/usage/me` (per-user, per-surface). `total_tokens` stored verbatim (Gemini bills reasoning tokens beyond prompt+completion). |
 | **2. Admin role (RBAC)** | ✅ | — | — | **Shipped 2026-07-12 (#191).** `is_admin` on `User` + migration + a fail-closed `require_admin` dependency; grant via `create_user --admin` (server-set only, no self-service — non-admin → 403). Consolidated the two divergent `_to_read` mappers so the login response carries `is_admin`. |
 | **3. Admin stats API** | ✅ | — | — | **Shipped 2026-07-12 (#192).** DB-aggregated, behind `require_admin`: `overview`, `usage?from&to&granularity` (date_trunc time series + by-surface/provider), `usage/by-user` (top users, avg/user, avg/call), `activity` (from `MachineGeneration`). Range bounded to 366d, `granularity` a Literal. |
-| **4. Admin dashboard (frontend)** | ✅ | — | — | **Shipped 2026-07-12 (#193).** State-based `/admin` view gated on `is_admin` (real gate is the backend 403); stat cards + hand-rolled CSS `BarChart` (no chart-lib dep) + top-users table over the Phase-3 endpoints. Verified end-to-end in the browser. |
+| **4. Admin dashboard (frontend)** | ✅ | — | — | **Shipped 2026-07-12 (#193).** State-based `/admin` view gated on `is_admin` (real gate is the backend 403); stat cards + hand-rolled CSS `BarChart` (no chart-lib dep) + top-users table over the Phase-3 endpoints. Verified end-to-end in the browser. Since extended with a Revenue & VAT panel (#201) and an Activation-funnel card (#240). |
+| **4b. Admin dashboard polish (UX)** | ⬜ | M | 4 | **Owner-requested 2026-07-21 — the dashboard works but doesn't look good.** It grew organically (stat cards → hand-rolled `BarChart` → revenue panel → funnel card), each panel styled ad-hoc with hardcoded colors on a pinned light surface. Wants a deliberate visual pass: consistent card/typography/spacing system, better chart legibility, a coherent layout (the sections currently just stack), and a proper look for the funnel + revenue panels. Scope to *the admin surface specifically* (distinct from the general **Nicer UI** item in Beta). Keep the no-chart-lib / inline-style constraints unless a small dependency is clearly worth it. A good candidate for `/polish`. |
 | **5+. Admin user management** | ⬜ | L | 2, 4 | **Deferred (awaiting go-ahead).** View / edit / disable users, reset onboarding, audit log, feature flags. **Sensitive** (touches other users' data + access) → build with tight authz + an audit trail. |
 
 ---
@@ -362,6 +391,7 @@ round-trip was run on prod 2026-07-16 and billing works end-to-end.)*
 | Item | Status | Effort | Notes |
 |---|---|---|---|
 | **Non-root SSH hardening** | 🟡 | S | Server-side, not in repo. Create a personal sudo user, disable root SSH login. Low urgency, easy to forget — do it at deploy time. |
+| **Periodic Docker disk cleanup** | ⬜ | S | **Owner-requested 2026-07-21 after a real outage.** Every `deploy.sh` runs `up -d --build`, so Docker **build cache grows without bound** — the box hit ~22 GB of reclaimable build cache and 81% disk, and a half-up stack (caddy + frontend down) took prod offline. Recovery was `up -d` + `docker builder prune -af` (freed ~19 GB). Automate it: a **weekly systemd timer** running `docker builder prune -af` (build cache only) plus `docker image prune -af` (dangling/unused images) — **never `--volumes`** (that would delete Postgres/Caddy data). Mirror the existing `deploy/systemd/mealbot-authsession-cleanup.{service,timer}` pattern; runs as root (Docker needs it), unlike the app timers. Ship the units + a `deploy/systemd/README.md` install step. **Guardrail worth adding alongside:** a disk-usage alert (reuse the Resend alert pipeline) at, say, 85%, so the next fill-up warns before it crashes. Low effort, prevents a repeat of the outage. |
 | **`authsession` cleanup job** | ✅ | — | **Shipped 2026-07-16 (#215).** Nightly service sweep (`sweep_expired_auth_sessions`, retention 7d) + thin CLI + standalone `ix_authsession_expires_at` index (auto-applied via the `migrate` service). Sever-then-delete keeps it FK-safe over the `replaced_by_id` chain regardless of expiry ordering (a demo-user `int()`-truncation edge the review caught). The systemd timer is **installed + enabled on the VPS** (2026-07-16), running daily ~03:30 as the non-root `deploy` user, so the table now self-prunes (rows expired > 7d). Units: `deploy/systemd/mealbot-authsession-cleanup.{service,timer}`; (re)install steps for a box rebuild are in `deploy/systemd/README.md` §2. |
 | **Password change + token rotation** | ✅ | — | **Shipped 2026-07-16 (#216).** `POST /auth/password`: re-verify current → rehash → revoke all sessions + bump `token_version` → keep the current device logged in. Also fixed the shared `refresh` handler so a mass-revoked (never-rotated, `replaced_by_id IS NULL`) token replay is an *ended session* (plain 401), not false theft — the pre-push adversarial review caught that this broke multi-device change. Backend only; a "Change password" settings form is a fast-follow. Follow-up: `logout_all` still IP-rate-limited (should key by user like this endpoint now does). |
 | **`passwordresettoken` retention sweep** | ⬜ | S | Housekeeping, **not** a launch blocker. Reset tokens are stamped `used_at` and never deleted, so the table grows monotonically. `ix_passwordresettoken_expires_at` already exists for exactly this (a global `DELETE ... WHERE expires_at < cutoff`) — the index landed ahead of the job, same as `ix_authsession_expires_at` did before `authsession_cleanup`. Simpler than that one: no self-referencing FK to sever, so it's a plain DELETE plus a systemd oneshot. Insert volume is bounded by the 60s per-account cooldown, the 5/min IP limit and the one-live-token-per-user index, so it will not threaten the VPS in the meantime. |
@@ -400,9 +430,10 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │
      └─ ⬅ THE BINDING CONSTRAINT IS NOW USERS, NOT FEATURES
            │
-           ├─ ⛔ REGISTRATION IS CLOSED ON PROD — everything below is gated on it
-           │     verified sender domain ─► password reset ─► funnel
-           │     instrumentation ─► FLIP REGISTRATION_ENABLED   (Launch readiness)
+           ├─ Launch readiness — ALL ENGINEERING DONE + E2E-VERIFIED 2026-07-21:
+           │     verified Resend domain ✅ ─► password reset ✅ (#238/#239) ─►
+           │     funnel instrumentation ✅ (#240) ─► ⬅ ONLY STEP LEFT:
+           │     FLIP REGISTRATION_ENABLED (owner, one env var)
            │
            └─ then: landing page + content ─► campaigns ─► budget reallocation
                 │                              (Growth / marketing milestone)
@@ -416,15 +447,14 @@ obviously help, because there's no usage to tell us *which* features matter — 
 the one change that would learn from users is blocked on there being users.
 Highest-signal candidates now:
 1. **Launch readiness → Growth / marketing.** Checking prod on 2026-07-20 turned
-   up the thing that was actually first: **registration is closed**, so there is
-   no acquisition funnel to instrument or advertise into yet. Order is
-   **verified sender domain → password reset → funnel instrumentation → flip
-   `REGISTRATION_ENABLED`**, and only then Growth phase 2 (**landing page +
-   content**, needed for a free launch post as much as for paid ads). The
-   campaign automation (phases 3–4) only pays off at a spend level that
-   justifies it — and needs sample-size guardrails before it's allowed near real
-   money. Note funnel instrumentation must land *before* the flip, not after:
-   attribution can't be retrofitted onto a cohort that already arrived.
+   up the thing that was actually first: **registration is closed**. As of
+   **2026-07-21 the engineering is DONE** — verified sender domain ✅, password
+   reset ✅ (#238/#239, E2E-verified on prod), funnel instrumentation ✅ (#240).
+   **The only step left is the owner flipping `REGISTRATION_ENABLED`.** After
+   that, Growth phase 2 (**landing page + content**, needed for a free launch
+   post as much as for paid ads) is the next move; the campaign automation
+   (phases 3–4) only pays off at a spend level that justifies it, and needs
+   sample-size guardrails before it's allowed near real money.
 2. ~~**Close the edit-feedback loop**~~ — **PARKED 2026-07-20.** Capture keeps
    running so nothing is lost, but there aren't enough active users to learn
    from: consuming a handful of one-person corrections would make generations
@@ -437,14 +467,12 @@ Highest-signal candidates now:
    exposed is still open (chain is all-Gemini); a one-line `LLM_MODELS` change
    once a funded non-Gemini key exists. Needs you to fund DeepSeek / add an
    OpenAI key first.
-5. **Verified Resend sender domain** (S) — **no longer optional.** It was filed
-   as a cosmetic billing follow-up ("alerts send from your own address"), but
-   the sandbox `onboarding@resend.dev` sender only delivers to the Resend
-   account owner, which makes *every* user-facing email undeliverable. It is
-   therefore a hard prerequisite for password reset and so for opening
-   registration — see **Launch readiness**. *(The stripe 15.3 `dahlia`
-   outbound-API-version validation is done — a real checkout → portal → webhook
-   round-trip ran on prod 2026-07-16 and billing works.)*
+5. ~~**Verified Resend sender domain** (S) — the sandbox `onboarding@resend.dev`
+   only delivers to the Resend account owner, making *every* user-facing email
+   undeliverable; a hard prerequisite for password reset.~~ **DONE 2026-07-21** —
+   owner verified `trymealbot.com` in Resend + set `ALERT_EMAIL_FROM`; password
+   reset delivers end-to-end from `noreply@trymealbot.com`. See **Launch
+   readiness**.
 6. ~~**Leftovers (`meal_type`)** (M) — unblocked by the calendar-dates thrust.~~
    **SHIPPED + LIVE 2026-07-19→20** (#226–229, #232, #234, #235) — and built as a
    **link**, not a `meal_type` value; see the Full-release entry for why that
@@ -461,11 +489,16 @@ Highest-signal candidates now:
    and **household/shared account** are also on the board but are genuinely
    larger and each carry a caveat — see their Full-release entries.
 
-**Growth (#1) is the standout, and specifically the unglamorous first phase.**
-Instrumentation and a landing page aren't the exciting part of the idea, but
-without them the campaign automation optimises a number nobody can see.
-**Cross-provider LLM fallback** (#4) and **billing follow-ups** (#5) stay quick
-risk-reducers whenever.
+**The launch (#1) is the standout — and it's now down to one owner action.** The
+whole gated chain (Resend domain → password reset → funnel instrumentation) is
+shipped and E2E-verified as of 2026-07-21; flipping `REGISTRATION_ENABLED` is all
+that stands between the app and taking real signups. After the flip, **Growth
+phase 2 (landing page + content)** is the next move — needed for a free launch
+post as much as for paid ads. **Cross-provider LLM fallback** (#4) stays a quick
+risk-reducer whenever.
 
-**If you want something small between growth phases**, pantry staples is the
-highest ratio of daily-felt improvement to effort on this document.
+**If you want something small instead of/alongside growth**, pantry staples is
+the highest ratio of daily-felt improvement to effort on this document; the
+**admin-dashboard polish** (Admin & operations 4b) and the **periodic Docker
+disk-cleanup** ops job (Cross-cutting) are the two owner-requested items added
+2026-07-21.
