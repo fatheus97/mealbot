@@ -44,12 +44,22 @@ def transactional_configured() -> bool:
     return bool(settings.resend_api_key)
 
 
-async def _post(to: str, subject: str, html: str) -> bool:
+async def _post(to: str, subject: str, html: str, *, log_response_body: bool) -> bool:
     """POST one email to Resend. Returns True on 2xx. Never raises.
 
     Transport blips are retried by httpx (transport retries=2); a 4xx/5xx or a
     hard failure returns False. `subject` is safe to log; `to` and `html` are
-    not (recipient PII / a live reset token), so neither is ever logged.
+    not (recipient PII / a live reset token), so neither is passed to the
+    logger directly.
+
+    `log_response_body` gates whether Resend's error body is logged on a 4xx/5xx.
+    Resend echoes the offending field back on a validation error, so for
+    **user** mail (`send_transactional`) that body can contain the recipient's
+    real email — logging it would leak exactly the PII the rest of this codebase
+    fingerprints to keep out of logs. Operator alerts pass True (the only
+    recipient is the operator's own address, and the body is genuinely useful
+    for debugging a misconfigured alert); user mail passes False and logs the
+    status code alone.
     """
     transport = httpx.AsyncHTTPTransport(retries=2)
     try:
@@ -69,9 +79,13 @@ async def _post(to: str, subject: str, html: str) -> bool:
         return False
 
     if resp.status_code >= 400:
-        logger.error(
-            "Resend returned %s for '%s': %s", resp.status_code, subject, resp.text[:300]
-        )
+        if log_response_body:
+            logger.error(
+                "Resend returned %s for '%s': %s",
+                resp.status_code, subject, resp.text[:300],
+            )
+        else:
+            logger.error("Resend returned %s for '%s'", resp.status_code, subject)
         return False
     return True
 
@@ -86,7 +100,9 @@ async def send_email(subject: str, html: str) -> bool:
         logger.warning("Alert email not configured; skipping send: %s", subject)
         return False
     assert settings.alert_email_to is not None  # narrowed by alerts_configured
-    return await _post(settings.alert_email_to, subject, html)
+    # Recipient is the operator's own address, so the Resend error body is safe
+    # to log and useful for diagnosing a misconfigured alert.
+    return await _post(settings.alert_email_to, subject, html, log_response_body=True)
 
 
 async def send_transactional(to: str, subject: str, html: str) -> bool:
@@ -94,4 +110,6 @@ async def send_transactional(to: str, subject: str, html: str) -> bool:
     if not transactional_configured():
         logger.warning("RESEND_API_KEY unset; skipping user email: %s", subject)
         return False
-    return await _post(to, subject, html)
+    # `to` is an arbitrary user's real address; Resend's error body can echo it,
+    # so keep it out of the logs and record only the status code.
+    return await _post(to, subject, html, log_response_body=False)

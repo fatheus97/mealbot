@@ -147,6 +147,13 @@ async def dispatch_reset_email(email: str) -> None:
                 return
 
             token = await create_reset_token(session, user.id, now)
+            # Commit BEFORE sending, deliberately. The alternative orderings are
+            # both worse: send-first-then-commit risks a live link the DB never
+            # recorded (unredeemable) if the commit then fails, and
+            # delete-the-token-if-the-send-fails risks stranding a link that
+            # actually delivered. This ordering's only downside is that a failed
+            # send still spends the 60s resend cooldown — a bounded, self-healing
+            # delay, and if Resend is down an immediate retry would fail anyway.
             await session.commit()
             if token is None:  # cooldown, or lost the mint race
                 return
