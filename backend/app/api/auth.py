@@ -15,7 +15,15 @@ import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -40,12 +48,15 @@ from app.core.security import (
 from app.db import get_session
 from app.models.db_models import AuthSession, User
 from app.models.user_schemas import (
+    ForgotPasswordRequest,
     LoginRequest,
     PasswordChangeRequest,
+    ResetPasswordRequest,
     UserRead,
     user_to_read,
 )
 from app.services.demo_user import cleanup_expired_demo_users, create_ephemeral_demo_user
+from app.services.password_reset import dispatch_reset_email, find_redeemable
 
 logger = logging.getLogger(__name__)
 
@@ -410,6 +421,98 @@ async def change_password(
     session.add(current_user)
     await session.commit()
     logger.info("password_changed user_id=%s", current_user.id)
+    return None
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+# IP-keyed: unauthenticated, so there is no user to key by. This bounds one
+# attacker; the per-account cooldown in the service is what bounds mailbombing
+# a single victim from many IPs.
+@limiter.limit("5/minute")
+async def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    background: BackgroundTasks,
+) -> None:
+    """Email a reset link. Always 204, whether or not the address is a user.
+
+    **Account enumeration is the whole design constraint**, and an identical
+    204 is only half of closing it — the other half is that this handler does
+    no work that could differ between a known and an unknown address. It
+    performs no lookup, touches no DB session and takes no branch on the
+    address: it dispatches `dispatch_reset_email` and returns. Every decision
+    (does this account exist, is it a demo account, is it inside the resend
+    cooldown, did the mint race) happens *after* the response, where its cost
+    is unobservable.
+
+    That's why the handler looks like it does nothing. An earlier version did
+    the lookup and mint inline and returned the same 204 on every path, which
+    still leaked: a miss cost one SELECT, a hit cost two SELECTs, an UPDATE, an
+    INSERT and a committing write transaction. See `dispatch_reset_email`.
+
+    Not authenticated and CSRF-exempt (the caller has no cookie by definition);
+    IP-rate-limited above, with a per-account cooldown in the service.
+    """
+    background.add_task(dispatch_reset_email, body.email)
+    logger.info(
+        "password_reset_requested email_fp=%s", _email_fingerprint(body.email)
+    )
+    return None
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
+async def reset_password(
+    request: Request,
+    body: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Consume a reset token and set a new password.
+
+    Possession of the token is the only credential, so redemption rotates
+    everything a compromise could be riding on: `token_version` bumps and every
+    session is revoked. That is the point — if an attacker held the account,
+    the legitimate owner resetting must throw them out, and the reverse case
+    (attacker resets) at least leaves the owner logged out and alerted by the
+    unrequested mail rather than silently shadowed.
+
+    Deliberately does NOT log the caller in. Auto-login would turn a leaked
+    link into a live session in one click; making them sign in with the new
+    password also confirms it's what they think it is.
+    """
+    now = datetime.now(UTC)
+    token_row = await find_redeemable(session, body.token, now)
+    if token_row is None:
+        # One message for expired / already-used / never-existed alike: the
+        # distinction is only useful to someone probing tokens.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link is invalid or has expired. Please request a new one.",
+        )
+
+    user = await session.get(User, token_row.user_id)
+    if user is None or user.id is None:
+        # Orphaned token (user deleted since minting) — same opaque message.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link is invalid or has expired. Please request a new one.",
+        )
+
+    user.hashed_password = await asyncio.to_thread(
+        get_password_hash, body.new_password
+    )
+    user.token_version += 1
+    await _revoke_all_user_sessions(session, user.id, now)
+    # Burning this one row leaves no usable link behind: the partial unique
+    # index (user_id) WHERE used_at IS NULL makes it the user's ONLY live
+    # token, and find_redeemable holds a row lock on it, so a concurrent mint
+    # cannot slip a second one in between that check and this write. An
+    # explicit "void the siblings" sweep used to run here; once the index went
+    # in it became unreachable, so it is gone rather than left as dead code.
+    token_row.used_at = now
+    session.add_all([user, token_row])
+    await session.commit()
+    logger.info("password_reset_completed user_id=%s", user.id)
     return None
 
 

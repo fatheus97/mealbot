@@ -155,6 +155,13 @@ class Settings(BaseSettings):
     # Bounded to 1..25 so the reminder can never fire after the 25th it references.
     vat_reminder_day: int = Field(default=20, ge=1, le=25)
 
+    # --- Password reset ---
+    # A reset link sits in an inbox, so its lifetime is the window in which
+    # mailbox access converts into account access. 30 min is short enough to
+    # bound that and long enough for a real person to notice the mail. Bounded
+    # so a typo'd env var can't mint effectively-permanent links.
+    password_reset_token_expire_minutes: int = Field(default=30, ge=5, le=1440)
+
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive
     # without re-prompting the user.

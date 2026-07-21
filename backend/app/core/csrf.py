@@ -40,6 +40,12 @@ _CSRF_EXEMPT_PATHS = frozenset({
     "/api/auth/logout",
     "/api/auth/demo",
     "/api/users/register",
+    # Password recovery runs entirely logged-out — by definition the caller has
+    # no CSRF cookie. Neither endpoint is a meaningful CSRF target anyway:
+    # forgot-password only mails the address's own owner, and reset-password
+    # requires a secret from that mail, which a cross-origin attacker can't read.
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
     # Stripe posts here server-to-server with no CSRF cookie; it is authenticated
     # by the Stripe-Signature HMAC (verified in the handler), not double-submit.
     "/api/billing/webhook",
