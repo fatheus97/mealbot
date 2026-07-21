@@ -35,7 +35,10 @@
 > env-change / recovery runbook in *Operating the deployment*, and a
 > **combinable dietary-restrictions & allergies** item the owner flagged as the
 > likely paid differentiator (today `diet_type` is single-select — you can't
-> stack restrictions). Where the notes
+> stack restrictions), which the owner then generalised into a **cross-cutting
+> "evidence-grounded" product direction** (authoritative, cited data anywhere it
+> helps — dietary, nutrition, food safety, baby-food weaning — as both a quality
+> bar and a marketing pillar). Where the notes
 > and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
@@ -246,7 +249,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | **Shopping list export / check-off** | ⬜ | S–M | — | The list exists only inside the app, so people retype it or squint at a phone in the aisle. Copy-to-clipboard, mobile share sheet, and tickable items (local state is fine — no need to persist ticks server-side for v1). Delivers most of the practical value of **rohlik.cz integration** (L, below) at a fraction of the cost, and is worth doing first regardless of whether that ever happens. |
 | **"Repeat this week" / plan templates** | ⬜ | S–M | calendar dates ✅ | People eat in routines, but every plan starts from scratch. Copy an existing plan forward to a new `start_date` — cheap now that plans carry real dates and `PATCH /plan/{id}` already reschedules. Drives exactly the repeat usage the parked edit-feedback loop is waiting on. Decide up front whether a copy re-runs the LLM (fresh recipes, same shape) or duplicates the meals verbatim — verbatim is the cheaper and probably more useful v1. |
 | **Waste tracking** | ⬜ | M | — | The fridge already carries `expiration_date` and `need_to_use`, so capturing *what actually got binned* is a short step from what exists. Closes a real loop for the user **and** produces a number worth advertising ("cut your food waste 30%") — it feeds the **Growth / marketing** milestone as much as the product. Keep the capture ungamified and low-friction; a nag screen will just get dismissed. |
-| **Nutrition / macros** | ⬜ | M–L | — | `diet_type` already offers `high_protein` / `low_carb` but only nudges the prompt — the user never sees whether it worked. ⚠️ **Accepted with a caveat:** doing this properly needs a real food database (USDA FDC or similar), because LLM-estimated macros presented as fact on a paid, health-adjacent product is a liability. If it ships on LLM estimates alone, label them clearly as approximate and keep them out of anything that reads as medical/nutritional advice. Scope the data source before writing code. |
+| **Nutrition / macros** | ⬜ | M–L | — | `diet_type` already offers `high_protein` / `low_carb` but only nudges the prompt — the user never sees whether it worked. ⚠️ **Accepted with a caveat:** doing this properly needs a real food database (USDA FDC or similar), because LLM-estimated macros presented as fact on a paid, health-adjacent product is a liability. If it ships on LLM estimates alone, label them clearly as approximate and keep them out of anything that reads as medical/nutritional advice. Scope the data source before writing code. **An instance of the evidence-grounded product direction** (see that section) — the USDA FDC / EuroFIR data belongs in the same shared reference KB. |
 | **Dietary restrictions & allergies — combinable + first-class** | ⬜ | L | — | **Owner-flagged 2026-07-21 as a likely marketing hook / paid differentiator.** Today `diet_type` is **single-select** (`balanced/high_protein/low_carb/vegetarian/vegan/baby_food`, `plan_models.py:93`) — you **can't stack** restrictions, and only `baby_food` has real prompt rules (INFANT FOOD MODE, `meal_plan.jinja:50`); allergies are handled *only* as a free-text `avoid_ingredients` list dropped into the prompt (`meal_plan.jinja:47,74`). Real households have **combined** restrictions (vegan + gluten-free + nut allergy), and the common ones are missing: **gluten-free, dairy-free/lactose-free, nut-free, egg-free, shellfish-free, pescatarian, keto, paleo, Mediterranean, halal, kosher**. **Why it's strategic (owner's thesis):** reliable *multi*-restriction planning is a growing, underserved pain — allergies/intolerances keep rising — and people juggling several restrictions have high willingness to pay and low tolerance for a generic recipe app. It's a real reason to choose *and keep paying for* this, so it bridges product ↔ Growth (a headline for the landing page + campaigns, and a retention driver). **Shape:** `diet_type` (single) → a **combinable set**; a **structured `allergens` field, distinct from taste-`avoid`** (allergies are safety-critical hard constraints, not preferences); expand the option list; redesign the prompt to compose multiple constraints coherently and **detect/warn on conflicting or near-impossible combos** (keto + vegan is very tight); frontend goes single-dropdown → multi-select chips. ⚠️ **Safety caveat (cf. Nutrition/macros):** an LLM recipe labelled "nut-free" that hallucinates a nut is a genuine liability on a paid, health-adjacent product. "Ask the LLM to avoid synonyms/hyponyms" (rule 74) is **not** a guarantee for allergens — add a **deterministic post-generation screen** (scan output ingredients against declared allergens + a synonym list; reject → regenerate on a hit) plus clear "verify labels yourself · not medical advice" disclaimers. Backward-compat: existing plans store a single `diet_type` in `response_json` — read them without breaking (validate-on-write / degrade-on-read, as leftovers does). **This is an `L` because it's several concerns — when picked up, ship it as sequential, independently-shippable slices** (like the leftovers/paygate thrusts): schema + backward-compat first, then **the curated, sourced reference layer** (the allergen/diet-pattern table + retrieval — see the science note below; both the prompt and the screen depend on it, so it comes early), then the prompt redesign, then the deterministic allergen screen, then the multi-select UI. Don't attempt it as one PR.<br><br>**Ground it in real science, not ad-hoc labels (owner's follow-up — this is also the marketing point).** Base the allergen model and the option taxonomy on *recognized standards* rather than a hand-written list: **EU FIC Reg. (EU) No 1169/2011 — the 14 major allergens** (cereals w/ gluten, crustaceans, eggs, fish, peanuts, soy, milk, tree nuts, celery, mustard, sesame, sulphites, lupin, molluscs) as the legal baseline (the operator is EU/CZ), with the US **"Big 9"** (FASTER Act) as the mapping for US traffic — each expanded to its **derivatives/synonyms** (milk → whey/casein/lactose/ghee; wheat → gluten sources). For dietary *patterns*, use established definitions and note their evidence tier: medically-defined (coeliac→gluten-free, lactose intolerance, **low-FODMAP** per the Monash protocol, diabetic/low-GI), strong-evidence patterns (**Mediterranean**, **DASH**), and lifestyle/ethical (vegan/vegetarian/pescatarian, halal, kosher). Encode this as a **curated, sourced reference layer** (structured data, a citation per rule) and feed the *relevant slice* into the LLM as authoritative context — RAG-style, keyed on the user's selected restrictions — so the model reasons from a vetted definition ("nut-free" = the EU-14/Big-9 tree-nut set + derivatives, not the model's guess); the **same table drives the deterministic output screen**. Nutrition surfacing (if built) can be backed by **USDA FoodData Central / EuroFIR** composition data. ⚠️ **Marketing must stay transparency, not medical endorsement:** "every recipe is screened against the EU 14 major allergens and their derivatives" is a concrete, checkable trust claim the safety-conscious audience actually cares about — *far* stronger than "AI meal plans"; but never "safe for your allergy" / "clinically approved", which invites exactly the liability the screen + disclaimers exist to bound. |
 | **Household / shared account** | ⬜ | L | — | `people_count` exists but a plan and fridge belong to one account, so a couple can't share either. Strong retention play — the classic reason a food app becomes "ours" rather than "mine". Real authorization surface though: every plan/fridge/cookbook query is currently scoped by `user_id`, so this touches ownership across the whole data model. Needs its own design pass (household entity vs. shared-access grants) and tight authz tests before any of it ships. |
 | **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. See **shopping list export** above for the cheap version of most of this value. |
@@ -338,6 +341,57 @@ numbers are big enough to trust.
 > channels (a launch post, cooking/meal-prep communities, ProductHunt) cost
 > nothing but time and would also generate the usage data the edit-feedback loop
 > is waiting on.
+
+---
+
+## Product direction: evidence-grounded (a cross-cutting differentiator)
+
+**Owner's direction (2026-07-21): lean into authoritative, *cited* data wherever
+it materially helps — not just dietary handling — as both a quality bar and a
+marketing pillar.** The thesis: an LLM reasoning from vetted, sourced food
+science beats one guessing from its priors; customers (especially the
+safety-conscious) trust it more; and "grounded in recognized standards, not an
+AI guessing" is a concrete, *checkable* marketing claim in a category full of
+generic "AI recipe" apps. This is a **direction that informs many items**, not a
+single PR — and a positioning pillar for the landing page + campaigns.
+
+**The shared mechanism (build once, reuse):** a **curated, cited reference
+knowledge base** — structured food-science / safety / nutrition data with a
+source per fact — fed to the LLM as authoritative context via **the RAG stack
+the app already runs** (pgvector + `all-MiniLM-L6-v2`, today only over cookbook
+favorites — see `MealEntry.embedding`), and used in **deterministic checks** for
+anything safety-critical. The dietary reference layer (Full release) is the first
+concrete instance; generalize it rather than building a bespoke lookup per
+feature.
+
+**Where it applies** — each a candidate slice behind its host feature, not all
+at once:
+
+| Surface | Grounding source | Notes |
+|---|---|---|
+| **Dietary & allergens** | EU-14 (Reg. 1169/2011) / US Big-9 allergen taxonomy + dietary-pattern definitions | Already scoped — Full release. The first instance of the shared KB. |
+| **Nutrition / macros** | USDA FoodData Central / EuroFIR composition data | Already caveated — Full release. Real data instead of LLM-estimated macros. |
+| **Food safety & storage** | USDA FSIS / EFSA / UK FSA storage times + **safe internal cooking temperatures** | The fridge already tracks `expiration_date` / `need_to_use` (`StockItem`); ground "is this still good?" and recipe done-temps in authorities. Health-critical → deterministic + disclaimed. |
+| **Baby-food weaning** | WHO / national pediatric weaning guidance | `baby_food` INFANT FOOD MODE already exists (`meal_plan.jinja:50`); ground age-appropriate textures, **choking-hazard** avoidance, allergen-introduction timing. Health-critical. |
+| **Substitutions & portions** | Culinary-science swaps; EFSA/USDA standard serving sizes | Allergen-safe substitutions; standard portions instead of guessed ones. |
+| **Waste-reduction claims** | Stated methodology | If waste tracking ships, back any "cut waste X%" figure with a method, not a vibe. |
+
+⚠️ **Liability is the load-bearing caveat** (same rule as the dietary + nutrition
+items, and it gets *more* important the more authoritative the app sounds):
+(1) **transparency, never endorsement** — "grounded in / screened against
+recognized standards", never "safe" / "clinically approved" / medical or
+nutritional *advice*; (2) **deterministic verification, not just prompting**, for
+anything safety-critical (allergens, cooking temps, choking hazards, infant
+safety) — an LLM that *sounds* authoritative and is wrong is worse than one that
+hedges; (3) **clear disclaimers** + **cited sources** so every claim is
+checkable; (4) get a human/legal sanity check before publishing any
+health-adjacent *marketing* copy. The deterministic screen + disclaimers are
+what let the marketing lean in without the claims becoming a liability.
+
+**Sequencing:** dietary first (already scoped, highest-signal, and it builds the
+shared reference-KB mechanism the rest reuse). Everything else follows behind its
+host feature. Don't build a grand "food-science platform" up front — grow the KB
+one vetted, cited slice at a time.
 
 ---
 
