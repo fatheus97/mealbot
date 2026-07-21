@@ -291,6 +291,35 @@ class TestFunnelAggregation:
         }
         assert resp.json()["by_source"] == []
 
+    async def test_source_rows_are_capped_with_an_other_bucket(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Once registration opens, unbounded/sprayed utm_source values must not
+        grow the response one-row-per-value: keep the top 20 and fold the rest
+        into "other", without losing anyone from the overall totals."""
+        from app.api.admin import _MAX_FUNNEL_SOURCES
+
+        await _make_admin(db_session, test_user)
+        n = _MAX_FUNNEL_SOURCES + 5  # 25 distinct sources, one signup each
+        for i in range(n):
+            await _user(db_session, f"src{i}@x.com", utm_source=f"campaign{i}")
+        await db_session.flush()
+
+        resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
+        body = resp.json()
+
+        # Top 20 real rows + exactly one "other".
+        assert len(body["by_source"]) == _MAX_FUNNEL_SOURCES + 1
+        other = next(s for s in body["by_source"] if s["source"] == "other")
+        assert other["signed_up"] == 5  # the 5-source tail
+        # The fold is lossless: the overall total still counts everyone.
+        stages = {s["key"]: s["count"] for s in body["stages"]}
+        assert stages["signed_up"] == n
+
     async def test_detached_sale_does_not_inflate_paid(
         self,
         client: AsyncClient,
@@ -382,6 +411,24 @@ class TestAttributionCleaning:
             {"email": "a@b.com", "password": "Password123", "utm_source": "  google  "}
         )
         assert u.utm_source == "google"
+
+    def test_utm_is_lowercased_but_referrer_is_not(self) -> None:
+        """UTM tags are case-normalized so Google/google don't fragment the
+        funnel; the referrer is a URL and kept verbatim."""
+        from app.models.user_schemas import UserCreate
+
+        u = UserCreate.model_validate(
+            {
+                "email": "a@b.com",
+                "password": "Password123",
+                "utm_source": "Google",
+                "utm_campaign": "Summer-LAUNCH",
+                "referrer": "https://News.example.com/Article",
+            }
+        )
+        assert u.utm_source == "google"
+        assert u.utm_campaign == "summer-launch"
+        assert u.referrer == "https://News.example.com/Article"  # unchanged
 
     def test_overlong_values_are_truncated_not_rejected(self) -> None:
         """An attacker controls the URL, so an over-long referrer must never 422

@@ -64,6 +64,10 @@ _DEFAULT_RANGE_DAYS = 30
 # creation). See stats_funnel.
 _ACTIVATION_SURFACES = ("meal_plan", "single_recipe", "regenerate")
 
+# Cap on distinct acquisition-source rows in the funnel response; the tail folds
+# into an "other" bucket so the payload can't grow with unbounded UTM values.
+_MAX_FUNNEL_SOURCES = 20
+
 
 def _resolve_range(from_date: date | None, to_date: date | None) -> tuple[date, date]:
     """Resolve/validate the [from, to] window; default to the last 30 days.
@@ -249,7 +253,12 @@ async def stats_funnel(
         )
     ).all()
 
-    by_source = [
+    # Rows arrive ordered by signed_up desc. UTM values are attacker-controllable
+    # (bounded but not allow-listed), so once registration opens a bot spraying
+    # unique utm_source values could grow this to one row per value. Keep the top
+    # N and fold the tail into a single "other" bucket. The tail's counts survive
+    # in "other", so the overall totals (summed from these rows below) stay exact.
+    ranked = [
         FunnelBySource(
             source=str(r.source),
             signed_up=int(r.signed_up),
@@ -260,8 +269,24 @@ async def stats_funnel(
         )
         for r in rows
     ]
+    if len(ranked) > _MAX_FUNNEL_SOURCES:
+        head, tail = ranked[:_MAX_FUNNEL_SOURCES], ranked[_MAX_FUNNEL_SOURCES:]
+        head.append(
+            FunnelBySource(
+                source="other",
+                signed_up=sum(s.signed_up for s in tail),
+                generated=sum(s.generated for s in tail),
+                confirmed=sum(s.confirmed for s in tail),
+                cooked=sum(s.cooked for s in tail),
+                paid=sum(s.paid for s in tail),
+            )
+        )
+        by_source = head
+    else:
+        by_source = ranked
 
-    # Overall totals summed from the per-source rows — one source of truth.
+    # Overall totals summed from the per-source rows — one source of truth. Exact
+    # even after the "other" fold, because that bucket carries the tail's counts.
     def _total(attr: str) -> int:
         return sum(getattr(s, attr) for s in by_source)
 

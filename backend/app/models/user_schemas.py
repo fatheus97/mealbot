@@ -62,19 +62,25 @@ class UserCreate(UserBase):
     @field_validator("utm_source", "utm_medium", "utm_campaign", "referrer", mode="before")
     @classmethod
     def _clean_attribution(cls, v: object, info: ValidationInfo) -> str | None:
-        """Trim, null out empties, and TRUNCATE to the column bound.
+        """Trim, null out empties, TRUNCATE to the column bound, and lower-case
+        the UTM tags.
 
         Truncation (not rejection) is deliberate: these come from the URL, so an
         over-long referrer must never 422 an otherwise-valid signup — and it
         must fit the String(n) column or the INSERT would error. Non-strings are
-        dropped defensively (a crafted body could send a list/number)."""
+        dropped defensively (a crafted body could send a list/number).
+
+        The three utm_* tags are lower-cased so ``Google`` and ``google`` don't
+        fragment into separate funnel rows; the referrer is a URL (path/query
+        case can be significant) and is kept verbatim."""
         if not isinstance(v, str):
             return None
         v = v.strip()
         if not v:
             return None
         cap = _ATTRIBUTION_CAPS.get(info.field_name or "", _ATTRIBUTION_DEFAULT_CAP)
-        return v[:cap]
+        cleaned = v[:cap]
+        return cleaned if info.field_name == "referrer" else cleaned.lower()
 
 
 class PasswordChangeRequest(BaseModel):
