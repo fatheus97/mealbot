@@ -29,8 +29,11 @@ marked accordingly.
 - ✍️ **CURATED** — domain knowledge added to make the reference usable (chiefly the exhaustive per-allergen *alias/derivative* lists, which the law requires be excluded but does not enumerate). Draft — source each against an allergen-labelling authority before shipping.
 
 **Confidence by part:** Part 1 (allergens) and Part 4 (labelling/liability) are
-**verified**. Part 2 (patterns) is verified for low-FODMAP and sourced/curated
-for the rest. Part 3 (combinations) is sourced/reasoned. Nothing here is refuted.
+**largely verified** — with two claims flagged 🔶 because they verified only
+**2-1 (split)**: the sulphite threshold (Part 1) and the PAL/"free-from"
+mutual-exclusivity rule (Part 4). Part 2 (patterns) is verified for low-FODMAP
+and sourced/curated for the rest. Part 3 (combinations) is sourced/reasoned.
+**Nothing here is refuted.**
 
 ---
 
@@ -102,8 +105,9 @@ covered.**
 ### Machine-usable allergen table
 
 > ✅ the **allergen list, regulatory scope, the "products thereof" derivative
-> rule, the cereal/tree-nut closed lists, the sulphite threshold, and the US
-> mapping** are all verified above.
+> rule, the cereal/tree-nut closed lists, and the US mapping** are verified above
+> (the **sulphite threshold is 🔶** — verified only 2-1 and needs its
+> as-consumed qualifier; see its bullet).
 > ✍️ the **alias / derivative / hidden-source** cells below are CURATED to make
 > the table directly usable — the law *requires* derivatives be excluded
 > ("products thereof", verified) but does not enumerate them, so source each row
@@ -191,7 +195,9 @@ This governs how the feature may **present and market** itself.
   same allergen.** Per FSA best-practice guidance, a "free-from" claim is a
   guarantee the food is suitable for everyone with that hypersensitivity, backed
   by strict cross-contamination controls — so PAL and "free-from" for the same
-  allergen are **mutually exclusive.** ✅ *ACSS/FSA guidance (2-1, same source).*
+  allergen are **mutually exclusive.** 🔶 *ACSS/FSA guidance — verified only **2-1
+  (split)**; the PAL-only-after-risk-assessment claim above is the unanimous
+  (3-0) one. Re-check the exact FSA best-practice wording.*
   **Implication:** the app should **not** make "free-from" guarantee claims about
   food it doesn't control — it can say it *screens recipes against* allergens,
   which is a transparency statement, not a guarantee.
