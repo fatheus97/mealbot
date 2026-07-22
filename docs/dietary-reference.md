@@ -69,11 +69,20 @@ sulphur dioxide / sulphites · **13** lupin · **14** molluscs.
   pistachios, macadamias. A tree-nut declaration maps to **exactly these**.
   ✅ *Sources: legislation.gov.uk Annex II (3-0); UK ACSS/FSA technical guidance
   (3-0), <https://acss.food.gov.uk/sites/default/files/food-allergen-labelling-technical-guidance.pdf>*
-- **Sulphites have a threshold — don't flag traces.** Declarable **only above 10
-  mg/kg or 10 mg/L (as total SO₂)**. The screen must apply this threshold, not
-  treat any sulphite trace as an automatic exclusion. ✅ *Source: legislation.gov.uk
-  Annex II (2-1)* · 🔶 additive range **E220–E228**, used as preservatives *(FSAI —
-  <https://www.fsai.ie/business-advice/running-a-food-business/food-safety-and-hygiene/additives/sulphur-dioxide-and-sulphites>)*.
+- **Sulphites: a threshold allergen — but the threshold is an *as-consumed* one
+  the app cannot measure.** Declarable **only above 10 mg/kg or 10 mg/L total
+  SO₂**, and the regulation calculates that **"for the products as proposed ready
+  for consumption or as reconstituted according to the manufacturer's
+  instructions"** — i.e. the *finished / as-eaten* concentration, **not** a raw
+  ingredient in isolation. A recipe app can't compute a dish's mg/kg, so **the
+  threshold governs manufacturer *labelling*, not the recipe screen.** Practical
+  rule: for a declared sulphite sensitivity, **conservatively flag/avoid known
+  high-sulphite ingredients** (dried fruit, wine, some juices, vinegar, processed
+  potato) rather than trying to apply the threshold. 🔶 *legislation.gov.uk
+  Annex II — ⚠️ verified only **2-1 (split)**, and the earlier draft omitted the
+  "as consumed / reconstituted" qualifier; re-check the exact Annex II footnote
+  wording in EUR-Lex before this drives the screen.* Additive range **E220–E228**
+  *(FSAI, 🔶)*.
 
 **US mapping — the "Big 9".** The US recognises **9** major allergens: **milk,
 eggs, fish, Crustacean shellfish, tree nuts, peanuts, wheat, soybeans, sesame.**
@@ -114,7 +123,7 @@ covered.**
 | 9 | Celery | ❌ | celeriac, celery seed/salt, stocks, spice mixes, Bloody Mary mix |
 | 10 | Mustard | ❌ | mustard seed/flour/oil, dressings, curry/spice blends, pickles, marinades |
 | 11 | Sesame | ✅ (since 2023) | tahini, hummus, halva, gomashio, some breads/buns, sesame oil |
-| 12 | Sulphites (>10 mg/kg SO₂) | ❌ | **E220–E228**; dried fruit, wine, some juices, vinegar, processed potato |
+| 12 | Sulphites (>10 mg/kg SO₂ *as-consumed* — flag conservatively; app can't measure the threshold) | ❌ | **E220–E228**; dried fruit, wine, some juices, vinegar, processed potato |
 | 13 | Lupin | ❌ | lupin flour/seed, some GF/"protein" baked goods & pasta |
 | 14 | Molluscs | ❌ | mussels, clams, oysters, squid/calamari, octopus, snails, scallops; oyster sauce, some fish stock |
 
@@ -206,8 +215,10 @@ This governs how the feature may **present and market** itself.
    approved",* or anything reading as medical/nutritional advice.
 2. **Deterministic verification, not just prompting**, for anything safety-
    critical: screen every generated ingredient against the declared allergens +
-   their alias/derivative set (the "products thereof" legal basis), apply the
-   sulphite threshold, reject → regenerate on a hit.
+   their alias/derivative set (the "products thereof" legal basis), reject →
+   regenerate on a hit. **Sulphites are the exception** — the 10 mg/kg threshold
+   is an *as-consumed* concentration the app can't compute, so flag/avoid known
+   high-sulphite ingredients conservatively instead (see Part 1).
 3. **Always tell the user to verify actual product labels themselves**, and that
    the app cannot account for cross-contamination or reformulation.
 4. **Clear disclaimers + cited sources**; a **legal review of any health-adjacent
