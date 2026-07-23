@@ -15,6 +15,7 @@ import { SubscriptionBanner } from "./components/billing/SubscriptionBanner";
 import { PaywallModal } from "./components/billing/PaywallModal";
 import { BillingReturnHandler } from "./components/billing/BillingReturnHandler";
 import { ResetPasswordModal } from "./components/ResetPasswordModal";
+import { InviteRegisterModal } from "./components/InviteRegisterModal";
 import type { MealPlanResponse, MealPlanSummary } from "./types";
 
 interface OpenedPlan {
@@ -131,6 +132,9 @@ export default function App() {
         {/* Reset-link landing (`/?reset_token=…`). Renders null unless the
             token is present; global so it works logged in or out. */}
         <ResetPasswordModal />
+        {/* Invite-link landing (`/?invite=…`). Same pattern — lets a hand-picked
+            beta tester self-register while public registration is closed. */}
+        <InviteRegisterModal />
       </AuthProvider>
     </ErrorBoundary>
   );

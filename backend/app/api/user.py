@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -17,12 +18,14 @@ from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
 from app.models.user_schemas import (
+    InviteRedeem,
     MessageResponse,
     UserCreate,
     UserRead,
     UserUpdate,
     user_to_read,
 )
+from app.services.invite import find_redeemable_invite
 
 _VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
 
@@ -97,6 +100,73 @@ async def register_user(
 
     logger.info("user_registered user_id=%s", db_user.id)
     return MessageResponse(message="User created successfully. Please log in.")
+
+
+# //api/users/register-invite
+@router.post(
+    "/register-invite",
+    status_code=status.HTTP_201_CREATED,
+    response_model=MessageResponse,
+)
+@limiter.limit("5/minute")
+async def register_via_invite(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> MessageResponse:
+    """Self-register a NEW account from an admin invite token.
+
+    Deliberately does NOT check ``settings.registration_enabled`` — bypassing the
+    closed-registration gate for a valid invite is the whole point. The gate is
+    the invite token instead. The account's entitlement (``is_comped``) is read
+    from the TOKEN, never from the request body; the invitee supplies only their
+    own email + password.
+    """
+    now = datetime.now(UTC)
+    try:
+        body = InviteRedeem.model_validate(await request.json())
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    # Validate + row-lock the invite up front. One opaque message for
+    # invalid/used/revoked/expired so a probe can't distinguish the states.
+    invite = await find_redeemable_invite(session, body.token, now)
+    if invite is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This invite link is invalid or has expired.",
+        )
+
+    # Offload bcrypt (~50-100ms CPU) so it doesn't block the event loop.
+    hashed_pw = await asyncio.to_thread(get_password_hash, body.password)
+    db_user = User(
+        email=body.email,
+        hashed_password=hashed_pw,
+        # Entitlement comes from the token, never the body — is_comped stays
+        # server-set-only.
+        is_comped=invite.is_comped,
+    )
+    session.add(db_user)
+    try:
+        # Flush (not commit) so a duplicate email surfaces HERE — a taken email
+        # must NOT consume the single-use invite. Rely on the unique index, same
+        # as register_user, rather than a pre-SELECT.
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
+
+    # Burn the invite + record the redeemer in the SAME transaction as the user
+    # insert: either an account exists AND the invite is spent, or neither does.
+    invite.used_at = now
+    invite.redeemed_by_user_id = db_user.id
+    session.add(invite)
+    await session.commit()
+
+    logger.info("invite_redeemed invite_id=%s user_id=%s", invite.id, db_user.id)
+    return MessageResponse(message="Account created. Please log in.")
 
 
 @router.get(path="", response_model=UserRead)

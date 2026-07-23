@@ -5,6 +5,7 @@ Maps are modelled as lists of typed items (not dict) so responses stay schema'd.
 """
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -227,6 +228,56 @@ class AdminUserCreate(BaseModel):
     @classmethod
     def _password_complexity(cls, v: str) -> str:
         return validate_password_complexity(v)
+
+
+class InviteCreate(BaseModel):
+    """Body for POST /admin/invites. The admin decides the entitlement and TTL;
+    the invitee never sees or sets these — they're baked into the token.
+
+    ``is_comped`` defaults True: an invite is a beta/test onboarding tool, and a
+    tester dropped straight into the paywall (when billing is on) defeats the
+    point. Untick it for a normal (paywalled) account. ``expires_in_hours`` is
+    optional — omit to use the server default (``invite_token_expire_hours``);
+    bounds mirror that setting so a link can't be minted effectively-permanent.
+    """
+
+    note: str | None = Field(default=None, max_length=200)
+    is_comped: bool = True
+    expires_in_hours: int | None = Field(default=None, ge=1, le=336)
+
+
+class InviteRead(BaseModel):
+    """Response for POST /admin/invites — the freshly minted link to hand out.
+
+    ``invite_url`` carries the PLAINTEXT token (the only time it ever leaves the
+    server); it is never stored or logged. The admin copies it and sends it via
+    their own channel.
+    """
+
+    id: int
+    invite_url: str
+    expires_at: datetime
+    is_comped: bool
+    note: str | None
+
+
+class InviteListItem(BaseModel):
+    """One row in the admin's active-invites table. ``status`` is derived
+    server-side from used_at / revoked_at / expires_at so the UI needn't repeat
+    the precedence. Never carries the token (plaintext is unrecoverable; the hash
+    is not exposed)."""
+
+    id: int
+    note: str | None
+    is_comped: bool
+    status: Literal["live", "used", "expired", "revoked"]
+    created_at: datetime
+    expires_at: datetime
+    redeemed_by_email: str | None
+
+
+class InviteListResponse(BaseModel):
+    invites: list[InviteListItem]
 
 
 class AdminUserUpdate(BaseModel):

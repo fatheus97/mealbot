@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { authFetch, fetchUserProfile, updateUserProfile } from './api';
+import {
+  authFetch,
+  createInvite,
+  fetchInvites,
+  fetchUserProfile,
+  redeemInvite,
+  revokeInvite,
+  updateUserProfile,
+} from './api';
 
 // Mirror api.ts's resolution so this test passes whether VITE_API_BASE is
 // unset (CI: resolves to "/api") or set by docker-compose.override.yml.
@@ -183,6 +191,68 @@ describe('updateUserProfile', () => {
 
     await expect(updateUserProfile({ country: 'US' })).rejects.toThrow(
       'Profile update failed: 400',
+    );
+  });
+});
+
+describe('admin invites', () => {
+  it('createInvite POSTs and returns the minted link', async () => {
+    const body = {
+      id: 3,
+      invite_url: 'http://localhost:5173/?invite=tok',
+      expires_at: '2026-07-25T10:00:00Z',
+      is_comped: true,
+      note: null,
+    };
+    mockFetch(201, body);
+    const res = await createInvite({ is_comped: true, expires_in_hours: 48 });
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe(`${MOCK_BASE}/admin/invites`);
+    expect(call[1].method).toBe('POST');
+    expect(res.invite_url).toBe('http://localhost:5173/?invite=tok');
+  });
+
+  it('fetchInvites GETs the list', async () => {
+    mockFetch(200, { invites: [] });
+    const res = await fetchInvites();
+    expect(res.invites).toEqual([]);
+  });
+
+  it('revokeInvite surfaces the backend detail on 409', async () => {
+    mockFetch(409, { detail: "This invite has already been used and can't be revoked." });
+    await expect(revokeInvite(1)).rejects.toThrow(/already been used/i);
+  });
+});
+
+describe('redeemInvite', () => {
+  it('resolves on 201', async () => {
+    mockFetch(201);
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).resolves.toBeUndefined();
+  });
+
+  it('maps a 400 to the backend opaque detail', async () => {
+    mockFetch(400, { detail: 'This invite link is invalid or has expired.' });
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).rejects.toThrow(
+      /invalid or has expired/i,
+    );
+  });
+
+  it('maps a 409 to an email-taken message', async () => {
+    mockFetch(409, { detail: 'Email already registered' });
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).rejects.toThrow(
+      /already registered/i,
+    );
+  });
+
+  it('maps a 422 Pydantic list to the first message', async () => {
+    mockFetch(422, { detail: [{ msg: 'Password must contain at least one digit' }] });
+    await expect(redeemInvite('tok', 'a@b.com', 'weakpass')).rejects.toThrow(/at least one digit/i);
+  });
+
+  it('maps a 429 to a rate-limit message', async () => {
+    mockFetch(429, {});
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).rejects.toThrow(
+      /too many attempts/i,
     );
   });
 });

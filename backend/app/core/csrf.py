@@ -40,6 +40,11 @@ _CSRF_EXEMPT_PATHS = frozenset({
     "/api/auth/logout",
     "/api/auth/demo",
     "/api/users/register",
+    # Invite redemption is a logged-out self-register (like /users/register): the
+    # invitee has no CSRF cookie. Not a meaningful CSRF target either — it needs
+    # a secret invite token a cross-origin attacker can't read. The admin-side
+    # /admin/invites generator is NOT exempt (the admin SPA holds the cookie).
+    "/api/users/register-invite",
     # Password recovery runs entirely logged-out — by definition the caller has
     # no CSRF cookie. Neither endpoint is a meaningful CSRF target anyway:
     # forgot-password only mails the address's own owner, and reset-password

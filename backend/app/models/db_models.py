@@ -255,6 +255,61 @@ class AdminAuditLog(SQLModel, table=True):
     )
 
 
+class InviteToken(SQLModel, table=True):
+    """One admin-generated invite link.
+
+    A single-use, time-limited token that lets whoever holds it self-register a
+    **new** account while public registration is closed (``registration_enabled``
+    stays False) — the beta-onboarding path. Same hash-not-plaintext rule as
+    ``PasswordResetToken``/``AuthSession``: only the sha256 hex is stored, so a
+    leaked DB dump can't be turned into free account creation behind the closed
+    gate.
+
+    Single-use via ``used_at`` (kept, not deleted, so a replayed link is
+    distinguishable from expired/revoked in the logs). ``revoked_at`` is separate
+    so an admin can kill a leaked/unwanted link *before* it's redeemed.
+    ``expires_at`` is indexed standalone for a future retention sweep, same as
+    ``PasswordResetToken.expires_at``.
+
+    Unlike ``PasswordResetToken`` there is no subject ``user_id`` — the invitee
+    has no account yet and supplies their own email at redemption. The two user
+    FKs here are attribution only (who minted it / who redeemed it), both
+    nullable + ``ondelete="SET NULL"`` so a later hard-delete of that admin or
+    invitee *anonymises* this row rather than cascade-deleting it — the same
+    keep-the-record philosophy as ``SaleRecord.user_id``. No ORM relationships:
+    redemption looks the row up by ``token_hash`` alone, so there's no
+    caller-supplied identity to tamper with.
+
+    ``is_comped`` is baked in at generation by the admin and copied onto the
+    created account at redemption — it is NEVER read from the invitee's request,
+    keeping ``is_comped`` server-set-only like everywhere else.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    token_hash: str = Field(
+        sa_column=Column(String(64), unique=True, index=True, nullable=False),
+    )
+    # Entitlement decided by the admin at mint time, copied onto the new account
+    # on redeem. Never trusted from the invitee's body.
+    is_comped: bool = Field(default=False, nullable=False)
+    # Optional admin label ("for Alice") so the active-invites list is legible.
+    note: str | None = Field(default=None, max_length=200)
+    # Attribution only — nullable + SET NULL so a hard-deleted admin/invitee
+    # anonymises this row instead of cascade-deleting it (cf. SaleRecord.user_id).
+    created_by_admin_id: int | None = Field(
+        default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
+    )
+    redeemed_by_user_id: int | None = Field(
+        default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+    expires_at: datetime = Field(nullable=False, index=True)
+    used_at: datetime | None = Field(default=None)
+    revoked_at: datetime | None = Field(default=None)
+
+
 class StockItem(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)

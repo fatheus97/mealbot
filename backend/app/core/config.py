@@ -162,6 +162,14 @@ class Settings(BaseSettings):
     # so a typo'd env var can't mint effectively-permanent links.
     password_reset_token_expire_minutes: int = Field(default=30, ge=5, le=1440)
 
+    # --- Admin invite links ---
+    # An admin-generated invite link lets a hand-picked beta tester self-register
+    # while public registration stays closed. Like a reset link it sits in an
+    # inbox/DM, so the TTL is the window in which link access converts to account
+    # creation. Default 48h; bounded (1h..14d) so a typo'd env var can't mint an
+    # effectively-permanent open-registration hole behind the closed gate.
+    invite_token_expire_hours: int = Field(default=48, ge=1, le=336)
+
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive
     # without re-prompting the user.

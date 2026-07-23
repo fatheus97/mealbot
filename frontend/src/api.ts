@@ -9,6 +9,10 @@ import type {
   CookRecipeRequest,
   FunnelStatsResponse,
   FavoriteRecipeRequest,
+  InviteCreateRequest,
+  InviteCreateResponse,
+  InviteListItem,
+  InviteListResponse,
   MealEditRequest,
   MealEntrySummary,
   MealPlanResponse,
@@ -446,6 +450,69 @@ export async function forceLogoutAdminUser(id: number): Promise<void> {
 export async function deleteAdminUser(id: number): Promise<void> {
   const res = await authFetch(`/admin/users/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not delete the user"));
+}
+
+// --- Admin: invite links ---
+
+export async function createInvite(
+  body: InviteCreateRequest = {},
+): Promise<InviteCreateResponse> {
+  const res = await authFetch("/admin/invites", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not generate the invite"));
+  return res.json();
+}
+
+export async function fetchInvites(): Promise<InviteListResponse> {
+  const res = await authFetch("/admin/invites");
+  if (!res.ok) throw new Error(`Admin invites failed: ${res.status}`);
+  return res.json();
+}
+
+export async function revokeInvite(id: number): Promise<InviteListItem> {
+  const res = await authFetch(`/admin/invites/${id}/revoke`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not revoke the invite"));
+  return res.json();
+}
+
+// --- Invite redemption (unauthenticated self-register from an admin link) ---
+
+export async function redeemInvite(
+  token: string,
+  email: string,
+  password: string,
+): Promise<void> {
+  const res = await authFetch("/users/register-invite", {
+    method: "POST",
+    body: JSON.stringify({ token, email, password }),
+  });
+  if (res.ok) return;
+  // 400 = invalid/expired/used/revoked link (opaque), 409 = email taken,
+  // 422 = weak password (Pydantic list), 429 = rate-limited.
+  let detail: string | null = null;
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") detail = parsed.detail;
+    else if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
+      detail = parsed.detail[0].msg;
+    }
+  } catch {
+    // non-JSON body — fall through to a status-based message
+  }
+  if (res.status === 429) {
+    throw new Error("Too many attempts. Please wait a minute and try again.");
+  }
+  if (res.status === 409) {
+    throw new Error(detail ?? "An account with that email already exists.");
+  }
+  if (res.status === 422) {
+    throw new Error(
+      detail ?? "Password must be at least 8 characters with an upper- and lower-case letter and a digit.",
+    );
+  }
+  throw new Error(detail ?? `Could not create your account (${res.status}).`);
 }
 
 export async function mergeFridgeItems(

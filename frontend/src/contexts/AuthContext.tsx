@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthLoginResponse, AuthState } from "../types";
-import { authFetch } from "../api.ts";
+import { authFetch, redeemInvite } from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError } from "./authErrors";
 import { captureAttribution, getStoredAttribution } from "../utils/attribution";
@@ -252,6 +252,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [login]);
 
+  const registerViaInvite = useCallback(
+    async (token: string, newEmail: string, password: string): Promise<void> => {
+      // Redeem the invite (201, message-only) then auto-login so the invitee
+      // lands in an authenticated session — frictionless beta onboarding, unlike
+      // password-reset which deliberately does NOT log in. A login-phase failure
+      // is wrapped so the caller can say "account created, just sign in".
+      await redeemInvite(token, newEmail, password);
+      try {
+        await login(newEmail, password);
+      } catch (err) {
+        throw new AutoLoginAfterRegisterError(err);
+      }
+    },
+    [login],
+  );
+
   const loginDemo = useCallback(async (): Promise<void> => {
     const resp = await authFetch("/auth/demo", { method: "POST" });
     if (!resp.ok) throw new Error(`Demo session failed: ${resp.status}`);
@@ -282,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
