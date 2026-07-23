@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../../test/test-utils";
 import { AdminDashboard } from "./AdminDashboard";
 import * as api from "../../api";
@@ -99,15 +100,43 @@ beforeEach(() => {
 });
 
 describe("AdminDashboard", () => {
-  it("renders metrics and the top-user table for an admin", async () => {
+  it("renders Overview metrics by default for an admin", async () => {
     window.localStorage.setItem("mealbot_is_admin", "true");
     renderWithProviders(<AdminDashboard onExit={() => {}} />);
 
     expect(screen.getByText("🛠️ Admin Dashboard")).toBeInTheDocument();
-    // total_tokens (900) from the overview card
+    // Overview is the default tab: total_tokens (900) from the overview card.
     expect(await screen.findByText("900")).toBeInTheDocument();
-    // top-user row from the by-user query
+    // The Overview tab is marked selected; the others are not.
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Generation" })).toHaveAttribute("aria-selected", "false");
+    // The top-users table lives on the Generation tab, so it isn't in the DOM yet.
+    expect(screen.queryByText("alice@example.com")).not.toBeInTheDocument();
+  });
+
+  it("switches to the Generation tab to reveal the top-user table", async () => {
+    window.localStorage.setItem("mealbot_is_admin", "true");
+    const user = userEvent.setup();
+    renderWithProviders(<AdminDashboard onExit={() => {}} />);
+
+    // Wait for the default tab to settle, then switch.
+    await screen.findByText("900");
+    await user.click(screen.getByRole("tab", { name: "Generation" }));
+
+    expect(screen.getByRole("tab", { name: "Generation" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
+  });
+
+  it("switches to the Revenue tab", async () => {
+    window.localStorage.setItem("mealbot_is_admin", "true");
+    const user = userEvent.setup();
+    renderWithProviders(<AdminDashboard onExit={() => {}} />);
+
+    await screen.findByText("900");
+    await user.click(screen.getByRole("tab", { name: "Revenue" }));
+
+    // The REVENUE fixture has no sales → the panel's empty state.
+    expect(await screen.findByText(/no sales recorded yet/i)).toBeInTheDocument();
   });
 
   it("blocks a non-admin and never calls the admin endpoints", () => {
@@ -116,5 +145,7 @@ describe("AdminDashboard", () => {
 
     expect(screen.getByText(/don't have access/i)).toBeInTheDocument();
     expect(api.fetchAdminOverview).not.toHaveBeenCalled();
+    // No tabs render on the no-access screen.
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 });
