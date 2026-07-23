@@ -6,6 +6,7 @@ SUM / AVG / date_trunc) runs in Postgres — endpoints return compact typed
 summaries, never raw rows. Endpoints are shaped around dashboard cards.
 """
 
+import asyncio
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
@@ -640,9 +641,12 @@ async def create_user(
             detail="A user with that email already exists.",
         )
 
+    # bcrypt is CPU-bound (~100-300ms) and would stall the single-worker event
+    # loop for every in-flight request — hash off-thread, like auth.py does.
+    hashed = await asyncio.to_thread(get_password_hash, body.password)
     user = User(
         email=body.email,
-        hashed_password=get_password_hash(body.password),
+        hashed_password=hashed,
         is_admin=body.is_admin,
         is_comped=body.is_comped,
     )
@@ -805,6 +809,13 @@ async def force_logout(
     target = await session.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if target.is_demo:
+        # Demo accounts are ephemeral and auto-reaped; keep the guard uniform
+        # with the other user-management mutations rather than special-casing.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Demo accounts cannot be modified.",
+        )
 
     await _revoke_sessions_and_bump(session, target, datetime.now(UTC))
     record_admin_action(session, actor=actor, action="user.force_logout", target=target)

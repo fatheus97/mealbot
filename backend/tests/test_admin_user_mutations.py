@@ -321,6 +321,15 @@ class TestForceLogout:
         await _make_admin(db_session, test_user)
         assert (await client.post("/api/admin/users/999999/logout")).status_code == 404
 
+    async def test_demo_user_400(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        demo = await _seed(db_session, "demo-fl@example.com", is_demo=True)
+        resp = await client.post(f"/api/admin/users/{demo.id}/logout")
+        assert resp.status_code == 400
+        assert await _actions_for(db_session, demo.id) == []  # type: ignore[arg-type]
+
 
 def _has(actions: list[str], action: str) -> bool:
     return action in actions
