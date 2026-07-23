@@ -34,13 +34,15 @@ are now **directly verified** and upgraded to ✅.
 - ✍️ **CURATED** — domain knowledge added to make the reference usable (chiefly the exhaustive per-allergen *alias/derivative* lists, which the law requires be excluded but does not enumerate). Draft — source each against an allergen-labelling authority before shipping.
 
 **Confidence by part:** Part 1 (allergens) and Part 4 (labelling/liability) are
-**largely verified**. Three claims stay `🔶`: two that verified **2-1 (split)** —
+**largely verified**. Claims that stay `🔶`: two that verified **2-1 (split)** —
 the sulphite threshold (Part 1) and the PAL/"free-from" mutual-exclusivity rule
-(Part 4), both kept flagged out of respect for the dissent — and one drawn from a
+(Part 4), both kept flagged out of respect for the dissent; one from a
 **secondary legal analysis** (which "free-from" terms are legally defined, Part
-4). Part 2 (patterns) and Part 3 (combinations) are now **verified** for the
-sourced claims (low-FODMAP + the v1.1 direct-verify pass), with the remaining
-patterns `✍️ curated`. **Nothing here is refuted.**
+4); and the **vegetarian** pattern (Part 2), which awaits a vegetarian-specific
+source (the vegan NHS page doesn't cover it). Part 2's other patterns and Part 3
+are now **verified** for the sourced claims (low-FODMAP + the v1.1 direct-verify
+pass: gluten-free, DASH, vegan, vegan+low-FODMAP), with the rest `✍️ curated`.
+**Nothing here is refuted.**
 
 ---
 
@@ -156,7 +158,7 @@ exclusions** — Part 1 — not diets.)
 | **Diabetic / low-GI** | Medically-indicated | Prioritise low-glycaemic-index carbs, controlled portions/timing; not a fixed exclusion list. | (management, not exclusion) | ✍️ curated |
 | **DASH** | Strong-evidence | "Dietary Approaches to Stop Hypertension." Emphasises vegetables, fruit, whole grains, low-fat dairy, fish/poultry/beans/nuts, vegetable oils; **limits sodium (2,300 mg/day standard; 1,500 mg/day lower target), saturated fat, sugary drinks, sweets.** | — | ✅ *NHLBI (direct-verified: definition, sodium targets, and emphasis/limit foods all quoted) — <https://www.nhlbi.nih.gov/health/dash-eating-plan>* |
 | **Mediterranean** | Strong-evidence | Emphasises vegetables, fruit, legumes, whole grains, olive oil, fish/seafood, nuts; moderate poultry/dairy/eggs; limited red meat & sweets. Pattern, not a strict exclusion list. | — (generally adequate) | ✍️ curated (strong evidence base; source before public claims) |
-| **Vegetarian** | Lifestyle/ethical | Excludes meat, poultry, fish/seafood; includes dairy &/or eggs (lacto-/ovo- variants). | B12, iron, zinc, omega-3 | ✅ *(same NHS basis as vegan; well-planned = adequate)* · Academy of Nutrition & Dietetics <https://www.jandonline.org/article/S2212-2672(16)31192-3/abstract> |
+| **Vegetarian** | Lifestyle/ethical | Excludes meat, poultry, fish/seafood; includes dairy &/or eggs (lacto-/ovo- variants). | B12, iron, zinc, omega-3 (note: lacto-/ovo- get B12 from dairy/eggs, so the risk is lower than vegan) | 🔶 *Academy of Nutrition & Dietetics — <https://www.jandonline.org/article/S2212-2672(16)31192-3/abstract>. Not direct-verified: the vegan NHS page doesn't cover vegetarian-specific claims, so this row awaits a vegetarian-specific source.* |
 | **Vegan** | Lifestyle/ethical | Excludes **all** animal products (meat, fish, dairy, eggs, often honey). | **B12 (fortified/supplement required — B12 is not naturally in plant foods)**, iron, calcium, vit D, iodine, omega-3/selenium | ✅ *NHS (direct-verified: B12 needs a supplement/fortified source; well-planned vegan diet is adequate; nutrients to watch = calcium, iron, B12, iodine, selenium) — <https://www.nhs.uk/live-well/eat-well/how-to-eat-a-balanced-diet/the-vegan-diet/>*. *(Academy of Nutrition & Dietetics 2025 position paper corroborates but its PDF wasn't machine-readable for direct quoting.)* |
 | **Pescatarian** | Lifestyle/ethical | Vegetarian + fish/seafood; no meat/poultry. | generally adequate (B12/omega-3 from fish) | ✍️ curated |
 | **Paleo** | Lifestyle (weaker evidence) | Excludes grains, legumes, dairy, refined sugar, most processed foods; emphasises meat, fish, eggs, veg, fruit, nuts. | calcium, vit D, fibre | ✍️ curated (flag: weaker evidence base) |
