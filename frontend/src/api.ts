@@ -1,6 +1,11 @@
 // frontend/src/api.ts
 import type {
   ActivityStatsResponse,
+  AdminUser,
+  AdminUserListResponse,
+  AdminUserRoleFilter,
+  AdminUserStatusFilter,
+  AdminUserUpdate,
   CookRecipeRequest,
   FunnelStatsResponse,
   FavoriteRecipeRequest,
@@ -359,6 +364,83 @@ export async function fetchAdminFunnel(): Promise<FunnelStatsResponse> {
   const res = await authFetch("/admin/stats/funnel");
   if (!res.ok) throw new Error(`Admin funnel failed: ${res.status}`);
   return res.json();
+}
+
+// --- User management (admin; the backend gates all of these with 403) ---
+
+export interface AdminUserQuery {
+  q?: string;
+  status?: AdminUserStatusFilter;
+  role?: AdminUserRoleFilter;
+  limit?: number;
+  offset?: number;
+}
+
+/** Pull the backend's `detail` (a plain string on 400/404/409, or the first
+ * Pydantic message on a 422) so mutation errors surface a real reason. */
+async function adminErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") return parsed.detail;
+    if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
+      return parsed.detail[0].msg;
+    }
+  } catch {
+    // non-JSON body — fall through to the status-based fallback
+  }
+  return `${fallback} (${res.status})`;
+}
+
+export async function fetchAdminUsers(
+  query: AdminUserQuery = {},
+): Promise<AdminUserListResponse> {
+  const p = new URLSearchParams();
+  if (query.q) p.set("q", query.q);
+  if (query.status && query.status !== "all") p.set("status", query.status);
+  if (query.role && query.role !== "all") p.set("role", query.role);
+  if (query.limit != null) p.set("limit", String(query.limit));
+  if (query.offset != null) p.set("offset", String(query.offset));
+  const qs = p.toString();
+  const res = await authFetch(`/admin/users${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Admin users failed: ${res.status}`);
+  return res.json();
+}
+
+export async function createAdminUser(body: {
+  email: string;
+  password: string;
+  is_admin?: boolean;
+  is_comped?: boolean;
+}): Promise<AdminUser> {
+  const res = await authFetch("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not create the user"));
+  return res.json();
+}
+
+export async function updateAdminUser(
+  id: number,
+  body: AdminUserUpdate,
+): Promise<AdminUser> {
+  const res = await authFetch(`/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not update the user"));
+  return res.json();
+}
+
+export async function resetAdminUserOnboarding(id: number): Promise<AdminUser> {
+  const res = await authFetch(`/admin/users/${id}/reset-onboarding`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not reset onboarding"));
+  return res.json();
+}
+
+export async function forceLogoutAdminUser(id: number): Promise<void> {
+  const res = await authFetch(`/admin/users/${id}/logout`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not log the user out"));
 }
 
 export async function mergeFridgeItems(

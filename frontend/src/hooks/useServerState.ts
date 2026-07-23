@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
-import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, PaywallError, scanReceipt, updateMeal, updateUserProfile } from '../api';
+import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate } from '../types';
+import { authFetch, cookRecipe, createAdminUser, favoriteRecipe, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, scanReceipt, updateAdminUser, updateMeal, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -483,5 +483,45 @@ export function useRegeneratePlan() {
       }
       return res.json();
     },
+  });
+}
+
+// --- Admin: user management (every endpoint is 403-gated server-side; each
+// mutation invalidates the ['admin','users'] list so the table refetches) ---
+
+export function useCreateAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // Wrap (rather than passing createAdminUser bare) so react-query's second
+    // mutationFn context arg isn't forwarded to the api helper — consistent with
+    // the update/reset/logout hooks below.
+    mutationFn: (body: { email: string; password: string; is_admin?: boolean; is_comped?: boolean }) =>
+      createAdminUser(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useUpdateAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, update }: { id: number; update: AdminUserUpdate }) =>
+      updateAdminUser(id, update),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useResetAdminUserOnboarding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => resetAdminUserOnboarding(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useForceLogoutAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => forceLogoutAdminUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
   });
 }

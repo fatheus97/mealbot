@@ -4,6 +4,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { BarChart, type Bar } from "./BarChart";
 import { RevenuePanel } from "./RevenuePanel";
+import { UserManagementPanel } from "./UserManagementPanel";
 import { FunnelPanel } from "./FunnelPanel";
 import { Tabs } from "./Tabs";
 import { tabButtonId, tabPanelId, type TabDef } from "./tabIds";
@@ -32,12 +33,13 @@ function fmtDay(iso: string): string {
   return `${MONTHS[Number(parts[1])] ?? parts[1]} ${Number(parts[2])}`;
 }
 
-type TabId = "overview" | "revenue" | "generation";
+type TabId = "overview" | "revenue" | "generation" | "users";
 
 const ADMIN_TABS: TabDef[] = [
   { id: "overview", label: "Overview" },
   { id: "revenue", label: "Revenue" },
   { id: "generation", label: "Generation" },
+  { id: "users", label: "User Management" },
 ];
 
 const ID_BASE = "admin";
@@ -351,6 +353,10 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
                 </QueryState>
               </Section>
             </>
+        </TabPanel>
+
+        <TabPanel id="users" active={tab === "users"}>
+          <UserManagementPanel />
         </TabPanel>
       </div>
     </div>
