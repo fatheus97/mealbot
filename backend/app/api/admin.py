@@ -29,6 +29,10 @@ from app.models.admin_schemas import (
     FunnelBySource,
     FunnelStage,
     FunnelStatsResponse,
+    InviteCreate,
+    InviteListItem,
+    InviteListResponse,
+    InviteRead,
     OverviewStats,
     ProviderUsageAgg,
     RevenueStats,
@@ -41,6 +45,7 @@ from app.models.admin_schemas import (
 )
 from app.models.db_models import (
     AuthSession,
+    InviteToken,
     LlmUsage,
     MachineGeneration,
     MealEntry,
@@ -52,6 +57,7 @@ from app.models.db_models import (
 )
 from app.services import revenue_service
 from app.services.admin_audit import record_admin_action
+from app.services.invite import create_invite, invite_link, invite_status
 
 logger = logging.getLogger(__name__)
 
@@ -901,8 +907,162 @@ async def delete_user(
         delete(PasswordResetToken).where(col(PasswordResetToken.user_id) == user_id)
     )
     # Deleting the user cascades telemetry (ON DELETE CASCADE) and anonymises
-    # SaleRecord (ON DELETE SET NULL).
+    # SaleRecord + InviteToken (ON DELETE SET NULL) — the ledger and the invite
+    # audit trail survive the account.
     await session.execute(delete(User).where(col(User.id) == user_id))
     await session.commit()
     logger.info("admin_user_deleted actor_id=%s target_id=%s", actor.id, user_id)
     return None
+
+
+# --- Invite links ---
+#
+# Admin-generated single-use invite links let a hand-picked beta tester
+# self-register while public registration stays closed (registration_enabled is
+# False). Generation/list/revoke are admin-only + audited here; the public,
+# token-gated redemption endpoint lives in api/user.py (unauthenticated).
+
+_MAX_INVITE_PAGE = 200
+
+
+@router.post("/invites", response_model=InviteRead, status_code=status.HTTP_201_CREATED)
+async def generate_invite(
+    body: InviteCreate,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> InviteRead:
+    """Mint an invite link to send to a prospective beta tester.
+
+    Returns the shareable URL carrying the plaintext token — the only time it
+    leaves the server; only its hash is stored. The comp flag + TTL are baked
+    into the token here and read back at redemption, so the invitee can never
+    set them.
+    """
+    now = datetime.now(UTC)
+    plaintext, invite = await create_invite(
+        session,
+        created_by_admin_id=actor.id,  # type: ignore[arg-type]  # require_admin → persisted
+        is_comped=body.is_comped,
+        note=body.note,
+        expires_in_hours=body.expires_in_hours,
+        now=now,
+    )
+    # target=None: an invite isn't (yet) about a specific user. NEVER log the
+    # plaintext token — detail is dict[str, str] audit context only.
+    record_admin_action(
+        session,
+        actor=actor,
+        action="invite.create",
+        detail={
+            "invite_id": str(invite.id),
+            "is_comped": str(body.is_comped),
+            "expires_at": invite.expires_at.isoformat(),
+            "has_note": str(body.note is not None),
+        },
+    )
+    await session.commit()
+    return InviteRead(
+        id=invite.id,  # type: ignore[arg-type]  # populated by flush in create_invite
+        invite_url=invite_link(plaintext),
+        expires_at=invite.expires_at,
+        is_comped=invite.is_comped,
+        note=invite.note,
+    )
+
+
+@router.get("/invites", response_model=InviteListResponse)
+async def list_invites(
+    limit: int = Query(_MAX_INVITE_PAGE, ge=1, le=_MAX_INVITE_PAGE),
+    session: AsyncSession = Depends(get_session),
+) -> InviteListResponse:
+    """List invites newest-first with a derived status and, for redeemed ones,
+    the email of the account that used the link.
+
+    Bounded to a single page — invite volume is low (one link per invitee); this
+    is a management view, not analytics.
+    """
+    now = datetime.now(UTC)
+    invites = (
+        await session.execute(
+            select(InviteToken)
+            .order_by(col(InviteToken.created_at).desc(), col(InviteToken.id).desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    # Resolve the redeemer email for used invites in one extra bounded query
+    # (kept off the main select so the projection stays a plain entity fetch).
+    redeemer_ids = {i.redeemed_by_user_id for i in invites if i.redeemed_by_user_id is not None}
+    emails: dict[int, str] = {}
+    if redeemer_ids:
+        rows = (
+            await session.execute(
+                select(col(User.id), col(User.email)).where(col(User.id).in_(redeemer_ids))
+            )
+        ).all()
+        emails = {int(uid): email for uid, email in rows}
+
+    return InviteListResponse(
+        invites=[
+            InviteListItem(
+                id=invite.id,  # type: ignore[arg-type]  # selected row always has an id
+                note=invite.note,
+                is_comped=invite.is_comped,
+                status=invite_status(invite, now),
+                created_at=invite.created_at,
+                expires_at=invite.expires_at,
+                redeemed_by_email=(
+                    emails.get(invite.redeemed_by_user_id)
+                    if invite.redeemed_by_user_id is not None
+                    else None
+                ),
+            )
+            for invite in invites
+        ]
+    )
+
+
+@router.post("/invites/{invite_id}/revoke", response_model=InviteListItem)
+async def revoke_invite(
+    invite_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> InviteListItem:
+    """Kill a live invite before it's redeemed (a link leaked, or went to the
+    wrong person). Idempotent on an already-revoked invite; 409 if it was already
+    redeemed — an account exists, so there's nothing to revoke."""
+    now = datetime.now(UTC)
+    # Lock the row so a concurrent redemption of the same invite serialises
+    # against this revoke (redemption takes the same row lock) rather than racing.
+    invite = (
+        await session.execute(
+            select(InviteToken).where(col(InviteToken.id) == invite_id).with_for_update()
+        )
+    ).scalars().first()
+    if invite is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found.")
+    if invite.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This invite has already been used and can't be revoked.",
+        )
+    if invite.revoked_at is None:
+        invite.revoked_at = now
+        session.add(invite)
+        record_admin_action(
+            session,
+            actor=actor,
+            action="invite.revoke",
+            detail={"invite_id": str(invite_id)},
+        )
+        await session.commit()
+    # A revoked (never-used) invite has no redeemer.
+    return InviteListItem(
+        id=invite.id,  # type: ignore[arg-type]
+        note=invite.note,
+        is_comped=invite.is_comped,
+        status=invite_status(invite, now),
+        created_at=invite.created_at,
+        expires_at=invite.expires_at,
+        redeemed_by_email=None,
+    )

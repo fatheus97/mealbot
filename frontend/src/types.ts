@@ -291,6 +291,9 @@ export interface AuthState {
   setOnboardingCompleted: (value: boolean) => void;
   loginDemo: () => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
+  // Redeem an admin invite token: create the account (bypassing the closed
+  // registration gate) then auto-login, so the invitee lands signed in.
+  registerViaInvite: (token: string, email: string, password: string) => Promise<void>;
   // Re-fetch /users to re-sync subscription state (used after returning from
   // Stripe Checkout, where the webhook may land a beat after the redirect).
   refreshProfile: () => Promise<void>;
@@ -482,5 +485,41 @@ export interface AdminUserUpdate {
   is_active?: boolean;
   is_admin?: boolean;
   is_comped?: boolean;
+}
+
+// --- Admin invite links ---
+
+export type InviteStatus = "live" | "used" | "expired" | "revoked";
+
+/** Body for POST /admin/invites. All optional — the server defaults comp to true
+ *  and the TTL to invite_token_expire_hours. */
+export interface InviteCreateRequest {
+  note?: string | null;
+  is_comped?: boolean;
+  expires_in_hours?: number | null;
+}
+
+/** Response of POST /admin/invites — the freshly minted link. `invite_url`
+ *  carries the plaintext token and is shown to the admin exactly once. */
+export interface InviteCreateResponse {
+  id: number;
+  invite_url: string;
+  expires_at: string;
+  is_comped: boolean;
+  note: string | null;
+}
+
+export interface InviteListItem {
+  id: number;
+  note: string | null;
+  is_comped: boolean;
+  status: InviteStatus;
+  created_at: string;
+  expires_at: string;
+  redeemed_by_email: string | null;
+}
+
+export interface InviteListResponse {
+  invites: InviteListItem[];
 }
 

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate } from '../types';
-import { authFetch, cookRecipe, createAdminUser, deleteAdminUser, favoriteRecipe, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, scanReceipt, updateAdminUser, updateMeal, updateUserProfile } from '../api';
+import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest } from '../types';
+import { authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, revokeInvite, scanReceipt, updateAdminUser, updateMeal, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -531,5 +531,31 @@ export function useDeleteAdminUser() {
   return useMutation({
     mutationFn: (id: number) => deleteAdminUser(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+// --- Admin: invite links (each mutation invalidates ['admin','invites']) ---
+
+export function useInvites(enabled: boolean) {
+  return useQuery({
+    queryKey: ['admin', 'invites'],
+    queryFn: fetchInvites,
+    enabled,
+  });
+}
+
+export function useCreateInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: InviteCreateRequest) => createInvite(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] }),
+  });
+}
+
+export function useRevokeInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => revokeInvite(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] }),
   });
 }
