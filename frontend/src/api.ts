@@ -443,6 +443,11 @@ export async function forceLogoutAdminUser(id: number): Promise<void> {
   if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not log the user out"));
 }
 
+export async function deleteAdminUser(id: number): Promise<void> {
+  const res = await authFetch(`/admin/users/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not delete the user"));
+}
+
 export async function mergeFridgeItems(
   items: StockItem[],
   generationId: number | null = null,
