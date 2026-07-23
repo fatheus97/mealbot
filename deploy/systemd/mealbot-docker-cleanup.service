@@ -53,6 +53,20 @@ WorkingDirectory=/opt/mealbot
 # No `-` prefix: a prune failure is genuinely exceptional and should surface in
 # the journal (and fail the unit) rather than being silently swallowed, matching
 # the authsession-cleanup unit's philosophy.
+#
+# Accepted race (deploy vs. prune): deploy.yml deploys on any push to main at
+# any hour, so `scripts/deploy.sh` can run `docker compose build` during this
+# unit's Sun 04:30–04:35 window. That is NOT guarded (no flock), deliberately:
+# BuildKit's GC is lease-aware — cache actively referenced by an in-flight build
+# is leased and is not reclaimable while that build runs — so a concurrent prune
+# can only evict cache the build hadn't yet claimed. The worst case is thus a
+# cache-cold (slower) rebuild, which is exactly the tradeoff this job already
+# makes every week, never a corrupted/failed build. Probability is tiny (weekly
+# × ~5 min × must coincide with a push). A shared lock in deploy.sh would trade
+# that negligible slow-build risk for a worse one — a held lock silently
+# skipping or stalling a real deploy — so it is intentionally not added.
+# (deploy.sh already ends with its own `docker image prune -f`, so pruning has
+# always coexisted with the build flow here.)
 ExecStart=/usr/bin/docker builder prune -af
 ExecStart=/usr/bin/docker image prune -af
 # A hung daemon call must not wedge the unit indefinitely. Real runs finish in
