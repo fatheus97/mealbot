@@ -6,7 +6,9 @@ Maps are modelled as lists of typed items (not dict) so responses stay schema'd.
 
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.models.user_schemas import validate_password_complexity
 
 
 class SurfaceCount(BaseModel):
@@ -208,3 +210,30 @@ class AdminUserListResponse(BaseModel):
     limit: int
     offset: int
     users: list[AdminUserRead]
+
+
+class AdminUserCreate(BaseModel):
+    """Body for POST /admin/users. Mirrors the create_user CLI: same email +
+    password-complexity rules, with optional admin/comp flags an admin may set
+    (this is a server-set path — no self-service — so granting admin here is
+    consistent with is_admin being admin-only)."""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    is_admin: bool = False
+    is_comped: bool = False
+
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
+
+
+class AdminUserUpdate(BaseModel):
+    """Body for PATCH /admin/users/{id}. Every field optional — None means "no
+    change" (the standard PATCH semantic). Only these three flags are settable;
+    onboarding reset and force-logout are separate action endpoints."""
+
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    is_comped: bool | None = None

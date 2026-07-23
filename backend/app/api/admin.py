@@ -6,22 +6,26 @@ SUM / AVG / date_trunc) runs in Postgres — endpoints return compact typed
 summaries, never raw rows. Endpoints are shaped around dashboard cards.
 """
 
+import asyncio
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import ColumnElement, func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from app.api.deps import require_admin
+from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.admin_schemas import (
     ActivityBucket,
     ActivityStatsResponse,
+    AdminUserCreate,
     AdminUserListResponse,
     AdminUserRead,
+    AdminUserUpdate,
     FunnelBySource,
     FunnelStage,
     FunnelStatsResponse,
@@ -36,6 +40,7 @@ from app.models.admin_schemas import (
     UserUsageAgg,
 )
 from app.models.db_models import (
+    AuthSession,
     LlmUsage,
     MachineGeneration,
     MealEntry,
@@ -44,6 +49,7 @@ from app.models.db_models import (
     User,
 )
 from app.services import revenue_service
+from app.services.admin_audit import record_admin_action
 
 logger = logging.getLogger(__name__)
 
@@ -590,3 +596,228 @@ async def list_users(
         offset=offset,
         users=[_to_admin_user_read(u) for u in rows],
     )
+
+
+# --- User management (mutations) ---
+#
+# Every mutation is audited via record_admin_action and commits the audit row in
+# the SAME transaction as the change, so the log can't diverge from what happened.
+# `actor` is re-injected via Depends(require_admin) purely to get the acting admin
+# object (require_admin already gates the whole router; FastAPI caches it, so it
+# runs once per request).
+
+
+async def _revoke_sessions_and_bump(session: AsyncSession, user: User, now: datetime) -> None:
+    """Instant + complete lockout: revoke every live session for ``user`` and
+    bump ``token_version`` so any in-flight access token dies on its next
+    request too. Same mechanism auth.py uses for logout-all / password change /
+    reset; kept local here so the admin API doesn't import from the auth route
+    module.
+    """
+    await session.execute(
+        update(AuthSession)
+        .where(col(AuthSession.user_id) == user.id)
+        .where(col(AuthSession.revoked_at).is_(None))
+        .values(revoked_at=now)
+    )
+    user.token_version += 1
+
+
+@router.post("/users", response_model=AdminUserRead, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    body: AdminUserCreate,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminUserRead:
+    """Create a user (mirrors the create_user CLI). Email must be unique; the
+    password is validated for complexity at the schema layer and stored hashed —
+    it is NEVER written to the audit log."""
+    existing = (
+        await session.execute(select(User).where(col(User.email) == body.email))
+    ).scalars().first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with that email already exists.",
+        )
+
+    # bcrypt is CPU-bound (~100-300ms) and would stall the single-worker event
+    # loop for every in-flight request — hash off-thread, like auth.py does.
+    hashed = await asyncio.to_thread(get_password_hash, body.password)
+    user = User(
+        email=body.email,
+        hashed_password=hashed,
+        is_admin=body.is_admin,
+        is_comped=body.is_comped,
+    )
+    session.add(user)
+    await session.flush()  # populate user.id for the audit target + response
+
+    record_admin_action(
+        session,
+        actor=actor,
+        action="user.create",
+        target=user,
+        detail={"is_admin": str(body.is_admin), "is_comped": str(body.is_comped)},
+    )
+    await session.commit()
+    await session.refresh(user)
+    return _to_admin_user_read(user)
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserRead)
+async def update_user(
+    user_id: int,
+    body: AdminUserUpdate,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminUserRead:
+    """Toggle a user's is_active / is_admin / is_comped flags (partial update).
+
+    One audit row per field that actually changes. Guards:
+    - 404 if the user doesn't exist; 400 for a demo account (ephemeral, not a
+      real account to manage).
+    - **Last-active-admin invariant** (atomic): a change that strips admin-power
+      from an active admin (de-admin OR disable) must leave at least one other
+      active admin. Enforced by locking the active-admin set ``FOR UPDATE`` and
+      re-counting, which serialises concurrent admin-power mutations — closing
+      the write-skew where two admins demote/disable each other to zero (a plain
+      per-request check can't, since the two UPDATEs touch different rows).
+    - **Self-guard**: additionally, an admin cannot disable or de-admin their OWN
+      account (a footgun guard, distinct from the invariant above — it fires even
+      when other admins exist).
+    - Disabling (is_active True→False) triggers the instant+complete lockout
+      (revoke sessions + bump token_version).
+    """
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if target.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Demo accounts cannot be modified.",
+        )
+
+    # Last-active-admin invariant, made atomic. If this request would strip
+    # admin-power from an active admin, lock the whole active-admin set FOR
+    # UPDATE (serialising any two such mutations) and require another to remain.
+    # This is what actually guarantees ≥1 active admin under concurrency; the
+    # self-guard below is necessary for UX but NOT sufficient (two admins can
+    # concurrently demote each other, each satisfying its own self-guard).
+    if target.is_admin and target.is_active and (
+        body.is_admin is False or body.is_active is False
+    ):
+        locked_admin_ids = (
+            await session.execute(
+                select(col(User.id))
+                .where(col(User.is_admin).is_(True), col(User.is_active).is_(True))
+                .with_for_update()
+            )
+        ).scalars().all()
+        if not [uid for uid in locked_admin_ids if uid != target.id]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot remove the last active admin.",
+            )
+
+    is_self = target.id == actor.id
+    now = datetime.now(UTC)
+    changes: list[tuple[str, dict[str, str]]] = []
+
+    if body.is_admin is not None and body.is_admin != target.is_admin:
+        if is_self and body.is_admin is False:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You cannot revoke your own admin access.",
+            )
+        target.is_admin = body.is_admin
+        changes.append(
+            ("user.grant_admin" if body.is_admin else "user.revoke_admin",
+             {"is_admin": str(body.is_admin)})
+        )
+
+    if body.is_comped is not None and body.is_comped != target.is_comped:
+        target.is_comped = body.is_comped
+        changes.append(
+            ("user.grant_comp" if body.is_comped else "user.revoke_comp",
+             {"is_comped": str(body.is_comped)})
+        )
+
+    if body.is_active is not None and body.is_active != target.is_active:
+        if is_self and body.is_active is False:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You cannot disable your own account.",
+            )
+        target.is_active = body.is_active
+        if body.is_active is False:
+            await _revoke_sessions_and_bump(session, target, now)
+        changes.append(
+            ("user.deactivate" if body.is_active is False else "user.reactivate",
+             {"is_active": str(body.is_active)})
+        )
+
+    if not changes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No changes specified.",
+        )
+
+    for action, detail in changes:
+        record_admin_action(session, actor=actor, action=action, target=target, detail=detail)
+
+    await session.commit()
+    await session.refresh(target)
+    return _to_admin_user_read(target)
+
+
+@router.post("/users/{user_id}/reset-onboarding", response_model=AdminUserRead)
+async def reset_onboarding(
+    user_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminUserRead:
+    """Clear a user's onboarding_completed flag so they re-see the setup flow."""
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if target.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Demo accounts cannot be modified.",
+        )
+
+    if not target.onboarding_completed:
+        # Already reset — idempotent no-op, no audit noise.
+        return _to_admin_user_read(target)
+
+    target.onboarding_completed = False
+    record_admin_action(session, actor=actor, action="user.reset_onboarding", target=target)
+    await session.commit()
+    await session.refresh(target)
+    return _to_admin_user_read(target)
+
+
+@router.post("/users/{user_id}/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def force_logout(
+    user_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Force-log-out a user everywhere: revoke all their sessions + bump
+    token_version. Does not disable the account — they can log back in."""
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if target.is_demo:
+        # Demo accounts are ephemeral and auto-reaped; keep the guard uniform
+        # with the other user-management mutations rather than special-casing.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Demo accounts cannot be modified.",
+        )
+
+    await _revoke_sessions_and_bump(session, target, datetime.now(UTC))
+    record_admin_action(session, actor=actor, action="user.force_logout", target=target)
+    await session.commit()
+    return None
