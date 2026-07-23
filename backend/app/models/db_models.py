@@ -72,6 +72,16 @@ class User(SQLModel, table=True):
         default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
     )
 
+    # Account enablement. False = disabled by an admin: the disable gate in
+    # get_current_user + the login/refresh paths rejects the user, so they can
+    # neither act on an existing access token nor obtain a new one. Reversible
+    # (reactivate flips it back). Server-set only — no self-service path; the
+    # admin user-management endpoints (and the create_user CLI, implicitly true)
+    # are the only writers. Defaults true so every existing row is enabled.
+    is_active: bool = Field(
+        default=True, sa_column_kwargs={"server_default": "true"}, nullable=False
+    )
+
     # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
     # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
     # source of truth. ---
@@ -207,6 +217,41 @@ class PasswordResetToken(SQLModel, table=True):
             unique=True,
             postgresql_where=text("used_at IS NULL"),
         ),
+    )
+
+
+class AdminAuditLog(SQLModel, table=True):
+    """Append-only audit trail of admin actions on user accounts.
+
+    Deliberately **not** FK-linked to ``user`` on either side. An audited action
+    can be the *deletion* of the target user (a later slice), and the whole point
+    of an audit log is to outlive the row it describes — so actor and target are
+    stored as bare ids plus an email snapshot taken at action time, fully
+    decoupled from the user-row lifecycle. Rows are only ever INSERTed, never
+    updated or deleted.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+    # The admin who performed the action. Bare id (no FK) + email snapshot; see
+    # the class docstring for why it isn't a relationship.
+    actor_user_id: int = Field(nullable=False, index=True)
+    actor_email: str = Field(nullable=False)
+    # Dotted action name, e.g. "user.deactivate" / "user.grant_admin". A plain
+    # str (not an enum column) so adding an action in a later slice needs no
+    # migration; the writer side constrains the vocabulary.
+    action: str = Field(nullable=False, index=True)
+    # The user acted upon. Nullable: some actions (none yet) may not target a
+    # user. No FK so a later hard-delete of the target can't cascade or block.
+    target_user_id: int | None = Field(default=None, index=True)
+    target_email: str | None = Field(default=None)
+    # Optional structured context (e.g. {"field": "is_admin", "from": "false",
+    # "to": "true"}). String-valued so the blob stays schema'd (no Any) and
+    # trivially JSON-serialisable; loose JSONB so older rows never break reads.
+    detail: dict[str, str] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
     )
 
 

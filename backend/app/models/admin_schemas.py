@@ -173,3 +173,38 @@ class RevenueStats(BaseModel):
     thresholds: list[ThresholdProgress]
     by_country: list[CountryRevenue]
     recent: list[SaleRow]
+
+
+# --- User management (admin) ---
+
+
+class AdminUserRead(BaseModel):
+    """One user row for the admin User Management table.
+
+    A deliberately narrow projection — account/status/billing fields the admin
+    needs to manage users, and NOTHING sensitive (never the password hash, reset
+    tokens, or the raw Stripe ids). Distinct from ``UserRead`` (the self-profile
+    shape) so admin-list fields and self-profile fields evolve independently.
+    """
+
+    id: int
+    email: str
+    created_at: datetime
+    is_active: bool
+    is_admin: bool
+    is_demo: bool
+    is_comped: bool
+    onboarding_completed: bool
+    country: str | None
+    subscription_status: str
+    current_period_end: datetime | None
+
+
+class AdminUserListResponse(BaseModel):
+    """A page of the admin user list. ``total`` is the count matching the current
+    filters (not the page size), so the UI can paginate."""
+
+    total: int
+    limit: int
+    offset: int
+    users: list[AdminUserRead]

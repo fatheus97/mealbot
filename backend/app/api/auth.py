@@ -162,6 +162,18 @@ async def login(
             detail="Incorrect email or password",
         )
 
+    # Disable gate. Checked only AFTER a correct password, so this branch is
+    # reachable only by the account owner (an attacker without the password
+    # never gets here) — telling them the account is disabled is safe and is not
+    # an enumeration oracle. 403 (not 401) so the SPA shows the message instead
+    # of routing it through the silent refresh-then-logout path.
+    if not user.is_active:
+        logger.warning("login_disabled user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been disabled.",
+        )
+
     await _issue_session_and_set_cookies(
         response=response,
         session=session,
@@ -238,6 +250,11 @@ async def refresh(
             if user_for_grace is None:
                 clear_auth_cookies(response)
                 raise HTTPException(status_code=401, detail="User no longer exists")
+            if not user_for_grace.is_active:
+                clear_auth_cookies(response)
+                raise HTTPException(
+                    status_code=401, detail="Session ended; please log in again"
+                )
             grace_ttl = _refresh_ttl_for_user(user_for_grace, expires_at, now)
             grace_session = await _issue_session_and_set_cookies(
                 response=response,
@@ -279,6 +296,16 @@ async def refresh(
     if user is None:
         clear_auth_cookies(response)
         raise HTTPException(status_code=401, detail="User no longer exists")
+
+    # Disable gate: a disabled account must not be able to rotate its way into a
+    # fresh session. Deactivation already revokes sessions, so this is normally
+    # unreachable — but keeping is_active authoritative at every token-issuing
+    # point means a session that somehow survives still can't be extended.
+    if not user.is_active:
+        clear_auth_cookies(response)
+        raise HTTPException(
+            status_code=401, detail="Session ended; please log in again"
+        )
 
     refresh_ttl_seconds = _refresh_ttl_for_user(user, expires_at, now)
 

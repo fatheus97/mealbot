@@ -65,6 +65,14 @@ async def get_current_user(
     if token_version != user.token_version:
         raise credentials_exception
 
+    # Disable gate: a still-valid access token must stop working the moment an
+    # admin disables the account. Same 401 as any other credential failure, so
+    # the SPA logs the user out; re-login then fails at the login handler with a
+    # clear "account disabled" message. (Deactivation also revokes sessions +
+    # bumps token_version, so the refresh path can't re-mint — belt and braces.)
+    if not user.is_active:
+        raise credentials_exception
+
     return user
 
 
