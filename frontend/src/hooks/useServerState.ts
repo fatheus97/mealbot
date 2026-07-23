@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate } from '../types';
-import { authFetch, cookRecipe, createAdminUser, favoriteRecipe, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, scanReceipt, updateAdminUser, updateMeal, updateUserProfile } from '../api';
+import { authFetch, cookRecipe, createAdminUser, deleteAdminUser, favoriteRecipe, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, scanReceipt, updateAdminUser, updateMeal, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -522,6 +522,14 @@ export function useForceLogoutAdminUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => forceLogoutAdminUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useDeleteAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => deleteAdminUser(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
   });
 }

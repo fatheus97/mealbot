@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import ColumnElement, func, or_, select, update
+from sqlalchemy import ColumnElement, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
@@ -45,7 +45,9 @@ from app.models.db_models import (
     MachineGeneration,
     MealEntry,
     MealPlan,
+    PasswordResetToken,
     SaleRecord,
+    StockItem,
     User,
 )
 from app.services import revenue_service
@@ -623,6 +625,28 @@ async def _revoke_sessions_and_bump(session: AsyncSession, user: User, now: date
     user.token_version += 1
 
 
+async def _ensure_active_admin_remains(
+    session: AsyncSession, target: User, detail: str
+) -> None:
+    """The last-active-admin invariant, made atomic.
+
+    Call this whenever a mutation would strip admin-power from — or delete — an
+    active admin. It locks the whole active-admin set ``FOR UPDATE`` (serialising
+    any two admin-power mutations, so two admins can't concurrently remove each
+    other to zero — the write-skew a plain per-request check can't stop) and
+    requires at least one active admin OTHER than ``target`` to remain, else 409.
+    """
+    locked_admin_ids = (
+        await session.execute(
+            select(col(User.id))
+            .where(col(User.is_admin).is_(True), col(User.is_active).is_(True))
+            .with_for_update()
+        )
+    ).scalars().all()
+    if not [uid for uid in locked_admin_ids if uid != target.id]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
 @router.post("/users", response_model=AdminUserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: AdminUserCreate,
@@ -698,27 +722,13 @@ async def update_user(
             detail="Demo accounts cannot be modified.",
         )
 
-    # Last-active-admin invariant, made atomic. If this request would strip
-    # admin-power from an active admin, lock the whole active-admin set FOR
-    # UPDATE (serialising any two such mutations) and require another to remain.
-    # This is what actually guarantees ≥1 active admin under concurrency; the
-    # self-guard below is necessary for UX but NOT sufficient (two admins can
-    # concurrently demote each other, each satisfying its own self-guard).
+    # Last-active-admin invariant (atomic) — only when this request would strip
+    # admin-power from an active admin. The self-guard below is necessary for UX
+    # but NOT sufficient under concurrency; the FOR UPDATE lock in the helper is.
     if target.is_admin and target.is_active and (
         body.is_admin is False or body.is_active is False
     ):
-        locked_admin_ids = (
-            await session.execute(
-                select(col(User.id))
-                .where(col(User.is_admin).is_(True), col(User.is_active).is_(True))
-                .with_for_update()
-            )
-        ).scalars().all()
-        if not [uid for uid in locked_admin_ids if uid != target.id]:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Cannot remove the last active admin.",
-            )
+        await _ensure_active_admin_remains(session, target, "Cannot remove the last active admin.")
 
     is_self = target.id == actor.id
     now = datetime.now(UTC)
@@ -820,4 +830,79 @@ async def force_logout(
     await _revoke_sessions_and_bump(session, target, datetime.now(UTC))
     record_admin_action(session, actor=actor, action="user.force_logout", target=target)
     await session.commit()
+    return None
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Permanently delete a user and the data they own.
+
+    The most destructive admin action — guards mirror the flag mutations plus a
+    self-guard, and it PRESERVES the revenue ledger.
+
+    Guards (in executed order): 404 missing; 400 demo account; 409 deleting the
+    last active admin (atomic, see ``_ensure_active_admin_remains``, checked
+    before the self-guard so the reject stays reachable); 409 deleting your own
+    account (self-guard).
+
+    Data handling (verified against db_models FKs):
+    - **SaleRecord** is ANONYMISED, not deleted — its ``user_id`` FK is
+      ``ON DELETE SET NULL``, so the VAT/revenue history survives without a
+      person attached (a deleted user must not erase tax records).
+    - Telemetry (**MachineGeneration / LlmUsage / MachineCorrection**) is
+      ``ON DELETE CASCADE`` — the DB removes it when the user row goes.
+    - The remaining owned tables have no DB cascade, so we delete them
+      explicitly, **MealEntry before MealPlan** (``MealEntry.meal_plan_id`` FK).
+    - The **AdminAuditLog** row written below has no FK to ``user``, so it
+      survives the delete — the permanent record of who deleted whom.
+
+    Core ``delete()`` statements (not ORM ``session.delete``) so the NOT NULL
+    child FKs aren't null-updated by ORM relationship handling, and the DB-level
+    CASCADE / SET NULL fire on the final user delete.
+    """
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if target.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Demo accounts cannot be modified.",
+        )
+    # Last-admin invariant before the self-guard (as update_user orders them), so
+    # a sole admin deleting themselves gets the "last active admin" 409 and the
+    # reject path stays reachable/testable rather than being masked by self-guard.
+    if target.is_admin and target.is_active:
+        await _ensure_active_admin_remains(session, target, "Cannot delete the last active admin.")
+    if target.id == actor.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You cannot delete your own account.",
+        )
+
+    # Audit FIRST so the email snapshot is captured before the row is gone.
+    record_admin_action(
+        session,
+        actor=actor,
+        action="user.delete",
+        target=target,
+        detail={"email": target.email},
+    )
+
+    # Purge owned rows the DB won't cascade — children before parents.
+    await session.execute(delete(MealEntry).where(col(MealEntry.user_id) == user_id))
+    await session.execute(delete(MealPlan).where(col(MealPlan.user_id) == user_id))
+    await session.execute(delete(StockItem).where(col(StockItem.user_id) == user_id))
+    await session.execute(delete(AuthSession).where(col(AuthSession.user_id) == user_id))
+    await session.execute(
+        delete(PasswordResetToken).where(col(PasswordResetToken.user_id) == user_id)
+    )
+    # Deleting the user cascades telemetry (ON DELETE CASCADE) and anonymises
+    # SaleRecord (ON DELETE SET NULL).
+    await session.execute(delete(User).where(col(User.id) == user_id))
+    await session.commit()
+    logger.info("admin_user_deleted actor_id=%s target_id=%s", actor.id, user_id)
     return None

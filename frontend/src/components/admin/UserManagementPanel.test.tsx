@@ -14,6 +14,7 @@ vi.mock("../../api", () => ({
   updateAdminUser: vi.fn(),
   resetAdminUserOnboarding: vi.fn(),
   forceLogoutAdminUser: vi.fn(),
+  deleteAdminUser: vi.fn(),
 }));
 
 function mkUser(overrides: Partial<AdminUser> = {}): AdminUser {
@@ -144,6 +145,34 @@ describe("UserManagementPanel", () => {
     await user.click(within(dialog).getByRole("button", { name: "Log out" }));
 
     await waitFor(() => expect(api.forceLogoutAdminUser).toHaveBeenCalledWith(4));
+  });
+
+  it("deletes a user only after the email is typed to confirm", async () => {
+    const u = mkUser({ id: 8, email: "erase@example.com" });
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp([u]));
+    vi.mocked(api.deleteAdminUser).mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("erase@example.com");
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    const confirmBtn = within(dialog).getByRole("button", { name: /Delete permanently/ });
+    const field = within(dialog).getByLabelText("Type the email to confirm");
+
+    // Empty → disabled.
+    expect(confirmBtn).toBeDisabled();
+    // A NON-matching value must keep it disabled — this pins the email-EQUALITY
+    // gate (a "non-empty" mutation would wrongly enable here).
+    await user.type(field, "wrong@example.com");
+    expect(confirmBtn).toBeDisabled();
+    // The exact email enables it.
+    await user.clear(field);
+    await user.type(field, "erase@example.com");
+    expect(confirmBtn).toBeEnabled();
+    await user.click(confirmBtn);
+
+    await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith(8));
   });
 
   it("creates a user via the modal form", async () => {

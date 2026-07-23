@@ -4,6 +4,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { ModalShell } from "../ModalShell";
 import {
   useCreateAdminUser,
+  useDeleteAdminUser,
   useForceLogoutAdminUser,
   useResetAdminUserOnboarding,
   useUpdateAdminUser,
@@ -64,6 +65,7 @@ export function UserManagementPanel() {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
 
   // A non-confirmed ("direct") mutation — surface any error in the top banner.
   function runDirect(fire: (cb: { onError: (e: Error) => void }) => void): void {
@@ -273,6 +275,9 @@ export function UserManagementPanel() {
                             <RowButton onClick={() => resetOnboarding(u)}>Reset onboarding</RowButton>
                           )}
                           <RowButton onClick={() => forceLogout(u)}>Force logout</RowButton>
+                          <RowButton onClick={() => setDeleteTarget(u)} danger>
+                            Delete
+                          </RowButton>
                         </div>
                       )}
                     </td>
@@ -343,7 +348,82 @@ export function UserManagementPanel() {
       )}
 
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} />}
+
+      {deleteTarget && (
+        <DeleteUserModal user={deleteTarget} onClose={() => setDeleteTarget(null)} />
+      )}
     </div>
+  );
+}
+
+// Permanent delete behind a type-the-email confirmation — a deliberately higher
+// bar than a one-click ConfirmDialog for the only irreversible action here.
+function DeleteUserModal({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const deleteMut = useDeleteAdminUser();
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const confirmed = typed.trim().toLowerCase() === user.email.toLowerCase();
+
+  function submit(e: React.FormEvent): void {
+    e.preventDefault();
+    if (!confirmed) return;
+    setError(null);
+    deleteMut.mutate(user.id, {
+      onSuccess: () => onClose(),
+      onError: (err) => setError(err instanceof Error ? err.message : "Could not delete the user."),
+    });
+  }
+
+  return (
+    <ModalShell onClose={onClose} ariaLabel="Delete user" zIndex={1200}>
+      <div
+        style={{
+          background: colors.card,
+          color: colors.text,
+          borderRadius: 12,
+          padding: "1.5rem",
+          width: "min(92vw, 440px)",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.25)",
+          border: "1px solid #fecaca",
+        }}
+      >
+        <h3 style={{ margin: "0 0 0.75rem", fontSize: "1.15rem", color: colors.danger }}>
+          Delete {user.email}?
+        </h3>
+        <p style={{ margin: "0 0 1rem", fontSize: 14, color: colors.textBody }}>
+          This permanently deletes the account and all of its data (plans, fridge,
+          sessions). Sales records are kept but anonymised, for tax. <strong>This
+          cannot be undone.</strong>
+        </p>
+        <form onSubmit={submit}>
+          <label style={formLabel}>
+            Type the email to confirm
+            <input
+              type="text"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              aria-label="Type the email to confirm"
+              placeholder={user.email}
+              autoComplete="off"
+              style={inputStyle}
+            />
+          </label>
+          {error && (
+            <div role="alert" style={{ ...bannerStyle, marginTop: "0.5rem" }}>
+              {error}
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1.25rem" }}>
+            <button type="button" onClick={onClose} style={secondaryBtn(false)}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!confirmed || deleteMut.isPending} style={dangerBtn(!confirmed || deleteMut.isPending)}>
+              {deleteMut.isPending ? "Deleting…" : "Delete permanently"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -450,9 +530,17 @@ function Badge({ label, bg, fg }: { label: string; bg: string; fg: string }) {
   );
 }
 
-function RowButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+function RowButton({
+  onClick,
+  children,
+  danger = false,
+}: {
+  onClick: () => void;
+  children: ReactNode;
+  danger?: boolean;
+}) {
   return (
-    <button type="button" onClick={onClick} style={rowBtnStyle}>
+    <button type="button" onClick={onClick} style={danger ? dangerRowBtnStyle : rowBtnStyle}>
       {children}
     </button>
   );
@@ -525,6 +613,28 @@ const rowBtnStyle: CSSProperties = {
   fontWeight: 600,
   whiteSpace: "nowrap",
 };
+
+const dangerRowBtnStyle: CSSProperties = {
+  ...rowBtnStyle,
+  color: colors.danger,
+  border: "1px solid #fecaca",
+};
+
+function dangerBtn(disabled: boolean): CSSProperties {
+  // Inactive → a legible grey (white-on-light-red reads poorly); it arms to a
+  // solid, high-contrast red only once the email matches — the colour shift is
+  // itself the "now you can delete" affordance.
+  return {
+    padding: "0.45rem 0.9rem",
+    border: "none",
+    borderRadius: 6,
+    background: disabled ? colors.border : "#dc2626",
+    color: disabled ? colors.textFaint : "#ffffff",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: 14,
+    fontWeight: 600,
+  };
+}
 
 const primaryBtn: CSSProperties = {
   padding: "0.45rem 0.9rem",
