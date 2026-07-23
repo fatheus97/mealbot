@@ -451,3 +451,36 @@ export interface RevenueStats {
   recent: SaleRow[];
 }
 
+// --- User management (mirror backend admin_schemas AdminUserRead) ---
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  created_at: string;
+  is_active: boolean;
+  is_admin: boolean;
+  is_demo: boolean;
+  is_comped: boolean;
+  onboarding_completed: boolean;
+  country: string | null;
+  subscription_status: string;
+  current_period_end: string | null;
+}
+
+export interface AdminUserListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  users: AdminUser[];
+}
+
+export type AdminUserStatusFilter = "all" | "active" | "disabled";
+export type AdminUserRoleFilter = "all" | "admin" | "demo" | "comped";
+
+/** Partial flag update sent to PATCH /admin/users/{id}. */
+export interface AdminUserUpdate {
+  is_active?: boolean;
+  is_admin?: boolean;
+  is_comped?: boolean;
+}
+
