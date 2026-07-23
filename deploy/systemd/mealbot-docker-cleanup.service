@@ -1,0 +1,60 @@
+# mealbot — weekly Docker disk reclamation job.
+#
+# Every deploy runs `docker compose up -d --build` (scripts/deploy.sh), so the
+# BuildKit build cache grows without bound. On 2026-07-21 the box reached ~22 GB
+# of reclaimable build cache / 81% disk and a half-up stack took prod offline.
+# This job caps that: it prunes the build cache and unused images once a week.
+#
+# Runs the two prunes once, then exits (Type=oneshot). Scheduled by
+# mealbot-docker-cleanup.timer; installable/testable on its own via
+# `systemctl start mealbot-docker-cleanup.service`.
+#
+# Deliberately has NO [Install] section: it must run ONLY when the timer (or an
+# operator) triggers it, never at boot. Enable the .timer, not this unit.
+#
+# See deploy/systemd/README.md for install steps.
+
+[Unit]
+Description=mealbot weekly Docker disk reclamation job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# The prunes talk to the Docker daemon, which must be up first. This matters for
+# the timer's Persistent=true catch-up run after a reboot, where the timer can
+# fire before dockerd is ready. No network dependency — pruning is entirely
+# local, so (unlike the other mealbot timers) this does not wait for
+# network-online.target.
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# Run as the same non-root, docker-group user the CI deploy uses (see
+# scripts/deploy.sh), NOT root. Both prune subcommands reach the daemon over the
+# docker socket, so docker-group membership is all that's required — exactly the
+# access the existing `deploy`-user timers already rely on to run `docker
+# compose`. Least privilege, consistent with the rest of the deploy pipeline.
+# This user must exist and be in the `docker` group; change it if yours differs.
+User=deploy
+# Not strictly needed (the prunes are global, not compose-scoped), but kept for
+# consistency with the sibling units and so the unit fails loudly if the deploy
+# checkout is missing. Adjust if your checkout lives elsewhere.
+WorkingDirectory=/opt/mealbot
+# Build cache FIRST — it is the unbounded grower and was the actual 2026-07-21
+# outage cause. `-a` prunes ALL build cache (not just dangling layers); `-f`
+# skips the confirmation prompt (there is no TTY under systemd). Trades one
+# cache-cold rebuild on the next deploy for bounded disk — the right call on a
+# small box. Then unused images: `-a` removes every image not referenced by a
+# container (the running stack keeps its own images; deploy.sh rebuilds fresh
+# anyway). Two ExecStart lines run sequentially.
+#
+# NEVER add `docker system prune --volumes` or any volume-touching prune here —
+# that would delete the Postgres and Caddy data volumes. Build cache + images
+# only.
+#
+# No `-` prefix: a prune failure is genuinely exceptional and should surface in
+# the journal (and fail the unit) rather than being silently swallowed, matching
+# the authsession-cleanup unit's philosophy.
+ExecStart=/usr/bin/docker builder prune -af
+ExecStart=/usr/bin/docker image prune -af
+# A hung daemon call must not wedge the unit indefinitely. Real runs finish in
+# well under a minute even against tens of GB; 10 min is generous headroom.
+TimeoutStartSec=600
