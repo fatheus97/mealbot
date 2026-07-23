@@ -234,7 +234,18 @@ describe("UserManagementPanel", () => {
     await user.click(within(bar).getByRole("button", { name: "Delete" }));
 
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+    const confirmBtn = within(dialog).getByRole("button", { name: "Delete permanently" });
+    const field = within(dialog).getByLabelText("Type DELETE to confirm");
+    // Bulk delete has a LARGER blast radius than single delete, so it carries at
+    // least as much friction: a typed token, not a one-click confirm. Empty and
+    // any non-matching value keep it disabled (pins equality, not "non-empty").
+    expect(confirmBtn).toBeDisabled();
+    await user.type(field, "nope");
+    expect(confirmBtn).toBeDisabled();
+    await user.clear(field);
+    await user.type(field, "DELETE");
+    expect(confirmBtn).toBeEnabled();
+    await user.click(confirmBtn);
 
     await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith(1));
     // The acted-on set is NARROWER than the visible set: the unselected id 2 must
@@ -259,11 +270,12 @@ describe("UserManagementPanel", () => {
     await user.click(within(bar).getByRole("button", { name: "Delete" }));
     const dialog = await screen.findByRole("dialog");
     // Title reflects the frozen count.
-    expect(within(dialog).getByText("Delete 1 user?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Delete 1 account?")).toBeInTheDocument();
 
     // Now ALSO select id 2 while the dialog is open (a live-selection shift).
     // The frozen snapshot must ignore it.
     await user.click(screen.getByLabelText("Select b@example.com"));
+    await user.type(within(dialog).getByLabelText("Type DELETE to confirm"), "DELETE");
     await user.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
 
     await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith(1));

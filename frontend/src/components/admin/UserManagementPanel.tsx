@@ -505,21 +505,21 @@ export function UserManagementPanel() {
       )}
 
       {bulkDeleteIds != null && (
-        <ConfirmDialog
-          title={`Delete ${bulkDeleteIds.length} user${bulkDeleteIds.length === 1 ? "" : "s"}?`}
-          message="This permanently deletes the selected accounts and all of their data. Sales records are kept but anonymised, for tax. This cannot be undone."
-          confirmLabel="Delete permanently"
+        <BulkDeleteModal
+          count={bulkDeleteIds.length}
           onConfirm={doBulkDelete}
-          onCancel={() => setBulkDeleteIds(null)}
-          destructive
+          onClose={() => setBulkDeleteIds(null)}
         />
       )}
     </div>
   );
 }
 
-// Permanent delete behind a type-the-email confirmation — a deliberately higher
-// bar than a one-click ConfirmDialog for the only irreversible action here.
+// Permanent single-user delete behind a type-the-EMAIL confirmation — a
+// deliberately higher bar than a one-click ConfirmDialog, because this is
+// irreversible. Its bulk sibling (BulkDeleteModal, below) gates on the sentinel
+// word DELETE for the same reason: a batch has no single email to type, but a
+// larger blast radius must not get *weaker* friction than deleting one account.
 function DeleteUserModal({ user, onClose }: { user: AdminUser; onClose: () => void }) {
   const deleteMut = useDeleteAdminUser();
   const [typed, setTyped] = useState("");
@@ -581,6 +581,79 @@ function DeleteUserModal({ user, onClose }: { user: AdminUser; onClose: () => vo
             </button>
             <button type="submit" disabled={!confirmed || deleteMut.isPending} style={dangerBtn(!confirmed || deleteMut.isPending)}>
               {deleteMut.isPending ? "Deleting…" : "Delete permanently"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </ModalShell>
+  );
+}
+
+// Permanent BULK delete behind a type-the-word ("DELETE") confirmation. Bulk
+// delete has a larger blast radius than single delete (up to a page of accounts
+// at once), so it must carry at least as much friction — a deliberate typed
+// token, not a one-click confirm that a slipped Enter could fire. There's no
+// single email to type for a batch, hence the sentinel word. The count is shown
+// prominently so the admin acknowledges how many accounts are about to go.
+function BulkDeleteModal({
+  count,
+  onConfirm,
+  onClose,
+}: {
+  count: number;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const confirmed = typed.trim().toUpperCase() === "DELETE";
+
+  function submit(e: React.FormEvent): void {
+    e.preventDefault();
+    if (!confirmed) return;
+    onConfirm();
+  }
+
+  return (
+    <ModalShell onClose={onClose} ariaLabel="Delete selected users" zIndex={1200}>
+      <div
+        style={{
+          background: colors.card,
+          color: colors.text,
+          borderRadius: 12,
+          padding: "1.5rem",
+          width: "min(92vw, 440px)",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.25)",
+          border: "1px solid #fecaca",
+        }}
+      >
+        <h3 style={{ margin: "0 0 0.75rem", fontSize: "1.15rem", color: colors.danger }}>
+          Delete {count} account{count === 1 ? "" : "s"}?
+        </h3>
+        <p style={{ margin: "0 0 1rem", fontSize: 14, color: colors.textBody }}>
+          This permanently deletes{" "}
+          {count === 1 ? "the selected account" : `all ${count} selected accounts`} and
+          every bit of their data (plans, fridge, sessions). Sales records are kept but
+          anonymised, for tax. <strong>This cannot be undone.</strong>
+        </p>
+        <form onSubmit={submit}>
+          <label style={formLabel}>
+            Type DELETE to confirm
+            <input
+              type="text"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              aria-label="Type DELETE to confirm"
+              placeholder="DELETE"
+              autoComplete="off"
+              style={inputStyle}
+            />
+          </label>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1.25rem" }}>
+            <button type="button" onClick={onClose} style={secondaryBtn(false)}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!confirmed} style={dangerBtn(!confirmed)}>
+              Delete permanently
             </button>
           </div>
         </form>
