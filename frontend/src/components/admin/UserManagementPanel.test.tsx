@@ -175,6 +175,168 @@ describe("UserManagementPanel", () => {
     await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith(8));
   });
 
+  it("selects rows and bulk-deactivates them", async () => {
+    const users = [mkUser({ id: 1, email: "a@example.com" }), mkUser({ id: 2, email: "b@example.com" })];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.updateAdminUser).mockResolvedValue(mkUser());
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    await user.click(screen.getByLabelText("Select all users on this page"));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+
+    const bar = screen.getByRole("region", { name: "Bulk actions" });
+    await user.click(within(bar).getByRole("button", { name: "Deactivate" }));
+
+    await waitFor(() => {
+      expect(api.updateAdminUser).toHaveBeenCalledWith(1, { is_active: false });
+      expect(api.updateAdminUser).toHaveBeenCalledWith(2, { is_active: false });
+    });
+    // Green summary banner, plural-correct ("users", not "user").
+    expect(await screen.findByText("Deactivated 2 users.")).toBeInTheDocument();
+  });
+
+  it("bulk-reactivates the selection", async () => {
+    const users = [
+      mkUser({ id: 1, email: "a@example.com", is_active: false }),
+      mkUser({ id: 2, email: "b@example.com", is_active: false }),
+    ];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.updateAdminUser).mockResolvedValue(mkUser());
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    await user.click(screen.getByLabelText("Select all users on this page"));
+    const bar = screen.getByRole("region", { name: "Bulk actions" });
+    await user.click(within(bar).getByRole("button", { name: "Reactivate" }));
+
+    // Distinct payload from Deactivate — is_active:true — for every selected id.
+    await waitFor(() => {
+      expect(api.updateAdminUser).toHaveBeenCalledWith(1, { is_active: true });
+      expect(api.updateAdminUser).toHaveBeenCalledWith(2, { is_active: true });
+    });
+    expect(await screen.findByText("Reactivated 2 users.")).toBeInTheDocument();
+  });
+
+  it("bulk-deletes the selection behind a confirm dialog", async () => {
+    const users = [mkUser({ id: 1, email: "a@example.com" }), mkUser({ id: 2, email: "b@example.com" })];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.deleteAdminUser).mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    // Select ONLY id 1, leaving id 2 unselected.
+    await user.click(screen.getByLabelText("Select a@example.com"));
+    const bar = screen.getByRole("region", { name: "Bulk actions" });
+    await user.click(within(bar).getByRole("button", { name: "Delete" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+
+    await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith(1));
+    // The acted-on set is NARROWER than the visible set: the unselected id 2 must
+    // never be deleted. (Guards the highest-consequence action in the feature.)
+    expect(api.deleteAdminUser).toHaveBeenCalledTimes(1);
+    expect(api.deleteAdminUser).not.toHaveBeenCalledWith(2);
+    // Singular pluralisation branch ("user", not "users").
+    expect(await screen.findByText("Deleted 1 user.")).toBeInTheDocument();
+  });
+
+  it("bulk-delete acts on the batch frozen at confirm-open, not a later selection change", async () => {
+    const users = [mkUser({ id: 1, email: "a@example.com" }), mkUser({ id: 2, email: "b@example.com" })];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.deleteAdminUser).mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    // Select only id 1, then open the confirm — this FREEZES the batch as [1].
+    await user.click(screen.getByLabelText("Select a@example.com"));
+    const bar = screen.getByRole("region", { name: "Bulk actions" });
+    await user.click(within(bar).getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    // Title reflects the frozen count.
+    expect(within(dialog).getByText("Delete 1 user?")).toBeInTheDocument();
+
+    // Now ALSO select id 2 while the dialog is open (a live-selection shift).
+    // The frozen snapshot must ignore it.
+    await user.click(screen.getByLabelText("Select b@example.com"));
+    await user.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+
+    await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith(1));
+    expect(api.deleteAdminUser).toHaveBeenCalledTimes(1);
+    expect(api.deleteAdminUser).not.toHaveBeenCalledWith(2);
+  });
+
+  it("reports per-user failures and continues the batch PAST the failure", async () => {
+    // The FIRST user fails and a LATER user succeeds — so a break-on-first-failure
+    // regression (which would skip id 2) is caught by the id-2 assertion below.
+    const users = [
+      mkUser({ id: 1, email: "solo@example.com", is_admin: true }),
+      mkUser({ id: 2, email: "ok@example.com" }),
+    ];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.updateAdminUser).mockImplementation((id: number) =>
+      id === 1
+        ? Promise.reject(new Error("Cannot remove the last active admin."))
+        : Promise.resolve(mkUser()),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("solo@example.com");
+
+    await user.click(screen.getByLabelText("Select all users on this page"));
+    const bar = screen.getByRole("region", { name: "Bulk actions" });
+    await user.click(within(bar).getByRole("button", { name: "Deactivate" }));
+
+    // id 2 runs AFTER the failing id 1 — proves the loop did not abort.
+    await waitFor(() => expect(api.updateAdminUser).toHaveBeenCalledWith(2, { is_active: false }));
+    expect(api.updateAdminUser).toHaveBeenCalledWith(1, { is_active: false });
+    // The failing user is named with its reason (amber partial banner).
+    expect(await screen.findByText(/1 failed/)).toBeInTheDocument();
+    expect(screen.getByText(/solo@example.com: Cannot remove the last active admin/)).toBeInTheDocument();
+  });
+
+  it("shows an indeterminate select-all for a partial selection and clears it", async () => {
+    const users = [mkUser({ id: 1, email: "a@example.com" }), mkUser({ id: 2, email: "b@example.com" })];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    const selectAll = screen.getByLabelText("Select all users on this page") as HTMLInputElement;
+    // One of two selected → header checkbox is indeterminate, not checked.
+    await user.click(screen.getByLabelText("Select a@example.com"));
+    expect(selectAll.indeterminate).toBe(true);
+    expect(selectAll.checked).toBe(false);
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+
+    // Clear wipes the selection and dismisses the bulk bar.
+    const bar = screen.getByRole("region", { name: "Bulk actions" });
+    await user.click(within(bar).getByRole("button", { name: "Clear" }));
+    expect(screen.queryByRole("region", { name: "Bulk actions" })).not.toBeInTheDocument();
+    expect(selectAll.indeterminate).toBe(false);
+  });
+
+  it("excludes the acting admin and demo accounts from selection", async () => {
+    window.localStorage.setItem("mealbot_user_id", "2"); // acting admin is id 2
+    const users = [
+      mkUser({ id: 1, email: "a@example.com" }),
+      mkUser({ id: 2, email: "me@example.com" }),
+      mkUser({ id: 3, email: "demo@example.com", is_demo: true }),
+    ];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    expect(screen.getByLabelText("Select a@example.com")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Select me@example.com")).not.toBeInTheDocument(); // self
+    expect(screen.queryByLabelText("Select demo@example.com")).not.toBeInTheDocument(); // demo
+  });
+
   it("creates a user via the modal form", async () => {
     vi.mocked(api.createAdminUser).mockResolvedValue(
       mkUser({ id: 12, email: "new@example.com" }),

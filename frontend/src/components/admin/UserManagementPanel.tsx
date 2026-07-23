@@ -1,7 +1,8 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { ModalShell } from "../ModalShell";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   useCreateAdminUser,
   useDeleteAdminUser,
@@ -9,7 +10,7 @@ import {
   useResetAdminUserOnboarding,
   useUpdateAdminUser,
 } from "../../hooks/useServerState";
-import { fetchAdminUsers } from "../../api";
+import { deleteAdminUser, fetchAdminUsers, updateAdminUser } from "../../api";
 import type { AdminUser, AdminUserRoleFilter, AdminUserStatusFilter } from "../../types";
 import { colors, radius } from "./theme";
 
@@ -32,12 +33,14 @@ export function UserManagementPanel() {
   const [statusFilter, setStatusFilter] = useState<AdminUserStatusFilter>("all");
   const [roleFilter, setRoleFilter] = useState<AdminUserRoleFilter>("all");
   const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   // Debounce the search box so we don't fire a request per keystroke.
   useEffect(() => {
     const t = setTimeout(() => {
       setQ(searchInput.trim());
       setPage(0);
+      setSelected(new Set()); // the result set changes — drop stale selections
     }, 250);
     return () => clearTimeout(t);
   }, [searchInput]);
@@ -66,6 +69,84 @@ export function UserManagementPanel() {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+
+  // --- Bulk selection ---
+  const { userId: currentAdminId } = useAuth();
+  const queryClient = useQueryClient();
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState<
+    { verb: string; ok: number; failed: { label: string; error: string }[] } | null
+  >(null);
+  // Frozen at confirm-open time so the batch can't shift under a re-render.
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<number[] | null>(null);
+
+  const dataUsers = usersQuery.data?.users;
+  // Demo accounts and the acting admin themselves can't be bulk-mutated (the
+  // backend would 400/409 anyway) — exclude them from selection.
+  function isSelectable(u: AdminUser): boolean {
+    return !u.is_demo && u.id !== currentAdminId;
+  }
+  const selectableOnPage = (dataUsers ?? []).filter(isSelectable);
+  const allSelected =
+    selectableOnPage.length > 0 && selectableOnPage.every((u) => selected.has(u.id));
+  const someSelected = selectableOnPage.some((u) => selected.has(u.id));
+  // Only ever act on rows the admin can currently SEE and select — derived, so a
+  // stale off-page id in `selected` can never be mutated (selection is also
+  // cleared on navigation, below).
+  const selectedIds = selectableOnPage.filter((u) => selected.has(u.id)).map((u) => u.id);
+
+  function toggleRow(id: number): void {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll(): void {
+    setSelected(allSelected ? new Set() : new Set(selectableOnPage.map((u) => u.id)));
+  }
+
+  // Run a mutation over every selected id, collecting per-user outcomes (each
+  // endpoint is already guarded/audited), then invalidate the list ONCE and
+  // report a summary — a partial batch shows which users failed and why (e.g.
+  // the last-admin 409) rather than aborting the whole run.
+  async function runBulk(
+    ids: number[],
+    action: (id: number) => Promise<unknown>,
+    verb: string,
+  ): Promise<void> {
+    setBanner(null);
+    setBulkResult(null);
+    setBulkBusy(true);
+    const labelFor = new Map((dataUsers ?? []).map((u) => [u.id, u.email] as const));
+    const failed: { label: string; error: string }[] = [];
+    let ok = 0;
+    for (const id of ids) {
+      try {
+        await action(id);
+        ok += 1;
+      } catch (e) {
+        failed.push({ label: labelFor.get(id) ?? String(id), error: e instanceof Error ? e.message : "failed" });
+      }
+    }
+    setSelected(new Set());
+    setBulkBusy(false);
+    await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    setBulkResult({ verb, ok, failed });
+  }
+
+  function bulkDeactivate(): void {
+    void runBulk(selectedIds, (id) => updateAdminUser(id, { is_active: false }), "Deactivated");
+  }
+  function bulkReactivate(): void {
+    void runBulk(selectedIds, (id) => updateAdminUser(id, { is_active: true }), "Reactivated");
+  }
+  function doBulkDelete(): void {
+    const ids = bulkDeleteIds ?? [];
+    setBulkDeleteIds(null);
+    void runBulk(ids, (id) => deleteAdminUser(id), "Deleted");
+  }
 
   // A non-confirmed ("direct") mutation — surface any error in the top banner.
   function runDirect(fire: (cb: { onError: (e: Error) => void }) => void): void {
@@ -173,6 +254,7 @@ export function UserManagementPanel() {
             onChange={(e) => {
               setStatusFilter(e.target.value as AdminUserStatusFilter);
               setPage(0);
+              setSelected(new Set());
             }}
             style={selectStyle}
           >
@@ -189,6 +271,7 @@ export function UserManagementPanel() {
             onChange={(e) => {
               setRoleFilter(e.target.value as AdminUserRoleFilter);
               setPage(0);
+              setSelected(new Set());
             }}
             style={selectStyle}
           >
@@ -210,6 +293,46 @@ export function UserManagementPanel() {
         </div>
       )}
 
+      {bulkResult && (
+        <div
+          role="status"
+          style={bulkResult.failed.length === 0 ? successBannerStyle : warnBannerStyle}
+        >
+          {bulkResult.verb} {bulkResult.ok} user{bulkResult.ok === 1 ? "" : "s"}.
+          {bulkResult.failed.length > 0 && (
+            <>
+              {" "}
+              {bulkResult.failed.length} failed —{" "}
+              {bulkResult.failed.map((f) => `${f.label}: ${f.error}`).join("; ")}
+            </>
+          )}
+        </div>
+      )}
+
+      {selectedIds.length > 0 && (
+        <div role="region" aria-label="Bulk actions" style={selectionBarStyle}>
+          <span style={{ fontWeight: 600, color: colors.text }}>{selectedIds.length} selected</span>
+          <button type="button" onClick={bulkDeactivate} disabled={bulkBusy} style={secondaryBtn(bulkBusy)}>
+            Deactivate
+          </button>
+          <button type="button" onClick={bulkReactivate} disabled={bulkBusy} style={secondaryBtn(bulkBusy)}>
+            Reactivate
+          </button>
+          <button
+            type="button"
+            onClick={() => setBulkDeleteIds(selectedIds)}
+            disabled={bulkBusy}
+            style={dangerBtn(bulkBusy)}
+          >
+            Delete
+          </button>
+          <button type="button" onClick={() => setSelected(new Set())} disabled={bulkBusy} style={secondaryBtn(bulkBusy)}>
+            Clear
+          </button>
+          {bulkBusy && <span style={{ color: colors.textMuted, fontSize: 13 }}>Working…</span>}
+        </div>
+      )}
+
       {usersQuery.isLoading && (
         <div style={{ color: colors.textMuted, fontSize: 13 }}>Loading…</div>
       )}
@@ -226,6 +349,18 @@ export function UserManagementPanel() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 620 }}>
               <thead>
                 <tr style={{ textAlign: "left", color: colors.textMuted, borderBottom: `1px solid ${colors.border}` }}>
+                  <th style={{ ...th, width: 28 }}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select all users on this page"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someSelected && !allSelected;
+                      }}
+                      onChange={toggleSelectAll}
+                      disabled={selectableOnPage.length === 0}
+                    />
+                  </th>
                   <th style={th}>User</th>
                   <th style={th}>Status</th>
                   <th style={th}>Joined</th>
@@ -235,6 +370,16 @@ export function UserManagementPanel() {
               <tbody>
                 {data.users.map((u) => (
                   <tr key={u.id} style={{ borderBottom: `1px solid ${colors.borderSubtle}` }}>
+                    <td style={td}>
+                      {isSelectable(u) && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${u.email}`}
+                          checked={selected.has(u.id)}
+                          onChange={() => toggleRow(u.id)}
+                        />
+                      )}
+                    </td>
                     <td style={td}>
                       <div style={{ color: colors.text }}>{u.email}</div>
                       {u.country && (
@@ -285,7 +430,7 @@ export function UserManagementPanel() {
                 ))}
                 {data.users.length === 0 && (
                   <tr>
-                    <td colSpan={4} style={{ ...td, color: colors.textFaint }}>
+                    <td colSpan={5} style={{ ...td, color: colors.textFaint }}>
                       No users match these filters.
                     </td>
                   </tr>
@@ -311,7 +456,10 @@ export function UserManagementPanel() {
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button
                 type="button"
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                onClick={() => {
+                  setPage((p) => Math.max(0, p - 1));
+                  setSelected(new Set());
+                }}
                 disabled={page === 0}
                 style={secondaryBtn(page === 0)}
               >
@@ -319,7 +467,10 @@ export function UserManagementPanel() {
               </button>
               <button
                 type="button"
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => {
+                  setPage((p) => p + 1);
+                  setSelected(new Set());
+                }}
                 disabled={end >= total}
                 style={secondaryBtn(end >= total)}
               >
@@ -351,6 +502,17 @@ export function UserManagementPanel() {
 
       {deleteTarget && (
         <DeleteUserModal user={deleteTarget} onClose={() => setDeleteTarget(null)} />
+      )}
+
+      {bulkDeleteIds != null && (
+        <ConfirmDialog
+          title={`Delete ${bulkDeleteIds.length} user${bulkDeleteIds.length === 1 ? "" : "s"}?`}
+          message="This permanently deletes the selected accounts and all of their data. Sales records are kept but anonymised, for tax. This cannot be undone."
+          confirmLabel="Delete permanently"
+          onConfirm={doBulkDelete}
+          onCancel={() => setBulkDeleteIds(null)}
+          destructive
+        />
       )}
     </div>
   );
@@ -666,5 +828,37 @@ const bannerStyle: CSSProperties = {
   color: colors.danger,
   border: "1px solid #fecaca",
   fontSize: 13,
+  marginBottom: "0.75rem",
+};
+
+const successBannerStyle: CSSProperties = {
+  padding: "0.5rem 0.75rem",
+  borderRadius: radius,
+  background: "#f0fdf4",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
+  fontSize: 13,
+  marginBottom: "0.75rem",
+};
+
+const warnBannerStyle: CSSProperties = {
+  padding: "0.5rem 0.75rem",
+  borderRadius: radius,
+  background: "#fffbeb",
+  color: "#92400e",
+  border: "1px solid #fde68a",
+  fontSize: 13,
+  marginBottom: "0.75rem",
+};
+
+const selectionBarStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "0.5rem",
+  padding: "0.5rem 0.75rem",
+  borderRadius: radius,
+  background: "#eef2ff",
+  border: `1px solid ${colors.border}`,
   marginBottom: "0.75rem",
 };
