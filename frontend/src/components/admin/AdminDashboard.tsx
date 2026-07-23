@@ -1,10 +1,19 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../contexts/AuthContext";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { BarChart, type Bar } from "./BarChart";
 import { RevenuePanel } from "./RevenuePanel";
 import { FunnelPanel } from "./FunnelPanel";
+import { Tabs } from "./Tabs";
+import { tabButtonId, tabPanelId, type TabDef } from "./tabIds";
+import {
+  captionStyle,
+  cardStyle,
+  chart,
+  colors,
+  sectionTitleStyle,
+} from "./theme";
 import {
   fetchAdminActivity,
   fetchAdminFunnel,
@@ -23,21 +32,24 @@ function fmtDay(iso: string): string {
   return `${MONTHS[Number(parts[1])] ?? parts[1]} ${Number(parts[2])}`;
 }
 
+type TabId = "overview" | "revenue" | "generation";
+
+const ADMIN_TABS: TabDef[] = [
+  { id: "overview", label: "Overview" },
+  { id: "revenue", label: "Revenue" },
+  { id: "generation", label: "Generation" },
+];
+
+const ID_BASE = "admin";
+
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div
-      style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: 8,
-        padding: "0.9rem 1rem",
-        background: "#fff",
-      }}
-    >
-      <div style={{ fontSize: 12, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4 }}>
+    <div style={cardStyle}>
+      <div style={{ fontSize: 12, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>
         {label}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: "#111827", marginTop: 4 }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{sub}</div>}
+      <div style={{ fontSize: 26, fontWeight: 700, color: colors.text, marginTop: 4 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: colors.textFaint, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -45,7 +57,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section style={{ marginTop: "1.75rem" }}>
-      <h3 style={{ margin: "0 0 0.75rem", fontSize: 16, color: "#111827" }}>{title}</h3>
+      <h3 style={sectionTitleStyle}>{title}</h3>
       {children}
     </section>
   );
@@ -60,19 +72,40 @@ function QueryState({
   error: unknown;
   children: ReactNode;
 }) {
-  if (isLoading) return <div style={{ color: "#888", fontSize: 13 }}>Loading…</div>;
+  if (isLoading) return <div style={{ color: colors.textMuted, fontSize: 13 }}>Loading…</div>;
   if (error)
     return (
-      <div style={{ color: "#b91c1c", fontSize: 13 }}>
+      <div style={{ color: colors.danger, fontSize: 13 }}>
         Failed to load. {error instanceof Error ? error.message : ""}
       </div>
     );
   return <>{children}</>;
 }
 
+/**
+ * One tab's panel. All three panels always render (each with a stable id) so
+ * every tab button's `aria-controls` resolves to a real element — a lone
+ * id-swapping panel would leave the inactive tabs pointing at a non-existent id
+ * (axe `aria-valid-attr-value`). Inactive panels are `hidden` and get no
+ * children, so content stays lazy and only the active subtree mounts.
+ */
+function TabPanel({ id, active, children }: { id: string; active: boolean; children: ReactNode }) {
+  return (
+    <div
+      role="tabpanel"
+      id={tabPanelId(ID_BASE, id)}
+      aria-labelledby={tabButtonId(ID_BASE, id)}
+      hidden={!active}
+    >
+      {active && children}
+    </div>
+  );
+}
+
 export function AdminDashboard({ onExit }: { onExit: () => void }) {
   const { isAdmin } = useAuth();
   const isMobile = useIsMobile();
+  const [tab, setTab] = useState<TabId>("overview");
 
   const overview = useQuery({
     queryKey: ["admin", "overview"],
@@ -110,10 +143,10 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
       onClick={onExit}
       style={{
         padding: "0.4rem 0.9rem",
-        border: "1px solid #d1d5db",
+        border: `1px solid ${colors.borderStrong}`,
         borderRadius: 6,
-        background: "#fff",
-        color: "#111827",
+        background: colors.card,
+        color: colors.text,
         cursor: "pointer",
         fontSize: 14,
       }}
@@ -125,7 +158,7 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
   if (!isAdmin) {
     return (
       <div style={{ maxWidth: 600, margin: "3rem auto", padding: "0 1rem", textAlign: "center" }}>
-        <p style={{ color: "#6b7280" }}>You don't have access to the admin dashboard.</p>
+        <p style={{ color: colors.textMuted }}>You don't have access to the admin dashboard.</p>
         {backButton}
       </div>
     );
@@ -151,7 +184,7 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
     // index.css is the Vite default (dark-by-default); the rest of the app leans
     // on the adaptive default text color, which these hardcoded colors don't —
     // pinning the surface here keeps every element legible in light AND dark mode.
-    <div style={{ background: "#f9fafb", color: "#1f2937", minHeight: "100vh" }}>
+    <div style={{ background: colors.surface, color: colors.baseText, minHeight: "100vh" }}>
       <div
         style={{
           maxWidth: 1100,
@@ -166,144 +199,159 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
             alignItems: "center",
             justifyContent: "space-between",
             gap: "1rem",
-            borderBottom: "2px solid #333",
+            borderBottom: `2px solid ${colors.rule}`,
             paddingBottom: "0.6rem",
+            marginBottom: "1.25rem",
           }}
         >
           <h1 style={{ margin: 0, fontSize: isMobile ? 20 : 26 }}>🛠️ Admin Dashboard</h1>
           {backButton}
         </div>
 
-      <Section title="Overview">
-        <QueryState isLoading={overview.isLoading} error={overview.error}>
-          {overview.data && (
-            <>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
-                  gap: "0.75rem",
-                }}
-              >
-                <StatCard
-                  label="Users"
-                  value={overview.data.total_users.toLocaleString()}
-                  sub={`${overview.data.active_users_30d} active (30d)`}
-                />
-                <StatCard
-                  label="Demo / Admin"
-                  value={`${overview.data.demo_users} / ${overview.data.admin_users}`}
-                />
-                <StatCard label="LLM calls" value={overview.data.llm_calls.toLocaleString()} />
-                <StatCard
-                  label="Total tokens"
-                  value={overview.data.total_tokens.toLocaleString()}
-                  sub={`${overview.data.prompt_tokens.toLocaleString()} in · ${overview.data.completion_tokens.toLocaleString()} out`}
-                />
-              </div>
-              <div style={{ marginTop: "1.25rem" }}>
-                <div style={{ fontSize: 13, color: "#374151", marginBottom: 6 }}>
-                  Generations by feature (all-time)
-                </div>
-                <BarChart data={genSurfaceBars} color="#8b5cf6" height={120} maxLabels={6} />
-              </div>
+        <Tabs
+          tabs={ADMIN_TABS}
+          active={tab}
+          onChange={(id) => setTab(id as TabId)}
+          ariaLabel="Admin sections"
+          idBase={ID_BASE}
+        />
+
+        <TabPanel id="overview" active={tab === "overview"}>
+          <>
+              <QueryState isLoading={overview.isLoading} error={overview.error}>
+                {overview.data && (
+                  <>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <StatCard
+                        label="Users"
+                        value={overview.data.total_users.toLocaleString()}
+                        sub={`${overview.data.active_users_30d} active (30d)`}
+                      />
+                      <StatCard
+                        label="Demo / Admin"
+                        value={`${overview.data.demo_users} / ${overview.data.admin_users}`}
+                      />
+                      <StatCard label="LLM calls" value={overview.data.llm_calls.toLocaleString()} />
+                      <StatCard
+                        label="Total tokens"
+                        value={overview.data.total_tokens.toLocaleString()}
+                        sub={`${overview.data.prompt_tokens.toLocaleString()} in · ${overview.data.completion_tokens.toLocaleString()} out`}
+                      />
+                    </div>
+                    <div style={{ marginTop: "1.25rem" }}>
+                      <div style={captionStyle}>Generations by feature (all-time)</div>
+                      <BarChart data={genSurfaceBars} color={chart.generations} height={120} maxLabels={6} />
+                    </div>
+                  </>
+                )}
+              </QueryState>
+
+              <Section title="Activation funnel">
+                <QueryState isLoading={funnel.isLoading} error={funnel.error}>
+                  {funnel.data && <FunnelPanel stats={funnel.data} />}
+                </QueryState>
+              </Section>
+          </>
+        </TabPanel>
+
+        <TabPanel id="revenue" active={tab === "revenue"}>
+          <Section title="Revenue & VAT">
+              <QueryState isLoading={revenue.isLoading} error={revenue.error}>
+                {revenue.data && <RevenuePanel stats={revenue.data} />}
+              </QueryState>
+            </Section>
+        </TabPanel>
+
+        <TabPanel id="generation" active={tab === "generation"}>
+          <>
+              <Section title="Token usage — last 30 days">
+                <QueryState isLoading={usage.isLoading} error={usage.error}>
+                  <BarChart data={usageSeries} color={chart.usage} />
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+                      gap: "1.25rem",
+                      marginTop: "1.25rem",
+                    }}
+                  >
+                    <div>
+                      <div style={captionStyle}>By feature</div>
+                      <BarChart data={surfaceBars} color={chart.usageBySurface} height={120} maxLabels={6} />
+                    </div>
+                    <div>
+                      <div style={captionStyle}>By provider</div>
+                      <BarChart data={providerBars} color={chart.usageByProvider} height={120} maxLabels={6} />
+                    </div>
+                  </div>
+                </QueryState>
+              </Section>
+
+              <Section title="Generation activity — last 30 days">
+                <QueryState isLoading={activity.isLoading} error={activity.error}>
+                  <BarChart data={activitySeries} color={chart.activity} />
+                  <div style={{ marginTop: "1.25rem" }}>
+                    <div style={captionStyle}>By feature</div>
+                    <BarChart data={activitySurfaceBars} color={chart.activityBySurface} height={120} maxLabels={6} />
+                  </div>
+                </QueryState>
+              </Section>
+
+              <Section title="Top users by tokens">
+                <QueryState isLoading={byUser.isLoading} error={byUser.error}>
+                  {byUser.data && (
+                    <>
+                      <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 8 }}>
+                        {byUser.data.users_with_usage} users ·{" "}
+                        {Math.round(byUser.data.avg_tokens_per_user).toLocaleString()} avg tokens/user
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                          <thead>
+                            <tr style={{ textAlign: "left", color: colors.textMuted, borderBottom: `1px solid ${colors.border}` }}>
+                              <th style={{ padding: "6px 8px" }}>User</th>
+                              <th style={{ padding: "6px 8px", textAlign: "right" }}>Calls</th>
+                              <th style={{ padding: "6px 8px", textAlign: "right" }}>Total tokens</th>
+                              <th style={{ padding: "6px 8px", textAlign: "right" }}>Avg/call</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {byUser.data.top_users.map((u) => (
+                              <tr key={u.user_id} style={{ borderBottom: `1px solid ${colors.borderSubtle}` }}>
+                                <td style={{ padding: "6px 8px" }}>{u.email}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  {u.calls.toLocaleString()}
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  {u.total_tokens.toLocaleString()}
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                  {Math.round(u.avg_tokens_per_call).toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                            {byUser.data.top_users.length === 0 && (
+                              <tr>
+                                <td colSpan={4} style={{ padding: "12px 8px", color: colors.textFaint }}>
+                                  No usage recorded yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </QueryState>
+              </Section>
             </>
-          )}
-        </QueryState>
-      </Section>
-
-      <Section title="Activation funnel">
-        <QueryState isLoading={funnel.isLoading} error={funnel.error}>
-          {funnel.data && <FunnelPanel stats={funnel.data} />}
-        </QueryState>
-      </Section>
-
-      <Section title="Revenue & VAT">
-        <QueryState isLoading={revenue.isLoading} error={revenue.error}>
-          {revenue.data && <RevenuePanel stats={revenue.data} />}
-        </QueryState>
-      </Section>
-
-      <Section title="Token usage — last 30 days">
-        <QueryState isLoading={usage.isLoading} error={usage.error}>
-          <BarChart data={usageSeries} color="#4f46e5" />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-              gap: "1.25rem",
-              marginTop: "1.25rem",
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, color: "#374151", marginBottom: 6 }}>By feature</div>
-              <BarChart data={surfaceBars} color="#0ea5e9" height={120} maxLabels={6} />
-            </div>
-            <div>
-              <div style={{ fontSize: 13, color: "#374151", marginBottom: 6 }}>By provider</div>
-              <BarChart data={providerBars} color="#10b981" height={120} maxLabels={6} />
-            </div>
-          </div>
-        </QueryState>
-      </Section>
-
-      <Section title="Generation activity — last 30 days">
-        <QueryState isLoading={activity.isLoading} error={activity.error}>
-          <BarChart data={activitySeries} color="#f59e0b" />
-          <div style={{ marginTop: "1.25rem" }}>
-            <div style={{ fontSize: 13, color: "#374151", marginBottom: 6 }}>By feature</div>
-            <BarChart data={activitySurfaceBars} color="#ef4444" height={120} maxLabels={6} />
-          </div>
-        </QueryState>
-      </Section>
-
-      <Section title="Top users by tokens">
-        <QueryState isLoading={byUser.isLoading} error={byUser.error}>
-          {byUser.data && (
-            <>
-              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
-                {byUser.data.users_with_usage} users ·{" "}
-                {Math.round(byUser.data.avg_tokens_per_user).toLocaleString()} avg tokens/user
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-                  <thead>
-                    <tr style={{ textAlign: "left", color: "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
-                      <th style={{ padding: "6px 8px" }}>User</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Calls</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Total tokens</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Avg/call</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {byUser.data.top_users.map((u) => (
-                      <tr key={u.user_id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ padding: "6px 8px" }}>{u.email}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                          {u.calls.toLocaleString()}
-                        </td>
-                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                          {u.total_tokens.toLocaleString()}
-                        </td>
-                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                          {Math.round(u.avg_tokens_per_call).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                    {byUser.data.top_users.length === 0 && (
-                      <tr>
-                        <td colSpan={4} style={{ padding: "12px 8px", color: "#9ca3af" }}>
-                          No usage recorded yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </QueryState>
-      </Section>
+        </TabPanel>
       </div>
     </div>
   );

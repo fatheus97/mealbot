@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { colors } from "./theme";
 import type { RevenueStats, ThresholdProgress } from "../../types";
 
 // Sits inside AdminDashboard's explicit light surface; every colour here is an
@@ -28,12 +29,12 @@ function barColor(pct: number): string {
 const th: CSSProperties = {
   textAlign: "left",
   padding: "0.3rem 0.75rem 0.3rem 0",
-  color: "#6b7280",
+  color: colors.textMuted,
   fontWeight: 600,
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: `1px solid ${colors.border}`,
 };
 const thR: CSSProperties = { ...th, textAlign: "right" };
-const td: CSSProperties = { padding: "0.3rem 0.75rem 0.3rem 0", color: "#374151" };
+const td: CSSProperties = { padding: "0.3rem 0.75rem 0.3rem 0", color: colors.textBody };
 const tdR: CSSProperties = { ...td, textAlign: "right" };
 
 function ThresholdBar({ t }: { t: ThresholdProgress }) {
@@ -41,8 +42,8 @@ function ThresholdBar({ t }: { t: ThresholdProgress }) {
   return (
     <div style={{ marginBottom: "0.9rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", fontSize: 13, marginBottom: 4 }}>
-        <span style={{ fontWeight: 600, color: "#111827" }}>{t.label}</span>
-        <span style={{ color: "#374151", whiteSpace: "nowrap" }}>
+        <span style={{ fontWeight: 600, color: colors.text }}>{t.label}</span>
+        <span style={{ color: colors.textBody, whiteSpace: "nowrap" }}>
           {fmtThreshold(t.current, t.unit)} / {fmtThreshold(t.threshold, t.unit)} ({Math.round(t.pct * 100)}%)
         </span>
       </div>
@@ -52,22 +53,22 @@ function ThresholdBar({ t }: { t: ThresholdProgress }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={t.label}
-        style={{ height: 10, background: "#e5e7eb", borderRadius: 6, overflow: "hidden" }}
+        style={{ height: 10, background: colors.border, borderRadius: 6, overflow: "hidden" }}
       >
         <div style={{ width: `${fill * 100}%`, height: "100%", background: barColor(t.pct) }} />
       </div>
-      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3 }}>{t.note}</div>
+      <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 3 }}>{t.note}</div>
     </div>
   );
 }
 
 export function RevenuePanel({ stats }: { stats: RevenueStats }) {
   if (stats.sales_count === 0 && stats.non_eur_sales_count === 0) {
-    return <div style={{ color: "#6b7280", fontSize: 13 }}>No sales recorded yet.</div>;
+    return <div style={{ color: colors.textMuted, fontSize: 13 }}>No sales recorded yet.</div>;
   }
 
   return (
-    <div style={{ color: "#1f2937" }}>
+    <div style={{ color: colors.baseText }}>
       <div style={{ marginBottom: "1rem", maxWidth: 520 }}>
         {stats.thresholds.map((t) => (
           <ThresholdBar key={t.key} t={t} />
@@ -117,7 +118,7 @@ export function RevenuePanel({ stats }: { stats: RevenueStats }) {
       )}
 
       {stats.recent.length > 0 && (
-        <div style={{ fontSize: 12, color: "#6b7280" }}>
+        <div style={{ fontSize: 12, color: colors.textMuted }}>
           Recent:{" "}
           {stats.recent.map((r, i) => (
             <span key={i}>
