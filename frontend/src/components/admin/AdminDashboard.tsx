@@ -82,6 +82,26 @@ function QueryState({
   return <>{children}</>;
 }
 
+/**
+ * One tab's panel. All three panels always render (each with a stable id) so
+ * every tab button's `aria-controls` resolves to a real element — a lone
+ * id-swapping panel would leave the inactive tabs pointing at a non-existent id
+ * (axe `aria-valid-attr-value`). Inactive panels are `hidden` and get no
+ * children, so content stays lazy and only the active subtree mounts.
+ */
+function TabPanel({ id, active, children }: { id: string; active: boolean; children: ReactNode }) {
+  return (
+    <div
+      role="tabpanel"
+      id={tabPanelId(ID_BASE, id)}
+      aria-labelledby={tabButtonId(ID_BASE, id)}
+      hidden={!active}
+    >
+      {active && children}
+    </div>
+  );
+}
+
 export function AdminDashboard({ onExit }: { onExit: () => void }) {
   const { isAdmin } = useAuth();
   const isMobile = useIsMobile();
@@ -196,13 +216,8 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
           idBase={ID_BASE}
         />
 
-        <div
-          role="tabpanel"
-          id={tabPanelId(ID_BASE, tab)}
-          aria-labelledby={tabButtonId(ID_BASE, tab)}
-        >
-          {tab === "overview" && (
-            <>
+        <TabPanel id="overview" active={tab === "overview"}>
+          <>
               <QueryState isLoading={overview.isLoading} error={overview.error}>
                 {overview.data && (
                   <>
@@ -242,19 +257,19 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
                   {funnel.data && <FunnelPanel stats={funnel.data} />}
                 </QueryState>
               </Section>
-            </>
-          )}
+          </>
+        </TabPanel>
 
-          {tab === "revenue" && (
-            <Section title="Revenue & VAT">
+        <TabPanel id="revenue" active={tab === "revenue"}>
+          <Section title="Revenue & VAT">
               <QueryState isLoading={revenue.isLoading} error={revenue.error}>
                 {revenue.data && <RevenuePanel stats={revenue.data} />}
               </QueryState>
             </Section>
-          )}
+        </TabPanel>
 
-          {tab === "generation" && (
-            <>
+        <TabPanel id="generation" active={tab === "generation"}>
+          <>
               <Section title="Token usage — last 30 days">
                 <QueryState isLoading={usage.isLoading} error={usage.error}>
                   <BarChart data={usageSeries} color={chart.usage} />
@@ -336,8 +351,7 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
                 </QueryState>
               </Section>
             </>
-          )}
-        </div>
+        </TabPanel>
       </div>
     </div>
   );

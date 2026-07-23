@@ -114,6 +114,20 @@ describe("AdminDashboard", () => {
     expect(screen.queryByText("alice@example.com")).not.toBeInTheDocument();
   });
 
+  it("wires every tab's aria-controls to a panel present in the DOM", async () => {
+    window.localStorage.setItem("mealbot_is_admin", "true");
+    renderWithProviders(<AdminDashboard onExit={() => {}} />);
+    await screen.findByText("900");
+
+    // All panels render (each with a stable id) even when hidden, so no tab's
+    // aria-controls dangles — the axe aria-valid-attr-value guarantee.
+    for (const tab of screen.getAllByRole("tab")) {
+      const panelId = tab.getAttribute("aria-controls");
+      expect(panelId).toBeTruthy();
+      expect(document.getElementById(panelId!)).not.toBeNull();
+    }
+  });
+
   it("switches to the Generation tab to reveal the top-user table", async () => {
     window.localStorage.setItem("mealbot_is_admin", "true");
     const user = userEvent.setup();
