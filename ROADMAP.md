@@ -28,8 +28,8 @@
 > That added the **Launch readiness** milestone, and finally **2026-07-21** after
 > **clearing that milestone's engineering**: password reset (#238/#239, E2E-
 > verified on prod), the funnel-instrumentation thrust (#240), and the owner
-> verifying the Resend sender domain + setting `ALERT_EMAIL_FROM` — so the launch
-> is now a single owner action (flip `REGISTRATION_ENABLED`). The same pass added
+> verifying the Resend sender domain + setting `ALERT_EMAIL_FROM` — which left the
+> launch a single owner action (flip `REGISTRATION_ENABLED`). The same pass added
 > a **periodic Docker disk-cleanup** ops item and an **admin-dashboard polish**
 > item (both owner-requested after a build-cache disk outage), a prod
 > env-change / recovery runbook in *Operating the deployment*, and a
@@ -38,7 +38,11 @@
 > stack restrictions), which the owner then generalised into a **cross-cutting
 > "evidence-grounded" product direction** (authoritative, cited data anywhere it
 > helps — dietary, nutrition, food safety, baby-food weaning — as both a quality
-> bar and a marketing pillar). Where the notes
+> bar and a marketing pillar), then researched the dietary reference layer into
+> `docs/dietary-reference.md` (v1.1, source-cited). Finally, **2026-07-23 the
+> owner PARKED the launch flag** — engineering is ready but the product "still
+> feels incomplete", so registration stays closed until the differentiator lands
+> (a product-readiness call, not an engineering blocker). Where the notes
 > and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
@@ -278,15 +282,29 @@ and the only way past it is Stripe Checkout with `billing_address_collection="re
 and a payment method. A throwaway account cannot burn a cent of Gemini quota. The
 paygate is doing its job.
 
-**All engineering prerequisites are DONE and E2E-verified on prod (2026-07-21).
-The launch is now one owner action away: flip the flag.**
+**All engineering prerequisites are DONE and E2E-verified on prod (2026-07-21)** —
+but **the owner has deliberately PARKED the flag flip (2026-07-23).** This is a
+*product-readiness* decision, not an engineering blocker: nothing is broken and
+the door *can* be opened at any time, but the product "still feels incomplete",
+and opening registration spends the app's one-shot first impressions (and any
+acquisition spend) on an as-yet-**undifferentiated** product — before the
+**combinable, evidence-grounded dietary handling** that is meant to be the paid
+differentiator (see *Product direction: evidence-grounded* + Full-release) has
+landed. Registration stays closed; the app keeps running as a closed alpha. The
+flip is one env var whenever the owner judges the product ready.
+
+> **Un-park when** the product feels complete enough to differentiate on — most
+> likely once the dietary-restrictions differentiator (its reference layer is
+> already researched: `docs/dietary-reference.md`) is at least partly shipped,
+> and/or a real landing page exists (Growth phase 2). The owner sets the bar;
+> this is a gut-feel "not yet", not a fixed checklist.
 
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
 | **Verified Resend sender domain** | ✅ | — | — | **DONE 2026-07-21.** Owner verified `trymealbot.com` in Resend (DNS is on **Cloudflare** — not Hetzner — nameservers `rafe`/`bruce.ns.cloudflare.com`; A record grey-clouded to the Hetzner box). `ALERT_EMAIL_FROM=noreply@trymealbot.com` set in the prod `.env` and picked up via `up -d backend`. Was mis-filed as an optional billing follow-up; it silently broke **all** user-facing mail (the sandbox `onboarding@resend.dev` only delivers to the Resend account owner). |
 | **Password reset** | ✅ | — | verified sender | **SHIPPED + LIVE + E2E-VERIFIED 2026-07-21** — backend #238, frontend UI #239. Owner ran the full flow on prod: forgot-password → link mail from `noreply@trymealbot.com` → reset → login with the new password. `PasswordResetToken` (sha256-stored, single-use, 30-min TTL, one-live-token-per-user partial unique index, row-locked redemption); the handler does zero inline work and dispatches the send as a background task so a hit and a miss are timing-identical (no enumeration oracle). Frontend: "Forgot your password?" → `ForgotPasswordModal` (neutral no-enumeration copy) + a global `ResetPasswordModal` that consumes `?reset_token=…` and scrubs it from the URL. |
 | **Funnel instrumentation** | ✅ | — | — | **SHIPPED + LIVE 2026-07-21 (#240).** UTM/referrer captured first-touch on `User`; every downstream milestone DERIVED at query time (no funnel-event table). `GET /admin/stats/funnel` — signup → generated → confirmed → cooked → paid, overall + by-source. Monotonic rollup (best-effort generation telemetry postdates the app, so a confirmed/cooked user with no generation row still counts as generated); counts only paywall-subject users (`NOT is_demo/is_admin/is_comped`); `by_source` capped top-20 + "other". Admin dashboard "Activation funnel" card. **Had to land before the flip — attribution can't be retrofitted onto a cohort that already arrived.** |
-| **Flip `REGISTRATION_ENABLED=true`** | ⬜ | S | all of the above | **The launch itself, and now the only step left.** One env var in the prod `.env`, then `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend` (`up -d`, NOT `restart` — see **Operating the deployment → Changing an env var** in the Alpha milestone above). |
+| **Flip `REGISTRATION_ENABLED=true`** | 🅿️ | S | all of the above **+ product feels ready** | **PARKED by the owner 2026-07-23** — the launch itself, mechanically trivial (one env var, then `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend` — `up -d`, NOT `restart`, see **Operating the deployment → Changing an env var** above), but deliberately held: the product "still feels incomplete" and shouldn't open to real users before the differentiator lands. Not blocked on engineering — blocked on the owner's readiness call. |
 
 > **Not blocking, worth knowing:** there is still no email *verification* on
 > signup, so addresses are unconfirmed (typos churn silently, and a reset link
@@ -491,13 +509,18 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │
      └─ ⬅ THE BINDING CONSTRAINT IS NOW USERS, NOT FEATURES
            │
-           ├─ Launch readiness — ALL ENGINEERING DONE + E2E-VERIFIED 2026-07-21:
+           ├─ Launch readiness — ALL ENGINEERING DONE + E2E-VERIFIED 2026-07-21,
+           │     but the FLAG FLIP is 🅿️ PARKED by the owner 2026-07-23
+           │     ("product still feels incomplete" — not an eng blocker):
            │     verified Resend domain ✅ ─► password reset ✅ (#238/#239) ─►
-           │     funnel instrumentation ✅ (#240) ─► ⬅ ONLY STEP LEFT:
-           │     FLIP REGISTRATION_ENABLED (owner, one env var)
+           │     funnel instrumentation ✅ (#240) ─► [FLIP REGISTRATION_ENABLED —
+           │     held until the product feels ready to differentiate on]
            │
-           └─ then: landing page + content ─► campaigns ─► budget reallocation
-                │                              (Growth / marketing milestone)
+           ├─ so the real next work is COMPLETING the product:
+           │     dietary differentiator (ref layer researched: docs/dietary-reference.md)
+           │     ─► landing page + content ─► THEN open registration
+           │
+           └─ then: campaigns ─► budget reallocation (Growth / marketing)
                 └─► usage data ─► un-parks the edit-feedback loop
 ```
 
@@ -507,15 +530,18 @@ are all shipped and live. The constraint has shifted: more features no longer
 obviously help, because there's no usage to tell us *which* features matter — and
 the one change that would learn from users is blocked on there being users.
 Highest-signal candidates now:
-1. **Launch readiness → Growth / marketing.** Checking prod on 2026-07-20 turned
-   up the thing that was actually first: **registration is closed**. As of
-   **2026-07-21 the engineering is DONE** — verified sender domain ✅, password
-   reset ✅ (#238/#239, E2E-verified on prod), funnel instrumentation ✅ (#240).
-   **The only step left is the owner flipping `REGISTRATION_ENABLED`.** After
-   that, Growth phase 2 (**landing page + content**, needed for a free launch
-   post as much as for paid ads) is the next move; the campaign automation
-   (phases 3–4) only pays off at a spend level that justifies it, and needs
-   sample-size guardrails before it's allowed near real money.
+1. **Complete the product, THEN open registration.** The launch engineering is
+   DONE (verified sender domain ✅, password reset ✅ #238/#239, funnel ✅ #240),
+   but **the owner PARKED the flag flip 2026-07-23** — the product "still feels
+   incomplete", and opening now would spend first impressions on an
+   undifferentiated app. So the real next work is *completing what makes it worth
+   opening*: the **combinable, evidence-grounded dietary differentiator** (its
+   reference layer is researched — `docs/dietary-reference.md` — so the next
+   slices are schema+compat → prompt → allergen screen → UI) and a **landing
+   page + content** (Growth phase 2). Once those make the product feel ready, the
+   flip is one env var; then campaign automation (Growth phases 3–4), which only
+   pays off at a spend level that justifies it and needs sample-size guardrails
+   before it's near real money.
 2. ~~**Close the edit-feedback loop**~~ — **PARKED 2026-07-20.** Capture keeps
    running so nothing is lost, but there aren't enough active users to learn
    from: consuming a handful of one-person corrections would make generations
@@ -550,13 +576,16 @@ Highest-signal candidates now:
    and **household/shared account** are also on the board but are genuinely
    larger and each carry a caveat — see their Full-release entries.
 
-**The launch (#1) is the standout — and it's now down to one owner action.** The
+**Launch is engineering-ready but 🅿️ parked by the owner (2026-07-23).** The
 whole gated chain (Resend domain → password reset → funnel instrumentation) is
-shipped and E2E-verified as of 2026-07-21; flipping `REGISTRATION_ENABLED` is all
-that stands between the app and taking real signups. After the flip, **Growth
-phase 2 (landing page + content)** is the next move — needed for a free launch
-post as much as for paid ads. **Cross-provider LLM fallback** (#4) stays a quick
-risk-reducer whenever.
+shipped and E2E-verified; the flip is mechanically one env var — but the owner is
+**holding it until the product feels ready to differentiate on**, rather than
+opening an undifferentiated app to its one-shot first impressions. So the
+standout work is now **completing the product**: the **dietary differentiator**
+(reference layer researched; next slices are schema → prompt → allergen screen →
+UI) and **Growth phase 2 (landing page + content)** — after which the flip
+happens whenever the owner judges it ready. **Cross-provider LLM fallback** (#4)
+stays a quick risk-reducer whenever.
 
 **If you want something small instead of/alongside growth**, pantry staples is
 the highest ratio of daily-felt improvement to effort on this document; the
