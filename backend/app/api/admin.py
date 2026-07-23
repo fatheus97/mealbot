@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
@@ -20,6 +20,8 @@ from app.db import get_session
 from app.models.admin_schemas import (
     ActivityBucket,
     ActivityStatsResponse,
+    AdminUserListResponse,
+    AdminUserRead,
     FunnelBySource,
     FunnelStage,
     FunnelStatsResponse,
@@ -497,3 +499,94 @@ async def stats_revenue(
     own statutory window (EU OSS: current calendar year; CZ: rolling 12 months) —
     see compute_revenue_stats."""
     return await revenue_service.compute_revenue_stats(session)
+
+
+# --- User management (read side) ---
+
+# Page-size ceiling for the user list — bounds a single response the same way the
+# stats endpoints bound their ranges.
+_MAX_USER_PAGE = 200
+
+
+def _escape_like(term: str) -> str:
+    """Escape LIKE wildcards so an admin's search term matches literally.
+
+    The query is already parameterised (no SQL injection), but without this a
+    term containing ``%`` or ``_`` would act as a wildcard (``a_b`` matching
+    ``axb``). Backslash-escapes ``\\``, ``%`` and ``_``; pair with
+    ``ilike(pattern, escape="\\")``.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _to_admin_user_read(u: User) -> AdminUserRead:
+    """Project a User row onto the narrow admin-list shape (never the password
+    hash or raw Stripe ids)."""
+    return AdminUserRead(
+        id=u.id,  # type: ignore[arg-type]  # always populated for a selected row
+        email=u.email,
+        created_at=u.created_at,
+        is_active=u.is_active,
+        is_admin=u.is_admin,
+        is_demo=u.is_demo,
+        is_comped=u.is_comped,
+        onboarding_completed=u.onboarding_completed,
+        country=u.country,
+        subscription_status=u.subscription_status,
+        current_period_end=u.current_period_end,
+    )
+
+
+@router.get("/users", response_model=AdminUserListResponse)
+async def list_users(
+    q: str | None = Query(
+        None, max_length=200, description="case-insensitive email substring"
+    ),
+    status_filter: Literal["all", "active", "disabled"] = Query("all", alias="status"),
+    role: Literal["all", "admin", "demo", "comped"] = "all",
+    limit: int = Query(50, ge=1, le=_MAX_USER_PAGE),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> AdminUserListResponse:
+    """List users for the admin User Management table (read-only).
+
+    Search by email substring (``q``), filter by enablement (``status``) and role,
+    paginate (``limit``/``offset``). ``total`` is the count matching the current
+    filters — not the page size — so the UI can page. Ordered newest-first
+    (``created_at`` desc, ``id`` desc as a stable tiebreaker). The projection
+    omits the password hash and raw Stripe ids by construction.
+    """
+    filters: list[ColumnElement[bool]] = []
+    if q:
+        filters.append(col(User.email).ilike(f"%{_escape_like(q)}%", escape="\\"))
+    if status_filter == "active":
+        filters.append(col(User.is_active).is_(True))
+    elif status_filter == "disabled":
+        filters.append(col(User.is_active).is_(False))
+    if role == "admin":
+        filters.append(col(User.is_admin).is_(True))
+    elif role == "demo":
+        filters.append(col(User.is_demo).is_(True))
+    elif role == "comped":
+        filters.append(col(User.is_comped).is_(True))
+
+    total = (
+        await session.execute(select(func.count()).select_from(User).where(*filters))
+    ).scalar_one()
+
+    rows = (
+        await session.execute(
+            select(User)
+            .where(*filters)
+            .order_by(col(User.created_at).desc(), col(User.id).desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).scalars().all()
+
+    return AdminUserListResponse(
+        total=int(total),
+        limit=limit,
+        offset=offset,
+        users=[_to_admin_user_read(u) for u in rows],
+    )
