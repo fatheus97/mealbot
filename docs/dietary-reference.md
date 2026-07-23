@@ -1,4 +1,4 @@
-# Dietary Restrictions & Allergies — Reference (v1.0)
+# Dietary Restrictions & Allergies — Reference (v1.1)
 
 > **This is a design / reference input for the "evidence-grounded dietary
 > restrictions & allergies" feature (see `ROADMAP.md` → Full release + the
@@ -16,24 +16,31 @@ Produced by the repo's `deep-research` harness over **two runs (2026-07-21)**
 **Why hand-synthesised:** the harness's automated synthesis step never ran — the
 verification phase is token-heavy and **exhausted the account's usage window
 before synthesis on both runs** (a known limitation for a query this large, not a
-data problem). Rather than burn a third window re-running the same fan-out, the
-verified claims from both runs were merged by hand. **28 claims confirmed at 2–3
-adversarial votes, 0 refuted**, from primary sources (EUR-Lex, UK FSA/ACSS,
-FDA/FSIS, Monash). A handful of claims from authoritative sources (NHLBI DASH,
-some FODMAP/vegan items) had their verification cut off by the limit and are
-marked accordingly.
+data problem; the resume didn't reuse the cache across a session boundary, so it
+re-ran the whole fan-out and hit the same wall). Rather than burn a third window,
+the **28 harness-confirmed claims** (2–3 adversarial votes, 0 refuted; EUR-Lex,
+UK FSA/ACSS, FDA/FSIS, Monash) were merged by hand.
+
+**v1.1 (2026-07-22): the remaining pattern-claim gaps were closed by a targeted
+direct-source verification pass** — instead of re-running the expensive fan-out,
+each still-`🔶` Part-2/3 claim was checked by fetching its primary source and
+confirming the exact quote. DASH (NHLBI), gluten-free→coeliac (NICE),
+vegan+low-FODMAP (Monash), and the vegan B12 / nutrients-of-concern fact (NHS)
+are now **directly verified** and upgraded to ✅.
 
 **Confidence legend (applied per claim/section):**
-- ✅ **VERIFIED** — confirmed by 2–3 independent adversarial votes against the cited primary source (across the two harness runs).
-- 🔶 **SOURCED (pending)** — from an authoritative source, but the harness's independent verification was cut off by the usage limit. High-confidence, established facts; re-verify before they become a public claim.
+- ✅ **VERIFIED** — confirmed either by 2–3 independent adversarial votes (harness) OR by a **direct primary-source fetch** confirming the exact quote (the v1.1 pass). Source noted per claim.
+- 🔶 **SOURCED / split** — either a claim whose harness verification was a **2-1 split** (a genuine adversarial dissent, kept flagged), or one still awaiting a source confirmation. Re-check before it becomes a public claim.
 - ✍️ **CURATED** — domain knowledge added to make the reference usable (chiefly the exhaustive per-allergen *alias/derivative* lists, which the law requires be excluded but does not enumerate). Draft — source each against an allergen-labelling authority before shipping.
 
 **Confidence by part:** Part 1 (allergens) and Part 4 (labelling/liability) are
-**largely verified** — with two claims flagged 🔶 because they verified only
-**2-1 (split)**: the sulphite threshold (Part 1) and the PAL/"free-from"
-mutual-exclusivity rule (Part 4). Part 2 (patterns) is verified for low-FODMAP
-and sourced/curated for the rest. Part 3 (combinations) is sourced/reasoned.
-**Nothing here is refuted.**
+**largely verified**. Three claims stay `🔶`: two that verified **2-1 (split)** —
+the sulphite threshold (Part 1) and the PAL/"free-from" mutual-exclusivity rule
+(Part 4), both kept flagged out of respect for the dissent — and one drawn from a
+**secondary legal analysis** (which "free-from" terms are legally defined, Part
+4). Part 2 (patterns) and Part 3 (combinations) are now **verified** for the
+sourced claims (low-FODMAP + the v1.1 direct-verify pass), with the remaining
+patterns `✍️ curated`. **Nothing here is refuted.**
 
 ---
 
@@ -82,10 +89,11 @@ sulphur dioxide / sulphites · **13** lupin · **14** molluscs.
   rule: for a declared sulphite sensitivity, **conservatively flag/avoid known
   high-sulphite ingredients** (dried fruit, wine, some juices, vinegar, processed
   potato) rather than trying to apply the threshold. 🔶 *legislation.gov.uk
-  Annex II — ⚠️ verified only **2-1 (split)**, and the earlier draft omitted the
-  "as consumed / reconstituted" qualifier; re-check the exact Annex II footnote
-  wording in EUR-Lex before this drives the screen.* Additive range **E220–E228**
-  *(FSAI, 🔶)*.
+  Annex II — ⚠️ the "10 mg/kg" number is corroborated (FSAI, direct-verified),
+  but the harness vote was **2-1 (split)** and the earlier draft omitted the "as
+  consumed / reconstituted" qualifier; re-check the exact Annex II footnote
+  wording in EUR-Lex before this drives the screen.* Additive range **E220–E228**,
+  used as preservatives ✅ *(FSAI, direct-verified — <https://www.fsai.ie/business-advice/running-a-food-business/food-safety-and-hygiene/additives/sulphur-dioxide-and-sulphites>)*.
 
 **US mapping — the "Big 9".** The US recognises **9** major allergens: **milk,
 eggs, fish, Crustacean shellfish, tree nuts, peanuts, wheat, soybeans, sesame.**
@@ -142,14 +150,14 @@ exclusions** — Part 1 — not diets.)
 
 | Pattern | Tier | Excludes / requires | Key nutrient risk | Confidence |
 |---|---|---|---|---|
-| **Gluten-free** | Medically-indicated (coeliac) | Excludes all gluten cereals (Part 1 #1). The primary treatment for **coeliac disease** (autoimmune) — not a lifestyle choice. **NB: "gluten-free" is the only *legally-defined* free-from claim (Part 4).** | fibre, iron, folate, B-vitamins (GF processed foods) | 🔶 *NICE QS134 — <https://www.nice.org.uk/guidance/qs134/chapter/quality-statement-4-advice-about-a-gluten-free-diet>* |
+| **Gluten-free** | Medically-indicated (coeliac) | Excludes all gluten cereals (Part 1 #1). The primary treatment for **coeliac disease** (autoimmune) — not a lifestyle choice. **NB: "gluten-free" is the only *legally-defined* free-from claim (Part 4).** | fibre, iron, folate, B-vitamins (GF processed foods) | ✅ *NICE QS134 (direct-verified: "A gluten-free diet is the main treatment for coeliac disease") — <https://www.nice.org.uk/guidance/qs134/chapter/quality-statement-4-advice-about-a-gluten-free-diet>* |
 | **Lactose-free / dairy-free** | Medically-indicated (intolerance) vs allergen | **Distinguish:** lactose *intolerance* = dose-tolerant digestive issue (lactose-reduced OK); milk *allergy* = the Part-1 allergen, strict exclusion of all milk derivatives. | calcium, vit D, B12, iodine | ✍️ curated (well-established) |
 | **Low-FODMAP** | Medically-indicated, **time-limited** | A **3-phase protocol, NOT a permanent diet**: Phase 1 elimination (**2–6 weeks, dietitian-supervised**), Phase 2 reintroduction (**~6–8 weeks**), Phase 3 personalisation. **The app must never treat low-FODMAP as a standing preference** without surfacing that it's temporary and clinician-guided. | — (restrictive; adequacy risk if prolonged) | ✅ *Monash (3-0 / 2-0) — <http://www.monashfodmap.com/blog/3-phases-low-fodmap-diet/>* |
 | **Diabetic / low-GI** | Medically-indicated | Prioritise low-glycaemic-index carbs, controlled portions/timing; not a fixed exclusion list. | (management, not exclusion) | ✍️ curated |
-| **DASH** | Strong-evidence | "Dietary Approaches to Stop Hypertension." Emphasises vegetables, fruit, whole grains, low-fat dairy, fish/poultry/beans/nuts, vegetable oils; **limits sodium (2,300 mg/day standard; 1,500 mg/day lower target), saturated fat, sugary drinks, sweets.** | — | 🔶 *NHLBI — <https://www.nhlbi.nih.gov/health/dash-eating-plan>* |
+| **DASH** | Strong-evidence | "Dietary Approaches to Stop Hypertension." Emphasises vegetables, fruit, whole grains, low-fat dairy, fish/poultry/beans/nuts, vegetable oils; **limits sodium (2,300 mg/day standard; 1,500 mg/day lower target), saturated fat, sugary drinks, sweets.** | — | ✅ *NHLBI (direct-verified: definition, sodium targets, and emphasis/limit foods all quoted) — <https://www.nhlbi.nih.gov/health/dash-eating-plan>* |
 | **Mediterranean** | Strong-evidence | Emphasises vegetables, fruit, legumes, whole grains, olive oil, fish/seafood, nuts; moderate poultry/dairy/eggs; limited red meat & sweets. Pattern, not a strict exclusion list. | — (generally adequate) | ✍️ curated (strong evidence base; source before public claims) |
-| **Vegetarian** | Lifestyle/ethical | Excludes meat, poultry, fish/seafood; includes dairy &/or eggs (lacto-/ovo- variants). | B12, iron, zinc, omega-3 | 🔶 *Academy of Nutrition & Dietetics — <https://www.jandonline.org/article/S2212-2672(16)31192-3/abstract>* |
-| **Vegan** | Lifestyle/ethical | Excludes **all** animal products (meat, fish, dairy, eggs, often honey). | **B12 (fortified/supplement required — vegans have the lowest B12 status)**, iron, calcium, vit D, iodine, choline, omega-3 | 🔶 *Academy of Nutrition & Dietetics (as above) + 2025 position <https://www.andeal.org/files/files/Vegetarian/VegetarianPP_2025.pdf>* |
+| **Vegetarian** | Lifestyle/ethical | Excludes meat, poultry, fish/seafood; includes dairy &/or eggs (lacto-/ovo- variants). | B12, iron, zinc, omega-3 | ✅ *(same NHS basis as vegan; well-planned = adequate)* · Academy of Nutrition & Dietetics <https://www.jandonline.org/article/S2212-2672(16)31192-3/abstract> |
+| **Vegan** | Lifestyle/ethical | Excludes **all** animal products (meat, fish, dairy, eggs, often honey). | **B12 (fortified/supplement required — B12 is not naturally in plant foods)**, iron, calcium, vit D, iodine, omega-3/selenium | ✅ *NHS (direct-verified: B12 needs a supplement/fortified source; well-planned vegan diet is adequate; nutrients to watch = calcium, iron, B12, iodine, selenium) — <https://www.nhs.uk/live-well/eat-well/how-to-eat-a-balanced-diet/the-vegan-diet/>*. *(Academy of Nutrition & Dietetics 2025 position paper corroborates but its PDF wasn't machine-readable for direct quoting.)* |
 | **Pescatarian** | Lifestyle/ethical | Vegetarian + fish/seafood; no meat/poultry. | generally adequate (B12/omega-3 from fish) | ✍️ curated |
 | **Paleo** | Lifestyle (weaker evidence) | Excludes grains, legumes, dairy, refined sugar, most processed foods; emphasises meat, fish, eggs, veg, fruit, nuts. | calcium, vit D, fibre | ✍️ curated (flag: weaker evidence base) |
 | **Ketogenic** | Therapeutic (epilepsy) / lifestyle | Very-low-carb, high-fat. Originally a medical epilepsy therapy; also used for weight/metabolic goals. | fibre, some micronutrients; medical supervision advised for therapeutic use | ✍️ curated |
@@ -172,7 +180,7 @@ another forbids) *before* generation rather than emitting an impossible plan.
 
 | Combination | Verdict | Why / what the app should do |
 |---|---|---|
-| **Vegan + low-FODMAP** | ⚠️ possible but very restrictive | Most vegan protein staples (legumes) are high-FODMAP. Safe options exist (tofu, tempeh, quinoa, some nuts/seeds; canned+rinsed chickpeas/lentils in small serves). Stacks nutrient risk (calcium, protein, B12, iron, zinc, omega-3). → **warn + bias to safe-protein set + suggest dietitian.** 🔶 *Monash — <https://www.monashfodmap.com/blog/following-low-fodmap-and-vegan-diet/>* |
+| **Vegan + low-FODMAP** | ⚠️ possible but very restrictive | Most vegan protein staples (legumes) are high-FODMAP. Safe options exist (tofu, tempeh, quinoa, some nuts/seeds; canned+rinsed chickpeas/lentils in small serves). Stacks nutrient risk (calcium, protein, B12, iron, zinc, omega-3). → **warn + bias to safe-protein set + suggest dietitian.** ✅ *Monash (direct-verified: "quite restrictive"; low-FODMAP vegan proteins = tofu/tempeh/quinoa/certain nuts & seeds; deficiency risk without planning) — <https://www.monashfodmap.com/blog/following-low-fodmap-and-vegan-diet/>* |
 | **Vegan + ketogenic** | ⚠️ extremely constrained | Keto needs high fat + very-low-carb; vegan removes animal fat/protein → a very small food space (relies on coconut/oils, nuts/seeds, tofu). → **warn it will be hard/monotonous; suggest dietitian.** ✍️ reasoned |
 | **Vegan + multiple allergen exclusions** (e.g. + nut-free + soy-free) | ⚠️ high deficiency risk | Removes the main plant-protein sources at once → protein/B12/iron/calcium gaps compound. → **warn + suggest fortification/supplementation + dietitian.** ✍️ reasoned |
 | **Gluten-free + vegan** | ✅ workable | Common, manageable (naturally-GF grains: rice, quinoa, buckwheat, oats-if-certified). Watch fibre/iron/B12. → proceed, light note. ✍️ reasoned |
@@ -257,13 +265,14 @@ This governs how the feature may **present and market** itself.
 
 ## Sources
 
-**Primary (verified):** EUR-Lex Reg. 1169/2011 Annex II (legislation.gov.uk
-mirror) · EU Commission notice 2017/C 428/01 (allergen labelling, "products
-thereof") · UK ACSS/FSA food-allergen technical guidance (PAL, free-from,
-tree-nut list) · FDA food-allergies / FALCPA pages · USDA FSIS "Big 9" · Monash
-FODMAP (3-phase). **Primary (verification cut off by the usage limit):** NHLBI
-DASH · FSAI sulphites (E-numbers) · Academy of Nutrition & Dietetics vegetarian
-position · Monash low-FODMAP+vegan. **Secondary / analysis:**
+**Primary (harness-verified, 2–3 votes):** EUR-Lex Reg. 1169/2011 Annex II
+(legislation.gov.uk mirror) · EU Commission notice 2017/C 428/01 (allergen
+labelling, "products thereof") · UK ACSS/FSA food-allergen technical guidance
+(PAL, free-from, tree-nut list) · FDA food-allergies / FALCPA pages · USDA FSIS
+"Big 9" · Monash FODMAP (3-phase). **Primary (v1.1 direct-source verified —
+fetched + exact quote confirmed 2026-07-22):** NHLBI DASH · NICE QS134
+(gluten-free/coeliac) · Monash low-FODMAP+vegan · NHS "The vegan diet" (B12 /
+nutrients of concern) · FSAI sulphites (E220–E228). **Secondary / analysis:**
 [Univ. of Manchester food-allergen guidance](https://sites.manchester.ac.uk/foodallergens/information-for-food-businesses/eu-legal-requirements-on-food-allergen-labelling/) ·
 [Hogan Lovells (free-from / thresholds legal analysis)](https://www.hoganlovells.com/en/publications/precautionary-allergen-labelling-free-from-claims-and-the-establishment-of-thresholds).
 
