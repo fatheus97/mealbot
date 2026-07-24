@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_active_subscription, usage_capture
+from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
@@ -156,7 +156,7 @@ def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest
 async def generate_recipe(
     request: Request,
     payload: SingleRecipeRequest,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_generation_budget),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> SingleRecipeResponse:

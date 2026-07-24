@@ -17,6 +17,7 @@ from app.api.deps import get_current_user
 from app.db import get_session
 from app.models.db_models import LlmUsage, User
 from app.models.usage_schemas import SurfaceUsage, UsageSummaryResponse, UsageTotals
+from app.services import usage_budget
 
 logger = logging.getLogger(__name__)
 
@@ -67,4 +68,5 @@ async def get_my_usage(
         completion_tokens=sum(s.completion_tokens for s in by_surface),
         total_tokens=sum(s.total_tokens for s in by_surface),
     )
-    return UsageSummaryResponse(total=total, by_surface=by_surface)
+    budget = await usage_budget.get_budget_status(session, current_user)
+    return UsageSummaryResponse(total=total, by_surface=by_surface, budget=budget)

@@ -131,6 +131,19 @@ class Settings(BaseSettings):
     stripe_timeout_seconds: int = 20
     stripe_max_retries: int = 2
 
+    # --- Per-user LLM cost cap (usage budget) ---
+    # Bounds monthly LLM spend per user (EUR summed from LlmUsage — see
+    # app.services.usage_budget — NOT a raw request count, so a €0.06 seven-day
+    # plan and a €0.009 recipe weigh correctly). One mechanism contains a power
+    # user, a trial farmer, and a runaway-generation bug. Enforced even while
+    # billing_enabled is false: LLM cost is incurred regardless of the paywall.
+    # usage_cap_enabled is the kill switch (mirrors leftovers_enabled) — flip it
+    # false in the prod .env to disable enforcement without a deploy.
+    usage_cap_enabled: bool = True
+    usage_cap_paid_eur: float = 2.0
+    usage_cap_trial_eur: float = 0.75
+    usage_soft_warn_ratio: float = Field(default=0.8, ge=0.0, le=1.0)
+
     # --- VAT threshold tracking (revenue dashboard) ---
     # EU cross-border B2C distance-selling / OSS threshold: once cumulative B2C
     # sales to OTHER EU countries pass €10k, destination VAT (OSS) is required.
