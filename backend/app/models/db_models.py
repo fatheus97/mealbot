@@ -3,12 +3,37 @@ from datetime import UTC, date, datetime
 from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 from sqlalchemy import BigInteger, Boolean, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlmodel import Column, Field, Relationship, SQLModel, String
+
+from app.core.email_normalize import normalize_email
+
+
+def _default_normalized_email(context: DefaultExecutionContext) -> str:
+    """SQLAlchemy insert-time default: derive normalized_email from the row's email
+    when it isn't set explicitly, so EVERY User insert (register, invite, admin,
+    CLI, demo, and all test fixtures) gets a value without a per-call hook — the
+    missed-hook class of bug simply can't happen. Explicit callers may still pass
+    normalized_email, in which case this is not invoked."""
+    return normalize_email(str(context.get_current_parameters()["email"]))
 
 
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
+    # Canonical anti-abuse uniqueness key (app.core.email_normalize). The raw
+    # `email` above stays verbatim for delivery/display/Stripe; uniqueness + all
+    # auth/reset lookups key off THIS. Auto-populated at insert from `email` via
+    # _default_normalized_email; the real insert sites also set it explicitly.
+    normalized_email: str = Field(
+        sa_column=Column(
+            String,
+            unique=True,
+            index=True,
+            nullable=False,
+            default=_default_normalized_email,
+        )
+    )
 
     hashed_password: str = Field(nullable=False)
 

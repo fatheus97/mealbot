@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from app.api.deps import require_admin
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.admin_schemas import (
@@ -663,7 +664,11 @@ async def create_user(
     password is validated for complexity at the schema layer and stored hashed —
     it is NEVER written to the audit log."""
     existing = (
-        await session.execute(select(User).where(col(User.email) == body.email))
+        await session.execute(
+            select(User).where(
+                col(User.normalized_email) == normalize_email(body.email)
+            )
+        )
     ).scalars().first()
     if existing is not None:
         raise HTTPException(
@@ -676,6 +681,7 @@ async def create_user(
     hashed = await asyncio.to_thread(get_password_hash, body.password)
     user = User(
         email=body.email,
+        normalized_email=normalize_email(body.email),
         hashed_password=hashed,
         is_admin=body.is_admin,
         is_comped=body.is_comped,

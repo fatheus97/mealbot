@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
+from app.core.email_normalize import normalize_email
 from app.core.language_whitelist import normalize_language
 from app.core.meal_types import MealType
 from app.core.rate_limit import limiter
@@ -81,6 +82,7 @@ async def register_user(
     hashed_pw = await asyncio.to_thread(get_password_hash, user.password)
     db_user = User(
         email=user.email,
+        normalized_email=normalize_email(user.email),
         hashed_password=hashed_pw,
         # First-touch attribution (already trimmed/truncated by UserCreate).
         signup_utm_source=user.utm_source,
@@ -140,6 +142,7 @@ async def register_via_invite(
     hashed_pw = await asyncio.to_thread(get_password_hash, body.password)
     db_user = User(
         email=body.email,
+        normalized_email=normalize_email(body.email),
         hashed_password=hashed_pw,
         # Entitlement comes from the token, never the body — is_comped stays
         # server-set-only.

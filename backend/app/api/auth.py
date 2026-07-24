@@ -35,6 +35,7 @@ from app.core.cookies import (
     clear_auth_cookies,
     set_auth_cookies,
 )
+from app.core.email_normalize import normalize_email
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
@@ -71,8 +72,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def _email_fingerprint(email: str) -> str:
     """Short non-reversible id for an email. Logged on auth failures so we can
     correlate brute-force attempts without writing plaintext addresses to logs.
+    Fingerprints the NORMALIZED key so dot/+tag variants of one inbox correlate to
+    a single id (the alias abuse this app guards against).
     """
-    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(normalize_email(email).encode("utf-8")).hexdigest()[:12]
 
 
 def _truncate_user_agent(raw: str | None) -> str | None:
@@ -145,7 +148,7 @@ async def login(
 ) -> UserRead:
     """Verify credentials, mint a new device session, set cookies. Returns
     the user profile so the SPA doesn't need a follow-up GET /users."""
-    statement = select(User).where(User.email == body.email)
+    statement = select(User).where(User.normalized_email == normalize_email(body.email))
     result = await session.execute(statement)
     user = result.scalars().first()
 
