@@ -94,6 +94,22 @@ def _billing_disabled_by_default(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "billing_enabled", False)
 
 
+@pytest.fixture(autouse=True)
+def _fast_bcrypt_rounds(monkeypatch: pytest.MonkeyPatch):
+    """Hash test passwords at bcrypt's minimum work factor.
+
+    The ``test_user``/``client`` fixtures plus the auth-flow tests hash a
+    throwaway password for essentially every test in the suite; at the
+    production cost factor (12, ~250 ms/hash) bcrypt alone dominates CI
+    wall-clock for zero security value. Dropping to bcrypt's 4 floor makes each
+    hash ~2 ms. Verifying still works — ``bcrypt.checkpw`` reads the cost from
+    the stored hash, so a cost-4 hash round-trips fine, as does a cost-12
+    ``DUMMY_PASSWORD_HASH`` (computed once at import). Prod is untouched:
+    Settings defaults to 12 and only this test process mutates the value.
+    """
+    monkeypatch.setattr(settings, "bcrypt_rounds", 4)
+
+
 @pytest.fixture
 async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
     """
