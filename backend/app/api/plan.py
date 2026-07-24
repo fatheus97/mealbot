@@ -738,9 +738,18 @@ async def regenerate_plan(
     # regenerate would silently reintroduce salt/oil/… that the initial generation
     # excluded. plan.user_id == current_user.id (ownership checked above) and is a
     # non-null int, so it's the mypy-safe owner id to key the staples on.
+    # Filter spices by the value the plan's meals were AUTHORED under (stored in
+    # request_json), NOT the live user preference: frozen meals are kept verbatim
+    # and the regenerated ones are still prompted from original_req, so both carry
+    # is_spice tags from the stored setting. Using the live value would surface
+    # OFF-authored 1g spice sentinels once the user flips include_spices on. A
+    # flipped preference correctly takes effect on the next fresh generation, not
+    # a regenerate — same "frozen plans aren't rewritten" rule the staples filter
+    # follows. (staple_keys legitimately uses the live value: name-based, not tied
+    # to how the meals were authored.)
     staple_keys = await load_staple_keys(session, plan.user_id)
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
-        new_days, initial_fridge, staples=staple_keys, include_spices=current_user.include_spices
+        new_days, initial_fridge, staples=staple_keys, include_spices=original_req.include_spices
     )
     if original_req.stock_only:
         if shopping_items:

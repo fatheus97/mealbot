@@ -77,7 +77,13 @@ const saveBtn: CSSProperties = {
  * list for real groceries you keep stocked (oil, flour, rice) that are never
  * "spices" and so can't be dropped by that toggle.
  */
-export function PantryStaples() {
+export function PantryStaples({
+  onDirtyChange,
+}: {
+  // Lets the host (SettingsPopup) guard modal-close against unsaved edits. Pass a
+  // STABLE setter (e.g. a useState dispatch) so the effect only fires on change.
+  onDirtyChange?: (dirty: boolean) => void;
+} = {}) {
   const { userId } = useAuth();
   const { data: serverStaples, isLoading, error: fetchError } = useStaples(userId);
   const updateStaples = useUpdateStaples();
@@ -87,6 +93,10 @@ export function PantryStaples() {
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const lastServerSig = useRef<string | null>(null);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   // Seed the working list from the server only when the server list actually
   // changes (initial load + after our own save) — never on a no-op refetch, so

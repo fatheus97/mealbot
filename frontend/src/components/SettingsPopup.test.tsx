@@ -181,12 +181,12 @@ describe('SettingsPopup', () => {
       expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'),
     );
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
     );
 
     // Switch to experimental
     await user.click(screen.getByLabelText(/experimental/i));
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
 
     await waitFor(() => {
       expect(mockedUpdateProfile).toHaveBeenCalledWith({
@@ -219,6 +219,36 @@ describe('SettingsPopup', () => {
     expect(screen.getByRole('button', { name: /save staples/i })).toBeInTheDocument();
   });
 
+  it('guards close against unsaved pantry staples (no silent loss)', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValueOnce(mockProfile);
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SettingsPopup onClose={onClose} />, { wrapper: createWrapper() });
+
+    // Add a staple — now dirty and unsaved.
+    await user.type(await screen.findByLabelText('New staple name'), 'flour');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    // Closing via ✕ must NOT silently close — it prompts to discard.
+    await user.click(screen.getByLabelText(/close settings/i));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('alertdialog', { name: /discard unsaved pantry staples/i }),
+    ).toBeInTheDocument();
+
+    // "Keep editing" dismisses the prompt without closing.
+    await user.click(screen.getByRole('button', { name: /keep editing/i }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Re-open the prompt, then confirm discard → closes.
+    await user.click(screen.getByLabelText(/close settings/i));
+    await user.click(screen.getByRole('button', { name: /discard/i }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('shows inline error on save failure', async () => {
     loginUser();
     mockedFetchProfile.mockResolvedValueOnce(mockProfile);
@@ -231,10 +261,10 @@ describe('SettingsPopup', () => {
       expect(screen.getByDisplayValue('Germany')).toBeInTheDocument();
     });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
     );
 
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
 
     // Inline alert banner, not window.alert — the save action should not be
     // interrupted by a blocking modal dialog.
