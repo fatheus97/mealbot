@@ -21,6 +21,9 @@ always returns a non-empty str: the empty-local guard ensures a pathological inp
 # NEVER add a domain under which the app mints synthetic "+suffix" accounts (e.g.
 # trymealbot.com for demo users — see services.demo_user); allowlisting it would
 # collapse every such account to one key and break their uniqueness.
+# NOTE: googlemail.com / me.com / mac.com below are canonicalized to gmail.com /
+# icloud.com *before* this set is consulted, so those three are redundant here —
+# kept as belt-and-suspenders should that canonicalization ever be removed.
 _PLUS_TAG_DOMAINS = frozenset(
     {
         "gmail.com",
@@ -38,7 +41,8 @@ _PLUS_TAG_DOMAINS = frozenset(
     }
 )
 
-# Only Gmail ignores dots in the local part.
+# Only Gmail ignores dots in the local part. (googlemail.com is redundant —
+# canonicalized to gmail.com upstream — but kept for parity/defense-in-depth.)
 _DOT_STRIP_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
 
 
