@@ -50,6 +50,7 @@ from app.services.leftovers import (
     validate_leftover_graph,
 )
 from app.services.meal_planner import generate_partial_day
+from app.services.pantry_service import load_staple_keys
 from app.services.plan_service import (
     PlanGenerationError,
     PlanReopenShortageError,
@@ -733,8 +734,14 @@ async def regenerate_plan(
             len(violations), "; ".join(violations),
         )
 
-    # 7) Recompute shopping list
-    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(new_days, initial_fridge)
+    # 7) Recompute shopping list. Apply the owner's pantry staples here too, or a
+    # regenerate would silently reintroduce salt/oil/… that the initial generation
+    # excluded. plan.user_id == current_user.id (ownership checked above) and is a
+    # non-null int, so it's the mypy-safe owner id to key the staples on.
+    staple_keys = await load_staple_keys(session, plan.user_id)
+    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
+        new_days, initial_fridge, staples=staple_keys
+    )
     if original_req.stock_only:
         if shopping_items:
             logger.warning(

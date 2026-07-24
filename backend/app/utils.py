@@ -12,6 +12,7 @@ from app.models.plan_models import (
 def compute_shopping_list_from_plan(
     days: list[SingleDayResponse],
     initial_fridge: list[StockItemDTO],
+    staples: frozenset[str] | None = None,
 ) -> list[ShoppingListItem]:
     """
     Compute how much needs to be bought for the whole plan, based on:
@@ -20,7 +21,16 @@ def compute_shopping_list_from_plan(
 
     Any ingredient that is fully covered by the fridge will not appear
     in the shopping list.
+
+    ``staples`` is a set of lowercased ingredient names the user "always has"
+    (salt, oil, flour…). They are excluded exactly like spices — dropped before
+    aggregation so they never reach the list — because the result is frozen into
+    ``response_json`` and never recomputed on read. Passed in (rather than read
+    from a global) so the exclusion is applied per-user at generation time and
+    older plans, whose lists were already frozen, are never retroactively changed.
+    The keys must be lowercased to match the ``ing.name.lower()`` comparison below.
     """
+    staples = staples or frozenset()
     # Sum required grams per ingredient over all days and meals (skip spices)
     required: dict[str, float] = defaultdict(float)
     for day in days:
@@ -40,6 +50,9 @@ def compute_shopping_list_from_plan(
                 if ing.is_spice:
                     continue
                 key = ing.name.lower()
+                if key in staples:
+                    # A user "always have" staple — never put it on the list.
+                    continue
                 required[key] += ing.quantity_grams
 
     # Initial fridge amounts
