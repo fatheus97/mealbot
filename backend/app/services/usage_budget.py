@@ -12,7 +12,7 @@ offset. Values read back from the DB are coerced via _as_naive as a belt.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,18 +79,21 @@ def resolve_budget(user: User) -> Budget:
     if user.is_admin or user.is_demo:
         return Budget(TIER_UNLIMITED, 0.0, now, _next_month_start(now))
 
-    # Trial: cap the WHOLE trial as one budget (does NOT reset across a month
-    # boundary). window_start = trial_end − trial_period_days, clamped to never
-    # predate the account — that clamp both handles the 14→10 trial-length cutover
-    # (a mid-trial user's window can then only shrink, never over-count) and guards
-    # a corrupt current_period_end.
+    # Trial: cap the WHOLE trial membership as one budget (does NOT reset across a
+    # month boundary). window_start = the account's created_at, NOT
+    # trial_end − trial_period_days: the latter UNDERCOUNTS a user grandfathered on
+    # a longer trial after the length was shortened — their trial_end is fixed by
+    # Stripe at signup, so trial_end − the *new* setting drops their first days and
+    # the trial cap could be spent twice. created_at is immune to any trial-length
+    # change and can't over-count: while billing is on, a pre-checkout (unentitled)
+    # user is 402'd and accrues no earlier usage.
     if user.subscription_status == "trialing" and user.current_period_end is not None:
-        trial_end = _as_naive(user.current_period_end)
-        window_start = trial_end - timedelta(days=settings.trial_period_days)
-        created = _as_naive(user.created_at)
-        if window_start < created:
-            window_start = created
-        return Budget(TIER_TRIAL, settings.usage_cap_trial_eur, window_start, trial_end)
+        return Budget(
+            TIER_TRIAL,
+            settings.usage_cap_trial_eur,
+            _as_naive(user.created_at),
+            _as_naive(user.current_period_end),
+        )
 
     # Everyone else (active / past_due / none / canceled / billing-off) → rolling
     # calendar-month paid cap. An annual subscriber still gets a fresh cap monthly.

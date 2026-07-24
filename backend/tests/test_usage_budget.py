@@ -112,32 +112,35 @@ def test_resolve_budget_none_status_falls_through_to_paid() -> None:
     )
 
 
-def test_resolve_budget_trial_window_is_whole_trial(
+def test_resolve_budget_trial_window_is_whole_membership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings, "trial_period_days", 10)
     monkeypatch.setattr(settings, "usage_cap_trial_eur", 0.75)
-    trial_end = datetime(2026, 7, 20, 12, 0, 0)
-    u = _user(subscription_status="trialing", current_period_end=trial_end)
-    u.created_at = datetime(2026, 7, 10, 12, 0, 0)  # exactly 10 days before end
-    b = usage_budget.resolve_budget(u)
-    assert b.tier == usage_budget.TIER_TRIAL
-    assert b.cap_eur == 0.75
-    assert b.window_start == datetime(2026, 7, 10, 12, 0, 0)  # trial_end − 10d
-    assert b.reset_at == trial_end
-
-
-def test_resolve_budget_trial_window_clamped_to_created_at(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "trial_period_days", 14)
-    trial_end = datetime(2026, 7, 20, 12, 0, 0)
-    created = datetime(2026, 7, 18, 12, 0, 0)  # account only 2 days old
+    created = datetime(2026, 7, 12, 12, 0, 0)
+    trial_end = datetime(2026, 7, 22, 12, 0, 0)
     u = _user(subscription_status="trialing", current_period_end=trial_end)
     u.created_at = created
     b = usage_budget.resolve_budget(u)
-    # trial_end − 14d = 2026-07-06 predates created → clamp to created_at.
-    assert b.window_start == created
+    assert b.tier == usage_budget.TIER_TRIAL
+    assert b.cap_eur == 0.75
+    assert b.window_start == created  # whole membership, not back-computed
+    assert b.reset_at == trial_end
+
+
+def test_resolve_budget_trial_window_immune_to_trial_length_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Grandfathered-trial regression (the #269 review finding): a real 14-day
+    # trial while the setting now reads 10 must count from created_at, NOT
+    # trial_end − 10d — which would silently drop the first 4 days and let the
+    # €0.75 trial cap be spent twice.
+    monkeypatch.setattr(settings, "trial_period_days", 10)
+    created = datetime(2026, 7, 6, 12, 0, 0)
+    trial_end = datetime(2026, 7, 20, 12, 0, 0)  # created + 14d (grandfathered)
+    u = _user(subscription_status="trialing", current_period_end=trial_end)
+    u.created_at = created
+    b = usage_budget.resolve_budget(u)
+    assert b.window_start == created  # not created + 4d
 
 
 # --------------------------------------------------------------------------- #

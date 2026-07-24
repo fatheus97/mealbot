@@ -37,6 +37,10 @@ class ModelRate:
 # Keyed on (provider, model). Derived from published USD per-1M-token pricing
 # × _USD_EUR, expressed per single token. Gemini 2.5 Flash: $0.30/1M in, $2.50/1M
 # out; Flash-Lite: $0.10/1M in, $0.40/1M out (ai.google.dev/gemini-api/docs/pricing).
+# NOTE: only the default all-Gemini LLM_MODELS chain is mapped. If LLM_MODELS ever
+# gains an OpenAI/DeepSeek model, add its rate here — otherwise it uses the
+# (Gemini-max) _FALLBACK_RATE, which never undercounts but may over-restrict a
+# genuinely cheaper model.
 MODEL_COST_RATES: dict[tuple[str, str], ModelRate] = {
     ("gemini", "gemini-2.5-flash"): ModelRate(
         0.30 * _USD_EUR / 1_000_000, 2.50 * _USD_EUR / 1_000_000

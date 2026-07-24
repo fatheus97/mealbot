@@ -125,6 +125,12 @@ async def require_generation_budget(
     caller over budget gets 429. Being a dependency it runs BEFORE the handler
     body — hence before any LLM call — so an over-budget request never generates.
     Admin/demo bypass and the kill switch are handled in usage_budget.
+
+    This is a check-then-act SOFT cap, deliberately not serialized: concurrent
+    requests from the same user can each pass the pre-check against the same
+    committed spend and overshoot by up to (concurrent burst × per-request cost).
+    That is bounded by the per-route rate limits and acceptable for a fuzzy safety
+    valve — an advisory lock would add contention for no meaningful protection.
     """
     if not settings.usage_cap_enabled:
         return current_user
