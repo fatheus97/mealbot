@@ -124,6 +124,15 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:5173"
     # 10-day free trial before the first charge.
     trial_period_days: int = 10
+
+    # --- Trial-abuse guard (one free trial per physical card) ---
+    # Gate A: a repeat card (user.has_used_trial) gets NO trial at checkout → Stripe
+    # charges immediately. Gate B: a cross-account card reuse is clawed back on the
+    # webhook (trial ended now). trial_abuse_guard_enabled is the kill switch
+    # (mirrors leftovers_enabled); trial_fingerprint_hmac_secret domain-separates the
+    # stored fingerprint HMAC (falls back to secret_key when unset).
+    trial_abuse_guard_enabled: bool = True
+    trial_fingerprint_hmac_secret: str | None = None
     # Outbound-Stripe network policy (per .claude/rules/fastapi.md: every external
     # call needs an explicit timeout + retry). The SDK default is 80s / 2 retries;
     # 20s is plenty for control-plane calls and keeps a hung request from tying up

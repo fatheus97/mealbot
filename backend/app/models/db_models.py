@@ -136,6 +136,14 @@ class User(SQLModel, table=True):
         default=None, sa_column=Column(BigInteger, nullable=True)
     )
 
+    # One free trial per account, EVER (trial-abuse guard, Gate A). Set True once a
+    # user has started a trial (or been clawed back for reusing a card); a repeat
+    # checkout then OMITS the trial so Stripe charges at completion. Server-set only
+    # — see services.trial_guard + stripe_service.create_checkout_session.
+    has_used_trial: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
+
     # --- Acquisition attribution (first-touch, captured once at signup) ---
     # UTM parameters + referrer from the URL that first brought this user to the
     # app, threaded through /users/register. This is the ONLY funnel data that
@@ -277,6 +285,39 @@ class AdminAuditLog(SQLModel, table=True):
     # trivially JSON-serialisable; loose JSONB so older rows never break reads.
     detail: dict[str, str] | None = Field(
         default=None, sa_column=Column(JSONB, nullable=True)
+    )
+
+
+class TrialFingerprint(SQLModel, table=True):
+    """One row per physical card that has consumed a free trial — the key for
+    cross-account trial-abuse detection (Gate B).
+
+    Stores an HMAC of Stripe's ``PaymentMethod.card.fingerprint`` (never the raw
+    fingerprint: we only ever do equality checks, so a one-way hash is strictly
+    better and keeps a leaked DB dump useless). ``first_user_id`` is a bare id with
+    NO FK — this is fraud data retained under legitimate interest and must OUTLIVE a
+    hard-deleted account (same keep-the-record, decoupled-from-user-lifecycle
+    philosophy as ``AdminAuditLog`` / ``SaleRecord``). A later account deletion thus
+    leaves a *stale* first_user_id, which still reads as "not the current user" → a
+    reuse on a new account is still caught.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    # HMAC-SHA256 hex of the card fingerprint. UNIQUE (declared in __table_args__)
+    # — one trial per physical card, ever.
+    fingerprint_hash: str = Field(nullable=False)
+    # The account that first used this card for a trial. Bare id, no FK (see class
+    # docstring). NULL only if a writer couldn't resolve the user.
+    first_user_id: int | None = Field(default=None, index=True)
+    stripe_customer_id: str | None = Field(default=None)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_trialfingerprint_fingerprint_hash", "fingerprint_hash", unique=True
+        ),
     )
 
 

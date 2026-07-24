@@ -19,7 +19,7 @@ from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.billing_schemas import BillingUrlResponse, WebhookAck
 from app.models.db_models import User
-from app.services import revenue_service, stripe_service
+from app.services import revenue_service, stripe_service, trial_guard
 
 logger = logging.getLogger(__name__)
 
@@ -138,5 +138,12 @@ async def stripe_webhook(
         if recorded:
             await session.commit()
             logger.info("sale_recorded invoice=%s", invoice.get("id"))
+    elif event_type == "checkout.session.completed":
+        # Trial-abuse guard, Gate B: capture the card fingerprint now that Checkout
+        # has run and claw back a cross-account trial reuse. trial_guard owns its
+        # own transaction + error handling (never raises), so the webhook still ACKs.
+        await trial_guard.capture_and_enforce(
+            session, dict(event_dict["data"]["object"])
+        )
 
     return WebhookAck(received=True)
