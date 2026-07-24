@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event, text
+from sqlalchemy import URL, event, make_url, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlmodel import SQLModel
 
@@ -14,18 +14,83 @@ from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
 
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://testuser:testpassword@test-db:5432/mealbot_test",
+_BASE_TEST_DATABASE_URL = make_url(
+    os.environ.get(
+        "TEST_DATABASE_URL",
+        "postgresql+psycopg://testuser:testpassword@test-db:5432/mealbot_test",
+    )
 )
+
+# Arbitrary stable bigint used to serialise CREATE DATABASE across xdist workers
+# (see _ensure_database): every CREATE DATABASE clones template1, and concurrent
+# clones error with "source database template1 is being accessed by other users".
+_CREATE_DB_LOCK_KEY = 8_472_913
 
 TEST_EMAIL = "test@example.com"
 TEST_PASSWORD = "TestPassword123"
 
 
+def _worker_database_url() -> URL:
+    """Give each xdist worker its own database.
+
+    pytest-xdist runs each worker in its own process, so the session-scoped
+    ``test_engine`` fixture runs once per worker. Pointed at one shared database
+    the workers would race on the drop_all/create_all below and corrupt each
+    other's schema mid-run, so each worker gets its own DB (mealbot_test_gw0,
+    _gw1, …) keyed off ``PYTEST_XDIST_WORKER``. Without xdist the variable is
+    unset and we return the base URL unchanged — byte-for-byte the previous
+    single-database behaviour.
+    """
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if not worker:
+        return _BASE_TEST_DATABASE_URL
+    return _BASE_TEST_DATABASE_URL.set(
+        database=f"{_BASE_TEST_DATABASE_URL.database}_{worker}"
+    )
+
+
+async def _ensure_database(url: URL) -> None:
+    """Create the per-worker database if it does not exist yet.
+
+    Connects to the always-present base test database as a maintenance DB and
+    issues CREATE DATABASE, serialised cluster-wide with a Postgres advisory
+    lock — every CREATE DATABASE clones template1, and concurrent clones from
+    parallel workers error with "template1 is being accessed by other users".
+    CREATE DATABASE cannot run inside a transaction block, hence AUTOCOMMIT.
+    """
+    admin_engine = create_async_engine(
+        _BASE_TEST_DATABASE_URL, isolation_level="AUTOCOMMIT"
+    )
+    try:
+        async with admin_engine.connect() as conn:
+            await conn.execute(
+                text("SELECT pg_advisory_lock(:k)"), {"k": _CREATE_DB_LOCK_KEY}
+            )
+            try:
+                already_exists = await conn.scalar(
+                    text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                    {"name": url.database},
+                )
+                if not already_exists:
+                    # url.database is derived from PYTEST_XDIST_WORKER (gw0, gw1,
+                    # …), never user input, so interpolating it as a quoted
+                    # identifier is safe — and CREATE DATABASE can't be bound.
+                    await conn.execute(text(f'CREATE DATABASE "{url.database}"'))
+            finally:
+                await conn.execute(
+                    text("SELECT pg_advisory_unlock(:k)"), {"k": _CREATE_DB_LOCK_KEY}
+                )
+    finally:
+        await admin_engine.dispose()
+
+
 @pytest.fixture(scope="session")
 async def test_engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    db_url = _worker_database_url()
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        await _ensure_database(db_url)
+
+    engine = create_async_engine(db_url, echo=False)
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
