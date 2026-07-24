@@ -1,6 +1,8 @@
 # Prerequisites
 .env
 .env.local
+# Local host-dev env overrides (e.g. .env.local.hostdev — Vite proxy target)
+.env.local.*
 .env.production
 
 # Python (Backend)
@@ -24,3 +26,5 @@ frontend/.next/
 .claude/settings.local.json
 # Claude Code runtime lock (ScheduleWakeup / loop state, machine-local)
 .claude/scheduled_tasks.lock
+# Claude Code browser-preview dev-server config (per-developer, regenerated)
+.claude/launch.json
