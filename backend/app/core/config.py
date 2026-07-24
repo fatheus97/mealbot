@@ -216,6 +216,15 @@ class Settings(BaseSettings):
     # low cap only adds contention. Tune per box (CX23 = 2 vCPU).
     parse_executor_workers: int = Field(default=2, ge=1, le=32)
 
+    # bcrypt work factor for password hashing. 12 (~250 ms/hash on the prod box)
+    # is a sane 2020s default and the cost every stored hash currently carries.
+    # The test suite overrides this to bcrypt's 4 floor (see conftest): the suite
+    # hashes throwaway passwords ~1000× across fixtures + auth-flow tests, and at
+    # cost 12 that alone adds minutes to CI wall-clock for zero security value.
+    # Bounded to bcrypt's valid 4..31 range so a typo'd env var can neither
+    # silently weaken prod hashing nor wedge it with an out-of-range cost.
+    bcrypt_rounds: int = Field(default=12, ge=4, le=31)
+
     secret_key: str
     database_url: str
 
