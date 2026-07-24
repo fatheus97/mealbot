@@ -387,6 +387,10 @@ PATTERN_INFO: dict[DietType, PatternInfo] = {
             "Academy of Nutrition & Dietetics — awaits a vegetarian-specific "
             "source (the vegan NHS page doesn't cover it)"
         ),
+        note=(
+            "Lower deficiency risk than vegan — lacto-/ovo- variants get B12 "
+            "from dairy/eggs."
+        ),
     ),
     DietType.VEGAN: PatternInfo(
         diet_type=DietType.VEGAN,
@@ -516,6 +520,23 @@ def _detect_combinations(
                     source=_PART3,
                 )
             )
+
+    # Pattern-vs-pattern contradiction: veganism forbids ALL animal products,
+    # including the fish/seafood pescatarianism structurally requires. Same "a
+    # pattern requiring a food another forbids" structure as the pescatarian +
+    # fish-allergy row, applied between two declared patterns (Part 3's stated
+    # goal is to catch impossible combos before generation, not only the one
+    # allergen-vs-pattern example the table happens to spell out).
+    if DietType.VEGAN in diet_types and DietType.PESCATARIAN in diet_types:
+        warnings.append(
+            CombinationWarning(
+                WarningLevel.CONTRADICTION,
+                "Vegan excludes all animal products, but pescatarian requires "
+                "fish/seafood — these cannot both hold; the request is impossible "
+                "as stated.",
+                source=_PART3,
+            )
+        )
 
     if DietType.VEGAN in diet_types and DietType.LOW_FODMAP in diet_types:
         warnings.append(

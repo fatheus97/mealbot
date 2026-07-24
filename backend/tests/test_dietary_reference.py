@@ -80,6 +80,11 @@ class TestReferenceCompleteness:
         for info in PATTERN_INFO.values():
             assert isinstance(info.tier, EvidenceTier)
 
+    def test_vegetarian_carries_lower_than_vegan_caveat(self):
+        # The doc's comparative note ("risk is lower than vegan") is preserved.
+        assert "lower" in PATTERN_INFO[DietType.VEGETARIAN].note.lower()
+        assert "vegan" in PATTERN_INFO[DietType.VEGETARIAN].note.lower()
+
 
 class TestRetrieval:
     def test_empty_request_returns_empty_context(self):
@@ -150,6 +155,15 @@ class TestCombinationRules:
         levels = [w.level for w in ctx.warnings]
         assert WarningLevel.WARNING in levels
         assert WarningLevel.CONTRADICTION not in levels
+
+    def test_vegan_pescatarian_is_contradiction(self):
+        # Vegan forbids the fish/seafood pescatarian requires — impossible combo,
+        # must be caught pre-generation (Part 3's stated goal).
+        ctx = resolve_dietary_context([DietType.VEGAN, DietType.PESCATARIAN], [])
+        levels = [w.level for w in ctx.warnings]
+        assert WarningLevel.CONTRADICTION in levels
+        # The contradiction suppresses the general stacked-escalation.
+        assert levels.count(WarningLevel.CONSULT_DIETITIAN) == 0
 
     def test_vegan_low_fodmap_suggests_dietitian(self):
         ctx = resolve_dietary_context([DietType.VEGAN, DietType.LOW_FODMAP], [])
