@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { ModalShell } from "../ModalShell";
 import {
   useAdminFeedback,
@@ -49,12 +49,12 @@ export function FeedbackPanel() {
   // Pull `offset` back onto a populated page when `total` shrinks under it — e.g.
   // moderating the last report on the last page (which drops it out of the current
   // filter) would otherwise strand the admin on an empty page with a reversed
-  // "N+1–N of N" range label. Clamp to the last page's start.
-  useEffect(() => {
-    if (total > 0 && offset >= total) {
-      setOffset(Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE);
-    }
-  }, [total, offset]);
+  // "N+1–N of N" range label. Adjust-state-during-render (the React "reset on prop
+  // change" pattern used in App.tsx AuthRoot): the guard flips false after the
+  // setState, so it re-renders once with the clamped offset and doesn't loop.
+  if (total > 0 && offset >= total) {
+    setOffset(Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE);
+  }
 
   function changeFilter(next: FeedbackStatusFilter): void {
     setStatusFilter(next);
