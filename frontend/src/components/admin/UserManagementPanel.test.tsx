@@ -187,14 +187,20 @@ describe("UserManagementPanel", () => {
     expect(screen.getByText("2 selected")).toBeInTheDocument();
 
     const bar = screen.getByRole("region", { name: "Bulk actions" });
+    // The bar floats (position:fixed, out of document flow) so selecting rows
+    // never pushes the table down — zero layout shift (CLS).
+    expect(bar).toHaveStyle({ position: "fixed" });
     await user.click(within(bar).getByRole("button", { name: "Deactivate" }));
 
     await waitFor(() => {
       expect(api.updateAdminUser).toHaveBeenCalledWith(1, { is_active: false });
       expect(api.updateAdminUser).toHaveBeenCalledWith(2, { is_active: false });
     });
-    // Green summary banner, plural-correct ("users", not "user").
-    expect(await screen.findByText("Deactivated 2 users.")).toBeInTheDocument();
+    // Green summary toast, plural-correct ("users", not "user") — also floating,
+    // so it doesn't shift the layout either.
+    const toast = await screen.findByRole("status");
+    expect(toast).toHaveTextContent("Deactivated 2 users.");
+    expect(toast).toHaveStyle({ position: "fixed" });
   });
 
   it("bulk-reactivates the selection", async () => {
@@ -331,6 +337,92 @@ describe("UserManagementPanel", () => {
     await user.click(within(bar).getByRole("button", { name: "Clear" }));
     expect(screen.queryByRole("region", { name: "Bulk actions" })).not.toBeInTheDocument();
     expect(selectAll.indeterminate).toBe(false);
+  });
+
+  // Real timers here (not fake): fake timers deadlock against react-query +
+  // userEvent's internal scheduling. The 5s auto-dismiss makes these ~5s each —
+  // worth it to actually pin the timer behaviour rather than only assert it in a
+  // comment. Per-test timeouts are bumped accordingly.
+  it("auto-dismisses a clean-run result toast after 5s", async () => {
+    const users = [mkUser({ id: 1, email: "a@example.com" })];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.updateAdminUser).mockResolvedValue(mkUser());
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    await user.click(screen.getByLabelText("Select all users on this page"));
+    await user.click(
+      within(screen.getByRole("region", { name: "Bulk actions" })).getByRole("button", {
+        name: "Deactivate",
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Deactivated 1 user.");
+
+    // The clean-run toast clears itself ~5s later.
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument(), {
+      timeout: 7000,
+    });
+  }, 9000);
+
+  it("keeps a partial-failure toast (no auto-dismiss) until × dismisses it", async () => {
+    const users = [mkUser({ id: 1, email: "solo@example.com", is_admin: true })];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.updateAdminUser).mockRejectedValue(
+      new Error("Cannot remove the last active admin."),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("solo@example.com");
+
+    await user.click(screen.getByLabelText("Select solo@example.com"));
+    await user.click(
+      within(screen.getByRole("region", { name: "Bulk actions" })).getByRole("button", {
+        name: "Deactivate",
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(/1 failed/);
+
+    // A failure toast carries per-user detail, so it must NOT auto-dismiss — still
+    // there well past the 5s success-dismiss window.
+    await new Promise((r) => setTimeout(r, 5500));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    // The × clears it.
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  }, 9000);
+
+  it("hides a lingering result toast when a new selection starts (no overlap)", async () => {
+    const users = [
+      mkUser({ id: 1, email: "solo@example.com", is_admin: true }),
+      mkUser({ id: 2, email: "ok@example.com" }),
+    ];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.updateAdminUser).mockImplementation((id: number) =>
+      id === 1
+        ? Promise.reject(new Error("Cannot remove the last active admin."))
+        : Promise.resolve(mkUser()),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("solo@example.com");
+
+    await user.click(screen.getByLabelText("Select all users on this page"));
+    await user.click(
+      within(screen.getByRole("region", { name: "Bulk actions" })).getByRole("button", {
+        name: "Deactivate",
+      }),
+    );
+    // Partial-failure toast shows; the selection (and bar) are cleared by runBulk.
+    expect(await screen.findByRole("status")).toHaveTextContent(/1 failed/);
+    expect(screen.queryByRole("region", { name: "Bulk actions" })).not.toBeInTheDocument();
+
+    // Starting a new selection hides the lingering toast and brings the bar back —
+    // they occupy the same pinned spot and must never overlap.
+    await user.click(screen.getByLabelText("Select ok@example.com"));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Bulk actions" })).toBeInTheDocument();
   });
 
   it("excludes the acting admin and demo accounts from selection", async () => {
