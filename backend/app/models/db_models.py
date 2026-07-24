@@ -557,6 +557,12 @@ class LlmUsage(SQLModel, table=True):
         default=None, foreign_key="mealplan.id", index=True, ondelete="SET NULL"
     )
 
+    __table_args__ = (
+        # Serves the per-user windowed cost SUM behind the usage budget cap
+        # (user_id AND created_at >= window); the single-column indexes don't.
+        Index("ix_llmusage_user_created", "user_id", "created_at"),
+    )
+
 
 class MachineCorrection(SQLModel, table=True):
     """Append-only record of a user editing/committing machine-generated
