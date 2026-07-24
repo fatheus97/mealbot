@@ -78,10 +78,19 @@ async def triage_report(session: AsyncSession, report_id: int) -> bool:
         logger.warning("feedback triage: report_id=%s not found", report_id)
         return False
 
+    # Build the prompt from the row, then COMMIT to release the pooled DB connection
+    # BEFORE the (slow, external, retry-with-backoff) LLM call. Holding a connection
+    # across chat_json would pin a scarce pool slot for the full model latency — tens
+    # of seconds under provider degradation (per-provider retries + backoff) — and a
+    # burst of concurrent submits could then exhaust the pool (size 30) and starve
+    # unrelated requests (login, meal generation). The commit is a no-op write that
+    # just ends the read transaction; the object stays usable (expire_on_commit=False)
+    # so we write the result back on a fresh short transaction afterwards.
+    user_prompt = _build_user_prompt(report)
+    await session.commit()
+
     try:
-        triage = await llm_client.chat_json(
-            _SYSTEM_PROMPT, _build_user_prompt(report), FeedbackTriage
-        )
+        triage = await llm_client.chat_json(_SYSTEM_PROMPT, user_prompt, FeedbackTriage)
     except Exception:
         logger.exception("feedback triage LLM call failed report_id=%s", report_id)
         report.triage_status = "failed"

@@ -1,4 +1,4 @@
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { ModalShell } from "../ModalShell";
 import {
   useAdminFeedback,
@@ -45,6 +45,16 @@ export function FeedbackPanel() {
   const listQuery = useAdminFeedback(query, true);
   const items = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
+
+  // Pull `offset` back onto a populated page when `total` shrinks under it — e.g.
+  // moderating the last report on the last page (which drops it out of the current
+  // filter) would otherwise strand the admin on an empty page with a reversed
+  // "N+1–N of N" range label. Clamp to the last page's start.
+  useEffect(() => {
+    if (total > 0 && offset >= total) {
+      setOffset(Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE);
+    }
+  }, [total, offset]);
 
   function changeFilter(next: FeedbackStatusFilter): void {
     setStatusFilter(next);
@@ -296,12 +306,6 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
               </div>
             )}
 
-            {error && (
-              <div role="alert" style={bannerStyle}>
-                {error}
-              </div>
-            )}
-
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "1.25rem" }}>
               {MODERATION_ACTIONS.map((a) => (
                 <button
@@ -319,6 +323,15 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
                 </button>
               ))}
             </div>
+
+            {/* Banner sits BELOW the action buttons so a failed mutation grows the
+                modal downward instead of shifting the buttons under the cursor (CLS
+                — see .claude/rules/frontend.md). */}
+            {error && (
+              <div role="alert" style={bannerStyle}>
+                {error}
+              </div>
+            )}
           </>
         )}
       </div>

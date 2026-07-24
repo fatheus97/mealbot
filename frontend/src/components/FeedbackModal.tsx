@@ -106,12 +106,6 @@ export function FeedbackModal({
               {message.length}/{MESSAGE_MAX_LEN}
             </div>
 
-            {error && (
-              <div role="alert" style={bannerStyle}>
-                {error}
-              </div>
-            )}
-
             <div
               style={{
                 display: "flex",
@@ -132,6 +126,14 @@ export function FeedbackModal({
                 {submit.isPending ? "Sending…" : "Send"}
               </button>
             </div>
+
+            {/* Below the buttons so a failed submit grows the modal downward instead
+                of shifting Send/Cancel under the cursor (CLS — see frontend.md). */}
+            {error && (
+              <div role="alert" style={bannerStyle}>
+                {error}
+              </div>
+            )}
           </form>
         )}
       </div>

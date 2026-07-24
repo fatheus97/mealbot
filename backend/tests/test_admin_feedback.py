@@ -262,6 +262,21 @@ class TestRetriage:
         assert body["triage_status"] == "done"
         assert body["triage"]["type"] == "feature"
 
+    async def test_retriage_llm_failure_is_200_and_marks_failed(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # The retriage endpoint exists to recover from a failed auto-triage, so its
+        # own LLM-failure path must be graceful: the request succeeds (200) and the
+        # report is marked "failed" (not a 500) so the admin can retry again.
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id, triage_status="failed")
+        with patch("app.services.feedback_triage.llm_client") as mock_llm:
+            mock_llm.chat_json = AsyncMock(side_effect=RuntimeError("provider down"))
+            resp = await client.post(f"/api/admin/feedback/{report.id}/retriage")
+        assert resp.status_code == 200
+        assert resp.json()["triage_status"] == "failed"
+
     async def test_retriage_disabled_503(
         self,
         client: AsyncClient,

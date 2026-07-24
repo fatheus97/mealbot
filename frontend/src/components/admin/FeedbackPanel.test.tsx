@@ -106,6 +106,10 @@ describe("FeedbackPanel", () => {
     ).toBeInTheDocument();
     expect(within(dialog).getByText(/open a plan, click regenerate twice/i)).toBeInTheDocument();
 
+    // The money boundary: 6a offers NO "Accept" action (granting the €1 credit +
+    // opening a ticket is the human-gated 6b slice). Guard against it creeping in.
+    expect(within(dialog).queryByRole("button", { name: /^Accept/i })).not.toBeInTheDocument();
+
     await user.click(within(dialog).getByRole("button", { name: "Reviewing" }));
     await waitFor(() => expect(api.updateAdminFeedback).toHaveBeenCalledWith(1, "reviewing"));
   });
