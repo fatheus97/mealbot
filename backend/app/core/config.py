@@ -122,8 +122,8 @@ class Settings(BaseSettings):
     stripe_price_id: str | None = None
     # Absolute base URL of the SPA — Checkout/Portal redirect back here.
     frontend_base_url: str = "http://localhost:5173"
-    # 14-day free trial before the first charge.
-    trial_period_days: int = 14
+    # 10-day free trial before the first charge.
+    trial_period_days: int = 10
     # Outbound-Stripe network policy (per .claude/rules/fastapi.md: every external
     # call needs an explicit timeout + retry). The SDK default is 80s / 2 retries;
     # 20s is plenty for control-plane calls and keeps a hung request from tying up
