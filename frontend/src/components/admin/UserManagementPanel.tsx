@@ -80,6 +80,15 @@ export function UserManagementPanel() {
   // Frozen at confirm-open time so the batch can't shift under a re-render.
   const [bulkDeleteIds, setBulkDeleteIds] = useState<number[] | null>(null);
 
+  // The result toast auto-dismisses on a clean run; a partial failure lingers
+  // (it names who failed and why) until the admin closes it.
+  useEffect(() => {
+    if (bulkResult && bulkResult.failed.length === 0) {
+      const t = setTimeout(() => setBulkResult(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [bulkResult]);
+
   const dataUsers = usersQuery.data?.users;
   // Demo accounts and the acting admin themselves can't be bulk-mutated (the
   // backend would 400/409 anyway) — exclude them from selection.
@@ -293,43 +302,59 @@ export function UserManagementPanel() {
         </div>
       )}
 
-      {bulkResult && (
+      {/* Result toast + selection bar are BOTH position:fixed (out of document
+          flow), so they never push the table down — the whole bulk flow has zero
+          layout shift (CLS). They share the pinned spot but are mutually exclusive:
+          runBulk clears the selection before setting the result, and the toast is
+          also gated on an empty selection so a new selection hides a lingering one
+          (a partial-failure toast persists until then). */}
+      {bulkResult && selectedIds.length === 0 && (
         <div
           role="status"
-          style={bulkResult.failed.length === 0 ? successBannerStyle : warnBannerStyle}
+          style={bulkResult.failed.length === 0 ? successToastStyle : warnToastStyle}
         >
-          {bulkResult.verb} {bulkResult.ok} user{bulkResult.ok === 1 ? "" : "s"}.
-          {bulkResult.failed.length > 0 && (
-            <>
-              {" "}
-              {bulkResult.failed.length} failed —{" "}
-              {bulkResult.failed.map((f) => `${f.label}: ${f.error}`).join("; ")}
-            </>
-          )}
+          <span>
+            {bulkResult.verb} {bulkResult.ok} user{bulkResult.ok === 1 ? "" : "s"}.
+            {bulkResult.failed.length > 0 && (
+              <>
+                {" "}
+                {bulkResult.failed.length} failed —{" "}
+                {bulkResult.failed.map((f) => `${f.label}: ${f.error}`).join("; ")}
+              </>
+            )}
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setBulkResult(null)}
+            style={toastCloseStyle}
+          >
+            ×
+          </button>
         </div>
       )}
 
       {selectedIds.length > 0 && (
-        <div role="region" aria-label="Bulk actions" style={selectionBarStyle}>
-          <span style={{ fontWeight: 600, color: colors.text }}>{selectedIds.length} selected</span>
-          <button type="button" onClick={bulkDeactivate} disabled={bulkBusy} style={secondaryBtn(bulkBusy)}>
+        <div role="region" aria-label="Bulk actions" style={floatingBarStyle}>
+          <span style={{ fontWeight: 600 }}>{selectedIds.length} selected</span>
+          <button type="button" onClick={bulkDeactivate} disabled={bulkBusy} style={barBtn(bulkBusy)}>
             Deactivate
           </button>
-          <button type="button" onClick={bulkReactivate} disabled={bulkBusy} style={secondaryBtn(bulkBusy)}>
+          <button type="button" onClick={bulkReactivate} disabled={bulkBusy} style={barBtn(bulkBusy)}>
             Reactivate
           </button>
           <button
             type="button"
             onClick={() => setBulkDeleteIds(selectedIds)}
             disabled={bulkBusy}
-            style={dangerBtn(bulkBusy)}
+            style={barBtn(bulkBusy, true)}
           >
             Delete
           </button>
-          <button type="button" onClick={() => setSelected(new Set())} disabled={bulkBusy} style={secondaryBtn(bulkBusy)}>
+          <button type="button" onClick={() => setSelected(new Set())} disabled={bulkBusy} style={barGhostBtn(bulkBusy)}>
             Clear
           </button>
-          {bulkBusy && <span style={{ color: colors.textMuted, fontSize: 13 }}>Working…</span>}
+          {bulkBusy && <span style={{ color: "#9ca3af", fontSize: 13 }}>Working…</span>}
         </div>
       )}
 
@@ -904,34 +929,109 @@ const bannerStyle: CSSProperties = {
   marginBottom: "0.75rem",
 };
 
-const successBannerStyle: CSSProperties = {
-  padding: "0.5rem 0.75rem",
-  borderRadius: radius,
-  background: "#f0fdf4",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
-  fontSize: 13,
-  marginBottom: "0.75rem",
-};
-
-const warnBannerStyle: CSSProperties = {
-  padding: "0.5rem 0.75rem",
-  borderRadius: radius,
-  background: "#fffbeb",
-  color: "#92400e",
-  border: "1px solid #fde68a",
-  fontSize: 13,
-  marginBottom: "0.75rem",
-};
-
-const selectionBarStyle: CSSProperties = {
+// The bulk selection bar floats — position:fixed, pinned bottom-centre, OUT of
+// document flow — so selecting rows never pushes the table down (zero CLS). A
+// dark opaque pill: high-contrast and theme-independent (explicit colours), so it
+// reads on the light admin surface in either OS colour scheme. zIndex sits below
+// the confirm/modal layer (1100+) so the delete dialog still covers it.
+const floatingBarStyle: CSSProperties = {
+  position: "fixed",
+  left: "50%",
+  bottom: 20,
+  transform: "translateX(-50%)",
+  zIndex: 900,
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
+  justifyContent: "center",
   gap: "0.5rem",
-  padding: "0.5rem 0.75rem",
-  borderRadius: radius,
-  background: "#eef2ff",
-  border: `1px solid ${colors.border}`,
-  marginBottom: "0.75rem",
+  maxWidth: "calc(100vw - 24px)",
+  padding: "0.55rem 0.85rem",
+  borderRadius: 999,
+  background: "#111827",
+  color: "#ffffff",
+  boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
+};
+
+function barBtn(disabled: boolean, danger = false): CSSProperties {
+  return {
+    padding: "0.35rem 0.75rem",
+    border: "none",
+    borderRadius: 8,
+    background: danger ? "#dc2626" : "#374151",
+    color: "#ffffff",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    opacity: disabled ? 0.55 : 1,
+  };
+}
+
+function barGhostBtn(disabled: boolean): CSSProperties {
+  return {
+    padding: "0.35rem 0.75rem",
+    border: "1px solid #4b5563",
+    borderRadius: 8,
+    background: "transparent",
+    color: "#e5e7eb",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    opacity: disabled ? 0.55 : 1,
+  };
+}
+
+// The result confirmation is a floating toast too (same fixed spot the bar
+// vacated), so it doesn't shift the table either. Success auto-dismisses; a
+// partial failure keeps its detail until dismissed.
+const toastBaseStyle: CSSProperties = {
+  position: "fixed",
+  left: "50%",
+  bottom: 20,
+  transform: "translateX(-50%)",
+  zIndex: 900,
+  display: "flex",
+  // Top-align so the × stays at the top (reachable at scroll-top) when a large
+  // failure batch makes the toast tall.
+  alignItems: "flex-start",
+  gap: "0.5rem",
+  maxWidth: "calc(100vw - 24px)",
+  // A whole page of failures (up to PAGE_SIZE) can't grow the box off the top of
+  // the viewport — since it's out of flow it can't be page-scrolled, so cap the
+  // height and let the failure list scroll inside instead.
+  maxHeight: "60vh",
+  overflowY: "auto",
+  padding: "0.5rem 0.5rem 0.5rem 0.85rem",
+  borderRadius: 10,
+  fontSize: 13,
+  boxShadow: "0 8px 28px rgba(0,0,0,0.25)",
+};
+
+const successToastStyle: CSSProperties = {
+  ...toastBaseStyle,
+  background: "#f0fdf4",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
+};
+
+const warnToastStyle: CSSProperties = {
+  ...toastBaseStyle,
+  background: "#fffbeb",
+  color: "#92400e",
+  border: "1px solid #fde68a",
+};
+
+const toastCloseStyle: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "inherit",
+  cursor: "pointer",
+  fontSize: 18,
+  lineHeight: 1,
+  padding: "0 0.35rem",
+  opacity: 0.7,
+  flexShrink: 0,
+  // Keep the dismiss control pinned to the top of a tall (scrolling) toast.
+  position: "sticky",
+  top: 0,
 };
