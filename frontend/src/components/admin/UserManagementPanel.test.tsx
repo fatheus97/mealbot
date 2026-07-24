@@ -187,14 +187,20 @@ describe("UserManagementPanel", () => {
     expect(screen.getByText("2 selected")).toBeInTheDocument();
 
     const bar = screen.getByRole("region", { name: "Bulk actions" });
+    // The bar floats (position:fixed, out of document flow) so selecting rows
+    // never pushes the table down — zero layout shift (CLS).
+    expect(bar).toHaveStyle({ position: "fixed" });
     await user.click(within(bar).getByRole("button", { name: "Deactivate" }));
 
     await waitFor(() => {
       expect(api.updateAdminUser).toHaveBeenCalledWith(1, { is_active: false });
       expect(api.updateAdminUser).toHaveBeenCalledWith(2, { is_active: false });
     });
-    // Green summary banner, plural-correct ("users", not "user").
-    expect(await screen.findByText("Deactivated 2 users.")).toBeInTheDocument();
+    // Green summary toast, plural-correct ("users", not "user") — also floating,
+    // so it doesn't shift the layout either.
+    const toast = await screen.findByRole("status");
+    expect(toast).toHaveTextContent("Deactivated 2 users.");
+    expect(toast).toHaveStyle({ position: "fixed" });
   });
 
   it("bulk-reactivates the selection", async () => {
