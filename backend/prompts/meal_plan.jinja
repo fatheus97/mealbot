@@ -118,6 +118,7 @@ Rules about variety:
 Other rules:
 {% if include_spices %}
 — Include spices/herbs/seasonings in the JSON ingredient lists when used (e.g. salt, pepper, cumin, paprika, dried herbs, spice blends).
+— They ARE part of the shop this time: set "is_spice": false for EVERY ingredient and give each a real weight in grams (no "quantity_grams": 1 placeholders).
 {% else %}
 — Mark an ingredient as "is_spice": true if it is a PANTRY FLAVORING — something a home cook
   typically has on hand, uses in small/imprecise amounts, and does not need to buy or weigh per recipe.
@@ -176,7 +177,11 @@ Output JSON schema (must match exactly):
   ]
 }
 
+{% if include_spices %}
+— Set "is_spice": false for every ingredient — spices are included in this plan, so give each a real gram weight.
+{% else %}
 — Set "is_spice" following the pantry flavoring rule above. When in doubt: if you'd use it by feel rather than by weighing, set true.
+{% endif %}
 — ALL output text (meal names, ingredient names, cooking steps, meal_type_label) MUST be written in {{ language or "English" }}.
 — "meal_type" must ALWAYS be one of the English enum values above. "meal_type_label" is the display name in {{ language or "English" }}.
 

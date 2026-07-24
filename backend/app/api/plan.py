@@ -740,7 +740,7 @@ async def regenerate_plan(
     # non-null int, so it's the mypy-safe owner id to key the staples on.
     staple_keys = await load_staple_keys(session, plan.user_id)
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
-        new_days, initial_fridge, staples=staple_keys
+        new_days, initial_fridge, staples=staple_keys, include_spices=current_user.include_spices
     )
     if original_req.stock_only:
         if shopping_items:
