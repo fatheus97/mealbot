@@ -38,7 +38,7 @@ async def create_checkout(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> BillingUrlResponse:
-    """Start a subscription Checkout (14-day trial → the configured price)."""
+    """Start a subscription Checkout (10-day trial → the configured price)."""
     _require_billing_available()
     if current_user.is_demo:
         raise HTTPException(status_code=403, detail="Demo accounts cannot subscribe.")

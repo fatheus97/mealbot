@@ -215,6 +215,40 @@ async def test_ensure_customer_returns_existing_without_create(
     assert cid == "cus_existing"
 
 
+async def test_create_checkout_forwards_configured_trial_period(
+    test_user: User, db_session: AsyncSession, monkeypatch
+):
+    """Checkout must forward settings.trial_period_days into subscription_data
+    verbatim — the trial length is a config knob, not a hardcoded literal. Uses a
+    sentinel (7) that differs from any shipped default, so it guards the *wiring*
+    (config → Stripe), not a specific number; this is the regression guard for the
+    14→10 change and any future tuning."""
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+    monkeypatch.setattr(settings, "trial_period_days", 7)  # sentinel ≠ default
+    # Avoid Customer.create + the SDK global mutations leaking across tests.
+    test_user.stripe_customer_id = "cus_existing"
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    captured: dict = {}
+
+    class _FakeSession:
+        url = "https://checkout.stripe.test/session/abc"
+
+    def _fake_session_create(**kwargs):
+        captured.update(kwargs)
+        return _FakeSession()
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", _fake_session_create)
+
+    url = await stripe_service.create_checkout_session(test_user, db_session)
+
+    assert url == "https://checkout.stripe.test/session/abc"
+    assert captured["subscription_data"] == {"trial_period_days": 7}
+
+
 def test_require_stripe_configures_timeout_and_retries(monkeypatch):
     """_require_stripe sets the API key + an explicit timeout/retry policy so
     outbound calls don't silently inherit the SDK's 80s default."""

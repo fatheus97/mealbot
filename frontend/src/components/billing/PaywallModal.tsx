@@ -118,7 +118,7 @@ export function PaywallModal() {
         </h3>
         <p style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.95rem", lineHeight: 1.5 }}>
           Generating meal plans and recipes needs an active subscription. Start a
-          14-day free trial — no charge until it ends, cancel anytime.
+          10-day free trial — no charge until it ends, cancel anytime.
         </p>
 
         {error && (

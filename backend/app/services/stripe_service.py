@@ -144,7 +144,7 @@ async def _ensure_customer(user: User, session: AsyncSession) -> str:
 
 
 async def create_checkout_session(user: User, session: AsyncSession) -> str:
-    """Create a subscription Checkout session (14-day trial) and return its URL."""
+    """Create a subscription Checkout session (10-day trial) and return its URL."""
     _require_stripe()
     if not settings.stripe_price_id:
         raise RuntimeError("STRIPE_PRICE_ID not configured")
