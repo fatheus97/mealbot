@@ -138,7 +138,10 @@ def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest
         taste_preferences=extra_tastes,
         avoid_ingredients=req.avoid_ingredients,
         ingredients_to_use=req.ingredients_to_use,
-        diet_type=req.diet_type,
+        # Forward the canonical combinable set + structured allergens; the
+        # MealPlanRequest validator mirrors diet_type from diet_types[0].
+        diet_types=req.diet_types,
+        allergens=req.allergens,
         meals_per_day=1,
         people_count=req.people_count,
         past_meals=[],
