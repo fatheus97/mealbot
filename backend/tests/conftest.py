@@ -30,18 +30,17 @@ TEST_EMAIL = "test@example.com"
 TEST_PASSWORD = "TestPassword123"
 
 
-def _worker_database_url() -> URL:
-    """Give each xdist worker its own database.
+def _worker_database_url(worker: str | None) -> URL:
+    """Database URL for the given xdist ``PYTEST_XDIST_WORKER`` value.
 
     pytest-xdist runs each worker in its own process, so the session-scoped
     ``test_engine`` fixture runs once per worker. Pointed at one shared database
     the workers would race on the drop_all/create_all below and corrupt each
     other's schema mid-run, so each worker gets its own DB (mealbot_test_gw0,
-    _gw1, …) keyed off ``PYTEST_XDIST_WORKER``. Without xdist the variable is
-    unset and we return the base URL unchanged — byte-for-byte the previous
+    _gw1, …) keyed off its worker id. A falsy ``worker`` (not running under
+    xdist) returns the base URL unchanged — byte-for-byte the previous
     single-database behaviour.
     """
-    worker = os.environ.get("PYTEST_XDIST_WORKER")
     if not worker:
         return _BASE_TEST_DATABASE_URL
     return _BASE_TEST_DATABASE_URL.set(
@@ -86,8 +85,9 @@ async def _ensure_database(url: URL) -> None:
 
 @pytest.fixture(scope="session")
 async def test_engine():
-    db_url = _worker_database_url()
-    if os.environ.get("PYTEST_XDIST_WORKER"):
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    db_url = _worker_database_url(worker)
+    if worker:
         await _ensure_database(db_url)
 
     engine = create_async_engine(db_url, echo=False)
