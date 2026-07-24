@@ -91,6 +91,45 @@ class TestUserContentTags:
         rendered = _render(past_meals=["chicken curry", "beef stew"])
         assert '<user_content type="past_meals">' in rendered
 
+
+class TestDietBehaviourPreserved:
+    """Slice 1 of the dietary differentiator is schema-only: the prompt still
+    reads a single `diet_type` (the mirror of `diet_types[0]`). A multi-select
+    request must render EXACTLY the same 'Diet type:' line as the equivalent
+    single-select one — no behaviour changes until the prompt-redesign slice.
+    """
+
+    def test_multi_select_renders_first_pattern_only(self) -> None:
+        from app.core.dietary import DietType
+        from app.models.plan_models import MealPlanRequest
+
+        multi = MealPlanRequest(
+            diet_types=[DietType.VEGAN, DietType.GLUTEN_FREE],
+            meals_per_day=1,
+            people_count=2,
+        )
+        # The template reads the single diet_type mirror.
+        rendered = _render(**multi.model_dump())
+        assert "— Diet type: vegan" in rendered
+        # The 2nd pattern and the structured allergens are NOT wired into the
+        # prompt yet (later slices) — assert they don't leak in.
+        assert "gluten_free" not in rendered
+
+    def test_new_allergens_field_does_not_reach_prompt_yet(self) -> None:
+        from app.core.dietary import Allergen
+        from app.models.plan_models import MealPlanRequest
+
+        req = MealPlanRequest(
+            allergens=[Allergen.PEANUTS, Allergen.MILK],
+            meals_per_day=1,
+            people_count=2,
+        )
+        rendered = _render(**req.model_dump())
+        # Allergen screening is a later slice; the free-text avoid path is the
+        # only allergy channel today, and it's empty here.
+        assert "peanuts" not in rendered
+        assert "Ingredients to avoid: <user_content" in rendered
+
     def test_country_not_wrapped_because_whitelisted(self) -> None:
         # `country` is gated through app.core.country_whitelist at PATCH and at
         # plan-render time, so the value is guaranteed to be a canonical ISO
