@@ -12,6 +12,8 @@ source of truth; the mirror is eventually-consistent.
 """
 
 import asyncio
+import hashlib
+import hmac
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -149,12 +151,20 @@ async def create_checkout_session(user: User, session: AsyncSession) -> str:
     if not settings.stripe_price_id:
         raise RuntimeError("STRIPE_PRICE_ID not configured")
     customer_id = await _ensure_customer(user, session)
+    # Gate A of the trial-abuse guard: a repeat account (has_used_trial) gets NO
+    # trial — subscription-mode Checkout then charges the first invoice at
+    # completion instead of opening a free window. Gate B (cross-account card reuse)
+    # is handled post-completion on the webhook; see services.trial_guard.
+    trial_kwargs: dict[str, Any] = {}
+    if not (settings.trial_abuse_guard_enabled and user.has_used_trial):
+        trial_kwargs["subscription_data"] = {
+            "trial_period_days": settings.trial_period_days
+        }
     checkout = await asyncio.to_thread(
         stripe.checkout.Session.create,
         mode="subscription",
         customer=customer_id,
         line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
-        subscription_data={"trial_period_days": settings.trial_period_days},
         # Let EU business customers enter a VAT ID (B2B); we don't collect tax
         # ourselves (neplátce) so automatic_tax stays off.
         tax_id_collection={"enabled": True},
@@ -164,6 +174,7 @@ async def create_checkout_session(user: User, session: AsyncSession) -> str:
         allow_promotion_codes=True,
         success_url=f"{settings.frontend_base_url}/?billing=success",
         cancel_url=f"{settings.frontend_base_url}/?billing=cancel",
+        **trial_kwargs,
     )
     if not checkout.url:
         raise RuntimeError("Stripe returned a Checkout session without a URL")
@@ -198,4 +209,57 @@ def construct_event(payload: bytes, sig_header: str) -> stripe.Event:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET not configured")
     return stripe.Webhook.construct_event(
         payload, sig_header, settings.stripe_webhook_secret
+    )
+
+
+# --- Trial-abuse guard (Gate B) Stripe helpers -----------------------------------
+
+
+def hmac_fingerprint(raw_fingerprint: str) -> str:
+    """HMAC-SHA256 hex of a Stripe card fingerprint.
+
+    Domain-separated by ``trial_fingerprint_hmac_secret`` when set (else
+    ``secret_key``): the raw fingerprint is never stored, only this one-way hash,
+    so a leaked DB dump can't be matched against a known fingerprint without the
+    key — and the key rotates independently of the auth secret.
+    """
+    key = (settings.trial_fingerprint_hmac_secret or settings.secret_key).encode(
+        "utf-8"
+    )
+    return hmac.new(key, raw_fingerprint.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+async def retrieve_subscription(subscription_id: str) -> dict[str, Any]:
+    """Retrieve a Subscription with its default payment method expanded, as a
+    native dict (``to_dict`` — stripe>=15 StripeObjects aren't dicts, so ``.get()``
+    / ``dict()`` raise; ``to_dict`` returns a fully-native recursive dict)."""
+    _require_stripe()
+    sub = await asyncio.to_thread(
+        stripe.Subscription.retrieve,
+        subscription_id,
+        expand=["default_payment_method"],
+    )
+    return sub.to_dict()
+
+
+async def retrieve_customer(customer_id: str) -> dict[str, Any]:
+    """Retrieve a Customer with ``invoice_settings.default_payment_method``
+    expanded, as a native dict — the fallback fingerprint source when the
+    subscription-level default isn't attached yet at completion."""
+    _require_stripe()
+    customer = await asyncio.to_thread(
+        stripe.Customer.retrieve,
+        customer_id,
+        expand=["invoice_settings.default_payment_method"],
+    )
+    return customer.to_dict()
+
+
+async def end_trial_now(subscription_id: str) -> None:
+    """End a trial immediately (``Subscription.modify(trial_end='now')``), moving
+    the customer to paid billing now — used to claw back a cross-account trial
+    reuse. Idempotent: a no-op on an already-ended trial."""
+    _require_stripe()
+    await asyncio.to_thread(
+        stripe.Subscription.modify, subscription_id, trial_end="now"
     )

@@ -1,6 +1,10 @@
 -r requirements.txt
 pytest>=9.1.1,<10.0
 pytest-asyncio>=1.4.0,<2.0
+# Parallel test execution across CPU cores (`pytest -n auto`). The suite is the
+# CI critical path; xdist workers are separate processes, each given its own
+# database in conftest (see _worker_database_url) so they don't collide.
+pytest-xdist>=3.6,<4.0
 httpx>=0.28.1,<1.0
 pytest-cov>=7.1.0,<8.0
 mypy>=2.2.0,<3.0

@@ -124,6 +124,15 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:5173"
     # 10-day free trial before the first charge.
     trial_period_days: int = 10
+
+    # --- Trial-abuse guard (one free trial per physical card) ---
+    # Gate A: a repeat card (user.has_used_trial) gets NO trial at checkout → Stripe
+    # charges immediately. Gate B: a cross-account card reuse is clawed back on the
+    # webhook (trial ended now). trial_abuse_guard_enabled is the kill switch
+    # (mirrors leftovers_enabled); trial_fingerprint_hmac_secret domain-separates the
+    # stored fingerprint HMAC (falls back to secret_key when unset).
+    trial_abuse_guard_enabled: bool = True
+    trial_fingerprint_hmac_secret: str | None = None
     # Outbound-Stripe network policy (per .claude/rules/fastapi.md: every external
     # call needs an explicit timeout + retry). The SDK default is 80s / 2 retries;
     # 20s is plenty for control-plane calls and keeps a hung request from tying up
@@ -215,6 +224,15 @@ class Settings(BaseSettings):
     # Small on purpose: parsing is CPU-bound, so oversubscribing cores past a
     # low cap only adds contention. Tune per box (CX23 = 2 vCPU).
     parse_executor_workers: int = Field(default=2, ge=1, le=32)
+
+    # bcrypt work factor for password hashing. 12 (~250 ms/hash on the prod box)
+    # is a sane 2020s default and the cost every stored hash currently carries.
+    # The test suite overrides this to bcrypt's 4 floor (see conftest): the suite
+    # hashes throwaway passwords ~1000× across fixtures + auth-flow tests, and at
+    # cost 12 that alone adds minutes to CI wall-clock for zero security value.
+    # Bounded to bcrypt's valid 4..31 range so a typo'd env var can neither
+    # silently weaken prod hashing nor wedge it with an out-of-range cost.
+    bcrypt_rounds: int = Field(default=12, ge=4, le=31)
 
     secret_key: str
     database_url: str
