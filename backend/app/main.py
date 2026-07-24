@@ -13,6 +13,7 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.billing import router as billing_router
 from app.api.cookbook import router as cookbook_router
+from app.api.feedback import router as feedback_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
 from app.api.pantry import router as pantry_router
@@ -176,6 +177,7 @@ app.include_router(cookbook_router, prefix="/api")
 app.include_router(usage_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
+app.include_router(feedback_router, prefix="/api")
 
 # pro lokální vývoj:
 # uvicorn app.main:app --reload

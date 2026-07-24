@@ -153,6 +153,25 @@ class Settings(BaseSettings):
     usage_cap_trial_eur: float = 0.75
     usage_soft_warn_ratio: float = Field(default=0.8, ge=0.0, le=1.0)
 
+    # --- User feedback intake (bug reports / feature requests) ---
+    # A logged-in user submits a report; a CHEAP regex/abuse gate rejects junk at
+    # the edge, the report is stored, and (behind feedback_llm_triage_enabled) an
+    # ADVISORY LLM triage pre-classifies it for the admin moderation queue. The LLM
+    # NEVER authorizes anything — the €1 launch feedback credit + a private-repo
+    # ticket are a later, human-Accept-gated slice. feedback_enabled is the kill
+    # switch for the submit endpoint (mirrors leftovers_enabled); triage has its own
+    # switch so the queue keeps working (raw reports, no advisory triage) if the LLM
+    # misbehaves or costs spike.
+    feedback_enabled: bool = True
+    feedback_llm_triage_enabled: bool = True
+    # Anti-flood caps on the intake (enforced in services.feedback_intake, on top of
+    # the per-user route rate limit): the most OPEN (new/reviewing) reports a
+    # single user may have queued at once, and the window in which an identical
+    # resubmission from the same user is treated as a duplicate and refused. Both
+    # bound queue spam + the LLM-triage cost an accepted report incurs.
+    feedback_max_open_per_user: int = Field(default=20, ge=1, le=1000)
+    feedback_dedup_window_hours: int = Field(default=24, ge=1, le=720)
+
     # --- VAT threshold tracking (revenue dashboard) ---
     # EU cross-border B2C distance-selling / OSS threshold: once cumulative B2C
     # sales to OTHER EU countries pass €10k, destination VAT (OSS) is required.

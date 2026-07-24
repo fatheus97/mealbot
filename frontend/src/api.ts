@@ -1,12 +1,18 @@
 // frontend/src/api.ts
 import type {
   ActivityStatsResponse,
+  AdminFeedbackDetail,
+  AdminFeedbackListResponse,
   AdminUser,
   AdminUserListResponse,
   AdminUserRoleFilter,
   AdminUserStatusFilter,
   AdminUserUpdate,
   CookRecipeRequest,
+  FeedbackCreateRequest,
+  FeedbackModerationStatus,
+  FeedbackStatusFilter,
+  FeedbackSubmitResponse,
   FunnelStatsResponse,
   FavoriteRecipeRequest,
   InviteCreateRequest,
@@ -513,6 +519,77 @@ export async function redeemInvite(
     );
   }
   throw new Error(detail ?? `Could not create your account (${res.status}).`);
+}
+
+// --- User feedback: submit (authed) + admin moderation (403-gated server-side) ---
+
+export async function submitFeedback(
+  body: FeedbackCreateRequest,
+): Promise<FeedbackSubmitResponse> {
+  const res = await authFetch("/feedback", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.json();
+  // The backend returns a friendly `detail` string on 422 (gate reject), 409
+  // (duplicate), 429 (too many open), 503 (disabled) and 403 (demo); Pydantic 422s
+  // carry a list detail. Surface a real reason rather than a bare status.
+  let detail: string | null = null;
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") detail = parsed.detail;
+    else if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
+      detail = parsed.detail[0].msg;
+    }
+  } catch {
+    // non-JSON body — fall through to a status-based message
+  }
+  throw new Error(detail ?? `Could not send your feedback (${res.status}).`);
+}
+
+export interface AdminFeedbackQuery {
+  status?: FeedbackStatusFilter;
+  kind?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchAdminFeedback(
+  query: AdminFeedbackQuery = {},
+): Promise<AdminFeedbackListResponse> {
+  const p = new URLSearchParams();
+  if (query.status && query.status !== "all") p.set("status", query.status);
+  if (query.kind) p.set("kind", query.kind);
+  if (query.limit != null) p.set("limit", String(query.limit));
+  if (query.offset != null) p.set("offset", String(query.offset));
+  const qs = p.toString();
+  const res = await authFetch(`/admin/feedback${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Admin feedback failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminFeedbackDetail(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}`);
+  if (!res.ok) throw new Error(`Admin feedback detail failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAdminFeedback(
+  id: number,
+  status: FeedbackModerationStatus,
+): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not update the report"));
+  return res.json();
+}
+
+export async function retriageAdminFeedback(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}/retriage`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not re-run triage"));
+  return res.json();
 }
 
 export async function mergeFridgeItems(

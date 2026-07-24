@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from app.api.deps import require_admin
+from app.core.config import settings
 from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import get_session
@@ -46,6 +47,7 @@ from app.models.admin_schemas import (
 )
 from app.models.db_models import (
     AuthSession,
+    FeedbackReport,
     InviteToken,
     LlmUsage,
     MachineGeneration,
@@ -57,7 +59,14 @@ from app.models.db_models import (
     StockItem,
     User,
 )
-from app.services import revenue_service
+from app.models.feedback_schemas import (
+    AdminFeedbackDetail,
+    AdminFeedbackListItem,
+    AdminFeedbackListResponse,
+    AdminFeedbackUpdate,
+    FeedbackTriage,
+)
+from app.services import feedback_triage, revenue_service
 from app.services.admin_audit import record_admin_action
 from app.services.invite import create_invite, invite_link, invite_status
 
@@ -1074,3 +1083,220 @@ async def revoke_invite(
         expires_at=invite.expires_at,
         redeemed_by_email=None,
     )
+
+
+# --- User feedback moderation ---
+#
+# The read + moderation side of the feedback intake pipeline (submit lives in
+# api/feedback.py). An admin lists / reads reports, sees the ADVISORY LLM triage, and
+# moves a report through moderation states. Deliberately excluded from 6a: the
+# money-moving Accept (grants the €1 credit + opens a private-repo ticket) — that's a
+# later, separately-reviewed slice, so "accepted" is not a settable status here.
+
+_MAX_FEEDBACK_PAGE = 200
+# List rows carry a message PREVIEW (SQL substring), never the full body or the
+# triage_json blob — those are on the detail view.
+_FEEDBACK_PREVIEW_LEN = 140
+
+FeedbackStatusFilter = Literal[
+    "all", "new", "reviewing", "accepted", "rejected", "spam"
+]
+
+# Moderation status → audit verb. Only the 6a-settable states (AdminFeedbackUpdate
+# constrains the body to these); "accepted" is the 6b money action and never reaches
+# here.
+_FEEDBACK_STATUS_ACTION: dict[str, str] = {
+    "new": "feedback.reopen",
+    "reviewing": "feedback.review",
+    "rejected": "feedback.reject",
+    "spam": "feedback.spam",
+}
+
+
+def _parse_triage(triage_json: str | None) -> FeedbackTriage | None:
+    """Re-validate the stored advisory triage blob for the detail view.
+
+    Defensive: a malformed/legacy blob yields None (logged), never a 500 — the raw
+    text is model output, and the detail endpoint must stay readable even if it can't
+    be parsed."""
+    if not triage_json:
+        return None
+    try:
+        return FeedbackTriage.model_validate_json(triage_json)
+    except Exception:
+        logger.warning("feedback triage_json failed to parse; returning None")
+        return None
+
+
+async def _feedback_detail(session: AsyncSession, report: FeedbackReport) -> AdminFeedbackDetail:
+    """Build the detail shape, resolving the reporter's email in one extra query."""
+    email = (
+        await session.execute(
+            select(col(User.email)).where(col(User.id) == report.user_id)
+        )
+    ).scalar_one_or_none()
+    return AdminFeedbackDetail(
+        id=report.id,  # type: ignore[arg-type]  # selected/persisted row always has an id
+        user_id=report.user_id,
+        user_email=email,
+        kind=report.kind,
+        message=report.message,
+        page=report.page,
+        status=report.status,
+        created_at=report.created_at,
+        triage_status=report.triage_status,
+        triage=_parse_triage(report.triage_json),
+        reviewed_by_admin_id=report.reviewed_by_admin_id,
+        reviewed_at=report.reviewed_at,
+    )
+
+
+@router.get("/feedback", response_model=AdminFeedbackListResponse)
+async def list_feedback(
+    status_filter: FeedbackStatusFilter = Query("all", alias="status"),
+    kind: str | None = Query(None, max_length=40),
+    limit: int = Query(50, ge=1, le=_MAX_FEEDBACK_PAGE),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackListResponse:
+    """The admin moderation queue: reports newest-first, filterable by status/kind.
+
+    Projects a message PREVIEW (SQL ``substr`` — never the full body or triage_json)
+    plus the advisory triage summary fields, so the queue is scannable without a
+    fetch-per-row. ``total`` is the count matching the filters (not the page size).
+    """
+    filters: list[ColumnElement[bool]] = []
+    if status_filter != "all":
+        filters.append(col(FeedbackReport.status) == status_filter)
+    if kind:
+        filters.append(col(FeedbackReport.kind) == kind)
+
+    total = (
+        await session.execute(
+            select(func.count()).select_from(FeedbackReport).where(*filters)
+        )
+    ).scalar_one()
+
+    rows = (
+        await session.execute(
+            select(
+                col(FeedbackReport.id),
+                col(FeedbackReport.user_id),
+                col(User.email),
+                col(FeedbackReport.kind),
+                col(FeedbackReport.status),
+                col(FeedbackReport.created_at),
+                func.substr(col(FeedbackReport.message), 1, _FEEDBACK_PREVIEW_LEN),
+                col(FeedbackReport.triage_status),
+                col(FeedbackReport.triage_is_actionable),
+                col(FeedbackReport.triage_type),
+                col(FeedbackReport.triage_severity),
+                col(FeedbackReport.triage_title),
+            )
+            .join(User, col(User.id) == col(FeedbackReport.user_id), isouter=True)
+            .where(*filters)
+            .order_by(col(FeedbackReport.created_at).desc(), col(FeedbackReport.id).desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+
+    return AdminFeedbackListResponse(
+        total=int(total),
+        limit=limit,
+        offset=offset,
+        items=[
+            AdminFeedbackListItem(
+                id=int(r[0]),
+                user_id=int(r[1]),
+                user_email=r[2],
+                kind=str(r[3]),
+                status=str(r[4]),
+                created_at=r[5],
+                preview=str(r[6]),
+                triage_status=r[7],
+                triage_is_actionable=r[8],
+                triage_type=r[9],
+                triage_severity=r[10],
+                triage_title=r[11],
+            )
+            for r in rows
+        ],
+    )
+
+
+@router.get("/feedback/{feedback_id}", response_model=AdminFeedbackDetail)
+async def get_feedback(
+    feedback_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Full report: the verbatim message + the parsed advisory triage."""
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    return await _feedback_detail(session, report)
+
+
+@router.patch("/feedback/{feedback_id}", response_model=AdminFeedbackDetail)
+async def moderate_feedback(
+    feedback_id: int,
+    body: AdminFeedbackUpdate,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Move a report through moderation (reviewing / rejected / spam, or reopen to
+    new). Audited; idempotent when the status is unchanged.
+
+    ``accepted`` is intentionally NOT accepted here — granting the €1 credit and
+    opening a ticket is the money-moving 6b action (AdminFeedbackUpdate already
+    rejects it at the schema layer, so a client can't sneak it in)."""
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+
+    if report.status == body.status:
+        return await _feedback_detail(session, report)  # idempotent no-op, no audit
+
+    old_status = report.status
+    report.status = body.status
+    report.reviewed_by_admin_id = actor.id
+    report.reviewed_at = datetime.now(UTC)
+    session.add(report)
+    record_admin_action(
+        session,
+        actor=actor,
+        action=_FEEDBACK_STATUS_ACTION[body.status],
+        detail={"feedback_id": str(feedback_id), "from": old_status, "to": body.status},
+    )
+    await session.commit()
+    await session.refresh(report)
+    return await _feedback_detail(session, report)
+
+
+@router.post("/feedback/{feedback_id}/retriage", response_model=AdminFeedbackDetail)
+async def retriage_feedback(
+    feedback_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Re-run the advisory LLM triage for one report on demand.
+
+    For when auto-triage failed, or the LLM was toggled on after the report came in.
+    Runs synchronously on this (admin-gated) request — so there's no abuse surface —
+    and ``triage_report`` owns the commit of the result. 503 when triage is disabled.
+    """
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    if not settings.feedback_llm_triage_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI triage is currently disabled.",
+        )
+
+    await feedback_triage.triage_report(session, feedback_id)
+    # triage_report committed the outcome (done/failed); re-read the fresh row.
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:  # pragma: no cover — deleted mid-request; treat as gone
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    return await _feedback_detail(session, report)
