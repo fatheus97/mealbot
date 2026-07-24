@@ -13,6 +13,7 @@ def compute_shopping_list_from_plan(
     days: list[SingleDayResponse],
     initial_fridge: list[StockItemDTO],
     staples: frozenset[str] | None = None,
+    include_spices: bool = True,
 ) -> list[ShoppingListItem]:
     """
     Compute how much needs to be bought for the whole plan, based on:
@@ -29,9 +30,17 @@ def compute_shopping_list_from_plan(
     from a global) so the exclusion is applied per-user at generation time and
     older plans, whose lists were already frozen, are never retroactively changed.
     The keys must be lowercased to match the ``ing.name.lower()`` comparison below.
+
+    ``include_spices`` is the user's "Include spices in shopping list" preference,
+    honored HERE deterministically rather than trusting the LLM's ``is_spice``
+    tagging. A spice (is_spice=true) is dropped ONLY when include_spices is off.
+    When it's on, spices stay on the list even if the model mistakenly tagged one
+    is_spice=true — so the preference can't be silently broken by a bad tag. (The
+    prompt is also branched on include_spices, but that alone is prompt-compliance;
+    this is the guarantee.)
     """
     staples = staples or frozenset()
-    # Sum required grams per ingredient over all days and meals (skip spices)
+    # Sum required grams per ingredient over all days and meals
     required: dict[str, float] = defaultdict(float)
     for day in days:
         for meal in day.meals:
@@ -47,7 +56,8 @@ def compute_shopping_list_from_plan(
             if meal.is_leftover:
                 continue
             for ing in meal.ingredients:
-                if ing.is_spice:
+                if ing.is_spice and not include_spices:
+                    # Seasoning, and the user asked to keep spices OFF the list.
                     continue
                 key = ing.name.lower()
                 if key in staples:

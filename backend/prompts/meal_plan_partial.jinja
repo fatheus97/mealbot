@@ -135,6 +135,7 @@ Rules about variety:
 Other rules:
 {% if include_spices %}
 — Include spices/herbs/seasonings in the JSON ingredient lists when used (e.g. salt, pepper, cumin, paprika, dried herbs, spice blends).
+— They ARE part of the shop this time: set "is_spice": false for EVERY ingredient and give each a real weight in grams (no "quantity_grams": 1 placeholders).
 {% else %}
 — Mark an ingredient as "is_spice": true if it is a PANTRY FLAVORING — something a home cook
   typically has on hand, uses in small/imprecise amounts, and does not need to buy or weigh per recipe.
@@ -149,7 +150,7 @@ Other rules:
 {% endif %}
 — All ingredient amounts in grams as numeric "quantity_grams". No units in name or quantity.
 — Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
-— Write every step to be SELF-CONTAINED: the first time an ingredient is used, state its amount INLINE in the step text (e.g. "Add 200 g flour and 2 eggs and whisk", "Stir in 1 tsp paprika") so the cook never has to look back at the ingredient list. Use the {{ measurement_system }} system for these inline amounts (spoons/splashes for is_spice items per the rule above); the structured "ingredients" quantities stay in grams.
+— Write every step to be SELF-CONTAINED: the first time an ingredient is used, state its amount INLINE in the step text (e.g. "Add 200 g flour and 2 eggs and whisk", "Stir in 1 tsp paprika") so the cook never has to look back at the ingredient list. Use the {{ measurement_system }} system for these inline amounts{% if not include_spices %} (spoons/splashes for is_spice items per the rule above){% endif %}; the structured "ingredients" quantities stay in grams.
 — When a step involves cooking, simmering, baking, chilling, or resting for a set time, phrase the duration explicitly as a whole number followed by "minute"/"minutes" (e.g. "simmer for 10 minutes", "bake 25 minutes", "rest 5 minutes") so it can be timed.
 — "total_time_minutes" is an integer: the total time from starting prep to finishing cooking, including prep, active cooking, and any resting/baking/marinating time. Give a realistic estimate for a home cook; must be between 1 and 600.
 
@@ -174,7 +175,11 @@ Output JSON schema (must match exactly):
   ]
 }
 
+{% if include_spices %}
+— Set "is_spice": false for every ingredient — spices are included in this plan, so give each a real gram weight.
+{% else %}
 — Set "is_spice" following the pantry flavoring rule above. When in doubt: if you'd use it by feel rather than by weighing, set true.
+{% endif %}
 — ALL output text (meal names, ingredient names, cooking steps, meal_type_label) MUST be written in {{ language or "English" }}.
 — "meal_type" must ALWAYS be one of the English enum values above. "meal_type_label" is the display name in {{ language or "English" }}.
 

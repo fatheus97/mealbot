@@ -723,10 +723,11 @@ async def generate_plan_days(
                     )
 
     # Per-user "always have" staples are dropped from the list at generation
-    # time (never on read), so older plans' frozen lists are untouched.
+    # time (never on read), so older plans' frozen lists are untouched. The
+    # user's include_spices preference is honored here deterministically too.
     staple_keys = await load_staple_keys(session, user.id)
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
-        meal_plan, initial_fridge, staples=staple_keys
+        meal_plan, initial_fridge, staples=staple_keys, include_spices=user.include_spices
     )
     if payload.stock_only:
         if shopping_items:

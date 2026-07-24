@@ -94,6 +94,83 @@ class TestPlanGeneration:
         assert "rice" in names
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_include_spices_off_drops_spice_from_generated_list(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
+    ):
+        # Pins the generate-path wiring (plan_service → compute include_spices).
+        test_user.include_spices = False
+        mock_gen.return_value = SingleDayResponse(meals=[PlannedMeal(
+            name="Test", meal_type=MealType.LIGHT_LUNCH,
+            ingredients=[
+                IngredientAmount(name="salt", quantity_grams=1, is_spice=True),
+                IngredientAmount(name="chicken breast", quantity_grams=300),
+            ], steps=["cook"])])
+        resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        names = {i.name.lower() for i in MealPlanResponse(**resp.json()).shopping_list}
+        assert "salt" not in names
+        assert "chicken breast" in names
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_include_spices_on_keeps_spice_on_generated_list(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
+    ):
+        # Deterministic guard at the API level: a mis-tagged is_spice=true item
+        # still reaches the list when the user wants spices on.
+        test_user.include_spices = True
+        mock_gen.return_value = SingleDayResponse(meals=[PlannedMeal(
+            name="Test", meal_type=MealType.LIGHT_LUNCH,
+            ingredients=[
+                IngredientAmount(name="salt", quantity_grams=3, is_spice=True),
+                IngredientAmount(name="chicken breast", quantity_grams=300),
+            ], steps=["cook"])])
+        resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        names = {i.name.lower() for i in MealPlanResponse(**resp.json()).shopping_list}
+        assert "salt" in names
+
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_regenerate_filters_spices_by_stored_not_live_preference(
+        self, mock_gen: AsyncMock, mock_partial: AsyncMock,
+        client: AsyncClient, auth_headers: dict, test_user,
+    ):
+        # Regression guard: regenerate must filter spices by the value the plan's
+        # meals were AUTHORED under (stored in request_json), not the live pref —
+        # else flipping include_spices ON then regenerating leaks 1g spice sentinels.
+        test_user.include_spices = False
+        spice_day = SingleDayResponse(meals=[PlannedMeal(
+            name="M", meal_type=MealType.LIGHT_LUNCH,
+            ingredients=[
+                IngredientAmount(name="salt", quantity_grams=1, is_spice=True),
+                IngredientAmount(name="chicken breast", quantity_grams=300),
+            ], steps=["cook"])])
+        mock_gen.return_value = spice_day
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        # User flips spices ON (live), then regenerates the still-unconfirmed plan.
+        test_user.include_spices = True
+        mock_partial.return_value = spice_day
+        regen = await client.post(
+            f"/api/plan/{plan_id}/regenerate", headers=auth_headers,
+            json={"frozen_meals": []},
+        )
+        assert regen.status_code == 200
+        names = {i.name.lower() for i in MealPlanResponse(**regen.json()).shopping_list}
+        assert "salt" not in names  # stored OFF wins — no 1g sentinel leaks
+        assert "chicken breast" in names
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_multi_day_calls_per_day(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
