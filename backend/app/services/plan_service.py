@@ -56,6 +56,7 @@ from app.services.meal_planner import (
     generate_single_day,
     generate_single_day_with_rag,
 )
+from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan, subtract_used_from_fridge
 
 logger = logging.getLogger(__name__)
@@ -721,7 +722,12 @@ async def generate_plan_days(
                         d_i, m_i,
                     )
 
-    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
+    # Per-user "always have" staples are dropped from the list at generation
+    # time (never on read), so older plans' frozen lists are untouched.
+    staple_keys = await load_staple_keys(session, user.id)
+    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
+        meal_plan, initial_fridge, staples=staple_keys
+    )
     if payload.stock_only:
         if shopping_items:
             logger.warning(

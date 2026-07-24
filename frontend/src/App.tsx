@@ -5,6 +5,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AuthBar } from "./components/AuthBar";
 import { DemoBanner } from "./components/DemoBanner";
 import { Fridge } from "./components/Fridge";
+import { PantryStaples } from "./components/PantryStaples";
 import { PlanCatalog } from "./components/PlanCatalog";
 import { MealPlanner } from "./components/MealPlanner";
 import { OnboardingModal } from "./components/OnboardingModal";
@@ -76,6 +77,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
       <AuthBar />
       {userId && <SubscriptionBanner />}
       <Fridge />
+      {userId && <PantryStaples />}
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
       <MealPlanner
         key={openedPlan?.plan.plan_id ?? "new"}

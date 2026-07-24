@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest } from '../types';
+import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest } from '../types';
 import { authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, revokeInvite, scanReceipt, updateAdminUser, updateMeal, updateUserProfile } from '../api';
 
 // --- Queries (Data Fetching) ---
@@ -82,6 +82,40 @@ export function useUpdateFridge() {
 export function useScanReceipt() {
   return useMutation({
     mutationFn: (file: File) => scanReceipt(file),
+  });
+}
+
+// Pantry staples — the per-user "always have" list, excluded from generated
+// shopping lists. GET/PUT go straight through authFetch (same inline pattern as
+// the fridge above), and the PUT primes the cache so the panel stays in sync.
+export function useStaples(userId: number | null) {
+  return useQuery({
+    queryKey: ['staples', userId],
+    queryFn: async (): Promise<PantryStaple[]> => {
+      const res = await authFetch(`/staples`);
+      if (res.status === 404) return [];
+      if (!res.ok) throw new Error(`Staples fetch failed: ${res.status}`);
+      return res.json();
+    },
+    enabled: userId !== null,
+  });
+}
+
+export function useUpdateStaples() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ items }: { userId: number; items: PantryStaple[] }): Promise<PantryStaple[]> => {
+      const res = await authFetch(`/staples`, {
+        method: "PUT",
+        body: JSON.stringify(items),
+      });
+      if (!res.ok) throw new Error(`Staples update failed: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(['staples', variables.userId], data);
+    },
   });
 }
 
