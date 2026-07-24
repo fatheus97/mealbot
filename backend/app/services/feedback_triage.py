@@ -71,11 +71,21 @@ async def triage_report(session: AsyncSession, report_id: int) -> bool:
     on the request session — behave identically. Never raises: a no-op when triage is
     disabled or the report is gone; a logged ``failed`` on an LLM/DB error.
     """
-    if not settings.feedback_llm_triage_enabled:
-        return False
     report = await session.get(FeedbackReport, report_id)
     if report is None:
         logger.warning("feedback triage: report_id=%s not found", report_id)
+        return False
+    if not settings.feedback_llm_triage_enabled:
+        # Triage was disabled AFTER this report was queued with triage_status
+        # "pending" (e.g. an operator killed the flag mid-incident). Clear the pending
+        # marker to "failed" so it doesn't hang in the admin queue forever showing
+        # "pending…" — an admin can Re-run once triage is back on. Only touches a
+        # "pending" row (the retriage endpoint 503s before it ever reaches here, so a
+        # done/failed row is never re-cleared).
+        if report.triage_status == "pending":
+            report.triage_status = "failed"
+            session.add(report)
+            await session.commit()
         return False
 
     # Build the prompt from the row, then COMMIT to release the pooled DB connection

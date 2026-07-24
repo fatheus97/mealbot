@@ -114,19 +114,39 @@ class TestAdvisoryOnly:
 
 
 class TestKillSwitchAndFailures:
-    async def test_disabled_is_noop(
+    async def test_disabled_clears_pending_without_calling_llm(
         self, db_session: AsyncSession, test_user: User, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Disabled mid-flight: a queued "pending" report is cleared to "failed" (so it
+        # doesn't hang in the queue), the LLM is never called, and status is untouched.
         monkeypatch.setattr(settings, "feedback_llm_triage_enabled", False)
         assert test_user.id is not None
-        report = await _add_report(db_session, test_user.id)
+        report = await _add_report(db_session, test_user.id)  # triage_status="pending"
         with patch("app.services.feedback_triage.llm_client") as mock_llm:
             mock_llm.chat_json = AsyncMock(return_value=_triage())
             ok = await triage_report(db_session, report.id)  # type: ignore[arg-type]
             mock_llm.chat_json.assert_not_awaited()
         assert ok is False
-        assert report.triage_status == "pending"  # untouched
+        assert report.triage_status == "failed"
         assert report.status == "new"
+
+    async def test_disabled_leaves_non_pending_row_untouched(
+        self, db_session: AsyncSession, test_user: User, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The pending-only guard: a row already triaged "done" is NOT re-cleared when
+        # the flag happens to be off (only a stuck "pending" is).
+        monkeypatch.setattr(settings, "feedback_llm_triage_enabled", False)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id, status="new")
+        report.triage_status = "done"
+        db_session.add(report)
+        await db_session.flush()
+        with patch("app.services.feedback_triage.llm_client") as mock_llm:
+            mock_llm.chat_json = AsyncMock(return_value=_triage())
+            ok = await triage_report(db_session, report.id)  # type: ignore[arg-type]
+            mock_llm.chat_json.assert_not_awaited()
+        assert ok is False
+        assert report.triage_status == "done"
 
     async def test_llm_failure_marks_failed(
         self, db_session: AsyncSession, test_user: User

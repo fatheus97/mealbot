@@ -262,6 +262,16 @@ class TestRetriage:
         assert body["triage_status"] == "done"
         assert body["triage"]["type"] == "feature"
 
+        # Retriage is a mutation (rewrites triage_* + costs an LLM call) → audited.
+        audits = (
+            await db_session.execute(
+                select(AdminAuditLog).where(AdminAuditLog.action == "feedback.retriage")
+            )
+        ).scalars().all()
+        assert len(audits) == 1
+        assert audits[0].actor_user_id == test_user.id
+        assert audits[0].detail == {"feedback_id": str(report.id)}
+
     async def test_retriage_llm_failure_is_200_and_marks_failed(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
     ) -> None:

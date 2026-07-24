@@ -1299,4 +1299,16 @@ async def retriage_feedback(
     report = await session.get(FeedbackReport, feedback_id)
     if report is None:  # pragma: no cover — deleted mid-request; treat as gone
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    # Audit the admin action (retriage is a mutation — it rewrites the triage_* fields
+    # and costs an LLM call). triage_report owns + commits its OWN transaction, so this
+    # audit row CANNOT ride in the same transaction as the triage write; commit it on
+    # its own here (the one place in this file where the audit isn't co-committed with
+    # the change it records, for that reason).
+    record_admin_action(
+        session,
+        actor=actor,
+        action="feedback.retriage",
+        detail={"feedback_id": str(feedback_id)},
+    )
+    await session.commit()
     return await _feedback_detail(session, report)
