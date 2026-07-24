@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -62,6 +62,14 @@ beforeEach(() => {
     if (url === '/config') return Promise.resolve(okEmpty());
     return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
   });
+});
+
+// Some tests stub the Web Share / Clipboard APIs on navigator via
+// Object.defineProperty; remove them after each test so a stub can't leak into
+// a later test that assumes the API is absent.
+afterEach(() => {
+  Reflect.deleteProperty(navigator, 'share');
+  Reflect.deleteProperty(navigator, 'clipboard');
 });
 
 describe('MealPlanner', () => {

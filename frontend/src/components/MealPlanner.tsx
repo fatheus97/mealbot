@@ -851,7 +851,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                           onChange={() => toggleShoppingItem(i)}
                           aria-label={`Mark ${item.name} as bought`}
                         />
-                        <span style={{ textDecoration: checked ? "line-through" : "none", color: checked ? "#9ca3af" : "inherit" }}>
+                        <span style={{ textDecoration: checked ? "line-through" : "none", color: checked ? "#6b7280" : "inherit" }}>
                           {item.name} — {Math.round(item.quantity_grams)}g
                         </span>
                       </label>
