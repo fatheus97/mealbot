@@ -30,6 +30,35 @@ white-on-white bug has shipped more than once. (A proper automated visual-regres
 setup — Playwright snapshots in dark+light — is the long-term fix; tracked under
 ROADMAP "Frontend E2E (U-8)". Until then this manual check is the guardrail.)
 
+## Layout stability / CLS — don't shift content under the user's cursor (recurring bug)
+Conditionally rendering a block **in document flow** (`{cond && <Bar/>}` for a
+selection bar, banner, toast, spinner, inline error) pushes everything below it down
+the moment it mounts — the classic **Cumulative Layout Shift (CLS)**. This shipped
+on the admin bulk-actions bar (#268): selecting a row jumped the whole user table
+down, so the control the user was reaching for slid out from under the cursor. The
+app is 100% inline styles with lots of `{cond && …}` rendering, so the trap is
+everywhere. So:
+
+- **Anything that toggles on/off over existing content** (selection bars, toasts,
+  "N selected" banners, inline validation) must **not** land in flow above content
+  the user is about to click. Either float it — `position: fixed`/`absolute` is out
+  of flow and shifts nothing (what #268 switched to) — or **reserve the space** up
+  front (an always-present fixed-height container whose contents swap).
+- **Images / async embeds:** give an explicit `width`/`height` (or an aspect-ratio
+  box) so they don't reflow when they load.
+
+### The three Core Web Vitals (what Search Console grades)
+A moving/janky page is a real UX defect, not just a metric. **CLS** (above) is the
+one that keeps biting at the component level; the other two are more architectural —
+worth knowing, rarely a per-change item:
+- **LCP (Largest Contentful Paint)** — render speed of the biggest above-the-fold
+  element. A bundle-size / image-weight / server-response concern; watch it when
+  adding a heavy dep or a large hero image.
+- **INP (Interaction to Next Paint)** — input responsiveness (replaced FID in 2024).
+  Don't do heavy synchronous work in a click/keydown handler — same "never block the
+  event loop" spirit as the backend. react-query already runs fetches asynchronously,
+  so data loading doesn't stall interactions; the risk is your own sync work.
+
 ## Other conventions
 - Responsiveness is JS-driven via `useIsMobile()` (the app is 100% inline
   `style={}`, so CSS `@media` can't reach it). Test mobile with
