@@ -56,8 +56,8 @@ worth knowing, rarely a per-change item:
   adding a heavy dep or a large hero image.
 - **INP (Interaction to Next Paint)** — input responsiveness (replaced FID in 2024).
   Don't do heavy synchronous work in a click/keydown handler — same "never block the
-  event loop" spirit as the backend. react-query already keeps most fetching off the
-  main thread.
+  event loop" spirit as the backend. react-query already runs fetches asynchronously,
+  so data loading doesn't stall interactions; the risk is your own sync work.
 
 ## Other conventions
 - Responsiveness is JS-driven via `useIsMobile()` (the app is 100% inline
