@@ -11,4 +11,4 @@ mypy>=2.2.0,<3.0
 # Narrow to one minor: ruff adds/renames rules and changes defaults across
 # minors, so a wide range makes lint results differ between CI and local /
 # across machines. Bump deliberately (matches the mypy/pytest pinning).
-ruff>=0.15,<0.16
+ruff>=0.16.0,<0.17
