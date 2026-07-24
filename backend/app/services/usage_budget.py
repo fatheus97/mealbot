@@ -12,7 +12,7 @@ offset. Values read back from the DB are coerced via _as_naive as a belt.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,21 +79,29 @@ def resolve_budget(user: User) -> Budget:
     if user.is_admin or user.is_demo:
         return Budget(TIER_UNLIMITED, 0.0, now, _next_month_start(now))
 
-    # Trial: cap the WHOLE trial membership as one budget (does NOT reset across a
-    # month boundary). window_start = the account's created_at, NOT
-    # trial_end − trial_period_days: the latter UNDERCOUNTS a user grandfathered on
-    # a longer trial after the length was shortened — their trial_end is fixed by
-    # Stripe at signup, so trial_end − the *new* setting drops their first days and
-    # the trial cap could be spent twice. created_at is immune to any trial-length
-    # change and can't over-count: while billing is on, a pre-checkout (unentitled)
-    # user is 402'd and accrues no earlier usage.
+    # Trial: cap the trial as one budget (does NOT reset across a month boundary).
+    # window_start = max(created_at, trial_end − trial_period_days):
+    #   - A FRESH trial grant — including an existing billing-off user who converts
+    #     to trialing — has trial_end = checkout + trial_period_days, so
+    #     trial_end − trial_period_days ≈ the real trial start. Their months of
+    #     pre-trial (billing-off) usage is correctly EXCLUDED — anchoring to
+    #     created_at instead would drag that whole history in and 429 them on their
+    #     first trial request.
+    #   - The clamp to created_at keeps the window from ever preceding the account
+    #     (a corrupt/short current_period_end).
+    # KNOWN, accepted tradeoff (not worth a mirrored trial_start column for a fuzzy
+    # valve): a user who was MID-TRIAL at the instant the trial length was shortened
+    # (#267's 14→10) has a Stripe-fixed trial_end from the OLD length, so
+    # trial_end − the *new* setting lands a few days late and under-counts their
+    # first days. Bounded to one trial cap (~€0.75), self-heals when that trial
+    # expires, and hits only users trialing at the exact deploy moment.
     if user.subscription_status == "trialing" and user.current_period_end is not None:
-        return Budget(
-            TIER_TRIAL,
-            settings.usage_cap_trial_eur,
+        trial_end = _as_naive(user.current_period_end)
+        window_start = max(
             _as_naive(user.created_at),
-            _as_naive(user.current_period_end),
+            trial_end - timedelta(days=settings.trial_period_days),
         )
+        return Budget(TIER_TRIAL, settings.usage_cap_trial_eur, window_start, trial_end)
 
     # Everyone else (active / past_due / none / canceled / billing-off) → rolling
     # calendar-month paid cap. An annual subscriber still gets a fresh cap monthly.

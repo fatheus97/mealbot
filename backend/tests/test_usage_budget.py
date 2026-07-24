@@ -8,7 +8,7 @@ over-budget request is rejected before any generation runs. Ordering (402 before
 through require_generation_budget.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -37,19 +37,25 @@ def _user(**kwargs) -> User:
 
 
 async def _seed(
-    session: AsyncSession, user_id: int, total_tokens: int, *, prompt: int = 0
+    session: AsyncSession,
+    user_id: int,
+    total_tokens: int,
+    *,
+    prompt: int = 0,
+    created_at: datetime | None = None,
 ) -> None:
-    session.add(
-        LlmUsage(
-            user_id=user_id,
-            surface="meal_plan",
-            provider="gemini",
-            model="gemini-2.5-flash",
-            prompt_tokens=prompt,
-            completion_tokens=0,
-            total_tokens=total_tokens,
-        )
+    row = LlmUsage(
+        user_id=user_id,
+        surface="meal_plan",
+        provider="gemini",
+        model="gemini-2.5-flash",
+        prompt_tokens=prompt,
+        completion_tokens=0,
+        total_tokens=total_tokens,
     )
+    if created_at is not None:
+        row.created_at = created_at
+    session.add(row)
     await session.flush()
 
 
@@ -112,35 +118,39 @@ def test_resolve_budget_none_status_falls_through_to_paid() -> None:
     )
 
 
-def test_resolve_budget_trial_window_is_whole_membership(
+def test_resolve_budget_trial_window_excludes_pre_trial_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # An existing (months-old) billing-off user who converts to trialing must NOT
+    # have their whole history counted — the window starts at the trial grant
+    # (trial_end − trial_period_days ≈ checkout), not created_at. Regression guard
+    # for the overcount that would 429 a converting user on their first request.
+    monkeypatch.setattr(settings, "trial_period_days", 10)
     monkeypatch.setattr(settings, "usage_cap_trial_eur", 0.75)
-    created = datetime(2026, 7, 12, 12, 0, 0)
-    trial_end = datetime(2026, 7, 22, 12, 0, 0)
+    created = datetime(2026, 1, 1, 12, 0, 0)  # account is months old
+    trial_end = datetime(2026, 7, 20, 12, 0, 0)  # fresh 10-day trial grant
     u = _user(subscription_status="trialing", current_period_end=trial_end)
     u.created_at = created
     b = usage_budget.resolve_budget(u)
     assert b.tier == usage_budget.TIER_TRIAL
     assert b.cap_eur == 0.75
-    assert b.window_start == created  # whole membership, not back-computed
+    # trial_end − 10d, NOT created_at (which would drag in months of history).
+    assert b.window_start == datetime(2026, 7, 10, 12, 0, 0)
     assert b.reset_at == trial_end
 
 
-def test_resolve_budget_trial_window_immune_to_trial_length_change(
+def test_resolve_budget_trial_window_clamps_to_created_at(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Grandfathered-trial regression (the #269 review finding): a real 14-day
-    # trial while the setting now reads 10 must count from created_at, NOT
-    # trial_end − 10d — which would silently drop the first 4 days and let the
-    # €0.75 trial cap be spent twice.
-    monkeypatch.setattr(settings, "trial_period_days", 10)
-    created = datetime(2026, 7, 6, 12, 0, 0)
-    trial_end = datetime(2026, 7, 20, 12, 0, 0)  # created + 14d (grandfathered)
+    # A brand-new user whose (trial_end − trial_period_days) would predate their
+    # account clamps to created_at so the window never precedes the account.
+    monkeypatch.setattr(settings, "trial_period_days", 14)
+    created = datetime(2026, 7, 18, 12, 0, 0)
+    trial_end = datetime(2026, 7, 20, 12, 0, 0)  # − 14d predates created_at
     u = _user(subscription_status="trialing", current_period_end=trial_end)
     u.created_at = created
     b = usage_budget.resolve_budget(u)
-    assert b.window_start == created  # not created + 4d
+    assert b.window_start == created
 
 
 # --------------------------------------------------------------------------- #
@@ -163,6 +173,36 @@ async def test_get_budget_status_sums_spend_and_soft_warns(
     assert st.remaining_eur == pytest.approx(0.3, abs=0.02)
     assert st.soft_warn is True
     assert usage_budget.is_over_budget(st) is False
+
+
+async def test_trial_window_excludes_usage_before_window_start(
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Proves the fix at the compute_window_cost seam (not just window resolution):
+    # a converting user's pre-trial usage must NOT count toward the trial cap.
+    monkeypatch.setattr(settings, "trial_period_days", 10)
+    monkeypatch.setattr(settings, "usage_cap_trial_eur", 0.75)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    test_user.subscription_status = "trialing"
+    test_user.current_period_end = now + timedelta(days=5)  # trial start ≈ now − 5d
+    test_user.created_at = now - timedelta(days=90)  # account 90 days old
+    assert test_user.id is not None
+    rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
+    await _seed(  # 60 days ago — OUTSIDE the trial window, must not count
+        db_session,
+        test_user.id,
+        int(0.5 / rate.output_eur_per_token),
+        created_at=now - timedelta(days=60),
+    )
+    await _seed(  # today — inside the window, counts
+        db_session,
+        test_user.id,
+        int(0.2 / rate.output_eur_per_token),
+        created_at=now,
+    )
+    st = await usage_budget.get_budget_status(db_session, test_user)
+    assert st.tier == "trial"
+    assert st.used_eur == pytest.approx(0.2, rel=2e-2)  # only the in-window row
 
 
 async def test_require_generation_budget_blocks_over_cap(
