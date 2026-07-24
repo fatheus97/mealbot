@@ -19,6 +19,7 @@ vi.mock("./contexts/AuthContext", () => ({
 vi.mock("./components/AuthBar", () => ({ AuthBar: () => <div /> }));
 vi.mock("./components/DemoBanner", () => ({ DemoBanner: () => null }));
 vi.mock("./components/Fridge", () => ({ Fridge: () => <div /> }));
+vi.mock("./components/PantryStaples", () => ({ PantryStaples: () => <div /> }));
 vi.mock("./components/PlanCatalog", () => ({ PlanCatalog: () => <div /> }));
 vi.mock("./components/MealPlanner", () => ({ MealPlanner: () => <div /> }));
 vi.mock("./components/OnboardingModal", () => ({ OnboardingModal: () => <div /> }));

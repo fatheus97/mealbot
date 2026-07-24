@@ -50,6 +50,7 @@ from app.models.db_models import (
     MachineGeneration,
     MealEntry,
     MealPlan,
+    PantryStaple,
     PasswordResetToken,
     SaleRecord,
     StockItem,
@@ -902,6 +903,7 @@ async def delete_user(
     await session.execute(delete(MealEntry).where(col(MealEntry.user_id) == user_id))
     await session.execute(delete(MealPlan).where(col(MealPlan.user_id) == user_id))
     await session.execute(delete(StockItem).where(col(StockItem.user_id) == user_id))
+    await session.execute(delete(PantryStaple).where(col(PantryStaple.user_id) == user_id))
     await session.execute(delete(AuthSession).where(col(AuthSession.user_id) == user_id))
     await session.execute(
         delete(PasswordResetToken).where(col(PasswordResetToken.user_id) == user_id)

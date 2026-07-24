@@ -339,3 +339,48 @@ class TestSpiceExclusion:
         result = merge_shopping_lists(items)
         assert len(result) == 1
         assert result[0].name == "rice"
+
+
+class TestStapleExclusion:
+    """Per-user "always have" staples (salt, oil, flour…) are dropped from the
+    generated shopping list exactly like spices — at generation time, so the
+    frozen list of an existing plan is never rewritten. The exclusion set is
+    lowercased keys, matching the `ing.name.lower()` comparison inside compute."""
+
+    def test_staple_excluded_from_shopping_list(self):
+        days = [_day([_meal([("chicken", 300), ("salt", 5), ("oil", 20)])])]
+        result = compute_shopping_list_from_plan(
+            days, [], staples=frozenset({"salt", "oil"})
+        )
+        assert [r.name for r in result] == ["chicken"]
+
+    def test_staple_matching_is_case_insensitive(self):
+        # The ingredient's own casing must not let it slip back onto the list.
+        days = [_day([_meal([("Salt", 5), ("Olive Oil", 20), ("rice", 200)])])]
+        result = compute_shopping_list_from_plan(
+            days, [], staples=frozenset({"salt", "olive oil"})
+        )
+        assert [r.name for r in result] == ["rice"]
+
+    def test_no_staples_is_a_noop(self):
+        days = [_day([_meal([("salt", 5), ("rice", 200)])])]
+        # default (None) and an explicit empty set both leave the list untouched
+        assert len(compute_shopping_list_from_plan(days, [])) == 2
+        assert len(compute_shopping_list_from_plan(days, [], staples=frozenset())) == 2
+
+    def test_unknown_staple_has_no_effect(self):
+        days = [_day([_meal([("rice", 200)])])]
+        result = compute_shopping_list_from_plan(
+            days, [], staples=frozenset({"saffron"})
+        )
+        assert [r.name for r in result] == ["rice"]
+
+    def test_staple_excluded_even_when_fridge_is_short(self):
+        # A staple is dropped entirely — a fridge shortfall on it must not let it
+        # reappear on the list.
+        fridge = [StockItemDTO(name="flour", quantity_grams=10)]
+        days = [_day([_meal([("flour", 500), ("rice", 200)])])]
+        result = compute_shopping_list_from_plan(
+            days, fridge, staples=frozenset({"flour"})
+        )
+        assert [r.name for r in result] == ["rice"]

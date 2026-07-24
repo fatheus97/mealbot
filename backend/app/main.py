@@ -15,6 +15,7 @@ from app.api.billing import router as billing_router
 from app.api.cookbook import router as cookbook_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
+from app.api.pantry import router as pantry_router
 from app.api.plan import router as plan_router
 from app.api.recipe import router as recipe_router
 from app.api.usage import router as usage_router
@@ -166,6 +167,7 @@ async def list_languages() -> LanguagesResponse:
 #routers
 app.include_router(plan_router, prefix="/api")
 app.include_router(fridge_router, prefix="/api")
+app.include_router(pantry_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")

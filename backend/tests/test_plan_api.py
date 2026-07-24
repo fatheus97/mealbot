@@ -55,6 +55,45 @@ class TestPlanGeneration:
         mock_gen.assert_awaited_once()
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_pantry_staples_excluded_from_generated_shopping_list(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        # The generated meal uses a staple (flour, deliberately not a spice) and
+        # two non-staples. Flour is marked "always have", so it must NOT reach the
+        # frozen shopping list while chicken/rice do — proving the endpoint →
+        # generate_plan_days → load_staple_keys → compute wiring end to end.
+        mock_gen.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Test Lunch",
+                    meal_type=MealType.LIGHT_LUNCH,
+                    ingredients=[
+                        IngredientAmount(name="Flour", quantity_grams=500),
+                        IngredientAmount(name="chicken breast", quantity_grams=300),
+                        IngredientAmount(name="rice", quantity_grams=200),
+                    ],
+                    steps=["Cook"],
+                )
+            ]
+        )
+        put = await client.put(
+            "/api/staples", headers=auth_headers, json=[{"name": "flour"}]
+        )
+        assert put.status_code == 200
+
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        result = MealPlanResponse(**resp.json())
+        names = {item.name.lower() for item in result.shopping_list}
+        assert "flour" not in names
+        assert "chicken breast" in names
+        assert "rice" in names
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_multi_day_calls_per_day(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):

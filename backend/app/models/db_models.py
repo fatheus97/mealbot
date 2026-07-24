@@ -321,6 +321,23 @@ class StockItem(SQLModel, table=True):
     user: User = Relationship(back_populates="fridge_items")
 
 
+class PantryStaple(SQLModel, table=True):
+    """A per-user "always have" staple (salt, oil, flour…). Its name is excluded
+    from the generated shopping list AT GENERATION TIME, so household staples stop
+    landing on every list.
+
+    Deliberately a name-only per-user collection — the StockItem shape minus the
+    stock fields — because a staple is a membership set, not inventory (no
+    quantity, no expiry). No DB cascade and no ORM back-relationship (like
+    InviteToken): the write path is delete-all-then-insert and delete_user purges
+    it explicitly, so neither is needed. Duplicate-name protection is handled in
+    the service layer (case-insensitive dedup on the replace-all write), so the
+    table needs no unique constraint."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    name: str = Field(index=True)
+
+
 class MealPlan(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)

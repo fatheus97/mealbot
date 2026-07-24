@@ -69,6 +69,23 @@ class StockItemDTO(BaseModel):
         return _strip_prompt_fence_tags(v)
 
 
+class PantryStapleDTO(BaseModel):
+    """A single "always have" pantry-staple name (salt, oil, flour…).
+
+    Client-controlled on PUT /staples. Bounded + fence-stripped like the other
+    user-authored name paths (StockItemDTO/IngredientAmount): a staple name isn't
+    templated into a prompt today, but it is stored user input, so it gets the
+    same defensive treatment rather than trusting it by omission. Name-only — the
+    quantity/expiry that make a fridge item are meaningless for a staple.
+    """
+    name: str = Field(..., min_length=1, max_length=100)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        return _strip_prompt_fence_tags(v)
+
+
 class MealPlanRequest(BaseModel):
     """Request for planning meals (potentially multiple days, one day per LLM call)."""
     stock_items: list[StockItemDTO] = Field(

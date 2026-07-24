@@ -221,6 +221,12 @@ export interface StockItem {
   expiration_date?: string | null;
 }
 
+// A per-user "always have" pantry staple (salt, oil, flour…). Name-only — its
+// job is to be excluded from generated shopping lists. Mirrors PantryStapleDTO.
+export interface PantryStaple {
+  name: string;
+}
+
 // Response of POST /api/fridge/scan. generation_id is echoed back on merge
 // (as a query param) for edit telemetry; null on the demo path.
 export interface ScannedItemsResponse {
