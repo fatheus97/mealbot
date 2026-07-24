@@ -4,6 +4,7 @@ import { useUserProfile, useUpdateUserProfile } from "../hooks/useServerState";
 import { PreferencesForm } from "./PreferencesForm";
 import type { PreferencesFormValues } from "./PreferencesForm";
 import { PantryStaples } from "./PantryStaples";
+import { FeedbackModal } from "./FeedbackModal";
 
 interface SettingsPopupProps {
   onClose: () => void;
@@ -16,6 +17,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [staplesDirty, setStaplesDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   // Guard every close path (✕, backdrop, and a successful preferences save)
   // against silently dropping unsaved pantry-staple edits — staples have their
@@ -45,6 +47,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
   };
 
   return (
+    <>
     <div
       style={{
         position: "fixed",
@@ -162,7 +165,33 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
           <PantryStaples onDirtyChange={setStaplesDirty} />
         </div>
       )}
+
+      {/* Feedback entry point — a low-friction way for any logged-in user to report
+          a bug or request a feature. Opens above this popup (higher z-index). */}
+      <div style={{ marginTop: "1.25rem", borderTop: "1px solid #e5e7eb", paddingTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={() => setShowFeedback(true)}
+          style={{
+            width: "100%",
+            padding: "0.55rem 0.75rem",
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            background: "#f9fafb",
+            color: "#111827",
+            cursor: "pointer",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          💬 Send feedback
+        </button>
+      </div>
     </div>
     </div>
+    {showFeedback && (
+      <FeedbackModal page="settings" onClose={() => setShowFeedback(false)} />
+    )}
+    </>
   );
 }

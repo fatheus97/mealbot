@@ -529,3 +529,85 @@ export interface InviteListResponse {
   invites: InviteListItem[];
 }
 
+// --- User feedback (bug reports / feature requests) ---
+
+export type FeedbackKind = "bug" | "feature" | "other";
+
+/** Body for POST /feedback (authenticated). `page` is optional client context. */
+export interface FeedbackCreateRequest {
+  kind: FeedbackKind;
+  message: string;
+  page?: string | null;
+}
+
+export interface FeedbackSubmitResponse {
+  id: number;
+  status: string;
+}
+
+/** Moderation states an admin may SET (the 6a subset — "accepted" is the
+ *  money-moving 6b action and isn't offered here). */
+export type FeedbackModerationStatus = "new" | "reviewing" | "rejected" | "spam";
+
+/** The advisory LLM triage attached to a report (admin-only). Never authoritative —
+ *  a human reviews every report; this only pre-sorts the queue. */
+export interface FeedbackTriage {
+  is_actionable: boolean;
+  type: "bug" | "feature" | "question" | "praise" | "spam" | "other";
+  severity: "low" | "medium" | "high";
+  title: string;
+  summary: string;
+  repro: string | null;
+  dedupe_hint: string | null;
+}
+
+/** One row in the admin moderation queue (list projection — preview, not the full
+ *  body; denormalized triage summary fields). */
+export interface AdminFeedbackItem {
+  id: number;
+  user_id: number;
+  user_email: string | null;
+  kind: string;
+  status: string;
+  created_at: string;
+  preview: string;
+  triage_status: string | null;
+  triage_is_actionable: boolean | null;
+  triage_type: string | null;
+  triage_severity: string | null;
+  triage_title: string | null;
+}
+
+export interface AdminFeedbackListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  items: AdminFeedbackItem[];
+}
+
+/** Full report for the admin detail view: verbatim body + parsed advisory triage. */
+export interface AdminFeedbackDetail {
+  id: number;
+  user_id: number;
+  user_email: string | null;
+  kind: string;
+  message: string;
+  page: string | null;
+  status: string;
+  created_at: string;
+  triage_status: string | null;
+  triage: FeedbackTriage | null;
+  reviewed_by_admin_id: number | null;
+  reviewed_at: string | null;
+}
+
+/** Status filter for the admin feedback list. "accepted" is read-only here (the
+ *  queue can show it, but only the 6b money slice sets it). */
+export type FeedbackStatusFilter =
+  | "all"
+  | "new"
+  | "reviewing"
+  | "accepted"
+  | "rejected"
+  | "spam";
+

@@ -738,6 +738,78 @@ class SaleRecord(SQLModel, table=True):
     )
 
 
+class FeedbackReport(SQLModel, table=True):
+    """One user-submitted bug report / feature request.
+
+    Intake pipeline: a CHEAP regex/abuse gate (``core.feedback_gate``) rejects junk
+    at submit time; the survivor is stored here as ``status="new"`` and — when
+    ``feedback_llm_triage_enabled`` — an ADVISORY LLM triage (``services.
+    feedback_triage``) fills the ``triage_*`` columns. An admin then moderates from
+    the queue. **No money and no ticket are created here**: the €1 launch feedback
+    credit + the private-repo GitHub issue are a later slice (6b), gated on a human
+    admin *Accept*, NEVER on the LLM (untrusted input + a real reward = a
+    prompt-injection/fraud surface, so the model only advises).
+
+    ``kind`` / ``message`` / ``page`` are USER INPUT: length-bounded at the API
+    layer, stored verbatim, only ever rendered as escaped React text on the admin
+    dashboard, and — in ``feedback_triage`` — fed to the model under an explicit
+    "treat this as data, not instructions" contract. The ``triage_*`` fields are
+    MODEL OUTPUT, equally untrusted; nothing downstream acts on them automatically.
+
+    ``user_id`` is ``ondelete="CASCADE"`` — a report carries no money/tax record (the
+    credit lands on Stripe's ledger in 6b, not here), so it is safe to remove with
+    the account, unlike ``SaleRecord``. ``reviewed_by_admin_id`` is a bare id with no
+    FK so it survives a later admin deletion (cf. ``AdminAuditLog``).
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    # The reporter's self-declared category: "bug" | "feature" | "other". Validated
+    # at the API layer against a server-side set; advisory only (the LLM may
+    # reclassify into triage_type). Loose str so a new category needs no migration.
+    kind: str = Field(nullable=False)
+    # The report body — user input, length-bounded at the API layer.
+    message: str = Field(nullable=False)
+    # Optional client-supplied context (the app view/route the user was on when they
+    # reported). Untrusted, bounded at the API layer. NULL when not supplied.
+    page: str | None = Field(default=None)
+    # Moderation lifecycle: "new" (unmoderated) | "reviewing" | "accepted" |
+    # "rejected" | "spam". Loose str (not an enum column) so a new state needs no
+    # migration; allowed transitions are enforced in the admin API. This tracks the
+    # HUMAN decision only — advisory triage state is separate (triage_status below),
+    # so a report stays "new" (in the admin queue) after auto-triage. "accepted" is
+    # reserved for the money-moving 6b slice and is NOT settable by the 6a PATCH.
+    status: str = Field(
+        default="new", sa_column_kwargs={"server_default": "new"}, nullable=False, index=True
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+    )
+
+    # --- Advisory LLM triage (services.feedback_triage). All nullable: absent until
+    # triage runs and STAYS absent when the LLM is disabled/unavailable. NEVER
+    # authorizes anything — a human Accept is the sole money/ticket trigger. ---
+    # "pending" (scheduled) | "done" | "failed" | NULL (never attempted).
+    triage_status: str | None = Field(default=None)
+    triage_is_actionable: bool | None = Field(default=None)
+    # The model's own classification, richer than user `kind`: e.g. "bug" |
+    # "feature" | "question" | "spam" | "praise" | "other".
+    triage_type: str | None = Field(default=None)
+    triage_severity: str | None = Field(default=None)  # "low" | "medium" | "high"
+    triage_title: str | None = Field(default=None)
+    triage_summary: str | None = Field(default=None)
+    # Full FeedbackTriage.model_dump_json() (title, summary, repro, dedupe_hint, …)
+    # kept for the record so 6b ticket creation needs no second LLM call.
+    triage_json: str | None = Field(default=None)
+
+    # --- Moderation bookkeeping ---
+    # Bare id, no FK (survives a later admin hard-delete — see class docstring).
+    reviewed_by_admin_id: int | None = Field(default=None)
+    reviewed_at: datetime | None = Field(default=None)
+
+
 class BillingAlert(SQLModel, table=True):
     """Dedupe ledger for operator alert emails so the scheduled billing-alerts job
     sends each one exactly once. ``dedupe_key`` is unique — a job re-run (or an

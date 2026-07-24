@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest } from '../types';
-import { authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, revokeInvite, scanReceipt, updateAdminUser, updateMeal, updateUserProfile } from '../api';
+import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus } from '../types';
+import { authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, type AdminFeedbackQuery } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -591,5 +591,50 @@ export function useRevokeInvite() {
   return useMutation({
     mutationFn: (id: number) => revokeInvite(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] }),
+  });
+}
+
+// --- User feedback: submit (any logged-in user) + admin moderation ---
+
+export function useSubmitFeedback() {
+  return useMutation({
+    mutationFn: (body: FeedbackCreateRequest) => submitFeedback(body),
+  });
+}
+
+// The admin moderation queue. Keyed on the query so status/kind/page changes
+// refetch; disabled until the tab is active (enabled) to keep it lazy.
+export function useAdminFeedback(query: AdminFeedbackQuery, enabled: boolean) {
+  return useQuery({
+    queryKey: ['admin', 'feedback', query],
+    queryFn: () => fetchAdminFeedback(query),
+    enabled,
+  });
+}
+
+export function useAdminFeedbackDetail(id: number | null) {
+  return useQuery({
+    queryKey: ['admin', 'feedback', 'detail', id],
+    queryFn: () => fetchAdminFeedbackDetail(id as number),
+    enabled: id !== null,
+  });
+}
+
+// Both mutations invalidate the list AND the open detail so the queue and the
+// drawer re-sync after a status change / re-triage.
+export function useModerateFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: FeedbackModerationStatus }) =>
+      updateAdminFeedback(id, status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
+  });
+}
+
+export function useRetriageFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => retriageAdminFeedback(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
   });
 }
