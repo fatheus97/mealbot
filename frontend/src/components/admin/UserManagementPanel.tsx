@@ -991,9 +991,16 @@ const toastBaseStyle: CSSProperties = {
   transform: "translateX(-50%)",
   zIndex: 900,
   display: "flex",
-  alignItems: "center",
+  // Top-align so the × stays at the top (reachable at scroll-top) when a large
+  // failure batch makes the toast tall.
+  alignItems: "flex-start",
   gap: "0.5rem",
   maxWidth: "calc(100vw - 24px)",
+  // A whole page of failures (up to PAGE_SIZE) can't grow the box off the top of
+  // the viewport — since it's out of flow it can't be page-scrolled, so cap the
+  // height and let the failure list scroll inside instead.
+  maxHeight: "60vh",
+  overflowY: "auto",
   padding: "0.5rem 0.5rem 0.5rem 0.85rem",
   borderRadius: 10,
   fontSize: 13,
@@ -1023,4 +1030,8 @@ const toastCloseStyle: CSSProperties = {
   lineHeight: 1,
   padding: "0 0.35rem",
   opacity: 0.7,
+  flexShrink: 0,
+  // Keep the dismiss control pinned to the top of a tall (scrolling) toast.
+  position: "sticky",
+  top: 0,
 };
