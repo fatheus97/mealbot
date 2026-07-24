@@ -10,6 +10,7 @@ frontend/.next/
 **/.DS_Store
 .env
 .env.local
+.env.local.*
 
 # Add these
 **/.git/
