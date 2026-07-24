@@ -61,9 +61,9 @@ def _load_migration():
         Path(__file__).resolve().parents[1]
         / "alembic"
         / "versions"
-        / "b4c5d6e7f8a9_add_normalized_email_to_user.py"
+        / "norm_email_01_add_column.py"
     )
-    spec = importlib.util.spec_from_file_location("_mig_b4c5d6e7f8a9", path)
+    spec = importlib.util.spec_from_file_location("_mig_norm_email_01", path)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

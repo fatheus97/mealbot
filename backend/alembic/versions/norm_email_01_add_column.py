@@ -4,9 +4,10 @@ Anti-abuse uniqueness key: collapses Gmail dot/+tag and allowlisted-provider +ta
 aliases so one real inbox can't register many accounts. This first migration adds
 the column NULLABLE and backfills it (with a FROZEN copy of
 app.core.email_normalize.normalize_email — Alembic must never import evolving app
-code); the follow-up migration c5d6e7f8a9b0 tightens it to NOT NULL + UNIQUE.
-Splitting the two de-risks the merge-is-deploy migration: the backfill commits
-before the constraint is added.
+code); the follow-up migration norm_email_02 tightens it to NOT NULL + UNIQUE. Kept
+as two revisions to keep the risky backfill and the constraint tightening
+separately reviewable (env.py applies all pending migrations in one transaction, so
+on deploy they commit together).
 
 Pre-existing duplicate inboxes (two accounts that normalize to the same key —
 expected to be an EMPTY set in alpha) are GRANDFATHERED: the earliest row (min id)
@@ -16,8 +17,8 @@ normalized value because a validated domain never contains '+'), so both rows
 survive (no merge/delete; billing/SaleRecord linkage intact) and the UNIQUE add in
 the next migration can never fail on the auto-deploy.
 
-Revision ID: b4c5d6e7f8a9
-Revises: a3b4c5d6e7f8
+Revision ID: norm_email_01
+Revises: b4c5d6e7f8a9
 Create Date: 2026-07-24
 """
 from typing import Sequence, Union
@@ -26,8 +27,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "b4c5d6e7f8a9"
-down_revision: Union[str, Sequence[str], None] = "a3b4c5d6e7f8"
+revision: str = "norm_email_01"
+down_revision: Union[str, Sequence[str], None] = "b4c5d6e7f8a9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -78,7 +79,7 @@ def _resolve_backfill_keys(rows: list[tuple[int, str]]) -> tuple[dict[int, str],
     collision_count). Earliest id keeps the true normalized key; each later
     duplicate gets a collision-free "<raw>+dup<id>" key (the embedded "@domain+
     dup<id>" can never equal a real normalized value — a validated domain has no
-    '+'), so the UNIQUE add in c5d6e7f8a9b0 can never fail. Pure (no DB/op) so the
+    '+'), so the UNIQUE add in norm_email_02 can never fail. Pure (no DB/op) so the
     risky winner/loser logic is directly unit-tested (test_email_normalize)."""
     seen: dict[str, int] = {}
     result: dict[int, str] = {}
@@ -114,7 +115,7 @@ def upgrade() -> None:
         # loser can no longer log in or self-reset (its raw address normalizes to
         # the WINNER's key), so handle any reported collisions manually.
         print(
-            f"[migration b4c5d6e7f8a9] grandfathered {collisions} "
+            f"[migration norm_email_01] grandfathered {collisions} "
             f"duplicate-inbox account(s) with +dup keys"
         )
 
