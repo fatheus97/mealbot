@@ -790,4 +790,121 @@ describe('MealPlanner', () => {
     // Plan stays finished — failure must not flip local state.
     expect(screen.getByText(/finished plan/i)).toBeInTheDocument();
   });
+
+  // --- Shopping list: copy / share / check-off (frontend-only, no backend) ---
+
+  const shoppingPlan = {
+    plan_id: 123,
+    days: [
+      { meals: [{ name: 'Omelette', meal_type: 'breakfast', ingredients: [], steps: [] }] },
+    ],
+    shopping_list: [
+      { name: 'Eggs', quantity_grams: 200 },
+      { name: 'Milk', quantity_grams: 500 },
+    ],
+  };
+
+  // Log in, generate a plan whose response carries a 2-item shopping list, and
+  // wait for the Shopping List card to render. Returns the userEvent instance.
+  async function renderWithShoppingList() {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(shoppingPlan),
+      } as unknown as Response);
+    });
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    // Force Plan Ahead — zustand's persisted mode is cleared between tests but
+    // its default isn't guaranteed to be plan_ahead (mirrors the un-confirm test).
+    await user.click(screen.getByRole('tab', { name: /plan ahead/i }));
+    await user.click(screen.getByRole('button', { name: /generate plan/i }));
+    await screen.findByText('Shopping List');
+    return user;
+  }
+
+  it('Copy writes the shopping list to the clipboard and confirms', async () => {
+    const user = await renderWithShoppingList();
+
+    // userEvent.setup() installs its OWN navigator.clipboard stub, so our spy
+    // must be defined AFTER render (inside renderWithShoppingList) to win.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+
+    const copyBtn = screen.getByRole('button', { name: /copy shopping list/i });
+    expect(copyBtn).toHaveTextContent(/^Copy$/);
+
+    await user.click(copyBtn);
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    // Newline-joined "name — grams" lines, quantities rounded. Assert structure
+    // (not the exact dash glyph) so the test isn't brittle to punctuation.
+    const text = writeText.mock.calls[0][0] as string;
+    const lines = text.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('Eggs');
+    expect(lines[0]).toContain('200g');
+    expect(lines[1]).toContain('Milk');
+    expect(lines[1]).toContain('500g');
+
+    // Label flips to the copied affordance once the clipboard promise resolves.
+    await waitFor(() => expect(copyBtn).toHaveTextContent(/Copied/));
+  });
+
+  it('does not render Share when the Web Share API is unavailable', async () => {
+    Reflect.deleteProperty(navigator, 'share');
+
+    await renderWithShoppingList();
+
+    expect(screen.getByRole('button', { name: /copy shopping list/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /share shopping list/i })).not.toBeInTheDocument();
+  });
+
+  it('renders Share and invokes navigator.share when supported', async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { configurable: true, value: share });
+
+    const user = await renderWithShoppingList();
+    await user.click(screen.getByRole('button', { name: /share shopping list/i }));
+
+    expect(share).toHaveBeenCalledTimes(1);
+    const arg = share.mock.calls[0][0] as { title: string; text: string };
+    expect(arg.title).toBe('Shopping List');
+    expect(arg.text).toContain('Eggs');
+    expect(arg.text).toContain('Milk');
+  });
+
+  it('ticks a shopping-list item (strike-through) and unticks it', async () => {
+    const user = await renderWithShoppingList();
+
+    const checkbox = screen.getByRole('checkbox', { name: /mark eggs as bought/i });
+    const span = checkbox.closest('label')?.querySelector('span');
+    expect(checkbox).not.toBeChecked();
+    expect(span).toHaveStyle({ textDecoration: 'none' });
+
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(span).toHaveStyle({ textDecoration: 'line-through' });
+
+    await user.click(checkbox);
+    expect(checkbox).not.toBeChecked();
+    expect(span).toHaveStyle({ textDecoration: 'none' });
+  });
+
+  it('clears ticks when a new plan is generated (no stale indices)', async () => {
+    const user = await renderWithShoppingList();
+
+    await user.click(screen.getByRole('checkbox', { name: /mark eggs as bought/i }));
+    expect(screen.getByRole('checkbox', { name: /mark eggs as bought/i })).toBeChecked();
+
+    // Regenerating via a fresh generate replaces the list — ticks must reset so
+    // a checked index never maps onto a different item.
+    await user.click(screen.getByRole('button', { name: /generate plan/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: /mark eggs as bought/i })).not.toBeChecked(),
+    );
+  });
 });
