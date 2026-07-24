@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.security import create_refresh_token, hash_refresh_token
 from app.db import async_session_factory
 from app.models.db_models import PasswordResetToken, User
@@ -137,7 +138,9 @@ async def dispatch_reset_email(email: str) -> None:
         async with session_factory() as session:
             now = datetime.now(UTC)
             result = await session.execute(
-                select(User).where(User.email == email)  # type: ignore[arg-type]
+                select(User).where(  # type: ignore[arg-type]
+                    User.normalized_email == normalize_email(email)
+                )
             )
             user = result.scalars().first()
 

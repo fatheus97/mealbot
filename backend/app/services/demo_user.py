@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, select
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import AuthSession, MealEntry, MealPlan, StockItem, User
 
@@ -39,6 +40,7 @@ async def create_ephemeral_demo_user(session: AsyncSession) -> User:
     hashed_password = await asyncio.to_thread(get_password_hash, uuid4().hex)
     user = User(
         email=f"demo+{suffix}@trymealbot.com",
+        normalized_email=normalize_email(f"demo+{suffix}@trymealbot.com"),
         # Random password — the demo user is only ever reachable via JWT issued
         # by /api/demo/session, never via /api/users/login.
         hashed_password=hashed_password,
