@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useUserProfile, useUpdateUserProfile } from "../hooks/useServerState";
 import { PreferencesForm } from "./PreferencesForm";
 import type { PreferencesFormValues } from "./PreferencesForm";
+import { PantryStaples } from "./PantryStaples";
 
 interface SettingsPopupProps {
   onClose: () => void;
@@ -101,6 +102,13 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
           {saveError}
         </p>
       )}
+
+      {/* Pantry staples sits here, beside "Include spices", so both shopping-list
+          exclusion controls live in one place. It keeps its own save (separate
+          PUT /api/staples), independent of the preferences form's combined save. */}
+      <div style={{ marginTop: "1.25rem" }}>
+        <PantryStaples />
+      </div>
     </div>
     </div>
   );
