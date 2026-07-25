@@ -445,3 +445,47 @@ class TestAccept:
         assert len(audits) == 1
         assert audits[0].detail is not None
         assert audits[0].detail["credited"] == "True"
+
+    async def test_accept_emails_reporter_on_credit(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # When Accept actually grants a credit, the reporter is emailed (best-effort).
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+
+        async def _grant(session, r, reporter):
+            r.credit_cents = 100
+            r.credit_granted_at = datetime.now(UTC)
+            return True
+
+        notify = AsyncMock()
+        with (
+            patch("app.api.admin.feedback_credit.maybe_grant_credit", _grant),
+            patch("app.api.admin.feedback_ticket.ticket_configured", return_value=False),
+            patch("app.api.admin.feedback_notify.notify_credit_granted", notify),
+        ):
+            resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 200
+        notify.assert_awaited_once()
+        assert notify.await_args is not None
+        reporter_arg, cents_arg = notify.await_args.args
+        assert reporter_arg.id == test_user.id
+        assert cents_arg == 100
+
+    async def test_accept_no_email_when_no_credit(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # No credit granted (ineligible/disabled) → no email.
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+        notify = AsyncMock()
+        with (
+            patch("app.api.admin.feedback_credit.maybe_grant_credit", AsyncMock(return_value=False)),
+            patch("app.api.admin.feedback_ticket.ticket_configured", return_value=False),
+            patch("app.api.admin.feedback_notify.notify_credit_granted", notify),
+        ):
+            resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 200
+        notify.assert_not_awaited()

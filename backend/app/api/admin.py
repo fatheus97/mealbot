@@ -68,6 +68,7 @@ from app.models.feedback_schemas import (
 )
 from app.services import (
     feedback_credit,
+    feedback_notify,
     feedback_ticket,
     feedback_triage,
     revenue_service,
@@ -1329,7 +1330,8 @@ async def accept_feedback(
     session: AsyncSession = Depends(get_session),
 ) -> AdminFeedbackDetail:
     """Accept a report — the money-moving 6b action. Marks it ``accepted``, grants the
-    €1 feedback credit (if eligible), and opens a private-repo GitHub ticket.
+    €1 feedback credit (if eligible), emails the reporter when a credit is actually
+    granted, and opens a private-repo GitHub ticket.
 
     A human admin Accept is the SOLE trigger for the credit AND the ticket — the LLM
     never reaches this path. Idempotent + retryable: accepting an already-accepted
@@ -1379,6 +1381,12 @@ async def accept_feedback(
             detail={"feedback_id": str(feedback_id), "credited": str(granted)},
         )
     await session.commit()
+
+    # (1.5) Notify — tell the reporter they earned a credit, AFTER the credit commits,
+    # best-effort (never raises), only when THIS call actually granted. A silent Stripe
+    # balance credit is too quiet to reward reporting; this is the acknowledgement.
+    if granted and reporter is not None:
+        await feedback_notify.notify_credit_granted(reporter, report.credit_cents or 0)
 
     # (2) Ticket — best-effort, AFTER the money commit, in its own transaction. Only
     # when not already ticketed and ticketing is configured. Wrapped so a GitHub or
