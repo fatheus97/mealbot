@@ -252,6 +252,46 @@ class TestSafetyReviewRegressions:
         assert Allergen.CEREALS_WITH_GLUTEN not in matched
 
 
+class TestFixReviewRegressions:
+    """Defects the FIXES for the first review introduced — caught by a second
+    adversarial pass on the fixes. Locked so the new matcher logic can't regress."""
+
+    def test_negated_qualifier_does_not_suppress(self):
+        # A negated qualifier must NOT rule out the allergen it names.
+        assert Allergen.MILK in _hit("non-vegan cheese", [Allergen.MILK])
+        assert Allergen.EGGS in _hit("not vegan mayonnaise", [Allergen.EGGS])
+        assert Allergen.MILK in _hit("non vegan cream", [Allergen.MILK])
+        # ...but a genuine plant qualifier still suppresses.
+        assert Allergen.MILK not in _hit("vegan cheese", [Allergen.MILK])
+        assert Allergen.MILK not in _hit("plant-based cream", [Allergen.MILK])
+
+    def test_safe_compound_word_boundary(self):
+        # "oat milk"/"oat cream" must not substring-match inside "goat …".
+        assert Allergen.MILK in _hit("goat milk", [Allergen.MILK])
+        assert Allergen.MILK in _hit("goat cream", [Allergen.MILK])
+        assert Allergen.MILK in _hit("goat cheese", [Allergen.MILK])
+        # real plant milk still suppressed
+        assert Allergen.MILK not in _hit("oat milk", [Allergen.MILK])
+
+    def test_chestnut_homonyms_not_tree_nuts(self):
+        assert Allergen.TREE_NUTS not in _hit("water chestnuts", [Allergen.TREE_NUTS])
+        assert Allergen.TREE_NUTS not in _hit("chestnut mushrooms", [Allergen.TREE_NUTS])
+        # a real chestnut still flagged
+        assert Allergen.TREE_NUTS in _hit("roasted chestnuts", [Allergen.TREE_NUTS])
+
+    def test_more_gluten_free_flours(self):
+        for name in ("millet flour", "sorghum flour", "teff flour",
+                     "soy flour", "maize flour"):
+            assert Allergen.CEREALS_WITH_GLUTEN not in _hit(
+                name, [Allergen.CEREALS_WITH_GLUTEN]
+            ), name
+
+    def test_roe_deer_not_fish(self):
+        assert Allergen.FISH not in _hit("roe deer", [Allergen.FISH])
+        # real fish roe still flagged
+        assert Allergen.FISH in _hit("salmon roe", [Allergen.FISH])
+
+
 class TestAllergenScreenError:
     def test_error_carries_violations_and_summary(self):
         v = [AllergenViolation(

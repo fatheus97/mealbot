@@ -272,6 +272,17 @@ async def generate_single_day_with_rag(
             logger.warning("RAG: failed to parse meal_json for entry %d", hit.meal_entry_id)
             continue
 
+    # Allergen-filtering (above) may have dropped examples AFTER the earlier
+    # rag_min_results gate; if too few survive, RAG adds nothing over the
+    # standard pipeline — fall back rather than render an empty "RAG" prompt.
+    if len(retrieved_meals) < settings.rag_min_results:
+        logger.info(
+            "RAG: only %d example(s) survived allergen filtering (need %d) — "
+            "falling back to standard pipeline",
+            len(retrieved_meals), settings.rag_min_results,
+        )
+        return None
+
     template = _prompts_env.get_template("meal_plan.jinja")
     user_prompt = template.render(
         **req.model_dump(),

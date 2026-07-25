@@ -129,13 +129,25 @@ _SAFE_COMPOUNDS: dict[Allergen, frozenset[str]] = {
         # a fungus named after the shellfish it resembles — not a mollusc
         "oyster mushroom", "oyster mushrooms", "king oyster",
     }),
+    Allergen.FISH: frozenset({
+        # a deer, not a fish
+        "roe deer",
+    }),
+    Allergen.TREE_NUTS: frozenset({
+        # aquatic tuber / fungus — not nuts despite the name
+        "water chestnut", "water chestnuts",
+        "chestnut mushroom", "chestnut mushrooms",
+    }),
     Allergen.CEREALS_WITH_GLUTEN: frozenset({
-        # naturally gluten-free flours/starches (oats are a gluten cereal, so
+        # naturally gluten-free flours/starches (oats ARE a gluten cereal, so
         # "oat flour" is deliberately NOT here)
         "rice flour", "almond flour", "coconut flour", "chickpea flour",
         "gram flour", "corn flour", "cornflour", "cornstarch", "corn starch",
         "tapioca flour", "tapioca starch", "potato flour", "potato starch",
         "buckwheat flour", "quinoa flour", "cassava flour", "plantain flour",
+        "millet flour", "sorghum flour", "teff flour", "amaranth flour",
+        "maize flour", "soy flour", "soya flour", "banana flour",
+        "arrowroot flour", "arrowroot",
         # gluten-free pasta/noodles/bread/wraps
         "rice noodles", "glass noodles", "shirataki noodles", "kelp noodles",
         "rice pasta", "corn pasta", "chickpea pasta", "lentil pasta",
@@ -156,13 +168,13 @@ def _term_pattern(term: str) -> str:
 
 
 def _safe_spans(lname: str, safe_compounds: frozenset[str]) -> list[tuple[int, int]]:
-    """Character spans of every safe compound present in `lname`."""
+    """Character spans of every safe compound present in `lname`, matched on
+    WORD BOUNDARIES — a raw substring search would let "oat milk" match inside
+    "goat milk" and wrongly suppress the real dairy."""
     spans: list[tuple[int, int]] = []
     for compound in safe_compounds:
-        start = 0
-        while (i := lname.find(compound, start)) != -1:
-            spans.append((i, i + len(compound)))
-            start = i + len(compound)
+        for m in re.finditer(rf"(?<!\w){re.escape(compound)}(?!\w)", lname):
+            spans.append(m.span())
     return spans
 
 
@@ -189,11 +201,20 @@ def _find_violation_term(
 
 
 def _qualifier_suppressed(lname: str) -> frozenset[Allergen]:
-    """Allergens ruled out by a plant/free qualifier in the ingredient name."""
+    """Allergens ruled out by a plant/free qualifier in the ingredient name.
+
+    Negation-aware: a NEGATED qualifier ("non-vegan cheese", "not vegan
+    mayonnaise") must NOT suppress — that would pass a self-declared allergen.
+    The leading ``(?<![\\w-])`` rejects "non-vegan" (hyphen), and a preceding
+    "non"/"not" token is checked explicitly for the space form.
+    """
     out: set[Allergen] = set()
     for qualifier, allergens in _FREE_QUALIFIERS.items():
-        if re.search(rf"(?<!\w){re.escape(qualifier)}(?!\w)", lname):
+        for m in re.finditer(rf"(?<![\w-]){re.escape(qualifier)}(?!\w)", lname):
+            if re.search(r"\b(?:non|not)\W*$", lname[: m.start()]):
+                continue
             out |= allergens
+            break
     return frozenset(out)
 
 
