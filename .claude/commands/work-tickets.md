@@ -11,7 +11,7 @@ Arguments: $ARGUMENTS
 1. **Fetch the queue.** `gh issue list -R fatheus97/mealbot-tickets --state open --limit 30`. Skip any labelled `needs-info`, `blocked`, or `shipped` — they're waiting on the owner or already done. **Before starting each ticket, look for a PR that already references it** across ALL states (`gh pr list -R fatheus97/mealbot --state all --search "Ships fatheus97/mealbot-tickets#<N>"`) and branch on it — this both dedups and closes out BIG tickets the owner merged out-of-band:
    - **OPEN PR** → already in flight (a re-run or the scheduled Stage 1). Don't open a second — resume its review loop if SMALL, or leave it for the owner if BIG. Move on.
    - **MERGED PR** → already shipped (typically a BIG one the owner merged out-of-band, or a SMALL one whose close didn't run). Close the ticket + label `shipped` with that PR's URL right here (step 8) — do NOT re-solve. Move on.
-   - **CLOSED-unmerged PR** → the owner previously declined a fix; do NOT silently re-solve — flag it in the report for the owner.
+   - **CLOSED-unmerged PR** → the owner previously declined a fix; do NOT silently re-solve. Label the ticket `blocked` (so the declined decision persists and it isn't re-flagged every run — the owner removes `blocked` to re-queue, or closes the ticket) and note it once in the report.
    - **No PR** → proceed to triage (step 2).
 
    If a specific number was given in the arguments, do only that ticket.
