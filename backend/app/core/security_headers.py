@@ -13,7 +13,11 @@ _HEADERS: dict[str, str] = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=()",
+    # camera=(self): same-origin camera for the frontend's receipt-scan getUserMedia
+    # flow (an empty camera=() blocked the browser prompt — mealbot-tickets#4). Kept
+    # in parity with the frontend nginx header; inert on these JSON-only responses,
+    # but parity avoids a future "re-sync" silently reintroducing camera=().
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=(self), payment=()",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-site",
 }
