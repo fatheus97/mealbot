@@ -256,6 +256,12 @@ async def generate_single_day_with_rag(
     for hit in relevant:
         try:
             meal = PlannedMeal.model_validate_json(hit.meal_json)
+            # Don't prime the LLM with an example that itself contains a declared
+            # allergen — it would suggest exactly what the screen then rejects,
+            # causing needless regeneration (and, if every retry hit, a
+            # fail-closed on a request the standard pipeline could satisfy).
+            if req.allergens and screen_meals_for_allergens([meal], req.allergens):
+                continue
             retrieved_meals.append({
                 "name": meal.name,
                 "ingredients": [ing.name for ing in meal.ingredients],

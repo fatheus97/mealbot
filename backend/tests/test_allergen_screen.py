@@ -170,6 +170,88 @@ class TestViolationDetails:
         assert (("salmon", Allergen.FISH)) in got
 
 
+class TestSafetyReviewRegressions:
+    """Every case here is a false negative / false positive the slice-4 adversarial
+    safety review caught. Locked so they can never regress."""
+
+    # --- false negatives (were MISSED — the unsafe direction) ---
+
+    def test_y_ies_plural_anchovies(self):
+        assert Allergen.FISH in _hit("anchovies", [Allergen.FISH])
+
+    def test_named_cheeses_flagged(self):
+        for name in ("paneer", "halloumi", "mascarpone", "burrata", "brie",
+                     "gruyere", "gorgonzola"):
+            assert Allergen.MILK in _hit(name, [Allergen.MILK]), name
+
+    def test_cuttlefish_and_other_molluscs(self):
+        for name in ("cuttlefish", "escargot", "abalone", "cockle"):
+            assert Allergen.MOLLUSCS in _hit(name, [Allergen.MOLLUSCS]), name
+
+    def test_crustacean_forms(self):
+        for name in ("crawfish", "scampi", "langoustine"):
+            assert Allergen.CRUSTACEANS in _hit(name, [Allergen.CRUSTACEANS]), name
+
+    def test_bare_nuts_flagged(self):
+        for name in ("mixed nuts", "chopped nuts", "pine nuts", "chestnut"):
+            assert Allergen.TREE_NUTS in _hit(name, [Allergen.TREE_NUTS]), name
+
+    def test_more_fish_species(self):
+        for name in ("monkfish", "hake", "plaice", "caviar"):
+            assert Allergen.FISH in _hit(name, [Allergen.FISH]), name
+
+    def test_mayo_abbreviation(self):
+        assert Allergen.EGGS in _hit("mayo", [Allergen.EGGS])
+
+    def test_common_gluten_products_flagged(self):
+        # The CRITICAL gap: the most common gluten sources were missing.
+        for name in ("white bread", "spaghetti", "all-purpose flour",
+                     "breadcrumbs", "egg noodles", "pastry", "flour tortilla",
+                     "oatmeal", "oat milk"):
+            assert Allergen.CEREALS_WITH_GLUTEN in _hit(
+                name, [Allergen.CEREALS_WITH_GLUTEN]
+            ), name
+
+    def test_span_aware_suppression_catches_second_occurrence(self):
+        # "coconut cream" explains ITS "cream"; a standalone "double cream" is
+        # still real dairy and must be flagged.
+        v = screen_meals_for_allergens(
+            [_meal("coconut cream and double cream")], [Allergen.MILK],
+        )
+        assert any(x.allergen == Allergen.MILK for x in v)
+
+    # --- false positives (would churn a valid plan to exhaustion) ---
+
+    def test_oyster_mushroom_not_mollusc(self):
+        assert Allergen.MOLLUSCS not in _hit("oyster mushrooms", [Allergen.MOLLUSCS])
+
+    def test_butter_beans_not_dairy(self):
+        assert Allergen.MILK not in _hit("butter beans", [Allergen.MILK])
+
+    def test_custard_apple_not_dairy(self):
+        assert Allergen.MILK not in _hit("custard apple", [Allergen.MILK])
+
+    def test_vegan_and_dairy_free_qualifiers(self):
+        assert Allergen.MILK not in _hit("vegan parmesan", [Allergen.MILK])
+        assert Allergen.EGGS not in _hit("vegan mayonnaise", [Allergen.EGGS])
+        assert Allergen.MILK not in _hit("dairy-free yoghurt", [Allergen.MILK])
+        # "vegan" only rules out ANIMAL allergens — not soy/gluten/nuts.
+        assert Allergen.SOYBEANS in _hit("vegan tofu", [Allergen.SOYBEANS])
+
+    def test_gluten_free_versions_not_flagged(self):
+        for name in ("rice flour", "almond flour", "gluten-free bread",
+                     "rice noodles", "corn tortilla", "chickpea pasta"):
+            assert Allergen.CEREALS_WITH_GLUTEN not in _hit(
+                name, [Allergen.CEREALS_WITH_GLUTEN]
+            ), name
+
+    def test_almond_flour_is_nut_but_not_gluten(self):
+        # Same ingredient, opposite verdicts per allergen.
+        matched = _hit("almond flour", [Allergen.TREE_NUTS, Allergen.CEREALS_WITH_GLUTEN])
+        assert Allergen.TREE_NUTS in matched
+        assert Allergen.CEREALS_WITH_GLUTEN not in matched
+
+
 class TestAllergenScreenError:
     def test_error_carries_violations_and_summary(self):
         v = [AllergenViolation(

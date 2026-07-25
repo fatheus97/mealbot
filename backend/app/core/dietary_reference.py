@@ -132,9 +132,19 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
         in_us_big9=True,  # US covers wheat only
         derivatives=(
             "gluten", "wheat", "spelt", "khorasan", "kamut", "durum", "rye",
-            "barley", "oats", "triticale", "semolina", "farro", "einkorn",
-            "bulgur", "couscous", "seitan", "malt", "malt extract",
+            "barley", "oat", "oatmeal", "triticale", "semolina", "farro",
+            "einkorn", "bulgur", "couscous", "seitan", "malt", "malt extract",
             "brewer's yeast", "modified starch", "soy sauce",
+            # Common gluten-cereal PRODUCTS — obvious sources the hidden-source
+            # row omits. Without these the screen would miss the MOST common
+            # gluten ingredients (bread/pasta/flour). Singular forms so the
+            # plural-tolerant matcher also catches breadcrumbs/noodles. Naturally
+            # gluten-free versions (rice flour, gluten-free bread, rice noodles)
+            # are suppressed by allergen_screen._SAFE_COMPOUNDS / the -free rule.
+            "bread", "breadcrumb", "pasta", "spaghetti", "macaroni", "noodle",
+            "flour", "pastry", "dough", "tortilla", "pita", "naan", "bagel",
+            "croissant", "pretzel", "cracker", "biscuit", "panko", "roux",
+            "batter",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,
@@ -146,7 +156,8 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
         in_us_big9=True,
         derivatives=(
             "crustacean", "shrimp", "prawn", "crab", "lobster", "crayfish",
-            "krill", "shellfish stock", "surimi",
+            "crawfish", "scampi", "langoustine", "krill", "shellfish stock",
+            "surimi",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,
@@ -157,7 +168,7 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
         in_us_big9=True,
         derivatives=(
             "egg", "albumin", "albumen", "globulin", "livetin", "lysozyme",
-            "ovalbumin", "ovo", "mayonnaise", "meringue", "egg wash",
+            "ovalbumin", "ovo", "mayonnaise", "mayo", "meringue", "egg wash",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,
@@ -175,7 +186,8 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
             # curation add for screen completeness.
             "salmon", "tuna", "cod", "haddock", "sardine", "mackerel", "trout",
             "tilapia", "halibut", "herring", "pollock", "snapper", "sole",
-            "sea bass", "catfish", "swordfish",
+            "sea bass", "catfish", "swordfish", "monkfish", "hake", "plaice",
+            "mahi-mahi", "roe", "caviar",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,
@@ -216,7 +228,9 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
             # "vegan cheese" / "coconut milk" false positives are suppressed by
             # allergen_screen._SAFE_COMPOUNDS.
             "cheese", "cheddar", "mozzarella", "parmesan", "feta", "ricotta",
-            "custard",
+            "paneer", "halloumi", "mascarpone", "burrata", "brie", "gouda",
+            "gruyere", "gruyère", "camembert", "provolone", "gorgonzola",
+            "emmental", "quark", "custard",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,
@@ -229,8 +243,12 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
         # expanded here from the doc's "the 8 species above".
         derivatives=(
             "almond", "hazelnut", "walnut", "cashew", "pecan", "brazil nut",
-            "pistachio", "macadamia", "nut oil", "marzipan", "praline",
-            "nut butter", "pesto", "gianduja",
+            "pistachio", "macadamia", "chestnut", "nut oil", "marzipan",
+            "praline", "nut butter", "pesto", "gianduja",
+            # Bare "nut" (whole-word) catches "mixed nuts" / "chopped nuts" /
+            # "pine nuts" without hitting coconut/peanut/butternut/nutmeg
+            # (all fail the word boundary).
+            "nut",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,
@@ -295,7 +313,8 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
         in_us_big9=False,
         derivatives=(
             "mollusc", "mussel", "clam", "oyster", "squid", "calamari",
-            "octopus", "snail", "scallop", "oyster sauce",
+            "octopus", "snail", "scallop", "oyster sauce", "cuttlefish",
+            "escargot", "abalone", "cockle", "whelk", "winkle",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,

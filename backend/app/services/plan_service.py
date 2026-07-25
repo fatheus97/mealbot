@@ -36,6 +36,7 @@ from app.models.plan_models import (
     SingleDayResponse,
     StockItemDTO,
 )
+from app.services.allergen_screen import AllergenScreenError
 from app.services.fridge_service import (
     allocate_fifo,
     flatten_fridge_batches,
@@ -659,10 +660,22 @@ async def generate_plan_days(
         try:
             single_day: SingleDayResponse | None = None
             if settings.use_rag:
-                single_day = await generate_single_day_with_rag(
-                    day_req, session, user.id, mock=user.is_demo,
-                    slot_layout=slot_layout, slot_portions=slot_portions,
-                )
+                try:
+                    single_day = await generate_single_day_with_rag(
+                        day_req, session, user.id, mock=user.is_demo,
+                        slot_layout=slot_layout, slot_portions=slot_portions,
+                    )
+                except AllergenScreenError:
+                    # RAG couldn't clear the allergen screen — fall back to a
+                    # fresh standard generation (no RAG examples to suggest the
+                    # allergen), which is itself screened. Only if THAT also
+                    # exhausts do we fail closed, so a satisfiable allergic
+                    # request isn't hard-failed just because RAG got unlucky.
+                    logger.warning(
+                        "Day %d: RAG hit allergen-screen exhaustion — falling "
+                        "back to the standard pipeline", day_index,
+                    )
+                    single_day = None
                 if single_day:
                     logger.info("Day %d: used RAG pipeline", day_index)
             if single_day is None:
