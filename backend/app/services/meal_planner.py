@@ -8,6 +8,7 @@ from jinja2 import FileSystemLoader
 from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.config import settings
+from app.core.dietary_reference import resolve_dietary_context
 from app.llm.client import llm_client
 from app.models.plan_models import (
     LlmDayResponse,
@@ -58,6 +59,9 @@ async def generate_single_day(
     template = _prompts_env.get_template("meal_plan.jinja")
     user_prompt = template.render(
         **req.model_dump(),
+        dietary_context_lines=resolve_dietary_context(
+            req.diet_types, req.allergens,
+        ).prompt_lines(),
         slot_layout=slot_layout,
         slot_portions=slot_portions,
     )
@@ -111,6 +115,9 @@ async def generate_partial_day(
     template = _prompts_env.get_template("meal_plan_partial.jinja")
     user_prompt = template.render(
         **req.model_dump(),
+        dietary_context_lines=resolve_dietary_context(
+            req.diet_types, req.allergens,
+        ).prompt_lines(),
         frozen_meals=[m.model_dump() for m in frozen_meals],
         slots_to_generate=slots_to_generate,
         replaced_meals=replaced_meals or [],
@@ -208,6 +215,9 @@ async def generate_single_day_with_rag(
     template = _prompts_env.get_template("meal_plan.jinja")
     user_prompt = template.render(
         **req.model_dump(),
+        dietary_context_lines=resolve_dietary_context(
+            req.diet_types, req.allergens,
+        ).prompt_lines(),
         retrieved_meals=retrieved_meals,
         slot_layout=slot_layout,
         slot_portions=slot_portions,

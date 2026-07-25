@@ -45,9 +45,9 @@ User context:
 — Taste preferences: <user_content type="taste_preferences">{{ taste_preferences | join(", ") or "none specified" }}</user_content>
 — Priority ingredients to use this run: <user_content type="priority_ingredients">{{ ingredients_to_use | join(", ") or "none specified" }}</user_content>
 — Ingredients to avoid: <user_content type="avoid_ingredients">{{ avoid_ingredients | join(", ") or "none specified" }}</user_content>
-— Diet type: {{ diet_type or "balanced" }}
+{% include "_dietary_constraints.jinja" %}
 — Previously eaten meals (avoid similar ones): <user_content type="past_meals">{{ past_meals | join(" | ") or "none" }}</user_content>
-{% if diet_type == "baby_food" %}
+{% if "baby_food" in diet_types %}
 
 INFANT FOOD MODE (for ~6–12 month old baby):
 — Every meal MUST be safe and age-appropriate for a roughly 7-month-old baby.
@@ -72,7 +72,7 @@ Highly-rated retrieved meals (use as inspiration):
 {% set ns = namespace(n=0) %}
 Your priorities, IN THIS ORDER, are:
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) AVOID ALL ingredients listed in "Ingredients to avoid" and their synonyms and hyponyms.
-{% set ns.n = ns.n + 1 %}{{ ns.n }}) Respect diet type. If diet type is "baby_food", the INFANT FOOD MODE rules above are hard constraints, not preferences.
+{% set ns.n = ns.n + 1 %}{{ ns.n }}) Respect EVERY item under "DIETARY REQUIREMENTS" above as a HARD constraint, not a preference. For each line marked "ALLERGEN to EXCLUDE", the plan must contain NO ingredient that is, contains, or is derived from that allergen — check against the listed derivatives/synonyms and exclude those too. Where a "Combination note" flags a contradiction or high risk, honour the STRICTER constraint. If "baby_food" is selected, the INFANT FOOD MODE rules above are also hard constraints, not preferences.
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) HONOR TASTE PREFERENCES STRONGLY. Treat flavor words ("sweet", "savory", "spicy", "mild") and preparation-method words ("baked", "grilled", "fried", "raw", "roasted", "boiled") as hard filters on the dish style, not soft hints. If the user specifies such terms, AT LEAST HALF of the generated meals must clearly match them in both name and method. Do NOT override this with generic "variety" or "creativity" reasoning.
 {% set ns.n = ns.n + 1 %}{{ ns.n }}) USE PRIORITY INGREDIENTS. For each item in "Priority ingredients to use this run", build a meal around it (or feature it prominently). Treat these with urgency equal to or higher than URGENT stock items.{% if retrieved_meals %} Do NOT skip them in favour of adapting retrieved meals — adapt a retrieved meal to incorporate them, or build a new dish around them.{% endif %}
 {% if stock_only %}
