@@ -63,21 +63,18 @@ beforeEach(() => {
 });
 
 describe('PantryStaples', () => {
-  it('is collapsed by default and shows staples when expanded', async () => {
+  it('renders the staples list immediately (settings section, no expand step)', async () => {
     loginUser();
     mockStaples([{ name: 'Salt' }, { name: 'Olive Oil' }]);
-    const user = userEvent.setup();
 
     render(<PantryStaples />, { wrapper: createWrapper() });
 
-    // Count badge reflects the loaded list even while collapsed…
-    await waitFor(() => expect(screen.getByText('(2)')).toBeInTheDocument());
-    // …but the chips only render once expanded.
-    expect(screen.queryByText('Salt')).not.toBeInTheDocument();
-
-    await user.click(screen.getByText('Pantry staples'));
-    expect(screen.getByText('Salt')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
     expect(screen.getByText('Olive Oil')).toBeInTheDocument();
+    // The heading carries the count.
+    expect(
+      screen.getByRole('heading', { name: /pantry staples \(2\)/i }),
+    ).toBeInTheDocument();
   });
 
   it('adds a staple and saves the full list', async () => {
@@ -86,7 +83,6 @@ describe('PantryStaples', () => {
     const user = userEvent.setup();
 
     render(<PantryStaples />, { wrapper: createWrapper() });
-    await user.click(screen.getByText('Pantry staples'));
     await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
 
     await user.type(screen.getByLabelText('New staple name'), 'Flour');
@@ -108,7 +104,6 @@ describe('PantryStaples', () => {
     const user = userEvent.setup();
 
     render(<PantryStaples />, { wrapper: createWrapper() });
-    await user.click(screen.getByText('Pantry staples'));
     await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
 
     await user.click(screen.getByRole('button', { name: 'Remove Salt' }));
@@ -124,7 +119,6 @@ describe('PantryStaples', () => {
     const user = userEvent.setup();
 
     render(<PantryStaples />, { wrapper: createWrapper() });
-    await user.click(screen.getByText('Pantry staples'));
     await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
 
     await user.type(screen.getByLabelText('New staple name'), 'salt');

@@ -1,12 +1,19 @@
 // frontend/src/api.ts
 import type {
   ActivityStatsResponse,
+  AdminFeedbackDetail,
+  AdminFeedbackListResponse,
   AdminUser,
   AdminUserListResponse,
   AdminUserRoleFilter,
   AdminUserStatusFilter,
   AdminUserUpdate,
+  BillingPlan,
   CookRecipeRequest,
+  FeedbackCreateRequest,
+  FeedbackModerationStatus,
+  FeedbackStatusFilter,
+  FeedbackSubmitResponse,
   FunnelStatsResponse,
   FavoriteRecipeRequest,
   InviteCreateRequest,
@@ -126,10 +133,13 @@ export async function authFetch(
   return response;
 }
 
-export async function createCheckoutSession(): Promise<string> {
-  const res = await authFetch("/billing/checkout", { method: "POST" });
+export async function createCheckoutSession(plan: BillingPlan = "monthly"): Promise<string> {
+  const res = await authFetch("/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan }),
+  });
   if (!res.ok) {
-    throw new Error(await extractBillingError(res, "Could not start checkout"));
+    throw new Error(await extractErrorDetail(res, "Could not start checkout"));
   }
   const data = (await res.json()) as { url: string };
   return data.url;
@@ -138,15 +148,18 @@ export async function createCheckoutSession(): Promise<string> {
 export async function createPortalSession(): Promise<string> {
   const res = await authFetch("/billing/portal", { method: "POST" });
   if (!res.ok) {
-    throw new Error(await extractBillingError(res, "Could not open the billing portal"));
+    throw new Error(await extractErrorDetail(res, "Could not open the billing portal"));
   }
   const data = (await res.json()) as { url: string };
   return data.url;
 }
 
-async function extractBillingError(res: Response, fallback: string): Promise<string> {
-  // 503 when billing is off/unconfigured; 400 when there's no customer yet.
-  // Surface the backend's `detail` string when present.
+// Surface the backend's human-readable `detail` string when the server sends
+// one (friendly errors like the fail-closed allergen message, billing 503/400,
+// "plan generation failed"). Pydantic *validation* 422s carry a LIST detail,
+// not a string — those fall through to the fallback (with status) so we never
+// dump raw FastAPI JSON into the UI.
+async function extractErrorDetail(res: Response, fallback: string): Promise<string> {
   try {
     const parsed = await res.json();
     if (typeof parsed?.detail === "string") return parsed.detail;
@@ -254,8 +267,9 @@ export async function generateRecipe(
   });
   if (res.status === 402) throw new PaywallError();
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Recipe generation failed: ${res.status} - ${txt}`);
+    // Surface the backend `detail` — including the fail-closed allergen message
+    // (422) — rather than dumping the raw JSON body into the alert.
+    throw new Error(await extractErrorDetail(res, "Recipe generation failed. Please try again."));
   }
   return res.json();
 }
@@ -513,6 +527,85 @@ export async function redeemInvite(
     );
   }
   throw new Error(detail ?? `Could not create your account (${res.status}).`);
+}
+
+// --- User feedback: submit (authed) + admin moderation (403-gated server-side) ---
+
+export async function submitFeedback(
+  body: FeedbackCreateRequest,
+): Promise<FeedbackSubmitResponse> {
+  const res = await authFetch("/feedback", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.json();
+  // The backend returns a friendly `detail` string on 422 (gate reject), 409
+  // (duplicate), 429 (too many open), 503 (disabled) and 403 (demo); Pydantic 422s
+  // carry a list detail. Surface a real reason rather than a bare status.
+  let detail: string | null = null;
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") detail = parsed.detail;
+    else if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
+      detail = parsed.detail[0].msg;
+    }
+  } catch {
+    // non-JSON body — fall through to a status-based message
+  }
+  throw new Error(detail ?? `Could not send your feedback (${res.status}).`);
+}
+
+export interface AdminFeedbackQuery {
+  status?: FeedbackStatusFilter;
+  kind?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchAdminFeedback(
+  query: AdminFeedbackQuery = {},
+): Promise<AdminFeedbackListResponse> {
+  const p = new URLSearchParams();
+  if (query.status && query.status !== "all") p.set("status", query.status);
+  if (query.kind) p.set("kind", query.kind);
+  if (query.limit != null) p.set("limit", String(query.limit));
+  if (query.offset != null) p.set("offset", String(query.offset));
+  const qs = p.toString();
+  const res = await authFetch(`/admin/feedback${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Admin feedback failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminFeedbackDetail(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}`);
+  if (!res.ok) throw new Error(`Admin feedback detail failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAdminFeedback(
+  id: number,
+  status: FeedbackModerationStatus,
+): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not update the report"));
+  return res.json();
+}
+
+export async function retriageAdminFeedback(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}/retriage`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not re-run triage"));
+  return res.json();
+}
+
+/** The money-mover: mark accepted, grant the €1 credit (if eligible), open a ticket.
+ *  Idempotent server-side (never double-credits). */
+export async function acceptAdminFeedback(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}/accept`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not accept the report"));
+  return res.json();
 }
 
 export async function mergeFridgeItems(

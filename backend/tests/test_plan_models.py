@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.core.dietary import Allergen, DietType
 from app.models.plan_models import (
     FrozenMeal,
     IngredientAmount,
@@ -11,6 +12,7 @@ from app.models.plan_models import (
     PlannedMeal,
     ShoppingListItem,
     SingleDayResponse,
+    SingleRecipeRequest,
     StockItemDTO,
 )
 
@@ -504,3 +506,197 @@ class TestPlannedMealTotalTime:
         meal = PlannedMeal(**self._base_meal_kwargs(), total_time_minutes=45)
         restored = PlannedMeal.model_validate_json(meal.model_dump_json())
         assert restored.total_time_minutes == 45
+
+
+class TestDietTypesAndAllergens:
+    """Slice 1 of the dietary differentiator: `diet_type` (single) → the
+    combinable `diet_types` set + a structured `allergens` field, with
+    degrade-on-read for existing plans. Behaviour is otherwise unchanged (the
+    prompt/screen/UI that consume the new fields are later slices)."""
+
+    # --- The legacy single ⇄ combinable-set bridge (MealPlanRequest) ---
+
+    def test_legacy_single_diet_type_widens_to_set(self):
+        req = MealPlanRequest(diet_type="vegan", meals_per_day=3, people_count=2)
+        assert req.diet_types == [DietType.VEGAN]
+        # Mirror preserved so the unchanged prompt template still reads one value.
+        assert req.diet_type == DietType.VEGAN
+
+    def test_diet_types_set_mirrors_first_into_diet_type(self):
+        req = MealPlanRequest(
+            diet_types=["vegan", "gluten_free"], meals_per_day=3, people_count=2,
+        )
+        assert req.diet_types == [DietType.VEGAN, DietType.GLUTEN_FREE]
+        # diet_type mirrors the FIRST pattern — slice 1 only feeds one to the
+        # prompt; honouring the whole set is the prompt-redesign slice.
+        assert req.diet_type == DietType.VEGAN
+
+    def test_diet_types_is_authoritative_when_both_supplied(self):
+        # A client sending both keeps diet_types; diet_type is overwritten.
+        req = MealPlanRequest(
+            diet_type="vegan",
+            diet_types=["keto", "paleo"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert req.diet_types == [DietType.KETO, DietType.PALEO]
+        assert req.diet_type == DietType.KETO
+
+    def test_diet_types_deduped_preserving_order(self):
+        req = MealPlanRequest(
+            diet_types=["vegan", "keto", "vegan", "keto", "paleo"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert req.diet_types == [DietType.VEGAN, DietType.KETO, DietType.PALEO]
+
+    def test_no_diet_defaults_to_empty_and_none(self):
+        req = MealPlanRequest(meals_per_day=3, people_count=2)
+        assert req.diet_types == []
+        assert req.diet_type is None
+
+    def test_new_pattern_values_accepted(self):
+        req = MealPlanRequest(
+            diet_types=["pescatarian", "mediterranean", "low_fodmap"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert DietType.PESCATARIAN in req.diet_types
+        assert DietType.LOW_FODMAP in req.diet_types
+
+    def test_invalid_diet_type_in_set_rejected(self):
+        with pytest.raises(ValidationError):
+            MealPlanRequest(
+                diet_types=["vegan", "nonsense"],  # type: ignore[list-item]
+                meals_per_day=3,
+                people_count=2,
+            )
+
+    def test_full_diet_vocabulary_accepted(self):
+        # Every diet the multi-select UI offers must validate together — the cap
+        # is len(DietType), so "select all" never 422s (regression guard for the
+        # slice-5 mismatch where an uncapped 17-chip UI met a hardcoded cap of 12).
+        all_diets = [d.value for d in DietType]
+        req = MealPlanRequest(
+            diet_types=all_diets,  # type: ignore[arg-type]
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert len(req.diet_types) == len(DietType)
+
+    def test_too_many_diet_types_rejected(self):
+        # Cap is len(DietType); length is checked pre-dedup, so a duplicate-spam
+        # list one past the vocabulary size is still rejected (stays bounded).
+        with pytest.raises(ValidationError):
+            MealPlanRequest(
+                diet_types=["vegan"] * (len(DietType) + 1),
+                meals_per_day=3,
+                people_count=2,
+            )
+
+    # --- Allergens: structured, distinct from free-text avoid_ingredients ---
+
+    def test_allergens_accepted_and_distinct_from_avoid(self):
+        req = MealPlanRequest(
+            allergens=["peanuts", "milk"],
+            avoid_ingredients=["cilantro", "olives"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert req.allergens == [Allergen.PEANUTS, Allergen.MILK]
+        # The taste-avoid list is untouched — allergens are a separate field.
+        assert req.avoid_ingredients == ["cilantro", "olives"]
+
+    def test_allergens_default_empty(self):
+        req = MealPlanRequest(meals_per_day=3, people_count=2)
+        assert req.allergens == []
+
+    def test_allergens_deduped_preserving_order(self):
+        req = MealPlanRequest(
+            allergens=["milk", "eggs", "milk"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert req.allergens == [Allergen.MILK, Allergen.EGGS]
+
+    def test_invalid_allergen_rejected(self):
+        with pytest.raises(ValidationError):
+            MealPlanRequest(
+                allergens=["gluten"],  # not an EU-14 member ("cereals_with_gluten")
+                meals_per_day=3,
+                people_count=2,
+            )
+
+    def test_too_many_allergens_rejected(self):
+        with pytest.raises(ValidationError):
+            MealPlanRequest(
+                allergens=["milk"] * 21,  # cap is 20; length checked pre-dedup
+                meals_per_day=3,
+                people_count=2,
+            )
+
+    # --- Backward-compat: reading blobs written before this feature ---
+
+    def test_legacy_request_json_without_new_fields_roundtrips(self):
+        """THE backward-compat guard. Regenerate re-reads a plan's stored
+        request_json via MealPlanRequest.model_validate_json (plan.py). Blobs
+        written before this slice carry only `diet_type` — no `diet_types`,
+        no `allergens` — and must still deserialize, widening cleanly."""
+        legacy_json = (
+            '{"diet_type":"vegan","meals_per_day":3,"people_count":2,'
+            '"taste_preferences":[],"avoid_ingredients":[]}'
+        )
+        req = MealPlanRequest.model_validate_json(legacy_json)
+        assert req.diet_types == [DietType.VEGAN]
+        assert req.diet_type == DietType.VEGAN
+        assert req.allergens == []
+
+    def test_legacy_request_json_with_null_diet_type_roundtrips(self):
+        legacy_json = (
+            '{"diet_type":null,"meals_per_day":3,"people_count":2}'
+        )
+        req = MealPlanRequest.model_validate_json(legacy_json)
+        assert req.diet_types == []
+        assert req.diet_type is None
+        assert req.allergens == []
+
+    def test_new_shape_roundtrip_is_stable(self):
+        req = MealPlanRequest(
+            diet_types=["vegan", "gluten_free"],
+            allergens=["tree_nuts", "sesame"],
+            meals_per_day=3,
+            people_count=2,
+        )
+        restored = MealPlanRequest.model_validate_json(req.model_dump_json())
+        assert restored.diet_types == [DietType.VEGAN, DietType.GLUTEN_FREE]
+        assert restored.allergens == [Allergen.TREE_NUTS, Allergen.SESAME]
+        assert restored.diet_type == DietType.VEGAN
+        # Idempotent: a second round-trip is byte-identical.
+        assert restored.model_dump_json() == req.model_dump_json()
+
+    def test_baby_food_still_works_via_new_machinery(self):
+        # The one diet_type with real prompt rules (INFANT FOOD MODE) must be
+        # unaffected by the widening.
+        req = MealPlanRequest(diet_type="baby_food", meals_per_day=3, people_count=2)
+        assert req.diet_type == DietType.BABY_FOOD
+        assert req.diet_types == [DietType.BABY_FOOD]
+
+    # --- SingleRecipeRequest (Cook Now) gets the identical treatment ---
+
+    def test_single_recipe_request_widens_and_mirrors(self):
+        req = SingleRecipeRequest(
+            meal_type="main_course",  # type: ignore[arg-type]
+            diet_types=["vegan", "keto"],
+            allergens=["peanuts"],
+        )
+        assert req.diet_types == [DietType.VEGAN, DietType.KETO]
+        assert req.diet_type == DietType.VEGAN
+        assert req.allergens == [Allergen.PEANUTS]
+
+    def test_single_recipe_request_legacy_single_widens(self):
+        req = SingleRecipeRequest(
+            meal_type="main_course",  # type: ignore[arg-type]
+            diet_type="vegetarian",
+        )
+        assert req.diet_types == [DietType.VEGETARIAN]
+        assert req.diet_type == DietType.VEGETARIAN

@@ -118,8 +118,21 @@ class Settings(BaseSettings):
     billing_enabled: bool = False
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
-    # The recurring Price (e.g. €10/mo) the Checkout subscribes the user to.
+    # The recurring MONTHLY Price the Checkout subscribes the user to (the baseline
+    # plan; billing_configured() requires it).
     stripe_price_id: str | None = None
+    # The recurring ANNUAL Price ("€2.99/mo billed annually"). Optional: when unset,
+    # the checkout offers monthly only and an annual request is rejected. Kept
+    # separate from stripe_price_id so annual is additive and the monthly baseline
+    # never depends on it.
+    stripe_price_id_annual: str | None = None
+    # Comma-separated HISTORICAL annual Price ids (retired via reprice). is_annual()
+    # counts a user as annual if their subscription Price is the current annual id OR
+    # any of these — so rotating the annual Price never misreads grandfathered annual
+    # subscribers as monthly (which would wrongly grant them the monthly-only feedback
+    # credit). Fixes the rotation blind spot flagged in #287's review; matters now that
+    # 6b keys money off is_annual.
+    stripe_price_ids_annual_legacy: str | None = None
     # Absolute base URL of the SPA — Checkout/Portal redirect back here.
     frontend_base_url: str = "http://localhost:5173"
     # 10-day free trial before the first charge.
@@ -152,6 +165,55 @@ class Settings(BaseSettings):
     usage_cap_paid_eur: float = 2.0
     usage_cap_trial_eur: float = 0.75
     usage_soft_warn_ratio: float = Field(default=0.8, ge=0.0, le=1.0)
+
+    # --- User feedback intake (bug reports / feature requests) ---
+    # A logged-in user submits a report; a CHEAP regex/abuse gate rejects junk at
+    # the edge, the report is stored, and (behind feedback_llm_triage_enabled) an
+    # ADVISORY LLM triage pre-classifies it for the admin moderation queue. The LLM
+    # NEVER authorizes anything — the €1 launch feedback credit + a private-repo
+    # ticket are a later, human-Accept-gated slice. feedback_enabled is the kill
+    # switch for the submit endpoint (mirrors leftovers_enabled); triage has its own
+    # switch so the queue keeps working (raw reports, no advisory triage) if the LLM
+    # misbehaves or costs spike.
+    feedback_enabled: bool = True
+    feedback_llm_triage_enabled: bool = True
+
+    # --- Feedback credit + ticket (6b) — the money-mover half of the feedback loop ---
+    # An admin ACCEPT on a report grants a small Stripe customer-balance credit (the
+    # launch feedback discount) and opens a GitHub ticket. The LLM never triggers this;
+    # a human admin Accept is the sole trigger.
+    #
+    # feedback_credit_enabled defaults OFF (opt-in): it grants REAL money, so it stays
+    # dark until the owner switches the launch discount on. When off, Accept still marks
+    # the report accepted + files a ticket, just no credit.
+    feedback_credit_enabled: bool = False
+    # €1 per accepted report. The cap trio below guarantees an invoice never hits €0:
+    # a rolling per-user rate cap AND a hard "outstanding credit balance" floor kept
+    # strictly below the monthly price (3 × €1 = €3 < €4.99).
+    feedback_credit_eur: float = 1.0
+    feedback_credit_window_days: int = Field(default=30, ge=1, le=366)
+    feedback_credit_max_per_window: int = Field(default=3, ge=1, le=100)
+    # Never let the customer's feedback-credit balance reach this (must stay < the
+    # monthly Price so applying it can't zero an invoice — Stripe's balance is the
+    # authoritative check, read right before each grant).
+    feedback_credit_max_outstanding_eur: float = 3.0
+    # GitHub private tickets repo ("owner/repo") + a token with issues:write. The code
+    # repo is PUBLIC and reports carry PII, so tickets go to a SEPARATE PRIVATE repo.
+    # Both unset → ticket creation is a no-op (Accept still works, sans ticket).
+    feedback_ticket_repo: str | None = None
+    github_token: str | None = None
+
+    @field_validator("github_token", mode="after")
+    @classmethod
+    def _blank_placeholder_github_token(cls, v: str | None) -> str | None:
+        return normalize_optional_key(v)
+    # Anti-flood caps on the intake (enforced in services.feedback_intake, on top of
+    # the per-user route rate limit): the most OPEN (new/reviewing) reports a
+    # single user may have queued at once, and the window in which an identical
+    # resubmission from the same user is treated as a duplicate and refused. Both
+    # bound queue spam + the LLM-triage cost an accepted report incurs.
+    feedback_max_open_per_user: int = Field(default=20, ge=1, le=1000)
+    feedback_dedup_window_hours: int = Field(default=24, ge=1, le=720)
 
     # --- VAT threshold tracking (revenue dashboard) ---
     # EU cross-border B2C distance-selling / OSS threshold: once cumulative B2C

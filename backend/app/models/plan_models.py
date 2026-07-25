@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.dietary import Allergen, DietType
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
 
 if TYPE_CHECKING:
@@ -48,6 +49,55 @@ def validate_plan_start_date(v: date | None) -> date | None:
             f"start_date year must be between {_MIN_PLAN_YEAR} and {max_year}"
         )
     return v
+
+
+# --- Dietary restrictions & allergens (slice 1: schema + backward-compat) ---
+#
+# A user can legitimately stack several dietary patterns and declare all 14 EU
+# allergens, but an unbounded list is hostile input (each value is persisted and,
+# in later slices, rendered into the prompt) — so bound both at the API boundary.
+# The diet cap is the FULL offered vocabulary (every enum member), so selecting
+# every diet the multi-select UI renders always validates; it is derived, not a
+# magic number, so it can never drift below the vocabulary and 422 a legal combo.
+# max_length is checked pre-dedup, so a duplicate-spam list (["vegan"] * 1000)
+# still exceeds it and is rejected — the list stays bounded.
+_MAX_DIET_TYPES = len(DietType)
+_MAX_ALLERGENS = 20  # EU-14 is the real ceiling; small headroom, still bounded.
+
+
+def _dedup_preserve_order[T](values: list[T]) -> list[T]:
+    """De-duplicate keeping first-seen order (StrEnum members are hashable)."""
+    seen: set[T] = set()
+    out: list[T] = []
+    for v in values:
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def _reconcile_diet_fields(
+    diet_type: DietType | None, diet_types: list[DietType],
+) -> tuple[DietType | None, list[DietType]]:
+    """Bridge the legacy single ``diet_type`` and the combinable ``diet_types``.
+
+    The canonical field going forward is the *set* ``diet_types``; the prompt
+    template still reads a single ``diet_type`` (the prompt redesign is a later
+    slice), so the two must stay consistent:
+
+    - A legacy request / stored blob carrying only ``diet_type`` (no
+      ``diet_types``) is widened to ``diet_types=[diet_type]`` — degrade-on-read,
+      the same shape leftovers uses for ``response_json``.
+    - When ``diet_types`` is supplied it is AUTHORITATIVE (a client sending both
+      keeps ``diet_types`` and has ``diet_type`` overwritten to match):
+      order-preserving de-dup, then ``diet_type`` is mirrored to its first
+      element so the unchanged template renders exactly what it did before.
+    """
+    if not diet_types and diet_type is not None:
+        diet_types = [diet_type]
+    else:
+        diet_types = _dedup_preserve_order(diet_types)
+    return (diet_types[0] if diet_types else None), diet_types
 
 
 class StockItemDTO(BaseModel):
@@ -107,7 +157,29 @@ class MealPlanRequest(BaseModel):
         max_length=20,
         description="Priority ingredients the user wants used in this plan run; treated with urgency.",
     )
-    diet_type: Literal["balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food"] | None = None
+    # Legacy single-select diet — KEPT as a backward-compat mirror of
+    # diet_types[0] (see _reconcile_diet). It is still what the current frontend
+    # sends and what old request_json blobs carry; as of the slice-3 prompt
+    # redesign, generation reads the combinable diet_types / allergens via the
+    # reference layer, NOT this mirror. Widened from the original 6-value Literal
+    # to the full DietType set — a superset, so every stored value still validates.
+    diet_type: DietType | None = None
+    # Combinable dietary patterns — the canonical field going forward. Empty by
+    # default; a legacy diet_type is folded in here by _reconcile_diet.
+    diet_types: list[DietType] = Field(
+        default_factory=list,
+        max_length=_MAX_DIET_TYPES,
+        description="Combinable dietary patterns (e.g. vegan, gluten_free, keto).",
+    )
+    # Structured, safety-critical allergen declarations — DELIBERATELY distinct
+    # from the free-text taste `avoid_ingredients` list (an allergy is a hard
+    # constraint, not a preference). Persisted now; the prompt + deterministic
+    # output screen that consume it are later slices — nothing filters on it yet.
+    allergens: list[Allergen] = Field(
+        default_factory=list,
+        max_length=_MAX_ALLERGENS,
+        description="EU-14 major allergens the user must avoid (hard constraint).",
+    )
     meals_per_day: int = Field(
         ge=1,
         le=6,
@@ -221,6 +293,16 @@ class MealPlanRequest(BaseModel):
                 cleaned_list.append(cleaned)
 
         return cleaned_list[:20]
+
+    @model_validator(mode="after")
+    def _reconcile_diet(self) -> MealPlanRequest:
+        # Keep the legacy single `diet_type` and the combinable `diet_types` in
+        # sync, and de-dup the allergen set. See _reconcile_diet_fields.
+        self.diet_type, self.diet_types = _reconcile_diet_fields(
+            self.diet_type, self.diet_types,
+        )
+        self.allergens = _dedup_preserve_order(self.allergens)
+        return self
 
 
 class IngredientAmount(BaseModel):
@@ -687,9 +769,20 @@ class SingleRecipeRequest(BaseModel):
     """
 
     meal_type: MealType
-    diet_type: Literal[
-        "balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food"
-    ] | None = None
+    # Same legacy-mirror + combinable-set shape as MealPlanRequest (Cook Now
+    # carries the user's diet the same way). See _reconcile_diet_fields; the
+    # mapping into MealPlanRequest (recipe.py) forwards diet_types + allergens.
+    diet_type: DietType | None = None
+    diet_types: list[DietType] = Field(
+        default_factory=list,
+        max_length=_MAX_DIET_TYPES,
+        description="Combinable dietary patterns (e.g. vegan, gluten_free, keto).",
+    )
+    allergens: list[Allergen] = Field(
+        default_factory=list,
+        max_length=_MAX_ALLERGENS,
+        description="EU-14 major allergens the user must avoid (hard constraint).",
+    )
     people_count: int = Field(ge=1, le=10, default=2)
     taste_preferences: list[str] = Field(default_factory=list, max_length=20)
     avoid_ingredients: list[str] = Field(default_factory=list, max_length=50)
@@ -727,6 +820,16 @@ class SingleRecipeRequest(BaseModel):
             return None
         clean = re.sub(r"[^\w\s\-,.!?()'\"/]", "", v, flags=re.UNICODE).strip()
         return clean or None
+
+    @model_validator(mode="after")
+    def _reconcile_diet(self) -> SingleRecipeRequest:
+        # Mirror MealPlanRequest — duplicated (not shared) to keep the model
+        # layer free of cross-references, matching the sanitize_input pattern.
+        self.diet_type, self.diet_types = _reconcile_diet_fields(
+            self.diet_type, self.diet_types,
+        )
+        self.allergens = _dedup_preserve_order(self.allergens)
+        return self
 
 
 class SingleRecipeResponse(BaseModel):
