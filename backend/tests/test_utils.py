@@ -304,19 +304,44 @@ def _spice_meal(ingredients: list[tuple[str, float, bool]]) -> PlannedMeal:
 
 
 class TestSpiceExclusion:
-    def test_shopping_list_excludes_spices(self):
+    def test_shopping_list_excludes_spices_when_include_off(self):
         days = [_day([_spice_meal([
             ("chicken", 300, False),
             ("cumin", 1, True),
             ("paprika", 1, True),
         ])])]
-        result = compute_shopping_list_from_plan(days, [])
+        result = compute_shopping_list_from_plan(days, [], include_spices=False)
         names = [r.name for r in result]
         assert "chicken" in names
         assert "cumin" not in names
         assert "paprika" not in names
 
+    def test_shopping_list_keeps_spices_when_include_on(self):
+        # include_spices=True → seasonings stay on the list (with a real weight).
+        days = [_day([_spice_meal([("chicken", 300, False), ("cumin", 5, True)])])]
+        result = compute_shopping_list_from_plan(days, [], include_spices=True)
+        names = [r.name for r in result]
+        assert "chicken" in names
+        assert "cumin" in names
+
+    def test_include_spices_on_is_deterministic_not_llm_dependent(self):
+        # THE guard: even if the LLM mis-tags an item is_spice=true while the user
+        # wants spices ON, it must NOT be silently dropped from the list. The
+        # outcome depends on the preference, never on the model's is_spice bit.
+        days = [_day([_spice_meal([("salt", 3, True)])])]
+        assert [r.name for r in compute_shopping_list_from_plan(days, [], include_spices=True)] == ["salt"]
+        assert compute_shopping_list_from_plan(days, [], include_spices=False) == []
+
+    def test_default_includes_spices(self):
+        # Default (no arg) is include_spices=True, matching the User default —
+        # so a spice is kept unless the caller explicitly turns spices off.
+        days = [_day([_spice_meal([("oregano", 2, True)])])]
+        assert [r.name for r in compute_shopping_list_from_plan(days, [])] == ["oregano"]
+
     def test_fridge_subtraction_excludes_spices(self):
+        # subtract_used_from_fridge is intentionally NOT gated on include_spices —
+        # it drives the internal generation simulation, not the user-facing list —
+        # so it always skips is_spice items regardless of the preference.
         fridge = [
             StockItemDTO(name="chicken", quantity_grams=500),
             StockItemDTO(name="cumin", quantity_grams=50),

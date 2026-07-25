@@ -16,7 +16,7 @@ import hashlib
 import hmac
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import stripe
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,10 +31,33 @@ logger = logging.getLogger(__name__)
 # and moves the sub to ``canceled`` only once retries are exhausted.
 ENTITLED_STATUSES = frozenset({"trialing", "active", "past_due"})
 
+# The plans a user can subscribe to. "annual" is only offered when
+# stripe_price_id_annual is configured; "monthly" is the always-present baseline.
+BillingPlan = Literal["monthly", "annual"]
+
 
 def billing_configured() -> bool:
-    """True when the Stripe secret + price are set (independent of the flag)."""
+    """True when the Stripe secret + MONTHLY price are set (independent of the flag).
+    Annual is additive — its absence never makes billing 'unconfigured'."""
     return bool(settings.stripe_secret_key and settings.stripe_price_id)
+
+
+def annual_available() -> bool:
+    """Whether the annual plan is offered (its Price id is configured)."""
+    return bool(settings.stripe_price_id_annual)
+
+
+def _price_id_for_plan(plan: BillingPlan) -> str:
+    """Resolve the configured Stripe Price id for a plan. Raises when the requested
+    plan isn't configured (annual is optional — a request for it must fail loudly,
+    not silently fall back to monthly and charge the wrong amount)."""
+    if plan == "annual":
+        if not settings.stripe_price_id_annual:
+            raise RuntimeError("Annual plan is not configured (STRIPE_PRICE_ID_ANNUAL missing)")
+        return settings.stripe_price_id_annual
+    if not settings.stripe_price_id:
+        raise RuntimeError("STRIPE_PRICE_ID not configured")
+    return settings.stripe_price_id
 
 
 def _require_stripe() -> None:
@@ -91,6 +114,53 @@ def _extract_period_end(subscription: dict[str, Any]) -> int | None:
     return None
 
 
+def _extract_price_id(subscription: dict[str, Any]) -> str | None:
+    """Pull the Price id from a Subscription's first item — the plan the user is on.
+
+    ``price`` is normally the expanded object (read ``.id``), but tolerate it being
+    the bare id string too. Returns None when no item/price is present."""
+    items = subscription.get("items")
+    data = items.get("data") if isinstance(items, dict) else None
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        price = data[0].get("price")
+        if isinstance(price, dict):
+            pid = price.get("id")
+            return pid if isinstance(pid, str) and pid else None
+        if isinstance(price, str) and price:
+            return price
+    return None
+
+
+def annual_price_ids() -> frozenset[str]:
+    """Every Price id that counts as ANNUAL: the current annual id + any retired ones
+    in ``stripe_price_ids_annual_legacy`` (comma-separated). The allow-list is what
+    makes annual detection rotation-safe."""
+    ids: set[str] = set()
+    if settings.stripe_price_id_annual:
+        ids.add(settings.stripe_price_id_annual)
+    if settings.stripe_price_ids_annual_legacy:
+        ids.update(
+            p.strip() for p in settings.stripe_price_ids_annual_legacy.split(",") if p.strip()
+        )
+    return frozenset(ids)
+
+
+def is_annual(user: User) -> bool:
+    """Whether the user's active subscription is on the ANNUAL plan (vs monthly).
+
+    Used to exclude annual subscribers from the monthly-only launch feedback credit
+    (6b) — an annual plan is already the discounted tier. False when no annual Price is
+    configured, or the user's mirrored price id is unknown/monthly.
+
+    ROTATION-SAFE: compares against the current annual id AND the historical allow-list
+    (``stripe_price_ids_annual_legacy``), so replacing the annual Price never
+    reclassifies grandfathered annual subscribers (still on the old id) as monthly —
+    which would wrongly grant them the monthly-only credit. Monthly rotation is
+    harmless; nothing compares against ``stripe_price_id``."""
+    price_id = user.subscription_price_id
+    return price_id is not None and price_id in annual_price_ids()
+
+
 def apply_subscription(
     user: User, subscription: dict[str, Any], event_created: int | None = None
 ) -> bool:
@@ -118,6 +188,12 @@ def apply_subscription(
     period_end = _extract_period_end(subscription)
     if period_end is not None:
         user.current_period_end = datetime.fromtimestamp(period_end, tz=UTC)
+    # Mirror the plan's Price id for monthly-vs-annual detection. Only overwrite when
+    # the payload actually carries one, so a shape without items can't blank a known
+    # value; a genuine plan switch (monthly↔annual via the Portal) updates it here.
+    price_id = _extract_price_id(subscription)
+    if price_id is not None:
+        user.subscription_price_id = price_id
     if event_created is not None:
         user.subscription_event_ts = event_created
     return True
@@ -145,11 +221,13 @@ async def _ensure_customer(user: User, session: AsyncSession) -> str:
     return customer.id
 
 
-async def create_checkout_session(user: User, session: AsyncSession) -> str:
-    """Create a subscription Checkout session (10-day trial) and return its URL."""
+async def create_checkout_session(
+    user: User, session: AsyncSession, plan: BillingPlan = "monthly"
+) -> str:
+    """Create a subscription Checkout session (10-day trial) for the chosen plan
+    (monthly | annual) and return its URL."""
     _require_stripe()
-    if not settings.stripe_price_id:
-        raise RuntimeError("STRIPE_PRICE_ID not configured")
+    price_id = _price_id_for_plan(plan)
     customer_id = await _ensure_customer(user, session)
     # Gate A of the trial-abuse guard: a repeat account (has_used_trial) gets NO
     # trial — subscription-mode Checkout then charges the first invoice at
@@ -164,7 +242,7 @@ async def create_checkout_session(user: User, session: AsyncSession) -> str:
         stripe.checkout.Session.create,
         mode="subscription",
         customer=customer_id,
-        line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
+        line_items=[{"price": price_id, "quantity": 1}],
         # Let EU business customers enter a VAT ID (B2B); we don't collect tax
         # ourselves (neplátce) so automatic_tax stays off.
         tax_id_collection={"enabled": True},
@@ -263,3 +341,49 @@ async def end_trial_now(subscription_id: str) -> None:
     await asyncio.to_thread(
         stripe.Subscription.modify, subscription_id, trial_end="now"
     )
+
+
+# --- Feedback credit (6b): customer-balance credit -------------------------------
+
+
+async def grant_customer_credit(
+    customer_id: str,
+    amount_cents: int,
+    idempotency_key: str,
+    metadata: dict[str, str] | None = None,
+) -> None:
+    """Grant a customer-balance CREDIT of ``amount_cents`` (minor units, positive) —
+    Stripe subtracts it from the customer's next invoice.
+
+    Stripe's customer balance is NEGATIVE for a credit, so we post ``-amount``. The
+    ``idempotency_key`` (one per feedback report) makes a retry a no-op WITHIN Stripe's
+    idempotency window (~24h): Stripe returns the same balance transaction instead of
+    granting twice. ``metadata`` (e.g. the feedback report id) is stored on the txn so a
+    grant can be reconciled/deduped beyond that window. Raises on a Stripe error (the
+    caller decides whether to surface or swallow)."""
+    _require_stripe()
+    await asyncio.to_thread(
+        lambda: stripe.Customer.create_balance_transaction(
+            customer_id,
+            amount=-abs(amount_cents),
+            currency="eur",
+            description="Mealbot feedback credit",
+            metadata=metadata or {},
+            idempotency_key=idempotency_key,
+        )
+    )
+
+
+async def customer_credit_balance_cents(customer_id: str) -> int:
+    """The customer's current CREDIT balance in minor units (>= 0).
+
+    Stripe's ``customer.balance`` is negative for a credit and positive when the
+    customer owes; we return the credit magnitude (0 when they owe / have none). Used
+    for the never-€0 floor: don't grant if the outstanding credit is already near the
+    monthly price. Reads via ``to_dict()`` (stripe>=15 objects aren't dicts)."""
+    _require_stripe()
+    customer = await asyncio.to_thread(stripe.Customer.retrieve, customer_id)
+    balance = customer.to_dict().get("balance")
+    if not isinstance(balance, int):
+        return 0
+    return -balance if balance < 0 else 0

@@ -74,7 +74,10 @@ export function SubscriptionBanner() {
   // past_due sends the user to the Portal to fix their card; the rest either
   // subscribe (no customer yet) or manage an existing subscription.
   const isManage = variant === "active" || variant === "trialing" || variant === "past_due";
-  const onClick = isManage ? openPortal : startCheckout;
+  // Wrap startCheckout so the click event isn't passed as its `plan` arg. The banner
+  // is a secondary (re)subscribe entry point and defaults to monthly; the monthly/
+  // annual choice lives in the paywall modal.
+  const onClick = isManage ? openPortal : () => startCheckout();
   const pending = isManage ? portalPending : checkoutPending;
   const label = isManage
     ? !canceling && variant === "past_due"

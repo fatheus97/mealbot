@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from app.api.deps import require_admin
+from app.core.config import settings
 from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import get_session
@@ -46,6 +47,7 @@ from app.models.admin_schemas import (
 )
 from app.models.db_models import (
     AuthSession,
+    FeedbackReport,
     InviteToken,
     LlmUsage,
     MachineGeneration,
@@ -57,7 +59,20 @@ from app.models.db_models import (
     StockItem,
     User,
 )
-from app.services import revenue_service
+from app.models.feedback_schemas import (
+    AdminFeedbackDetail,
+    AdminFeedbackListItem,
+    AdminFeedbackListResponse,
+    AdminFeedbackUpdate,
+    FeedbackTriage,
+)
+from app.services import (
+    feedback_credit,
+    feedback_notify,
+    feedback_ticket,
+    feedback_triage,
+    revenue_service,
+)
 from app.services.admin_audit import record_admin_action
 from app.services.invite import create_invite, invite_link, invite_status
 
@@ -1074,3 +1089,323 @@ async def revoke_invite(
         expires_at=invite.expires_at,
         redeemed_by_email=None,
     )
+
+
+# --- User feedback moderation ---
+#
+# The read + moderation side of the feedback intake pipeline (submit lives in
+# api/feedback.py). An admin lists / reads reports, sees the ADVISORY LLM triage, and
+# moves a report through moderation states. Deliberately excluded from 6a: the
+# money-moving Accept (grants the €1 credit + opens a private-repo ticket) — that's a
+# later, separately-reviewed slice, so "accepted" is not a settable status here.
+
+_MAX_FEEDBACK_PAGE = 200
+# List rows carry a message PREVIEW (SQL substring), never the full body or the
+# triage_json blob — those are on the detail view.
+_FEEDBACK_PREVIEW_LEN = 140
+
+FeedbackStatusFilter = Literal[
+    "all", "new", "reviewing", "accepted", "rejected", "spam"
+]
+
+# Moderation status → audit verb. Only the 6a-settable states (AdminFeedbackUpdate
+# constrains the body to these); "accepted" is the 6b money action and never reaches
+# here.
+_FEEDBACK_STATUS_ACTION: dict[str, str] = {
+    "new": "feedback.reopen",
+    "reviewing": "feedback.review",
+    "rejected": "feedback.reject",
+    "spam": "feedback.spam",
+}
+
+
+def _parse_triage(triage_json: str | None) -> FeedbackTriage | None:
+    """Re-validate the stored advisory triage blob for the detail view.
+
+    Defensive: a malformed/legacy blob yields None (logged), never a 500 — the raw
+    text is model output, and the detail endpoint must stay readable even if it can't
+    be parsed."""
+    if not triage_json:
+        return None
+    try:
+        return FeedbackTriage.model_validate_json(triage_json)
+    except Exception:
+        logger.warning("feedback triage_json failed to parse; returning None")
+        return None
+
+
+async def _feedback_detail(session: AsyncSession, report: FeedbackReport) -> AdminFeedbackDetail:
+    """Build the detail shape, resolving the reporter's email in one extra query."""
+    email = (
+        await session.execute(
+            select(col(User.email)).where(col(User.id) == report.user_id)
+        )
+    ).scalar_one_or_none()
+    return AdminFeedbackDetail(
+        id=report.id,  # type: ignore[arg-type]  # selected/persisted row always has an id
+        user_id=report.user_id,
+        user_email=email,
+        kind=report.kind,
+        message=report.message,
+        page=report.page,
+        status=report.status,
+        created_at=report.created_at,
+        triage_status=report.triage_status,
+        triage=_parse_triage(report.triage_json),
+        reviewed_by_admin_id=report.reviewed_by_admin_id,
+        reviewed_at=report.reviewed_at,
+        credit_cents=report.credit_cents,
+        credit_granted_at=report.credit_granted_at,
+        ticket_url=report.ticket_url,
+    )
+
+
+@router.get("/feedback", response_model=AdminFeedbackListResponse)
+async def list_feedback(
+    status_filter: FeedbackStatusFilter = Query("all", alias="status"),
+    kind: str | None = Query(None, max_length=40),
+    limit: int = Query(50, ge=1, le=_MAX_FEEDBACK_PAGE),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackListResponse:
+    """The admin moderation queue: reports newest-first, filterable by status/kind.
+
+    Projects a message PREVIEW (SQL ``substr`` — never the full body or triage_json)
+    plus the advisory triage summary fields, so the queue is scannable without a
+    fetch-per-row. ``total`` is the count matching the filters (not the page size).
+    """
+    filters: list[ColumnElement[bool]] = []
+    if status_filter != "all":
+        filters.append(col(FeedbackReport.status) == status_filter)
+    if kind:
+        filters.append(col(FeedbackReport.kind) == kind)
+
+    total = (
+        await session.execute(
+            select(func.count()).select_from(FeedbackReport).where(*filters)
+        )
+    ).scalar_one()
+
+    rows = (
+        await session.execute(
+            select(
+                col(FeedbackReport.id),
+                col(FeedbackReport.user_id),
+                col(User.email),
+                col(FeedbackReport.kind),
+                col(FeedbackReport.status),
+                col(FeedbackReport.created_at),
+                func.substr(col(FeedbackReport.message), 1, _FEEDBACK_PREVIEW_LEN),
+                col(FeedbackReport.triage_status),
+                col(FeedbackReport.triage_is_actionable),
+                col(FeedbackReport.triage_type),
+                col(FeedbackReport.triage_severity),
+                col(FeedbackReport.triage_title),
+            )
+            .join(User, col(User.id) == col(FeedbackReport.user_id), isouter=True)
+            .where(*filters)
+            .order_by(col(FeedbackReport.created_at).desc(), col(FeedbackReport.id).desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+
+    return AdminFeedbackListResponse(
+        total=int(total),
+        limit=limit,
+        offset=offset,
+        items=[
+            AdminFeedbackListItem(
+                id=int(r[0]),
+                user_id=int(r[1]),
+                user_email=r[2],
+                kind=str(r[3]),
+                status=str(r[4]),
+                created_at=r[5],
+                preview=str(r[6]),
+                triage_status=r[7],
+                triage_is_actionable=r[8],
+                triage_type=r[9],
+                triage_severity=r[10],
+                triage_title=r[11],
+            )
+            for r in rows
+        ],
+    )
+
+
+@router.get("/feedback/{feedback_id}", response_model=AdminFeedbackDetail)
+async def get_feedback(
+    feedback_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Full report: the verbatim message + the parsed advisory triage."""
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    return await _feedback_detail(session, report)
+
+
+@router.patch("/feedback/{feedback_id}", response_model=AdminFeedbackDetail)
+async def moderate_feedback(
+    feedback_id: int,
+    body: AdminFeedbackUpdate,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Move a report through moderation (reviewing / rejected / spam, or reopen to
+    new). Audited; idempotent when the status is unchanged.
+
+    ``accepted`` is intentionally NOT accepted here — granting the €1 credit and
+    opening a ticket is the money-moving 6b action (AdminFeedbackUpdate already
+    rejects it at the schema layer, so a client can't sneak it in)."""
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+
+    if report.status == body.status:
+        return await _feedback_detail(session, report)  # idempotent no-op, no audit
+
+    old_status = report.status
+    report.status = body.status
+    report.reviewed_by_admin_id = actor.id
+    report.reviewed_at = datetime.now(UTC)
+    session.add(report)
+    record_admin_action(
+        session,
+        actor=actor,
+        action=_FEEDBACK_STATUS_ACTION[body.status],
+        detail={"feedback_id": str(feedback_id), "from": old_status, "to": body.status},
+    )
+    await session.commit()
+    await session.refresh(report)
+    return await _feedback_detail(session, report)
+
+
+@router.post("/feedback/{feedback_id}/retriage", response_model=AdminFeedbackDetail)
+async def retriage_feedback(
+    feedback_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Re-run the advisory LLM triage for one report on demand.
+
+    For when auto-triage failed, or the LLM was toggled on after the report came in.
+    Runs synchronously on this (admin-gated) request — so there's no abuse surface —
+    and ``triage_report`` owns the commit of the result. 503 when triage is disabled.
+    """
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    if not settings.feedback_llm_triage_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI triage is currently disabled.",
+        )
+
+    await feedback_triage.triage_report(session, feedback_id)
+    # triage_report committed the outcome (done/failed); re-read the fresh row.
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:  # pragma: no cover — deleted mid-request; treat as gone
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    # Audit the admin action (retriage is a mutation — it rewrites the triage_* fields
+    # and costs an LLM call). triage_report owns + commits its OWN transaction, so this
+    # audit row CANNOT ride in the same transaction as the triage write; commit it on
+    # its own here (the one place in this file where the audit isn't co-committed with
+    # the change it records, for that reason).
+    record_admin_action(
+        session,
+        actor=actor,
+        action="feedback.retriage",
+        detail={"feedback_id": str(feedback_id)},
+    )
+    await session.commit()
+    return await _feedback_detail(session, report)
+
+
+@router.post("/feedback/{feedback_id}/accept", response_model=AdminFeedbackDetail)
+async def accept_feedback(
+    feedback_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Accept a report — the money-moving 6b action. Marks it ``accepted``, grants the
+    €1 feedback credit (if eligible), emails the reporter when a credit is actually
+    granted, and opens a private-repo GitHub ticket.
+
+    A human admin Accept is the SOLE trigger for the credit AND the ticket — the LLM
+    never reaches this path. Idempotent + retryable: accepting an already-accepted
+    report re-attempts a not-yet-granted credit (idempotency-keyed → never double) and
+    a not-yet-created ticket, without re-setting status or re-auditing. The credit is
+    committed WITH the accept; the ticket is best-effort AFTER (its own commit), so a
+    GitHub outage can never block or reverse the money.
+
+    409 for a rejected/spam report (reopen it first — accepting something you rejected
+    is contradictory, and this one moves money). Holds the request connection across
+    the Stripe calls, which is fine here: Accept is admin-gated / low-concurrency (the
+    same accepted trade-off as retriage's LLM call — not the per-user background path
+    that the pool-exhaustion concern targets)."""
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    if report.status in {"rejected", "spam"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Reopen this report before accepting it.",
+        )
+
+    newly_accepted = report.status != "accepted"
+    if newly_accepted:
+        report.status = "accepted"
+        report.reviewed_by_admin_id = actor.id
+        report.reviewed_at = datetime.now(UTC)
+
+    # (1) Credit — money-critical, idempotent, never raises. The reporter should exist
+    # (a hard-delete CASCADEs the report away), but be defensive.
+    granted = False
+    reporter = await session.get(User, report.user_id)
+    if reporter is not None:
+        granted = await feedback_credit.maybe_grant_credit(session, report, reporter)
+
+    session.add(report)
+    # Audit whenever the status transitioned OR money actually moved: a RETRY Accept
+    # (report already "accepted") can still grant a credit that failed the first time,
+    # and that money must be logged. `credited` reflects whether THIS call granted (not
+    # the report's stored state), so a re-accept that grants nothing writes no audit /
+    # never over-counts a single credit.
+    if newly_accepted or granted:
+        record_admin_action(
+            session,
+            actor=actor,
+            action="feedback.accept",
+            detail={"feedback_id": str(feedback_id), "credited": str(granted)},
+        )
+    await session.commit()
+
+    # (1.5) Notify — tell the reporter they earned a credit, AFTER the credit commits,
+    # best-effort (never raises), only when THIS call actually granted. A silent Stripe
+    # balance credit is too quiet to reward reporting; this is the acknowledgement.
+    if granted and reporter is not None:
+        await feedback_notify.notify_credit_granted(reporter, report.credit_cents or 0)
+
+    # (2) Ticket — best-effort, AFTER the money commit, in its own transaction. Only
+    # when not already ticketed and ticketing is configured. Wrapped so a GitHub or
+    # DB-persist failure here can never turn a committed accept+credit into a 500. Known
+    # trade-off: if the issue IS created but this commit fails, a later re-accept can
+    # open a duplicate (GitHub issue-create has no idempotency key) — accepted as
+    # best-effort (private repo, rare, harmless).
+    await session.refresh(report)
+    if report.ticket_url is None and feedback_ticket.ticket_configured():
+        try:
+            url = await feedback_ticket.create_issue_for_report(
+                report, _parse_triage(report.triage_json)
+            )
+            if url:
+                report.ticket_url = url
+                session.add(report)
+                await session.commit()
+                await session.refresh(report)
+        except Exception:
+            logger.exception("feedback ticket persist failed for report %s", feedback_id)
+
+    return await _feedback_detail(session, report)

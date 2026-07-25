@@ -209,9 +209,22 @@ async def _make_entry(
 
 
 def _unit_vec_like(seed_vec: list[float], bias: float) -> list[float]:
-    """Build a 384-d vector close to seed_vec (smaller bias = closer)."""
+    """Build a 384-d vector at a *distinct* cosine distance from ``seed_vec``
+    (smaller bias = closer, strictly monotonic).
+
+    ``seed_vec`` is the query direction ([1, 0, 0, …]). Cosine distance depends
+    on the *angle*, not the magnitude, so nudging index 0 — the axis the query
+    points along — only rescales the vector and leaves the angle (and therefore
+    the cosine distance) identical for every meal. That was a latent bug: it
+    made ``ORDER BY cosine_distance`` an all-ties sort whose row order is
+    non-deterministic (physical page layout), so the own/global top-K fetches
+    could disagree and ``test_respects_fetch_limits`` flaked in isolation and
+    under ``-n auto``. Nudge an *orthogonal* axis (index 1, which the query
+    weights at 0) instead: a larger bias opens a wider angle, giving a strictly
+    larger, distinct cosine distance ``1 - 1/sqrt(1 + bias**2)``.
+    """
     v = list(seed_vec)
-    v[0] += bias
+    v[1] += bias
     return v
 
 
@@ -337,8 +350,10 @@ class TestRetrieveRatedMeals:
         _, user_id = await _make_user(db_session, "k@example.com")
         _, plan_id = await _make_plan(db_session, user_id)
 
-        # 10 meals, all distinct distances via a large enough bias step to
-        # avoid float-precision ties in cosine_distance.
+        # 10 meals at strictly increasing cosine distance (bias tilts an axis
+        # orthogonal to the query — see _unit_vec_like). Distinct distances make
+        # ORDER BY cosine_distance total, so the own top-N is deterministically a
+        # subset of the global top-M and this holds regardless of run order.
         for i in range(10):
             await _make_entry(
                 db_session, user_id, plan_id, f"m{i}", is_favorite=True,
@@ -346,8 +361,10 @@ class TestRetrieveRatedMeals:
             )
 
         hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
-        # All meals belong to user, so own ⊆ global after dedup → len == global_n
+        # Every meal is this user's own, so own_n (⊆) folds into the global_n
+        # fetch on dedup → the union is exactly the global_n closest meals.
         assert len(hits) == global_n
+        assert [h.name for h in hits] == ["m0", "m1", "m2"]
 
     @patch("app.services.recipe_retriever.settings")
     @patch("app.services.recipe_retriever.get_embedding_model")

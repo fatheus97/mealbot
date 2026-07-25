@@ -6,6 +6,7 @@ import { BarChart, type Bar } from "./BarChart";
 import { RevenuePanel } from "./RevenuePanel";
 import { UserManagementPanel } from "./UserManagementPanel";
 import { InvitePanel } from "./InvitePanel";
+import { FeedbackPanel } from "./FeedbackPanel";
 import { FunnelPanel } from "./FunnelPanel";
 import { Tabs } from "./Tabs";
 import { tabButtonId, tabPanelId, type TabDef } from "./tabIds";
@@ -34,7 +35,7 @@ function fmtDay(iso: string): string {
   return `${MONTHS[Number(parts[1])] ?? parts[1]} ${Number(parts[2])}`;
 }
 
-type TabId = "overview" | "revenue" | "generation" | "users" | "invites";
+type TabId = "overview" | "revenue" | "generation" | "users" | "invites" | "feedback";
 
 const ADMIN_TABS: TabDef[] = [
   { id: "overview", label: "Overview" },
@@ -42,6 +43,7 @@ const ADMIN_TABS: TabDef[] = [
   { id: "generation", label: "Generation" },
   { id: "users", label: "User Management" },
   { id: "invites", label: "Invites" },
+  { id: "feedback", label: "Feedback" },
 ];
 
 const ID_BASE = "admin";
@@ -363,6 +365,10 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
 
         <TabPanel id="invites" active={tab === "invites"}>
           <InvitePanel />
+        </TabPanel>
+
+        <TabPanel id="feedback" active={tab === "feedback"}>
+          <FeedbackPanel />
         </TabPanel>
       </div>
     </div>

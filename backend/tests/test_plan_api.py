@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.dietary import Allergen
 from app.core.meal_types import MealType
 from app.models.db_models import MealEntry
 from app.models.plan_models import (
@@ -15,6 +16,7 @@ from app.models.plan_models import (
     PlannedMeal,
     SingleDayResponse,
 )
+from app.services.allergen_screen import AllergenScreenError, AllergenViolation
 
 
 def _fake_day() -> SingleDayResponse:
@@ -55,6 +57,31 @@ class TestPlanGeneration:
         mock_gen.assert_awaited_once()
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_allergen_screen_exhaustion_returns_friendly_422(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        # When generation can't produce an allergen-clean plan it fails CLOSED.
+        # The user must get a specific, actionable 422 that NAMES the allergen —
+        # not the generic 502 "try again" (retrying the same restrictive request
+        # won't help). This also pins that plan_service re-raises
+        # AllergenScreenError UNWRAPPED (a PlanGenerationError wrap → 502 here).
+        mock_gen.side_effect = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Test Lunch", ingredient="cheddar cheese",
+                allergen=Allergen.MILK, matched_term="cheddar",
+            )
+        ])
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2, "allergens": ["milk"]},
+        )
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "Milk" in detail
+        assert "try removing" in detail.lower()
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_pantry_staples_excluded_from_generated_shopping_list(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
@@ -92,6 +119,83 @@ class TestPlanGeneration:
         assert "flour" not in names
         assert "chicken breast" in names
         assert "rice" in names
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_include_spices_off_drops_spice_from_generated_list(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
+    ):
+        # Pins the generate-path wiring (plan_service → compute include_spices).
+        test_user.include_spices = False
+        mock_gen.return_value = SingleDayResponse(meals=[PlannedMeal(
+            name="Test", meal_type=MealType.LIGHT_LUNCH,
+            ingredients=[
+                IngredientAmount(name="salt", quantity_grams=1, is_spice=True),
+                IngredientAmount(name="chicken breast", quantity_grams=300),
+            ], steps=["cook"])])
+        resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        names = {i.name.lower() for i in MealPlanResponse(**resp.json()).shopping_list}
+        assert "salt" not in names
+        assert "chicken breast" in names
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_include_spices_on_keeps_spice_on_generated_list(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
+    ):
+        # Deterministic guard at the API level: a mis-tagged is_spice=true item
+        # still reaches the list when the user wants spices on.
+        test_user.include_spices = True
+        mock_gen.return_value = SingleDayResponse(meals=[PlannedMeal(
+            name="Test", meal_type=MealType.LIGHT_LUNCH,
+            ingredients=[
+                IngredientAmount(name="salt", quantity_grams=3, is_spice=True),
+                IngredientAmount(name="chicken breast", quantity_grams=300),
+            ], steps=["cook"])])
+        resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+        names = {i.name.lower() for i in MealPlanResponse(**resp.json()).shopping_list}
+        assert "salt" in names
+
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_regenerate_filters_spices_by_stored_not_live_preference(
+        self, mock_gen: AsyncMock, mock_partial: AsyncMock,
+        client: AsyncClient, auth_headers: dict, test_user,
+    ):
+        # Regression guard: regenerate must filter spices by the value the plan's
+        # meals were AUTHORED under (stored in request_json), not the live pref —
+        # else flipping include_spices ON then regenerating leaks 1g spice sentinels.
+        test_user.include_spices = False
+        spice_day = SingleDayResponse(meals=[PlannedMeal(
+            name="M", meal_type=MealType.LIGHT_LUNCH,
+            ingredients=[
+                IngredientAmount(name="salt", quantity_grams=1, is_spice=True),
+                IngredientAmount(name="chicken breast", quantity_grams=300),
+            ], steps=["cook"])])
+        mock_gen.return_value = spice_day
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        # User flips spices ON (live), then regenerates the still-unconfirmed plan.
+        test_user.include_spices = True
+        mock_partial.return_value = spice_day
+        regen = await client.post(
+            f"/api/plan/{plan_id}/regenerate", headers=auth_headers,
+            json={"frozen_meals": []},
+        )
+        assert regen.status_code == 200
+        names = {i.name.lower() for i in MealPlanResponse(**regen.json()).shopping_list}
+        assert "salt" not in names  # stored OFF wins — no 1g sentinel leaks
+        assert "chicken breast" in names
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_multi_day_calls_per_day(
@@ -365,6 +469,50 @@ class TestPlanRegenerate:
         assert body["days"][0]["meals"][0]["name"] == "Original Lunch"
         # Unfrozen meal replaced
         assert body["days"][0]["meals"][1]["name"] == "New Dinner"
+
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_regenerate_allergen_exhaustion_returns_friendly_422(
+        self,
+        mock_gen: AsyncMock,
+        mock_partial: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+    ):
+        # Regeneration fails CLOSED with the SAME friendly 422 as creation when
+        # the partial-day screen can't clear the allergen — not a bare 502.
+        mock_gen.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Original Lunch", meal_type=MealType.LIGHT_LUNCH,
+                    ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                    steps=["Cook rice"],
+                ),
+                PlannedMeal(
+                    name="Original Dinner", meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="pasta", quantity_grams=300)],
+                    steps=["Boil pasta"],
+                ),
+            ]
+        )
+        plan_resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2, "allergens": ["milk"]},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        mock_partial.side_effect = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Original Dinner", ingredient="cream sauce",
+                allergen=Allergen.MILK, matched_term="cream",
+            )
+        ])
+        regen_resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate", headers=auth_headers,
+            json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
+        )
+        assert regen_resp.status_code == 422
+        assert "Milk" in regen_resp.json()["detail"]
 
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)

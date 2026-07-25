@@ -209,7 +209,9 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           <span style={{ fontWeight: 600 }}>Include spices in shopping list</span>
           <br />
           <span style={{ fontSize: "0.85rem", color: "#666" }}>
-            If off, spices won't appear in stock/shopping lists (they'll still be in recipe steps)
+            Seasonings only (salt, pepper, herbs). If off, they won't appear in
+            stock/shopping lists (still in recipe steps). For groceries you always
+            keep — oil, flour, rice — use Pantry staples below.
           </span>
         </span>
       </label>

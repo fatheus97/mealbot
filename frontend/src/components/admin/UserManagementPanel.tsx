@@ -35,15 +35,24 @@ export function UserManagementPanel() {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
-  // Debounce the search box so we don't fire a request per keystroke.
+  // Debounce the search box so we don't fire a request per keystroke. Only run
+  // when the trimmed input actually differs from the applied `q`: on mount (and
+  // whenever a keystroke nets back to the current query) there's nothing to
+  // apply, so we must NOT schedule the 250ms timer — its setSelected(new Set())
+  // would fire ~250ms later and wipe a batch the admin selected in that window
+  // when the fetch resolves instantly (tests, cache hits). The value guard is
+  // also StrictMode-safe: dev's setup→cleanup→setup double-invoke can't sneak a
+  // timer through, since both setups see input === q and bail. Clearing stale
+  // selections still happens on every REAL query change — the intended behavior.
   useEffect(() => {
+    if (searchInput.trim() === q) return;
     const t = setTimeout(() => {
       setQ(searchInput.trim());
       setPage(0);
       setSelected(new Set()); // the result set changes — drop stale selections
     }, 250);
     return () => clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, q]);
 
   const usersQuery = useQuery({
     queryKey: ["admin", "users", { q, statusFilter, roleFilter, page }],
