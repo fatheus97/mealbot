@@ -60,6 +60,20 @@ cycle defeats the point.
 - When there's an easy option vs. a harder option, and the harder one is better
   long-term / scales better, **go for the harder one.** Don't take shortcuts that
   accrue debt just to finish faster.
+- **Don't let existing tech debt anchor the decision (status-quo bias).** When
+  something already exists, the default pull is to patch around it instead of
+  fixing it — "it's already here" quietly becomes the reason to keep it. That's the
+  sunk-cost / status-quo trap, and it's how debt calcifies. Judge the design on its
+  merits as if choosing it **fresh today**: *would I build it this way if it didn't
+  already exist?* If no, and a rebuild pays off long-term (same spirit as the
+  harder-option bullet above), rebuild it — the sunk effort is spent either way, so
+  the current version's existence gets **zero** inertia weight; only its future
+  cost/benefit counts.
+  - Not licence to rewrite for its own sake — that's the over-engineering / churn
+    the **Role** warns against. The test cuts both ways: **future** payoff vs. cost
+    and risk, existing code weighted at zero. Often the honest answer is "the
+    current design is fine, a rebuild wouldn't pay" — that's a merits call too, not
+    deference to what's already there.
 - De-risk big/risky changes with a pre-push adversarial multi-agent review
   (Workflow tool) before opening the PR — it has repeatedly caught real bugs CI
   and a single review pass missed.
