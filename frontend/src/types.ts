@@ -1,12 +1,13 @@
 // src/types.ts
 
 import type { MealType } from "./constants/mealTypes";
+import type { Allergen, DietType } from "./constants/dietary";
 
 export type { MealType } from "./constants/mealTypes";
+export type { Allergen, DietType } from "./constants/dietary";
 
 export type MeasurementSystem = "none" | "imperial" | "metric";
 export type Variability = "traditional" | "experimental";
-export type DietType = "balanced" | "high_protein" | "low_carb" | "vegetarian" | "vegan" | "baby_food";
 
 export interface IngredientAmount {
   name: string;
@@ -19,7 +20,13 @@ export interface MealPlanRequest {
   taste_preferences: string[];
   avoid_ingredients: string[];
   ingredients_to_use: string[];
-  diet_type: DietType | null;
+  // Combinable dietary patterns + structured allergens (dietary differentiator).
+  // The legacy single `diet_type` is optional and no longer sent by the client;
+  // the backend derives it from diet_types for backward-compat. Both new lists
+  // are optional at the type level (backend defaults them to []).
+  diet_types?: DietType[];
+  allergens?: Allergen[];
+  diet_type?: DietType | null;
   meals_per_day: number;
   people_count: number;
   past_meals: string[];
@@ -191,7 +198,9 @@ export interface FavoriteRecipeRequest {
 // Phase 4: Cook Now request/response
 export interface SingleRecipeRequest {
   meal_type: MealType;
-  diet_type: DietType | null;
+  diet_types?: DietType[];
+  allergens?: Allergen[];
+  diet_type?: DietType | null;
   people_count: number;
   taste_preferences: string[];
   avoid_ingredients: string[];

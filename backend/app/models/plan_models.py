@@ -56,7 +56,12 @@ def validate_plan_start_date(v: date | None) -> date | None:
 # A user can legitimately stack several dietary patterns and declare all 14 EU
 # allergens, but an unbounded list is hostile input (each value is persisted and,
 # in later slices, rendered into the prompt) — so bound both at the API boundary.
-_MAX_DIET_TYPES = 12
+# The diet cap is the FULL offered vocabulary (every enum member), so selecting
+# every diet the multi-select UI renders always validates; it is derived, not a
+# magic number, so it can never drift below the vocabulary and 422 a legal combo.
+# max_length is checked pre-dedup, so a duplicate-spam list (["vegan"] * 1000)
+# still exceeds it and is rejected — the list stays bounded.
+_MAX_DIET_TYPES = len(DietType)
 _MAX_ALLERGENS = 20  # EU-14 is the real ceiling; small headroom, still bounded.
 
 

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
+import { usePreferencesStore } from '../store/usePreferencesStore';
 import { dayDateLabel } from '../utils/planDates';
 import type { ReactNode } from 'react';
 
@@ -84,7 +85,8 @@ describe('MealPlanner', () => {
 
     expect(screen.getByText('Meal Planner')).toBeInTheDocument();
     expect(screen.getByText('Days to plan:')).toBeInTheDocument();
-    expect(screen.getByText('Diet Type:')).toBeInTheDocument();
+    expect(screen.getByText('Diets (combine any)')).toBeInTheDocument();
+    expect(screen.getByText('Allergies to avoid')).toBeInTheDocument();
     expect(screen.getByText('Meals per day:')).toBeInTheDocument();
     expect(screen.getByText('People count:')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /generate plan/i })).toBeInTheDocument();
@@ -309,6 +311,61 @@ describe('MealPlanner', () => {
         body: JSON.stringify({ frozen_meals: [{ day_index: 0, meal_index: 0 }] }),
       });
     });
+  });
+
+  it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate body', async () => {
+    // The FE->BE contract line: diet/allergen selections from the store must be
+    // assembled into the POST /plan body so the backend allergen screen sees
+    // them. buildRequest is the link the isolated store/component tests miss.
+    loginUser();
+    // mockedAuthFetch.mock.calls accumulates across tests in this file (the
+    // beforeEach only re-sets the implementation, never the call history), so
+    // reset it here — otherwise the find('/plan?') below would match an EARLIER
+    // test's generate call and assert on its (empty-diet) payload.
+    mockedAuthFetch.mockReset();
+    // Seed the persisted store singleton with a known selection.
+    usePreferencesStore.setState({ dietTypes: ['vegan'], allergens: ['peanuts'] });
+
+    const planResponse = {
+      plan_id: 7,
+      start_date: null,
+      days: [{ meals: [] }],
+      shopping_list: [],
+    };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
+    });
+
+    try {
+      const user = userEvent.setup();
+      render(<MealPlanner />, { wrapper: createWrapper() });
+      await user.click(screen.getByRole('button', { name: /generate plan/i }));
+
+      const isGenerateCall = (call: unknown[]) =>
+        typeof call[0] === 'string' && call[0].startsWith('/plan?');
+      await waitFor(() =>
+        expect(mockedAuthFetch.mock.calls.some(isGenerateCall)).toBe(true),
+      );
+
+      const generateCall = mockedAuthFetch.mock.calls.find(isGenerateCall);
+      const body = JSON.parse(generateCall?.[1]?.body ?? 'null') as {
+        diet_types?: unknown;
+        allergens?: unknown;
+        diet_type?: unknown;
+      };
+      expect(body.diet_types).toEqual(['vegan']);
+      expect(body.allergens).toEqual(['peanuts']);
+      // The multi-select UI no longer sends the legacy scalar — backend reconciles.
+      expect(body.diet_type).toBeUndefined();
+    } finally {
+      // Don't leak the selection into sibling tests that share the store singleton.
+      usePreferencesStore.setState({ dietTypes: [], allergens: [] });
+    }
   });
 
   it('scrolls to the plan on mount when initialPlan is provided', () => {
@@ -562,7 +619,7 @@ describe('MealPlanner', () => {
       days: [
         {
           meals: [
-            { name: 'Eggs', meal_type: 'breakfast', ingredients: [], steps: [] },
+            { name: 'Egg Scramble', meal_type: 'breakfast', ingredients: [], steps: [] },
           ],
         },
       ],
@@ -609,7 +666,7 @@ describe('MealPlanner', () => {
     await user.click(screen.getByRole('tab', { name: /plan ahead/i }));
 
     await user.click(screen.getByRole('button', { name: /generate plan/i }));
-    await waitFor(() => expect(screen.getByText('Eggs')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Egg Scramble')).toBeInTheDocument());
 
     // Pre-confirm: no Un-confirm button.
     expect(screen.queryByRole('button', { name: /un-confirm/i })).not.toBeInTheDocument();
@@ -636,7 +693,7 @@ describe('MealPlanner', () => {
     const initialPlan = {
       plan_id: 60,
       start_date: null,
-      days: [{ meals: [{ name: 'Eggs', meal_type: 'breakfast', ingredients: [], steps: [] }] }],
+      days: [{ meals: [{ name: 'Egg Scramble', meal_type: 'breakfast', ingredients: [], steps: [] }] }],
       shopping_list: [],
     };
     const initialSummary = {
@@ -652,7 +709,7 @@ describe('MealPlanner', () => {
       finished_at: null,
     };
     const cookedEntry = {
-      id: 1, day_index: 1, meal_index: 1, name: 'Eggs',
+      id: 1, day_index: 1, meal_index: 1, name: 'Egg Scramble',
       meal_type: 'breakfast', cooked_at: new Date().toISOString(), is_favorite: false,
     };
 
@@ -675,7 +732,7 @@ describe('MealPlanner', () => {
     // Wait for meal entries to load — once mealEntries reports a cooked entry,
     // the Un-confirm button must not appear.
     await waitFor(() => {
-      expect(screen.getByText('Eggs')).toBeInTheDocument();
+      expect(screen.getByText('Egg Scramble')).toBeInTheDocument();
     });
 
     // Give react-query a tick to process the meal entries fetch.
