@@ -105,6 +105,35 @@ class TestGenerateRecipe:
         assert resp.status_code == 502
 
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_generate_allergen_exhaustion_returns_friendly_422(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+    ):
+        # Cook Now fails CLOSED with a specific 422 naming the allergen — a
+        # distinct branch from the generic LLM-failure 502 above (retrying the
+        # same restrictive request won't help, so don't say "try again").
+        from app.core.dietary import Allergen
+        from app.services.allergen_screen import (
+            AllergenScreenError,
+            AllergenViolation,
+        )
+
+        mock_gen.side_effect = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Cook-Now Soup", ingredient="cheddar",
+                allergen=Allergen.MILK, matched_term="cheddar",
+            )
+        ])
+        resp = await client.post(
+            "/api/recipe/generate",
+            headers=auth_headers,
+            json={"meal_type": "main_course", "people_count": 2, "allergens": ["milk"]},
+        )
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "Milk" in detail
+        assert "try removing" in detail.lower()
+
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_generate_note_flows_into_taste_preferences(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
     ):

@@ -685,6 +685,14 @@ async def generate_plan_days(
                 )
         except HTTPException:
             raise
+        except AllergenScreenError:
+            # Fail CLOSED, but as a DISTINCT error the boundary maps to a
+            # friendly, allergen-naming 422 — not the generic "generation
+            # failed, try again" 502 (retrying the same restrictive request
+            # won't help). Propagate UNWRAPPED so the router can tell it apart
+            # from a transient LLM failure; wrapping it in PlanGenerationError
+            # would collapse both into the same misleading 502.
+            raise
         except Exception as exc:
             logger.exception("Plan generation failed at day %d", day_index)
             raise PlanGenerationError(day_index) from exc
