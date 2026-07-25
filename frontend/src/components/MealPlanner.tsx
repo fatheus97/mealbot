@@ -6,9 +6,10 @@ import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
 import { CookNowForm } from "./CookNowForm";
+import { DietarySelector } from "./DietarySelector";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { mealTypeLabel, type MealType } from "../constants/mealTypes";
-import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType, PlannedMeal, IngredientAmount } from "../types";
+import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, PlannedMeal, IngredientAmount } from "../types";
 import { todayISO, dayDateLabel } from "../utils/planDates";
 import { leftoverSourceLabel } from "../utils/leftovers";
 
@@ -149,7 +150,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Bind to Global Zustand Store
   const {
     days, setDays,
-    dietType, setDietType,
+    dietTypes, allergens, toggleDietType, toggleAllergen,
     mealsPerDay, setMealsPerDay,
     peopleCount, setPeopleCount,
     tastePreferences, setTastePreferences,
@@ -238,7 +239,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       taste_preferences: parseList(tastePreferences),
       avoid_ingredients: parseList(avoidIngredients),
       ingredients_to_use: ingredientsToUse,
-      diet_type: dietType === "" ? null : dietType,
+      diet_types: dietTypes,
+      allergens,
       meals_per_day: mealsPerDay,
       people_count: peopleCount,
       past_meals: [],
@@ -509,23 +511,6 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         </label>
 
         <label>
-          Diet Type:
-          <select
-            value={dietType}
-            onChange={(e) => setDietType(e.target.value as DietType | "")}
-            style={{ width: "100%", marginTop: "0.25rem" }}
-          >
-            <option value="">(None)</option>
-            <option value="balanced">Balanced</option>
-            <option value="high_protein">High Protein</option>
-            <option value="low_carb">Low Carb</option>
-            <option value="vegetarian">Vegetarian</option>
-            <option value="vegan">Vegan</option>
-            <option value="baby_food">Baby food (6–12 mo)</option>
-          </select>
-        </label>
-
-        <label>
           Meals per day:
           <input type="number" value={mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value) || 1)} min={1} max={5} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
@@ -534,6 +519,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           People count:
           <input type="number" value={peopleCount} onChange={(e) => setPeopleCount(Number(e.target.value) || 1)} min={1} max={10} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
+
+        <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <DietarySelector
+            dietTypes={dietTypes}
+            allergens={allergens}
+            onToggleDiet={toggleDietType}
+            onToggleAllergen={toggleAllergen}
+          />
+        </div>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
           <input

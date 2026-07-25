@@ -84,7 +84,8 @@ describe('MealPlanner', () => {
 
     expect(screen.getByText('Meal Planner')).toBeInTheDocument();
     expect(screen.getByText('Days to plan:')).toBeInTheDocument();
-    expect(screen.getByText('Diet Type:')).toBeInTheDocument();
+    expect(screen.getByText('Diets (combine any)')).toBeInTheDocument();
+    expect(screen.getByText('Allergies to avoid')).toBeInTheDocument();
     expect(screen.getByText('Meals per day:')).toBeInTheDocument();
     expect(screen.getByText('People count:')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /generate plan/i })).toBeInTheDocument();
@@ -562,7 +563,7 @@ describe('MealPlanner', () => {
       days: [
         {
           meals: [
-            { name: 'Eggs', meal_type: 'breakfast', ingredients: [], steps: [] },
+            { name: 'Egg Scramble', meal_type: 'breakfast', ingredients: [], steps: [] },
           ],
         },
       ],
@@ -609,7 +610,7 @@ describe('MealPlanner', () => {
     await user.click(screen.getByRole('tab', { name: /plan ahead/i }));
 
     await user.click(screen.getByRole('button', { name: /generate plan/i }));
-    await waitFor(() => expect(screen.getByText('Eggs')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Egg Scramble')).toBeInTheDocument());
 
     // Pre-confirm: no Un-confirm button.
     expect(screen.queryByRole('button', { name: /un-confirm/i })).not.toBeInTheDocument();
@@ -636,7 +637,7 @@ describe('MealPlanner', () => {
     const initialPlan = {
       plan_id: 60,
       start_date: null,
-      days: [{ meals: [{ name: 'Eggs', meal_type: 'breakfast', ingredients: [], steps: [] }] }],
+      days: [{ meals: [{ name: 'Egg Scramble', meal_type: 'breakfast', ingredients: [], steps: [] }] }],
       shopping_list: [],
     };
     const initialSummary = {
@@ -652,7 +653,7 @@ describe('MealPlanner', () => {
       finished_at: null,
     };
     const cookedEntry = {
-      id: 1, day_index: 1, meal_index: 1, name: 'Eggs',
+      id: 1, day_index: 1, meal_index: 1, name: 'Egg Scramble',
       meal_type: 'breakfast', cooked_at: new Date().toISOString(), is_favorite: false,
     };
 
@@ -675,7 +676,7 @@ describe('MealPlanner', () => {
     // Wait for meal entries to load — once mealEntries reports a cooked entry,
     // the Un-confirm button must not appear.
     await waitFor(() => {
-      expect(screen.getByText('Eggs')).toBeInTheDocument();
+      expect(screen.getByText('Egg Scramble')).toBeInTheDocument();
     });
 
     // Give react-query a tick to process the meal entries fetch.
