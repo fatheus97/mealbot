@@ -66,7 +66,12 @@ from app.models.feedback_schemas import (
     AdminFeedbackUpdate,
     FeedbackTriage,
 )
-from app.services import feedback_triage, revenue_service
+from app.services import (
+    feedback_credit,
+    feedback_ticket,
+    feedback_triage,
+    revenue_service,
+)
 from app.services.admin_audit import record_admin_action
 from app.services.invite import create_invite, invite_link, invite_status
 
@@ -1148,6 +1153,9 @@ async def _feedback_detail(session: AsyncSession, report: FeedbackReport) -> Adm
         triage=_parse_triage(report.triage_json),
         reviewed_by_admin_id=report.reviewed_by_admin_id,
         reviewed_at=report.reviewed_at,
+        credit_cents=report.credit_cents,
+        credit_granted_at=report.credit_granted_at,
+        ticket_url=report.ticket_url,
     )
 
 
@@ -1311,4 +1319,85 @@ async def retriage_feedback(
         detail={"feedback_id": str(feedback_id)},
     )
     await session.commit()
+    return await _feedback_detail(session, report)
+
+
+@router.post("/feedback/{feedback_id}/accept", response_model=AdminFeedbackDetail)
+async def accept_feedback(
+    feedback_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminFeedbackDetail:
+    """Accept a report — the money-moving 6b action. Marks it ``accepted``, grants the
+    €1 feedback credit (if eligible), and opens a private-repo GitHub ticket.
+
+    A human admin Accept is the SOLE trigger for the credit AND the ticket — the LLM
+    never reaches this path. Idempotent + retryable: accepting an already-accepted
+    report re-attempts a not-yet-granted credit (idempotency-keyed → never double) and
+    a not-yet-created ticket, without re-setting status or re-auditing. The credit is
+    committed WITH the accept; the ticket is best-effort AFTER (its own commit), so a
+    GitHub outage can never block or reverse the money.
+
+    409 for a rejected/spam report (reopen it first — accepting something you rejected
+    is contradictory, and this one moves money). Holds the request connection across
+    the Stripe calls, which is fine here: Accept is admin-gated / low-concurrency (the
+    same accepted trade-off as retriage's LLM call — not the per-user background path
+    that the pool-exhaustion concern targets)."""
+    report = await session.get(FeedbackReport, feedback_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found.")
+    if report.status in {"rejected", "spam"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Reopen this report before accepting it.",
+        )
+
+    newly_accepted = report.status != "accepted"
+    if newly_accepted:
+        report.status = "accepted"
+        report.reviewed_by_admin_id = actor.id
+        report.reviewed_at = datetime.now(UTC)
+
+    # (1) Credit — money-critical, idempotent, never raises. The reporter should exist
+    # (a hard-delete CASCADEs the report away), but be defensive.
+    granted = False
+    reporter = await session.get(User, report.user_id)
+    if reporter is not None:
+        granted = await feedback_credit.maybe_grant_credit(session, report, reporter)
+
+    session.add(report)
+    # Audit whenever the status transitioned OR money actually moved: a RETRY Accept
+    # (report already "accepted") can still grant a credit that failed the first time,
+    # and that money must be logged. `credited` reflects whether THIS call granted (not
+    # the report's stored state), so a re-accept that grants nothing writes no audit /
+    # never over-counts a single credit.
+    if newly_accepted or granted:
+        record_admin_action(
+            session,
+            actor=actor,
+            action="feedback.accept",
+            detail={"feedback_id": str(feedback_id), "credited": str(granted)},
+        )
+    await session.commit()
+
+    # (2) Ticket — best-effort, AFTER the money commit, in its own transaction. Only
+    # when not already ticketed and ticketing is configured. Wrapped so a GitHub or
+    # DB-persist failure here can never turn a committed accept+credit into a 500. Known
+    # trade-off: if the issue IS created but this commit fails, a later re-accept can
+    # open a duplicate (GitHub issue-create has no idempotency key) — accepted as
+    # best-effort (private repo, rare, harmless).
+    await session.refresh(report)
+    if report.ticket_url is None and feedback_ticket.ticket_configured():
+        try:
+            url = await feedback_ticket.create_issue_for_report(
+                report, _parse_triage(report.triage_json)
+            )
+            if url:
+                report.ticket_url = url
+                session.add(report)
+                await session.commit()
+                await session.refresh(report)
+        except Exception:
+            logger.exception("feedback ticket persist failed for report %s", feedback_id)
+
     return await _feedback_detail(session, report)

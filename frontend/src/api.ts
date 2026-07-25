@@ -596,6 +596,14 @@ export async function retriageAdminFeedback(id: number): Promise<AdminFeedbackDe
   return res.json();
 }
 
+/** The money-mover: mark accepted, grant the €1 credit (if eligible), open a ticket.
+ *  Idempotent server-side (never double-credits). */
+export async function acceptAdminFeedback(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}/accept`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not accept the report"));
+  return res.json();
+}
+
 export async function mergeFridgeItems(
   items: StockItem[],
   generationId: number | null = null,

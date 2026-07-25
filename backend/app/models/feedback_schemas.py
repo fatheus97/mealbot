@@ -140,6 +140,10 @@ class AdminFeedbackDetail(BaseModel):
     triage: FeedbackTriage | None
     reviewed_by_admin_id: int | None
     reviewed_at: datetime | None
+    # --- 6b: credit + ticket outcomes (set on Accept) ---
+    credit_cents: int | None
+    credit_granted_at: datetime | None
+    ticket_url: str | None
 
 
 class AdminFeedbackUpdate(BaseModel):

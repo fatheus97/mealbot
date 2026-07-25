@@ -815,6 +815,19 @@ class FeedbackReport(SQLModel, table=True):
     reviewed_by_admin_id: int | None = Field(default=None)
     reviewed_at: datetime | None = Field(default=None)
 
+    # --- 6b: credit + ticket (set on admin ACCEPT only; NEVER by the LLM/triage) ---
+    # The Stripe customer-balance credit granted for this accepted report, in minor
+    # units (e.g. 100 = €1). NULL = no credit granted. credit_granted_at doubles as the
+    # idempotency marker (a report is credited at most once) and feeds the per-user
+    # rolling-window rate cap. Both stay NULL when the credit is disabled/ineligible/
+    # capped, or the grant failed (retryable via a repeat Accept).
+    credit_cents: int | None = Field(default=None)
+    credit_granted_at: datetime | None = Field(default=None)
+    # URL of the GitHub Issue opened for this report in the private tickets repo. NULL
+    # when ticketing is unconfigured or the create failed (retryable). Never the raw
+    # issue body — just the link.
+    ticket_url: str | None = Field(default=None)
+
 
 class BillingAlert(SQLModel, table=True):
     """Dedupe ledger for operator alert emails so the scheduled billing-alerts job
