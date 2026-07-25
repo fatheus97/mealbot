@@ -38,9 +38,21 @@ SYSTEM_PROMPT = "You are a careful and realistic meal planner. ALWAYS return ONL
 
 # Deterministic allergen screen (slice 4): how many times to reject → regenerate
 # a day whose ingredients hit a declared allergen before failing CLOSED. Three
-# total attempts. The prompt (slice 3) already instructs avoidance, so a clean
-# result is expected on the first try; the retries are the safety net.
+# total attempts (2 retries + 1). The prompt (slice 3) already instructs
+# avoidance, so a clean result is expected on the first try; the retries are the
+# safety net for the primary generator.
 _MAX_ALLERGEN_SCREEN_RETRIES = 2
+
+# The RAG path (``generate_single_day_with_rag``) gets NO retries — one attempt,
+# then it raises and ``generate_plan_days`` falls back to the standard pipeline,
+# which runs with the FULL budget above and is the one that ultimately fails
+# closed. Rationale: RAG examples are already allergen-filtered, so a screen hit
+# means the model added an allergen ON TOP of clean examples — re-sampling RAG
+# with the same examples is low-value, and the standard pipeline is right behind
+# it. This caps worst-case sequential LLM calls per allergic day at
+# 1 (RAG) + 3 (standard) = 4 instead of 3 + 3 = 6, with the fail-closed
+# guarantee untouched (the standard fallback keeps its full retry budget).
+_RAG_MAX_ALLERGEN_SCREEN_RETRIES = 0
 
 
 async def _generate_and_screen(
@@ -50,22 +62,29 @@ async def _generate_and_screen(
     allergens: list[Allergen],
     mock: bool,
     mock_context: dict[str, object] | None = None,
+    max_retries: int = _MAX_ALLERGEN_SCREEN_RETRIES,
 ) -> SingleDayResponse:
     """Call the LLM for one day and deterministically screen the result against
     the declared allergens (``app.services.allergen_screen``). On a hit, reject
-    and regenerate (same prompt, new sample) up to ``_MAX_ALLERGEN_SCREEN_RETRIES``
-    times; if no clean plan is produced, FAIL CLOSED (``AllergenScreenError``) —
-    serving a declared allergen is the exact liability the screen prevents.
+    and regenerate (same prompt, new sample) up to ``max_retries`` times; if no
+    clean plan is produced, FAIL CLOSED (``AllergenScreenError``) — serving a
+    declared allergen is the exact liability the screen prevents.
 
-    Two paths skip the screen and do EXACTLY one call: a request with no
-    screenable allergen (so generation is byte-for-byte unchanged until a UI —
-    slice 5 — lets users declare allergens), and ``mock`` mode (the mock LLM is
-    deterministic per day, so screening would only fail-closed on a canned
-    allergen-containing meal). ``template_name`` is carried only for log
+    ``max_retries`` defaults to the full budget for the primary generators
+    (``generate_single_day``/``generate_partial_day``). The RAG path passes
+    ``_RAG_MAX_ALLERGEN_SCREEN_RETRIES`` (0) so it takes a single shot before
+    handing off to the full-budget standard pipeline behind it — see that
+    constant for the latency rationale.
+
+    Two paths skip the screen and do EXACTLY one call regardless of
+    ``max_retries``: a request with no screenable allergen (so generation is
+    byte-for-byte unchanged when no allergen is declared), and ``mock`` mode (the
+    mock LLM is deterministic per day, so screening would only fail-closed on a
+    canned allergen-containing meal). ``template_name`` is carried only for log
     attribution.
     """
     last: list[AllergenViolation] = []
-    for attempt in range(_MAX_ALLERGEN_SCREEN_RETRIES + 1):
+    for attempt in range(max_retries + 1):
         raw = await llm_client.chat_json(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=user_prompt,
@@ -88,7 +107,7 @@ async def _generate_and_screen(
             "Allergen screen rejected %s attempt %d/%d: %s",
             template_name,
             attempt + 1,
-            _MAX_ALLERGEN_SCREEN_RETRIES + 1,
+            max_retries + 1,
             [f"{v.ingredient}->{v.allergen.value}" for v in last],
         )
     raise AllergenScreenError(last)
@@ -309,6 +328,9 @@ async def generate_single_day_with_rag(
         user_prompt=user_prompt,
         allergens=req.allergens,
         mock=mock,
+        # One shot on the RAG path — a screen hit falls back to the standard
+        # pipeline (full budget) rather than re-sampling RAG. See the constant.
+        max_retries=_RAG_MAX_ALLERGEN_SCREEN_RETRIES,
     )
 
     if slot_layout is not None:
