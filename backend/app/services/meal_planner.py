@@ -8,6 +8,7 @@ from jinja2 import FileSystemLoader
 from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.config import settings
+from app.core.dietary import Allergen
 from app.core.dietary_reference import resolve_dietary_context
 from app.llm.client import llm_client
 from app.models.plan_models import (
@@ -15,6 +16,11 @@ from app.models.plan_models import (
     MealPlanRequest,
     PlannedMeal,
     SingleDayResponse,
+)
+from app.services.allergen_screen import (
+    AllergenScreenError,
+    AllergenViolation,
+    screen_meals_for_allergens,
 )
 from app.services.recipe_retriever import MealHit, retrieve_rated_meals
 
@@ -29,6 +35,55 @@ _prompts_env = SandboxedEnvironment(
 )
 
 SYSTEM_PROMPT = "You are a careful and realistic meal planner. ALWAYS return ONLY valid JSON."
+
+# Deterministic allergen screen (slice 4): how many times to reject → regenerate
+# a day whose ingredients hit a declared allergen before failing CLOSED. Three
+# total attempts. The prompt (slice 3) already instructs avoidance, so a clean
+# result is expected on the first try; the retries are the safety net.
+_MAX_ALLERGEN_SCREEN_RETRIES = 2
+
+
+async def _generate_and_screen(
+    *,
+    template_name: str,
+    user_prompt: str,
+    allergens: list[Allergen],
+    mock: bool,
+    mock_context: dict[str, object] | None = None,
+) -> SingleDayResponse:
+    """Call the LLM for one day and deterministically screen the result against
+    the declared allergens (``app.services.allergen_screen``). On a hit, reject
+    and regenerate (same prompt, new sample) up to ``_MAX_ALLERGEN_SCREEN_RETRIES``
+    times; if no clean plan is produced, FAIL CLOSED (``AllergenScreenError``) —
+    serving a declared allergen is the exact liability the screen prevents.
+
+    A request with no screenable allergen does EXACTLY one call and no screening,
+    so generation is byte-for-byte unchanged until a UI (slice 5) lets users
+    declare allergens. ``template_name`` is carried only for log attribution.
+    """
+    last: list[AllergenViolation] = []
+    for attempt in range(_MAX_ALLERGEN_SCREEN_RETRIES + 1):
+        raw = await llm_client.chat_json(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            response_model=LlmDayResponse,
+            mock_context=mock_context,
+            mock=mock,
+        )
+        response = raw.to_planned_day()
+        if not allergens:
+            return response
+        last = screen_meals_for_allergens(response.meals, allergens)
+        if not last:
+            return response
+        logger.warning(
+            "Allergen screen rejected %s attempt %d/%d: %s",
+            template_name,
+            attempt + 1,
+            _MAX_ALLERGEN_SCREEN_RETRIES + 1,
+            [f"{v.ingredient}->{v.allergen.value}" for v in last],
+        )
+    raise AllergenScreenError(last)
 
 
 async def generate_single_day(
@@ -74,15 +129,15 @@ async def generate_single_day(
 
     # AI-01: Pass the Pydantic schema as response_model. LlmDayResponse, not
     # SingleDayResponse — leftover_of is server-assigned and must not enter the
-    # model's schema (see GeneratedMeal).
-    raw = await llm_client.chat_json(
-        system_prompt=SYSTEM_PROMPT,
+    # model's schema (see GeneratedMeal). _generate_and_screen wraps the call in
+    # the deterministic allergen screen + reject/regenerate loop.
+    response = await _generate_and_screen(
+        template_name="meal_plan.jinja",
         user_prompt=user_prompt,
-        response_model=LlmDayResponse,
-        mock_context=mock_context,
+        allergens=req.allergens,
         mock=mock,
+        mock_context=mock_context,
     )
-    response = raw.to_planned_day()
 
     if slot_layout is not None:
         returned = [m.meal_type.value for m in response.meals]
@@ -124,13 +179,12 @@ async def generate_partial_day(
         slot_portions=slot_portions,
     )
 
-    raw = await llm_client.chat_json(
-        system_prompt=SYSTEM_PROMPT,
+    response = await _generate_and_screen(
+        template_name="meal_plan_partial.jinja",
         user_prompt=user_prompt,
-        response_model=LlmDayResponse,
+        allergens=req.allergens,
         mock=mock,
     )
-    response = raw.to_planned_day()
 
     # Validate that returned meals match requested slots. ``.value`` gives the
     # raw enum string so the comparison is str-vs-str regardless of how the
@@ -225,13 +279,12 @@ async def generate_single_day_with_rag(
 
     logger.info("RAG: using %d retrieved meals for generation", len(retrieved_meals))
 
-    raw = await llm_client.chat_json(
-        system_prompt=SYSTEM_PROMPT,
+    response = await _generate_and_screen(
+        template_name="meal_plan.jinja (RAG)",
         user_prompt=user_prompt,
-        response_model=LlmDayResponse,
+        allergens=req.allergens,
         mock=mock,
     )
-    response = raw.to_planned_day()
 
     if slot_layout is not None:
         returned = [m.meal_type.value for m in response.meals]

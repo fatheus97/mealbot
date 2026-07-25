@@ -169,6 +169,13 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
         derivatives=(
             "fish", "anchovy", "worcestershire", "caesar dressing", "fish sauce",
             "fish stock", "surimi", "isinglass", "fish gelatine",
+            # Common species — obvious sources the deterministic screen (slice 4)
+            # must catch (a fish-allergy plan with "salmon" would otherwise pass).
+            # The doc's Part-1 row lists HIDDEN sources; these obvious ones are a
+            # curation add for screen completeness.
+            "salmon", "tuna", "cod", "haddock", "sardine", "mackerel", "trout",
+            "tilapia", "halibut", "herring", "pollock", "snapper", "sole",
+            "sea bass", "catfish", "swordfish",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,
@@ -203,6 +210,13 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
             "milk", "whey", "casein", "caseinate", "lactose", "curds", "ghee",
             "butter", "buttermilk", "cream", "yoghurt", "yogurt",
             "milk chocolate",
+            # Cheese is the glaring obvious source the doc's hidden-source row
+            # omits — the deterministic screen (slice 4) must catch it (and common
+            # named cheeses). Curation add for screen completeness; the plant-based
+            # "vegan cheese" / "coconut milk" false positives are suppressed by
+            # allergen_screen._SAFE_COMPOUNDS.
+            "cheese", "cheddar", "mozzarella", "parmesan", "feta", "ricotta",
+            "custard",
         ),
         confidence=Confidence.CURATED,
         source=_ANNEX_II,

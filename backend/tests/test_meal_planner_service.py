@@ -4,6 +4,8 @@ import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.core.meal_types import MealType
 from app.models.plan_models import (
     GeneratedMeal,
@@ -56,6 +58,21 @@ def _make_llm_day_response(
                 name=meal_name,
                 meal_type=meal_type,
                 ingredients=[IngredientAmount(name="chicken", quantity_grams=200)],
+                steps=["Cook it"],
+            )
+        ]
+    )
+
+
+def _llm_day_with_ingredient(ingredient_name: str) -> LlmDayResponse:
+    """A one-meal day whose sole ingredient is `ingredient_name` — used to feed
+    the allergen screen a hit (dirty) or a miss (clean)."""
+    return LlmDayResponse(
+        meals=[
+            GeneratedMeal(
+                name="Test Meal",
+                meal_type=MealType.MAIN_COURSE,
+                ingredients=[IngredientAmount(name=ingredient_name, quantity_grams=200)],
                 steps=["Cook it"],
             )
         ]
@@ -699,3 +716,63 @@ class TestBatchCookingPrompt:
         assert "COOK A DOUBLE BATCH" in prompt
         assert "for 4 people" in prompt
         assert "Retrieved Meal" in prompt  # still the RAG prompt
+
+
+class TestAllergenScreenWiring:
+    """Slice 4: generation deterministically screens the LLM output against
+    declared allergens and regenerates on a hit, failing CLOSED. With no
+    allergens declared, generation is a single unscreened call (the pre-slice-5
+    default)."""
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_no_allergens_single_unscreened_call(self, mock_llm: MagicMock):
+        # cheddar cheese would trip a milk screen, but no allergen is declared,
+        # so it is served as-is in exactly one call.
+        mock_llm.chat_json = AsyncMock(
+            return_value=_llm_day_with_ingredient("cheddar cheese"),
+        )
+        result = await generate_single_day(_make_request())
+        assert mock_llm.chat_json.await_count == 1
+        assert result.meals[0].ingredients[0].name == "cheddar cheese"
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_regenerates_until_clean(self, mock_llm: MagicMock):
+        from app.core.dietary import Allergen
+
+        mock_llm.chat_json = AsyncMock(side_effect=[
+            _llm_day_with_ingredient("cheddar cheese"),  # rejected (milk)
+            _llm_day_with_ingredient("chicken breast"),  # clean
+        ])
+        result = await generate_single_day(_make_request(allergens=[Allergen.MILK]))
+
+        assert mock_llm.chat_json.await_count == 2  # one reject + one clean
+        assert result.meals[0].ingredients[0].name == "chicken breast"
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_fails_closed_when_never_clean(self, mock_llm: MagicMock):
+        from app.core.dietary import Allergen
+        from app.services.allergen_screen import AllergenScreenError
+
+        mock_llm.chat_json = AsyncMock(
+            return_value=_llm_day_with_ingredient("cheddar cheese"),
+        )
+        with pytest.raises(AllergenScreenError):
+            await generate_single_day(_make_request(allergens=[Allergen.MILK]))
+        # bounded: _MAX_ALLERGEN_SCREEN_RETRIES (2) + 1 = 3 attempts, then closed.
+        assert mock_llm.chat_json.await_count == 3
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_partial_day_also_screened(self, mock_llm: MagicMock):
+        from app.core.dietary import Allergen
+        from app.services.allergen_screen import AllergenScreenError
+
+        mock_llm.chat_json = AsyncMock(
+            return_value=_llm_day_with_ingredient("salmon fillet"),
+        )
+        with pytest.raises(AllergenScreenError):
+            await generate_partial_day(
+                _make_request(allergens=[Allergen.FISH]),
+                frozen_meals=[],
+                slots_to_generate=[MealType.MAIN_COURSE.value],
+            )
+        assert mock_llm.chat_json.await_count == 3
