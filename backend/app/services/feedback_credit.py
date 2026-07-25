@@ -14,6 +14,7 @@ boundary: a Stripe failure leaves ``credit_granted_at`` NULL (so a repeat Accept
 retries, idempotency-keyed on the report id) and never blocks the Accept itself.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -110,14 +111,17 @@ async def maybe_grant_credit(
     # read right before the grant; if EITHER read fails, refuse (don't grant blind).
     # NB the floor assumes the standard undiscounted monthly price — a future recurring
     # promo code (allow_promotion_codes is on at checkout) would lower the invoice and
-    # would need this revisited.
+    # would need this revisited. The two reads are independent GETs, so run them
+    # concurrently to keep the per-user advisory lock (held across them) short.
     try:
-        outstanding = await stripe_service.pending_feedback_credit_cents(
-            user.stripe_customer_id
-        ) + await stripe_service.customer_credit_balance_cents(user.stripe_customer_id)
+        pending, balance = await asyncio.gather(
+            stripe_service.pending_feedback_credit_cents(user.stripe_customer_id),
+            stripe_service.customer_credit_balance_cents(user.stripe_customer_id),
+        )
     except Exception:
         logger.exception("feedback_credit floor check failed report_id=%s", report.id)
         return False
+    outstanding = pending + balance
     if outstanding + credit_cents > max_outstanding_cents:
         logger.info(
             "feedback_credit_over_floor user_id=%s report_id=%s outstanding=%s",
