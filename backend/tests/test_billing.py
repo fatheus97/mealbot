@@ -757,45 +757,66 @@ def test_webhook_path_is_csrf_exempt():
 
 
 # --------------------------------------------------------------------------- #
-# Feedback credit (6b) — Stripe customer-balance helpers. The SIGN is money-
-# critical: a credit is a NEGATIVE balance; a flip would CHARGE the user.
+# Feedback credit (6b) — labeled invoice-item credit helpers. The SIGN is money-
+# critical: a credit is a NEGATIVE invoice item; a flip would CHARGE the user.
 # --------------------------------------------------------------------------- #
-async def test_grant_customer_credit_posts_negative_balance_txn(monkeypatch):
+async def test_apply_feedback_invoice_credit_posts_negative_item(monkeypatch):
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(stripe, "api_key", None)
     monkeypatch.setattr(stripe, "default_http_client", None)
     monkeypatch.setattr(stripe, "max_network_retries", 0)
     captured: dict = {}
 
-    def _fake_create(customer_id, **kwargs):
-        captured["customer_id"] = customer_id
+    def _fake_create(**kwargs):
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr(stripe.Customer, "create_balance_transaction", _fake_create)
-    await stripe_service.grant_customer_credit(
-        "cus_1", 100, idempotency_key="k1", metadata={"feedback_report_id": "42"}
+    monkeypatch.setattr(stripe.InvoiceItem, "create", _fake_create)
+    await stripe_service.apply_feedback_invoice_credit(
+        "cus_1",
+        100,
+        idempotency_key="k1",
+        description="Feedback reward (thanks for your report!)",
+        metadata={"feedback_report_id": "42", "kind": "feedback_credit"},
     )
-    assert captured["customer_id"] == "cus_1"
+    assert captured["customer"] == "cus_1"
     assert captured["amount"] == -100  # NEGATIVE = credit (not a charge)
     assert captured["currency"] == "eur"
     assert captured["idempotency_key"] == "k1"
-    assert captured["metadata"] == {"feedback_report_id": "42"}
+    assert captured["description"] == "Feedback reward (thanks for your report!)"
+    assert captured["metadata"] == {"feedback_report_id": "42", "kind": "feedback_credit"}
 
 
-@pytest.mark.parametrize(
-    ("balance", "expected"),
-    [(-250, 250), (-1, 1), (0, 0), (100, 0), (None, 0)],
-)
-async def test_customer_credit_balance_cents_sign(monkeypatch, balance, expected):
+class _FakeItems:
+    def __init__(self, data):
+        self._data = data
+
+    def to_dict(self):
+        return {"data": self._data}
+
+
+async def test_pending_feedback_credit_cents_sums_only_our_negative_items(monkeypatch):
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(stripe, "api_key", None)
     monkeypatch.setattr(stripe, "default_http_client", None)
     monkeypatch.setattr(stripe, "max_network_retries", 0)
 
-    class _FakeCustomer:
-        def to_dict(self):
-            return {"balance": balance}
+    data = [
+        {"amount": -100, "metadata": {"kind": "feedback_credit"}},  # counted
+        {"amount": -150, "metadata": {"kind": "feedback_credit"}},  # counted
+        {"amount": -200, "metadata": {"kind": "other"}},  # ignored — not our credit
+        {"amount": 300, "metadata": {"kind": "feedback_credit"}},  # ignored — positive (a charge)
+        {"amount": -50, "metadata": {}},  # ignored — no marker
+    ]
+    monkeypatch.setattr(stripe.InvoiceItem, "list", lambda **kwargs: _FakeItems(data))
+    # Only the two feedback-kind negative items count: 100 + 150 = 250.
+    assert await stripe_service.pending_feedback_credit_cents("cus_1") == 250
 
-    monkeypatch.setattr(stripe.Customer, "retrieve", lambda cid: _FakeCustomer())
-    assert await stripe_service.customer_credit_balance_cents("cus_1") == expected
+
+async def test_pending_feedback_credit_cents_empty_is_zero(monkeypatch):
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+    monkeypatch.setattr(stripe.InvoiceItem, "list", lambda **kwargs: _FakeItems([]))
+    assert await stripe_service.pending_feedback_credit_cents("cus_1") == 0

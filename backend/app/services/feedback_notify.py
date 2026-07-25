@@ -1,8 +1,8 @@
 """User-facing notification for the feedback loop (6b).
 
 When an admin *Accept* actually grants the €1 launch credit, email the reporter so they
-KNOW they were rewarded — a silent Stripe customer-balance credit (applied to their next
-invoice) is far too quiet to drive the report-more behavior the discount is paying for.
+KNOW they were rewarded — a "Feedback reward" credit line on their next invoice is easy
+to miss on its own, too quiet to drive the report-more behavior the discount is paying for.
 
 Best-effort and decoupled from the money: sent AFTER the credit commits, and
 ``email_service.send_transactional`` already swallows + logs every failure, so a mail
@@ -27,9 +27,9 @@ def _credit_email_html(credit_eur: str, max_eur: str) -> str:
         "<p>Hi,</p>"
         "<p>Thanks for taking the time to send us feedback — it genuinely helps shape "
         "Mealbot.</p>"
-        f"<p>As a thank-you, we've applied <strong>&euro;{credit_eur} off your next "
-        "month</strong>. It shows up automatically on your next invoice — there's "
-        "nothing you need to do.</p>"
+        f"<p>As a thank-you, we've added a <strong>&euro;{credit_eur} &lsquo;Feedback "
+        "reward&rsquo; credit</strong> to your next invoice — you'll see it as a line on "
+        "your next bill, and there's nothing you need to do.</p>"
         "<p>Spotted something else? Keep it coming — you can earn up to "
         f"<strong>&euro;{max_eur} off per month</strong> for accepted reports.</p>"
         "<p>&mdash; The Mealbot team</p>"

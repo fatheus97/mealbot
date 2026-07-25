@@ -343,47 +343,70 @@ async def end_trial_now(subscription_id: str) -> None:
     )
 
 
-# --- Feedback credit (6b): customer-balance credit -------------------------------
+# --- Feedback credit (6b): labeled credit line on the next invoice ---------------
+
+# Marks OUR feedback invoice items among a customer's pending items, so the floor read
+# only counts feedback credits (not unrelated proration/one-off items Stripe may queue).
+FEEDBACK_CREDIT_ITEM_KIND = "feedback_credit"
 
 
-async def grant_customer_credit(
+async def apply_feedback_invoice_credit(
     customer_id: str,
     amount_cents: int,
     idempotency_key: str,
+    description: str,
     metadata: dict[str, str] | None = None,
 ) -> None:
-    """Grant a customer-balance CREDIT of ``amount_cents`` (minor units, positive) —
-    Stripe subtracts it from the customer's next invoice.
+    """Queue a labeled CREDIT of ``amount_cents`` (minor units, positive) as a NEGATIVE
+    invoice item on the customer's next invoice.
 
-    Stripe's customer balance is NEGATIVE for a credit, so we post ``-amount``. The
-    ``idempotency_key`` (one per feedback report) makes a retry a no-op WITHIN Stripe's
-    idempotency window (~24h): Stripe returns the same balance transaction instead of
-    granting twice. ``metadata`` (e.g. the feedback report id) is stored on the txn so a
-    grant can be reconciled/deduped beyond that window. Raises on a Stripe error (the
-    caller decides whether to surface or swallow)."""
+    We deliberately use an invoice item, NOT a customer-balance credit: a negative invoice
+    item renders as its own clearly-labeled line (``description``, e.g. "Feedback reward")
+    on the upcoming subscription invoice and in the billing portal — the transparency the
+    opaque "Applied balance" lacked. It also STACKS naturally (one line per accepted
+    report), unlike a single per-subscription coupon which a second grant would overwrite.
+
+    Stripe stores a credit as a negative amount, so we post ``-abs(amount)``. The
+    ``idempotency_key`` (one per feedback report) makes a retry a no-op within Stripe's
+    ~24h window (returns the same item instead of a duplicate line). ``metadata`` MUST
+    carry ``kind=FEEDBACK_CREDIT_ITEM_KIND`` so the pending-credit floor can find it.
+    Raises on a Stripe error (the caller decides to surface or swallow)."""
     _require_stripe()
     await asyncio.to_thread(
-        lambda: stripe.Customer.create_balance_transaction(
-            customer_id,
+        lambda: stripe.InvoiceItem.create(
+            customer=customer_id,
             amount=-abs(amount_cents),
             currency="eur",
-            description="Mealbot feedback credit",
+            description=description,
             metadata=metadata or {},
             idempotency_key=idempotency_key,
         )
     )
 
 
-async def customer_credit_balance_cents(customer_id: str) -> int:
-    """The customer's current CREDIT balance in minor units (>= 0).
+async def pending_feedback_credit_cents(customer_id: str) -> int:
+    """Sum (>= 0, minor units) of feedback-credit invoice items already queued on the
+    customer's next invoice but NOT yet invoiced.
 
-    Stripe's ``customer.balance`` is negative for a credit and positive when the
-    customer owes; we return the credit magnitude (0 when they owe / have none). Used
-    for the never-€0 floor: don't grant if the outstanding credit is already near the
-    monthly price. Reads via ``to_dict()`` (stripe>=15 objects aren't dicts)."""
+    Used for the never-€0 floor: don't stack more feedback credit than keeps the upcoming
+    invoice above zero. Counts ONLY our own feedback items (``metadata.kind`` marker) so
+    an unrelated pending proration can't spuriously trip the floor. ``limit=100`` is far
+    beyond the rate cap (max a few per window), so we don't paginate. Reads via
+    ``to_dict()`` (stripe>=15 objects aren't dicts).
+
+    NB during the balance→invoice-item transition, any credit granted under the OLD
+    customer-balance path lives on ``customer.balance``, not here, so it isn't counted;
+    that's a bounded, transient under-count (the rolling rate cap still caps new grants,
+    and old balances clear on the next invoice)."""
     _require_stripe()
-    customer = await asyncio.to_thread(stripe.Customer.retrieve, customer_id)
-    balance = customer.to_dict().get("balance")
-    if not isinstance(balance, int):
-        return 0
-    return -balance if balance < 0 else 0
+    items = await asyncio.to_thread(
+        lambda: stripe.InvoiceItem.list(customer=customer_id, pending=True, limit=100)
+    )
+    total = 0
+    for item in items.to_dict().get("data", []):
+        if item.get("metadata", {}).get("kind") != FEEDBACK_CREDIT_ITEM_KIND:
+            continue
+        amount = item.get("amount")
+        if isinstance(amount, int) and amount < 0:
+            total += -amount
+    return total

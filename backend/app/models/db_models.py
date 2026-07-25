@@ -816,8 +816,9 @@ class FeedbackReport(SQLModel, table=True):
     reviewed_at: datetime | None = Field(default=None)
 
     # --- 6b: credit + ticket (set on admin ACCEPT only; NEVER by the LLM/triage) ---
-    # The Stripe customer-balance credit granted for this accepted report, in minor
-    # units (e.g. 100 = €1). NULL = no credit granted. credit_granted_at doubles as the
+    # The Stripe invoice-item credit ("Feedback reward" line) queued for this accepted
+    # report, in minor units (e.g. 100 = €1). NULL = no credit granted. credit_granted_at
+    # doubles as the
     # idempotency marker (a report is credited at most once) and feeds the per-user
     # rolling-window rate cap. Both stay NULL when the credit is disabled/ineligible/
     # capped, or the grant failed (retryable via a repeat Accept).

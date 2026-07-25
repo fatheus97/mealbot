@@ -179,9 +179,9 @@ class Settings(BaseSettings):
     feedback_llm_triage_enabled: bool = True
 
     # --- Feedback credit + ticket (6b) — the money-mover half of the feedback loop ---
-    # An admin ACCEPT on a report grants a small Stripe customer-balance credit (the
-    # launch feedback discount) and opens a GitHub ticket. The LLM never triggers this;
-    # a human admin Accept is the sole trigger.
+    # An admin ACCEPT on a report queues a small labeled Stripe invoice-item credit (a
+    # "Feedback reward" line on the next invoice — the launch feedback discount) and opens
+    # a GitHub ticket. The LLM never triggers this; a human admin Accept is the sole trigger.
     #
     # feedback_credit_enabled defaults OFF (opt-in): it grants REAL money, so it stays
     # dark until the owner switches the launch discount on. When off, Accept still marks
@@ -193,9 +193,9 @@ class Settings(BaseSettings):
     feedback_credit_eur: float = 1.0
     feedback_credit_window_days: int = Field(default=30, ge=1, le=366)
     feedback_credit_max_per_window: int = Field(default=3, ge=1, le=100)
-    # Never let the customer's feedback-credit balance reach this (must stay < the
-    # monthly Price so applying it can't zero an invoice — Stripe's balance is the
-    # authoritative check, read right before each grant).
+    # Never let the customer's pending feedback credit reach this (must stay < the
+    # monthly Price so applying it can't zero an invoice — the sum of pending feedback
+    # invoice items is the authoritative check, read right before each grant).
     feedback_credit_max_outstanding_eur: float = 3.0
     # GitHub private tickets repo ("owner/repo") + a token with issues:write. The code
     # repo is PUBLIC and reports carry PII, so tickets go to a SEPARATE PRIVATE repo.

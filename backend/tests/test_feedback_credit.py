@@ -51,13 +51,14 @@ async def _add_report(
     return report
 
 
-def _mock_stripe(*, balance: int = 0, grant: AsyncMock | None = None):
-    """Patch the two Stripe calls feedback_credit makes. Returns the grant mock."""
+def _mock_stripe(*, pending: int = 0, grant: AsyncMock | None = None):
+    """Patch the two Stripe calls feedback_credit makes (the pending-credit floor read and
+    the invoice-item grant). ``pending`` = minor units already queued. Returns the grant mock."""
     grant = grant or AsyncMock()
     return patch.multiple(
         "app.services.feedback_credit.stripe_service",
-        customer_credit_balance_cents=AsyncMock(return_value=balance),
-        grant_customer_credit=grant,
+        pending_feedback_credit_cents=AsyncMock(return_value=pending),
+        apply_feedback_invoice_credit=grant,
     ), grant
 
 
@@ -77,7 +78,7 @@ class TestGrants:
         await _prep_user(db_session, test_user)
         assert test_user.id is not None
         report = await _add_report(db_session, test_user.id)
-        ctx, grant = _mock_stripe(balance=0)
+        ctx, grant = _mock_stripe(pending=0)
         with ctx:
             ok = await feedback_credit.maybe_grant_credit(
                 db_session, report, test_user, now=_NOW
@@ -86,11 +87,15 @@ class TestGrants:
         assert report.credit_cents == 100
         assert report.credit_granted_at == _NOW
         grant.assert_awaited_once()
-        # grant_customer_credit(customer_id, amount_cents, idempotency_key=...)
+        # apply_feedback_invoice_credit(customer_id, amount_cents, idempotency_key=...,
+        #                               description=..., metadata=...)
         args, kwargs = grant.await_args
         assert args[0] == "cus_1"  # customer id
         assert args[1] == 100  # amount cents
         assert kwargs["idempotency_key"] == f"feedback_credit_{report.id}"
+        assert "Feedback reward" in kwargs["description"]  # the labeled, transparent line
+        assert kwargs["metadata"]["kind"] == "feedback_credit"  # floor read finds it
+        assert kwargs["metadata"]["feedback_report_id"] == str(report.id)
 
 
 class TestIneligible:
@@ -185,7 +190,7 @@ class TestIneligible:
         for _ in range(3):
             await _add_report(db_session, test_user.id, credit_granted_at=_NOW - timedelta(days=40))
         report = await _add_report(db_session, test_user.id)
-        ctx, grant = _mock_stripe(balance=0)
+        ctx, grant = _mock_stripe(pending=0)
         with ctx:
             assert await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW) is True
 
@@ -196,7 +201,7 @@ class TestIneligible:
         await _prep_user(db_session, test_user)
         assert test_user.id is not None
         report = await _add_report(db_session, test_user.id)
-        ctx, grant = _mock_stripe(balance=250)
+        ctx, grant = _mock_stripe(pending=250)
         with ctx:
             assert await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW) is False
         grant.assert_not_awaited()
@@ -210,14 +215,14 @@ class TestFailuresNeverRaise:
         assert test_user.id is not None
         report = await _add_report(db_session, test_user.id)
         failing = AsyncMock(side_effect=RuntimeError("stripe down"))
-        ctx, _ = _mock_stripe(balance=0, grant=failing)
+        ctx, _ = _mock_stripe(pending=0, grant=failing)
         with ctx:
             ok = await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW)
         assert ok is False
         assert report.credit_granted_at is None  # retryable
         assert report.credit_cents is None
 
-    async def test_balance_check_failure_refuses(
+    async def test_floor_check_failure_refuses(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
         await _prep_user(db_session, test_user)
@@ -226,8 +231,8 @@ class TestFailuresNeverRaise:
         grant = AsyncMock()
         with patch.multiple(
             "app.services.feedback_credit.stripe_service",
-            customer_credit_balance_cents=AsyncMock(side_effect=RuntimeError("stripe down")),
-            grant_customer_credit=grant,
+            pending_feedback_credit_cents=AsyncMock(side_effect=RuntimeError("stripe down")),
+            apply_feedback_invoice_credit=grant,
         ):
             ok = await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW)
         assert ok is False
