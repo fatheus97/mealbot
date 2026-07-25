@@ -57,9 +57,12 @@ async def _generate_and_screen(
     times; if no clean plan is produced, FAIL CLOSED (``AllergenScreenError``) —
     serving a declared allergen is the exact liability the screen prevents.
 
-    A request with no screenable allergen does EXACTLY one call and no screening,
-    so generation is byte-for-byte unchanged until a UI (slice 5) lets users
-    declare allergens. ``template_name`` is carried only for log attribution.
+    Two paths skip the screen and do EXACTLY one call: a request with no
+    screenable allergen (so generation is byte-for-byte unchanged until a UI —
+    slice 5 — lets users declare allergens), and ``mock`` mode (the mock LLM is
+    deterministic per day, so screening would only fail-closed on a canned
+    allergen-containing meal). ``template_name`` is carried only for log
+    attribution.
     """
     last: list[AllergenViolation] = []
     for attempt in range(_MAX_ALLERGEN_SCREEN_RETRIES + 1):
