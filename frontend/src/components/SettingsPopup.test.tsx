@@ -36,6 +36,10 @@ function stubAuthFetch() {
     if (url === '/config') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     }
+    if (url === '/staples') {
+      // PantryStaples (embedded in the modal) reads its list on mount.
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
   });
 }
@@ -106,7 +110,9 @@ describe('SettingsPopup', () => {
 
     render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
 
-    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    // Specifically the profile-loading text — the embedded PantryStaples shows
+    // its own "Loading staples…" while its list fetches, so match exactly.
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
   it('loads and displays user profile data', async () => {
@@ -175,12 +181,12 @@ describe('SettingsPopup', () => {
       expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'),
     );
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /save/i })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
     );
 
     // Switch to experimental
     await user.click(screen.getByLabelText(/experimental/i));
-    await user.click(screen.getByRole('button', { name: /save/i }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
 
     await waitFor(() => {
       expect(mockedUpdateProfile).toHaveBeenCalledWith({
@@ -198,6 +204,51 @@ describe('SettingsPopup', () => {
     });
   });
 
+  it('embeds the Pantry staples section (co-located with Include spices)', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValueOnce(mockProfile);
+
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    // The staples editor lives in the modal now (loads its list via /staples),
+    // right alongside the "Include spices" preference.
+    expect(
+      await screen.findByRole('heading', { name: /pantry staples/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/include spices in shopping list/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save staples/i })).toBeInTheDocument();
+  });
+
+  it('guards close against unsaved pantry staples (no silent loss)', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValueOnce(mockProfile);
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SettingsPopup onClose={onClose} />, { wrapper: createWrapper() });
+
+    // Add a staple — now dirty and unsaved.
+    await user.type(await screen.findByLabelText('New staple name'), 'flour');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    // Closing via ✕ must NOT silently close — it prompts to discard.
+    await user.click(screen.getByLabelText(/close settings/i));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('alertdialog', { name: /discard unsaved pantry staples/i }),
+    ).toBeInTheDocument();
+
+    // "Keep editing" dismisses the prompt without closing.
+    await user.click(screen.getByRole('button', { name: /keep editing/i }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Re-open the prompt, then confirm discard → closes.
+    await user.click(screen.getByLabelText(/close settings/i));
+    await user.click(screen.getByRole('button', { name: /discard/i }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('shows inline error on save failure', async () => {
     loginUser();
     mockedFetchProfile.mockResolvedValueOnce(mockProfile);
@@ -210,10 +261,10 @@ describe('SettingsPopup', () => {
       expect(screen.getByDisplayValue('Germany')).toBeInTheDocument();
     });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /save/i })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
     );
 
-    await user.click(screen.getByRole('button', { name: /save/i }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
 
     // Inline alert banner, not window.alert — the save action should not be
     // interrupted by a blocking modal dialog.

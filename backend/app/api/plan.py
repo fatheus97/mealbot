@@ -8,7 +8,7 @@ from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from app.api.deps import get_current_user, require_active_subscription, usage_capture
+from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
@@ -38,6 +38,7 @@ from app.models.plan_models import (
     StockItemDTO,
     validate_plan_start_date,
 )
+from app.services.allergen_screen import AllergenScreenError
 from app.services.fridge_service import (
     get_fridge_items,
 )
@@ -50,6 +51,7 @@ from app.services.leftovers import (
     validate_leftover_graph,
 )
 from app.services.meal_planner import generate_partial_day
+from app.services.pantry_service import load_staple_keys
 from app.services.plan_service import (
     PlanGenerationError,
     PlanReopenShortageError,
@@ -384,7 +386,7 @@ async def plan_meals_for_user(
         description="Optional calendar date the plan's Day 1 maps to (YYYY-MM-DD).",
     ),
     payload: MealPlanRequest = ...,  # type: ignore[assignment]
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_generation_budget),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:
@@ -437,6 +439,12 @@ async def plan_meals_for_user(
         meal_plan, shopping_items, _initial_fridge = await generate_plan_days(
             session, current_user, payload, days,
         )
+    except AllergenScreenError as exc:
+        # Fail-closed with a specific, honest message that names the allergen we
+        # couldn't avoid. 422 not 502: the request is well-formed but can't be
+        # satisfied as stated — a transient-retry 502 would send the user in
+        # circles on the same restrictive request.
+        raise HTTPException(status_code=422, detail=exc.user_detail) from exc
     except PlanGenerationError as exc:
         raise HTTPException(
             status_code=502,
@@ -505,7 +513,7 @@ async def regenerate_plan(
     request: Request,
     plan_id: int,
     body: RegeneratePlanRequest,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_generation_budget),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:
@@ -648,6 +656,10 @@ async def regenerate_plan(
             )
         except HTTPException:
             raise
+        except AllergenScreenError as exc:
+            # Same fail-closed 422 as plan creation — name the allergen we
+            # couldn't avoid rather than the generic "regeneration failed".
+            raise HTTPException(status_code=422, detail=exc.user_detail) from exc
         except Exception as e:
             logger.exception("Regeneration failed at day %d", day_index)
             raise HTTPException(
@@ -733,8 +745,23 @@ async def regenerate_plan(
             len(violations), "; ".join(violations),
         )
 
-    # 7) Recompute shopping list
-    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(new_days, initial_fridge)
+    # 7) Recompute shopping list. Apply the owner's pantry staples here too, or a
+    # regenerate would silently reintroduce salt/oil/… that the initial generation
+    # excluded. plan.user_id == current_user.id (ownership checked above) and is a
+    # non-null int, so it's the mypy-safe owner id to key the staples on.
+    # Filter spices by the value the plan's meals were AUTHORED under (stored in
+    # request_json), NOT the live user preference: frozen meals are kept verbatim
+    # and the regenerated ones are still prompted from original_req, so both carry
+    # is_spice tags from the stored setting. Using the live value would surface
+    # OFF-authored 1g spice sentinels once the user flips include_spices on. A
+    # flipped preference correctly takes effect on the next fresh generation, not
+    # a regenerate — same "frozen plans aren't rewritten" rule the staples filter
+    # follows. (staple_keys legitimately uses the live value: name-based, not tied
+    # to how the meals were authored.)
+    staple_keys = await load_staple_keys(session, plan.user_id)
+    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
+        new_days, initial_fridge, staples=staple_keys, include_spices=original_req.include_spices
+    )
     if original_req.stock_only:
         if shopping_items:
             logger.warning(

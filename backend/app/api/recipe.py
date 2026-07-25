@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_active_subscription, usage_capture
+from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.country_whitelist import normalize_country
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
@@ -40,6 +40,7 @@ from app.models.plan_models import (
     SingleRecipeResponse,
     StockItemDTO,
 )
+from app.services.allergen_screen import AllergenScreenError
 from app.services.fridge_service import (
     allocate_fifo,
     flatten_fridge_batches,
@@ -138,7 +139,10 @@ def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest
         taste_preferences=extra_tastes,
         avoid_ingredients=req.avoid_ingredients,
         ingredients_to_use=req.ingredients_to_use,
-        diet_type=req.diet_type,
+        # Forward the canonical combinable set + structured allergens; the
+        # MealPlanRequest validator mirrors diet_type from diet_types[0].
+        diet_types=req.diet_types,
+        allergens=req.allergens,
         meals_per_day=1,
         people_count=req.people_count,
         past_meals=[],
@@ -156,7 +160,7 @@ def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest
 async def generate_recipe(
     request: Request,
     payload: SingleRecipeRequest,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_generation_budget),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> SingleRecipeResponse:
@@ -195,6 +199,11 @@ async def generate_recipe(
             mock=current_user.is_demo,
             slot_layout=[payload.meal_type.value],
         )
+    except AllergenScreenError as exc:
+        # Fail-closed with a specific, honest 422 that names the allergen we
+        # couldn't avoid — not the generic transient-retry 502 below (retrying
+        # the same restrictive request won't help).
+        raise HTTPException(status_code=422, detail=exc.user_detail) from exc
     except Exception as exc:  # noqa: BLE001 — map any LLM/network failure to 502
         logger.exception("Cook Now generation failed for user %s", current_user.id)
         raise HTTPException(

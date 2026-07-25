@@ -118,18 +118,102 @@ class Settings(BaseSettings):
     billing_enabled: bool = False
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
-    # The recurring Price (e.g. €10/mo) the Checkout subscribes the user to.
+    # The recurring MONTHLY Price the Checkout subscribes the user to (the baseline
+    # plan; billing_configured() requires it).
     stripe_price_id: str | None = None
+    # The recurring ANNUAL Price ("€2.99/mo billed annually"). Optional: when unset,
+    # the checkout offers monthly only and an annual request is rejected. Kept
+    # separate from stripe_price_id so annual is additive and the monthly baseline
+    # never depends on it.
+    stripe_price_id_annual: str | None = None
+    # Comma-separated HISTORICAL annual Price ids (retired via reprice). is_annual()
+    # counts a user as annual if their subscription Price is the current annual id OR
+    # any of these — so rotating the annual Price never misreads grandfathered annual
+    # subscribers as monthly (which would wrongly grant them the monthly-only feedback
+    # credit). Fixes the rotation blind spot flagged in #287's review; matters now that
+    # 6b keys money off is_annual.
+    stripe_price_ids_annual_legacy: str | None = None
     # Absolute base URL of the SPA — Checkout/Portal redirect back here.
     frontend_base_url: str = "http://localhost:5173"
-    # 14-day free trial before the first charge.
-    trial_period_days: int = 14
+    # 10-day free trial before the first charge.
+    trial_period_days: int = 10
+
+    # --- Trial-abuse guard (one free trial per physical card) ---
+    # Gate A: a repeat card (user.has_used_trial) gets NO trial at checkout → Stripe
+    # charges immediately. Gate B: a cross-account card reuse is clawed back on the
+    # webhook (trial ended now). trial_abuse_guard_enabled is the kill switch
+    # (mirrors leftovers_enabled); trial_fingerprint_hmac_secret domain-separates the
+    # stored fingerprint HMAC (falls back to secret_key when unset).
+    trial_abuse_guard_enabled: bool = True
+    trial_fingerprint_hmac_secret: str | None = None
     # Outbound-Stripe network policy (per .claude/rules/fastapi.md: every external
     # call needs an explicit timeout + retry). The SDK default is 80s / 2 retries;
     # 20s is plenty for control-plane calls and keeps a hung request from tying up
     # an asyncio.to_thread worker for over a minute.
     stripe_timeout_seconds: int = 20
     stripe_max_retries: int = 2
+
+    # --- Per-user LLM cost cap (usage budget) ---
+    # Bounds monthly LLM spend per user (EUR summed from LlmUsage — see
+    # app.services.usage_budget — NOT a raw request count, so a €0.06 seven-day
+    # plan and a €0.009 recipe weigh correctly). One mechanism contains a power
+    # user, a trial farmer, and a runaway-generation bug. Enforced even while
+    # billing_enabled is false: LLM cost is incurred regardless of the paywall.
+    # usage_cap_enabled is the kill switch (mirrors leftovers_enabled) — flip it
+    # false in the prod .env to disable enforcement without a deploy.
+    usage_cap_enabled: bool = True
+    usage_cap_paid_eur: float = 2.0
+    usage_cap_trial_eur: float = 0.75
+    usage_soft_warn_ratio: float = Field(default=0.8, ge=0.0, le=1.0)
+
+    # --- User feedback intake (bug reports / feature requests) ---
+    # A logged-in user submits a report; a CHEAP regex/abuse gate rejects junk at
+    # the edge, the report is stored, and (behind feedback_llm_triage_enabled) an
+    # ADVISORY LLM triage pre-classifies it for the admin moderation queue. The LLM
+    # NEVER authorizes anything — the €1 launch feedback credit + a private-repo
+    # ticket are a later, human-Accept-gated slice. feedback_enabled is the kill
+    # switch for the submit endpoint (mirrors leftovers_enabled); triage has its own
+    # switch so the queue keeps working (raw reports, no advisory triage) if the LLM
+    # misbehaves or costs spike.
+    feedback_enabled: bool = True
+    feedback_llm_triage_enabled: bool = True
+
+    # --- Feedback credit + ticket (6b) — the money-mover half of the feedback loop ---
+    # An admin ACCEPT on a report grants a small Stripe customer-balance credit (the
+    # launch feedback discount) and opens a GitHub ticket. The LLM never triggers this;
+    # a human admin Accept is the sole trigger.
+    #
+    # feedback_credit_enabled defaults OFF (opt-in): it grants REAL money, so it stays
+    # dark until the owner switches the launch discount on. When off, Accept still marks
+    # the report accepted + files a ticket, just no credit.
+    feedback_credit_enabled: bool = False
+    # €1 per accepted report. The cap trio below guarantees an invoice never hits €0:
+    # a rolling per-user rate cap AND a hard "outstanding credit balance" floor kept
+    # strictly below the monthly price (3 × €1 = €3 < €4.99).
+    feedback_credit_eur: float = 1.0
+    feedback_credit_window_days: int = Field(default=30, ge=1, le=366)
+    feedback_credit_max_per_window: int = Field(default=3, ge=1, le=100)
+    # Never let the customer's feedback-credit balance reach this (must stay < the
+    # monthly Price so applying it can't zero an invoice — Stripe's balance is the
+    # authoritative check, read right before each grant).
+    feedback_credit_max_outstanding_eur: float = 3.0
+    # GitHub private tickets repo ("owner/repo") + a token with issues:write. The code
+    # repo is PUBLIC and reports carry PII, so tickets go to a SEPARATE PRIVATE repo.
+    # Both unset → ticket creation is a no-op (Accept still works, sans ticket).
+    feedback_ticket_repo: str | None = None
+    github_token: str | None = None
+
+    @field_validator("github_token", mode="after")
+    @classmethod
+    def _blank_placeholder_github_token(cls, v: str | None) -> str | None:
+        return normalize_optional_key(v)
+    # Anti-flood caps on the intake (enforced in services.feedback_intake, on top of
+    # the per-user route rate limit): the most OPEN (new/reviewing) reports a
+    # single user may have queued at once, and the window in which an identical
+    # resubmission from the same user is treated as a duplicate and refused. Both
+    # bound queue spam + the LLM-triage cost an accepted report incurs.
+    feedback_max_open_per_user: int = Field(default=20, ge=1, le=1000)
+    feedback_dedup_window_hours: int = Field(default=24, ge=1, le=720)
 
     # --- VAT threshold tracking (revenue dashboard) ---
     # EU cross-border B2C distance-selling / OSS threshold: once cumulative B2C
@@ -161,6 +245,14 @@ class Settings(BaseSettings):
     # bound that and long enough for a real person to notice the mail. Bounded
     # so a typo'd env var can't mint effectively-permanent links.
     password_reset_token_expire_minutes: int = Field(default=30, ge=5, le=1440)
+
+    # --- Admin invite links ---
+    # An admin-generated invite link lets a hand-picked beta tester self-register
+    # while public registration stays closed. Like a reset link it sits in an
+    # inbox/DM, so the TTL is the window in which link access converts to account
+    # creation. Default 48h; bounded (1h..14d) so a typo'd env var can't mint an
+    # effectively-permanent open-registration hole behind the closed gate.
+    invite_token_expire_hours: int = Field(default=48, ge=1, le=336)
 
     # Short-lived access JWT lives in an HttpOnly cookie. 15 min bounds the
     # window of a stolen access token; refresh keeps active sessions alive
@@ -194,6 +286,15 @@ class Settings(BaseSettings):
     # Small on purpose: parsing is CPU-bound, so oversubscribing cores past a
     # low cap only adds contention. Tune per box (CX23 = 2 vCPU).
     parse_executor_workers: int = Field(default=2, ge=1, le=32)
+
+    # bcrypt work factor for password hashing. 12 (~250 ms/hash on the prod box)
+    # is a sane 2020s default and the cost every stored hash currently carries.
+    # The test suite overrides this to bcrypt's 4 floor (see conftest): the suite
+    # hashes throwaway passwords ~1000× across fixtures + auth-flow tests, and at
+    # cost 12 that alone adds minutes to CI wall-clock for zero security value.
+    # Bounded to bcrypt's valid 4..31 range so a typo'd env var can neither
+    # silently weaken prod hashing nor wedge it with an out-of-range cost.
+    bcrypt_rounds: int = Field(default=12, ge=4, le=31)
 
     secret_key: str
     database_url: str

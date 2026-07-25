@@ -1,12 +1,13 @@
 // src/types.ts
 
 import type { MealType } from "./constants/mealTypes";
+import type { Allergen, DietType } from "./constants/dietary";
 
 export type { MealType } from "./constants/mealTypes";
+export type { Allergen, DietType } from "./constants/dietary";
 
 export type MeasurementSystem = "none" | "imperial" | "metric";
 export type Variability = "traditional" | "experimental";
-export type DietType = "balanced" | "high_protein" | "low_carb" | "vegetarian" | "vegan" | "baby_food";
 
 export interface IngredientAmount {
   name: string;
@@ -19,7 +20,13 @@ export interface MealPlanRequest {
   taste_preferences: string[];
   avoid_ingredients: string[];
   ingredients_to_use: string[];
-  diet_type: DietType | null;
+  // Combinable dietary patterns + structured allergens (dietary differentiator).
+  // The legacy single `diet_type` is optional and no longer sent by the client;
+  // the backend derives it from diet_types for backward-compat. Both new lists
+  // are optional at the type level (backend defaults them to []).
+  diet_types?: DietType[];
+  allergens?: Allergen[];
+  diet_type?: DietType | null;
   meals_per_day: number;
   people_count: number;
   past_meals: string[];
@@ -191,7 +198,9 @@ export interface FavoriteRecipeRequest {
 // Phase 4: Cook Now request/response
 export interface SingleRecipeRequest {
   meal_type: MealType;
-  diet_type: DietType | null;
+  diet_types?: DietType[];
+  allergens?: Allergen[];
+  diet_type?: DietType | null;
   people_count: number;
   taste_preferences: string[];
   avoid_ingredients: string[];
@@ -219,6 +228,12 @@ export interface StockItem {
   need_to_use: boolean;
   item_type?: ScannedItemType;
   expiration_date?: string | null;
+}
+
+// A per-user "always have" pantry staple (salt, oil, flour…). Name-only — its
+// job is to be excluded from generated shopping lists. Mirrors PantryStapleDTO.
+export interface PantryStaple {
+  name: string;
 }
 
 // Response of POST /api/fridge/scan. generation_id is echoed back on merge
@@ -267,6 +282,9 @@ export interface AuthLoginResponse {
   is_comped: boolean;
 }
 
+/** Subscription plan the user can pick at checkout. */
+export type BillingPlan = "monthly" | "annual";
+
 export interface AuthState {
   userId: number | null;
   email: string;
@@ -279,6 +297,10 @@ export interface AuthState {
   // resolves to true).
   demoEnabled: boolean | null;
   registrationEnabled: boolean | null;
+  // Whether the annual plan is offered at checkout (from /config). Defaults false
+  // (monthly-only) until config resolves, so the paywall never shows a toggle that
+  // would 400 on submit.
+  annualBillingAvailable: boolean;
   // Billing state, sourced from the same profile payload as the rest. null-ish
   // defaults ("none"/null/false) hold until the profile resolves.
   subscriptionStatus: SubscriptionStatus;
@@ -291,6 +313,9 @@ export interface AuthState {
   setOnboardingCompleted: (value: boolean) => void;
   loginDemo: () => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
+  // Redeem an admin invite token: create the account (bypassing the closed
+  // registration gate) then auto-login, so the invitee lands signed in.
+  registerViaInvite: (token: string, email: string, password: string) => Promise<void>;
   // Re-fetch /users to re-sync subscription state (used after returning from
   // Stripe Checkout, where the webhook may land a beat after the redirect).
   refreshProfile: () => Promise<void>;
@@ -450,4 +475,159 @@ export interface RevenueStats {
   by_country: CountryRevenue[];
   recent: SaleRow[];
 }
+
+// --- User management (mirror backend admin_schemas AdminUserRead) ---
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  created_at: string;
+  is_active: boolean;
+  is_admin: boolean;
+  is_demo: boolean;
+  is_comped: boolean;
+  onboarding_completed: boolean;
+  country: string | null;
+  subscription_status: string;
+  current_period_end: string | null;
+}
+
+export interface AdminUserListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  users: AdminUser[];
+}
+
+export type AdminUserStatusFilter = "all" | "active" | "disabled";
+export type AdminUserRoleFilter = "all" | "admin" | "demo" | "comped";
+
+/** Partial flag update sent to PATCH /admin/users/{id}. */
+export interface AdminUserUpdate {
+  is_active?: boolean;
+  is_admin?: boolean;
+  is_comped?: boolean;
+}
+
+// --- Admin invite links ---
+
+export type InviteStatus = "live" | "used" | "expired" | "revoked";
+
+/** Body for POST /admin/invites. All optional — the server defaults comp to true
+ *  and the TTL to invite_token_expire_hours. */
+export interface InviteCreateRequest {
+  note?: string | null;
+  is_comped?: boolean;
+  expires_in_hours?: number | null;
+}
+
+/** Response of POST /admin/invites — the freshly minted link. `invite_url`
+ *  carries the plaintext token and is shown to the admin exactly once. */
+export interface InviteCreateResponse {
+  id: number;
+  invite_url: string;
+  expires_at: string;
+  is_comped: boolean;
+  note: string | null;
+}
+
+export interface InviteListItem {
+  id: number;
+  note: string | null;
+  is_comped: boolean;
+  status: InviteStatus;
+  created_at: string;
+  expires_at: string;
+  redeemed_by_email: string | null;
+}
+
+export interface InviteListResponse {
+  invites: InviteListItem[];
+}
+
+// --- User feedback (bug reports / feature requests) ---
+
+export type FeedbackKind = "bug" | "feature" | "other";
+
+/** Body for POST /feedback (authenticated). `page` is optional client context. */
+export interface FeedbackCreateRequest {
+  kind: FeedbackKind;
+  message: string;
+  page?: string | null;
+}
+
+export interface FeedbackSubmitResponse {
+  id: number;
+  status: string;
+}
+
+/** Moderation states an admin may SET (the 6a subset — "accepted" is the
+ *  money-moving 6b action and isn't offered here). */
+export type FeedbackModerationStatus = "new" | "reviewing" | "rejected" | "spam";
+
+/** The advisory LLM triage attached to a report (admin-only). Never authoritative —
+ *  a human reviews every report; this only pre-sorts the queue. */
+export interface FeedbackTriage {
+  is_actionable: boolean;
+  type: "bug" | "feature" | "question" | "praise" | "spam" | "other";
+  severity: "low" | "medium" | "high";
+  title: string;
+  summary: string;
+  repro: string | null;
+  dedupe_hint: string | null;
+}
+
+/** One row in the admin moderation queue (list projection — preview, not the full
+ *  body; denormalized triage summary fields). */
+export interface AdminFeedbackItem {
+  id: number;
+  user_id: number;
+  user_email: string | null;
+  kind: string;
+  status: string;
+  created_at: string;
+  preview: string;
+  triage_status: string | null;
+  triage_is_actionable: boolean | null;
+  triage_type: string | null;
+  triage_severity: string | null;
+  triage_title: string | null;
+}
+
+export interface AdminFeedbackListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  items: AdminFeedbackItem[];
+}
+
+/** Full report for the admin detail view: verbatim body + parsed advisory triage. */
+export interface AdminFeedbackDetail {
+  id: number;
+  user_id: number;
+  user_email: string | null;
+  kind: string;
+  message: string;
+  page: string | null;
+  status: string;
+  created_at: string;
+  triage_status: string | null;
+  triage: FeedbackTriage | null;
+  reviewed_by_admin_id: number | null;
+  reviewed_at: string | null;
+  // 6b: credit + ticket outcomes (set on admin Accept).
+  credit_cents: number | null;
+  credit_granted_at: string | null;
+  ticket_url: string | null;
+}
+
+/** Status filter for the admin feedback list. "accepted" is read-only here (the
+ *  queue can show it, but only the 6b money slice sets it). */
+export type FeedbackStatusFilter =
+  | "all"
+  | "new"
+  | "reviewing"
+  | "accepted"
+  | "rejected"
+  | "spam";
 

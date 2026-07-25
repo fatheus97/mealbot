@@ -1,5 +1,6 @@
 import logging
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -65,6 +66,14 @@ async def get_current_user(
     if token_version != user.token_version:
         raise credentials_exception
 
+    # Disable gate: a still-valid access token must stop working the moment an
+    # admin disables the account. Same 401 as any other credential failure, so
+    # the SPA logs the user out; re-login then fails at the login handler with a
+    # clear "account disabled" message. (Deactivation also revokes sessions +
+    # bumps token_version, so the refresh path can't re-mint — belt and braces.)
+    if not user.is_active:
+        raise credentials_exception
+
     return user
 
 
@@ -101,6 +110,48 @@ async def require_active_subscription(
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="An active subscription is required for this feature.",
+        )
+    return current_user
+
+
+async def require_generation_budget(
+    current_user: User = Depends(require_active_subscription),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    """Gate generation endpoints on the per-user monthly LLM-cost budget.
+
+    Layered ON TOP of require_active_subscription, so an unentitled caller still
+    gets 402 first (never a cap detail leaked to a non-subscriber); an entitled
+    caller over budget gets 429. Being a dependency it runs BEFORE the handler
+    body — hence before any LLM call — so an over-budget request never generates.
+    Admin/demo bypass and the kill switch are handled in usage_budget.
+
+    This is a check-then-act SOFT cap, deliberately not serialized: concurrent
+    requests from the same user can each pass the pre-check against the same
+    committed spend and overshoot by up to (concurrent burst × per-request cost).
+    That is bounded by the per-route rate limits and acceptable for a fuzzy safety
+    valve — an advisory lock would add contention for no meaningful protection.
+    """
+    if not settings.usage_cap_enabled:
+        return current_user
+
+    from app.services import usage_budget
+
+    budget = await usage_budget.get_budget_status(session, current_user)
+    if usage_budget.is_over_budget(budget):
+        now = datetime.now(UTC).replace(tzinfo=None)
+        retry_after = max(0, int((budget.reset_at - now).total_seconds()))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "usage_cap_reached",
+                "tier": budget.tier,
+                "cap_eur": budget.cap_eur,
+                "used_eur": round(budget.used_eur, 4),
+                "remaining_eur": budget.remaining_eur,
+                "reset_at": budget.reset_at.isoformat(),
+            },
+            headers={"Retry-After": str(retry_after)},
         )
     return current_user
 

@@ -3,6 +3,9 @@ import { useAuth } from "../contexts/AuthContext";
 import { useUserProfile, useUpdateUserProfile } from "../hooks/useServerState";
 import { PreferencesForm } from "./PreferencesForm";
 import type { PreferencesFormValues } from "./PreferencesForm";
+import { PantryStaples } from "./PantryStaples";
+import { FeedbackModal } from "./FeedbackModal";
+import { InfoHint } from "./InfoHint";
 
 interface SettingsPopupProps {
   onClose: () => void;
@@ -13,6 +16,17 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
   const { data: profile, isLoading } = useUserProfile(userId);
   const mutation = useUpdateUserProfile();
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [staplesDirty, setStaplesDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+
+  // Guard every close path (✕, backdrop, and a successful preferences save)
+  // against silently dropping unsaved pantry-staple edits — staples have their
+  // own separate save, so a plain close would lose them without warning.
+  const requestClose = () => {
+    if (staplesDirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   const handleSubmit = async (values: PreferencesFormValues) => {
     setSaveError(null);
@@ -27,13 +41,14 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         // and a populated list as the new stored layout.
         default_day_layout: values.default_day_layout,
       });
-      onClose();
+      requestClose();
     } catch {
       setSaveError("Failed to save preferences. Please try again.");
     }
   };
 
   return (
+    <>
     <div
       style={{
         position: "fixed",
@@ -45,7 +60,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         zIndex: 100,
       }}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
     <div
@@ -64,7 +79,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
         <h3 style={{ margin: 0 }}>Settings</h3>
         <button
-          onClick={onClose}
+          onClick={requestClose}
           style={{
             background: "none",
             border: "none",
@@ -79,6 +94,45 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         </button>
       </div>
 
+      {confirmDiscard && (
+        <div
+          role="alertdialog"
+          aria-label="Discard unsaved pantry staples"
+          style={{
+            border: "1px solid #f59e0b",
+            background: "#fffbeb",
+            color: "#111",
+            borderRadius: 8,
+            padding: "0.6rem 0.75rem",
+            marginBottom: "1rem",
+            fontSize: "0.9rem",
+          }}
+        >
+          <p style={{ margin: "0 0 0.5rem" }}>
+            You have unsaved pantry staples. Discard them?
+          </p>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmDiscard(false);
+                onClose();
+              }}
+              style={{ padding: "0.35rem 0.75rem", border: "none", borderRadius: 6, background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: "0.85rem" }}
+            >
+              Discard &amp; close
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDiscard(false)}
+              style={{ padding: "0.35rem 0.75rem", border: "1px solid #94a3b8", borderRadius: 6, background: "#fff", color: "#111", cursor: "pointer", fontSize: "0.85rem" }}
+            >
+              Keep editing
+            </button>
+          </div>
+        </div>
+      )}
+
       {isLoading && <p>Loading...</p>}
 
       {profile && (
@@ -92,7 +146,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             default_day_layout: profile.default_day_layout ?? [],
           }}
           onSubmit={handleSubmit}
-          submitLabel="Save"
+          submitLabel="Save preferences"
           loading={mutation.isPending}
         />
       )}
@@ -101,7 +155,57 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
           {saveError}
         </p>
       )}
+
+      {/* Pantry staples sits here, beside "Include spices", so both shopping-list
+          exclusion controls live in one place. It keeps its own save (separate
+          PUT /api/staples), independent of the preferences form's combined save.
+          Gated on !isLoading so it paints WITH the form rather than jumping down
+          when the (possibly cold-cache) profile resolves — the #270 CLS guardrail. */}
+      {!isLoading && (
+        <div style={{ marginTop: "1.25rem" }}>
+          <PantryStaples onDirtyChange={setStaplesDirty} />
+        </div>
+      )}
+
+      {/* Feedback entry point — a low-friction way for any logged-in user to report
+          a bug or request a feature. Opens above this popup (higher z-index). */}
+      <div
+        style={{
+          marginTop: "1.25rem",
+          borderTop: "1px solid #e5e7eb",
+          paddingTop: "1rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setShowFeedback(true)}
+          style={{
+            flex: 1,
+            padding: "0.55rem 0.75rem",
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            background: "#f9fafb",
+            color: "#111827",
+            cursor: "pointer",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          💬 Send feedback
+        </button>
+        <InfoHint
+          label="How feedback credit works"
+          text="Earn €1 off your next month for every accepted bug report or feature request — up to €3/month. The credit lands on your next invoice, so you'll need to be on the monthly plan (subscribed or on a free trial) to receive it — annual plans are already discounted."
+        />
+      </div>
     </div>
     </div>
+    {showFeedback && (
+      <FeedbackModal page="settings" onClose={() => setShowFeedback(false)} />
+    )}
+    </>
   );
 }

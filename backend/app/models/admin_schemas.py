@@ -5,8 +5,11 @@ Maps are modelled as lists of typed items (not dict) so responses stay schema'd.
 """
 
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.models.user_schemas import validate_password_complexity
 
 
 class SurfaceCount(BaseModel):
@@ -173,3 +176,115 @@ class RevenueStats(BaseModel):
     thresholds: list[ThresholdProgress]
     by_country: list[CountryRevenue]
     recent: list[SaleRow]
+
+
+# --- User management (admin) ---
+
+
+class AdminUserRead(BaseModel):
+    """One user row for the admin User Management table.
+
+    A deliberately narrow projection — account/status/billing fields the admin
+    needs to manage users, and NOTHING sensitive (never the password hash, reset
+    tokens, or the raw Stripe ids). Distinct from ``UserRead`` (the self-profile
+    shape) so admin-list fields and self-profile fields evolve independently.
+    """
+
+    id: int
+    email: str
+    created_at: datetime
+    is_active: bool
+    is_admin: bool
+    is_demo: bool
+    is_comped: bool
+    onboarding_completed: bool
+    country: str | None
+    subscription_status: str
+    current_period_end: datetime | None
+
+
+class AdminUserListResponse(BaseModel):
+    """A page of the admin user list. ``total`` is the count matching the current
+    filters (not the page size), so the UI can paginate."""
+
+    total: int
+    limit: int
+    offset: int
+    users: list[AdminUserRead]
+
+
+class AdminUserCreate(BaseModel):
+    """Body for POST /admin/users. Mirrors the create_user CLI: same email +
+    password-complexity rules, with optional admin/comp flags an admin may set
+    (this is a server-set path — no self-service — so granting admin here is
+    consistent with is_admin being admin-only)."""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    is_admin: bool = False
+    is_comped: bool = False
+
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
+
+
+class InviteCreate(BaseModel):
+    """Body for POST /admin/invites. The admin decides the entitlement and TTL;
+    the invitee never sees or sets these — they're baked into the token.
+
+    ``is_comped`` defaults True: an invite is a beta/test onboarding tool, and a
+    tester dropped straight into the paywall (when billing is on) defeats the
+    point. Untick it for a normal (paywalled) account. ``expires_in_hours`` is
+    optional — omit to use the server default (``invite_token_expire_hours``);
+    bounds mirror that setting so a link can't be minted effectively-permanent.
+    """
+
+    note: str | None = Field(default=None, max_length=200)
+    is_comped: bool = True
+    expires_in_hours: int | None = Field(default=None, ge=1, le=336)
+
+
+class InviteRead(BaseModel):
+    """Response for POST /admin/invites — the freshly minted link to hand out.
+
+    ``invite_url`` carries the PLAINTEXT token (the only time it ever leaves the
+    server); it is never stored or logged. The admin copies it and sends it via
+    their own channel.
+    """
+
+    id: int
+    invite_url: str
+    expires_at: datetime
+    is_comped: bool
+    note: str | None
+
+
+class InviteListItem(BaseModel):
+    """One row in the admin's active-invites table. ``status`` is derived
+    server-side from used_at / revoked_at / expires_at so the UI needn't repeat
+    the precedence. Never carries the token (plaintext is unrecoverable; the hash
+    is not exposed)."""
+
+    id: int
+    note: str | None
+    is_comped: bool
+    status: Literal["live", "used", "expired", "revoked"]
+    created_at: datetime
+    expires_at: datetime
+    redeemed_by_email: str | None
+
+
+class InviteListResponse(BaseModel):
+    invites: list[InviteListItem]
+
+
+class AdminUserUpdate(BaseModel):
+    """Body for PATCH /admin/users/{id}. Every field optional — None means "no
+    change" (the standard PATCH semantic). Only these three flags are settable;
+    onboarding reset and force-logout are separate action endpoints."""
+
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    is_comped: bool | None = None

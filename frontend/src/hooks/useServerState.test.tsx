@@ -190,6 +190,35 @@ describe('useGeneratePlan', () => {
       body: JSON.stringify(request),
     });
   });
+
+  it('surfaces the backend fail-closed allergen detail on a 422 (not the raw JSON body)', async () => {
+    // The plan-creation path is the flagship allergen surface: when the screen
+    // exhausts, the banner must show the friendly 422 `detail`, not `${status} -
+    // ${rawBody}`. Guards against a revert to the raw-body dump.
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({
+        detail:
+          "We couldn't generate a meal that avoids Milk (incl. lactose). Very " +
+          "restrictive combinations can be hard to satisfy — try removing an " +
+          "allergen or diet and generating again.",
+      }),
+    });
+    const request = {
+      ingredients: [], taste_preferences: [], avoid_ingredients: [],
+      ingredients_to_use: [], diet_type: null, meals_per_day: 1,
+      people_count: 2, past_meals: [],
+    };
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useGeneratePlan(), { wrapper });
+    result.current.mutate({ userId: 1, days: 1, request });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toMatch(/try removing an allergen/i);
+    // Not the raw-body format.
+    expect(result.current.error?.message).not.toMatch(/^Plan generation failed: 422/);
+  });
 });
 
 describe('useConfirmPlan', () => {
@@ -292,6 +321,28 @@ describe('useRegeneratePlan', () => {
       method: 'POST',
       body: JSON.stringify(request),
     });
+  });
+
+  it('surfaces the backend fail-closed allergen detail on a 422 (not the raw JSON body)', async () => {
+    // Same guard for the regenerate path, which also runs the allergen screen.
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({
+        detail:
+          "We couldn't generate a meal that avoids Fish. Very restrictive " +
+          "combinations can be hard to satisfy — try removing an allergen or " +
+          "diet and generating again.",
+      }),
+    });
+    const request = { frozen_meals: [{ day_index: 0, meal_index: 1 }] };
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useRegeneratePlan(), { wrapper });
+    result.current.mutate({ planId: 5, request });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toMatch(/try removing an allergen/i);
+    expect(result.current.error?.message).not.toMatch(/^Regeneration failed: 422/);
   });
 });
 

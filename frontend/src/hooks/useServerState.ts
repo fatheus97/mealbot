@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse } from '../types';
-import { authFetch, cookRecipe, favoriteRecipe, fetchUserProfile, generateRecipe, mergeFridgeItems, PaywallError, scanReceipt, updateMeal, updateUserProfile } from '../api';
+import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus } from '../types';
+import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, type AdminFeedbackQuery } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -82,6 +82,40 @@ export function useUpdateFridge() {
 export function useScanReceipt() {
   return useMutation({
     mutationFn: (file: File) => scanReceipt(file),
+  });
+}
+
+// Pantry staples — the per-user "always have" list, excluded from generated
+// shopping lists. GET/PUT go straight through authFetch (same inline pattern as
+// the fridge above), and the PUT primes the cache so the panel stays in sync.
+export function useStaples(userId: number | null) {
+  return useQuery({
+    queryKey: ['staples', userId],
+    queryFn: async (): Promise<PantryStaple[]> => {
+      const res = await authFetch(`/staples`);
+      if (res.status === 404) return [];
+      if (!res.ok) throw new Error(`Staples fetch failed: ${res.status}`);
+      return res.json();
+    },
+    enabled: userId !== null,
+  });
+}
+
+export function useUpdateStaples() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ items }: { userId: number; items: PantryStaple[] }): Promise<PantryStaple[]> => {
+      const res = await authFetch(`/staples`, {
+        method: "PUT",
+        body: JSON.stringify(items),
+      });
+      if (!res.ok) throw new Error(`Staples update failed: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(['staples', variables.userId], data);
+    },
   });
 }
 
@@ -431,8 +465,9 @@ export function useGeneratePlan() {
       });
       if (res.status === 402) throw new PaywallError();
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`Plan generation failed: ${res.status} - ${txt}`);
+        // Surface the backend `detail` — including the fail-closed allergen
+        // 422 — instead of dumping the raw JSON body into the error banner.
+        throw new Error(await extractErrorDetail(res, "Plan generation failed. Please try again."));
       }
       return res.json();
     },
@@ -478,10 +513,139 @@ export function useRegeneratePlan() {
       });
       if (res.status === 402) throw new PaywallError();
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`Regeneration failed: ${res.status} - ${txt}`);
+        // Surface the backend `detail` — including the fail-closed allergen
+        // 422 — instead of dumping the raw JSON body into the error banner.
+        throw new Error(await extractErrorDetail(res, "Regeneration failed. Please try again."));
       }
       return res.json();
     },
+  });
+}
+
+// --- Admin: user management (every endpoint is 403-gated server-side; each
+// mutation invalidates the ['admin','users'] list so the table refetches) ---
+
+export function useCreateAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // Wrap (rather than passing createAdminUser bare) so react-query's second
+    // mutationFn context arg isn't forwarded to the api helper — consistent with
+    // the update/reset/logout hooks below.
+    mutationFn: (body: { email: string; password: string; is_admin?: boolean; is_comped?: boolean }) =>
+      createAdminUser(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useUpdateAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, update }: { id: number; update: AdminUserUpdate }) =>
+      updateAdminUser(id, update),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useResetAdminUserOnboarding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => resetAdminUserOnboarding(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useForceLogoutAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => forceLogoutAdminUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useDeleteAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => deleteAdminUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+// --- Admin: invite links (each mutation invalidates ['admin','invites']) ---
+
+export function useInvites(enabled: boolean) {
+  return useQuery({
+    queryKey: ['admin', 'invites'],
+    queryFn: fetchInvites,
+    enabled,
+  });
+}
+
+export function useCreateInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: InviteCreateRequest) => createInvite(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] }),
+  });
+}
+
+export function useRevokeInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => revokeInvite(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] }),
+  });
+}
+
+// --- User feedback: submit (any logged-in user) + admin moderation ---
+
+export function useSubmitFeedback() {
+  return useMutation({
+    mutationFn: (body: FeedbackCreateRequest) => submitFeedback(body),
+  });
+}
+
+// The admin moderation queue. Keyed on the query so status/kind/page changes
+// refetch; disabled until the tab is active (enabled) to keep it lazy.
+export function useAdminFeedback(query: AdminFeedbackQuery, enabled: boolean) {
+  return useQuery({
+    queryKey: ['admin', 'feedback', query],
+    queryFn: () => fetchAdminFeedback(query),
+    enabled,
+  });
+}
+
+export function useAdminFeedbackDetail(id: number | null) {
+  return useQuery({
+    queryKey: ['admin', 'feedback', 'detail', id],
+    queryFn: () => fetchAdminFeedbackDetail(id as number),
+    enabled: id !== null,
+  });
+}
+
+// Both mutations invalidate the list AND the open detail so the queue and the
+// drawer re-sync after a status change / re-triage.
+export function useModerateFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: FeedbackModerationStatus }) =>
+      updateAdminFeedback(id, status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
+  });
+}
+
+export function useRetriageFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => retriageAdminFeedback(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
+  });
+}
+
+// The money-mover: Accept → €1 credit (if eligible) + private-repo ticket.
+export function useAcceptFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => acceptAdminFeedback(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
   });
 }

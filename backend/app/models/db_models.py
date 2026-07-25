@@ -3,12 +3,37 @@ from datetime import UTC, date, datetime
 from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 from sqlalchemy import BigInteger, Boolean, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlmodel import Column, Field, Relationship, SQLModel, String
+
+from app.core.email_normalize import normalize_email
+
+
+def _default_normalized_email(context: DefaultExecutionContext) -> str:
+    """SQLAlchemy insert-time default: derive normalized_email from the row's email
+    when it isn't set explicitly, so EVERY User insert (register, invite, admin,
+    CLI, demo, and all test fixtures) gets a value without a per-call hook — the
+    missed-hook class of bug simply can't happen. Explicit callers may still pass
+    normalized_email, in which case this is not invoked."""
+    return normalize_email(str(context.get_current_parameters()["email"]))
 
 
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
+    # Canonical anti-abuse uniqueness key (app.core.email_normalize). The raw
+    # `email` above stays verbatim for delivery/display/Stripe; uniqueness + all
+    # auth/reset lookups key off THIS. Auto-populated at insert from `email` via
+    # _default_normalized_email; the real insert sites also set it explicitly.
+    normalized_email: str = Field(
+        sa_column=Column(
+            String,
+            unique=True,
+            index=True,
+            nullable=False,
+            default=_default_normalized_email,
+        )
+    )
 
     hashed_password: str = Field(nullable=False)
 
@@ -72,6 +97,16 @@ class User(SQLModel, table=True):
         default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
     )
 
+    # Account enablement. False = disabled by an admin: the disable gate in
+    # get_current_user + the login/refresh paths rejects the user, so they can
+    # neither act on an existing access token nor obtain a new one. Reversible
+    # (reactivate flips it back). Server-set only — no self-service path; the
+    # admin user-management endpoints (and the create_user CLI, implicitly true)
+    # are the only writers. Defaults true so every existing row is enabled.
+    is_active: bool = Field(
+        default=True, sa_column_kwargs={"server_default": "true"}, nullable=False
+    )
+
     # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
     # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
     # source of truth. ---
@@ -99,6 +134,20 @@ class User(SQLModel, table=True):
     # BigInteger so it survives 2038.
     subscription_event_ts: int | None = Field(
         default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    # The Stripe Price id the active subscription is on (from the subscription's
+    # first item), mirrored by apply_subscription. This is how we tell the MONTHLY
+    # plan from the ANNUAL one — e.g. so the launch feedback €1 credit (6b) can
+    # exclude annual subscribers (already effectively discounted). NULL until the
+    # first subscription event lands (and for every pre-reprice row). Server-set only.
+    subscription_price_id: str | None = Field(default=None)
+
+    # One free trial per account, EVER (trial-abuse guard, Gate A). Set True once a
+    # user has started a trial (or been clawed back for reusing a card); a repeat
+    # checkout then OMITS the trial so Stripe charges at completion. Server-set only
+    # — see services.trial_guard + stripe_service.create_checkout_session.
+    has_used_trial: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
     )
 
     # --- Acquisition attribution (first-touch, captured once at signup) ---
@@ -210,6 +259,129 @@ class PasswordResetToken(SQLModel, table=True):
     )
 
 
+class AdminAuditLog(SQLModel, table=True):
+    """Append-only audit trail of admin actions on user accounts.
+
+    Deliberately **not** FK-linked to ``user`` on either side. An audited action
+    can be the *deletion* of the target user (a later slice), and the whole point
+    of an audit log is to outlive the row it describes — so actor and target are
+    stored as bare ids plus an email snapshot taken at action time, fully
+    decoupled from the user-row lifecycle. Rows are only ever INSERTed, never
+    updated or deleted.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+    # The admin who performed the action. Bare id (no FK) + email snapshot; see
+    # the class docstring for why it isn't a relationship.
+    actor_user_id: int = Field(nullable=False, index=True)
+    actor_email: str = Field(nullable=False)
+    # Dotted action name, e.g. "user.deactivate" / "user.grant_admin". A plain
+    # str (not an enum column) so adding an action in a later slice needs no
+    # migration; the writer side constrains the vocabulary.
+    action: str = Field(nullable=False, index=True)
+    # The user acted upon. Nullable: some actions (none yet) may not target a
+    # user. No FK so a later hard-delete of the target can't cascade or block.
+    target_user_id: int | None = Field(default=None, index=True)
+    target_email: str | None = Field(default=None)
+    # Optional structured context (e.g. {"field": "is_admin", "from": "false",
+    # "to": "true"}). String-valued so the blob stays schema'd (no Any) and
+    # trivially JSON-serialisable; loose JSONB so older rows never break reads.
+    detail: dict[str, str] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+
+
+class TrialFingerprint(SQLModel, table=True):
+    """One row per physical card that has consumed a free trial — the key for
+    cross-account trial-abuse detection (Gate B).
+
+    Stores an HMAC of Stripe's ``PaymentMethod.card.fingerprint`` (never the raw
+    fingerprint: we only ever do equality checks, so a one-way hash is strictly
+    better and keeps a leaked DB dump useless). ``first_user_id`` is a bare id with
+    NO FK — this is fraud data retained under legitimate interest and must OUTLIVE a
+    hard-deleted account (same keep-the-record, decoupled-from-user-lifecycle
+    philosophy as ``AdminAuditLog`` / ``SaleRecord``). A later account deletion thus
+    leaves a *stale* first_user_id, which still reads as "not the current user" → a
+    reuse on a new account is still caught.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    # HMAC-SHA256 hex of the card fingerprint. UNIQUE (declared in __table_args__)
+    # — one trial per physical card, ever.
+    fingerprint_hash: str = Field(nullable=False)
+    # The account that first used this card for a trial. Bare id, no FK (see class
+    # docstring). NULL only if a writer couldn't resolve the user.
+    first_user_id: int | None = Field(default=None, index=True)
+    stripe_customer_id: str | None = Field(default=None)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_trialfingerprint_fingerprint_hash", "fingerprint_hash", unique=True
+        ),
+    )
+
+
+class InviteToken(SQLModel, table=True):
+    """One admin-generated invite link.
+
+    A single-use, time-limited token that lets whoever holds it self-register a
+    **new** account while public registration is closed (``registration_enabled``
+    stays False) — the beta-onboarding path. Same hash-not-plaintext rule as
+    ``PasswordResetToken``/``AuthSession``: only the sha256 hex is stored, so a
+    leaked DB dump can't be turned into free account creation behind the closed
+    gate.
+
+    Single-use via ``used_at`` (kept, not deleted, so a replayed link is
+    distinguishable from expired/revoked in the logs). ``revoked_at`` is separate
+    so an admin can kill a leaked/unwanted link *before* it's redeemed.
+    ``expires_at`` is indexed standalone for a future retention sweep, same as
+    ``PasswordResetToken.expires_at``.
+
+    Unlike ``PasswordResetToken`` there is no subject ``user_id`` — the invitee
+    has no account yet and supplies their own email at redemption. The two user
+    FKs here are attribution only (who minted it / who redeemed it), both
+    nullable + ``ondelete="SET NULL"`` so a later hard-delete of that admin or
+    invitee *anonymises* this row rather than cascade-deleting it — the same
+    keep-the-record philosophy as ``SaleRecord.user_id``. No ORM relationships:
+    redemption looks the row up by ``token_hash`` alone, so there's no
+    caller-supplied identity to tamper with.
+
+    ``is_comped`` is baked in at generation by the admin and copied onto the
+    created account at redemption — it is NEVER read from the invitee's request,
+    keeping ``is_comped`` server-set-only like everywhere else.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    token_hash: str = Field(
+        sa_column=Column(String(64), unique=True, index=True, nullable=False),
+    )
+    # Entitlement decided by the admin at mint time, copied onto the new account
+    # on redeem. Never trusted from the invitee's body.
+    is_comped: bool = Field(default=False, nullable=False)
+    # Optional admin label ("for Alice") so the active-invites list is legible.
+    note: str | None = Field(default=None, max_length=200)
+    # Attribution only — nullable + SET NULL so a hard-deleted admin/invitee
+    # anonymises this row instead of cascade-deleting it (cf. SaleRecord.user_id).
+    created_by_admin_id: int | None = Field(
+        default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
+    )
+    redeemed_by_user_id: int | None = Field(
+        default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+    expires_at: datetime = Field(nullable=False, index=True)
+    used_at: datetime | None = Field(default=None)
+    revoked_at: datetime | None = Field(default=None)
+
+
 class StockItem(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
@@ -219,6 +391,23 @@ class StockItem(SQLModel, table=True):
     expiration_date: date | None = Field(default=None, index=True)
 
     user: User = Relationship(back_populates="fridge_items")
+
+
+class PantryStaple(SQLModel, table=True):
+    """A per-user "always have" staple (salt, oil, flour…). Its name is excluded
+    from the generated shopping list AT GENERATION TIME, so household staples stop
+    landing on every list.
+
+    Deliberately a name-only per-user collection — the StockItem shape minus the
+    stock fields — because a staple is a membership set, not inventory (no
+    quantity, no expiry). No DB cascade and no ORM back-relationship (like
+    InviteToken): the write path is delete-all-then-insert and delete_user purges
+    it explicitly, so neither is needed. Duplicate-name protection is handled in
+    the service layer (case-insensitive dedup on the replace-all write), so the
+    table needs no unique constraint."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    name: str = Field(index=True)
 
 
 class MealPlan(SQLModel, table=True):
@@ -457,6 +646,12 @@ class LlmUsage(SQLModel, table=True):
         default=None, foreign_key="mealplan.id", index=True, ondelete="SET NULL"
     )
 
+    __table_args__ = (
+        # Serves the per-user windowed cost SUM behind the usage budget cap
+        # (user_id AND created_at >= window); the single-column indexes don't.
+        Index("ix_llmusage_user_created", "user_id", "created_at"),
+    )
+
 
 class MachineCorrection(SQLModel, table=True):
     """Append-only record of a user editing/committing machine-generated
@@ -547,6 +742,91 @@ class SaleRecord(SQLModel, table=True):
     occurred_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC), index=True, nullable=False
     )
+
+
+class FeedbackReport(SQLModel, table=True):
+    """One user-submitted bug report / feature request.
+
+    Intake pipeline: a CHEAP regex/abuse gate (``core.feedback_gate``) rejects junk
+    at submit time; the survivor is stored here as ``status="new"`` and — when
+    ``feedback_llm_triage_enabled`` — an ADVISORY LLM triage (``services.
+    feedback_triage``) fills the ``triage_*`` columns. An admin then moderates from
+    the queue. **No money and no ticket are created here**: the €1 launch feedback
+    credit + the private-repo GitHub issue are a later slice (6b), gated on a human
+    admin *Accept*, NEVER on the LLM (untrusted input + a real reward = a
+    prompt-injection/fraud surface, so the model only advises).
+
+    ``kind`` / ``message`` / ``page`` are USER INPUT: length-bounded at the API
+    layer, stored verbatim, only ever rendered as escaped React text on the admin
+    dashboard, and — in ``feedback_triage`` — fed to the model under an explicit
+    "treat this as data, not instructions" contract. The ``triage_*`` fields are
+    MODEL OUTPUT, equally untrusted; nothing downstream acts on them automatically.
+
+    ``user_id`` is ``ondelete="CASCADE"`` — a report carries no money/tax record (the
+    credit lands on Stripe's ledger in 6b, not here), so it is safe to remove with
+    the account, unlike ``SaleRecord``. ``reviewed_by_admin_id`` is a bare id with no
+    FK so it survives a later admin deletion (cf. ``AdminAuditLog``).
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    # The reporter's self-declared category: "bug" | "feature" | "other". Validated
+    # at the API layer against a server-side set; advisory only (the LLM may
+    # reclassify into triage_type). Loose str so a new category needs no migration.
+    kind: str = Field(nullable=False)
+    # The report body — user input, length-bounded at the API layer.
+    message: str = Field(nullable=False)
+    # Optional client-supplied context (the app view/route the user was on when they
+    # reported). Untrusted, bounded at the API layer. NULL when not supplied.
+    page: str | None = Field(default=None)
+    # Moderation lifecycle: "new" (unmoderated) | "reviewing" | "accepted" |
+    # "rejected" | "spam". Loose str (not an enum column) so a new state needs no
+    # migration; allowed transitions are enforced in the admin API. This tracks the
+    # HUMAN decision only — advisory triage state is separate (triage_status below),
+    # so a report stays "new" (in the admin queue) after auto-triage. "accepted" is
+    # reserved for the money-moving 6b slice and is NOT settable by the 6a PATCH.
+    status: str = Field(
+        default="new", sa_column_kwargs={"server_default": "new"}, nullable=False, index=True
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+    )
+
+    # --- Advisory LLM triage (services.feedback_triage). All nullable: absent until
+    # triage runs and STAYS absent when the LLM is disabled/unavailable. NEVER
+    # authorizes anything — a human Accept is the sole money/ticket trigger. ---
+    # "pending" (scheduled) | "done" | "failed" | NULL (never attempted).
+    triage_status: str | None = Field(default=None)
+    triage_is_actionable: bool | None = Field(default=None)
+    # The model's own classification, richer than user `kind`: e.g. "bug" |
+    # "feature" | "question" | "spam" | "praise" | "other".
+    triage_type: str | None = Field(default=None)
+    triage_severity: str | None = Field(default=None)  # "low" | "medium" | "high"
+    triage_title: str | None = Field(default=None)
+    triage_summary: str | None = Field(default=None)
+    # Full FeedbackTriage.model_dump_json() (title, summary, repro, dedupe_hint, …)
+    # kept for the record so 6b ticket creation needs no second LLM call.
+    triage_json: str | None = Field(default=None)
+
+    # --- Moderation bookkeeping ---
+    # Bare id, no FK (survives a later admin hard-delete — see class docstring).
+    reviewed_by_admin_id: int | None = Field(default=None)
+    reviewed_at: datetime | None = Field(default=None)
+
+    # --- 6b: credit + ticket (set on admin ACCEPT only; NEVER by the LLM/triage) ---
+    # The Stripe customer-balance credit granted for this accepted report, in minor
+    # units (e.g. 100 = €1). NULL = no credit granted. credit_granted_at doubles as the
+    # idempotency marker (a report is credited at most once) and feeds the per-user
+    # rolling-window rate cap. Both stay NULL when the credit is disabled/ineligible/
+    # capped, or the grant failed (retryable via a repeat Accept).
+    credit_cents: int | None = Field(default=None)
+    credit_granted_at: datetime | None = Field(default=None)
+    # URL of the GitHub Issue opened for this report in the private tickets repo. NULL
+    # when ticketing is unconfigured or the create failed (retryable). Never the raw
+    # issue body — just the link.
+    ticket_url: str | None = Field(default=None)
 
 
 class BillingAlert(SQLModel, table=True):

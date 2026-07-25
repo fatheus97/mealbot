@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthLoginResponse, AuthState } from "../types";
-import { authFetch } from "../api.ts";
+import { authFetch, redeemInvite } from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError } from "./authErrors";
 import { captureAttribution, getStoredAttribution } from "../utils/attribution";
@@ -49,6 +49,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // round-trip on deployments where registration is actually open).
   const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null);
+  // Whether the annual plan is offered (from /config). Defaults false so the paywall
+  // shows monthly-only until config resolves — never a toggle that 400s on submit.
+  const [annualBillingAvailable, setAnnualBillingAvailable] = useState<boolean>(false);
   const queryClient = useQueryClient();
 
   const applyProfile = useCallback((profile: AuthLoginResponse, demoFlag: boolean) => {
@@ -149,13 +152,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // vi.fn() (returns undefined) safe.
     Promise.resolve(authFetch("/config"))
       .then((r) => (r?.ok ? r.json() : null))
-      .then((data: { demo_mode?: boolean; registration_enabled?: boolean } | null) => {
-        setDemoEnabled(Boolean(data?.demo_mode));
-        setRegistrationEnabled(Boolean(data?.registration_enabled));
-      })
+      .then(
+        (
+          data: {
+            demo_mode?: boolean;
+            registration_enabled?: boolean;
+            annual_billing_available?: boolean;
+          } | null,
+        ) => {
+          setDemoEnabled(Boolean(data?.demo_mode));
+          setRegistrationEnabled(Boolean(data?.registration_enabled));
+          setAnnualBillingAvailable(Boolean(data?.annual_billing_available));
+        },
+      )
       .catch(() => {
         setDemoEnabled(false);
         setRegistrationEnabled(false);
+        setAnnualBillingAvailable(false);
       });
 
     // Reconcile the localStorage render hint with the server. If we have a
@@ -252,6 +265,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [login]);
 
+  const registerViaInvite = useCallback(
+    async (token: string, newEmail: string, password: string): Promise<void> => {
+      // Redeem the invite (201, message-only) then auto-login so the invitee
+      // lands in an authenticated session — frictionless beta onboarding, unlike
+      // password-reset which deliberately does NOT log in. A login-phase failure
+      // is wrapped so the caller can say "account created, just sign in".
+      await redeemInvite(token, newEmail, password);
+      try {
+        await login(newEmail, password);
+      } catch (err) {
+        throw new AutoLoginAfterRegisterError(err);
+      }
+    },
+    [login],
+  );
+
   const loginDemo = useCallback(async (): Promise<void> => {
     const resp = await authFetch("/auth/demo", { method: "POST" });
     if (!resp.ok) throw new Error(`Demo session failed: ${resp.status}`);
@@ -282,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

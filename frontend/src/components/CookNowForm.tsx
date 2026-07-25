@@ -20,7 +20,9 @@ import {
   mealTypeLabel,
   type MealType,
 } from "../constants/mealTypes";
+import { DietarySelector } from "./DietarySelector";
 import type {
+  Allergen,
   CookRecipeRequest,
   DietType,
   PlannedMeal,
@@ -50,7 +52,8 @@ export function CookNowForm() {
   );
 
   const [mealType, setMealType] = useState<MealType>("main_course");
-  const [dietType, setDietType] = useState<DietType | "">("");
+  const [dietTypes, setDietTypes] = useState<DietType[]>([]);
+  const [allergens, setAllergens] = useState<Allergen[]>([]);
   const [peopleCount, setPeopleCount] = useState(2);
   const [tastePreferences, setTastePreferences] = useState("");
   const [avoidIngredients, setAvoidIngredients] = useState("");
@@ -86,7 +89,8 @@ export function CookNowForm() {
 
   const buildRequest = (): SingleRecipeRequest => ({
     meal_type: mealType,
-    diet_type: dietType === "" ? null : dietType,
+    diet_types: dietTypes,
+    allergens,
     people_count: peopleCount,
     taste_preferences: parseList(tastePreferences),
     avoid_ingredients: parseList(avoidIngredients),
@@ -193,23 +197,6 @@ export function CookNowForm() {
         </label>
 
         <label>
-          Diet
-          <select
-            value={dietType}
-            onChange={(e) => setDietType(e.target.value as DietType | "")}
-            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
-          >
-            <option value="">(None)</option>
-            <option value="balanced">Balanced</option>
-            <option value="high_protein">High Protein</option>
-            <option value="low_carb">Low Carb</option>
-            <option value="vegetarian">Vegetarian</option>
-            <option value="vegan">Vegan</option>
-            <option value="baby_food">Baby food (6–12 mo)</option>
-          </select>
-        </label>
-
-        <label>
           People
           <input
             type="number"
@@ -220,6 +207,23 @@ export function CookNowForm() {
             style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
           />
         </label>
+
+        <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <DietarySelector
+            dietTypes={dietTypes}
+            allergens={allergens}
+            onToggleDiet={(d) =>
+              setDietTypes((prev) =>
+                prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d],
+              )
+            }
+            onToggleAllergen={(a) =>
+              setAllergens((prev) =>
+                prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a],
+              )
+            }
+          />
+        </div>
 
         <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <input
