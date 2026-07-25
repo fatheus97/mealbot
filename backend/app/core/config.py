@@ -118,8 +118,14 @@ class Settings(BaseSettings):
     billing_enabled: bool = False
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
-    # The recurring Price (e.g. €10/mo) the Checkout subscribes the user to.
+    # The recurring MONTHLY Price the Checkout subscribes the user to (the baseline
+    # plan; billing_configured() requires it).
     stripe_price_id: str | None = None
+    # The recurring ANNUAL Price ("€2.99/mo billed annually"). Optional: when unset,
+    # the checkout offers monthly only and an annual request is rejected. Kept
+    # separate from stripe_price_id so annual is additive and the monthly baseline
+    # never depends on it.
+    stripe_price_id_annual: str | None = None
     # Absolute base URL of the SPA — Checkout/Portal redirect back here.
     frontend_base_url: str = "http://localhost:5173"
     # 10-day free trial before the first charge.

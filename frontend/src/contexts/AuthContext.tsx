@@ -49,6 +49,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // round-trip on deployments where registration is actually open).
   const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null);
+  // Whether the annual plan is offered (from /config). Defaults false so the paywall
+  // shows monthly-only until config resolves — never a toggle that 400s on submit.
+  const [annualBillingAvailable, setAnnualBillingAvailable] = useState<boolean>(false);
   const queryClient = useQueryClient();
 
   const applyProfile = useCallback((profile: AuthLoginResponse, demoFlag: boolean) => {
@@ -149,13 +152,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // vi.fn() (returns undefined) safe.
     Promise.resolve(authFetch("/config"))
       .then((r) => (r?.ok ? r.json() : null))
-      .then((data: { demo_mode?: boolean; registration_enabled?: boolean } | null) => {
-        setDemoEnabled(Boolean(data?.demo_mode));
-        setRegistrationEnabled(Boolean(data?.registration_enabled));
-      })
+      .then(
+        (
+          data: {
+            demo_mode?: boolean;
+            registration_enabled?: boolean;
+            annual_billing_available?: boolean;
+          } | null,
+        ) => {
+          setDemoEnabled(Boolean(data?.demo_mode));
+          setRegistrationEnabled(Boolean(data?.registration_enabled));
+          setAnnualBillingAvailable(Boolean(data?.annual_billing_available));
+        },
+      )
       .catch(() => {
         setDemoEnabled(false);
         setRegistrationEnabled(false);
+        setAnnualBillingAvailable(false);
       });
 
     // Reconcile the localStorage render hint with the server. If we have a
@@ -298,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

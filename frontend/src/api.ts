@@ -8,6 +8,7 @@ import type {
   AdminUserRoleFilter,
   AdminUserStatusFilter,
   AdminUserUpdate,
+  BillingPlan,
   CookRecipeRequest,
   FeedbackCreateRequest,
   FeedbackModerationStatus,
@@ -132,8 +133,11 @@ export async function authFetch(
   return response;
 }
 
-export async function createCheckoutSession(): Promise<string> {
-  const res = await authFetch("/billing/checkout", { method: "POST" });
+export async function createCheckoutSession(plan: BillingPlan = "monthly"): Promise<string> {
+  const res = await authFetch("/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan }),
+  });
   if (!res.ok) {
     throw new Error(await extractBillingError(res, "Could not start checkout"));
   }

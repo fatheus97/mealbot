@@ -17,7 +17,11 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
-from app.models.billing_schemas import BillingUrlResponse, WebhookAck
+from app.models.billing_schemas import (
+    BillingUrlResponse,
+    CheckoutRequest,
+    WebhookAck,
+)
 from app.models.db_models import User
 from app.services import revenue_service, stripe_service, trial_guard
 
@@ -35,15 +39,21 @@ def _require_billing_available() -> None:
 @limiter.limit("10/minute", key_func=user_id_key_func)
 async def create_checkout(
     request: Request,
+    body: CheckoutRequest = CheckoutRequest(),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> BillingUrlResponse:
-    """Start a subscription Checkout (10-day trial → the configured price)."""
+    """Start a subscription Checkout (10-day trial) for the chosen plan."""
     _require_billing_available()
     if current_user.is_demo:
         raise HTTPException(status_code=403, detail="Demo accounts cannot subscribe.")
+    # Reject an annual request when annual isn't configured — a client-side error
+    # (400), distinct from a Stripe outage (502 below). Never silently fall back to
+    # monthly and charge the wrong plan.
+    if body.plan == "annual" and not stripe_service.annual_available():
+        raise HTTPException(status_code=400, detail="Annual billing is not available.")
     try:
-        url = await stripe_service.create_checkout_session(current_user, session)
+        url = await stripe_service.create_checkout_session(current_user, session, body.plan)
     except Exception:
         logger.exception("Checkout creation failed for user %s", current_user.id)
         raise HTTPException(status_code=502, detail="Could not start checkout.") from None
