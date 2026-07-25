@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -201,6 +202,55 @@ describe("UserManagementPanel", () => {
     const toast = await screen.findByRole("status");
     expect(toast).toHaveTextContent("Deactivated 2 users.");
     expect(toast).toHaveStyle({ position: "fixed" });
+  });
+
+  it("keeps the selection alive once the search-debounce window elapses", async () => {
+    // Regression for a mount-timer race: the search-debounce effect runs once on
+    // mount (searchInput starts "") and, ~250ms later, fired setSelected(new
+    // Set()) — silently wiping a batch the admin had already selected. In prod the
+    // real fetch resolves long after 250ms so the timer clears an empty set before
+    // any row can be picked; but with the mocked instant fetch the timer overlaps
+    // interaction, so under suite-wide load it landed BETWEEN select-all and the
+    // bulk click and the action ran on an empty set (0 mutations). Waiting past the
+    // 250ms window makes that deterministic: with the fix (no timer is scheduled
+    // while the input already equals the applied query) the selection always
+    // survives; the pre-fix code wiped it here.
+    //
+    // Rendered under StrictMode, as the real app is (main.tsx), so the mount
+    // effects run under React's dev setup->cleanup->setup double-invoke — the
+    // fix's value guard must hold across BOTH setups (unlike a ref-based
+    // "skip first run" guard, which is not double-invoke-safe).
+    const users = [mkUser({ id: 1, email: "a@example.com" }), mkUser({ id: 2, email: "b@example.com" })];
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp(users));
+    vi.mocked(api.updateAdminUser).mockResolvedValue(mkUser());
+    const user = userEvent.setup();
+    renderWithProviders(
+      <StrictMode>
+        <UserManagementPanel />
+      </StrictMode>,
+    );
+    await screen.findByText("a@example.com");
+
+    await user.click(screen.getByLabelText("Select all users on this page"));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+
+    // Let the (mount) debounce interval fully elapse — real timer, so ≥250ms.
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Selection — and the bulk bar — must still be intact.
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole("region", { name: "Bulk actions" })).getByRole("button", {
+        name: "Deactivate",
+      }),
+    );
+
+    // The batch still fires for every id — proving the debounce settle did not
+    // drop the selection out from under the action.
+    await waitFor(() => {
+      expect(api.updateAdminUser).toHaveBeenCalledWith(1, { is_active: false });
+      expect(api.updateAdminUser).toHaveBeenCalledWith(2, { is_active: false });
+    });
   });
 
   it("bulk-reactivates the selection", async () => {
