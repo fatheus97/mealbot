@@ -34,6 +34,22 @@ describe("IngredientChipInput", () => {
     expect(screen.getByTestId("state").textContent).toBe("basil");
   });
 
+  it("splits a pasted comma-list into separate chips (no chip keeps a comma)", async () => {
+    // A paste lands as one onChange with commas intact (unlike typing, where the comma
+    // key commits per value). Committing must split it, so a chip can never contain a
+    // comma — otherwise a downstream comma-join/split round-trip (MealPlanner's persisted
+    // "avoid" string) would re-split the chip and silently multiply the list.
+    const user = userEvent.setup();
+    render(<Harness suggestions={[]} />);
+
+    const input = screen.getByPlaceholderText("type here");
+    await user.click(input);
+    await user.paste("peanut, butter, jam");
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByTestId("state").textContent).toBe("peanut|butter|jam");
+  });
+
   it("shows fridge autocomplete suggestions as user types", async () => {
     const user = userEvent.setup();
     render(<Harness suggestions={["chicken breast", "chickpeas", "rice"]} />);
