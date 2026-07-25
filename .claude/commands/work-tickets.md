@@ -29,8 +29,9 @@ Arguments: $ARGUMENTS
      - billing / Stripe / money, or auth / session / security;
      - **allergy / dietary-restriction filtering, allergen screening, or any nutrition / health-safety logic** — the flagship safety surface; a wrong "nut-free" plan is a real liability, so a fix here never auto-merges on our own tests + our own review, no matter how small the diff;
      - **CI/CD (`.github/workflows/*`), Docker, or any quality/security gate** (mypy-strict, ruff, gitleaks/secret scan, the review guard) — these ARE the safety net the rest of this autonomy model depends on, so a human looks before they change;
+     - **a breaking change to an existing endpoint's request/response contract** — a field removed / renamed / retyped, stricter validation that 422s previously-valid input, or changed status codes — backward-incompatible for existing clients (the frontend, integrations) even when the diff is one line; this is distinct from a *new* endpoint;
      - a DB migration, a new feature or endpoint, a large or cross-cutting diff — or anything you are not confident about.
-   - **When unsure, treat it as BIG.**
+   - **When unsure, treat it as BIG** — the test is blast radius (who breaks if this is wrong or incompatible?), not diff size.
 
 4. **Implement** on a feature branch off `main` (never off another open branch — see `feedback_pr_base_branch`):
    - Follow `CLAUDE.md` + everything in `.claude/rules/` exactly (type safety, specific error handling, async correctness, frontend theme/CLS/a11y, testing).
