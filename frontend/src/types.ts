@@ -273,6 +273,9 @@ export interface AuthLoginResponse {
   is_comped: boolean;
 }
 
+/** Subscription plan the user can pick at checkout. */
+export type BillingPlan = "monthly" | "annual";
+
 export interface AuthState {
   userId: number | null;
   email: string;
@@ -285,6 +288,10 @@ export interface AuthState {
   // resolves to true).
   demoEnabled: boolean | null;
   registrationEnabled: boolean | null;
+  // Whether the annual plan is offered at checkout (from /config). Defaults false
+  // (monthly-only) until config resolves, so the paywall never shows a toggle that
+  // would 400 on submit.
+  annualBillingAvailable: boolean;
   // Billing state, sourced from the same profile payload as the rest. null-ish
   // defaults ("none"/null/false) hold until the profile resolves.
   subscriptionStatus: SubscriptionStatus;

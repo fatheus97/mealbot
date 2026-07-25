@@ -365,13 +365,184 @@ async def test_checkout_returns_url(client: AsyncClient, monkeypatch):
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
 
-    async def _fake_checkout(user, session):
+    async def _fake_checkout(user, session, plan="monthly"):
         return "https://checkout.stripe.test/session/abc"
 
     monkeypatch.setattr(stripe_service, "create_checkout_session", _fake_checkout)
     resp = await client.post("/api/billing/checkout")
     assert resp.status_code == 200
     assert resp.json()["url"] == "https://checkout.stripe.test/session/abc"
+
+
+# --------------------------------------------------------------------------- #
+# Plan selection (monthly / annual) + annual detection — the reprice PR
+# --------------------------------------------------------------------------- #
+def test_price_id_for_plan_resolves_each_plan(monkeypatch):
+    monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
+    assert stripe_service._price_id_for_plan("monthly") == "price_monthly"
+    assert stripe_service._price_id_for_plan("annual") == "price_annual"
+
+
+def test_price_id_for_plan_annual_unconfigured_raises(monkeypatch):
+    monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", None)
+    with pytest.raises(RuntimeError):
+        stripe_service._price_id_for_plan("annual")
+
+
+def test_annual_available_reflects_config(monkeypatch):
+    monkeypatch.setattr(settings, "stripe_price_id_annual", None)
+    assert stripe_service.annual_available() is False
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
+    assert stripe_service.annual_available() is True
+
+
+async def test_create_checkout_uses_annual_price(
+    test_user: User, db_session: AsyncSession, monkeypatch
+):
+    """plan='annual' must put the ANNUAL price id in the Checkout line item — the
+    regression guard against silently charging the monthly price for an annual pick."""
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
+    test_user.stripe_customer_id = "cus_existing"
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    captured: dict = {}
+
+    class _FakeSession:
+        url = "https://checkout.stripe.test/session/annual"
+
+    def _fake_session_create(**kwargs):
+        captured.update(kwargs)
+        return _FakeSession()
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", _fake_session_create)
+
+    url = await stripe_service.create_checkout_session(test_user, db_session, "annual")
+    assert url == "https://checkout.stripe.test/session/annual"
+    assert captured["line_items"] == [{"price": "price_annual", "quantity": 1}]
+
+
+def test_apply_subscription_stores_price_id():
+    user = _user()
+    stripe_service.apply_subscription(
+        user,
+        {
+            "id": "sub_a",
+            "status": "active",
+            "items": {"data": [{"price": {"id": "price_annual"}}]},
+        },
+    )
+    assert user.subscription_price_id == "price_annual"
+
+
+def test_apply_subscription_keeps_price_id_when_payload_lacks_items():
+    # A payload without items (or without a price) must NOT blank a known price id.
+    user = _user(subscription_price_id="price_monthly")
+    stripe_service.apply_subscription(user, {"id": "s", "status": "active"})
+    assert user.subscription_price_id == "price_monthly"
+
+
+def test_apply_subscription_reads_bare_string_price():
+    # Tolerate items[0].price being the bare id string (unexpanded) — the _extract_
+    # price_id str branch, so a differently-expanded webhook still mirrors the plan.
+    user = _user()
+    stripe_service.apply_subscription(
+        user,
+        {"id": "s", "status": "active", "items": {"data": [{"price": "price_annual"}]}},
+    )
+    assert user.subscription_price_id == "price_annual"
+
+
+def test_apply_subscription_plan_switch_overwrites_price_id():
+    # A Customer-Portal switch monthly→annual arrives as a NEWER event and must
+    # update the mirrored price id (so is_annual/6b sees the new plan).
+    user = _user(subscription_price_id="price_monthly", subscription_event_ts=100)
+    applied = stripe_service.apply_subscription(
+        user,
+        {"id": "s", "status": "active", "items": {"data": [{"price": {"id": "price_annual"}}]}},
+        event_created=200,
+    )
+    assert applied is True
+    assert user.subscription_price_id == "price_annual"
+
+
+def test_apply_subscription_stale_event_does_not_clobber_price_id():
+    # The monotonic guard: a STALE event (older than the last applied) is skipped
+    # wholesale, so it can never overwrite the price id with an out-of-order plan —
+    # the money-critical interaction 6b's annual detection depends on.
+    user = _user(subscription_price_id="price_annual", subscription_event_ts=200)
+    applied = stripe_service.apply_subscription(
+        user,
+        {"id": "s", "status": "active", "items": {"data": [{"price": {"id": "price_monthly"}}]}},
+        event_created=100,  # older than 200 → skipped
+    )
+    assert applied is False
+    assert user.subscription_price_id == "price_annual"  # unchanged
+
+
+def test_is_annual(monkeypatch):
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
+    assert stripe_service.is_annual(_user(subscription_price_id="price_annual")) is True
+    assert stripe_service.is_annual(_user(subscription_price_id="price_monthly")) is False
+    assert stripe_service.is_annual(_user(subscription_price_id=None)) is False
+    # Annual not configured → nobody is "annual".
+    monkeypatch.setattr(settings, "stripe_price_id_annual", None)
+    assert stripe_service.is_annual(_user(subscription_price_id="price_annual")) is False
+
+
+async def test_checkout_annual_400_when_unconfigured(client: AsyncClient, monkeypatch):
+    monkeypatch.setattr(settings, "billing_enabled", True)
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", None)
+
+    async def _boom(*a, **k):  # must never be reached — the 400 fires first
+        raise AssertionError("checkout must not start for an unavailable annual plan")
+
+    monkeypatch.setattr(stripe_service, "create_checkout_session", _boom)
+    resp = await client.post("/api/billing/checkout", json={"plan": "annual"})
+    assert resp.status_code == 400
+
+
+async def test_checkout_forwards_selected_plan(client: AsyncClient, monkeypatch):
+    monkeypatch.setattr(settings, "billing_enabled", True)
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
+
+    captured: dict = {}
+
+    async def _fake_checkout(user, session, plan="monthly"):
+        captured["plan"] = plan
+        return "https://checkout.stripe.test/session/x"
+
+    monkeypatch.setattr(stripe_service, "create_checkout_session", _fake_checkout)
+    resp = await client.post("/api/billing/checkout", json={"plan": "annual"})
+    assert resp.status_code == 200
+    assert captured["plan"] == "annual"
+
+
+async def test_checkout_invalid_plan_422(client: AsyncClient, monkeypatch):
+    monkeypatch.setattr(settings, "billing_enabled", True)
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
+    resp = await client.post("/api/billing/checkout", json={"plan": "weekly"})
+    assert resp.status_code == 422
+
+
+async def test_config_exposes_annual_availability(client: AsyncClient, monkeypatch):
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
+    resp = await client.get("/api/config")
+    assert resp.status_code == 200
+    assert resp.json()["annual_billing_available"] is True
+    monkeypatch.setattr(settings, "stripe_price_id_annual", None)
+    resp = await client.get("/api/config")
+    assert resp.json()["annual_billing_available"] is False
 
 
 async def test_checkout_502_on_stripe_error(client: AsyncClient, monkeypatch):

@@ -135,6 +135,12 @@ class User(SQLModel, table=True):
     subscription_event_ts: int | None = Field(
         default=None, sa_column=Column(BigInteger, nullable=True)
     )
+    # The Stripe Price id the active subscription is on (from the subscription's
+    # first item), mirrored by apply_subscription. This is how we tell the MONTHLY
+    # plan from the ANNUAL one — e.g. so the launch feedback €1 credit (6b) can
+    # exclude annual subscribers (already effectively discounted). NULL until the
+    # first subscription event lands (and for every pre-reprice row). Server-set only.
+    subscription_price_id: str | None = Field(default=None)
 
     # One free trial per account, EVER (trial-abuse guard, Gate A). Set True once a
     # user has started a trial (or been clawed back for reusing a card); a repeat
