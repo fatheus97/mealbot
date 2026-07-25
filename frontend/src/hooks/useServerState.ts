@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus } from '../types';
-import { authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, type AdminFeedbackQuery } from '../api';
+import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, type AdminFeedbackQuery } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -635,6 +635,15 @@ export function useRetriageFeedback() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => retriageAdminFeedback(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
+  });
+}
+
+// The money-mover: Accept → €1 credit (if eligible) + private-repo ticket.
+export function useAcceptFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => acceptAdminFeedback(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
   });
 }

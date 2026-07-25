@@ -1,10 +1,12 @@
-"""Admin feedback moderation endpoints: list / detail / moderate / retriage.
+"""Admin feedback moderation endpoints: list / detail / moderate / retriage / accept.
 
 Covers the require_admin gate, the queue projection (preview + advisory triage), the
-moderation status transitions + audit trail, that "accepted" is refused at the schema
-layer (it's the money-moving 6b action), and on-demand retriage.
+moderation status transitions + audit trail, that "accepted" is refused at the PATCH
+schema layer (it's the money-moving 6b action, done via the dedicated /accept endpoint),
+on-demand retriage, and the Accept (credit + ticket) orchestration.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -306,4 +308,112 @@ class TestRetriage:
     ) -> None:
         await _make_admin(db_session, test_user)
         resp = await client.post("/api/admin/feedback/999999/retriage")
+        assert resp.status_code == 404
+
+
+async def _feedback_accept_audits(db_session: AsyncSession) -> list[AdminAuditLog]:
+    return (
+        await db_session.execute(
+            select(AdminAuditLog).where(AdminAuditLog.action == "feedback.accept")
+        )
+    ).scalars().all()
+
+
+class TestAccept:
+    async def test_non_admin_403(self, client: AsyncClient, test_user: User) -> None:
+        assert (await client.post("/api/admin/feedback/1/accept")).status_code == 403
+
+    async def test_accept_new_report_sets_status_and_audits(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+        with (
+            patch("app.api.admin.feedback_credit.maybe_grant_credit", AsyncMock(return_value=False)),
+            patch("app.api.admin.feedback_ticket.ticket_configured", return_value=False),
+        ):
+            resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "accepted"
+        assert body["reviewed_by_admin_id"] == test_user.id
+        assert body["reviewed_at"] is not None
+        assert body["credit_cents"] is None
+        audits = await _feedback_accept_audits(db_session)
+        assert len(audits) == 1
+        assert audits[0].detail == {"feedback_id": str(report.id), "credited": "False"}
+
+    async def test_accept_grants_credit_and_records_it(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+
+        async def _grant(session, r, reporter):
+            r.credit_cents = 100
+            r.credit_granted_at = datetime.now(UTC)
+            return True
+
+        with (
+            patch("app.api.admin.feedback_credit.maybe_grant_credit", _grant),
+            patch("app.api.admin.feedback_ticket.ticket_configured", return_value=False),
+        ):
+            resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 200
+        assert resp.json()["credit_cents"] == 100
+        audits = await _feedback_accept_audits(db_session)
+        assert audits[0].detail["credited"] == "True"
+
+    async def test_accept_creates_ticket_when_configured(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+        with (
+            patch("app.api.admin.feedback_credit.maybe_grant_credit", AsyncMock(return_value=False)),
+            patch("app.api.admin.feedback_ticket.ticket_configured", return_value=True),
+            patch(
+                "app.api.admin.feedback_ticket.create_issue_for_report",
+                AsyncMock(return_value="https://github.com/owner/tickets/issues/3"),
+            ),
+        ):
+            resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 200
+        assert resp.json()["ticket_url"] == "https://github.com/owner/tickets/issues/3"
+
+    async def test_accept_rejected_report_409(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id, status="rejected")
+        resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 409
+
+    async def test_accept_is_idempotent_no_double_audit_but_retries_credit(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # Re-accepting an already-accepted report: no new audit, but the credit is
+        # re-attempted (idempotency-keyed in the service, so never a double credit).
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id, status="accepted")
+        grant = AsyncMock(return_value=False)
+        with (
+            patch("app.api.admin.feedback_credit.maybe_grant_credit", grant),
+            patch("app.api.admin.feedback_ticket.ticket_configured", return_value=False),
+        ):
+            resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 200
+        assert await _feedback_accept_audits(db_session) == []  # no audit on re-accept
+        grant.assert_awaited_once()  # credit retried
+
+    async def test_accept_404(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        resp = await client.post("/api/admin/feedback/999999/accept")
         assert resp.status_code == 404

@@ -131,24 +131,34 @@ def _extract_price_id(subscription: dict[str, Any]) -> str | None:
     return None
 
 
+def annual_price_ids() -> frozenset[str]:
+    """Every Price id that counts as ANNUAL: the current annual id + any retired ones
+    in ``stripe_price_ids_annual_legacy`` (comma-separated). The allow-list is what
+    makes annual detection rotation-safe."""
+    ids: set[str] = set()
+    if settings.stripe_price_id_annual:
+        ids.add(settings.stripe_price_id_annual)
+    if settings.stripe_price_ids_annual_legacy:
+        ids.update(
+            p.strip() for p in settings.stripe_price_ids_annual_legacy.split(",") if p.strip()
+        )
+    return frozenset(ids)
+
+
 def is_annual(user: User) -> bool:
     """Whether the user's active subscription is on the ANNUAL plan (vs monthly).
 
     Used to exclude annual subscribers from the monthly-only launch feedback credit
-    (6b) — an annual plan is already the discounted tier. False when annual isn't
+    (6b) — an annual plan is already the discounted tier. False when no annual Price is
     configured, or the user's mirrored price id is unknown/monthly.
 
-    ⚠️ ROTATION BLIND SPOT (fix before ever rotating the annual Price): this compares
-    only against the CURRENTLY-configured annual Price id. If the annual Price is ever
-    replaced (repriced → new Stripe Price object) while existing annual subscribers
-    stay on the OLD id, this would start returning False for those grandfathered
-    subscribers — money-critical for 6b's credit exclusion. When 6b wires this to real
-    money (or before any annual reprice), switch to an allow-list of historical annual
-    Price ids (e.g. a comma-separated STRIPE_PRICE_IDS_ANNUAL, or a Stripe price
-    metadata tag). Monthly rotation is harmless — nothing compares against
-    stripe_price_id."""
-    annual_id = settings.stripe_price_id_annual
-    return bool(annual_id) and user.subscription_price_id == annual_id
+    ROTATION-SAFE: compares against the current annual id AND the historical allow-list
+    (``stripe_price_ids_annual_legacy``), so replacing the annual Price never
+    reclassifies grandfathered annual subscribers (still on the old id) as monthly —
+    which would wrongly grant them the monthly-only credit. Monthly rotation is
+    harmless; nothing compares against ``stripe_price_id``."""
+    price_id = user.subscription_price_id
+    return price_id is not None and price_id in annual_price_ids()
 
 
 def apply_subscription(
@@ -331,3 +341,43 @@ async def end_trial_now(subscription_id: str) -> None:
     await asyncio.to_thread(
         stripe.Subscription.modify, subscription_id, trial_end="now"
     )
+
+
+# --- Feedback credit (6b): customer-balance credit -------------------------------
+
+
+async def grant_customer_credit(
+    customer_id: str, amount_cents: int, idempotency_key: str
+) -> None:
+    """Grant a customer-balance CREDIT of ``amount_cents`` (minor units, positive) —
+    Stripe subtracts it from the customer's next invoice.
+
+    Stripe's customer balance is NEGATIVE for a credit, so we post ``-amount``. The
+    ``idempotency_key`` (one per feedback report) makes a retry a no-op: Stripe returns
+    the same balance transaction instead of granting twice. Raises on a Stripe error
+    (the caller decides whether to surface or swallow)."""
+    _require_stripe()
+    await asyncio.to_thread(
+        lambda: stripe.Customer.create_balance_transaction(
+            customer_id,
+            amount=-abs(amount_cents),
+            currency="eur",
+            description="Mealbot feedback credit",
+            idempotency_key=idempotency_key,
+        )
+    )
+
+
+async def customer_credit_balance_cents(customer_id: str) -> int:
+    """The customer's current CREDIT balance in minor units (>= 0).
+
+    Stripe's ``customer.balance`` is negative for a credit and positive when the
+    customer owes; we return the credit magnitude (0 when they owe / have none). Used
+    for the never-€0 floor: don't grant if the outstanding credit is already near the
+    monthly price. Reads via ``to_dict()`` (stripe>=15 objects aren't dicts)."""
+    _require_stripe()
+    customer = await asyncio.to_thread(stripe.Customer.retrieve, customer_id)
+    balance = customer.to_dict().get("balance")
+    if not isinstance(balance, int):
+        return 0
+    return -balance if balance < 0 else 0

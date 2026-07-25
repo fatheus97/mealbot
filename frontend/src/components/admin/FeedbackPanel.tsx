@@ -1,6 +1,8 @@
 import { type CSSProperties, useState } from "react";
 import { ModalShell } from "../ModalShell";
+import { ConfirmDialog } from "../ConfirmDialog";
 import {
+  useAcceptFeedback,
   useAdminFeedback,
   useAdminFeedbackDetail,
   useModerateFeedback,
@@ -220,7 +222,9 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
   const detailQuery = useAdminFeedbackDetail(id);
   const moderate = useModerateFeedback();
   const retriage = useRetriageFeedback();
+  const accept = useAcceptFeedback();
   const [error, setError] = useState<string | null>(null);
+  const [confirmAccept, setConfirmAccept] = useState(false);
   const d = detailQuery.data;
 
   function doModerate(status: FeedbackModerationStatus): void {
@@ -235,6 +239,17 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
     setError(null);
     retriage.mutate(id, {
       onError: (e) => setError(e instanceof Error ? e.message : "Could not re-run triage."),
+    });
+  }
+
+  function doAccept(): void {
+    setError(null);
+    accept.mutate(id, {
+      onSuccess: () => setConfirmAccept(false),
+      onError: (e) => {
+        setError(e instanceof Error ? e.message : "Could not accept the report.");
+        setConfirmAccept(false);
+      },
     });
   }
 
@@ -262,8 +277,20 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
               {d.page ? ` · from ${d.page}` : ""}
             </div>
 
-            <div style={{ marginBottom: "0.5rem" }}>
+            <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.5rem" }}>
               <StatusBadge status={d.status} />
+              {d.credit_granted_at ? (
+                <Pill text={`€${((d.credit_cents ?? 0) / 100).toFixed(2)} credited`} bg="#dcfce7" fg="#166534" />
+              ) : d.status === "accepted" ? (
+                <Pill text="no credit" bg="#f3f4f6" fg="#6b7280" />
+              ) : null}
+              {d.ticket_url ? (
+                <a href={d.ticket_url} target="_blank" rel="noreferrer" style={ticketLink}>
+                  🎫 Ticket
+                </a>
+              ) : d.status === "accepted" ? (
+                <Pill text="no ticket" bg="#f3f4f6" fg="#6b7280" />
+              ) : null}
             </div>
 
             <div style={messageBox}>{d.message}</div>
@@ -306,7 +333,33 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
               </div>
             )}
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "1.25rem" }}>
+            {/* Accept — the money-mover: €1 credit + private-repo ticket. Kept apart
+                from the (free) moderation actions and gated behind a confirm. */}
+            <div style={{ marginTop: "1.25rem" }}>
+              <button
+                type="button"
+                onClick={() => setConfirmAccept(true)}
+                disabled={accept.isPending || d.status === "rejected" || d.status === "spam"}
+                title={
+                  d.status === "rejected" || d.status === "spam"
+                    ? "Reopen before accepting"
+                    : undefined
+                }
+                style={{
+                  ...acceptBtn,
+                  opacity:
+                    accept.isPending || d.status === "rejected" || d.status === "spam" ? 0.5 : 1,
+                }}
+              >
+                {accept.isPending
+                  ? "Accepting…"
+                  : d.status === "accepted"
+                    ? "Re-run credit / ticket"
+                    : "✓ Accept — €1 credit + ticket"}
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.75rem" }}>
               {MODERATION_ACTIONS.map((a) => (
                 <button
                   key={a.status}
@@ -331,6 +384,18 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
               <div role="alert" style={bannerStyle}>
                 {error}
               </div>
+            )}
+
+            {confirmAccept && (
+              <ConfirmDialog
+                title="Accept this report?"
+                message="Grants the reporter a €1 credit (if eligible — monthly plan, under the cap) and opens a ticket in the private repo. Idempotent: re-accepting never double-credits."
+                confirmLabel="Accept"
+                onConfirm={doAccept}
+                onCancel={() => setConfirmAccept(false)}
+                loading={accept.isPending}
+                loadingLabel="Accepting…"
+              />
             )}
           </>
         )}
@@ -441,6 +506,28 @@ const actionBtn: CSSProperties = {
 };
 
 const dangerTint: CSSProperties = { border: "1px solid #fecaca", color: colors.danger };
+
+const acceptBtn: CSSProperties = {
+  padding: "0.5rem 0.9rem",
+  border: "none",
+  borderRadius: 6,
+  background: "#16a34a",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 600,
+};
+
+const ticketLink: CSSProperties = {
+  padding: "0.1rem 0.45rem",
+  borderRadius: 10,
+  fontSize: 11,
+  fontWeight: 600,
+  background: "#dbeafe",
+  color: "#1d4ed8",
+  textDecoration: "none",
+  whiteSpace: "nowrap",
+};
 
 const detailCard: CSSProperties = {
   background: colors.card,

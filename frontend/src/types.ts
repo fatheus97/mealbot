@@ -606,6 +606,10 @@ export interface AdminFeedbackDetail {
   triage: FeedbackTriage | null;
   reviewed_by_admin_id: number | null;
   reviewed_at: string | null;
+  // 6b: credit + ticket outcomes (set on admin Accept).
+  credit_cents: number | null;
+  credit_granted_at: string | null;
+  ticket_url: string | null;
 }
 
 /** Status filter for the admin feedback list. "accepted" is read-only here (the

@@ -12,6 +12,7 @@ vi.mock("../../api", () => ({
   fetchAdminFeedbackDetail: vi.fn(),
   updateAdminFeedback: vi.fn(),
   retriageAdminFeedback: vi.fn(),
+  acceptAdminFeedback: vi.fn(),
 }));
 
 const listResp: AdminFeedbackListResponse = {
@@ -57,6 +58,9 @@ const detailResp: AdminFeedbackDetail = {
   },
   reviewed_by_admin_id: null,
   reviewed_at: null,
+  credit_cents: null,
+  credit_granted_at: null,
+  ticket_url: null,
 };
 
 beforeEach(() => {
@@ -66,6 +70,13 @@ beforeEach(() => {
   vi.mocked(api.fetchAdminFeedbackDetail).mockResolvedValue(detailResp);
   vi.mocked(api.updateAdminFeedback).mockResolvedValue({ ...detailResp, status: "reviewing" });
   vi.mocked(api.retriageAdminFeedback).mockResolvedValue(detailResp);
+  vi.mocked(api.acceptAdminFeedback).mockResolvedValue({
+    ...detailResp,
+    status: "accepted",
+    credit_cents: 100,
+    credit_granted_at: "2026-07-25T10:00:00Z",
+    ticket_url: "https://github.com/owner/tickets/issues/3",
+  });
 });
 
 describe("FeedbackPanel", () => {
@@ -106,12 +117,24 @@ describe("FeedbackPanel", () => {
     ).toBeInTheDocument();
     expect(within(dialog).getByText(/open a plan, click regenerate twice/i)).toBeInTheDocument();
 
-    // The money boundary: 6a offers NO "Accept" action (granting the €1 credit +
-    // opening a ticket is the human-gated 6b slice). Guard against it creeping in.
-    expect(within(dialog).queryByRole("button", { name: /^Accept/i })).not.toBeInTheDocument();
-
     await user.click(within(dialog).getByRole("button", { name: "Reviewing" }));
     await waitFor(() => expect(api.updateAdminFeedback).toHaveBeenCalledWith(1, "reviewing"));
+  });
+
+  it("accepts a report (credit + ticket) via the confirm dialog", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FeedbackPanel />);
+    await screen.findByText("Plan crash on regenerate");
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    // 6b DOES offer Accept (the money-mover) — it opens a confirm, not an instant call.
+    await user.click(within(dialog).getByRole("button", { name: /^✓ Accept/ }));
+    expect(api.acceptAdminFeedback).not.toHaveBeenCalled(); // gated behind confirm
+
+    const confirm = await screen.findByRole("dialog", { name: /accept this report/i });
+    await user.click(within(confirm).getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(api.acceptAdminFeedback).toHaveBeenCalledWith(1));
   });
 
   it("re-runs advisory triage from the drawer", async () => {
