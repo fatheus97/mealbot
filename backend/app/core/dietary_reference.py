@@ -640,18 +640,25 @@ class DietaryContext:
 
     def prompt_lines(self) -> list[str]:
         """For the prompt redesign (slice 3): authoritative context lines the LLM
-        should treat as hard constraints. Deliberately plain strings — the
-        prompt slice owns final formatting/fencing."""
+        should treat as HARD constraints. Deliberately plain strings — these are
+        curated, enum-validated reference data (not free-text user input), so the
+        prompt slice renders them un-fenced under a "hard constraints" header.
+
+        Allergens get the strongest framing: the prompt is only the first line of
+        defence — the deterministic screen (slice 4) is the guarantee — so the
+        instruction must be unambiguous about excluding derivatives too."""
         lines: list[str] = []
         for pat in self.patterns:
-            lines.append(f"Diet '{pat.label}': {pat.summary}")
+            lines.append(f"Diet — {pat.label}: {pat.summary}")
         for info in self.allergens:
             derived = ", ".join(info.derivatives)
             lines.append(
-                f"Allergen '{info.label}' — exclude it and its derivatives: {derived}."
+                f"ALLERGEN to EXCLUDE — {info.label}: the plan must contain NO "
+                f"ingredient that is, contains, or is derived from this. Exclude "
+                f"all of these and their synonyms: {derived}."
             )
         for warn in self.warnings:
-            lines.append(f"[{warn.level.value}] {warn.message}")
+            lines.append(f"Combination note ({warn.level.value}): {warn.message}")
         return lines
 
 

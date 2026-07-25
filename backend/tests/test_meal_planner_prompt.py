@@ -34,7 +34,8 @@ def _render(**overrides: object) -> str:
         "taste_preferences": [],
         "ingredients_to_use": [],
         "avoid_ingredients": [],
-        "diet_type": "balanced",
+        "diet_types": [],
+        "dietary_context_lines": [],
         "past_meals": [],
         "retrieved_meals": [],
         "stock_only": False,
@@ -92,43 +93,80 @@ class TestUserContentTags:
         assert '<user_content type="past_meals">' in rendered
 
 
-class TestDietBehaviourPreserved:
-    """Slice 1 of the dietary differentiator is schema-only: the prompt still
-    reads a single `diet_type` (the mirror of `diet_types[0]`). A multi-select
-    request must render EXACTLY the same 'Diet type:' line as the equivalent
-    single-select one — no behaviour changes until the prompt-redesign slice.
-    """
+class TestDietaryConstraints:
+    """Slice 3: the reference-layer context is wired into the prompt via
+    `resolve_dietary_context(...).prompt_lines()`. Multiple diet_types +
+    allergens (with derivatives) + Part-3 combination notes now render as HARD
+    constraints, replacing the old single 'Diet type:' line. This deliberately
+    CHANGES generation behaviour (the slice-1 behaviour-preservation guard is
+    retired)."""
 
-    def test_multi_select_renders_first_pattern_only(self) -> None:
+    def test_multiple_diet_patterns_render_as_hard_constraints(self) -> None:
         from app.core.dietary import DietType
-        from app.models.plan_models import MealPlanRequest
+        from app.core.dietary_reference import resolve_dietary_context
 
-        multi = MealPlanRequest(
-            diet_types=[DietType.VEGAN, DietType.GLUTEN_FREE],
-            meals_per_day=1,
-            people_count=2,
-        )
-        # The template reads the single diet_type mirror.
-        rendered = _render(**multi.model_dump())
-        assert "— Diet type: vegan" in rendered
-        # The 2nd pattern and the structured allergens are NOT wired into the
-        # prompt yet (later slices) — assert they don't leak in.
-        assert "gluten_free" not in rendered
+        diets = [DietType.VEGAN, DietType.GLUTEN_FREE]
+        lines = resolve_dietary_context(diets, []).prompt_lines()
+        rendered = _render(dietary_context_lines=lines, diet_types=diets)
+        # The constraints HEADER renders (distinct from the priority-2 mention
+        # of "DIETARY REQUIREMENTS", which is always present).
+        assert "HARD CONSTRAINTS — the plan MUST satisfy EVERY one" in rendered
+        # BOTH patterns reach the prompt now (slice 1 only fed the first).
+        assert "Vegan" in rendered
+        assert "Gluten-free" in rendered
 
-    def test_new_allergens_field_does_not_reach_prompt_yet(self) -> None:
+    def test_allergen_renders_with_derivatives_and_exclude_framing(self) -> None:
         from app.core.dietary import Allergen
-        from app.models.plan_models import MealPlanRequest
+        from app.core.dietary_reference import resolve_dietary_context
 
-        req = MealPlanRequest(
-            allergens=[Allergen.PEANUTS, Allergen.MILK],
-            meals_per_day=1,
-            people_count=2,
-        )
-        rendered = _render(**req.model_dump())
-        # Allergen screening is a later slice; the free-text avoid path is the
-        # only allergy channel today, and it's empty here.
-        assert "peanuts" not in rendered
-        assert "Ingredients to avoid: <user_content" in rendered
+        lines = resolve_dietary_context(
+            [], [Allergen.MILK, Allergen.TREE_NUTS],
+        ).prompt_lines()
+        rendered = _render(dietary_context_lines=lines)
+        assert "ALLERGEN to EXCLUDE" in rendered
+        assert "Milk" in rendered
+        assert "whey" in rendered      # a milk derivative surfaced for the model
+        assert "almond" in rendered    # a tree-nut species surfaced
+
+    def test_combination_warning_surfaced_in_prompt(self) -> None:
+        from app.core.dietary import DietType
+        from app.core.dietary_reference import resolve_dietary_context
+
+        diets = [DietType.VEGAN, DietType.LOW_FODMAP]
+        lines = resolve_dietary_context(diets, []).prompt_lines()
+        rendered = _render(dietary_context_lines=lines, diet_types=diets)
+        assert "Combination note" in rendered
+        assert "consult_dietitian" in rendered
+
+    def test_no_restrictions_renders_balanced_default(self) -> None:
+        rendered = _render()  # dietary_context_lines defaults to []
+        # The constraints header must NOT render (only the balanced default).
+        # NB "DIETARY REQUIREMENTS" alone appears in the always-present
+        # priority-2 line, so key on the header's distinctive phrase.
+        assert "HARD CONSTRAINTS — the plan MUST satisfy EVERY one" not in rendered
+        assert "balanced, varied nutrition" in rendered
+
+    def test_baby_food_triggers_infant_mode_via_diet_types(self) -> None:
+        from app.core.dietary import DietType
+
+        rendered = _render(diet_types=[DietType.BABY_FOOD])
+        assert "INFANT FOOD MODE" in rendered
+
+    def test_baby_food_infant_mode_fires_even_when_not_first(self) -> None:
+        # "baby_food" in diet_types (not diet_types[0]) must still trigger it,
+        # and a co-selected pattern still renders its own constraint.
+        from app.core.dietary import DietType
+        from app.core.dietary_reference import resolve_dietary_context
+
+        diets = [DietType.VEGAN, DietType.BABY_FOOD]
+        lines = resolve_dietary_context(diets, []).prompt_lines()
+        rendered = _render(dietary_context_lines=lines, diet_types=diets)
+        assert "INFANT FOOD MODE" in rendered
+        assert "Vegan" in rendered
+
+
+class TestMoreUserContentTags:
+    """Further <user_content> fencing checks (country / retrieved / stock)."""
 
     def test_country_not_wrapped_because_whitelisted(self) -> None:
         # `country` is gated through app.core.country_whitelist at PATCH and at

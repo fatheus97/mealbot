@@ -1,0 +1,17 @@
+{# Dietary restrictions & allergens block (slice 3), shared by meal_plan.jinja
+   and meal_plan_partial.jinja via {% include %} so the two can't drift.
+
+   `dietary_context_lines` is resolve_dietary_context(diet_types, allergens)
+   .prompt_lines() — CURATED, enum-validated reference data (diet-pattern
+   definitions, allergen derivative sets, Part-3 combination notes), NOT
+   free-text user input, so it is rendered un-fenced as authoritative context.
+   The allergen lines are only the prompt-side defence; the deterministic screen
+   is the guarantee. baby_food is handled by its own INFANT FOOD MODE block. #}
+{% if dietary_context_lines %}
+— DIETARY REQUIREMENTS (HARD CONSTRAINTS — the plan MUST satisfy EVERY one below):
+{% for line in dietary_context_lines %}
+  — {{ line }}
+{% endfor %}
+{% else %}
+— Diet: aim for balanced, varied nutrition (no specific dietary restrictions).
+{% endif %}
