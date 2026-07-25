@@ -8,7 +8,7 @@ Arguments: $ARGUMENTS
 
 ## Per run
 
-1. **Fetch the queue.** `gh issue list -R fatheus97/mealbot-tickets --state open --limit 30`. Skip any labelled `needs-info`, `blocked`, or `shipped` — they're waiting on the owner or already done. If a specific number was given in the arguments, do only that ticket.
+1. **Fetch the queue.** `gh issue list -R fatheus97/mealbot-tickets --state open --limit 30`. Skip any labelled `needs-info`, `blocked`, or `shipped` — they're waiting on the owner or already done. **Guard against duplicate work** before starting each ticket (a manual re-run, or the scheduled Stage 1, may already have one in flight): `gh pr list -R fatheus97/mealbot --state open --search "Ships fatheus97/mealbot-tickets#<N>"` — if a PR already references the ticket, don't open a second; resume that PR's review loop instead, or skip. If a specific number was given in the arguments, do only that ticket.
 
 2. **Triage each ticket for actionability BEFORE spending tokens on it.** This is a paid, health-adjacent product — never guess:
    - **Clear, reproducible bug OR a well-scoped small feature** → proceed to solve.
@@ -18,8 +18,13 @@ Arguments: $ARGUMENTS
    - **Very large or genuinely ambiguous in scope** → STOP and confirm the scope/plan with the owner before implementing (a token-cost guard — don't build the wrong big thing).
 
 3. **Classify risk — this sets the merge bar (step 7):**
-   - **SMALL / low-risk:** a localized bug fix, copy or UI tweak, config/docs change. Small diff. Touches NO billing/Stripe/money, auth/session/security, or DB migration; adds no new endpoint or feature surface.
-   - **BIG / risky:** anything touching billing/money, auth/security, a DB migration, a new feature or endpoint, a large or cross-cutting diff — or anything you are not confident about. When unsure, treat it as BIG.
+   - **SMALL / low-risk:** a localized bug fix, copy or UI tweak, config/docs change. Small diff. Touches NONE of the BIG categories below; adds no new endpoint or feature surface.
+   - **BIG / risky — never auto-merge, HOLD for the owner:** anything touching
+     - billing / Stripe / money, or auth / session / security;
+     - **allergy / dietary-restriction filtering, allergen screening, or any nutrition / health-safety logic** — the flagship safety surface; a wrong "nut-free" plan is a real liability, so a fix here never auto-merges on our own tests + our own review, no matter how small the diff;
+     - **CI/CD (`.github/workflows/*`), Docker, or any quality/security gate** (mypy-strict, ruff, gitleaks/secret scan, the review guard) — these ARE the safety net the rest of this autonomy model depends on, so a human looks before they change;
+     - a DB migration, a new feature or endpoint, a large or cross-cutting diff — or anything you are not confident about.
+   - **When unsure, treat it as BIG.**
 
 4. **Implement** on a feature branch off `main` (never off another open branch — see `feedback_pr_base_branch`):
    - Follow `CLAUDE.md` + everything in `.claude/rules/` exactly (type safety, specific error handling, async correctness, frontend theme/CLS/a11y, testing).
