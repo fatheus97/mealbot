@@ -447,6 +447,44 @@ def test_apply_subscription_keeps_price_id_when_payload_lacks_items():
     assert user.subscription_price_id == "price_monthly"
 
 
+def test_apply_subscription_reads_bare_string_price():
+    # Tolerate items[0].price being the bare id string (unexpanded) — the _extract_
+    # price_id str branch, so a differently-expanded webhook still mirrors the plan.
+    user = _user()
+    stripe_service.apply_subscription(
+        user,
+        {"id": "s", "status": "active", "items": {"data": [{"price": "price_annual"}]}},
+    )
+    assert user.subscription_price_id == "price_annual"
+
+
+def test_apply_subscription_plan_switch_overwrites_price_id():
+    # A Customer-Portal switch monthly→annual arrives as a NEWER event and must
+    # update the mirrored price id (so is_annual/6b sees the new plan).
+    user = _user(subscription_price_id="price_monthly", subscription_event_ts=100)
+    applied = stripe_service.apply_subscription(
+        user,
+        {"id": "s", "status": "active", "items": {"data": [{"price": {"id": "price_annual"}}]}},
+        event_created=200,
+    )
+    assert applied is True
+    assert user.subscription_price_id == "price_annual"
+
+
+def test_apply_subscription_stale_event_does_not_clobber_price_id():
+    # The monotonic guard: a STALE event (older than the last applied) is skipped
+    # wholesale, so it can never overwrite the price id with an out-of-order plan —
+    # the money-critical interaction 6b's annual detection depends on.
+    user = _user(subscription_price_id="price_annual", subscription_event_ts=200)
+    applied = stripe_service.apply_subscription(
+        user,
+        {"id": "s", "status": "active", "items": {"data": [{"price": {"id": "price_monthly"}}]}},
+        event_created=100,  # older than 200 → skipped
+    )
+    assert applied is False
+    assert user.subscription_price_id == "price_annual"  # unchanged
+
+
 def test_is_annual(monkeypatch):
     monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
     assert stripe_service.is_annual(_user(subscription_price_id="price_annual")) is True
