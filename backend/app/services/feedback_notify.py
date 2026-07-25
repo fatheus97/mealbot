@@ -37,12 +37,23 @@ def _credit_email_html(credit_eur: str, max_eur: str) -> str:
     )
 
 
+def _advertised_monthly_max_eur() -> float:
+    """The ceiling we're safe to promise in the email. ``maybe_grant_credit`` bounds a
+    user's benefit by TWO independent knobs — a per-window grant count
+    (``feedback_credit_eur × feedback_credit_max_per_window``) AND a hard cap on
+    outstanding balance (``feedback_credit_max_outstanding_eur``). All three are €3 today
+    but are configured separately and can drift, so advertise the ``min`` of the two
+    effective ceilings — that way the email can never overpromise more than the code will
+    actually grant, whichever knob moves."""
+    window_cap = settings.feedback_credit_eur * settings.feedback_credit_max_per_window
+    return min(window_cap, settings.feedback_credit_max_outstanding_eur)
+
+
 async def notify_credit_granted(reporter: User, credit_cents: int) -> None:
     """Email the reporter that their accepted feedback earned a credit. Best-effort;
     never raises. A no-op (logged) when transactional email isn't configured."""
     credit_eur = f"{credit_cents / 100:.2f}"
-    # The monthly ceiling = per-report credit × the per-window cap (e.g. €1 × 3 = €3).
-    max_eur = f"{settings.feedback_credit_eur * settings.feedback_credit_max_per_window:.2f}"
+    max_eur = f"{_advertised_monthly_max_eur():.2f}"
     try:
         await email_service.send_transactional(
             reporter.email,
