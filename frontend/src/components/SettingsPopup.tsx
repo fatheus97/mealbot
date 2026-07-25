@@ -5,6 +5,7 @@ import { PreferencesForm } from "./PreferencesForm";
 import type { PreferencesFormValues } from "./PreferencesForm";
 import { PantryStaples } from "./PantryStaples";
 import { FeedbackModal } from "./FeedbackModal";
+import { InfoHint } from "./InfoHint";
 
 interface SettingsPopupProps {
   onClose: () => void;
@@ -168,12 +169,21 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
 
       {/* Feedback entry point — a low-friction way for any logged-in user to report
           a bug or request a feature. Opens above this popup (higher z-index). */}
-      <div style={{ marginTop: "1.25rem", borderTop: "1px solid #e5e7eb", paddingTop: "1rem" }}>
+      <div
+        style={{
+          marginTop: "1.25rem",
+          borderTop: "1px solid #e5e7eb",
+          paddingTop: "1rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+        }}
+      >
         <button
           type="button"
           onClick={() => setShowFeedback(true)}
           style={{
-            width: "100%",
+            flex: 1,
             padding: "0.55rem 0.75rem",
             border: "1px solid #d1d5db",
             borderRadius: 6,
@@ -186,6 +196,10 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         >
           💬 Send feedback
         </button>
+        <InfoHint
+          label="How feedback credit works"
+          text="Earn €1 off your next month for every accepted bug report or feature request — up to €3/month. The credit lands on your next invoice, so you'll need to be on the monthly plan (subscribed or on a free trial) to receive it — annual plans are already discounted."
+        />
       </div>
     </div>
     </div>
