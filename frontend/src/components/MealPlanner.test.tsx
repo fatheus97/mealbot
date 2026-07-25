@@ -368,6 +368,49 @@ describe('MealPlanner', () => {
     }
   });
 
+  it('round-trips "ingredients to avoid" chips through the persisted store into the body', async () => {
+    // Ticket #2: MealPlanner's avoid field is the riskier half of the change — the
+    // chip list (string[]) round-trips through a PERSISTED store STRING (join on
+    // write, parseList on read). Verify both add and remove land in avoid_ingredients.
+    loginUser();
+    mockedAuthFetch.mockReset();
+    usePreferencesStore.setState({ avoidIngredients: '' });
+
+    const planResponse = { plan_id: 7, start_date: null, days: [{ meals: [] }], shopping_list: [] };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
+    });
+
+    try {
+      const user = userEvent.setup();
+      render(<MealPlanner />, { wrapper: createWrapper() });
+
+      const avoid = screen.getByPlaceholderText(/to avoid and press enter/i);
+      await user.type(avoid, 'peanuts{Enter}cilantro{Enter}');
+      // Remove the first chip → exercises the remove → persisted-string update path.
+      await user.click(screen.getByRole('button', { name: 'Remove peanuts' }));
+
+      await user.click(screen.getByRole('button', { name: /generate plan/i }));
+
+      const isGenerateCall = (call: unknown[]) =>
+        typeof call[0] === 'string' && call[0].startsWith('/plan?');
+      await waitFor(() =>
+        expect(mockedAuthFetch.mock.calls.some(isGenerateCall)).toBe(true),
+      );
+
+      const generateCall = mockedAuthFetch.mock.calls.find(isGenerateCall);
+      const body = JSON.parse(generateCall?.[1]?.body ?? 'null') as { avoid_ingredients?: unknown };
+      expect(body.avoid_ingredients).toEqual(['cilantro']);
+    } finally {
+      usePreferencesStore.setState({ avoidIngredients: '' });
+    }
+  });
+
   it('scrolls to the plan on mount when initialPlan is provided', () => {
     loginUser();
 
