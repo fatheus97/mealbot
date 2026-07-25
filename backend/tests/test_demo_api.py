@@ -15,19 +15,29 @@ class TestPublicConfig:
         with (
             patch("app.core.config.settings.demo_mode", True),
             patch("app.core.config.settings.registration_enabled", False),
+            patch("app.core.config.settings.stripe_price_id_annual", None),
         ):
             resp = await unauthed_client.get("/api/config")
         assert resp.status_code == 200
-        assert resp.json() == {"demo_mode": True, "registration_enabled": False}
+        assert resp.json() == {
+            "demo_mode": True,
+            "registration_enabled": False,
+            "annual_billing_available": False,
+        }
 
     async def test_config_reports_demo_mode_false(self, unauthed_client: AsyncClient) -> None:
         with (
             patch("app.core.config.settings.demo_mode", False),
             patch("app.core.config.settings.registration_enabled", False),
+            patch("app.core.config.settings.stripe_price_id_annual", None),
         ):
             resp = await unauthed_client.get("/api/config")
         assert resp.status_code == 200
-        assert resp.json() == {"demo_mode": False, "registration_enabled": False}
+        assert resp.json() == {
+            "demo_mode": False,
+            "registration_enabled": False,
+            "annual_billing_available": False,
+        }
 
     async def test_config_reports_registration_enabled(
         self, unauthed_client: AsyncClient
@@ -37,10 +47,15 @@ class TestPublicConfig:
         with (
             patch("app.core.config.settings.demo_mode", False),
             patch("app.core.config.settings.registration_enabled", True),
+            patch("app.core.config.settings.stripe_price_id_annual", None),
         ):
             resp = await unauthed_client.get("/api/config")
         assert resp.status_code == 200
-        assert resp.json() == {"demo_mode": False, "registration_enabled": True}
+        assert resp.json() == {
+            "demo_mode": False,
+            "registration_enabled": True,
+            "annual_billing_available": False,
+        }
 
 
 class TestCountriesEndpoint:

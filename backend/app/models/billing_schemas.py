@@ -1,6 +1,16 @@
-"""Response schemas for the billing API."""
+"""Schemas for the billing API."""
+
+from typing import Literal
 
 from pydantic import BaseModel
+
+
+class CheckoutRequest(BaseModel):
+    """Body for POST /billing/checkout — which plan to subscribe to. Defaults to
+    monthly so an empty/legacy body still works; annual is validated + only accepted
+    when configured (the endpoint 400s otherwise)."""
+
+    plan: Literal["monthly", "annual"] = "monthly"
 
 
 class BillingUrlResponse(BaseModel):

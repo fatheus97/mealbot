@@ -108,6 +108,10 @@ class HealthResponse(BaseModel):
 class PublicConfig(BaseModel):
     demo_mode: bool
     registration_enabled: bool
+    # Whether the annual plan is offered at checkout (its Stripe Price is configured).
+    # The paywall shows the monthly/annual toggle only when true. Non-secret UI-gating
+    # flag, same category as the two above.
+    annual_billing_available: bool
 
 
 class CountriesResponse(BaseModel):
@@ -147,6 +151,7 @@ async def public_config(request: Request) -> PublicConfig:
     return PublicConfig(
         demo_mode=settings.demo_mode,
         registration_enabled=settings.registration_enabled,
+        annual_billing_available=bool(settings.stripe_price_id_annual),
     )
 
 

@@ -3,10 +3,11 @@ import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PaywallModal } from "./PaywallModal";
 
-const { startCheckout, reset, billingState } = vi.hoisted(() => ({
+const { startCheckout, reset, billingState, authState } = vi.hoisted(() => ({
   startCheckout: vi.fn(),
   reset: vi.fn(),
   billingState: { checkoutPending: false },
+  authState: { annualBillingAvailable: false },
 }));
 
 vi.mock("../../hooks/useBilling", () => ({
@@ -20,6 +21,12 @@ vi.mock("../../hooks/useBilling", () => ({
   }),
 }));
 
+// PaywallModal now reads annualBillingAvailable from auth context; mock it so the
+// tests control whether the plan toggle renders (no AuthProvider/api needed).
+vi.mock("../../contexts/AuthContext", () => ({
+  useAuth: () => authState,
+}));
+
 function firePaywall() {
   act(() => {
     window.dispatchEvent(new Event("mealbot:paywall"));
@@ -31,6 +38,7 @@ describe("PaywallModal", () => {
     startCheckout.mockClear();
     reset.mockClear();
     billingState.checkoutPending = false;
+    authState.annualBillingAvailable = false;
   });
 
   it("is closed until the paywall event fires", () => {
@@ -41,11 +49,30 @@ describe("PaywallModal", () => {
     expect(screen.getByText(/subscription required/i)).toBeInTheDocument();
   });
 
-  it("starts checkout on the trial button", async () => {
+  it("starts checkout on the trial button (monthly by default)", async () => {
     render(<PaywallModal />);
     firePaywall();
     await userEvent.click(screen.getByRole("button", { name: /start free trial/i }));
     expect(startCheckout).toHaveBeenCalledTimes(1);
+    expect(startCheckout).toHaveBeenCalledWith("monthly");
+  });
+
+  it("hides the plan toggle when annual is unavailable", () => {
+    authState.annualBillingAvailable = false;
+    render(<PaywallModal />);
+    firePaywall();
+    expect(screen.queryByRole("group", { name: /billing plan/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the plan toggle and checks out the selected annual plan", async () => {
+    authState.annualBillingAvailable = true;
+    render(<PaywallModal />);
+    firePaywall();
+    const group = screen.getByRole("group", { name: /billing plan/i });
+    expect(group).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /annual/i }));
+    await userEvent.click(screen.getByRole("button", { name: /start free trial/i }));
+    expect(startCheckout).toHaveBeenCalledWith("annual");
   });
 
   it("dismisses on 'Maybe later' without starting checkout", async () => {

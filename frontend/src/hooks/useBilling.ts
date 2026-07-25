@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { createCheckoutSession, createPortalSession } from "../api";
+import type { BillingPlan } from "../types";
 
 /**
  * Billing actions: start a Stripe Checkout or open the Customer Portal. Both
@@ -12,11 +13,11 @@ export function useBilling() {
   const [portalPending, setPortalPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const startCheckout = useCallback(async () => {
+  const startCheckout = useCallback(async (plan: BillingPlan = "monthly") => {
     setError(null);
     setCheckoutPending(true);
     try {
-      const url = await createCheckoutSession();
+      const url = await createCheckoutSession(plan);
       window.location.href = url;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start checkout.");
