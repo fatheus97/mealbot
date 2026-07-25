@@ -102,6 +102,25 @@ class TestGenerateSingleDay:
         # Template should render something non-empty
         assert len(user_prompt) > 0
 
+    @patch("app.services.meal_planner.llm_client")
+    async def test_dietary_context_wired_into_prompt(self, mock_llm: MagicMock):
+        # End-to-end wiring guard: the service must compute resolve_dietary_context(
+        # req.diet_types, req.allergens).prompt_lines() and thread it into the
+        # template. A dropped/renamed kwarg at this call site would silently ship a
+        # plan with NO dietary constraints — the template tests can't catch that.
+        from app.core.dietary import Allergen, DietType
+
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+        req = _make_request(diet_types=[DietType.VEGAN], allergens=[Allergen.MILK])
+        await generate_single_day(req)
+
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "DIETARY REQUIREMENTS" in prompt
+        assert "Vegan" in prompt
+        assert "ALLERGEN to EXCLUDE" in prompt
+        assert "Milk" in prompt
+        assert "whey" in prompt  # a milk derivative threaded through from slice 2
+
 
 class TestGeneratePartialDay:
     @patch("app.services.meal_planner.llm_client")
@@ -127,6 +146,24 @@ class TestGeneratePartialDay:
         assert isinstance(result, SingleDayResponse)
         assert len(result.meals) == 1
         mock_llm.chat_json.assert_awaited_once()
+
+    @patch("app.services.meal_planner.llm_client")
+    async def test_dietary_context_wired_into_partial_prompt(self, mock_llm: MagicMock):
+        # Same wiring guard for the regenerate/partial path.
+        from app.core.dietary import Allergen, DietType
+
+        mock_llm.chat_json = AsyncMock(
+            return_value=_make_llm_day_response("New Dinner", MealType.HOT_DINNER),
+        )
+        req = _make_request(diet_types=[DietType.VEGAN], allergens=[Allergen.MILK])
+        await generate_partial_day(
+            req, frozen_meals=[], slots_to_generate=[MealType.HOT_DINNER.value],
+        )
+
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "ALLERGEN to EXCLUDE" in prompt
+        assert "Milk" in prompt
+        assert "Vegan" in prompt
 
     @patch("app.services.meal_planner.llm_client")
     async def test_warns_on_mismatched_meal_types(self, mock_llm: MagicMock, caplog):
@@ -364,6 +401,34 @@ class TestRagPromptContent:
             cosine_distance=0.1,
             adjusted_distance=0.1,
         )
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_prompt_includes_dietary_context(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        # Same wiring guard for the RAG generation path.
+        from app.core.dietary import Allergen, DietType
+
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
+
+        req = _make_request(diet_types=[DietType.VEGAN], allergens=[Allergen.MILK])
+        result = await generate_single_day_with_rag(req, session=MagicMock(), user_id=1)
+
+        assert result is not None
+        prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
+        assert "ALLERGEN to EXCLUDE" in prompt
+        assert "Milk" in prompt
+        assert "Vegan" in prompt
+        assert "Retrieved Meal" in prompt  # still the RAG prompt
 
     @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
     @patch("app.services.meal_planner.settings")

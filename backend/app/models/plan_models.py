@@ -154,9 +154,10 @@ class MealPlanRequest(BaseModel):
     )
     # Legacy single-select diet — KEPT as a backward-compat mirror of
     # diet_types[0] (see _reconcile_diet). It is still what the current frontend
-    # sends, what old request_json blobs carry, and what the (as-yet unchanged)
-    # prompt template reads. Widened from the original 6-value Literal to the
-    # full DietType set — a superset, so every stored value still validates.
+    # sends and what old request_json blobs carry; as of the slice-3 prompt
+    # redesign, generation reads the combinable diet_types / allergens via the
+    # reference layer, NOT this mirror. Widened from the original 6-value Literal
+    # to the full DietType set — a superset, so every stored value still validates.
     diet_type: DietType | None = None
     # Combinable dietary patterns — the canonical field going forward. Empty by
     # default; a legacy diet_type is folded in here by _reconcile_diet.
