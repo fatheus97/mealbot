@@ -572,10 +572,24 @@ class TestDietTypesAndAllergens:
                 people_count=2,
             )
 
+    def test_full_diet_vocabulary_accepted(self):
+        # Every diet the multi-select UI offers must validate together — the cap
+        # is len(DietType), so "select all" never 422s (regression guard for the
+        # slice-5 mismatch where an uncapped 17-chip UI met a hardcoded cap of 12).
+        all_diets = [d.value for d in DietType]
+        req = MealPlanRequest(
+            diet_types=all_diets,  # type: ignore[arg-type]
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert len(req.diet_types) == len(DietType)
+
     def test_too_many_diet_types_rejected(self):
+        # Cap is len(DietType); length is checked pre-dedup, so a duplicate-spam
+        # list one past the vocabulary size is still rejected (stays bounded).
         with pytest.raises(ValidationError):
             MealPlanRequest(
-                diet_types=["vegan"] * 13,  # cap is 12; length checked pre-dedup
+                diet_types=["vegan"] * (len(DietType) + 1),
                 meals_per_day=3,
                 people_count=2,
             )

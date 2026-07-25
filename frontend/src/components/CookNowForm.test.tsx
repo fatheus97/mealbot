@@ -159,6 +159,37 @@ describe('CookNowForm', () => {
     expect(payload.generation_id).toBe(7);
   });
 
+  it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate request', async () => {
+    // The FE->BE contract line for safety-relevant allergen data: a click on a
+    // diet/allergen chip must land in the outgoing SingleRecipeRequest so the
+    // backend's deterministic allergen screen actually sees it. buildRequest is
+    // the one link the isolated component/store tests don't cover.
+    loginUser();
+    mockedGenerate.mockResolvedValueOnce({
+      recipe: {
+        name: 'Veg Bowl',
+        meal_type: 'main_course',
+        meal_type_label: 'Main course',
+        ingredients: [],
+        steps: ['Toss'],
+      },
+      generation_id: null,
+    });
+
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Vegan' }));
+    await user.click(screen.getByRole('button', { name: 'Peanuts' }));
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+
+    await waitFor(() => expect(mockedGenerate).toHaveBeenCalledTimes(1));
+    const call = mockedGenerate.mock.calls[0][0];
+    expect(call.diet_types).toEqual(['vegan']);
+    expect(call.allergens).toEqual(['peanuts']);
+    // The multi-select UI no longer sends the legacy scalar — backend reconciles.
+    expect(call.diet_type).toBeUndefined();
+  });
+
   it('surfaces generation errors inline without clearing the form', async () => {
     loginUser();
     mockedGenerate.mockRejectedValueOnce(new Error('LLM down'));

@@ -122,4 +122,45 @@ describe('usePreferencesStore', () => {
     // The legacy scalar field is gone.
     expect((state as unknown as Record<string, unknown>).dietType).toBeUndefined();
   });
+
+  it("migrates a v0 blob whose dietType is '' (the old '(None)' default) to []", () => {
+    // The MOST common returning-user state: they never picked a diet, so v0
+    // persisted `dietType: ''`. It must collapse to `dietTypes: []` — NOT
+    // `['']`, which would be an invalid enum sent to the backend (422) and a
+    // phantom selected chip. Guards the `legacy !== ''` branch of migrate().
+    localStorage.setItem(
+      'mealbot-preferences',
+      JSON.stringify({
+        state: { days: 4, dietType: '', mealsPerDay: 3, peopleCount: 2 },
+        version: 0,
+      }),
+    );
+
+    usePreferencesStore.persist.rehydrate();
+
+    const state = usePreferencesStore.getState();
+    expect(state.days).toBe(4);
+    expect(state.dietTypes).toEqual([]);
+    expect(state.allergens).toEqual([]);
+    expect((state as unknown as Record<string, unknown>).dietType).toBeUndefined();
+  });
+
+  it('migrates a v0 blob with no dietType key at all to []', () => {
+    // A blob predating the diet field (or a corrupt one) must still yield a
+    // valid state with empty dietTypes/allergens rather than undefined.
+    localStorage.setItem(
+      'mealbot-preferences',
+      JSON.stringify({
+        state: { days: 6, mealsPerDay: 2, peopleCount: 3 },
+        version: 0,
+      }),
+    );
+
+    usePreferencesStore.persist.rehydrate();
+
+    const state = usePreferencesStore.getState();
+    expect(state.days).toBe(6);
+    expect(state.dietTypes).toEqual([]);
+    expect(state.allergens).toEqual([]);
+  });
 });

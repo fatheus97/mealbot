@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
+import { usePreferencesStore } from '../store/usePreferencesStore';
 import { dayDateLabel } from '../utils/planDates';
 import type { ReactNode } from 'react';
 
@@ -310,6 +311,61 @@ describe('MealPlanner', () => {
         body: JSON.stringify({ frozen_meals: [{ day_index: 0, meal_index: 0 }] }),
       });
     });
+  });
+
+  it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate body', async () => {
+    // The FE->BE contract line: diet/allergen selections from the store must be
+    // assembled into the POST /plan body so the backend allergen screen sees
+    // them. buildRequest is the link the isolated store/component tests miss.
+    loginUser();
+    // mockedAuthFetch.mock.calls accumulates across tests in this file (the
+    // beforeEach only re-sets the implementation, never the call history), so
+    // reset it here — otherwise the find('/plan?') below would match an EARLIER
+    // test's generate call and assert on its (empty-diet) payload.
+    mockedAuthFetch.mockReset();
+    // Seed the persisted store singleton with a known selection.
+    usePreferencesStore.setState({ dietTypes: ['vegan'], allergens: ['peanuts'] });
+
+    const planResponse = {
+      plan_id: 7,
+      start_date: null,
+      days: [{ meals: [] }],
+      shopping_list: [],
+    };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
+    });
+
+    try {
+      const user = userEvent.setup();
+      render(<MealPlanner />, { wrapper: createWrapper() });
+      await user.click(screen.getByRole('button', { name: /generate plan/i }));
+
+      const isGenerateCall = (call: unknown[]) =>
+        typeof call[0] === 'string' && call[0].startsWith('/plan?');
+      await waitFor(() =>
+        expect(mockedAuthFetch.mock.calls.some(isGenerateCall)).toBe(true),
+      );
+
+      const generateCall = mockedAuthFetch.mock.calls.find(isGenerateCall);
+      const body = JSON.parse(generateCall?.[1]?.body ?? 'null') as {
+        diet_types?: unknown;
+        allergens?: unknown;
+        diet_type?: unknown;
+      };
+      expect(body.diet_types).toEqual(['vegan']);
+      expect(body.allergens).toEqual(['peanuts']);
+      // The multi-select UI no longer sends the legacy scalar — backend reconciles.
+      expect(body.diet_type).toBeUndefined();
+    } finally {
+      // Don't leak the selection into sibling tests that share the store singleton.
+      usePreferencesStore.setState({ dietTypes: [], allergens: [] });
+    }
   });
 
   it('scrolls to the plan on mount when initialPlan is provided', () => {
