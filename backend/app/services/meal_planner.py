@@ -71,7 +71,12 @@ async def _generate_and_screen(
             mock=mock,
         )
         response = raw.to_planned_day()
-        if not allergens:
+        # The mock LLM (mock=True: demo accounts, local dev with llm_mock) is
+        # DETERMINISTIC per day, so screening + regenerating it would loop to a
+        # guaranteed fail-closed on any canned meal that happens to contain a
+        # declared allergen. Mock output is demo/dev content, not a real dietary
+        # plan and not an allergen-safety surface — skip the screen in mock mode.
+        if mock or not allergens:
             return response
         last = screen_meals_for_allergens(response.meals, allergens)
         if not last:

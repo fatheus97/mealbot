@@ -749,6 +749,23 @@ class TestAllergenScreenWiring:
         assert result.meals[0].ingredients[0].name == "chicken breast"
 
     @patch("app.services.meal_planner.llm_client")
+    async def test_mock_mode_skips_screen_no_infinite_reject(self, mock_llm: MagicMock):
+        # The real mock LLM is deterministic per day, so screening it would
+        # fail-closed 100% of the time on any canned meal containing a declared
+        # allergen. Mock mode must skip the screen: one call, no exception, even
+        # though "cheddar cheese" would trip a MILK screen.
+        from app.core.dietary import Allergen
+
+        mock_llm.chat_json = AsyncMock(
+            return_value=_llm_day_with_ingredient("cheddar cheese"),
+        )
+        result = await generate_single_day(
+            _make_request(allergens=[Allergen.MILK]), mock=True,
+        )
+        assert mock_llm.chat_json.await_count == 1
+        assert result.meals[0].ingredients[0].name == "cheddar cheese"
+
+    @patch("app.services.meal_planner.llm_client")
     async def test_fails_closed_when_never_clean(self, mock_llm: MagicMock):
         from app.core.dietary import Allergen
         from app.services.allergen_screen import AllergenScreenError
