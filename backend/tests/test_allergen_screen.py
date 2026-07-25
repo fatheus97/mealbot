@@ -301,3 +301,43 @@ class TestAllergenScreenError:
         err = AllergenScreenError(v)
         assert err.violations == v
         assert "milk" in str(err)
+
+    def test_offending_allergens_distinct_first_seen_order(self):
+        # Two ingredients trip MILK, one trips FISH — the user-facing list must
+        # de-dupe (MILK once) and preserve first-seen order (MILK before FISH).
+        v = [
+            AllergenViolation("Chowder", "cream", Allergen.MILK, "cream"),
+            AllergenViolation("Chowder", "cod", Allergen.FISH, "cod"),
+            AllergenViolation("Chowder", "butter", Allergen.MILK, "butter"),
+        ]
+        assert AllergenScreenError(v).offending_allergens() == [
+            Allergen.MILK, Allergen.FISH,
+        ]
+
+    def test_user_detail_names_allergens_and_is_actionable(self):
+        # The friendly fail-closed message must NAME the allergen(s) (via the
+        # curated label) and steer toward relaxing a restriction, so the user
+        # isn't told to blindly "try again" on an unsatisfiable request.
+        v = [AllergenViolation("Bowl", "cheddar", Allergen.MILK, "cheddar")]
+        detail = AllergenScreenError(v).user_detail
+        assert "Milk" in detail  # ALLERGEN_INFO label, not the raw enum value
+        assert "try removing" in detail.lower()
+        # Liability rule: describe as "avoids", never a "free-from" guarantee.
+        assert "avoids" in detail.lower()
+        assert "free of" not in detail.lower()
+        assert "free-from" not in detail.lower()
+
+    def test_user_detail_lists_multiple_allergens(self):
+        v = [
+            AllergenViolation("Bowl", "cheddar", Allergen.MILK, "cheddar"),
+            AllergenViolation("Bowl", "cod", Allergen.FISH, "cod"),
+        ]
+        detail = AllergenScreenError(v).user_detail
+        assert "Milk" in detail
+        assert "Fish" in detail
+
+    def test_user_detail_survives_empty_violations(self):
+        # Defensive: even with no violations the message is well-formed (never
+        # raises, never renders a dangling "avoids .").
+        detail = AllergenScreenError([]).user_detail
+        assert "your selected allergens" in detail

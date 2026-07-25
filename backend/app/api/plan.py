@@ -38,6 +38,7 @@ from app.models.plan_models import (
     StockItemDTO,
     validate_plan_start_date,
 )
+from app.services.allergen_screen import AllergenScreenError
 from app.services.fridge_service import (
     get_fridge_items,
 )
@@ -438,6 +439,12 @@ async def plan_meals_for_user(
         meal_plan, shopping_items, _initial_fridge = await generate_plan_days(
             session, current_user, payload, days,
         )
+    except AllergenScreenError as exc:
+        # Fail-closed with a specific, honest message that names the allergen we
+        # couldn't avoid. 422 not 502: the request is well-formed but can't be
+        # satisfied as stated — a transient-retry 502 would send the user in
+        # circles on the same restrictive request.
+        raise HTTPException(status_code=422, detail=exc.user_detail) from exc
     except PlanGenerationError as exc:
         raise HTTPException(
             status_code=502,
@@ -649,6 +656,10 @@ async def regenerate_plan(
             )
         except HTTPException:
             raise
+        except AllergenScreenError as exc:
+            # Same fail-closed 422 as plan creation — name the allergen we
+            # couldn't avoid rather than the generic "regeneration failed".
+            raise HTTPException(status_code=422, detail=exc.user_detail) from exc
         except Exception as e:
             logger.exception("Regeneration failed at day %d", day_index)
             raise HTTPException(

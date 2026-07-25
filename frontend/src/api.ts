@@ -139,7 +139,7 @@ export async function createCheckoutSession(plan: BillingPlan = "monthly"): Prom
     body: JSON.stringify({ plan }),
   });
   if (!res.ok) {
-    throw new Error(await extractBillingError(res, "Could not start checkout"));
+    throw new Error(await extractErrorDetail(res, "Could not start checkout"));
   }
   const data = (await res.json()) as { url: string };
   return data.url;
@@ -148,15 +148,18 @@ export async function createCheckoutSession(plan: BillingPlan = "monthly"): Prom
 export async function createPortalSession(): Promise<string> {
   const res = await authFetch("/billing/portal", { method: "POST" });
   if (!res.ok) {
-    throw new Error(await extractBillingError(res, "Could not open the billing portal"));
+    throw new Error(await extractErrorDetail(res, "Could not open the billing portal"));
   }
   const data = (await res.json()) as { url: string };
   return data.url;
 }
 
-async function extractBillingError(res: Response, fallback: string): Promise<string> {
-  // 503 when billing is off/unconfigured; 400 when there's no customer yet.
-  // Surface the backend's `detail` string when present.
+// Surface the backend's human-readable `detail` string when the server sends
+// one (friendly errors like the fail-closed allergen message, billing 503/400,
+// "plan generation failed"). Pydantic *validation* 422s carry a LIST detail,
+// not a string — those fall through to the fallback (with status) so we never
+// dump raw FastAPI JSON into the UI.
+async function extractErrorDetail(res: Response, fallback: string): Promise<string> {
   try {
     const parsed = await res.json();
     if (typeof parsed?.detail === "string") return parsed.detail;
@@ -264,8 +267,9 @@ export async function generateRecipe(
   });
   if (res.status === 402) throw new PaywallError();
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Recipe generation failed: ${res.status} - ${txt}`);
+    // Surface the backend `detail` — including the fail-closed allergen message
+    // (422) — rather than dumping the raw JSON body into the alert.
+    throw new Error(await extractErrorDetail(res, "Recipe generation failed. Please try again."));
   }
   return res.json();
 }

@@ -40,6 +40,7 @@ from app.models.plan_models import (
     SingleRecipeResponse,
     StockItemDTO,
 )
+from app.services.allergen_screen import AllergenScreenError
 from app.services.fridge_service import (
     allocate_fifo,
     flatten_fridge_batches,
@@ -198,6 +199,11 @@ async def generate_recipe(
             mock=current_user.is_demo,
             slot_layout=[payload.meal_type.value],
         )
+    except AllergenScreenError as exc:
+        # Fail-closed with a specific, honest 422 that names the allergen we
+        # couldn't avoid — not the generic transient-retry 502 below (retrying
+        # the same restrictive request won't help).
+        raise HTTPException(status_code=422, detail=exc.user_detail) from exc
     except Exception as exc:  # noqa: BLE001 — map any LLM/network failure to 502
         logger.exception("Cook Now generation failed for user %s", current_user.id)
         raise HTTPException(

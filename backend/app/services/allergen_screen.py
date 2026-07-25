@@ -42,7 +42,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from app.core.dietary import Allergen
-from app.core.dietary_reference import resolve_dietary_context
+from app.core.dietary_reference import ALLERGEN_INFO, resolve_dietary_context
 from app.models.plan_models import PlannedMeal
 
 
@@ -68,6 +68,39 @@ class AllergenScreenError(Exception):
         )
         super().__init__(
             f"could not generate a plan free of declared allergens: {summary}"
+        )
+
+    def offending_allergens(self) -> list[Allergen]:
+        """The DISTINCT declared allergens the final rejected attempt still
+        tripped, in first-seen order — so a user-facing message can name them
+        (the raw ``violations`` list repeats an allergen once per ingredient)."""
+        ordered: dict[Allergen, None] = {}
+        for v in self.violations:
+            ordered.setdefault(v.allergen, None)
+        return list(ordered)
+
+    @property
+    def user_detail(self) -> str:
+        """A friendly, honest fail-closed message for the HTTP boundary. Names
+        the allergen(s) generation could not avoid and steers toward relaxing a
+        restriction — retrying the SAME restrictive request is unlikely to help,
+        so the generic "generation failed, try again" would mislead.
+
+        Phrased as "avoids", deliberately NOT "free of/from" — a "free-from"
+        claim is a guarantee the liability rule forbids
+        (``docs/dietary-reference.md`` Part 4) — and it never implies the plan
+        we withheld was itself unsafe (it was withheld precisely because it
+        wasn't clean)."""
+        labels = [
+            ALLERGEN_INFO[a].label if a in ALLERGEN_INFO
+            else a.value.replace("_", " ")
+            for a in self.offending_allergens()
+        ]
+        named = ", ".join(labels) or "your selected allergens"
+        return (
+            f"We couldn't generate a meal that avoids {named}. Very restrictive "
+            f"combinations can be hard to satisfy — try removing an allergen or "
+            f"diet and generating again."
         )
 
 
