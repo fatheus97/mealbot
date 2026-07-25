@@ -312,11 +312,13 @@ class TestRetriage:
 
 
 async def _feedback_accept_audits(db_session: AsyncSession) -> list[AdminAuditLog]:
-    return (
-        await db_session.execute(
-            select(AdminAuditLog).where(AdminAuditLog.action == "feedback.accept")
-        )
-    ).scalars().all()
+    return list(
+        (
+            await db_session.execute(
+                select(AdminAuditLog).where(AdminAuditLog.action == "feedback.accept")
+            )
+        ).scalars().all()
+    )
 
 
 class TestAccept:
@@ -364,6 +366,7 @@ class TestAccept:
         assert resp.status_code == 200
         assert resp.json()["credit_cents"] == 100
         audits = await _feedback_accept_audits(db_session)
+        assert audits[0].detail is not None
         assert audits[0].detail["credited"] == "True"
 
     async def test_accept_creates_ticket_when_configured(
@@ -417,3 +420,28 @@ class TestAccept:
         await _make_admin(db_session, test_user)
         resp = await client.post("/api/admin/feedback/999999/accept")
         assert resp.status_code == 404
+
+    async def test_retry_accept_that_grants_credit_is_audited(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # A re-accept (status already "accepted") that GRANTS a credit the first Accept
+        # missed must still be audited (money moved), with credited reflecting THIS call.
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id, status="accepted")
+
+        async def _grant(session, r, reporter):
+            r.credit_cents = 100
+            r.credit_granted_at = datetime.now(UTC)
+            return True
+
+        with (
+            patch("app.api.admin.feedback_credit.maybe_grant_credit", _grant),
+            patch("app.api.admin.feedback_ticket.ticket_configured", return_value=False),
+        ):
+            resp = await client.post(f"/api/admin/feedback/{report.id}/accept")
+        assert resp.status_code == 200
+        audits = await _feedback_accept_audits(db_session)
+        assert len(audits) == 1
+        assert audits[0].detail is not None
+        assert audits[0].detail["credited"] == "True"

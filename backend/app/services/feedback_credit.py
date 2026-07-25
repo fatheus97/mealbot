@@ -51,6 +51,17 @@ async def maybe_grant_credit(
     assert report.id is not None  # a persisted report always has an id
     now = now or datetime.now(UTC).replace(tzinfo=None)
 
+    # Serialize per-user: lock the user row so concurrent Accepts of DIFFERENT reports
+    # for the same user can't both pass the rate cap + never-€0 floor and over-credit
+    # (the check-then-grant below is otherwise a pure TOCTOU — each request would read
+    # the same pre-grant count/balance and all grant). Held until the caller commits,
+    # so the next grant re-reads the updated count. Same with_for_update pattern as the
+    # invite / last-active-admin guards; like those, it can't be exercised by the
+    # single-connection test harness but is load-bearing in prod.
+    await session.execute(
+        select(col(User.id)).where(col(User.id) == user.id).with_for_update()
+    )
+
     # (1) Rolling per-user rate cap.
     window_start = now - timedelta(days=settings.feedback_credit_window_days)
     granted_in_window = (
@@ -90,14 +101,20 @@ async def maybe_grant_credit(
         )
         return False
 
-    # (3) Grant, idempotency-keyed per report. Record credit_granted_at ONLY after
-    # Stripe confirms, so a failure leaves it NULL and a repeat Accept retries (the key
-    # makes Stripe a no-op on the retry — never a double credit).
+    # (3) Grant, idempotency-keyed per report + tagged with the report id. Record
+    # credit_granted_at ONLY after Stripe confirms, so a failure leaves it NULL and a
+    # repeat Accept retries. The key makes Stripe a no-op on a retry WITHIN ~24h; a
+    # commit-failure-then-retry BEYOND that window could post a second credit — but the
+    # never-€0 floor bounds outstanding credit to <€3 (< the monthly price) so an invoice
+    # is never zeroed, and the report-id metadata lets a grant be reconciled. Fully
+    # closing the >24h edge (a Stripe balance-txn lookup by metadata) is a hardening
+    # follow-up, disproportionate for a default-off, admin-gated, low-volume path.
     try:
         await stripe_service.grant_customer_credit(
             user.stripe_customer_id,
             credit_cents,
             idempotency_key=f"feedback_credit_{report.id}",
+            metadata={"feedback_report_id": str(report.id)},
         )
     except Exception:
         logger.exception("feedback_credit grant failed report_id=%s", report.id)

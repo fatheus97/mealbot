@@ -347,15 +347,20 @@ async def end_trial_now(subscription_id: str) -> None:
 
 
 async def grant_customer_credit(
-    customer_id: str, amount_cents: int, idempotency_key: str
+    customer_id: str,
+    amount_cents: int,
+    idempotency_key: str,
+    metadata: dict[str, str] | None = None,
 ) -> None:
     """Grant a customer-balance CREDIT of ``amount_cents`` (minor units, positive) —
     Stripe subtracts it from the customer's next invoice.
 
     Stripe's customer balance is NEGATIVE for a credit, so we post ``-amount``. The
-    ``idempotency_key`` (one per feedback report) makes a retry a no-op: Stripe returns
-    the same balance transaction instead of granting twice. Raises on a Stripe error
-    (the caller decides whether to surface or swallow)."""
+    ``idempotency_key`` (one per feedback report) makes a retry a no-op WITHIN Stripe's
+    idempotency window (~24h): Stripe returns the same balance transaction instead of
+    granting twice. ``metadata`` (e.g. the feedback report id) is stored on the txn so a
+    grant can be reconciled/deduped beyond that window. Raises on a Stripe error (the
+    caller decides whether to surface or swallow)."""
     _require_stripe()
     await asyncio.to_thread(
         lambda: stripe.Customer.create_balance_transaction(
@@ -363,6 +368,7 @@ async def grant_customer_credit(
             amount=-abs(amount_cents),
             currency="eur",
             description="Mealbot feedback credit",
+            metadata=metadata or {},
             idempotency_key=idempotency_key,
         )
     )

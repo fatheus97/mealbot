@@ -754,3 +754,48 @@ def test_user_to_read_exposes_is_comped(monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_webhook_path_is_csrf_exempt():
     assert "/api/billing/webhook" in _CSRF_EXEMPT_PATHS
+
+
+# --------------------------------------------------------------------------- #
+# Feedback credit (6b) — Stripe customer-balance helpers. The SIGN is money-
+# critical: a credit is a NEGATIVE balance; a flip would CHARGE the user.
+# --------------------------------------------------------------------------- #
+async def test_grant_customer_credit_posts_negative_balance_txn(monkeypatch):
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+    captured: dict = {}
+
+    def _fake_create(customer_id, **kwargs):
+        captured["customer_id"] = customer_id
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(stripe.Customer, "create_balance_transaction", _fake_create)
+    await stripe_service.grant_customer_credit(
+        "cus_1", 100, idempotency_key="k1", metadata={"feedback_report_id": "42"}
+    )
+    assert captured["customer_id"] == "cus_1"
+    assert captured["amount"] == -100  # NEGATIVE = credit (not a charge)
+    assert captured["currency"] == "eur"
+    assert captured["idempotency_key"] == "k1"
+    assert captured["metadata"] == {"feedback_report_id": "42"}
+
+
+@pytest.mark.parametrize(
+    ("balance", "expected"),
+    [(-250, 250), (-1, 1), (0, 0), (100, 0), (None, 0)],
+)
+async def test_customer_credit_balance_cents_sign(monkeypatch, balance, expected):
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    class _FakeCustomer:
+        def to_dict(self):
+            return {"balance": balance}
+
+    monkeypatch.setattr(stripe.Customer, "retrieve", lambda cid: _FakeCustomer())
+    assert await stripe_service.customer_credit_balance_cents("cus_1") == expected

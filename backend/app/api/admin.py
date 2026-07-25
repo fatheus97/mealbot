@@ -1360,34 +1360,44 @@ async def accept_feedback(
 
     # (1) Credit — money-critical, idempotent, never raises. The reporter should exist
     # (a hard-delete CASCADEs the report away), but be defensive.
+    granted = False
     reporter = await session.get(User, report.user_id)
     if reporter is not None:
-        await feedback_credit.maybe_grant_credit(session, report, reporter)
+        granted = await feedback_credit.maybe_grant_credit(session, report, reporter)
 
     session.add(report)
-    if newly_accepted:
+    # Audit whenever the status transitioned OR money actually moved: a RETRY Accept
+    # (report already "accepted") can still grant a credit that failed the first time,
+    # and that money must be logged. `credited` reflects whether THIS call granted (not
+    # the report's stored state), so a re-accept that grants nothing writes no audit /
+    # never over-counts a single credit.
+    if newly_accepted or granted:
         record_admin_action(
             session,
             actor=actor,
             action="feedback.accept",
-            detail={
-                "feedback_id": str(feedback_id),
-                "credited": str(report.credit_granted_at is not None),
-            },
+            detail={"feedback_id": str(feedback_id), "credited": str(granted)},
         )
     await session.commit()
 
     # (2) Ticket — best-effort, AFTER the money commit, in its own transaction. Only
-    # when not already ticketed and ticketing is configured.
+    # when not already ticketed and ticketing is configured. Wrapped so a GitHub or
+    # DB-persist failure here can never turn a committed accept+credit into a 500. Known
+    # trade-off: if the issue IS created but this commit fails, a later re-accept can
+    # open a duplicate (GitHub issue-create has no idempotency key) — accepted as
+    # best-effort (private repo, rare, harmless).
     await session.refresh(report)
     if report.ticket_url is None and feedback_ticket.ticket_configured():
-        url = await feedback_ticket.create_issue_for_report(
-            report, _parse_triage(report.triage_json)
-        )
-        if url:
-            report.ticket_url = url
-            session.add(report)
-            await session.commit()
-            await session.refresh(report)
+        try:
+            url = await feedback_ticket.create_issue_for_report(
+                report, _parse_triage(report.triage_json)
+            )
+            if url:
+                report.ticket_url = url
+                session.add(report)
+                await session.commit()
+                await session.refresh(report)
+        except Exception:
+            logger.exception("feedback ticket persist failed for report %s", feedback_id)
 
     return await _feedback_detail(session, report)
