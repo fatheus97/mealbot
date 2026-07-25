@@ -63,7 +63,15 @@ export function AuthBar() {
       <h2>{userId ? "Welcome" : "Login"}</h2>
       <div style={{ display: "flex", gap: "0.5rem", alignItems: isMobile ? "stretch" : "center", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap" }}>
         {!userId && (
-          <>
+          // A real <form> so pressing Enter in either field submits (implicit
+          // submission only works inside a form). display:contents keeps the
+          // inputs/buttons participating directly in the parent flex row, so the
+          // layout is unchanged. Sign In is the submit button; Register/Demo are
+          // type="button" so Enter (or an accidental submit) can't trigger them.
+          <form
+            onSubmit={e => { e.preventDefault(); handleLogin(); }}
+            style={{ display: "contents" }}
+          >
             <input
               value={inputEmail}
               onChange={e => { setInputEmail(e.target.value); setAuthError(null); }}
@@ -77,11 +85,12 @@ export function AuthBar() {
               placeholder="Password"
               style={{ padding: "0.5rem" }}
             />
-            <button onClick={handleLogin} disabled={loading} style={{ padding: "0.5rem 1rem" }}>
+            <button type="submit" disabled={loading} style={{ padding: "0.5rem 1rem" }}>
               {loading ? "..." : "Sign In"}
             </button>
             {registrationEnabled && (
               <button
+                type="button"
                 onClick={handleRegister}
                 disabled={loading}
                 style={{ padding: "0.5rem 1rem", backgroundColor: "#4a90d9", color: "white", border: "none", borderRadius: "4px" }}
@@ -91,6 +100,7 @@ export function AuthBar() {
             )}
             {demoEnabled && (
               <button
+                type="button"
                 onClick={async () => {
                   setLoading(true);
                   setAuthError(null);
@@ -109,7 +119,7 @@ export function AuthBar() {
                 {loading ? "..." : "Try Demo"}
               </button>
             )}
-          </>
+          </form>
         )}
         {userId && (
           <div style={{ display: "flex", gap: "1rem", alignItems: "center", position: "relative", flexWrap: "wrap" }}>
