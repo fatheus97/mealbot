@@ -8,7 +8,13 @@ Arguments: $ARGUMENTS
 
 ## Per run
 
-1. **Fetch the queue.** `gh issue list -R fatheus97/mealbot-tickets --state open --limit 30`. Skip any labelled `needs-info`, `blocked`, or `shipped` — they're waiting on the owner or already done. **Guard against duplicate work** before starting each ticket (a manual re-run, or the scheduled Stage 1, may already have one in flight): `gh pr list -R fatheus97/mealbot --state open --search "Ships fatheus97/mealbot-tickets#<N>"` — if a PR already references the ticket, don't open a second; resume that PR's review loop instead, or skip. If a specific number was given in the arguments, do only that ticket.
+1. **Fetch the queue.** `gh issue list -R fatheus97/mealbot-tickets --state open --limit 30`. Skip any labelled `needs-info`, `blocked`, or `shipped` — they're waiting on the owner or already done. **Before starting each ticket, look for a PR that already references it** across ALL states (`gh pr list -R fatheus97/mealbot --state all --search "Ships fatheus97/mealbot-tickets#<N>"`) and branch on it — this both dedups and closes out BIG tickets the owner merged out-of-band:
+   - **OPEN PR** → already in flight (a re-run or the scheduled Stage 1). Don't open a second — resume its review loop if SMALL, or leave it for the owner if BIG. Move on.
+   - **MERGED PR** → already shipped (typically a BIG one the owner merged out-of-band, or a SMALL one whose close didn't run). Close the ticket + label `shipped` with that PR's URL right here (step 8) — do NOT re-solve. Move on.
+   - **CLOSED-unmerged PR** → the owner previously declined a fix; do NOT silently re-solve — flag it in the report for the owner.
+   - **No PR** → proceed to triage (step 2).
+
+   If a specific number was given in the arguments, do only that ticket.
 
 2. **Triage each ticket for actionability BEFORE spending tokens on it.** This is a paid, health-adjacent product — never guess:
    - **Clear, reproducible bug OR a well-scoped small feature** → proceed to solve.
@@ -34,7 +40,7 @@ Arguments: $ARGUMENTS
 
 5. **Open the PR** against `mealbot` and cross-link it to the ticket:
    - PR body: a short summary + `Ships fatheus97/mealbot-tickets#<N>`. **Never paste user PII** (the ticket is PII-safe by design — keep it that way; reference the user only as the ticket does).
-   - Comment the PR URL on the ticket (cross-repo close keywords don't fire, so the link is the trace; you close the ticket explicitly on merge).
+   - Comment the PR URL on the ticket (cross-repo close keywords don't fire, so the link is the trace). The ticket is closed + labelled `shipped` when its PR merges — in step 8 this run for a SMALL PR (this run merges it), or via step 1's merged-PR check on a later run for a BIG PR the owner merged out-of-band.
 
 6. **Run the CI + review loop** per the Autonomy section of `.claude/rules/git.md`: wait for CI + the Claude PR review (poll with `ScheduleWakeup`, don't block), then for **every** finding either fix it (verify against the real code first — the review can overcorrect) or reply on the thread with justification and resolve it. Respect the conversation-resolution merge gate. **Never `--admin`, never force-push, never bypass branch protection.**
 
@@ -42,7 +48,7 @@ Arguments: $ARGUMENTS
    - **SMALL / low-risk** → once CI is green AND the review has no actionable items, **merge**: `gh pr merge <n> --squash --delete-branch`. This is the standing authorization — don't re-ask.
    - **BIG / risky** → do NOT merge. Leave the PR green + reviewed and **ping the owner** with the PR link and a one-paragraph plain-English summary of what it does and any risk, for their glance and merge.
 
-8. **On a merge (small ones):** close the ticket and mark it — `gh issue close -R fatheus97/mealbot-tickets <N> -c "Shipped in <PR URL> — deploying."` then `gh issue edit -R fatheus97/mealbot-tickets <N> --add-label shipped`. (Merging `mealbot` main IS the deploy; don't tell the owner to deploy manually.)
+8. **Close the ticket when its PR is merged** — for a SMALL PR this run just merged, and for a BIG PR found already-merged via step 1 (the owner merged it out-of-band). Same for both, so the paths are symmetric: `gh issue close -R fatheus97/mealbot-tickets <N> -c "Shipped in <PR URL> — deploying."` then `gh issue edit -R fatheus97/mealbot-tickets <N> --add-label shipped`. (Merging `mealbot` main IS the deploy; don't tell the owner to deploy manually.)
 
 ## Report at the end
 
