@@ -46,13 +46,22 @@ export function IngredientChipInput({
   }, [draft, suggestions, lowerValues]);
 
   const commitChip = (raw: string) => {
-    const trimmed = raw.trim();
-    if (!trimmed) return;
-    if (lowerValues.has(trimmed.toLowerCase())) {
-      setDraft("");
-      return;
+    // Split on commas so a pasted "a, b, c" becomes separate chips — and, crucially, so a
+    // committed chip can NEVER itself contain a comma. Call sites that serialize the chip
+    // list into a comma-joined string (e.g. MealPlanner's persisted "avoid" field) rely on
+    // that: a comma inside a chip would be indistinguishable from the separator on the next
+    // parse, silently multiplying items. Typing a comma is already intercepted by keydown;
+    // this covers the paste path, which lands as one onChange with the commas intact.
+    const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+    const seen = new Set(lowerValues);
+    const additions: string[] = [];
+    for (const part of parts) {
+      const key = part.toLowerCase();
+      if (seen.has(key)) continue; // skip existing + intra-paste duplicates
+      seen.add(key);
+      additions.push(part);
     }
-    onChange([...values, trimmed]);
+    if (additions.length > 0) onChange([...values, ...additions]);
     setDraft("");
   };
 

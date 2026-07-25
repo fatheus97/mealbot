@@ -159,6 +159,34 @@ describe('CookNowForm', () => {
     expect(payload.generation_id).toBe(7);
   });
 
+  it('collects "ingredients to avoid" as chips and sends them in the request', async () => {
+    // Ticket #2 (mealbot-tickets): the avoid field now uses the same chip input as
+    // "ingredients to feature". Each committed chip must land in avoid_ingredients.
+    loginUser();
+    mockedGenerate.mockResolvedValueOnce({
+      recipe: {
+        name: 'Bowl',
+        meal_type: 'main_course',
+        meal_type_label: 'Main course',
+        ingredients: [],
+        steps: ['Toss'],
+      },
+      generation_id: null,
+    });
+
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await user.type(
+      screen.getByPlaceholderText(/to avoid and press enter/i),
+      'peanuts{Enter}cilantro{Enter}',
+    );
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+
+    await waitFor(() => expect(mockedGenerate).toHaveBeenCalledTimes(1));
+    const call = mockedGenerate.mock.calls[0][0];
+    expect(call.avoid_ingredients).toEqual(['peanuts', 'cilantro']);
+  });
+
   it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate request', async () => {
     // The FE->BE contract line for safety-relevant allergen data: a click on a
     // diet/allergen chip must land in the outgoing SingleRecipeRequest so the

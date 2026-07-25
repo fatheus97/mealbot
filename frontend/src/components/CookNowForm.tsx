@@ -56,7 +56,7 @@ export function CookNowForm() {
   const [allergens, setAllergens] = useState<Allergen[]>([]);
   const [peopleCount, setPeopleCount] = useState(2);
   const [tastePreferences, setTastePreferences] = useState("");
-  const [avoidIngredients, setAvoidIngredients] = useState("");
+  const [avoidIngredients, setAvoidIngredients] = useState<string[]>([]);
   const [ingredientsToUse, setIngredientsToUse] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [stockOnly, setStockOnly] = useState(false);
@@ -93,7 +93,7 @@ export function CookNowForm() {
     allergens,
     people_count: peopleCount,
     taste_preferences: parseList(tastePreferences),
-    avoid_ingredients: parseList(avoidIngredients),
+    avoid_ingredients: avoidIngredients,
     ingredients_to_use: ingredientsToUse,
     stock_only: stockOnly,
     note: note.trim() ? note.trim() : null,
@@ -246,13 +246,12 @@ export function CookNowForm() {
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Ingredients to avoid (comma separated)
-          <input
-            type="text"
-            value={avoidIngredients}
-            onChange={(e) => setAvoidIngredients(e.target.value)}
-            placeholder="e.g. peanuts, cilantro"
-            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
+          Ingredients to avoid
+          <IngredientChipInput
+            values={avoidIngredients}
+            onChange={setAvoidIngredients}
+            suggestions={[]}
+            placeholder="Type an ingredient to avoid and press Enter"
           />
         </label>
 

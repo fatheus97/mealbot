@@ -227,12 +227,13 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     });
   }, []);
 
+  // Comma-separated string inputs → strict arrays for the API. Also adapts the
+  // persisted avoid string to/from the chip input's string[] at the widget boundary.
+  const parseList = (input: string) =>
+    input.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+
   const handleGenerate = () => {
     if (!userId) return;
-
-    // Transform comma-separated string inputs into strict arrays for the API
-    const parseList = (input: string) =>
-      input.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 
     const request: MealPlanRequest = {
       ingredients: [],
@@ -544,8 +545,13 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Ingredients to Avoid (comma separated):
-          <input type="text" value={avoidIngredients} onChange={(e) => setAvoidIngredients(e.target.value)} placeholder="e.g. peanuts, cilantro" style={{ width: "100%", marginTop: "0.25rem" }} />
+          Ingredients to Avoid:
+          <IngredientChipInput
+            values={parseList(avoidIngredients)}
+            onChange={(next) => setAvoidIngredients(next.join(", "))}
+            suggestions={[]}
+            placeholder="Type an ingredient to avoid and press Enter"
+          />
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
