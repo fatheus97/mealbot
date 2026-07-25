@@ -465,8 +465,9 @@ export function useGeneratePlan() {
       });
       if (res.status === 402) throw new PaywallError();
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`Plan generation failed: ${res.status} - ${txt}`);
+        // Surface the backend `detail` — including the fail-closed allergen
+        // 422 — instead of dumping the raw JSON body into the error banner.
+        throw new Error(await extractErrorDetail(res, "Plan generation failed. Please try again."));
       }
       return res.json();
     },
@@ -512,8 +513,9 @@ export function useRegeneratePlan() {
       });
       if (res.status === 402) throw new PaywallError();
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`Regeneration failed: ${res.status} - ${txt}`);
+        // Surface the backend `detail` — including the fail-closed allergen
+        // 422 — instead of dumping the raw JSON body into the error banner.
+        throw new Error(await extractErrorDetail(res, "Regeneration failed. Please try again."));
       }
       return res.json();
     },
