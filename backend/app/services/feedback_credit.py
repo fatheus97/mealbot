@@ -1,7 +1,8 @@
 """Feedback credit (6b): the €1 launch-discount grant on admin Accept.
 
-Grants a Stripe customer-balance credit for an accepted feedback report, under three
-caps that together guarantee an invoice can never hit €0:
+Queues a labeled Stripe invoice-item credit (a "Feedback reward" line on the reporter's
+next invoice — transparent, and it stacks per report) for an accepted feedback report,
+under three caps that together guarantee an invoice can never hit €0:
   * **idempotent per report** (``credit_granted_at``) — a report is credited at most once;
   * a **rolling per-user rate cap** (max N credits per window);
   * a **hard floor** — never grant if the customer's outstanding credit balance + this
@@ -13,6 +14,7 @@ boundary: a Stripe failure leaves ``credit_granted_at`` NULL (so a repeat Accept
 retries, idempotency-keyed on the report id) and never blocks the Accept itself.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -102,15 +104,24 @@ async def maybe_grant_credit(
     credit_cents = round(settings.feedback_credit_eur * 100)
     max_outstanding_cents = round(settings.feedback_credit_max_outstanding_eur * 100)
 
-    # (2) Hard never-€0 floor: the AUTHORITATIVE Stripe balance, read right before the
-    # grant. If reading it fails, refuse (don't grant blind).
+    # (2) Hard never-€0 floor: the AUTHORITATIVE sum of ALL credit Stripe will apply to
+    # the customer's next invoice — the pending "Feedback reward" invoice items PLUS any
+    # credit on the customer BALANCE (grants made under the old balance path before this
+    # swap, plus prorations/goodwill), which Stripe applies ON TOP of the items. Both are
+    # read right before the grant; if EITHER read fails, refuse (don't grant blind).
+    # NB the floor assumes the standard undiscounted monthly price — a future recurring
+    # promo code (allow_promotion_codes is on at checkout) would lower the invoice and
+    # would need this revisited. The two reads are independent GETs, so run them
+    # concurrently to keep the per-user advisory lock (held across them) short.
     try:
-        outstanding = await stripe_service.customer_credit_balance_cents(
-            user.stripe_customer_id
+        pending, balance = await asyncio.gather(
+            stripe_service.pending_feedback_credit_cents(user.stripe_customer_id),
+            stripe_service.customer_credit_balance_cents(user.stripe_customer_id),
         )
     except Exception:
-        logger.exception("feedback_credit balance check failed report_id=%s", report.id)
+        logger.exception("feedback_credit floor check failed report_id=%s", report.id)
         return False
+    outstanding = pending + balance
     if outstanding + credit_cents > max_outstanding_cents:
         logger.info(
             "feedback_credit_over_floor user_id=%s report_id=%s outstanding=%s",
@@ -118,20 +129,24 @@ async def maybe_grant_credit(
         )
         return False
 
-    # (3) Grant, idempotency-keyed per report + tagged with the report id. Record
-    # credit_granted_at ONLY after Stripe confirms, so a failure leaves it NULL and a
-    # repeat Accept retries. The key makes Stripe a no-op on a retry WITHIN ~24h; a
-    # commit-failure-then-retry BEYOND that window could post a second credit — but the
-    # never-€0 floor bounds outstanding credit to <€3 (< the monthly price) so an invoice
-    # is never zeroed, and the report-id metadata lets a grant be reconciled. Fully
-    # closing the >24h edge (a Stripe balance-txn lookup by metadata) is a hardening
-    # follow-up, disproportionate for a default-off, admin-gated, low-volume path.
+    # (3) Grant — queue the labeled credit line, idempotency-keyed per report + tagged
+    # with the report id. Record credit_granted_at ONLY after Stripe confirms, so a
+    # failure leaves it NULL and a repeat Accept retries. The key makes Stripe a no-op on
+    # a retry WITHIN ~24h; a commit-failure-then-retry BEYOND that window could post a
+    # second credit line — but the never-€0 floor bounds pending credit to <€3 (< the
+    # monthly price) so an invoice is never zeroed, and the report-id metadata lets a grant
+    # be reconciled. Fully closing the >24h edge (a pending-item lookup by metadata) is a
+    # hardening follow-up, disproportionate for a default-off, admin-gated, low-volume path.
     try:
-        await stripe_service.grant_customer_credit(
+        await stripe_service.apply_feedback_invoice_credit(
             user.stripe_customer_id,
             credit_cents,
             idempotency_key=f"feedback_credit_{report.id}",
-            metadata={"feedback_report_id": str(report.id)},
+            description="Feedback reward (thanks for your report!)",
+            metadata={
+                "feedback_report_id": str(report.id),
+                "kind": stripe_service.FEEDBACK_CREDIT_ITEM_KIND,
+            },
         )
     except Exception:
         logger.exception("feedback_credit grant failed report_id=%s", report.id)

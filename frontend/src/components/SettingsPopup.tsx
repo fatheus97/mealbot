@@ -198,7 +198,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         </button>
         <InfoHint
           label="How feedback credit works"
-          text="Earn €1 off your next month for every accepted bug report or feature request — up to €3/month. The credit lands on your next invoice, so you'll need to be on the monthly plan (subscribed or on a free trial) to receive it — annual plans are already discounted."
+          text="Earn €1 off for every accepted bug report or feature request — up to €3/month. It shows up as a “Feedback reward” credit on your next invoice, so you'll need to be on the monthly plan (subscribed or on a free trial) to receive it — annual plans are already discounted."
         />
       </div>
     </div>
