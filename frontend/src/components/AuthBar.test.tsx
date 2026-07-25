@@ -104,6 +104,33 @@ describe('AuthBar', () => {
     });
   });
 
+  it('submits the login form when Enter is pressed in a field (no mouse click)', async () => {
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(profile({ id: 1, email: 'test@x.com' })),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'test@x.com');
+    // The reported bug: Enter did nothing because the inputs weren't in a <form>.
+    // Trailing {Enter} triggers implicit form submission — no Sign In click.
+    await user.type(screen.getByPlaceholderText('Password'), 'password123{Enter}');
+
+    await waitFor(() => {
+      expect(localStorage.getItem('mealbot_user_id')).toBe('1');
+    });
+  });
+
   it('shows email and logout when logged in (localStorage hint)', () => {
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user@test.com');
