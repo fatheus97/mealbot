@@ -11,6 +11,7 @@ import sys
 from pydantic import ValidationError
 from sqlmodel import select
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import async_session_factory
 from app.models.db_models import User
@@ -28,13 +29,16 @@ async def create_user(
         sys.exit(1)
 
     async with async_session_factory() as session:
-        result = await session.execute(select(User).where(User.email == email))
+        result = await session.execute(
+            select(User).where(User.normalized_email == normalize_email(email))
+        )
         if result.scalars().first():
             print(f"Error: user with email '{email}' already exists.", file=sys.stderr)
             sys.exit(1)
 
         user = User(
             email=email,
+            normalized_email=normalize_email(email),
             hashed_password=get_password_hash(password),
             is_admin=is_admin,
             is_comped=is_comped,

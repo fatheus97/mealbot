@@ -28,11 +28,21 @@
 > That added the **Launch readiness** milestone, and finally **2026-07-21** after
 > **clearing that milestone's engineering**: password reset (#238/#239, E2E-
 > verified on prod), the funnel-instrumentation thrust (#240), and the owner
-> verifying the Resend sender domain + setting `ALERT_EMAIL_FROM` — so the launch
-> is now a single owner action (flip `REGISTRATION_ENABLED`). The same pass added
+> verifying the Resend sender domain + setting `ALERT_EMAIL_FROM` — which left the
+> launch a single owner action (flip `REGISTRATION_ENABLED`). The same pass added
 > a **periodic Docker disk-cleanup** ops item and an **admin-dashboard polish**
-> item (both owner-requested after a build-cache disk outage), plus a prod
-> env-change / recovery runbook to *Operating the deployment*. Where the notes
+> item (both owner-requested after a build-cache disk outage), a prod
+> env-change / recovery runbook in *Operating the deployment*, and a
+> **combinable dietary-restrictions & allergies** item the owner flagged as the
+> likely paid differentiator (today `diet_type` is single-select — you can't
+> stack restrictions), which the owner then generalised into a **cross-cutting
+> "evidence-grounded" product direction** (authoritative, cited data anywhere it
+> helps — dietary, nutrition, food safety, baby-food weaning — as both a quality
+> bar and a marketing pillar), then researched the dietary reference layer into
+> `docs/dietary-reference.md` (v1.1, source-cited). Finally, **2026-07-23 the
+> owner PARKED the launch flag** — engineering is ready but the product "still
+> feels incomplete", so registration stays closed until the differentiator lands
+> (a product-readiness call, not an engineering blocker). Where the notes
 > and the code disagreed, the code wins and the discrepancy is called out.
 
 ## How to read this
@@ -224,6 +234,7 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | **Camera capture** | ✅ | — | — | **Shipped 2026-07-10** (#177). "Take photo" → `getUserMedia` → canvas → JPEG (sidesteps iOS HEIC + compresses) into the existing scan flow; graceful file-upload fallback. Two adversarial-review rounds caught 6 defects (stream leak, StrictMode dead-camera, races). |
 | **Request correlation IDs (I-3)** | ⬜ | M | — | No trace/request IDs, no structured JSON logging. Middleware + `ContextVar` + JSON formatter + log-call updates. Own PR. |
 | **Frontend E2E / visual regression (U-8)** | ⬜ | M–L | — | No Playwright/Cypress. **Deferred by choice (2026-07-12):** repeated dark-mode white-on-white bugs prompted a lighter guardrail instead — a checked-in `.claude/rules/frontend.md` mandating a manual dark+light preview check on every UI change (#196). Automated Playwright screenshot/visual-regression (light+dark baselines) is the eventual fix but carries a re-baselining + CI-env-consistency tax; revisit if the rule stops catching regressions. |
+| **In-app info hints — "i" hovers everywhere (U-9)** | 🟡 | M | — | **Owner's preferred way to explain the app (2026-07-25):** small "i"-in-a-circle affordances that reveal a one-line explanation on hover / keyboard-focus / tap — deliberately **instead of** intro tours or coach-mark popups (owner finds those annoying; loves inline hints). **Reusable primitive SHIPPED:** `frontend/src/components/InfoHint.tsx` — theme-robust (self-contained surfaces, legible in light **and** dark without leaning on adaptive colour), CLS-safe (out-of-flow bubble reserves no flow space), and accessible (labelled button, `aria-expanded`/`aria-describedby`, Escape + outside-tap dismissal). **First use:** the feedback-credit eligibility hint next to *Send feedback* (explains €1/report · up to €3/mo · needs the **monthly** plan — subscribed or trialing; annual is already discounted). 🟡 = incrementally place hints on the other explain-worthy spots (planner options, dietary chips, spices/staples toggles, paywall terms, admin metrics) as those screens are next touched — no big-bang pass. |
 
 ---
 
@@ -239,11 +250,12 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 | **User edits as feedback** | 🅿️ | M | **usage data** | **PARKED 2026-07-20 — not enough data to learn from.** The capture half is shipped and keeps running (`MachineGeneration` + `MachineCorrection` record every generation and every user correction across plan/meal-edit/regen/Cook-Now/receipt), so nothing is lost by waiting — the corpus accumulates in the background. What's missing is *volume*: the app has very few active users, so consuming corrections now would fit a model to a handful of one-person quirks and make generations **worse**, which is a real risk on a paid product. Parked deliberately, not deprioritised: this is still the differentiator the telemetry was built for. **Un-park when** there's meaningful correction volume (check the admin dashboard's activity/generation counts). Remaining work is then the design choice — prompt context vs few-shot examples vs a per-user preference signal — plus consumption in `meal_planner`/`recipe_retriever`, which read no correction tables today. Gated on usage, and usage is gated on marketing (below). |
 | **Plans ↔ calendar dates** | ✅ | — | — | **Shipped 2026-07-17 (#220–222, polished in #224).** `MealPlan.start_date` (nullable date; day N = `start_date + (N-1)`, backfills NULL/unscheduled), set at generation (`?start_date=`) / overridable at confirm / reschedulable via `PATCH /plan/{id}` — editable inline on every plan in **My Plans** as well as from the calendar; inline dates on day headers + catalog cards; a month-grid calendar (`PlanCalendar`, blue 📅 FAB) over `GET /api/plan/calendar` showing **every meal per day** stacked in day-layout order (breakfast → dinner), with reschedule-from-calendar and no stale-month lag (`staleTime: 0` + invalidation on confirm/delete/un-confirm). Built on a reusable `ModalShell` (#220 — which also fixed the cookbook's mobile "big edges" → true full-screen). Two pre-push adversarial-review passes caught **10 real bugs** across #221/#222 that the test suites missed. **Unlocks leftovers + real scheduling.** |
 | **Bigger leftover batches (cook once, eat 3×)** | ⬜ | S–M | leftovers ✅ | Raise the deliberately-conservative launch limits: `DEFAULT_MAX_LEFTOVERS_PER_PLAN = 2` and one-leftover-per-source. **Mostly a planner-policy change, not new machinery** — the invariants already *permit* fan-in (L11, `test_l11_two_leftovers_may_share_one_source`) and `portions_for_day` already computes `1 + fan-in count` (`test_fan_in_triples`); only `plan_leftover_links` declines to emit it. The `IngredientAmount` cap was already raised to 30 kg for exactly this. **The motivating case is baby food** (`diet_type="baby_food"`, which already has its own INFANT FOOD MODE prompt rules): purees are cooked in a batch, portioned and frozen, and a baby eats the same thing repeatedly — so the two conservative rules that protect adult plans are actively wrong there. In particular the **one-day lookback** should probably relax for frozen batches: "reheat Monday's puree on Thursday" is normal for baby food and unappealing for a roast dinner. Likely shape: make the limits and the lookback depend on `diet_type` rather than raising them globally. |
-| **Pantry staples ("always have") list** | ⬜ | S | — | The shopping list buys everything not currently in the fridge, so salt, oil, pepper, flour and sugar land on **every** list. A per-user staples list excluded from `compute_shopping_list_from_plan` strips that noise. Smallest item on this roadmap and felt on every single shop. Note the list is **frozen into `response_json` at generation** — changing staples must not retroactively rewrite existing plans, so apply the filter at generation time, not on read. |
-| **Shopping list export / check-off** | ⬜ | S–M | — | The list exists only inside the app, so people retype it or squint at a phone in the aisle. Copy-to-clipboard, mobile share sheet, and tickable items (local state is fine — no need to persist ticks server-side for v1). Delivers most of the practical value of **rohlik.cz integration** (L, below) at a fraction of the cost, and is worth doing first regardless of whether that ever happens. |
+| **Pantry staples ("always have") list** | ✅ | — | — | **Shipped + LIVE 2026-07-24 (#273).** A per-user `PantryStaple` list (salt/oil/flour…) excluded from `compute_shopping_list_from_plan` so household staples stop landing on every list. The exclusion is applied **at generation time only, in BOTH the initial (`generate_plan_days`) and regenerate (`regenerate_plan`) paths** — keyed per-user, dropped alongside spices — so existing plans' frozen `response_json` lists are never rewritten *and* staples don't reappear after a regenerate. `GET/PUT /api/staples` (auth-scoped, 200-item cap, case-insensitive dedup, no unique constraint), `PantryStaple` table (StockItem-shape minus stock fields, no `ondelete` → `delete_user` purges it), `PantryStaples` chips panel under the Fridge. Two-theme verified; a reusable App.test.tsx QueryClient-stub gotcha was caught + fixed. |
+| **Shopping list export / check-off** | ✅ | — | — | **Shipped + LIVE 2026-07-24 (#280).** The list was a dead-end static `<ul>` — people retyped it or squinted at a phone in the aisle. Added **Copy** (plain-text clipboard), **Share** (Web Share, **feature-detected on `navigator.share`** — not gated on viewport, so a capable desktop gets it too; unsupported contexts fall back to the always-present Copy), and **tickable check-off** with strike-through. Ticks are ephemeral component state (no backend, per the v1 call) and reset on generate/regenerate so a checked index never maps onto a stale item. Frontend-only — consumes the already-frozen `shopping_list`, no backend/API/DB/LLM change. Delivers most of the practical value of **rohlik.cz integration** (L, below) at a fraction of the cost. Two-theme verified (`#111` on `#fff`, ~18.9:1 both schemes); the AI review's two non-blocking nits (struck-item contrast → WCAG-AA `#6b7280`; a leaking `navigator` test stub) were fixed in the same PR. |
 | **"Repeat this week" / plan templates** | ⬜ | S–M | calendar dates ✅ | People eat in routines, but every plan starts from scratch. Copy an existing plan forward to a new `start_date` — cheap now that plans carry real dates and `PATCH /plan/{id}` already reschedules. Drives exactly the repeat usage the parked edit-feedback loop is waiting on. Decide up front whether a copy re-runs the LLM (fresh recipes, same shape) or duplicates the meals verbatim — verbatim is the cheaper and probably more useful v1. |
 | **Waste tracking** | ⬜ | M | — | The fridge already carries `expiration_date` and `need_to_use`, so capturing *what actually got binned* is a short step from what exists. Closes a real loop for the user **and** produces a number worth advertising ("cut your food waste 30%") — it feeds the **Growth / marketing** milestone as much as the product. Keep the capture ungamified and low-friction; a nag screen will just get dismissed. |
-| **Nutrition / macros** | ⬜ | M–L | — | `diet_type` already offers `high_protein` / `low_carb` but only nudges the prompt — the user never sees whether it worked. ⚠️ **Accepted with a caveat:** doing this properly needs a real food database (USDA FDC or similar), because LLM-estimated macros presented as fact on a paid, health-adjacent product is a liability. If it ships on LLM estimates alone, label them clearly as approximate and keep them out of anything that reads as medical/nutritional advice. Scope the data source before writing code. |
+| **Nutrition / macros** | ⬜ | M–L | — | `diet_type` already offers `high_protein` / `low_carb` but only nudges the prompt — the user never sees whether it worked. ⚠️ **Accepted with a caveat:** doing this properly needs a real food database (USDA FDC or similar), because LLM-estimated macros presented as fact on a paid, health-adjacent product is a liability. If it ships on LLM estimates alone, label them clearly as approximate and keep them out of anything that reads as medical/nutritional advice. Scope the data source before writing code. **An instance of the evidence-grounded product direction** (see that section) — the USDA FDC / EuroFIR data belongs in the same shared reference KB. |
+| **Dietary restrictions & allergies — combinable + first-class** | ✅ | L | — | **✅ COMPLETE 2026-07-25 — all 5 slices shipped + deployed (schema #283 → reference layer #285 → prompt redesign #288 → allergen screen #291 → multi-select UI #296). The paid differentiator is now live end-to-end: a user declares combinable diets + EU-14 allergens in the UI, generation composes the cited reference layer as hard constraints, and every output is deterministically screened (reject→regenerate, fail-closed).** **🔬 RESEARCH GROUNDWORK DONE 2026-07-23 — [`docs/dietary-reference.md`](docs/dietary-reference.md) v1.1** (source-cited: the EU-14 allergen table + the legal "products thereof" derivatives rule, dietary-pattern definitions with evidence tiers, combination-risk rules, and the labelling/liability backbone — every claim confidence-marked ✅/🔶/✍️). **SLICE 1 (schema + backward-compat) SHIPPED + DEPLOYED 2026-07-24 (#283, merge 3e059e3):** `diet_type` (single) is now a combinable `diet_types` set + a structured `allergens` field (EU-14), backward-compatible and behaviour-preserving — see `backend/app/core/dietary.py` (the `DietType`/`Allergen` enums). At slice 1 this was the **data-contract foundation only** — nothing consumed the new fields yet (prompt/screen/UI were later slices, all since shipped). **SLICE 2 (cited reference layer) SHIPPED + DEPLOYED 2026-07-25 (#285, merge 51aa6c4):** `backend/app/core/dietary_reference.py` encodes `docs/dietary-reference.md` keyed on the enums — the EU-14 allergen derivative sets ("products thereof"), the 13 Part-2 dietary patterns (tier/nutrient-risks/citation/confidence), and the Part-3 combination rules — plus `resolve_dietary_context()` (exact keyed lookup) exposing `allergen_terms()` for the screen and `prompt_lines()` for the prompt. **SLICE 3 (prompt redesign) SHIPPED + DEPLOYED 2026-07-25 (#288, merge b15af1c):** generation now composes the full reference layer — each selected diet's definition, each allergen with its derivative-exclusion list, and any Part-3 combination note — as HARD CONSTRAINTS via a shared `_dietary_constraints.jinja` included by both meal-plan templates, replacing the single `— Diet type:` line (the four app-specific diets balanced/high_protein/low_carb/baby_food are handled explicitly since they aren't reference patterns). **SLICE 4 (deterministic allergen screen) SHIPPED + DEPLOYED 2026-07-25 (#291, merge 5471ba1):** `backend/app/services/allergen_screen.py` scans every generated ingredient against the declared allergens' term sets and regenerates on a hit, FAILING CLOSED if never clean — the guarantee behind "screened against the EU-14". Precision matching (whole-word + plural-tolerant + `-free`/vegan/gluten-free qualifiers + span-aware safe-compounds) so a dairy-free plan doesn't loop on "coconut milk"; sulphites are prompt-only; skipped in mock mode; INERT until slice 5. A **22-defect adversarial safety review** hardened it before merge (14 on the screen incl. the critical gluten gap, 7 on the fixes, 1 from PR review). **SLICE 5 (multi-select UI) SHIPPED + DEPLOYED 2026-07-25 (#296, merge bff2f0b):** the frontend chips that let users declare combinable diets + EU-14 allergens, wired store→request→backend into the deterministic screen — the moment the whole backend stack switched on for real users. A reusable, theme-safe `DietarySelector` (unselected chips adaptive `color: inherit` on transparent, selected chips explicit accent + white, identical borders so toggling causes no CLS), a `v0→v1` `usePreferencesStore` persist migration widening the legacy single `dietType` into the combinable list (no data loss), and a "helper, not a guarantee — always check labels yourself" disclaimer (never "safe"). A pre-push adversarial review + the Claude PR review caught a real cap mismatch (the 17-diet UI met a hardcoded backend cap of 12 → now derived `_MAX_DIET_TYPES = len(DietType)`, so "select all" always validates) plus two FE→BE wiring-coverage gaps, all fixed before merge. The research groundwork (`docs/dietary-reference.md`) is the input the reference-layer slice below builds on, and already de-risks the safety/liability design. **Owner-flagged 2026-07-21 as a likely marketing hook / paid differentiator.** Before slice 1, `diet_type` was **single-select** (`balanced/high_protein/low_carb/vegetarian/vegan/baby_food`) — you **couldn't stack** restrictions, and only `baby_food` has real prompt rules (INFANT FOOD MODE, `meal_plan.jinja:50`); allergies are handled *only* as a free-text `avoid_ingredients` list dropped into the prompt (`meal_plan.jinja:47,74`). Real households have **combined** restrictions (vegan + gluten-free + nut allergy), and the common ones are missing: **gluten-free, dairy-free/lactose-free, nut-free, egg-free, shellfish-free, pescatarian, keto, paleo, Mediterranean, halal, kosher**. **Why it's strategic (owner's thesis):** reliable *multi*-restriction planning is a growing, underserved pain — allergies/intolerances keep rising — and people juggling several restrictions have high willingness to pay and low tolerance for a generic recipe app. It's a real reason to choose *and keep paying for* this, so it bridges product ↔ Growth (a headline for the landing page + campaigns, and a retention driver). **Shape:** `diet_type` (single) → a **combinable set**; a **structured `allergens` field, distinct from taste-`avoid`** (allergies are safety-critical hard constraints, not preferences); expand the option list; redesign the prompt to compose multiple constraints coherently and **detect/warn on conflicting or near-impossible combos** (keto + vegan is very tight); frontend goes single-dropdown → multi-select chips. ⚠️ **Safety caveat (cf. Nutrition/macros):** an LLM recipe labelled "nut-free" that hallucinates a nut is a genuine liability on a paid, health-adjacent product. "Ask the LLM to avoid synonyms/hyponyms" (rule 74) is **not** a guarantee for allergens — add a **deterministic post-generation screen** (scan output ingredients against declared allergens + a synonym list; reject → regenerate on a hit) plus clear "verify labels yourself · not medical advice" disclaimers. Backward-compat: existing plans store a single `diet_type` in `response_json` — read them without breaking (validate-on-write / degrade-on-read, as leftovers does). **This is an `L` because it's several concerns — when picked up, ship it as sequential, independently-shippable slices** (like the leftovers/paygate thrusts): schema + backward-compat first (**✅ SHIPPED #283** — `app/core/dietary.py` + combinable `diet_types`/`allergens` on the request models), then **the curated, sourced reference layer** (**✅ SHIPPED #285** — `app/core/dietary_reference.py` encodes the allergen/diet-pattern table + Part-3 rules keyed on the enums, with `resolve_dietary_context()`; both the prompt and the screen depend on it, so it came early), then the prompt redesign (**✅ SHIPPED #288** — the reference layer composed into both meal-plan prompts as hard constraints via `_dietary_constraints.jinja`), then the deterministic allergen screen (**✅ SHIPPED #291** — `app/services/allergen_screen.py`, reject→regenerate, fail-closed), then the multi-select UI (**✅ SHIPPED #296**). All five slices are now shipped — the sequential, independently-shippable approach held.<br><br>**Ground it in real science, not ad-hoc labels (owner's follow-up — this is also the marketing point). ✅ This research is DONE — [`docs/dietary-reference.md`](docs/dietary-reference.md) v1.1.** It bases the allergen model and the option taxonomy on *recognized standards* rather than a hand-written list: **EU FIC Reg. (EU) No 1169/2011 — the 14 major allergens** (cereals w/ gluten, crustaceans, eggs, fish, peanuts, soy, milk, tree nuts, celery, mustard, sesame, sulphites, lupin, molluscs) as the legal baseline (the operator is EU/CZ), with the US **"Big 9"** (FASTER Act) as the mapping for US traffic — each expanded to its **derivatives/synonyms** (milk → whey/casein/lactose/ghee; wheat → gluten sources). For dietary *patterns*, use established definitions and note their evidence tier: medically-defined (coeliac→gluten-free, lactose intolerance, **low-FODMAP** per the Monash protocol, diabetic/low-GI), strong-evidence patterns (**Mediterranean**, **DASH**), and lifestyle/ethical (vegan/vegetarian/pescatarian, halal, kosher). Encode this as a **curated, sourced reference layer** (structured data, a citation per rule) and feed the *relevant slice* into the LLM as authoritative context — RAG-style, keyed on the user's selected restrictions — so the model reasons from a vetted definition ("nut-free" = the EU-14/Big-9 tree-nut set + derivatives, not the model's guess); the **same table drives the deterministic output screen**. Nutrition surfacing (if built) can be backed by **USDA FoodData Central / EuroFIR** composition data. ⚠️ **Marketing must stay transparency, not medical endorsement:** "every recipe is screened against the EU 14 major allergens and their derivatives" is a concrete, checkable trust claim the safety-conscious audience actually cares about — *far* stronger than "AI meal plans"; but never "safe for your allergy" / "clinically approved", which invites exactly the liability the screen + disclaimers exist to bound. |
 | **Household / shared account** | ⬜ | L | — | `people_count` exists but a plan and fridge belong to one account, so a couple can't share either. Strong retention play — the classic reason a food app becomes "ours" rather than "mine". Real authorization surface though: every plan/fridge/cookbook query is currently scoped by `user_id`, so this touches ownership across the whole data model. Needs its own design pass (household entity vs. shared-access grants) and tight authz tests before any of it ships. |
 | **rohlik.cz integration** | ⬜ | L | — | Buy shopping-list ingredients via API/MCP. External dependency, unknown API surface — needs a spike first. See **shopping list export** above for the cheap version of most of this value. |
 
@@ -271,15 +283,30 @@ and the only way past it is Stripe Checkout with `billing_address_collection="re
 and a payment method. A throwaway account cannot burn a cent of Gemini quota. The
 paygate is doing its job.
 
-**All engineering prerequisites are DONE and E2E-verified on prod (2026-07-21).
-The launch is now one owner action away: flip the flag.**
+**All engineering prerequisites are DONE and E2E-verified on prod (2026-07-21)** —
+but **the owner has deliberately PARKED the flag flip (2026-07-23).** This is a
+*product-readiness* decision, not an engineering blocker: nothing is broken and
+the door *can* be opened at any time, but the product "still feels incomplete",
+and opening registration spends the app's one-shot first impressions (and any
+acquisition spend) on an as-yet-**undifferentiated** product — before the
+**combinable, evidence-grounded dietary handling** that is meant to be the paid
+differentiator (see *Product direction: evidence-grounded* + Full-release) has
+landed. Registration stays closed; the app keeps running as a closed alpha. The
+flip is one env var whenever the owner judges the product ready.
+
+> **Un-park when** the product feels complete enough to differentiate on — the
+> dietary-restrictions differentiator is now **fully shipped** (all 5 slices,
+> #283→#296), so that half of the original "most likely" trigger is done; a real
+> landing page (Growth phase 2) is the other half. The owner sets the bar; this is
+> a gut-feel "not yet", not a fixed checklist — the roadmap records that the eng
+> condition is met and leaves the call where it belongs.
 
 | Item | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
 | **Verified Resend sender domain** | ✅ | — | — | **DONE 2026-07-21.** Owner verified `trymealbot.com` in Resend (DNS is on **Cloudflare** — not Hetzner — nameservers `rafe`/`bruce.ns.cloudflare.com`; A record grey-clouded to the Hetzner box). `ALERT_EMAIL_FROM=noreply@trymealbot.com` set in the prod `.env` and picked up via `up -d backend`. Was mis-filed as an optional billing follow-up; it silently broke **all** user-facing mail (the sandbox `onboarding@resend.dev` only delivers to the Resend account owner). |
 | **Password reset** | ✅ | — | verified sender | **SHIPPED + LIVE + E2E-VERIFIED 2026-07-21** — backend #238, frontend UI #239. Owner ran the full flow on prod: forgot-password → link mail from `noreply@trymealbot.com` → reset → login with the new password. `PasswordResetToken` (sha256-stored, single-use, 30-min TTL, one-live-token-per-user partial unique index, row-locked redemption); the handler does zero inline work and dispatches the send as a background task so a hit and a miss are timing-identical (no enumeration oracle). Frontend: "Forgot your password?" → `ForgotPasswordModal` (neutral no-enumeration copy) + a global `ResetPasswordModal` that consumes `?reset_token=…` and scrubs it from the URL. |
 | **Funnel instrumentation** | ✅ | — | — | **SHIPPED + LIVE 2026-07-21 (#240).** UTM/referrer captured first-touch on `User`; every downstream milestone DERIVED at query time (no funnel-event table). `GET /admin/stats/funnel` — signup → generated → confirmed → cooked → paid, overall + by-source. Monotonic rollup (best-effort generation telemetry postdates the app, so a confirmed/cooked user with no generation row still counts as generated); counts only paywall-subject users (`NOT is_demo/is_admin/is_comped`); `by_source` capped top-20 + "other". Admin dashboard "Activation funnel" card. **Had to land before the flip — attribution can't be retrofitted onto a cohort that already arrived.** |
-| **Flip `REGISTRATION_ENABLED=true`** | ⬜ | S | all of the above | **The launch itself, and now the only step left.** One env var in the prod `.env`, then `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend` (`up -d`, NOT `restart` — see **Operating the deployment → Changing an env var** in the Alpha milestone above). |
+| **Flip `REGISTRATION_ENABLED=true`** | 🅿️ | S | all of the above **+ product feels ready** | **PARKED by the owner 2026-07-23** — the launch itself, mechanically trivial (one env var, then `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend` — `up -d`, NOT `restart`, see **Operating the deployment → Changing an env var** above), but deliberately held: the product "still feels incomplete" and shouldn't open to real users before the differentiator lands. **Factual update 2026-07-25: the dietary differentiator has now fully landed (all 5 slices, final UI #296), so the specific "before the differentiator lands" condition the owner named is met. This does not change the parking — the flip stays entirely the owner's product-readiness call, which the roadmap does not pre-empt.** Not blocked on engineering — blocked on the owner's readiness call. |
 
 > **Not blocking, worth knowing:** there is still no email *verification* on
 > signup, so addresses are unconfirmed (typos churn silently, and a reset link
@@ -323,7 +350,7 @@ numbers are big enough to trust.
 | Phase | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
 | **1. Activation funnel instrumentation** | ⬜ | M | — | The prerequisite. Event capture for signup → first plan generated → first confirm → first cook → subscribe, plus a UTM/referrer captured at signup and stored on `User`. Extends the existing admin stats surface rather than adding a third-party analytics dep. **Without this, phases 3–4 are unmeasurable and phase 2 is unaccountable.** |
-| **2. Landing page + campaign content** | ⬜ | M–L | — | Ads need somewhere to land and something to show. Currently `/` is the app itself behind a closed-alpha notice. Needs a real marketing page (value prop, screenshots, pricing, CTA) plus creative assets. Overlaps **SEO** in Full release — do them together; the SPA-isn't-crawler-friendly caveat applies, so a prerendered/static landing page is likely the answer. Mostly *not* an engineering task — the copy and visuals are the hard part. |
+| **2. Landing page + campaign content** | ⬜ | M–L | — | Ads need somewhere to land and something to show. Currently `/` is the app itself behind a closed-alpha notice. Needs a real marketing page (value prop, screenshots, pricing, CTA) plus creative assets. Overlaps **SEO** in Full release — do them together; the SPA-isn't-crawler-friendly caveat applies, so a prerendered/static landing page is likely the answer. Mostly *not* an engineering task — the copy and visuals are the hard part. **Lead the value prop with the differentiator the owner identified — combinable, *evidence-grounded* dietary restrictions & allergies** (see Full release): "one plan the whole restricted household can eat, screened against the EU 14 major allergens" is a sharper, more *credible* hook than "AI meal plans" — the scientific grounding is itself the trust signal a safety-conscious, high-intent, growing, willing-to-pay audience responds to. Best paired with actually shipping that feature first so the page isn't writing cheques the product can't cash (and keep claims to transparency, not medical endorsement). |
 | **3. Campaign management integration** | ⬜ | L | 1, 2 | Meta Marketing API and Google Ads API: create/pause campaigns, pull spend and conversion stats on a schedule. Real prerequisites outside the code — business accounts, app review, billing set up, and both platforms behave badly with tiny budgets and no conversion history. Store campaign + daily-stat rows so analysis is a local read, mirroring how billing mirrors Stripe. Treat every write as money-spending: dry-run mode first. |
 | **4. Budget reallocation** | ⬜ | L | 3 | The actual idea: score campaigns on cost-per-activation (not per-click) and shift budget toward the winners. **Needs guardrails before it needs cleverness** — a minimum-conversions-per-campaign floor before any reallocation, a hard daily spend ceiling, a max-change-per-step limit, and an operator alert on every automated change (reuse the existing Resend alert pipeline). Start advisory: report the recommendation and let the owner apply it, exactly as the VAT-threshold alerts do. Automate only once the recommendations have been right for a while. |
 
@@ -334,6 +361,57 @@ numbers are big enough to trust.
 > channels (a launch post, cooking/meal-prep communities, ProductHunt) cost
 > nothing but time and would also generate the usage data the edit-feedback loop
 > is waiting on.
+
+---
+
+## Product direction: evidence-grounded (a cross-cutting differentiator)
+
+**Owner's direction (2026-07-21): lean into authoritative, *cited* data wherever
+it materially helps — not just dietary handling — as both a quality bar and a
+marketing pillar.** The thesis: an LLM reasoning from vetted, sourced food
+science beats one guessing from its priors; customers (especially the
+safety-conscious) trust it more; and "grounded in recognized standards, not an
+AI guessing" is a concrete, *checkable* marketing claim in a category full of
+generic "AI recipe" apps. This is a **direction that informs many items**, not a
+single PR — and a positioning pillar for the landing page + campaigns.
+
+**The shared mechanism (build once, reuse):** a **curated, cited reference
+knowledge base** — structured food-science / safety / nutrition data with a
+source per fact — fed to the LLM as authoritative context via **the RAG stack
+the app already runs** (pgvector + `all-MiniLM-L6-v2`, today only over cookbook
+favorites — see `MealEntry.embedding`), and used in **deterministic checks** for
+anything safety-critical. The dietary reference layer (Full release) is the first
+concrete instance; generalize it rather than building a bespoke lookup per
+feature.
+
+**Where it applies** — each a candidate slice behind its host feature, not all
+at once:
+
+| Surface | Grounding source | Notes |
+|---|---|---|
+| **Dietary & allergens** | EU-14 (Reg. 1169/2011) / US Big-9 allergen taxonomy + dietary-pattern definitions | Already scoped — Full release. The first instance of the shared KB. |
+| **Nutrition / macros** | USDA FoodData Central / EuroFIR composition data | Already caveated — Full release. Real data instead of LLM-estimated macros. |
+| **Food safety & storage** | USDA FSIS / EFSA / UK FSA storage times + **safe internal cooking temperatures** | The fridge already tracks `expiration_date` / `need_to_use` (`StockItem`); ground "is this still good?" and recipe done-temps in authorities. Health-critical → deterministic + disclaimed. |
+| **Baby-food weaning** | WHO / national pediatric weaning guidance | `baby_food` INFANT FOOD MODE already exists (`meal_plan.jinja:50`); ground age-appropriate textures, **choking-hazard** avoidance, allergen-introduction timing. Health-critical. |
+| **Substitutions & portions** | Culinary-science swaps; EFSA/USDA standard serving sizes | Allergen-safe substitutions; standard portions instead of guessed ones. |
+| **Waste-reduction claims** | Stated methodology | If waste tracking ships, back any "cut waste X%" figure with a method, not a vibe. |
+
+⚠️ **Liability is the load-bearing caveat** (same rule as the dietary + nutrition
+items, and it gets *more* important the more authoritative the app sounds):
+(1) **transparency, never endorsement** — "grounded in / screened against
+recognized standards", never "safe" / "clinically approved" / medical or
+nutritional *advice*; (2) **deterministic verification, not just prompting**, for
+anything safety-critical (allergens, cooking temps, choking hazards, infant
+safety) — an LLM that *sounds* authoritative and is wrong is worse than one that
+hedges; (3) **clear disclaimers** + **cited sources** so every claim is
+checkable; (4) get a human/legal sanity check before publishing any
+health-adjacent *marketing* copy. The deterministic screen + disclaimers are
+what let the marketing lean in without the claims becoming a liability.
+
+**Sequencing:** dietary first (already scoped, highest-signal, and it builds the
+shared reference-KB mechanism the rest reuse). Everything else follows behind its
+host feature. Don't build a grand "food-science platform" up front — grow the KB
+one vetted, cited slice at a time.
 
 ---
 
@@ -352,8 +430,10 @@ bundle related metrics) rather than one endpoint per number.
 | **2. Admin role (RBAC)** | ✅ | — | — | **Shipped 2026-07-12 (#191).** `is_admin` on `User` + migration + a fail-closed `require_admin` dependency; grant via `create_user --admin` (server-set only, no self-service — non-admin → 403). Consolidated the two divergent `_to_read` mappers so the login response carries `is_admin`. |
 | **3. Admin stats API** | ✅ | — | — | **Shipped 2026-07-12 (#192).** DB-aggregated, behind `require_admin`: `overview`, `usage?from&to&granularity` (date_trunc time series + by-surface/provider), `usage/by-user` (top users, avg/user, avg/call), `activity` (from `MachineGeneration`). Range bounded to 366d, `granularity` a Literal. |
 | **4. Admin dashboard (frontend)** | ✅ | — | — | **Shipped 2026-07-12 (#193).** State-based `/admin` view gated on `is_admin` (real gate is the backend 403); stat cards + hand-rolled CSS `BarChart` (no chart-lib dep) + top-users table over the Phase-3 endpoints. Verified end-to-end in the browser. Since extended with a Revenue & VAT panel (#201) and an Activation-funnel card (#240). |
-| **4b. Admin dashboard polish (UX)** | ⬜ | M | 4 | **Owner-requested 2026-07-21 — the dashboard works but doesn't look good.** It grew organically (stat cards → hand-rolled `BarChart` → revenue panel → funnel card), each panel styled ad-hoc with hardcoded colors on a pinned light surface. Wants a deliberate visual pass: consistent card/typography/spacing system, better chart legibility, a coherent layout (the sections currently just stack), and a proper look for the funnel + revenue panels. Scope to *the admin surface specifically* (distinct from the general **Nicer UI** item in Beta). Keep the no-chart-lib / inline-style constraints unless a small dependency is clearly worth it. A good candidate for `/polish`. |
-| **5+. Admin user management** | ⬜ | L | 2, 4 | **Deferred (awaiting go-ahead).** View / edit / disable users, reset onboarding, audit log, feature flags. **Sensitive** (touches other users' data + access) → build with tight authz + an audit trail. |
+| **4b. Admin dashboard polish (UX)** | ✅ | — | — | **DONE 2026-07-23 (#260)** as slice 1 of the admin-redesign thrust. The single stacked scroll became a **tabbed IA** (Overview / Revenue / Generation / User Management) via a reusable WAI-ARIA `Tabs`, and every panel adopted a shared `theme.ts` token module (the ad-hoc greys were already the Tailwind slate scale, so consolidation was zero-visual-regression). Verified in both OS colour schemes (the surface pins its own light theme). Owner-requested 2026-07-21 after the dashboard grew organically (stat cards → hand-rolled `BarChart` → revenue → funnel), styled ad-hoc on a pinned light surface. |
+| **5+. Admin user management** | ✅ | — | 2, 4 | **DONE 2026-07-23** — owner greenlit 2026-07-23 (was deferred), built as the sliced **admin-redesign thrust** (safe UI first, destructive ops last): **backend foundation (#261)** — `User.is_active` + a disable gate at every credential path (get_current_user / login / refresh incl. the grace-collision branch), an append-only `AdminAuditLog` (no FK to `user`, so it survives a hard-delete) + `record_admin_action`, read-only `GET /admin/users` (escaped-LIKE search, status/role filters, pagination); **mutations (#262)** — create / deactivate-reactivate / grant-revoke admin & comp / reset-onboarding / force-logout, each audited + guarded, with an **atomic last-active-admin invariant** (a `FOR UPDATE` lock closing a write-skew the adversarial review found); **UI (#263)** — the User Management tab (table + search/filters/pagination + row actions + create form); **guarded hard-delete (#264)** — shipped last, alone: purges owned data + telemetry (CASCADE), **anonymises `SaleRecord` (SET NULL) so the VAT ledger survives**, self/last-admin guards, type-the-email confirm. Tight authz (no self-sabotage; can't remove the last admin) + an audit trail throughout, all pre-push adversarially reviewed. |
+| **5d. Admin invite links (private-beta onboarding)** | ✅ | M | 5+ | **DONE 2026-07-23 (#266).** Owner-requested: onboard hand-picked beta testers without collecting emails / setting throwaway passwords. An admin generates a **single-use, ~48h, comp-by-default** link (`/?invite=<token>`); the invitee opens it and **self-registers their own email+password even while public registration stays closed** (`registration_enabled` stays parked). New `InviteToken` (sha256-hashed token, `used_at`/`revoked_at`, `ondelete=SET NULL` user FKs so hard-delete anonymises not cascades), `invite.py` service mirroring the reset-token single-use + `FOR UPDATE` lock, admin generate/list/**revoke** endpoints (audited, `require_admin`), and a public token-gated `POST /users/register-invite` (CSRF-exempt, rate-limited, bypasses ONLY the registration gate; entitlement from the token never the body). Frontend: `?invite=` landing modal (auto-login, token scrubbed from URL) + a dedicated **Invites** admin tab (generate modal → one-time copyable link; active-invites table + revoke). Two-theme verified; pre-push adversarially reviewed (found only test-coverage nits — no auth/concurrency/FK defects). |
+| **5c. Bulk actions / multi-select (user table)** | ✅ | S–M | 5+ | **DONE 2026-07-23 (#265)** as the final slice of the admin-redesign thrust. Row **checkboxes + a select-all header** (indeterminate for a partial page) and a **selection action bar** (deactivate / reactivate / delete / clear), built **frontend-only** over the existing per-user endpoints: a sequential client-side loop with per-item result collection, so a partial batch reports which users failed and why (e.g. the last-admin `409`) rather than aborting. **Guards respected:** self + demo excluded from selection client-side; the acted-on set is derived from visible+selectable rows (no stale off-page id); selection cleared on every navigation; the backend's per-call last-active-admin invariant surfaces as a per-item failure. **Bulk delete carries a type-`DELETE` confirmation** — its blast radius (up to a page of accounts) must not get weaker friction than the single-delete type-the-email gate; the batch is frozen at confirm-open so a re-render can't shift it. Verified in both OS colour schemes. |
 
 ---
 
@@ -394,7 +474,7 @@ round-trip was run on prod 2026-07-16 and billing works end-to-end.)*
 | Item | Status | Effort | Notes |
 |---|---|---|---|
 | **Non-root SSH hardening** | 🟡 | S | Server-side, not in repo. Create a personal sudo user, disable root SSH login. Low urgency, easy to forget — do it at deploy time. |
-| **Periodic Docker disk cleanup** | ⬜ | S | **Owner-requested 2026-07-21 after a real outage.** Every `deploy.sh` runs `up -d --build`, so Docker **build cache grows without bound** — the box hit ~22 GB of reclaimable build cache and 81% disk, and a half-up stack (caddy + frontend down) took prod offline. Recovery was `up -d` + `docker builder prune -af` (freed ~19 GB). Automate it: a **weekly systemd timer** running `docker builder prune -af` (build cache only) plus `docker image prune -af` (dangling/unused images) — **never `--volumes`** (that would delete Postgres/Caddy data). Mirror the existing `deploy/systemd/mealbot-authsession-cleanup.{service,timer}` pattern; runs as root (Docker needs it), unlike the app timers. Ship the units + a `deploy/systemd/README.md` install step. **Guardrail worth adding alongside:** a disk-usage alert (reuse the Resend alert pipeline) at, say, 85%, so the next fill-up warns before it crashes. Low effort, prevents a repeat of the outage. |
+| **Periodic Docker disk cleanup** | 🟡 | S | **Owner-requested 2026-07-21 after a real outage.** Every `deploy.sh` runs `up -d --build`, so Docker **build cache grows without bound** — the box hit ~22 GB of reclaimable build cache and 81% disk, and a half-up stack (caddy + frontend down) took prod offline. Recovery was `up -d` + `docker builder prune -af` (freed ~19 GB). **✅ Timer shipped (#259):** `deploy/systemd/mealbot-docker-cleanup.{service,timer}` — a **weekly** (Sun 04:30) `Type=oneshot` running `docker builder prune -af` (build cache, first — the unbounded grower) then `docker image prune -af` (unused images); **never `--volumes`** (that would delete Postgres/Caddy data); staggered clear of the daily 03:30/08:00 timers; failures surface. Mirrors the `authsession-cleanup` pattern + a README §3 install step. **Runs as the non-root `deploy` user, NOT root** — the prunes reach the daemon over the docker socket, so docker-group membership suffices (same access the existing `deploy`-user timers use for `docker compose`); the earlier "runs as root" note here was wrong. **⬜ Remaining:** (1) box-side install (one-time manual — `deploy.yml` only swaps containers; steps in `deploy/systemd/README.md` §3); (2) the **disk-usage alert guardrail** — a threshold check (~85%) that emails via the existing Resend alert pipeline so the *next* fill-up (from any cause, not just build cache) warns before it crashes. Split to its own PR: unlike the timer (systemd config only), the alert is app code + tests + its own timer. |
 | **`authsession` cleanup job** | ✅ | — | **Shipped 2026-07-16 (#215).** Nightly service sweep (`sweep_expired_auth_sessions`, retention 7d) + thin CLI + standalone `ix_authsession_expires_at` index (auto-applied via the `migrate` service). Sever-then-delete keeps it FK-safe over the `replaced_by_id` chain regardless of expiry ordering (a demo-user `int()`-truncation edge the review caught). The systemd timer is **installed + enabled on the VPS** (2026-07-16), running daily ~03:30 as the non-root `deploy` user, so the table now self-prunes (rows expired > 7d). Units: `deploy/systemd/mealbot-authsession-cleanup.{service,timer}`; (re)install steps for a box rebuild are in `deploy/systemd/README.md` §2. |
 | **Password change + token rotation** | ✅ | — | **Shipped 2026-07-16 (#216).** `POST /auth/password`: re-verify current → rehash → revoke all sessions + bump `token_version` → keep the current device logged in. Also fixed the shared `refresh` handler so a mass-revoked (never-rotated, `replaced_by_id IS NULL`) token replay is an *ended session* (plain 401), not false theft — the pre-push adversarial review caught that this broke multi-device change. Backend only; a "Change password" settings form is a fast-follow. Follow-up: `logout_all` still IP-rate-limited (should key by user like this endpoint now does). |
 | **`passwordresettoken` retention sweep** | ⬜ | S | Housekeeping, **not** a launch blocker. Reset tokens are stamped `used_at` and never deleted, so the table grows monotonically. `ix_passwordresettoken_expires_at` already exists for exactly this (a global `DELETE ... WHERE expires_at < cutoff`) — the index landed ahead of the job, same as `ix_authsession_expires_at` did before `authsession_cleanup`. Simpler than that one: no self-referencing FK to sever, so it's a plain DELETE plus a systemd oneshot. Insert volume is bounded by the 60s per-account cooldown, the 5/min IP limit and the one-live-token-per-user index, so it will not threaten the VPS in the meantime. |
@@ -433,13 +513,18 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
      │
      └─ ⬅ THE BINDING CONSTRAINT IS NOW USERS, NOT FEATURES
            │
-           ├─ Launch readiness — ALL ENGINEERING DONE + E2E-VERIFIED 2026-07-21:
+           ├─ Launch readiness — ALL ENGINEERING DONE + E2E-VERIFIED 2026-07-21,
+           │     but the FLAG FLIP is 🅿️ PARKED by the owner 2026-07-23
+           │     ("product still feels incomplete" — not an eng blocker):
            │     verified Resend domain ✅ ─► password reset ✅ (#238/#239) ─►
-           │     funnel instrumentation ✅ (#240) ─► ⬅ ONLY STEP LEFT:
-           │     FLIP REGISTRATION_ENABLED (owner, one env var)
+           │     funnel instrumentation ✅ (#240) ─► [FLIP REGISTRATION_ENABLED —
+           │     held until the product feels ready to differentiate on]
            │
-           └─ then: landing page + content ─► campaigns ─► budget reallocation
-                │                              (Growth / marketing milestone)
+           ├─ so the real next work is COMPLETING the product:
+           │     dietary differentiator (ref layer researched: docs/dietary-reference.md)
+           │     ─► landing page + content ─► THEN open registration
+           │
+           └─ then: campaigns ─► budget reallocation (Growth / marketing)
                 └─► usage data ─► un-parks the edit-feedback loop
 ```
 
@@ -449,15 +534,21 @@ are all shipped and live. The constraint has shifted: more features no longer
 obviously help, because there's no usage to tell us *which* features matter — and
 the one change that would learn from users is blocked on there being users.
 Highest-signal candidates now:
-1. **Launch readiness → Growth / marketing.** Checking prod on 2026-07-20 turned
-   up the thing that was actually first: **registration is closed**. As of
-   **2026-07-21 the engineering is DONE** — verified sender domain ✅, password
-   reset ✅ (#238/#239, E2E-verified on prod), funnel instrumentation ✅ (#240).
-   **The only step left is the owner flipping `REGISTRATION_ENABLED`.** After
-   that, Growth phase 2 (**landing page + content**, needed for a free launch
-   post as much as for paid ads) is the next move; the campaign automation
-   (phases 3–4) only pays off at a spend level that justifies it, and needs
-   sample-size guardrails before it's allowed near real money.
+1. **Complete the product, THEN open registration.** The launch engineering is
+   DONE (verified sender domain ✅, password reset ✅ #238/#239, funnel ✅ #240),
+   but **the owner PARKED the flag flip 2026-07-23** — the product "still feels
+   incomplete", and opening now would spend first impressions on an
+   undifferentiated app. So the real next work was *completing what makes it worth
+   opening*: the **combinable, evidence-grounded dietary differentiator** (its
+   reference layer is researched — `docs/dietary-reference.md` — and it is now
+   **✅ COMPLETE, all 5 slices shipped 2026-07-24→25: schema+compat #283 →
+   reference layer #285 → prompt #288 → allergen screen #291 → multi-select UI
+   #296**, live end-to-end) and a **landing
+   page + content** (Growth phase 2). The differentiator has landed; the landing
+   page is the remaining "make it feel ready" piece. Once those make the product feel ready, the
+   flip is one env var; then campaign automation (Growth phases 3–4), which only
+   pays off at a spend level that justifies it and needs sample-size guardrails
+   before it's near real money.
 2. ~~**Close the edit-feedback loop**~~ — **PARKED 2026-07-20.** Capture keeps
    running so nothing is lost, but there aren't enough active users to learn
    from: consuming a handful of one-person corrections would make generations
@@ -483,8 +574,8 @@ Highest-signal candidates now:
 
 7. **Cheap product wins** (added 2026-07-20) — small items that improve the
    experience of anyone growth actually brings in, worth slotting between the
-   bigger pieces: **pantry staples** (S — stop buying salt every week),
-   **shopping list export/check-off** (S–M), **"repeat this week"** (S–M, drives
+   bigger pieces: **pantry staples** (✅ **shipped 2026-07-24, #273** — no more
+   salt on every list), **shopping-list export/check-off** (✅ **shipped 2026-07-24, #280** — copy/share/tick), **"repeat this week"** (S–M, drives
    repeat usage), **waste tracking** (M, which doubles as marketing material),
    and **bigger leftover batches** (S–M — mostly a planner-policy change, since
    the invariants and portion maths already support fan-in; motivated by baby
@@ -492,16 +583,33 @@ Highest-signal candidates now:
    and **household/shared account** are also on the board but are genuinely
    larger and each carry a caveat — see their Full-release entries.
 
-**The launch (#1) is the standout — and it's now down to one owner action.** The
+**Launch is engineering-ready but 🅿️ parked by the owner (2026-07-23).** The
 whole gated chain (Resend domain → password reset → funnel instrumentation) is
-shipped and E2E-verified as of 2026-07-21; flipping `REGISTRATION_ENABLED` is all
-that stands between the app and taking real signups. After the flip, **Growth
-phase 2 (landing page + content)** is the next move — needed for a free launch
-post as much as for paid ads. **Cross-provider LLM fallback** (#4) stays a quick
-risk-reducer whenever.
+shipped and E2E-verified; the flip is mechanically one env var — but the owner is
+**holding it until the product feels ready to differentiate on**, rather than
+opening an undifferentiated app to its one-shot first impressions. So the
+standout work is now **completing the product**: the **dietary differentiator**
+(reference layer researched; **schema+compat #283 + reference layer #285 +
+prompt #288 + screen #291 SHIPPED**; next: multi-select UI — the last slice) and **Growth
+phase 2
+(landing page + content)** — after which the flip
+happens whenever the owner judges it ready. **Cross-provider LLM fallback** (#4)
+stays a quick risk-reducer whenever.
 
-**If you want something small instead of/alongside growth**, pantry staples is
-the highest ratio of daily-felt improvement to effort on this document; the
-**admin-dashboard polish** (Admin & operations 4b) and the **periodic Docker
-disk-cleanup** ops job (Cross-cutting) are the two owner-requested items added
-2026-07-21.
+**If you want something small instead of/alongside growth** — pantry staples
+(**shipped 2026-07-24 #273**) and shopping-list export/check-off (**shipped
+2026-07-24 #280**) are both done; the next-cheapest product win is **"repeat this
+week"** (S–M), with the **~85% disk-usage alert** (Cross-cutting) as a cheap
+risk-reducer fast-follow. The **admin-dashboard polish** (Admin & operations 4b) and the
+**periodic Docker disk-cleanup** ops job (Cross-cutting) are the two owner-
+requested items added 2026-07-21.
+
+**The one bigger bet worth calling out** (added 2026-07-21; **research groundwork
+done 2026-07-23 — `docs/dietary-reference.md`**): **combinable dietary
+restrictions & allergies** (Full release). It's an `L`, not a quick win, but it's
+the clearest *paid* differentiator on this document — a growing, underserved,
+high-intent audience — and it's the value prop the landing page should lead with.
+The cited reference is already researched, so the buildable slices are now
+schema+compat (**✅ #283**) → reference-layer encoding (**✅ #285**) → prompt (**✅ #288**) → allergen screen (**✅ #291**) → UI. If it pans out, it changes what the whole Growth push is
+selling, so it's worth doing *before* pouring spend into campaigns for the
+generic "AI meal plans" pitch.

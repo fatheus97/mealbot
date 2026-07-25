@@ -2,6 +2,8 @@
 // bars flex to the container width. Values on hover (title); x-labels are shown
 // sparsely so a 30-day series doesn't turn into unreadable mush.
 
+import { colors } from "./theme";
+
 export interface Bar {
   label: string;
   value: number;
@@ -18,7 +20,7 @@ interface BarChartProps {
 
 export function BarChart({
   data,
-  color = "#4f46e5",
+  color = colors.accent,
   height = 160,
   formatValue = (v) => v.toLocaleString(),
   maxLabels = 8,
@@ -31,9 +33,9 @@ export function BarChart({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          color: "#888",
+          color: colors.textFaint,
           fontSize: 13,
-          border: "1px dashed #ddd",
+          border: `1px dashed ${colors.border}`,
           borderRadius: 6,
         }}
       >
@@ -77,7 +79,7 @@ export function BarChart({
                 fontSize: 9,
                 lineHeight: "12px",
                 marginTop: 4,
-                color: "#666",
+                color: colors.textMuted,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 height: 12,

@@ -1,4 +1,5 @@
 import { BarChart, type Bar } from "./BarChart";
+import { chart, colors } from "./theme";
 import type { FunnelStatsResponse } from "../../types";
 
 /** Short chart labels keyed by stage; the table below carries the full ones. */
@@ -33,7 +34,7 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
 
   return (
     <div>
-      <BarChart data={bars} color="#0d9488" height={140} />
+      <BarChart data={bars} color={chart.funnel} height={140} />
 
       {/* The two numbers acquisition actually turns on. */}
       <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginTop: "1rem" }}>
@@ -49,11 +50,11 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
         />
       </div>
 
-      <div style={{ fontSize: 13, color: "#374151", margin: "1.5rem 0 0.5rem" }}>
+      <div style={{ fontSize: 13, color: colors.textBody, margin: "1.5rem 0 0.5rem" }}>
         By acquisition source
       </div>
       {stats.by_source.length === 0 ? (
-        <div style={{ color: "#9ca3af", fontSize: 13 }}>No signups yet.</div>
+        <div style={{ color: colors.textFaint, fontSize: 13 }}>No signups yet.</div>
       ) : (
         // Wide table scrolls in its own container so the page body never does.
         <div style={{ overflowX: "auto" }}>
@@ -67,8 +68,8 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
                       style={{
                         textAlign: i === 0 ? "left" : "right",
                         padding: "0.4rem 0.6rem",
-                        borderBottom: "1px solid #e5e7eb",
-                        color: "#6b7280",
+                        borderBottom: `1px solid ${colors.border}`,
+                        color: colors.textMuted,
                         fontWeight: 600,
                         whiteSpace: "nowrap",
                       }}
@@ -89,7 +90,7 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
                   <td style={cellStyle}>{row.generated}</td>
                   <td style={cellStyle}>{row.confirmed}</td>
                   <td style={cellStyle}>{row.cooked}</td>
-                  <td style={{ ...cellStyle, fontWeight: 600, color: "#0d9488" }}>
+                  <td style={{ ...cellStyle, fontWeight: 600, color: chart.funnel }}>
                     {row.paid}
                   </td>
                 </tr>
@@ -105,19 +106,19 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
 const cellStyle: React.CSSProperties = {
   textAlign: "right",
   padding: "0.4rem 0.6rem",
-  borderBottom: "1px solid #f3f4f6",
-  color: "#111827",
+  borderBottom: `1px solid ${colors.borderSubtle}`,
+  color: colors.text,
   whiteSpace: "nowrap",
 };
 
 function ConversionStat({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4 }}>
+      <div style={{ fontSize: 12, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>
         {label}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: "#0d9488", marginTop: 2 }}>{value}</div>
-      <div style={{ fontSize: 12, color: "#9ca3af" }}>{sub}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: chart.funnel, marginTop: 2 }}>{value}</div>
+      <div style={{ fontSize: 12, color: colors.textFaint }}>{sub}</div>
     </div>
   );
 }

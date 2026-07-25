@@ -1,9 +1,25 @@
 // frontend/src/api.ts
 import type {
   ActivityStatsResponse,
+  AdminFeedbackDetail,
+  AdminFeedbackListResponse,
+  AdminUser,
+  AdminUserListResponse,
+  AdminUserRoleFilter,
+  AdminUserStatusFilter,
+  AdminUserUpdate,
+  BillingPlan,
   CookRecipeRequest,
+  FeedbackCreateRequest,
+  FeedbackModerationStatus,
+  FeedbackStatusFilter,
+  FeedbackSubmitResponse,
   FunnelStatsResponse,
   FavoriteRecipeRequest,
+  InviteCreateRequest,
+  InviteCreateResponse,
+  InviteListItem,
+  InviteListResponse,
   MealEditRequest,
   MealEntrySummary,
   MealPlanResponse,
@@ -117,10 +133,13 @@ export async function authFetch(
   return response;
 }
 
-export async function createCheckoutSession(): Promise<string> {
-  const res = await authFetch("/billing/checkout", { method: "POST" });
+export async function createCheckoutSession(plan: BillingPlan = "monthly"): Promise<string> {
+  const res = await authFetch("/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan }),
+  });
   if (!res.ok) {
-    throw new Error(await extractBillingError(res, "Could not start checkout"));
+    throw new Error(await extractErrorDetail(res, "Could not start checkout"));
   }
   const data = (await res.json()) as { url: string };
   return data.url;
@@ -129,15 +148,18 @@ export async function createCheckoutSession(): Promise<string> {
 export async function createPortalSession(): Promise<string> {
   const res = await authFetch("/billing/portal", { method: "POST" });
   if (!res.ok) {
-    throw new Error(await extractBillingError(res, "Could not open the billing portal"));
+    throw new Error(await extractErrorDetail(res, "Could not open the billing portal"));
   }
   const data = (await res.json()) as { url: string };
   return data.url;
 }
 
-async function extractBillingError(res: Response, fallback: string): Promise<string> {
-  // 503 when billing is off/unconfigured; 400 when there's no customer yet.
-  // Surface the backend's `detail` string when present.
+// Surface the backend's human-readable `detail` string when the server sends
+// one (friendly errors like the fail-closed allergen message, billing 503/400,
+// "plan generation failed"). Pydantic *validation* 422s carry a LIST detail,
+// not a string — those fall through to the fallback (with status) so we never
+// dump raw FastAPI JSON into the UI.
+async function extractErrorDetail(res: Response, fallback: string): Promise<string> {
   try {
     const parsed = await res.json();
     if (typeof parsed?.detail === "string") return parsed.detail;
@@ -245,8 +267,9 @@ export async function generateRecipe(
   });
   if (res.status === 402) throw new PaywallError();
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Recipe generation failed: ${res.status} - ${txt}`);
+    // Surface the backend `detail` — including the fail-closed allergen message
+    // (422) — rather than dumping the raw JSON body into the alert.
+    throw new Error(await extractErrorDetail(res, "Recipe generation failed. Please try again."));
   }
   return res.json();
 }
@@ -358,6 +381,230 @@ export async function fetchAdminRevenue(): Promise<RevenueStats> {
 export async function fetchAdminFunnel(): Promise<FunnelStatsResponse> {
   const res = await authFetch("/admin/stats/funnel");
   if (!res.ok) throw new Error(`Admin funnel failed: ${res.status}`);
+  return res.json();
+}
+
+// --- User management (admin; the backend gates all of these with 403) ---
+
+export interface AdminUserQuery {
+  q?: string;
+  status?: AdminUserStatusFilter;
+  role?: AdminUserRoleFilter;
+  limit?: number;
+  offset?: number;
+}
+
+/** Pull the backend's `detail` (a plain string on 400/404/409, or the first
+ * Pydantic message on a 422) so mutation errors surface a real reason. */
+async function adminErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") return parsed.detail;
+    if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
+      return parsed.detail[0].msg;
+    }
+  } catch {
+    // non-JSON body — fall through to the status-based fallback
+  }
+  return `${fallback} (${res.status})`;
+}
+
+export async function fetchAdminUsers(
+  query: AdminUserQuery = {},
+): Promise<AdminUserListResponse> {
+  const p = new URLSearchParams();
+  if (query.q) p.set("q", query.q);
+  if (query.status && query.status !== "all") p.set("status", query.status);
+  if (query.role && query.role !== "all") p.set("role", query.role);
+  if (query.limit != null) p.set("limit", String(query.limit));
+  if (query.offset != null) p.set("offset", String(query.offset));
+  const qs = p.toString();
+  const res = await authFetch(`/admin/users${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Admin users failed: ${res.status}`);
+  return res.json();
+}
+
+export async function createAdminUser(body: {
+  email: string;
+  password: string;
+  is_admin?: boolean;
+  is_comped?: boolean;
+}): Promise<AdminUser> {
+  const res = await authFetch("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not create the user"));
+  return res.json();
+}
+
+export async function updateAdminUser(
+  id: number,
+  body: AdminUserUpdate,
+): Promise<AdminUser> {
+  const res = await authFetch(`/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not update the user"));
+  return res.json();
+}
+
+export async function resetAdminUserOnboarding(id: number): Promise<AdminUser> {
+  const res = await authFetch(`/admin/users/${id}/reset-onboarding`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not reset onboarding"));
+  return res.json();
+}
+
+export async function forceLogoutAdminUser(id: number): Promise<void> {
+  const res = await authFetch(`/admin/users/${id}/logout`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not log the user out"));
+}
+
+export async function deleteAdminUser(id: number): Promise<void> {
+  const res = await authFetch(`/admin/users/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not delete the user"));
+}
+
+// --- Admin: invite links ---
+
+export async function createInvite(
+  body: InviteCreateRequest = {},
+): Promise<InviteCreateResponse> {
+  const res = await authFetch("/admin/invites", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not generate the invite"));
+  return res.json();
+}
+
+export async function fetchInvites(): Promise<InviteListResponse> {
+  const res = await authFetch("/admin/invites");
+  if (!res.ok) throw new Error(`Admin invites failed: ${res.status}`);
+  return res.json();
+}
+
+export async function revokeInvite(id: number): Promise<InviteListItem> {
+  const res = await authFetch(`/admin/invites/${id}/revoke`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not revoke the invite"));
+  return res.json();
+}
+
+// --- Invite redemption (unauthenticated self-register from an admin link) ---
+
+export async function redeemInvite(
+  token: string,
+  email: string,
+  password: string,
+): Promise<void> {
+  const res = await authFetch("/users/register-invite", {
+    method: "POST",
+    body: JSON.stringify({ token, email, password }),
+  });
+  if (res.ok) return;
+  // 400 = invalid/expired/used/revoked link (opaque), 409 = email taken,
+  // 422 = weak password (Pydantic list), 429 = rate-limited.
+  let detail: string | null = null;
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") detail = parsed.detail;
+    else if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
+      detail = parsed.detail[0].msg;
+    }
+  } catch {
+    // non-JSON body — fall through to a status-based message
+  }
+  if (res.status === 429) {
+    throw new Error("Too many attempts. Please wait a minute and try again.");
+  }
+  if (res.status === 409) {
+    throw new Error(detail ?? "An account with that email already exists.");
+  }
+  if (res.status === 422) {
+    throw new Error(
+      detail ?? "Password must be at least 8 characters with an upper- and lower-case letter and a digit.",
+    );
+  }
+  throw new Error(detail ?? `Could not create your account (${res.status}).`);
+}
+
+// --- User feedback: submit (authed) + admin moderation (403-gated server-side) ---
+
+export async function submitFeedback(
+  body: FeedbackCreateRequest,
+): Promise<FeedbackSubmitResponse> {
+  const res = await authFetch("/feedback", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.json();
+  // The backend returns a friendly `detail` string on 422 (gate reject), 409
+  // (duplicate), 429 (too many open), 503 (disabled) and 403 (demo); Pydantic 422s
+  // carry a list detail. Surface a real reason rather than a bare status.
+  let detail: string | null = null;
+  try {
+    const parsed = await res.json();
+    if (typeof parsed?.detail === "string") detail = parsed.detail;
+    else if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
+      detail = parsed.detail[0].msg;
+    }
+  } catch {
+    // non-JSON body — fall through to a status-based message
+  }
+  throw new Error(detail ?? `Could not send your feedback (${res.status}).`);
+}
+
+export interface AdminFeedbackQuery {
+  status?: FeedbackStatusFilter;
+  kind?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchAdminFeedback(
+  query: AdminFeedbackQuery = {},
+): Promise<AdminFeedbackListResponse> {
+  const p = new URLSearchParams();
+  if (query.status && query.status !== "all") p.set("status", query.status);
+  if (query.kind) p.set("kind", query.kind);
+  if (query.limit != null) p.set("limit", String(query.limit));
+  if (query.offset != null) p.set("offset", String(query.offset));
+  const qs = p.toString();
+  const res = await authFetch(`/admin/feedback${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Admin feedback failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAdminFeedbackDetail(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}`);
+  if (!res.ok) throw new Error(`Admin feedback detail failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAdminFeedback(
+  id: number,
+  status: FeedbackModerationStatus,
+): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not update the report"));
+  return res.json();
+}
+
+export async function retriageAdminFeedback(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}/retriage`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not re-run triage"));
+  return res.json();
+}
+
+/** The money-mover: mark accepted, grant the €1 credit (if eligible), open a ticket.
+ *  Idempotent server-side (never double-credits). */
+export async function acceptAdminFeedback(id: number): Promise<AdminFeedbackDetail> {
+  const res = await authFetch(`/admin/feedback/${id}/accept`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not accept the report"));
   return res.json();
 }
 

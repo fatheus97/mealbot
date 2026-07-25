@@ -39,6 +39,35 @@ describe("402 paywall handling", () => {
   });
 });
 
+describe("generateRecipe error surfacing", () => {
+  it("surfaces the backend fail-closed allergen detail on 422 (not the raw body)", async () => {
+    mockFetch({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({
+        detail:
+          "We couldn't generate a meal that avoids Milk (incl. lactose). Very " +
+          "restrictive combinations can be hard to satisfy — try removing an " +
+          "allergen or diet and generating again.",
+      }),
+    });
+    await expect(generateRecipe(recipeReq)).rejects.toThrow(/try removing an allergen/i);
+  });
+
+  it("falls back to a friendly message for a Pydantic list detail", async () => {
+    // A *validation* 422 carries a LIST detail, not a string — extractErrorDetail
+    // must not dump it raw; it falls through to the generic message + status.
+    mockFetch({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({ detail: [{ msg: "invalid" }] }),
+    });
+    await expect(generateRecipe(recipeReq)).rejects.toThrow(
+      "Recipe generation failed. Please try again. (422)",
+    );
+  });
+});
+
 describe("createCheckoutSession", () => {
   it("returns the Stripe url on success", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.resolve({ url: "https://checkout.stripe/x" }) });

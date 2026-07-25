@@ -41,7 +41,10 @@ jobs:
           exit 1
 
       - name: Run pytest
-        run: docker compose -f docker-compose.yml run --rm backend pytest
+        # -n auto fans the suite across the runner's CPUs (public-repo
+        # ubuntu-latest = 4 vCPU). Each xdist worker gets its own database — see
+        # conftest._worker_database_url — so parallel workers don't collide.
+        run: docker compose -f docker-compose.yml run --rm backend pytest -n auto
 
       - name: Dump logs on failure
         if: failure()

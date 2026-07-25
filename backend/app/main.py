@@ -13,8 +13,10 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.billing import router as billing_router
 from app.api.cookbook import router as cookbook_router
+from app.api.feedback import router as feedback_router
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
+from app.api.pantry import router as pantry_router
 from app.api.plan import router as plan_router
 from app.api.recipe import router as recipe_router
 from app.api.usage import router as usage_router
@@ -106,6 +108,10 @@ class HealthResponse(BaseModel):
 class PublicConfig(BaseModel):
     demo_mode: bool
     registration_enabled: bool
+    # Whether the annual plan is offered at checkout (its Stripe Price is configured).
+    # The paywall shows the monthly/annual toggle only when true. Non-secret UI-gating
+    # flag, same category as the two above.
+    annual_billing_available: bool
 
 
 class CountriesResponse(BaseModel):
@@ -145,6 +151,7 @@ async def public_config(request: Request) -> PublicConfig:
     return PublicConfig(
         demo_mode=settings.demo_mode,
         registration_enabled=settings.registration_enabled,
+        annual_billing_available=bool(settings.stripe_price_id_annual),
     )
 
 
@@ -166,6 +173,7 @@ async def list_languages() -> LanguagesResponse:
 #routers
 app.include_router(plan_router, prefix="/api")
 app.include_router(fridge_router, prefix="/api")
+app.include_router(pantry_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
@@ -174,6 +182,7 @@ app.include_router(cookbook_router, prefix="/api")
 app.include_router(usage_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
+app.include_router(feedback_router, prefix="/api")
 
 # pro lokální vývoj:
 # uvicorn app.main:app --reload

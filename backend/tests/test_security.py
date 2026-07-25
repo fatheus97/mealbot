@@ -25,6 +25,28 @@ class TestPasswordHashing:
         hashed = get_password_hash(pw)
         assert hashed != pw
 
+    def test_hash_uses_configured_rounds(self, monkeypatch: pytest.MonkeyPatch):
+        # get_password_hash must honour settings.bcrypt_rounds so the suite can
+        # hash at bcrypt's floor while prod stays at 12. The cost factor is
+        # encoded in the modular-crypt prefix as `$2b$<zero-padded-cost>$`.
+        # Patch to a value distinct from both the prod default (12) and the
+        # ambient test override (4) so this genuinely proves the wiring.
+        monkeypatch.setattr(settings, "bcrypt_rounds", 6)
+        hashed = get_password_hash("whatever")
+        assert hashed.startswith("$2b$06$")
+        # A hash minted at a non-default cost must still verify — checkpw reads
+        # the cost from the hash itself.
+        assert verify_password("whatever", hashed) is True
+
+    def test_default_rounds_is_production_strength(self):
+        # Prod must not be silently weakened by the test-only override: a freshly
+        # constructed Settings (no env override) keeps the 12 default.
+        s = Settings(
+            secret_key="a" * 64,
+            database_url="postgresql+psycopg://u:p@localhost/db",
+        )
+        assert s.bcrypt_rounds == 12
+
 
 class TestAccessToken:
     def test_token_contains_correct_sub(self):

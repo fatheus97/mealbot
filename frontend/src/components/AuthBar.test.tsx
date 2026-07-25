@@ -552,7 +552,7 @@ describe('AuthBar', () => {
       return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
     });
 
-    usePreferencesStore.getState().setDietType('vegan');
+    usePreferencesStore.getState().toggleDietType('vegan');
     usePreferencesStore.getState().setTastePreferences('private taste notes');
     usePreferencesStore.getState().setAvoidIngredients('peanuts');
 
@@ -569,7 +569,7 @@ describe('AuthBar', () => {
 
     await waitFor(() => {
       const prefs = usePreferencesStore.getState();
-      expect(prefs.dietType).toBe(DEFAULT_PREFERENCES.dietType);
+      expect(prefs.dietTypes).toEqual(DEFAULT_PREFERENCES.dietTypes);
     });
     const prefs = usePreferencesStore.getState();
     expect(prefs.tastePreferences).toBe(DEFAULT_PREFERENCES.tastePreferences);

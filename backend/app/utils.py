@@ -12,6 +12,8 @@ from app.models.plan_models import (
 def compute_shopping_list_from_plan(
     days: list[SingleDayResponse],
     initial_fridge: list[StockItemDTO],
+    staples: frozenset[str] | None = None,
+    include_spices: bool = True,
 ) -> list[ShoppingListItem]:
     """
     Compute how much needs to be bought for the whole plan, based on:
@@ -20,8 +22,25 @@ def compute_shopping_list_from_plan(
 
     Any ingredient that is fully covered by the fridge will not appear
     in the shopping list.
+
+    ``staples`` is a set of lowercased ingredient names the user "always has"
+    (salt, oil, flour…). They are excluded exactly like spices — dropped before
+    aggregation so they never reach the list — because the result is frozen into
+    ``response_json`` and never recomputed on read. Passed in (rather than read
+    from a global) so the exclusion is applied per-user at generation time and
+    older plans, whose lists were already frozen, are never retroactively changed.
+    The keys must be lowercased to match the ``ing.name.lower()`` comparison below.
+
+    ``include_spices`` is the user's "Include spices in shopping list" preference,
+    honored HERE deterministically rather than trusting the LLM's ``is_spice``
+    tagging. A spice (is_spice=true) is dropped ONLY when include_spices is off.
+    When it's on, spices stay on the list even if the model mistakenly tagged one
+    is_spice=true — so the preference can't be silently broken by a bad tag. (The
+    prompt is also branched on include_spices, but that alone is prompt-compliance;
+    this is the guarantee.)
     """
-    # Sum required grams per ingredient over all days and meals (skip spices)
+    staples = staples or frozenset()
+    # Sum required grams per ingredient over all days and meals
     required: dict[str, float] = defaultdict(float)
     for day in days:
         for meal in day.meals:
@@ -37,9 +56,13 @@ def compute_shopping_list_from_plan(
             if meal.is_leftover:
                 continue
             for ing in meal.ingredients:
-                if ing.is_spice:
+                if ing.is_spice and not include_spices:
+                    # Seasoning, and the user asked to keep spices OFF the list.
                     continue
                 key = ing.name.lower()
+                if key in staples:
+                    # A user "always have" staple — never put it on the list.
+                    continue
                 required[key] += ing.quantity_grams
 
     # Initial fridge amounts

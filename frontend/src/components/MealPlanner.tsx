@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
@@ -6,9 +6,10 @@ import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
 import { CookNowForm } from "./CookNowForm";
+import { DietarySelector } from "./DietarySelector";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { mealTypeLabel, type MealType } from "../constants/mealTypes";
-import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, DietType, PlannedMeal } from "../types";
+import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, PlannedMeal, IngredientAmount } from "../types";
 import { todayISO, dayDateLabel } from "../utils/planDates";
 import { leftoverSourceLabel } from "../utils/leftovers";
 
@@ -27,6 +28,28 @@ function resizeLayouts(
   const extra = Array.from({ length: targetLen - current.length }, () => [...seed]);
   return [...current, ...extra];
 }
+
+// Plain-text render of the shopping list for clipboard / share export, e.g.
+// "Eggs — 200g\nMilk — 500g". Empty string when there's nothing to export so
+// callers can bail without emitting a blank clipboard entry.
+function shoppingListToText(items: IngredientAmount[] | undefined): string {
+  if (!items || items.length === 0) return "";
+  return items.map((i) => `${i.name} — ${Math.round(i.quantity_grams)}g`).join("\n");
+}
+
+// Explicit light-surface buttons for the shopping-list card. The card is on the
+// plan-output surface (which pins its own light background + dark text), so
+// light-styled controls with an explicit colour stay legible in both OS colour
+// schemes — per .claude/rules/frontend.md (set a colour whenever you set a bg).
+const shoppingListBtn: CSSProperties = {
+  padding: "0.3rem 0.7rem",
+  fontSize: "0.8rem",
+  border: "1px solid #cbd5e1",
+  borderRadius: 6,
+  background: "#fff",
+  color: "#111",
+  cursor: "pointer",
+};
 
 interface MealPlannerProps {
   initialPlan?: MealPlanResponse | null;
@@ -104,13 +127,30 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   const [dayLayouts, setDayLayouts] = useState<MealType[][]>([]);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([0]));
 
+  // Shopping-list check-off (ephemeral — index-keyed, reset whenever the list
+  // changes) plus the transient "Copied ✓" affordance for the copy button.
+  const [checkedItems, setCheckedItems] = useState<Set<number>>(new Set());
+  const [copiedList, setCopiedList] = useState(false);
+  // Web Share is feature-detected, NOT gated on mobile: a capable desktop
+  // browser should get the Share button too, and unsupported contexts simply
+  // fall back to the always-present Copy button.
+  const canShareList = typeof navigator.share === "function";
+
+  // Clear the "Copied ✓" label a moment after a copy. A timer side-effect
+  // (not prop→state sync), so an effect is the right tool here.
+  useEffect(() => {
+    if (!copiedList) return;
+    const timer = setTimeout(() => setCopiedList(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copiedList]);
+
   const planId = currentPlan?.plan_id ?? null;
   const { data: mealEntries } = useMealEntries(isConfirmed ? planId : null);
 
   // Bind to Global Zustand Store
   const {
     days, setDays,
-    dietType, setDietType,
+    dietTypes, allergens, toggleDietType, toggleAllergen,
     mealsPerDay, setMealsPerDay,
     peopleCount, setPeopleCount,
     tastePreferences, setTastePreferences,
@@ -199,7 +239,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       taste_preferences: parseList(tastePreferences),
       avoid_ingredients: parseList(avoidIngredients),
       ingredients_to_use: ingredientsToUse,
-      diet_type: dietType === "" ? null : dietType,
+      diet_types: dietTypes,
+      allergens,
       meals_per_day: mealsPerDay,
       people_count: peopleCount,
       past_meals: [],
@@ -214,6 +255,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
 
     setCurrentPlan(null);
     setFrozenMeals(new Set());
+    setCheckedItems(new Set());
     setIsConfirmed(false);
     setIsFinished(false);
     generatePlanMutation.mutate({ userId, days, startDate, request }, {
@@ -232,8 +274,46 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
 
     regenerateMutation.mutate(
       { planId: currentPlan.plan_id, request: { frozen_meals: frozen } },
-      { onSuccess: (data) => setCurrentPlan(data) },
+      {
+        onSuccess: (data) => {
+          setCurrentPlan(data);
+          // A regenerated plan is a new shopping list, so drop stale ticks —
+          // an index must never point at a different item than the user
+          // checked off.
+          setCheckedItems(new Set());
+        },
+      },
     );
+  };
+
+  // Shopping-list check-off + export (frontend-only; ticks live in component
+  // state, never the backend).
+  const toggleShoppingItem = (i: number) => {
+    setCheckedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  };
+
+  const copyShoppingList = () => {
+    const text = shoppingListToText(currentPlan?.shopping_list);
+    if (!text) return;
+    // Best-effort — optional chaining short-circuits the whole chain (incl.
+    // .then) when the Clipboard API is unavailable, so this never throws.
+    void navigator.clipboard?.writeText(text).then(
+      () => setCopiedList(true),
+      () => undefined,
+    );
+  };
+
+  const shareShoppingList = () => {
+    const text = shoppingListToText(currentPlan?.shopping_list);
+    if (!text) return;
+    // Only reachable from a button rendered when navigator.share exists.
+    // Swallow rejections, including the user dismissing the share sheet.
+    void navigator.share({ title: "Shopping List", text }).catch(() => undefined);
   };
 
   const handleConfirm = () => {
@@ -431,23 +511,6 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         </label>
 
         <label>
-          Diet Type:
-          <select
-            value={dietType}
-            onChange={(e) => setDietType(e.target.value as DietType | "")}
-            style={{ width: "100%", marginTop: "0.25rem" }}
-          >
-            <option value="">(None)</option>
-            <option value="balanced">Balanced</option>
-            <option value="high_protein">High Protein</option>
-            <option value="low_carb">Low Carb</option>
-            <option value="vegetarian">Vegetarian</option>
-            <option value="vegan">Vegan</option>
-            <option value="baby_food">Baby food (6–12 mo)</option>
-          </select>
-        </label>
-
-        <label>
           Meals per day:
           <input type="number" value={mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value) || 1)} min={1} max={5} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
@@ -456,6 +519,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           People count:
           <input type="number" value={peopleCount} onChange={(e) => setPeopleCount(Number(e.target.value) || 1)} min={1} max={10} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
+
+        <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <DietarySelector
+            dietTypes={dietTypes}
+            allergens={allergens}
+            onToggleDiet={toggleDietType}
+            onToggleAllergen={toggleAllergen}
+          />
+        </div>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
           <input
@@ -737,14 +809,49 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
              </div>
           ))}
           {currentPlan.shopping_list.length > 0 && (
-            <div style={{ marginTop: "1.5rem", padding: "1rem", backgroundColor: "#fff", border: "1px solid #ddd", borderRadius: "6px" }}>
-              <h4 style={{ margin: "0 0 0.75rem 0" }}>Shopping List</h4>
-              <ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.9em" }}>
-                {currentPlan.shopping_list.map((item, i) => (
-                  <li key={i} style={{ marginBottom: "0.25rem" }}>
-                    {item.name} — {Math.round(item.quantity_grams)}g
-                  </li>
-                ))}
+            <div style={{ marginTop: "1.5rem", padding: "1rem", backgroundColor: "#fff", color: "#111", border: "1px solid #ddd", borderRadius: "6px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
+                <h4 style={{ margin: 0 }}>Shopping List</h4>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    onClick={copyShoppingList}
+                    aria-label="Copy shopping list"
+                    style={{ ...shoppingListBtn, minWidth: "5.5rem" }}
+                  >
+                    {copiedList ? "Copied ✓" : "Copy"}
+                  </button>
+                  {canShareList && (
+                    <button
+                      type="button"
+                      onClick={shareShoppingList}
+                      aria-label="Share shopping list"
+                      style={shoppingListBtn}
+                    >
+                      Share
+                    </button>
+                  )}
+                </div>
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none", fontSize: "0.9em" }}>
+                {currentPlan.shopping_list.map((item, i) => {
+                  const checked = checkedItems.has(i);
+                  return (
+                    <li key={i} style={{ marginBottom: "0.25rem" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleShoppingItem(i)}
+                          aria-label={`Mark ${item.name} as bought`}
+                        />
+                        <span style={{ textDecoration: checked ? "line-through" : "none", color: checked ? "#6b7280" : "inherit" }}>
+                          {item.name} — {Math.round(item.quantity_grams)}g
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

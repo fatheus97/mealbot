@@ -304,19 +304,44 @@ def _spice_meal(ingredients: list[tuple[str, float, bool]]) -> PlannedMeal:
 
 
 class TestSpiceExclusion:
-    def test_shopping_list_excludes_spices(self):
+    def test_shopping_list_excludes_spices_when_include_off(self):
         days = [_day([_spice_meal([
             ("chicken", 300, False),
             ("cumin", 1, True),
             ("paprika", 1, True),
         ])])]
-        result = compute_shopping_list_from_plan(days, [])
+        result = compute_shopping_list_from_plan(days, [], include_spices=False)
         names = [r.name for r in result]
         assert "chicken" in names
         assert "cumin" not in names
         assert "paprika" not in names
 
+    def test_shopping_list_keeps_spices_when_include_on(self):
+        # include_spices=True → seasonings stay on the list (with a real weight).
+        days = [_day([_spice_meal([("chicken", 300, False), ("cumin", 5, True)])])]
+        result = compute_shopping_list_from_plan(days, [], include_spices=True)
+        names = [r.name for r in result]
+        assert "chicken" in names
+        assert "cumin" in names
+
+    def test_include_spices_on_is_deterministic_not_llm_dependent(self):
+        # THE guard: even if the LLM mis-tags an item is_spice=true while the user
+        # wants spices ON, it must NOT be silently dropped from the list. The
+        # outcome depends on the preference, never on the model's is_spice bit.
+        days = [_day([_spice_meal([("salt", 3, True)])])]
+        assert [r.name for r in compute_shopping_list_from_plan(days, [], include_spices=True)] == ["salt"]
+        assert compute_shopping_list_from_plan(days, [], include_spices=False) == []
+
+    def test_default_includes_spices(self):
+        # Default (no arg) is include_spices=True, matching the User default —
+        # so a spice is kept unless the caller explicitly turns spices off.
+        days = [_day([_spice_meal([("oregano", 2, True)])])]
+        assert [r.name for r in compute_shopping_list_from_plan(days, [])] == ["oregano"]
+
     def test_fridge_subtraction_excludes_spices(self):
+        # subtract_used_from_fridge is intentionally NOT gated on include_spices —
+        # it drives the internal generation simulation, not the user-facing list —
+        # so it always skips is_spice items regardless of the preference.
         fridge = [
             StockItemDTO(name="chicken", quantity_grams=500),
             StockItemDTO(name="cumin", quantity_grams=50),
@@ -339,3 +364,48 @@ class TestSpiceExclusion:
         result = merge_shopping_lists(items)
         assert len(result) == 1
         assert result[0].name == "rice"
+
+
+class TestStapleExclusion:
+    """Per-user "always have" staples (salt, oil, flour…) are dropped from the
+    generated shopping list exactly like spices — at generation time, so the
+    frozen list of an existing plan is never rewritten. The exclusion set is
+    lowercased keys, matching the `ing.name.lower()` comparison inside compute."""
+
+    def test_staple_excluded_from_shopping_list(self):
+        days = [_day([_meal([("chicken", 300), ("salt", 5), ("oil", 20)])])]
+        result = compute_shopping_list_from_plan(
+            days, [], staples=frozenset({"salt", "oil"})
+        )
+        assert [r.name for r in result] == ["chicken"]
+
+    def test_staple_matching_is_case_insensitive(self):
+        # The ingredient's own casing must not let it slip back onto the list.
+        days = [_day([_meal([("Salt", 5), ("Olive Oil", 20), ("rice", 200)])])]
+        result = compute_shopping_list_from_plan(
+            days, [], staples=frozenset({"salt", "olive oil"})
+        )
+        assert [r.name for r in result] == ["rice"]
+
+    def test_no_staples_is_a_noop(self):
+        days = [_day([_meal([("salt", 5), ("rice", 200)])])]
+        # default (None) and an explicit empty set both leave the list untouched
+        assert len(compute_shopping_list_from_plan(days, [])) == 2
+        assert len(compute_shopping_list_from_plan(days, [], staples=frozenset())) == 2
+
+    def test_unknown_staple_has_no_effect(self):
+        days = [_day([_meal([("rice", 200)])])]
+        result = compute_shopping_list_from_plan(
+            days, [], staples=frozenset({"saffron"})
+        )
+        assert [r.name for r in result] == ["rice"]
+
+    def test_staple_excluded_even_when_fridge_is_short(self):
+        # A staple is dropped entirely — a fridge shortfall on it must not let it
+        # reappear on the list.
+        fridge = [StockItemDTO(name="flour", quantity_grams=10)]
+        days = [_day([_meal([("flour", 500), ("rice", 200)])])]
+        result = compute_shopping_list_from_plan(
+            days, fridge, staples=frozenset({"flour"})
+        )
+        assert [r.name for r in result] == ["rice"]

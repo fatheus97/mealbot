@@ -83,6 +83,26 @@ class UserCreate(UserBase):
         return cleaned if info.field_name == "referrer" else cleaned.lower()
 
 
+class InviteRedeem(BaseModel):
+    """Body for POST /users/register-invite — the invitee's self-registration.
+
+    The invite ``token`` carries the entitlement (comp, and the right to register
+    at all while public registration is closed); the invitee supplies their own
+    ``email`` + ``password``. Same complexity rule as normal registration, reused
+    so the two can't drift. No comp/admin flags here on purpose — those are read
+    from the token server-side, never trusted from this body.
+    """
+
+    token: str = Field(min_length=1, max_length=512)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
+
+
 class PasswordChangeRequest(BaseModel):
     """Body for POST /auth/password. The current password is re-verified
     server-side (a stale/hijacked access token alone must not let an attacker

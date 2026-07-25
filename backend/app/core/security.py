@@ -29,9 +29,11 @@ def get_password_hash(password: str) -> str:
     Generates a salt and hashes the password.
     Returns a string for database storage.
     """
-    # bcrypt.hashpw expects bytes, returns bytes
+    # bcrypt.hashpw expects bytes, returns bytes. The work factor is
+    # configurable (settings.bcrypt_rounds, default 12) so the test suite can
+    # hash at bcrypt's floor without weakening prod — see config.py.
     password_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
+    salt = bcrypt.gensalt(rounds=settings.bcrypt_rounds)
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
 

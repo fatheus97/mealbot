@@ -35,6 +35,7 @@ from app.core.cookies import (
     clear_auth_cookies,
     set_auth_cookies,
 )
+from app.core.email_normalize import normalize_email
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
@@ -71,8 +72,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def _email_fingerprint(email: str) -> str:
     """Short non-reversible id for an email. Logged on auth failures so we can
     correlate brute-force attempts without writing plaintext addresses to logs.
+    Fingerprints the NORMALIZED key so dot/+tag variants of one inbox correlate to
+    a single id (the alias abuse this app guards against).
     """
-    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(normalize_email(email).encode("utf-8")).hexdigest()[:12]
 
 
 def _truncate_user_agent(raw: str | None) -> str | None:
@@ -145,7 +148,7 @@ async def login(
 ) -> UserRead:
     """Verify credentials, mint a new device session, set cookies. Returns
     the user profile so the SPA doesn't need a follow-up GET /users."""
-    statement = select(User).where(User.email == body.email)
+    statement = select(User).where(User.normalized_email == normalize_email(body.email))
     result = await session.execute(statement)
     user = result.scalars().first()
 
@@ -160,6 +163,18 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
+        )
+
+    # Disable gate. Checked only AFTER a correct password, so this branch is
+    # reachable only by the account owner (an attacker without the password
+    # never gets here) — telling them the account is disabled is safe and is not
+    # an enumeration oracle. 403 (not 401) so the SPA shows the message instead
+    # of routing it through the silent refresh-then-logout path.
+    if not user.is_active:
+        logger.warning("login_disabled user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been disabled.",
         )
 
     await _issue_session_and_set_cookies(
@@ -238,6 +253,11 @@ async def refresh(
             if user_for_grace is None:
                 clear_auth_cookies(response)
                 raise HTTPException(status_code=401, detail="User no longer exists")
+            if not user_for_grace.is_active:
+                clear_auth_cookies(response)
+                raise HTTPException(
+                    status_code=401, detail="Session ended; please log in again"
+                )
             grace_ttl = _refresh_ttl_for_user(user_for_grace, expires_at, now)
             grace_session = await _issue_session_and_set_cookies(
                 response=response,
@@ -279,6 +299,16 @@ async def refresh(
     if user is None:
         clear_auth_cookies(response)
         raise HTTPException(status_code=401, detail="User no longer exists")
+
+    # Disable gate: a disabled account must not be able to rotate its way into a
+    # fresh session. Deactivation already revokes sessions, so this is normally
+    # unreachable — but keeping is_active authoritative at every token-issuing
+    # point means a session that somehow survives still can't be extended.
+    if not user.is_active:
+        clear_auth_cookies(response)
+        raise HTTPException(
+            status_code=401, detail="Session ended; please log in again"
+        )
 
     refresh_ttl_seconds = _refresh_ttl_for_user(user, expires_at, now)
 

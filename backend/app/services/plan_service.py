@@ -36,6 +36,7 @@ from app.models.plan_models import (
     SingleDayResponse,
     StockItemDTO,
 )
+from app.services.allergen_screen import AllergenScreenError
 from app.services.fridge_service import (
     allocate_fifo,
     flatten_fridge_batches,
@@ -56,6 +57,7 @@ from app.services.meal_planner import (
     generate_single_day,
     generate_single_day_with_rag,
 )
+from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan, subtract_used_from_fridge
 
 logger = logging.getLogger(__name__)
@@ -658,10 +660,22 @@ async def generate_plan_days(
         try:
             single_day: SingleDayResponse | None = None
             if settings.use_rag:
-                single_day = await generate_single_day_with_rag(
-                    day_req, session, user.id, mock=user.is_demo,
-                    slot_layout=slot_layout, slot_portions=slot_portions,
-                )
+                try:
+                    single_day = await generate_single_day_with_rag(
+                        day_req, session, user.id, mock=user.is_demo,
+                        slot_layout=slot_layout, slot_portions=slot_portions,
+                    )
+                except AllergenScreenError:
+                    # RAG couldn't clear the allergen screen — fall back to a
+                    # fresh standard generation (no RAG examples to suggest the
+                    # allergen), which is itself screened. Only if THAT also
+                    # exhausts do we fail closed, so a satisfiable allergic
+                    # request isn't hard-failed just because RAG got unlucky.
+                    logger.warning(
+                        "Day %d: RAG hit allergen-screen exhaustion — falling "
+                        "back to the standard pipeline", day_index,
+                    )
+                    single_day = None
                 if single_day:
                     logger.info("Day %d: used RAG pipeline", day_index)
             if single_day is None:
@@ -670,6 +684,14 @@ async def generate_plan_days(
                     slot_layout=slot_layout, slot_portions=slot_portions,
                 )
         except HTTPException:
+            raise
+        except AllergenScreenError:
+            # Fail CLOSED, but as a DISTINCT error the boundary maps to a
+            # friendly, allergen-naming 422 — not the generic "generation
+            # failed, try again" 502 (retrying the same restrictive request
+            # won't help). Propagate UNWRAPPED so the router can tell it apart
+            # from a transient LLM failure; wrapping it in PlanGenerationError
+            # would collapse both into the same misleading 502.
             raise
         except Exception as exc:
             logger.exception("Plan generation failed at day %d", day_index)
@@ -721,7 +743,13 @@ async def generate_plan_days(
                         d_i, m_i,
                     )
 
-    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(meal_plan, initial_fridge)
+    # Per-user "always have" staples are dropped from the list at generation
+    # time (never on read), so older plans' frozen lists are untouched. The
+    # user's include_spices preference is honored here deterministically too.
+    staple_keys = await load_staple_keys(session, user.id)
+    shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
+        meal_plan, initial_fridge, staples=staple_keys, include_spices=user.include_spices
+    )
     if payload.stock_only:
         if shopping_items:
             logger.warning(
