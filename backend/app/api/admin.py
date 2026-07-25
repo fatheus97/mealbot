@@ -68,6 +68,7 @@ from app.models.feedback_schemas import (
 )
 from app.services import (
     feedback_credit,
+    feedback_notify,
     feedback_ticket,
     feedback_triage,
     revenue_service,
@@ -1379,6 +1380,12 @@ async def accept_feedback(
             detail={"feedback_id": str(feedback_id), "credited": str(granted)},
         )
     await session.commit()
+
+    # Tell the reporter they earned a credit — AFTER the credit commits, best-effort
+    # (never raises), only when THIS call actually granted. A silent Stripe balance
+    # credit is too quiet to reward reporting; this is the acknowledgement.
+    if granted and reporter is not None:
+        await feedback_notify.notify_credit_granted(reporter, report.credit_cents or 0)
 
     # (2) Ticket — best-effort, AFTER the money commit, in its own transaction. Only
     # when not already ticketed and ticketing is configured. Wrapped so a GitHub or
