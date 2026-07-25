@@ -69,6 +69,13 @@ class TestReferenceCompleteness:
         assert info.confidence == Confidence.SOURCED
         assert "as-consumed" in info.note.lower() or "as consumed" in info.note.lower()
 
+    def test_sulphites_carry_all_named_high_sulphite_foods(self):
+        # The doc names FIVE high-sulphite foods to flag conservatively; all must
+        # be present (a prior omission dropped "juice"/"processed potato").
+        derived = ALLERGEN_INFO[Allergen.SULPHITES].derivatives
+        for food in ("dried fruit", "wine", "juice", "vinegar", "processed potato"):
+            assert food in derived
+
     def test_tree_nut_species_expanded(self):
         # The doc's "the 8 species above" must be expanded into concrete terms.
         derived = ALLERGEN_INFO[Allergen.TREE_NUTS].derivatives

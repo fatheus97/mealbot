@@ -255,7 +255,9 @@ ALLERGEN_INFO: dict[Allergen, AllergenInfo] = {
         derivatives=(
             "sulphite", "sulfite", "sulphur dioxide", "sulfur dioxide",
             "e220", "e221", "e222", "e223", "e224", "e225", "e226", "e227",
-            "e228", "dried fruit", "wine", "vinegar",
+            "e228",
+            # The doc's five named high-sulphite foods to flag conservatively.
+            "dried fruit", "wine", "juice", "vinegar", "processed potato",
         ),
         confidence=Confidence.SOURCED,
         source=_ANNEX_II,
