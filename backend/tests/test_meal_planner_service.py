@@ -793,3 +793,84 @@ class TestAllergenScreenWiring:
                 slots_to_generate=[MealType.MAIN_COURSE.value],
             )
         assert mock_llm.chat_json.await_count == 3
+
+
+class TestRagAllergenRetryBudget:
+    """The RAG path takes ONE shot at the allergen screen (max_retries=0) before
+    raising, so generate_plan_days can fall back to the full-budget standard
+    pipeline. This caps worst-case sequential LLM calls per allergic day at
+    1 (RAG) + 3 (standard) = 4 rather than 3 + 3 = 6 — the fail-closed guarantee
+    is unchanged (the standard fallback keeps its full retry budget)."""
+
+    def _rag_hit(self) -> MealHit:
+        # "rice" is clean of milk, so the retrieved example survives the RAG
+        # allergen pre-filter and RAG actually proceeds to generate.
+        return MealHit(
+            meal_entry_id=1,
+            user_id=1,
+            name="Retrieved Meal",
+            meal_type="dinner",
+            meal_json=(
+                '{"name":"Retrieved Meal","meal_type":"dinner","meal_type_label":"Dinner",'
+                '"ingredients":[{"name":"rice","quantity_grams":200,"is_spice":false}],'
+                '"steps":["Cook rice"]}'
+            ),
+            cosine_distance=0.1,
+            adjusted_distance=0.1,
+        )
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_path_makes_one_attempt_then_fails_closed(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        from app.core.dietary import Allergen
+        from app.services.allergen_screen import AllergenScreenError
+
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        # Every generation trips the MILK screen (cheddar cheese).
+        mock_llm.chat_json = AsyncMock(
+            return_value=_llm_day_with_ingredient("cheddar cheese"),
+        )
+
+        with pytest.raises(AllergenScreenError):
+            await generate_single_day_with_rag(
+                _make_request(allergens=[Allergen.MILK]),
+                session=MagicMock(),
+                user_id=1,
+            )
+        # ONE shot, not the standard 3 — the standard pipeline behind it (in
+        # generate_plan_days) is what retries with the full budget.
+        assert mock_llm.chat_json.await_count == 1
+
+    @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
+    @patch("app.services.meal_planner.settings")
+    @patch("app.services.meal_planner.llm_client")
+    async def test_rag_path_no_allergens_still_one_call(
+        self,
+        mock_llm: MagicMock,
+        mock_settings: MagicMock,
+        mock_retrieve: AsyncMock,
+    ):
+        # Regression guard: with no declared allergen the RAG path is a single
+        # unscreened call, exactly as before — max_retries=0 changes nothing here.
+        mock_settings.rag_max_distance = 0.5
+        mock_settings.rag_min_results = 1
+        mock_settings.rag_max_context_meals = 3
+        mock_retrieve.return_value = [self._rag_hit()]
+        mock_llm.chat_json = AsyncMock(
+            return_value=_llm_day_with_ingredient("cheddar cheese"),
+        )
+
+        result = await generate_single_day_with_rag(
+            _make_request(), session=MagicMock(), user_id=1,
+        )
+        assert result is not None
+        assert mock_llm.chat_json.await_count == 1
