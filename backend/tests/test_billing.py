@@ -787,12 +787,22 @@ async def test_apply_feedback_invoice_credit_posts_negative_item(monkeypatch):
     assert captured["metadata"] == {"feedback_report_id": "42", "kind": "feedback_credit"}
 
 
+class _FakeItem:
+    def __init__(self, d):
+        self._d = d
+
+    def to_dict(self):
+        return self._d
+
+
 class _FakeItems:
+    """Mimics a Stripe ListObject: iterated via ``auto_paging_iter`` (as the code does)."""
+
     def __init__(self, data):
         self._data = data
 
-    def to_dict(self):
-        return {"data": self._data}
+    def auto_paging_iter(self):
+        return iter([_FakeItem(d) for d in self._data])
 
 
 async def test_pending_feedback_credit_cents_sums_only_our_negative_items(monkeypatch):
@@ -820,3 +830,23 @@ async def test_pending_feedback_credit_cents_empty_is_zero(monkeypatch):
     monkeypatch.setattr(stripe, "max_network_retries", 0)
     monkeypatch.setattr(stripe.InvoiceItem, "list", lambda **kwargs: _FakeItems([]))
     assert await stripe_service.pending_feedback_credit_cents("cus_1") == 0
+
+
+@pytest.mark.parametrize(
+    ("balance", "expected"),
+    [(-250, 250), (-1, 1), (0, 0), (100, 0), (None, 0)],
+)
+async def test_customer_credit_balance_cents_sign(monkeypatch, balance, expected):
+    # The OTHER never-€0 floor term. SIGN is money-critical: a negative balance is a
+    # CREDIT (magnitude returned), a positive balance is DEBT (returns 0, not a credit).
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    class _FakeCustomer:
+        def to_dict(self):
+            return {"balance": balance}
+
+    monkeypatch.setattr(stripe.Customer, "retrieve", lambda cid: _FakeCustomer())
+    assert await stripe_service.customer_credit_balance_cents("cus_1") == expected

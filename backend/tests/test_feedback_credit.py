@@ -51,13 +51,17 @@ async def _add_report(
     return report
 
 
-def _mock_stripe(*, pending: int = 0, grant: AsyncMock | None = None):
-    """Patch the two Stripe calls feedback_credit makes (the pending-credit floor read and
-    the invoice-item grant). ``pending`` = minor units already queued. Returns the grant mock."""
+def _mock_stripe(
+    *, pending: int = 0, balance: int = 0, grant: AsyncMock | None = None
+):
+    """Patch the Stripe calls feedback_credit makes: BOTH never-€0 floor reads (pending
+    feedback invoice items + customer-balance credit) and the invoice-item grant.
+    ``pending``/``balance`` = minor units of each. Returns the grant mock."""
     grant = grant or AsyncMock()
     return patch.multiple(
         "app.services.feedback_credit.stripe_service",
         pending_feedback_credit_cents=AsyncMock(return_value=pending),
+        customer_credit_balance_cents=AsyncMock(return_value=balance),
         apply_feedback_invoice_credit=grant,
     ), grant
 
@@ -197,11 +201,27 @@ class TestIneligible:
     async def test_over_outstanding_floor(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        # Outstanding €2.50 + €1 = €3.50 > €3 max → refuse (never-€0 floor).
+        # Pending invoice-item credit €2.50 + €1 = €3.50 > €3 max → refuse (never-€0 floor).
         await _prep_user(db_session, test_user)
         assert test_user.id is not None
         report = await _add_report(db_session, test_user.id)
         ctx, grant = _mock_stripe(pending=250)
+        with ctx:
+            assert await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW) is False
+        grant.assert_not_awaited()
+
+    async def test_floor_counts_customer_balance_not_just_invoice_items(
+        self, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # The transition gap: an OLD balance-path grant (or a proration) sits on
+        # customer.balance, INVISIBLE to the invoice-item sum, but Stripe still applies it
+        # to the next invoice. With ZERO pending items but €2.50 on the balance, the floor
+        # must still refuse (€2.50 + €1 = €3.50 > €3) so new items can't stack on top of it
+        # and zero the invoice.
+        await _prep_user(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+        ctx, grant = _mock_stripe(pending=0, balance=250)
         with ctx:
             assert await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW) is False
         grant.assert_not_awaited()
@@ -232,9 +252,30 @@ class TestFailuresNeverRaise:
         with patch.multiple(
             "app.services.feedback_credit.stripe_service",
             pending_feedback_credit_cents=AsyncMock(side_effect=RuntimeError("stripe down")),
+            customer_credit_balance_cents=AsyncMock(return_value=0),
             apply_feedback_invoice_credit=grant,
         ):
             ok = await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW)
         assert ok is False
         grant.assert_not_awaited()  # never grant blind
+        assert report.credit_granted_at is None
+
+    async def test_balance_read_failure_refuses(
+        self, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # The floor's OTHER read (customer balance) failing must ALSO refuse — never grant
+        # blind to how much credit is already headed for the invoice.
+        await _prep_user(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+        grant = AsyncMock()
+        with patch.multiple(
+            "app.services.feedback_credit.stripe_service",
+            pending_feedback_credit_cents=AsyncMock(return_value=0),
+            customer_credit_balance_cents=AsyncMock(side_effect=RuntimeError("stripe down")),
+            apply_feedback_invoice_credit=grant,
+        ):
+            ok = await feedback_credit.maybe_grant_credit(db_session, report, test_user, now=_NOW)
+        assert ok is False
+        grant.assert_not_awaited()
         assert report.credit_granted_at is None

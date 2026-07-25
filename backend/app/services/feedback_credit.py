@@ -103,13 +103,18 @@ async def maybe_grant_credit(
     credit_cents = round(settings.feedback_credit_eur * 100)
     max_outstanding_cents = round(settings.feedback_credit_max_outstanding_eur * 100)
 
-    # (2) Hard never-€0 floor: the AUTHORITATIVE sum of feedback credits already queued on
-    # the customer's next invoice, read right before the grant. If reading it fails,
-    # refuse (don't grant blind).
+    # (2) Hard never-€0 floor: the AUTHORITATIVE sum of ALL credit Stripe will apply to
+    # the customer's next invoice — the pending "Feedback reward" invoice items PLUS any
+    # credit on the customer BALANCE (grants made under the old balance path before this
+    # swap, plus prorations/goodwill), which Stripe applies ON TOP of the items. Both are
+    # read right before the grant; if EITHER read fails, refuse (don't grant blind).
+    # NB the floor assumes the standard undiscounted monthly price — a future recurring
+    # promo code (allow_promotion_codes is on at checkout) would lower the invoice and
+    # would need this revisited.
     try:
         outstanding = await stripe_service.pending_feedback_credit_cents(
             user.stripe_customer_id
-        )
+        ) + await stripe_service.customer_credit_balance_cents(user.stripe_customer_id)
     except Exception:
         logger.exception("feedback_credit floor check failed report_id=%s", report.id)
         return False

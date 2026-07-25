@@ -388,25 +388,43 @@ async def pending_feedback_credit_cents(customer_id: str) -> int:
     """Sum (>= 0, minor units) of feedback-credit invoice items already queued on the
     customer's next invoice but NOT yet invoiced.
 
-    Used for the never-€0 floor: don't stack more feedback credit than keeps the upcoming
-    invoice above zero. Counts ONLY our own feedback items (``metadata.kind`` marker) so
-    an unrelated pending proration can't spuriously trip the floor. ``limit=100`` is far
-    beyond the rate cap (max a few per window), so we don't paginate. Reads via
-    ``to_dict()`` (stripe>=15 objects aren't dicts).
-
-    NB during the balance→invoice-item transition, any credit granted under the OLD
-    customer-balance path lives on ``customer.balance``, not here, so it isn't counted;
-    that's a bounded, transient under-count (the rolling rate cap still caps new grants,
-    and old balances clear on the next invoice)."""
+    ONE of the two never-€0 floor terms; the other is ``customer_credit_balance_cents``
+    (credit sitting on the customer balance — old balance-path grants, prorations,
+    goodwill — which Stripe applies to the next invoice ON TOP of these items). The floor
+    must sum both or it could stack credit past the invoice total. Counts ONLY our own
+    feedback items (``metadata.kind`` marker) so an unrelated pending proration can't
+    spuriously trip the floor. Paginates via ``auto_paging_iter`` — Stripe can't filter by
+    metadata server-side, so ``limit=100`` bounds items PER PAGE, not feedback grants.
+    Reads via ``to_dict()`` (stripe>=15 objects aren't dicts)."""
     _require_stripe()
-    items = await asyncio.to_thread(
-        lambda: stripe.InvoiceItem.list(customer=customer_id, pending=True, limit=100)
-    )
+
+    def _collect() -> list[dict[str, Any]]:
+        items = stripe.InvoiceItem.list(customer=customer_id, pending=True, limit=100)
+        return [item.to_dict() for item in items.auto_paging_iter()]
+
     total = 0
-    for item in items.to_dict().get("data", []):
+    for item in await asyncio.to_thread(_collect):
         if item.get("metadata", {}).get("kind") != FEEDBACK_CREDIT_ITEM_KIND:
             continue
         amount = item.get("amount")
         if isinstance(amount, int) and amount < 0:
             total += -amount
     return total
+
+
+async def customer_credit_balance_cents(customer_id: str) -> int:
+    """The customer's current CREDIT balance in minor units (>= 0) — the OTHER never-€0
+    floor term alongside pending feedback invoice items.
+
+    Stripe applies a negative ``customer.balance`` to the next invoice IN ADDITION to any
+    negative invoice items, so the floor must see BOTH or credit could stack past the
+    invoice total — e.g. a grant made under the OLD balance path (before this swap) or a
+    proration credit, invisible to the invoice-item sum. ``customer.balance`` is negative
+    for a credit and positive when the customer owes; return the credit magnitude (0 when
+    they owe / have none). Reads via ``to_dict()`` (stripe>=15 objects aren't dicts)."""
+    _require_stripe()
+    customer = await asyncio.to_thread(stripe.Customer.retrieve, customer_id)
+    balance = customer.to_dict().get("balance")
+    if not isinstance(balance, int):
+        return 0
+    return -balance if balance < 0 else 0
