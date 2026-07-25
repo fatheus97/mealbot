@@ -136,7 +136,17 @@ def is_annual(user: User) -> bool:
 
     Used to exclude annual subscribers from the monthly-only launch feedback credit
     (6b) — an annual plan is already the discounted tier. False when annual isn't
-    configured, or the user's mirrored price id is unknown/monthly."""
+    configured, or the user's mirrored price id is unknown/monthly.
+
+    ⚠️ ROTATION BLIND SPOT (fix before ever rotating the annual Price): this compares
+    only against the CURRENTLY-configured annual Price id. If the annual Price is ever
+    replaced (repriced → new Stripe Price object) while existing annual subscribers
+    stay on the OLD id, this would start returning False for those grandfathered
+    subscribers — money-critical for 6b's credit exclusion. When 6b wires this to real
+    money (or before any annual reprice), switch to an allow-list of historical annual
+    Price ids (e.g. a comma-separated STRIPE_PRICE_IDS_ANNUAL, or a Stripe price
+    metadata tag). Monthly rotation is harmless — nothing compares against
+    stripe_price_id."""
     annual_id = settings.stripe_price_id_annual
     return bool(annual_id) and user.subscription_price_id == annual_id
 
