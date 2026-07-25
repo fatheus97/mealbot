@@ -16,7 +16,7 @@ retries, idempotency-keyed on the report id) and never blocks the Accept itself.
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -25,6 +25,11 @@ from app.models.db_models import FeedbackReport, User
 from app.services import stripe_service
 
 logger = logging.getLogger(__name__)
+
+# Namespace for the per-user credit advisory lock (arbitrary, distinct from conftest's
+# CREATE DATABASE lock). pg_advisory_xact_lock(ns, user_id) serializes credit grants for
+# one user across concurrent Accepts.
+_CREDIT_LOCK_NAMESPACE = 8_472_101
 
 
 async def maybe_grant_credit(
@@ -51,16 +56,28 @@ async def maybe_grant_credit(
     assert report.id is not None  # a persisted report always has an id
     now = now or datetime.now(UTC).replace(tzinfo=None)
 
-    # Serialize per-user: lock the user row so concurrent Accepts of DIFFERENT reports
-    # for the same user can't both pass the rate cap + never-€0 floor and over-credit
-    # (the check-then-grant below is otherwise a pure TOCTOU — each request would read
-    # the same pre-grant count/balance and all grant). Held until the caller commits,
-    # so the next grant re-reads the updated count. Same with_for_update pattern as the
-    # invite / last-active-admin guards; like those, it can't be exercised by the
-    # single-connection test harness but is load-bearing in prod.
+    # Serialize per-user credit grants with a Postgres transaction-level ADVISORY lock
+    # (keyed on user_id), so the cap check + never-€0 floor read + grant are atomic per
+    # user — otherwise the check-then-grant is a pure TOCTOU and concurrent Accepts on
+    # DIFFERENT reports for one user could all read the same pre-grant state and all
+    # grant, blowing the caps. An advisory lock (NOT a User row lock via FOR UPDATE) is
+    # deliberate: it can't be exercised by the single-connection test harness (like the
+    # invite / last-admin guards), and it does NOT contend with the billing webhook's
+    # User row UPDATE — it only serializes credit grants against each other. Held until
+    # the caller commits. TRADE-OFF: it is held across the two Stripe calls below
+    # (balance read + grant), bounded by stripe_timeout_seconds × stripe_max_retries;
+    # acceptable for this admin-gated, low-volume, default-off path.
     await session.execute(
-        select(col(User.id)).where(col(User.id) == user.id).with_for_update()
+        text("SELECT pg_advisory_xact_lock(:ns, :uid)"),
+        {"ns": _CREDIT_LOCK_NAMESPACE, "uid": user.id},
     )
+    # Re-check idempotency AFTER the lock: a concurrent Accept of the SAME report may
+    # have granted + committed while we waited, so re-read the row and bail if it's now
+    # credited — closes the same-report double-audit / credit_granted_at-overwrite race
+    # (the early check above raced ahead of the lock).
+    await session.refresh(report)
+    if report.credit_granted_at is not None:
+        return False
 
     # (1) Rolling per-user rate cap.
     window_start = now - timedelta(days=settings.feedback_credit_window_days)
