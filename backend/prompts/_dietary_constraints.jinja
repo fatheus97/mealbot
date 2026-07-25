@@ -6,12 +6,30 @@
    definitions, allergen derivative sets, Part-3 combination notes), NOT
    free-text user input, so it is rendered un-fenced as authoritative context.
    The allergen lines are only the prompt-side defence; the deterministic screen
-   is the guarantee. baby_food is handled by its own INFANT FOOD MODE block. #}
-{% if dietary_context_lines %}
+   (slice 4) is the guarantee.
+
+   The FOUR app-specific DietType values are NOT reference patterns (absent from
+   PATTERN_INFO), so they never appear in dietary_context_lines and must be
+   handled here or their intent is silently dropped:
+     - high_protein / low_carb — macro nudges, rendered inline below;
+     - baby_food — its hard constraints ARE the INFANT FOOD MODE block that
+       follows, so we must NOT claim "no restrictions" for it;
+     - balanced — genuinely no restriction. #}
+{% set _high_protein = "high_protein" in diet_types %}
+{% set _low_carb = "low_carb" in diet_types %}
+{% if dietary_context_lines or _high_protein or _low_carb %}
 — DIETARY REQUIREMENTS (HARD CONSTRAINTS — the plan MUST satisfy EVERY one below):
 {% for line in dietary_context_lines %}
   — {{ line }}
 {% endfor %}
+{% if _high_protein %}
+  — Diet — HIGH PROTEIN: prioritise protein-rich ingredients so every meal is notably high in protein.
+{% endif %}
+{% if _low_carb %}
+  — Diet — LOW CARB: keep starchy and sugary carbohydrates low across the day's meals.
+{% endif %}
+{% elif "baby_food" in diet_types %}
+— Diet: infant-appropriate — the hard constraints are the INFANT FOOD MODE rules below.
 {% else %}
 — Diet: aim for balanced, varied nutrition (no specific dietary restrictions).
 {% endif %}

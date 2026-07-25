@@ -151,6 +151,27 @@ class TestDietaryConstraints:
 
         rendered = _render(diet_types=[DietType.BABY_FOOD])
         assert "INFANT FOOD MODE" in rendered
+        # Must NOT claim "no dietary restrictions" in the highest-stakes path —
+        # baby_food's constraints ARE the infant block (regression guard).
+        assert "no specific dietary restrictions" not in rendered
+        assert "infant-appropriate" in rendered
+
+    def test_high_protein_macro_nudge_not_dropped(self) -> None:
+        # high_protein / low_carb are app-specific diets, NOT reference patterns,
+        # so prompt_lines() is empty for them — but their intent must still reach
+        # the prompt and NOT be mislabeled "no restrictions" (regression guard).
+        from app.core.dietary import DietType
+
+        rendered = _render(diet_types=[DietType.HIGH_PROTEIN], dietary_context_lines=[])
+        assert "HIGH PROTEIN" in rendered
+        assert "no specific dietary restrictions" not in rendered
+
+    def test_low_carb_macro_nudge_not_dropped(self) -> None:
+        from app.core.dietary import DietType
+
+        rendered = _render(diet_types=[DietType.LOW_CARB], dietary_context_lines=[])
+        assert "LOW CARB" in rendered
+        assert "no specific dietary restrictions" not in rendered
 
     def test_baby_food_infant_mode_fires_even_when_not_first(self) -> None:
         # "baby_food" in diet_types (not diet_types[0]) must still trigger it,
