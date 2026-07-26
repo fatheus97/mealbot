@@ -12,6 +12,7 @@ from sqlmodel import select
 
 from app.core.config import settings
 from app.models.db_models import AdminAuditLog, InviteToken, User
+from app.services.invite import invite_link
 
 
 async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
@@ -22,6 +23,18 @@ async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
 
 def _token_from(url: str) -> str:
     return url.split("invite=", 1)[1]
+
+
+class TestInviteLinkBuilder:
+    """invite_link() is a pure function — test it directly rather than only
+    through the round-tripped API response, so the exact `/app` deep-link
+    format (the landing-page split, docs/landing-page-plan.md) is pinned."""
+
+    def test_points_at_app_namespace_with_the_token(self) -> None:
+        assert (
+            invite_link("tok_abc123")
+            == f"{settings.frontend_base_url}/app?invite=tok_abc123"
+        )
 
 
 class TestRequireAdminGate:

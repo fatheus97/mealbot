@@ -101,11 +101,14 @@ async def find_redeemable_invite(
 def invite_link(token: str) -> str:
     """Build the shareable link.
 
-    Query param on the app root, not an ``/invite`` path: the SPA is state-routed
+    Query param on the SPA, not an ``/invite`` path: the SPA is state-routed
     with no router (same shape as ``?reset_token=`` and ``?billing=``), so a real
-    path would have nothing to handle it.
+    path would have nothing to handle it. Points at ``/app`` — the SPA's
+    namespace since the landing-page split (docs/landing-page-plan.md) — so
+    this link keeps working once the root starts serving a marketing page
+    instead of the SPA.
     """
-    return f"{settings.frontend_base_url}/?invite={token}"
+    return f"{settings.frontend_base_url}/app?invite={token}"
 
 
 def invite_status(

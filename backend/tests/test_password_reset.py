@@ -20,9 +20,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.config import settings
 from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
 from app.core.security import hash_refresh_token, verify_password
 from app.models.db_models import AuthSession, PasswordResetToken, User
+from app.services.password_reset import reset_link
 from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 NEW_PASSWORD = "BrandNewPassword456"
@@ -73,6 +75,18 @@ def _token_from(sent: AsyncMock) -> str:
 
 async def _request_reset(client: AsyncClient, email: str = TEST_EMAIL):
     return await client.post("/api/auth/forgot-password", json={"email": email})
+
+
+class TestResetLinkBuilder:
+    """reset_link() is a pure function — test it directly rather than only
+    through the round-tripped email body, so the exact `/app` deep-link
+    format (the landing-page split, docs/landing-page-plan.md) is pinned."""
+
+    def test_points_at_app_namespace_with_the_token(self) -> None:
+        assert (
+            reset_link("tok_xyz789")
+            == f"{settings.frontend_base_url}/app?reset_token=tok_xyz789"
+        )
 
 
 class TestForgotPasswordDoesNotEnumerate:
@@ -145,9 +159,10 @@ class TestTokenStorage:
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
     ):
         """The SPA is state-routed with no router — a /reset-password *path*
-        would have nothing to handle it."""
+        would have nothing to handle it. /app, not the root — the SPA's
+        namespace since the landing-page split (docs/landing-page-plan.md)."""
         await _request_reset(unauthed_client)
-        assert "/?reset_token=" in _link_from(sent)
+        assert "/app?reset_token=" in _link_from(sent)
 
 
 class TestResetPassword:

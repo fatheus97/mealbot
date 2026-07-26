@@ -247,6 +247,39 @@ async def test_create_checkout_forwards_configured_trial_period(
 
     assert url == "https://checkout.stripe.test/session/abc"
     assert captured["subscription_data"] == {"trial_period_days": 7}
+    # /app, not the root — the SPA's namespace since the landing-page split
+    # (docs/landing-page-plan.md); the root now hosts a marketing page with
+    # no billing-return handler.
+    assert captured["success_url"] == f"{settings.frontend_base_url}/app?billing=success"
+    assert captured["cancel_url"] == f"{settings.frontend_base_url}/app?billing=cancel"
+
+
+async def test_create_portal_session_points_at_app_namespace(
+    test_user: User, monkeypatch
+):
+    """create_portal_session's return_url must target /app, same rationale as
+    the checkout success/cancel URLs above."""
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    test_user.stripe_customer_id = "cus_existing"
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    captured: dict = {}
+
+    class _FakePortalSession:
+        url = "https://billing.stripe.test/portal/xyz"
+
+    def _fake_portal_create(**kwargs):
+        captured.update(kwargs)
+        return _FakePortalSession()
+
+    monkeypatch.setattr(stripe.billing_portal.Session, "create", _fake_portal_create)
+
+    url = await stripe_service.create_portal_session(test_user)
+
+    assert url == "https://billing.stripe.test/portal/xyz"
+    assert captured["return_url"] == f"{settings.frontend_base_url}/app?billing=managed"
 
 
 def test_require_stripe_configures_timeout_and_retries(monkeypatch):
