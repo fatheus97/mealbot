@@ -259,6 +259,7 @@ async def test_create_portal_session_points_at_app_namespace(
 ):
     """create_portal_session's return_url must target /app, same rationale as
     the checkout success/cancel URLs above."""
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     test_user.stripe_customer_id = "cus_existing"
     monkeypatch.setattr(stripe, "api_key", None)
     monkeypatch.setattr(stripe, "default_http_client", None)

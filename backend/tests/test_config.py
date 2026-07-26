@@ -84,8 +84,10 @@ class TestSettingsKeyValidatorWired:
 
 class TestFrontendBaseUrlNormalization:
     """frontend_base_url feeds every emailed/redirect deep link (invite, reset,
-    checkout, portal) as `f"{frontend_base_url}/app?..."` — a trailing slash in
-    the configured value would produce a double slash in every one of them."""
+    checkout, portal) as `f"{frontend_base_url}/app?..."` — a trailing slash OR
+    a stray surrounding space in the configured value would break every one of
+    them (a space renders as an invalid/dead link; a trailing slash doubles up
+    against the /app segment)."""
 
     @staticmethod
     def _settings(*, frontend_base_url: str) -> Settings:
@@ -105,4 +107,16 @@ class TestFrontendBaseUrlNormalization:
 
     def test_multiple_trailing_slashes_are_all_stripped(self) -> None:
         s = self._settings(frontend_base_url="https://trymealbot.com//")
+        assert s.frontend_base_url == "https://trymealbot.com"
+
+    def test_trailing_whitespace_is_stripped(self) -> None:
+        # Realistic for a value set via a real OS env var / docker-compose
+        # `environment:` entry / systemd Environment= (unlike an unquoted
+        # .env file, which python-dotenv already strips) — a trailing space
+        # would otherwise survive into every emitted link as-is.
+        s = self._settings(frontend_base_url="https://trymealbot.com ")
+        assert s.frontend_base_url == "https://trymealbot.com"
+
+    def test_whitespace_and_trailing_slash_together_are_stripped(self) -> None:
+        s = self._settings(frontend_base_url=" https://trymealbot.com/ ")
         assert s.frontend_base_url == "https://trymealbot.com"

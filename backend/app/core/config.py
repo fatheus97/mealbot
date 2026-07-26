@@ -139,11 +139,15 @@ class Settings(BaseSettings):
     @field_validator("frontend_base_url", mode="after")
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
-        """Normalize away a trailing slash so every `f"{base}/app?..."` link
-        builder (invite/reset/checkout/portal) is correct regardless of how
-        the operator's env var is set — a trailing slash would otherwise
-        produce a double slash."""
-        return v.rstrip("/")
+        """Normalize away surrounding whitespace and a trailing slash so
+        every `f"{base}/app?..."` link builder (invite/reset/checkout/portal)
+        is correct regardless of how the operator's env var is set — a
+        trailing slash would otherwise produce a double slash, and a stray
+        trailing space (surviving whenever the value comes from a real OS
+        env var / docker-compose `environment:` entry rather than an
+        unquoted .env file, which python-dotenv already strips) would break
+        every emitted link outright."""
+        return v.strip().rstrip("/")
 
     # 10-day free trial before the first charge.
     trial_period_days: int = 10
