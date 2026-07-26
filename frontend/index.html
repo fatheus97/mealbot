@@ -38,10 +38,12 @@
       content="Combine multiple diets and allergies in one plan. Every recipe is screened against the 14 EU-regulated allergens, grounded in cited public-health sources."
     />
 
-    <!-- Organization + SoftwareApplication only. No "logo" (no designed brand
-         asset yet) and deliberately NO price/offers — Stripe checkout is the
-         authoritative source for the live figure, and a hardcoded price here
-         would go stale and become a structured-data liability. -->
+    <!-- Organization + SoftwareApplication + FAQPage (mirrors the on-page FAQ
+         verbatim — keep the two in sync if the FAQ copy changes). No "logo"
+         (no designed brand asset yet) and deliberately NO price/offers —
+         Stripe checkout is the authoritative source for the live figure, and
+         a hardcoded price here would go stale and become a structured-data
+         liability. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -58,6 +60,51 @@
             "operatingSystem": "Web",
             "url": "https://trymealbot.com/",
             "description": "Combinable dietary-restriction and allergen-aware meal planning, with every recipe screened against the 14 EU-regulated allergens."
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Is this medical or dietary advice?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. Mealbot screens recipes against your declared allergens and grounds dietary patterns in cited public-health sources, but it is not a substitute for medical or dietetic advice. Always check product labels yourself, and consult a professional about a diagnosed condition or allergy."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which allergens does it screen for?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "The 14 major allergens EU food-labelling law requires to be declared (Regulation (EU) No 1169/2011): gluten (cereals), crustaceans, eggs, fish, peanuts, soy, milk/dairy, tree nuts, celery, mustard, sesame, sulphites, lupin, and molluscs — plus their common derivatives."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I combine multiple diets and allergies?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Diets are combinable — for example vegan, gluten-free, and low-FODMAP at once — and allergens stack on top as a separate, safety-focused field, not a taste preference."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How much does it cost?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "€4.99 per month, or €2.99 per month billed annually. A 10-day free trial, no charge until it ends. Stripe's checkout page shows the exact, up-to-date figure."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is it available now?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Mealbot is currently a private alpha. Request access below, or log in if you already have an account."
+                }
+              }
+            ]
           }
         ]
       }
@@ -65,9 +112,487 @@
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/site.webmanifest" />
+
+    <style>
+      /* Real CSS @media theming — deliberately NOT the app's inline-style
+         pattern (.claude/rules/frontend.md), which can't reach @media at all.
+         Every custom property below is reassigned as a matched PAIR under the
+         light query, so nothing here ever pairs a hardcoded background with
+         the adaptive default text colour (the recurring white-on-white trap). */
+      :root {
+        color-scheme: light dark;
+        --bg: #242424;
+        --fg: rgba(255, 255, 255, 0.87);
+        --muted: rgba(255, 255, 255, 0.65);
+        --card-bg: #1c1c1c;
+        --card-fg: rgba(255, 255, 255, 0.92);
+        --card-border: #3a3a3a;
+        --accent: #5b8def;
+        --accent-contrast: #0b1220;
+        --danger-accent: #ef7b6a;
+        --disclaimer-bg: #2a1f1f;
+        --disclaimer-fg: rgba(255, 255, 255, 0.92);
+        --disclaimer-border: #5c3a3a;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --fg: #213547;
+          --muted: #64748b;
+          --card-bg: #f8fafc;
+          --card-fg: #1e293b;
+          --card-border: #e2e8f0;
+          --accent: #2563eb;
+          --accent-contrast: #ffffff;
+          --danger-accent: #b91c1c;
+          --disclaimer-bg: #fef2f2;
+          --disclaimer-fg: #7f1d1d;
+          --disclaimer-border: #fecaca;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.55;
+      }
+      .wrap {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 1.25rem;
+      }
+      section {
+        padding: 3rem 0;
+      }
+      section + section {
+        border-top: 1px solid var(--card-border);
+      }
+      h1 {
+        font-size: 2.1rem;
+        line-height: 1.25;
+        margin: 0 0 0.75rem;
+      }
+      h2 {
+        font-size: 1.5rem;
+        margin: 0 0 0.9rem;
+      }
+      p {
+        margin: 0 0 1rem;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .card {
+        background: var(--card-bg);
+        color: var(--card-fg);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+      }
+      .disclaimer {
+        background: var(--disclaimer-bg);
+        color: var(--disclaimer-fg);
+        border: 1px solid var(--disclaimer-border);
+        border-radius: 10px;
+        padding: 0.9rem 1.1rem;
+        font-size: 0.9rem;
+      }
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 0.75rem 0 1.25rem;
+      }
+      .chip {
+        display: inline-block;
+        padding: 0.3rem 0.7rem;
+        font-size: 0.8rem;
+        border-radius: 999px;
+        border: 1px solid var(--card-border);
+        background: var(--card-bg);
+        color: var(--card-fg);
+      }
+      .steps {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+      .step {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+      .step svg {
+        flex: none;
+        width: 40px;
+        height: 40px;
+      }
+      .pricing-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin: 1.25rem 0;
+      }
+      .price-card {
+        text-align: center;
+        position: relative;
+      }
+      .price-amount {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0.4rem 0 0.15rem;
+      }
+      .badge {
+        position: absolute;
+        top: -0.6rem;
+        right: 0.75rem;
+        background: var(--accent);
+        color: var(--accent-contrast);
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+      }
+      details.card {
+        padding: 0;
+        overflow: hidden;
+      }
+      details.card + details.card {
+        margin-top: 0.6rem;
+      }
+      details.card summary {
+        cursor: pointer;
+        padding: 1rem 1.25rem;
+        font-weight: 600;
+        list-style: none;
+      }
+      details.card summary::-webkit-details-marker {
+        display: none;
+      }
+      details.card summary::before {
+        content: "+";
+        display: inline-block;
+        width: 1.1rem;
+        color: var(--accent);
+        font-weight: 700;
+      }
+      details.card[open] summary::before {
+        content: "–";
+      }
+      details.card div.answer {
+        padding: 0 1.25rem 1.1rem 2.35rem;
+        color: var(--muted);
+      }
+
+      /* CTA — a reserved container. min-height alone does NOT prevent CLS
+         here: flex-wrap still lays out however many boxes are actually IN
+         the flow, so removing a button (display:none / the `hidden`
+         attribute) changes wrapping and shrinks the container regardless of
+         min-height, which only floors how small it can get, not how large
+         content forces it to grow. The fix is to keep #cta-demo in the flow
+         AT ALL TIMES (via .cta-reserved: visibility:hidden, not display:none)
+         so the number of boxes flex-wrap lays out — and therefore the
+         container's height — never changes; the enhancement script only
+         ever flips that one class, never touching #cta-box itself. */
+      #cta-box {
+        display: flex;
+        align-items: center;
+      }
+      #cta-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        width: 100%;
+      }
+      .btn {
+        display: inline-block;
+        padding: 0.65rem 1.2rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        font-size: 0.95rem;
+        border: 1px solid transparent;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-contrast);
+      }
+      .btn-secondary {
+        background: transparent;
+        color: var(--fg);
+        border-color: var(--card-border);
+      }
+      .btn-tertiary {
+        background: transparent;
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      .cta-reserved {
+        visibility: hidden;
+        pointer-events: none;
+      }
+      footer {
+        padding: 2rem 0 3rem;
+      }
+      footer a {
+        color: var(--accent);
+      }
+
+      @media (max-width: 640px) {
+        h1 {
+          font-size: 1.65rem;
+        }
+        .pricing-grid {
+          grid-template-columns: 1fr;
+        }
+        section {
+          padding: 2.25rem 0;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <main class="wrap">
+      <!-- HERO -->
+      <section id="hero">
+        <div class="steps" style="align-items: center; grid-auto-flow: column; grid-template-columns: 1fr auto;">
+          <div>
+            <h1>Meal plans that respect every diet and allergen you combine</h1>
+            <p class="muted">
+              Vegan, gluten-free, low-FODMAP, a peanut allergy — plan for all of it at once. Every recipe is
+              screened against the 14 EU-regulated allergens and their common derivatives, with dietary
+              guidance grounded in cited public-health sources.
+            </p>
+          </div>
+          <svg viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Mealbot">
+            <circle cx="48" cy="48" r="48" fill="var(--accent)" />
+            <path
+              d="M21 54c0 15 12 24 27 24s27-9 27-24"
+              fill="none"
+              stroke="var(--accent-contrast)"
+              stroke-width="6"
+              stroke-linecap="round"
+            />
+            <ellipse cx="48" cy="54" rx="27" ry="9" fill="var(--accent-contrast)" />
+            <path
+              d="M36 30c-3-4.5-3-9 0-13.5M48 27c-3-4.5-3-10.5 0-15M60 30c-3-4.5-3-9 0-13.5"
+              fill="none"
+              stroke="var(--accent-contrast)"
+              stroke-width="4.5"
+              stroke-linecap="round"
+            />
+            <path
+              d="M28 60l7 7 13-14"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </div>
+
+        <div id="cta-box">
+          <div id="cta-buttons">
+            <a id="cta-primary" class="btn btn-primary" href="mailto:info@trymealbot.com">Request access</a>
+            <a id="cta-login" class="btn btn-secondary" href="/app">Log in</a>
+            <a id="cta-demo" class="btn btn-tertiary cta-reserved" href="/app">Try the demo</a>
+          </div>
+        </div>
+        <p class="muted" style="font-size: 0.85rem;">Private alpha — see Access below.</p>
+      </section>
+
+      <!-- THE DIFFERENTIATOR -->
+      <section id="differentiator">
+        <h2>Combine restrictions instead of picking one</h2>
+        <p>
+          Most meal-planning apps ask you to pick a single diet. Real households stack them — vegan
+          <em>and</em> gluten-free, keto <em>and</em> a shellfish allergy, low-FODMAP <em>and</em> halal.
+          Mealbot's diets are combinable, and allergens are handled as a distinct, safety-focused field,
+          separate from taste preferences.
+        </p>
+        <p>Declare any of the 14 EU-regulated allergens:</p>
+        <div class="chip-row">
+          <span class="chip">Gluten (cereals)</span>
+          <span class="chip">Crustaceans</span>
+          <span class="chip">Eggs</span>
+          <span class="chip">Fish</span>
+          <span class="chip">Peanuts</span>
+          <span class="chip">Soy</span>
+          <span class="chip">Milk / dairy</span>
+          <span class="chip">Tree nuts</span>
+          <span class="chip">Celery</span>
+          <span class="chip">Mustard</span>
+          <span class="chip">Sesame</span>
+          <span class="chip">Sulphites</span>
+          <span class="chip">Lupin</span>
+          <span class="chip">Molluscs</span>
+        </div>
+        <p>
+          Every generated recipe is checked against your declared allergens and their common derivatives
+          before it reaches you. A combination that's unusually difficult — a strict vegan diet plus a
+          tree-nut allergy, say — is flagged with a suggestion to consult a dietitian: guidance, not a
+          medical determination.
+        </p>
+        <div class="disclaimer">
+          Recipes are screened against your selected allergens and their common derivatives — this is a
+          helper, not a guarantee. Always check product labels yourself.
+        </div>
+      </section>
+
+      <!-- EVIDENCE-GROUNDED PILLAR -->
+      <section id="evidence">
+        <h2>Grounded in cited sources, not a guess</h2>
+        <p>
+          The allergen list follows EU FIC Regulation (EU) No 1169/2011 — the same 14 allergens food labels
+          are legally required to declare. Dietary patterns like low-FODMAP, DASH, and Mediterranean are
+          defined the way the Monash University FODMAP program, NHLBI, and EFSA define them, not invented on
+          the fly. This is a foundation the recipes are grounded in, not a substitute for medical or
+          dietetic advice.
+        </p>
+      </section>
+
+      <!-- HOW IT WORKS -->
+      <section id="how-it-works">
+        <h2>Plan, shop, cook</h2>
+        <div class="steps">
+          <div class="step">
+            <svg viewBox="0 0 40 40" fill="none" stroke="var(--accent)" stroke-width="2.5">
+              <rect x="5" y="7" width="30" height="27" rx="3" />
+              <path d="M5 15h30M13 4v6M27 4v6" stroke-linecap="round" />
+              <circle cx="14" cy="23" r="1.8" fill="var(--accent)" stroke="none" />
+              <circle cx="20" cy="23" r="1.8" fill="var(--accent)" stroke="none" />
+              <circle cx="26" cy="23" r="1.8" fill="var(--accent)" stroke="none" />
+            </svg>
+            <div>
+              <strong>Plan</strong>
+              <p class="muted" style="margin: 0.2rem 0 0;">
+                Tell it your diets, allergens, and what's already in your fridge. Get a multi-day meal plan
+                built around all of it.
+              </p>
+            </div>
+          </div>
+          <div class="step">
+            <svg viewBox="0 0 40 40" fill="none" stroke="var(--accent)" stroke-width="2.5">
+              <path d="M8 12h24l-2.5 16a3 3 0 01-3 2.5H13.5a3 3 0 01-3-2.5L8 12z" stroke-linejoin="round" />
+              <path d="M13 12V9a7 7 0 0114 0v3" stroke-linecap="round" />
+            </svg>
+            <div>
+              <strong>Shop</strong>
+              <p class="muted" style="margin: 0.2rem 0 0;">
+                A shopping list is generated automatically — pantry staples and spices you already have are
+                excluded, so you're not buying salt every week.
+              </p>
+            </div>
+          </div>
+          <div class="step">
+            <svg viewBox="0 0 40 40" fill="none" stroke="var(--accent)" stroke-width="2.5">
+              <path d="M8 18h24v10a3 3 0 01-3 3H11a3 3 0 01-3-3V18z" stroke-linejoin="round" />
+              <path d="M8 18a12 12 0 0124 0" />
+              <path d="M20 18V9M16 13c-1.5-1.5-1.5-3 0-4.5M24 13c1.5-1.5 1.5-3 0-4.5" stroke-linecap="round" />
+            </svg>
+            <div>
+              <strong>Cook</strong>
+              <p class="muted" style="margin: 0.2rem 0 0;">
+                Follow along in a full-screen, tick-box cooking mode — no app-hunting mid-recipe.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRICING -->
+      <section id="pricing">
+        <h2>Simple pricing</h2>
+        <div class="pricing-grid">
+          <div class="card price-card">
+            <div class="muted">Monthly</div>
+            <div class="price-amount">€4.99<span style="font-size: 0.95rem; font-weight: 400;">/mo</span></div>
+          </div>
+          <div class="card price-card">
+            <span class="badge">Save 40%</span>
+            <div class="muted">Annual</div>
+            <div class="price-amount">€2.99<span style="font-size: 0.95rem; font-weight: 400;">/mo</span></div>
+            <div class="muted" style="font-size: 0.8rem;">billed €35.88/yr</div>
+          </div>
+        </div>
+        <p class="muted">
+          10-day free trial — no charge until it ends, cancel anytime. Stripe's checkout page shows the
+          exact, up-to-date figure.
+        </p>
+        <p class="muted" style="font-size: 0.85rem;">
+          Launch bonus: earn €1 off for every accepted bug report or feature suggestion, up to €3/month, on
+          the monthly plan.
+        </p>
+      </section>
+
+      <!-- FAQ -->
+      <section id="faq">
+        <h2>Frequently asked questions</h2>
+        <details class="card">
+          <summary>Is this medical or dietary advice?</summary>
+          <div class="answer">
+            No. Mealbot screens recipes against your declared allergens and grounds dietary patterns in
+            cited public-health sources, but it isn't a substitute for medical or dietetic advice. Always
+            check product labels yourself, and consult a professional about a diagnosed condition or
+            allergy.
+          </div>
+        </details>
+        <details class="card">
+          <summary>Which allergens does it screen for?</summary>
+          <div class="answer">
+            The 14 major allergens EU food-labelling law requires to be declared (Regulation (EU) No
+            1169/2011): gluten (cereals), crustaceans, eggs, fish, peanuts, soy, milk/dairy, tree nuts,
+            celery, mustard, sesame, sulphites, lupin, and molluscs — plus their common derivatives.
+          </div>
+        </details>
+        <details class="card">
+          <summary>Can I combine multiple diets and allergies?</summary>
+          <div class="answer">
+            Yes. Diets are combinable — vegan, gluten-free, and low-FODMAP at once, for example — and
+            allergens stack on top as a separate, safety-focused field, not a taste preference.
+          </div>
+        </details>
+        <details class="card">
+          <summary>How much does it cost?</summary>
+          <div class="answer">
+            €4.99/month, or €2.99/month billed annually. A 10-day free trial, no charge until it ends.
+            Stripe's checkout page shows the exact, up-to-date figure.
+          </div>
+        </details>
+        <details class="card">
+          <summary>Is it available now?</summary>
+          <div class="answer">
+            Mealbot is currently a private alpha. Request access below, or log in if you already have an
+            account.
+          </div>
+        </details>
+      </section>
+
+      <!-- ACCESS -->
+      <section id="access">
+        <h2>Private alpha</h2>
+        <p>Mealbot isn't open to public sign-ups yet. Request access and we'll follow up by email.</p>
+        <a class="btn btn-primary" href="mailto:info@trymealbot.com">Request access</a>
+      </section>
+    </main>
+
+    <footer class="wrap">
+      <p class="muted" style="font-size: 0.85rem;">
+        Mealbot screens recipes against declared allergens and grounds dietary guidance in cited sources —
+        it's a helper, not medical or dietary advice, and not a guarantee. Always check product labels
+        yourself.
+      </p>
+      <p class="muted" style="font-size: 0.85rem;">
+        Contact: <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>
+      </p>
+    </footer>
+
+    <script type="module" src="/src/landing/main.ts"></script>
   </body>
 </html>

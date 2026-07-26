@@ -42,8 +42,14 @@
 > `docs/dietary-reference.md` (v1.1, source-cited). Finally, **2026-07-23 the
 > owner PARKED the launch flag** — engineering is ready but the product "still
 > feels incomplete", so registration stays closed until the differentiator lands
-> (a product-readiness call, not an engineering blocker). Where the notes
-> and the code disagreed, the code wins and the discrepancy is called out.
+> (a product-readiness call, not an engineering blocker), and **2026-07-26** after
+> scoping the **landing page** (Growth phase 2) via a 10-agent design workflow
+> and shipping it as three independently-mergeable slices — SEO/meta (#309) and
+> the `/app` namespace split + deep-link repoint (#310) are live; the marketing
+> page itself (Slice 3) is built, tested, and held for the owner's liability
+> read before merge, since merge is also the deploy (`docs/landing-page-plan.md`).
+> Where the notes and the code disagreed, the code wins and the discrepancy is
+> called out.
 
 ## How to read this
 
@@ -350,7 +356,7 @@ numbers are big enough to trust.
 | Phase | Status | Effort | Deps | Notes |
 |---|---|---|---|---|
 | **1. Activation funnel instrumentation** | ⬜ | M | — | The prerequisite. Event capture for signup → first plan generated → first confirm → first cook → subscribe, plus a UTM/referrer captured at signup and stored on `User`. Extends the existing admin stats surface rather than adding a third-party analytics dep. **Without this, phases 3–4 are unmeasurable and phase 2 is unaccountable.** |
-| **2. Landing page + campaign content** | ⬜ | M–L | — | Ads need somewhere to land and something to show. Currently `/` is the app itself behind a closed-alpha notice. Needs a real marketing page (value prop, screenshots, pricing, CTA) plus creative assets. Overlaps **SEO** in Full release — do them together; the SPA-isn't-crawler-friendly caveat applies, so a prerendered/static landing page is likely the answer. Mostly *not* an engineering task — the copy and visuals are the hard part. **Lead the value prop with the differentiator the owner identified — combinable, *evidence-grounded* dietary restrictions & allergies** (see Full release): "one plan the whole restricted household can eat, screened against the EU 14 major allergens" is a sharper, more *credible* hook than "AI meal plans" — the scientific grounding is itself the trust signal a safety-conscious, high-intent, growing, willing-to-pay audience responds to. Best paired with actually shipping that feature first so the page isn't writing cheques the product can't cash (and keep claims to transparency, not medical endorsement). |
+| **2. Landing page + campaign content** | 🟡 | M–L | — | **Slices 1–2 SHIPPED + LIVE 2026-07-26 (#309, #310); Slice 3 (the marketing page itself) is built and up for review, HELD from auto-merge for the owner's liability read — see `docs/landing-page-plan.md`.** Scoped via a 10-agent design workflow: a Vite multi-page split (static marketing HTML at `/`, the SPA namespaced to `/app`) — one image/nginx/CSP, no new service. #309 added real SEO/social meta + self-hosted favicon/robots.txt/sitemap.xml (zero topology change). #310 namespaced the SPA at `/app` and repointed the 5 invite/reset/billing deep-link builders — the highest-blast-radius piece, isolated in its own slice before the root swap; a pre-merge adversarial review caught a red-CI test bug and an nginx prefix-match footgun (`location /app` bare-prefix would swallow `/apple-touch-icon.png`-shaped paths) before either shipped. Slice 3 converts `index.html`'s body into the actual static page — hero, the combinable-diets/EU-14-allergen differentiator (leading with it, per the owner's original steer below), the evidence-grounded pillar, pricing, an FAQ (feeds `FAQPage` JSON-LD), and a registration-aware CTA (`src/landing/*.ts`, typed + Vitest-covered) that auto-switches from a `mailto:` "Request access" baseline to "Get started" the moment `REGISTRATION_ENABLED` flips, with zero redeploy. A body-copy liability test (verbatim `DietarySelector` disclaimer present + a forbidden-phrase denylist) enforces the transparency-not-endorsement guardrail at build time, not just via review convention. Copy is written; **not yet merged** — the owner reads it first, since merge = deploy = indexed and the AI PR reviewer isn't a liability reviewer. |
 | **3. Campaign management integration** | ⬜ | L | 1, 2 | Meta Marketing API and Google Ads API: create/pause campaigns, pull spend and conversion stats on a schedule. Real prerequisites outside the code — business accounts, app review, billing set up, and both platforms behave badly with tiny budgets and no conversion history. Store campaign + daily-stat rows so analysis is a local read, mirroring how billing mirrors Stripe. Treat every write as money-spending: dry-run mode first. |
 | **4. Budget reallocation** | ⬜ | L | 3 | The actual idea: score campaigns on cost-per-activation (not per-click) and shift budget toward the winners. **Needs guardrails before it needs cleverness** — a minimum-conversions-per-campaign floor before any reallocation, a hard daily spend ceiling, a max-change-per-step limit, and an operator alert on every automated change (reuse the existing Resend alert pipeline). Start advisory: report the recommendation and let the owner apply it, exactly as the VAT-threshold alerts do. Automate only once the recommendations have been right for a while. |
 
@@ -521,8 +527,8 @@ Alpha LIVE (trymealbot.com)  ──►  real user feedback  ──►  informs t
            │     held until the product feels ready to differentiate on]
            │
            ├─ so the real next work is COMPLETING the product:
-           │     dietary differentiator (ref layer researched: docs/dietary-reference.md)
-           │     ─► landing page + content ─► THEN open registration
+           │     dietary differentiator ✅ (#283→#296) ─► landing page 🟡
+           │     (#309/#310 live, Slice 3 held for owner review) ─► THEN open registration
            │
            └─ then: campaigns ─► budget reallocation (Growth / marketing)
                 └─► usage data ─► un-parks the edit-feedback loop

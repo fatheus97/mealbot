@@ -60,13 +60,21 @@ describe("landing <head> (built dist/index.html)", () => {
       expect(head).toContain('name="twitter:title"');
     });
 
-    it("has valid JSON-LD for Organization + SoftwareApplication with no price/offers", () => {
+    it("has valid JSON-LD for Organization + SoftwareApplication + FAQPage with no price/offers", () => {
       const match = head.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
       expect(match).not.toBeNull();
       const data = JSON.parse(match![1]);
-      const types = (data["@graph"] as Array<{ "@type": string }>).map((n) => n["@type"]);
+      const graph = data["@graph"] as Array<{ "@type": string }>;
+      const types = graph.map((n) => n["@type"]);
       expect(types).toContain("Organization");
       expect(types).toContain("SoftwareApplication");
+      // FAQPage should mirror the on-page FAQ (see landingBody.test.ts for the
+      // visible copy) — at least as many questions as the FAQ section renders.
+      const faqPage = graph.find((n) => n["@type"] === "FAQPage") as
+        | { mainEntity: Array<{ "@type": string }> }
+        | undefined;
+      expect(faqPage).toBeDefined();
+      expect(faqPage!.mainEntity.length).toBeGreaterThanOrEqual(5);
       // Price is deliberately omitted from structured data — Stripe checkout is
       // the authoritative source for the live figure, and a hardcoded price
       // here would silently go stale. Guard against it creeping back in.
