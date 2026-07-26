@@ -9,10 +9,15 @@
 // Pure logic lives here so it's testable without a real DOM; main.ts (the
 // Vite entry) does the getElementById wiring and calls into these.
 
+// Optional fields, not required — this is untyped JSON off the wire, and the
+// AuthContext.tsx consumer of the same /api/config response treats it the
+// same defensive way (an inline type with the same three optional booleans,
+// coerced via Boolean()). A required-boolean shape would claim a guarantee
+// the runtime value doesn't actually have.
 export interface PublicConfig {
-  demo_mode: boolean;
-  registration_enabled: boolean;
-  annual_billing_available: boolean;
+  demo_mode?: boolean;
+  registration_enabled?: boolean;
+  annual_billing_available?: boolean;
 }
 
 export const LOGGED_IN_HINT_KEY = "mealbot_user_id";
