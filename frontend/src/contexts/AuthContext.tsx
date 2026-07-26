@@ -5,6 +5,7 @@ import { authFetch, redeemInvite } from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError } from "./authErrors";
 import { captureAttribution, getStoredAttribution } from "../utils/attribution";
+import { clearSessionHints, storeSessionHints } from "../auth/sessionHints";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
@@ -68,44 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCancelAtPeriodEnd(Boolean(profile.cancel_at_period_end));
     setIsSubscribed(Boolean(profile.is_subscribed));
     setIsComped(Boolean(profile.is_comped));
-    window.localStorage.setItem("mealbot_user_id", String(profile.id));
-    window.localStorage.setItem("mealbot_user_email", profile.email);
-    window.localStorage.setItem("mealbot_subscription_status", subStatus);
-    if (profile.current_period_end) {
-      window.localStorage.setItem("mealbot_current_period_end", profile.current_period_end);
-    } else {
-      window.localStorage.removeItem("mealbot_current_period_end");
-    }
-    if (profile.cancel_at_period_end) {
-      window.localStorage.setItem("mealbot_cancel_at_period_end", "true");
-    } else {
-      window.localStorage.removeItem("mealbot_cancel_at_period_end");
-    }
-    if (profile.is_subscribed) {
-      window.localStorage.setItem("mealbot_is_subscribed", "true");
-    } else {
-      window.localStorage.removeItem("mealbot_is_subscribed");
-    }
-    if (profile.is_comped) {
-      window.localStorage.setItem("mealbot_is_comped", "true");
-    } else {
-      window.localStorage.removeItem("mealbot_is_comped");
-    }
-    if (demoFlag) {
-      window.localStorage.setItem("mealbot_is_demo", "true");
-    } else {
-      window.localStorage.removeItem("mealbot_is_demo");
-    }
-    if (profile.is_admin) {
-      window.localStorage.setItem("mealbot_is_admin", "true");
-    } else {
-      window.localStorage.removeItem("mealbot_is_admin");
-    }
-    if (profile.onboarding_completed) {
-      window.localStorage.setItem("mealbot_onboarding", "true");
-    } else {
-      window.localStorage.removeItem("mealbot_onboarding");
-    }
+    // The landing page's login/register/demo modals write these same hints
+    // before handing off to /app — see auth/sessionHints.ts for why that
+    // matters (this provider's bootstrap only reconciles when a hint exists).
+    storeSessionHints(profile, demoFlag);
   }, []);
 
   const clearLocal = useCallback(() => {
@@ -119,16 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCancelAtPeriodEnd(false);
     setIsSubscribed(false);
     setIsComped(false);
-    window.localStorage.removeItem("mealbot_user_id");
-    window.localStorage.removeItem("mealbot_user_email");
-    window.localStorage.removeItem("mealbot_onboarding");
-    window.localStorage.removeItem("mealbot_is_demo");
-    window.localStorage.removeItem("mealbot_is_admin");
-    window.localStorage.removeItem("mealbot_subscription_status");
-    window.localStorage.removeItem("mealbot_current_period_end");
-    window.localStorage.removeItem("mealbot_cancel_at_period_end");
-    window.localStorage.removeItem("mealbot_is_subscribed");
-    window.localStorage.removeItem("mealbot_is_comped");
+    clearSessionHints();
 
     // Prevent cross-account leakage: drop cached server data and reset
     // the persisted preferences store to defaults. Component-local state

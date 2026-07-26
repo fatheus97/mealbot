@@ -88,3 +88,10 @@ export function applyConfig(
     els.demo.classList.remove(RESERVED_CLASS);
   }
 }
+
+/** True once /api/config says registration is open — the primary CTA then
+ *  means "create an account" rather than "request access by email". */
+export function primaryOpensRegister(config: PublicConfig | null): boolean {
+  return config?.registration_enabled === true;
+}
+

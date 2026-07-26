@@ -341,6 +341,110 @@
         color: var(--accent);
       }
 
+      /* Auth dialog. position:fixed keeps it out of flow, so showing it can
+         never shift the page behind it (the CLS rule). Hidden via the
+         `hidden` attribute, which is safe here precisely BECAUSE it's out of
+         flow — unlike the in-flow CTA buttons, where display:none would
+         resize the reserved container. */
+      #auth-modal[hidden] {
+        display: none;
+      }
+      #auth-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(0, 0, 0, 0.55);
+      }
+      .auth-panel {
+        background: var(--card-bg);
+        color: var(--card-fg);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        width: 100%;
+        max-width: 380px;
+        position: relative;
+      }
+      .auth-panel h2 {
+        margin: 0 0 1rem;
+        font-size: 1.25rem;
+      }
+      .auth-field {
+        display: block;
+        margin-bottom: 0.85rem;
+      }
+      .auth-field span {
+        display: block;
+        font-size: 0.82rem;
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+      }
+      .auth-field input {
+        width: 100%;
+        padding: 0.6rem 0.7rem;
+        border-radius: 8px;
+        border: 1px solid var(--card-border);
+        background: var(--bg);
+        color: var(--fg);
+        font-family: inherit;
+        /* 16px avoids iOS zooming the page on focus. */
+        font-size: 16px;
+      }
+      #auth-submit {
+        width: 100%;
+        margin-top: 0.35rem;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      #auth-submit[disabled] {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      #auth-error {
+        background: var(--disclaimer-bg);
+        color: var(--disclaimer-fg);
+        border: 1px solid var(--disclaimer-border);
+        border-radius: 8px;
+        padding: 0.55rem 0.7rem;
+        font-size: 0.85rem;
+        margin-bottom: 0.85rem;
+      }
+      #auth-error[hidden] {
+        display: none;
+      }
+      .auth-switch {
+        margin: 0.9rem 0 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+        text-align: center;
+      }
+      .auth-linkbtn {
+        background: none;
+        border: none;
+        padding: 0;
+        color: var(--accent);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+      #auth-close {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.6rem;
+        background: none;
+        border: none;
+        color: var(--muted);
+        font-size: 1.4rem;
+        line-height: 1;
+        padding: 0.2rem 0.4rem;
+        cursor: pointer;
+      }
+
       @media (max-width: 640px) {
         h1 {
           font-size: 1.65rem;
@@ -590,6 +694,41 @@
         Contact: <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>
       </p>
     </footer>
+
+    <!-- Login / register dialog. Inert without JS — the CTAs above are real
+         links to /app, where the SPA's own auth form lives — so this markup
+         being present costs a no-JS visitor nothing. -->
+    <div id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" hidden>
+      <div class="auth-panel">
+        <button type="button" id="auth-close" aria-label="Close">&times;</button>
+        <h2 id="auth-modal-title">Log in</h2>
+
+        <div id="auth-error" role="alert" hidden></div>
+
+        <form id="auth-form" novalidate>
+          <label class="auth-field" for="auth-email">
+            <span>Email</span>
+            <input type="email" id="auth-email" name="email" autocomplete="email" required />
+          </label>
+          <label class="auth-field" for="auth-password">
+            <span>Password</span>
+            <input
+              type="password"
+              id="auth-password"
+              name="password"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+          <button type="submit" id="auth-submit" class="btn btn-primary">Log in</button>
+        </form>
+
+        <p class="auth-switch">
+          <span id="auth-switch-prompt">Don't have an account?</span>
+          <button type="button" id="auth-switch" class="auth-linkbtn">Create one</button>
+        </p>
+      </div>
+    </div>
 
     <script type="module" src="/src/landing/main.ts"></script>
   </body>
