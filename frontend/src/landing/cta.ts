@@ -95,3 +95,38 @@ export function primaryOpensRegister(config: PublicConfig | null): boolean {
   return config?.registration_enabled === true;
 }
 
+/**
+ * Click handler for "Try the demo": start a session, then hand off to /app.
+ *
+ * Guarded against a second click because /auth/demo mints a BRAND-NEW
+ * ephemeral account on every call — no idempotency, only a per-IP rate limit
+ * — so a double-click creates two accounts racing to own one cookie.
+ *
+ * On failure it still navigates to /app rather than rendering an inline
+ * error: the SPA's own Try Demo button lives there with proper error
+ * reporting, and an inline message would push the page around under the
+ * visitor's cursor (CLS).
+ *
+ * Extracted from the entry module so the guard is actually testable.
+ */
+export function createDemoHandler(
+  button: HTMLElement,
+  deps: { startDemo: () => Promise<unknown>; navigate: (url: string) => void; search: string },
+): (event: Event) => void {
+  let pending = false;
+  return (event: Event) => {
+    event.preventDefault();
+    if (pending) return;
+    pending = true;
+    const original = button.textContent;
+    button.textContent = "Starting…";
+    void deps
+      .startDemo()
+      .then(() => deps.navigate(`/app${deps.search}`))
+      .catch(() => {
+        button.textContent = original;
+        deps.navigate(`/app${deps.search}`);
+      });
+  };
+}
+

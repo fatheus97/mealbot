@@ -9,7 +9,9 @@ vi.mock("./authApi", async () => {
     landingRegister: vi.fn(),
   };
 });
-const { landingLogin, landingRegister } = await import("./authApi");
+const { landingLogin, landingRegister, AccountCreatedNeedsLoginError } = await import(
+  "./authApi"
+);
 
 function mountModal(): AuthModalElements {
   document.body.innerHTML = `
@@ -162,5 +164,51 @@ describe("auth modal", () => {
     els.root.hidden = false;
     els.emailInput.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(els.root.hidden).toBe(false);
+  });
+
+  it("switches to LOGIN mode when the account was created but sign-in failed", async () => {
+    // Otherwise "please sign in to continue" is unactionable: resubmitting
+    // re-runs register against the email that now exists and returns a
+    // generic "registration failed" for something that actually worked.
+    vi.mocked(landingRegister).mockRejectedValue(
+      new AccountCreatedNeedsLoginError("Account created — please sign in to continue."),
+    );
+    els.switchButton.click(); // -> register
+    els.emailInput.value = "n@b.com";
+    els.passwordInput.value = "TestPassword123";
+    els.form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+
+    await vi.waitFor(() => expect(els.error.hidden).toBe(false));
+    expect(els.title.textContent).toBe("Log in");
+    expect(els.submit.textContent).toBe("Log in");
+    // The message must SURVIVE the mode switch (applyMode clears the error).
+    expect(els.error.textContent).toMatch(/account created/i);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("stays in register mode for an ordinary registration failure", async () => {
+    vi.mocked(landingRegister).mockRejectedValue(new Error("Registration failed."));
+    els.switchButton.click();
+    els.emailInput.value = "n@b.com";
+    els.passwordInput.value = "TestPassword123";
+    els.form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+
+    await vi.waitFor(() => expect(els.error.hidden).toBe(false));
+    expect(els.title.textContent).toBe("Create your account");
+  });
+
+  it("locks body scroll while open and restores the previous value on close", () => {
+    document.body.style.overflow = "auto";
+    els.switchButton.click(); // no-op on scroll; just exercise state
+    // open() is invoked via the public handle in main.ts; drive it directly.
+    els.root.hidden = true;
+    document.body.style.overflow = "auto";
+
+    const handle = createAuthModal(els, { navigate, getSearch: () => "" });
+    handle.open("login");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    handle.close();
+    expect(document.body.style.overflow).toBe("auto");
   });
 });

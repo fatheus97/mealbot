@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   applyConfig,
+  createDemoHandler,
   forwardSearchOnAppLinks,
   loggedInRedirectTarget,
   paramForwardTarget,
@@ -128,5 +129,65 @@ describe("applyConfig", () => {
 
   it("tolerates missing elements (defensive)", () => {
     expect(() => applyConfig(OPEN, { primary: null, demo: null }, "")).not.toThrow();
+  });
+});
+
+describe("createDemoHandler", () => {
+  function setup(startDemo: () => Promise<unknown>) {
+    const button = document.createElement("a");
+    button.textContent = "Try the demo";
+    const navigate = vi.fn<(url: string) => void>();
+    const handler = createDemoHandler(button, {
+      startDemo,
+      navigate,
+      search: "?utm_source=x",
+    });
+    return { button, navigate, handler };
+  }
+
+  function click(handler: (e: Event) => void) {
+    const event = new MouseEvent("click", { cancelable: true });
+    handler(event);
+    return event;
+  }
+
+  it("starts a demo and navigates to /app, preserving the query string", async () => {
+    const startDemo = vi.fn().mockResolvedValue({ id: 1 });
+    const { navigate, handler } = setup(startDemo);
+
+    const event = click(handler);
+    expect(event.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/app?utm_source=x"));
+    expect(startDemo).toHaveBeenCalledTimes(1);
+  });
+
+  it("IGNORES a second click while the first is in flight", async () => {
+    // /auth/demo has no idempotency — every call mints a new ephemeral
+    // account, so an unguarded double-click creates two accounts racing to
+    // own one cookie.
+    let resolve!: (v: unknown) => void;
+    const startDemo = vi.fn().mockReturnValue(new Promise((r) => (resolve = r)));
+    const { handler, navigate } = setup(startDemo);
+
+    click(handler);
+    click(handler);
+    click(handler);
+    expect(startDemo).toHaveBeenCalledTimes(1);
+
+    resolve({ id: 1 });
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows a pending label while the request is in flight", () => {
+    const { button, handler } = setup(() => new Promise(() => {}));
+    click(handler);
+    expect(button.textContent).toBe("Starting…");
+  });
+
+  it("still hands off to /app when the demo call fails, restoring the label", async () => {
+    const { button, navigate, handler } = setup(() => Promise.reject(new Error("nope")));
+    click(handler);
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/app?utm_source=x"));
+    expect(button.textContent).toBe("Try the demo");
   });
 });

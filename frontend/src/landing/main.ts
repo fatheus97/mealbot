@@ -8,6 +8,7 @@
 // flow — it never creates the only path to a feature.
 import {
   applyConfig,
+  createDemoHandler,
   forwardSearchOnAppLinks,
   loggedInRedirectTarget,
   paramForwardTarget,
@@ -74,21 +75,14 @@ if (forwardTarget) {
     }
 
     if (demo) {
-      demo.addEventListener("click", (e) => {
-        e.preventDefault();
-        const original = demo.textContent;
-        demo.textContent = "Starting…";
-        landingDemo()
-          .then(() => window.location.assign(`/app${search}`))
-          .catch(() => {
-            // Fall through to the SPA rather than inventing an error slot on
-            // the landing: /app's AuthBar has its own Try Demo with proper
-            // error reporting, and adding an inline message here would push
-            // the page around under the cursor (CLS).
-            demo.textContent = original;
-            window.location.assign(`/app${search}`);
-          });
-      });
+      demo.addEventListener(
+        "click",
+        createDemoHandler(demo, {
+          startDemo: landingDemo,
+          navigate: (url) => window.location.assign(url),
+          search,
+        }),
+      );
     }
 
     fetch("/api/config")

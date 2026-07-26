@@ -21,6 +21,16 @@ const API_BASE = "/api";
  *  never disclose whether an address already has an account. */
 export class LandingAuthError extends Error {}
 
+/**
+ * Register succeeded (201) but the follow-up sign-in didn't. The ACCOUNT
+ * EXISTS — the caller must say so and switch the form to login, because a
+ * visitor who resubmits the register form hits a 409 on their own new email
+ * and sees a generic "registration failed" for something that actually
+ * worked. Mirrors the SPA's AutoLoginAfterRegisterError, as a subclass so
+ * generic `catch (e) { e.message }` handling still shows sensible copy.
+ */
+export class AccountCreatedNeedsLoginError extends LandingAuthError {}
+
 const LOGIN_FAILED = "Login failed. Check your credentials.";
 const REGISTER_FAILED =
   "Registration failed. Please try again or contact info@trymealbot.com.";
@@ -159,7 +169,7 @@ export async function landingRegister(email: string, password: string): Promise<
   try {
     return await landingLogin(email, password);
   } catch {
-    throw new LandingAuthError(REGISTERED_BUT_NOT_SIGNED_IN);
+    throw new AccountCreatedNeedsLoginError(REGISTERED_BUT_NOT_SIGNED_IN);
   }
 }
 

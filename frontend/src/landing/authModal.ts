@@ -9,7 +9,12 @@
 // The dialog is position:fixed and therefore out of flow, so showing it can't
 // shift the page behind it (the CLS rule in .claude/rules/frontend.md).
 
-import { landingLogin, landingRegister, passwordComplaint } from "./authApi";
+import {
+  AccountCreatedNeedsLoginError,
+  landingLogin,
+  landingRegister,
+  passwordComplaint,
+} from "./authApi";
 
 export type AuthMode = "login" | "register";
 
@@ -72,6 +77,7 @@ export function createAuthModal(
   // Restore focus to whatever opened the dialog, so keyboard users aren't
   // dumped at the top of the document on close.
   let lastFocused: HTMLElement | null = null;
+  let previousBodyOverflow = "";
 
   function setError(message: string | null): void {
     els.error.textContent = message ?? "";
@@ -97,6 +103,11 @@ export function createAuthModal(
     lastFocused = document.activeElement as HTMLElement | null;
     applyMode(next);
     els.root.hidden = false;
+    // Stop the page scrolling behind the backdrop (most visible on touch),
+    // saving/restoring the previous value exactly as ModalShell does for the
+    // SPA's own dialogs.
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     els.emailInput.focus();
   }
 
@@ -105,6 +116,7 @@ export function createAuthModal(
     els.root.hidden = true;
     els.passwordInput.value = "";
     setError(null);
+    document.body.style.overflow = previousBodyOverflow;
     lastFocused?.focus();
   }
 
@@ -144,7 +156,18 @@ export function createAuthModal(
       opts.navigate(postAuthTarget(opts.getSearch()));
     } catch (err) {
       setBusy(false);
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      const accountExists = err instanceof AccountCreatedNeedsLoginError;
+      const message =
+        err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      if (accountExists) {
+        // The account was created — flip the form to login so "please sign in
+        // to continue" is actionable. Without this, resubmitting re-runs
+        // register against the email that now exists and returns a generic
+        // "registration failed" for something that actually succeeded.
+        // applyMode clears the error, so set it afterwards.
+        applyMode("login");
+      }
+      setError(message);
       els.passwordInput.focus();
     }
   }
