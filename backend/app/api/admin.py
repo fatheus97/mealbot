@@ -708,6 +708,12 @@ async def create_user(
         hashed_password=hashed,
         is_admin=body.is_admin,
         is_comped=body.is_comped,
+        # Admin-created ⇒ already verified, same rule as the create_user CLI: an
+        # admin typing the address is the vouching act. This path sends no mail,
+        # so leaving it NULL would hand the new user an account that logs in fine
+        # and then 403s on generation, with no link anywhere to fix it — a silent
+        # lockout on an account the admin believes is fully provisioned.
+        email_verified_at=datetime.now(UTC),
     )
     session.add(user)
     await session.flush()  # populate user.id for the audit target + response

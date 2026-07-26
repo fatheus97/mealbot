@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { verifyEmail } from "../../api";
 
@@ -7,23 +7,33 @@ type Phase = "idle" | "working" | "done" | "failed";
 /**
  * Consumes `?verify_token=…` from the confirmation email.
  *
- * Same shape as `ResetPasswordModal` / `BillingReturnHandler`: a global
- * param-handler mounted once at the app root, which strips the marker from the
- * URL so a reload can't replay it (and so the token doesn't linger in history
- * or get pasted into a bug report).
+ * Mounted at the APP ROOT (see App.tsx), deliberately not inside MainLayout:
+ * that subtree is keyed by userId, so a login — or just the bootstrap /users
+ * call resolving — remounts it. Since the effect strips the token from the URL
+ * on its first run, a remount would find nothing and silently discard the
+ * result of a redemption that already burned the single-use token.
+ *
+ * `position: fixed` for the same reason it lives at the root: it renders
+ * outside the page container, and floating it keeps it out of document flow so
+ * an async message can't shove the page down under the user's cursor (the CLS
+ * rule in .claude/rules/frontend.md).
  *
  * Works logged-OUT as well as logged-in — the backend endpoint is
  * unauthenticated because these links are routinely opened in a different
- * browser (a phone mail client) from the one that registered. When the visitor
- * IS logged in we refresh the profile so the banner disappears immediately
- * rather than after the next reload.
+ * browser (a phone mail client) from the one that registered.
  */
 export function VerifyEmailHandler() {
-  const { userId, refreshProfile } = useAuth();
+  const { userId, emailVerified, refreshProfile } = useAuth();
   const [phase, setPhase] = useState<Phase>("idle");
-  // StrictMode double-invokes effects in dev, and the token is single-use —
-  // without this latch the second run redeems an already-used token and shows
-  // a spurious failure on a confirmation that actually worked.
+  const [dismissed, setDismissed] = useState(false);
+  // Belt-and-braces against a double redeem of a single-use token under
+  // StrictMode's dev double-invoke. Honest caveat: the primary guard is the
+  // SYNCHRONOUS replaceState below, which removes the token before the second
+  // invocation reads the URL — removing this latch does not reproduce a double
+  // redeem in tests, even with replaceState stubbed out. Kept because it costs
+  // nothing and the failure mode (reporting failure for a confirmation that
+  // worked, on a token already burned) is user-visible and unrecoverable
+  // without a resend. Deliberately uncovered; see the note in the test file.
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -44,37 +54,86 @@ export function VerifyEmailHandler() {
     verifyEmail(token)
       .then(() => {
         setPhase("done");
-        // Only meaningful when this browser is the logged-in one; harmless
+        // Only meaningful when this browser holds the session; harmless
         // otherwise (refreshProfile swallows its own failures).
         if (userId) void refreshProfile();
       })
       .catch(() => setPhase("failed"));
-    // Deliberately once-on-mount: the URL is read a single time, and re-running
-    // on a userId change would re-redeem a token already stripped from the URL.
+    // Once on mount by design: the URL is read a single time and the token is
+    // stripped immediately, so re-running on a userId change could only ever
+    // find nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (phase === "idle" || phase === "working") return null;
+  if (phase === "idle" || phase === "working" || dismissed) return null;
 
   const ok = phase === "done";
+  // A 400 for someone who is already verified means they clicked the same link
+  // twice — reporting that as an error would be alarming and wrong.
+  const alreadyDone = !ok && userId !== null && emailVerified;
+  const success = ok || alreadyDone;
+
   return (
     <div
-      role="status"
-      style={{
-        // Self-contained opaque surface with an explicit contrasting colour,
-        // so it reads correctly in both OS colour schemes.
-        backgroundColor: ok ? "#dcfce7" : "#fee2e2",
-        color: ok ? "#166534" : "#991b1b",
-        border: `1px solid ${ok ? "#86efac" : "#fecaca"}`,
-        borderRadius: 8,
-        padding: "0.7rem 0.9rem",
-        marginBottom: "1rem",
-        fontSize: "0.9rem",
-      }}
+      // Failures are announced assertively: this is the only thing telling the
+      // user their confirmation didn't work.
+      role={success ? "status" : "alert"}
+      style={{ ...toast, ...(success ? successSkin : errorSkin) }}
     >
-      {ok
-        ? "✅ Email confirmed — you're all set."
-        : "That confirmation link is invalid or has expired. Use “Resend link” below to get a new one."}
+      <span>
+        {ok
+          ? "✅ Email confirmed — you're all set."
+          : alreadyDone
+            ? "✅ That link was already used — your email is confirmed."
+            : userId
+              ? "That confirmation link is invalid or has expired. Use “Resend link” on the banner above to get a new one."
+              : // Logged out, so EmailVerificationBanner (which owns the Resend
+                // control) renders nothing — point at what IS on screen.
+                "That confirmation link is invalid or has expired. Sign in and use “Resend link” to get a new one."}
+      </span>
+      <button type="button" onClick={() => setDismissed(true)} aria-label="Dismiss" style={close}>
+        &times;
+      </button>
     </div>
   );
 }
+
+// Floated, so it can't shift the page; self-contained opaque surface with an
+// explicit background AND colour, so it reads in both OS colour schemes.
+const toast: CSSProperties = {
+  position: "fixed",
+  top: "1rem",
+  left: "50%",
+  transform: "translateX(-50%)",
+  zIndex: 1400,
+  maxWidth: "min(520px, calc(100vw - 2rem))",
+  display: "flex",
+  alignItems: "flex-start",
+  gap: "0.75rem",
+  borderRadius: 8,
+  padding: "0.7rem 0.9rem",
+  fontSize: "0.9rem",
+  boxShadow: "0 2px 12px rgba(0, 0, 0, 0.25)",
+};
+
+const successSkin: CSSProperties = {
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  border: "1px solid #86efac",
+};
+
+const errorSkin: CSSProperties = {
+  backgroundColor: "#fee2e2",
+  color: "#991b1b",
+  border: "1px solid #fecaca",
+};
+
+const close: CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "inherit",
+  fontSize: "1.2rem",
+  lineHeight: 1,
+  cursor: "pointer",
+  padding: "0 0.2rem",
+};

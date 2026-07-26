@@ -7,6 +7,7 @@ Usage:
 import argparse
 import asyncio
 import sys
+from datetime import UTC, datetime
 
 from pydantic import ValidationError
 from sqlmodel import select
@@ -42,6 +43,14 @@ async def create_user(
             hashed_password=get_password_hash(password),
             is_admin=is_admin,
             is_comped=is_comped,
+            # Operator-created ⇒ already verified. An operator with shell access
+            # typing this address IS the vouching act — the same trust signal the
+            # email_verify_01 backfill encodes for pre-existing rows. Leaving it
+            # NULL would 403 the new account out of generation and checkout while
+            # sending it no link at all (this path mails nothing), which for the
+            # documented "grant prod admin" flow means an admin locked out of the
+            # app the moment it is created.
+            email_verified_at=datetime.now(UTC),
         )
         session.add(user)
         await session.commit()

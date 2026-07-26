@@ -56,7 +56,9 @@ export function EmailVerificationBanner() {
         </button>
       )}
       {state === "error" && (
-        <span style={{ flexBasis: "100%", fontSize: "0.85rem" }}>
+        // role=alert: the surrounding region is a polite role=status, so a
+        // failure announced inside it can be missed entirely.
+        <span role="alert" style={{ flexBasis: "100%", fontSize: "0.85rem" }}>
           Couldn't resend just now — please try again in a minute.
         </span>
       )}

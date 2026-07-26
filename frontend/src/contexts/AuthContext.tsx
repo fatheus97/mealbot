@@ -44,11 +44,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isComped, setIsComped] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_comped") === "true"
   );
-  // Defaults TRUE (not false, unlike the flags above): this one gates a nag
-  // banner, so an optimistic default merely delays the prompt by one
-  // round-trip, whereas a pessimistic one would flash "confirm your email" at
-  // every already-verified user on every load. Reconciled by the /users call.
-  const [emailVerified, setEmailVerified] = useState<boolean>(true);
+  // Seeded from the hint, defaulting TRUE when absent (unlike the flags above,
+  // which default false). Two reasons: an optimistic default merely delays the
+  // nag by one round-trip whereas a pessimistic one would flash "confirm your
+  // email" at every verified user on every load; and seeding from the hint
+  // means a returning UNVERIFIED user gets the banner on first paint instead of
+  // having it shove the page down a round-trip later (CLS). The hint is only
+  // written for the unverified case — see storeSessionHints.
+  const [emailVerified, setEmailVerified] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_email_verified") !== "false"
+  );
   // null = /config not yet resolved; boolean = resolved value. Using null
   // as the unresolved sentinel lets the UI avoid a flash of the wrong
   // copy (e.g. rendering the "closed alpha" notice for the 50-200ms

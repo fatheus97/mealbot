@@ -76,10 +76,6 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
         )}
       </div>
       <AuthBar />
-      {/* Confirmation status first, then the persistent nag, then billing —
-          most-transient to most-persistent, so a just-confirmed message sits
-          above a banner that is about to disappear anyway. */}
-      <VerifyEmailHandler />
       <EmailVerificationBanner />
       {userId && <SubscriptionBanner />}
       <Fridge />
@@ -139,6 +135,13 @@ export default function App() {
         {/* Reset-link landing (`/?reset_token=…`). Renders null unless the
             token is present; global so it works logged in or out. */}
         <ResetPasswordModal />
+        {/* Confirmation-link landing (`/app?verify_token=…`). MUST live here at
+            the root, NOT inside MainLayout: that subtree is keyed by userId, so
+            logging in (or the bootstrap /users call resolving) remounts it — and
+            because the effect strips the token from the URL on its first run, the
+            remount finds nothing, silently discarding the result of a redemption
+            that already burned the single-use token. */}
+        <VerifyEmailHandler />
         {/* Invite-link landing (`/?invite=…`). Same pattern — lets a hand-picked
             beta tester self-register while public registration is closed. */}
         <InviteRegisterModal />

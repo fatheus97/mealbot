@@ -106,14 +106,26 @@ async def require_verified_email(
     checkout depends on this directly.
 
     Demo users are exempt: their address is server-generated, there is no
-    inbox to confirm, and the session is deleted within hours. Admins are NOT
-    exempt — an admin account is created by CLI, which stamps it verified, so
-    a genuinely unverified admin means something is wrong and should surface.
+    inbox to confirm, and the session is deleted within hours.
 
-    The SPA does not key its UI off this error: ``UserRead.email_verified``
-    carries the same state on the profile, so the banner and the disabled
-    controls are driven proactively (exactly as ``is_subscribed`` drives the
-    subscription banner). This is the server-side backstop.
+    Admins and comped users are NOT exempt, which is deliberate but only safe
+    because EVERY account-creation path now yields a verified account unless
+    the user is expected to confirm one:
+      * pre-existing rows      → backfilled by migration email_verify_01
+      * create_user CLI        → stamped (operator vouches)
+      * POST /admin/users      → stamped (admin vouches)
+      * /users/register        → NULL + link emailed
+      * /users/register-invite → NULL + link emailed
+    Note the asymmetry with ``stripe_service.is_entitled``, which also exempts
+    admin/comped: this gate runs FIRST, so an unverified comped user would be
+    entitled and still blocked. That is why the operator paths stamp rather
+    than relying on an exemption here — if you add a sixth creation path, it
+    must do one of the two things above or it will silently lock the user out.
+
+    ``UserRead.email_verified`` carries the same state on the profile, which is
+    what drives the confirm-your-email banner. The banner is the proactive
+    surface; this 403 is what a user hits if they act before confirming, so its
+    detail string is user-facing copy, not a debug message.
     """
     if current_user.is_demo:
         return current_user

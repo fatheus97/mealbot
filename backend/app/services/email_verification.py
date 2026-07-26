@@ -145,15 +145,29 @@ async def find_redeemable(
 
     Looked up BY HASH — the plaintext is never stored, so a leaked dump can't
     be replayed into a verified address.
+
+    ⚠️ ``with_for_update()`` is load-bearing and NOT covered by the test suite
+    (same warning as password_reset.find_redeemable — a single-threaded test
+    can't exercise it). It row-locks the token so two concurrent redemptions of
+    the SAME link serialize: without it both read used_at IS NULL, both proceed,
+    and single-use is enforced only by luck. Do not drop it on the grounds that
+    no test fails.
     """
     row = (
         await session.execute(
-            select(EmailVerificationToken).where(
+            select(EmailVerificationToken)
+            .where(
                 EmailVerificationToken.token_hash == hash_refresh_token(token)  # type: ignore[arg-type]
             )
+            .with_for_update()
         )
     ).scalars().first()
-    if row is None or row.used_at is not None:
+    if row is None:
+        return None
+    if row.used_at is not None:
+        # The only signal that a link is being replayed — worth a log line even
+        # though the caller just sees "invalid or expired".
+        logger.warning("email_verification_token_replayed user_id=%s", row.user_id)
         return None
     expires_at = row.expires_at
     if expires_at.tzinfo is None:

@@ -247,8 +247,12 @@ export async function scanReceipt(file: File): Promise<ScannedItemsResponse> {
   });
   if (res.status === 402) throw new PaywallError();
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Receipt scan failed: ${res.status} - ${txt}`);
+    // Was a raw `${status} - ${body}` dump, which only ever surfaced on 5xx.
+    // The email-confirmation gate makes 403 a ROUTINE state here, and its
+    // detail ("Please confirm your email address…") is user-facing copy — so
+    // use the same extractor the other gated call sites use rather than
+    // showing the visitor a JSON blob.
+    throw new Error(await extractErrorDetail(res, "Receipt scan failed. Please try again."));
   }
   return res.json();
 }

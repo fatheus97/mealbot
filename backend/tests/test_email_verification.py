@@ -38,6 +38,68 @@ async def _unverified(db_session: AsyncSession, email: str = "new@example.com") 
     return user
 
 
+class TestOperatorCreatedAccountsAreVerified:
+    """Every creation path must either stamp verified or email a link.
+
+    The gate exempts only demo users, so a path that does NEITHER hands the
+    user an account that logs in fine and then 403s on generation, with no
+    link anywhere to fix it. The CLI and the admin endpoint both send no mail,
+    so they stamp — an operator typing the address IS the vouching act.
+    """
+
+    async def test_cli_created_user_is_verified(
+        self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The documented way to grant prod admin. Left NULL, it would lock the
+        # new admin out of the app the moment it was created — and the CLI
+        # sends no mail, so there'd be no link anywhere to recover with.
+        from contextlib import asynccontextmanager
+
+        from app.scripts import create_user as cli
+
+        @asynccontextmanager
+        async def fake_factory():  # type: ignore[no-untyped-def]
+            yield db_session
+
+        monkeypatch.setattr(cli, "async_session_factory", fake_factory)
+        await cli.create_user("cli-admin@example.com", "CliAdmin123", is_admin=True)
+
+        user = (
+            await db_session.execute(
+                select(User).where(User.email == "cli-admin@example.com")  # type: ignore[arg-type]
+            )
+        ).scalars().first()
+        assert user is not None
+        assert user.email_verified_at is not None
+
+    async def test_admin_created_user_is_verified(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        test_user.is_admin = True
+        db_session.add(test_user)
+        await db_session.flush()
+
+        resp = await client.post(
+            "/api/admin/users",
+            json={
+                "email": "admin-made@example.com",
+                "password": "AdminMade123",
+                "is_admin": False,
+                "is_comped": True,
+            },
+        )
+        assert resp.status_code == 201
+        created = (
+            await db_session.execute(
+                select(User).where(User.normalized_email == "admin-made@example.com")  # type: ignore[arg-type]
+            )
+        ).scalars().first()
+        assert created is not None
+        # A comped user is entitled by is_entitled but would still be blocked
+        # by require_verified_email, which runs FIRST in the chain.
+        assert created.email_verified_at is not None
+
+
 class TestBackfillContract:
     async def test_conftest_user_is_verified_like_a_backfilled_account(
         self, test_user: User
