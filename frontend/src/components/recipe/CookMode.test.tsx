@@ -100,6 +100,29 @@ describe('parseDurationSeconds', () => {
     expect(parseDurationSeconds('Marinujte 24 hodin')).toBeNull();
   });
 
+  // "time"/"timer" are Norwegian/Danish for "hour" but also ordinary English
+  // nouns that follow a digit in normal recipe prose. Including them armed a
+  // bogus 1-hour countdown for English users, so they are deliberately absent.
+  it('does not treat the English nouns "time"/"timer" as an hour', () => {
+    expect(parseDurationSeconds('Turn the steak 1 time during cooking')).toBeNull();
+    expect(parseDurationSeconds('Flip it 1 time')).toBeNull();
+    expect(parseDurationSeconds('Set 1 timer for the pasta')).toBeNull();
+    // The unambiguous hour spellings still work.
+    expect(parseDurationSeconds('rest 1 hour')).toBe(3600);
+    expect(parseDurationSeconds('Bake 2 h at 180')).toBe(7200);
+  });
+
+  // Rounding happens BEFORE the zero-check: a sub-second total clears `> 0`
+  // but rounds to 0, and tokenizeStepTimers only null-checks — so a 0 would
+  // render a tappable button that silently does nothing.
+  it('rejects a sub-second duration instead of emitting a dead 0', () => {
+    expect(parseDurationSeconds('Blend 0,4 sekundy')).toBeNull();
+    expect(parseDurationSeconds('Blend 0.4 seconds')).toBeNull();
+    expect(tokenizeStepTimers('Blend 0,4 sekundy').every((s) => s.seconds === null)).toBe(true);
+    // Just above the rounding threshold still arms.
+    expect(parseDurationSeconds('Blend 0,6 sekundy')).toBe(1);
+  });
+
   it('keeps the word tables well-formed', () => {
     const { hour, minute, second } = TIME_WORD_TABLES;
     const all = [...hour, ...minute, ...second];

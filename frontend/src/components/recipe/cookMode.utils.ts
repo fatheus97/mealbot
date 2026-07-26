@@ -44,7 +44,12 @@ const HOUR_WORDS: readonly string[] = [
   "ora", "ore",                                             // Italian / Romanian
   "uur", "uren",                                            // Dutch
   "timme", "timmar", "tim",                                 // Swedish
-  "time", "timer",                                          // Norwegian / Danish
+  // NOT "time"/"timer" (Norwegian/Danish for hour). They are also ordinary
+  // English nouns that follow a digit in perfectly normal recipe prose —
+  // "flip it 1 time", "set 1 timer" — which would arm a bogus 1-hour countdown
+  // for English users, the largest group. That is the asymmetric failure the
+  // header warns about, so the pair is dropped: NO/DA lose the hour word (their
+  // minute/second words below still work) rather than EN gaining false timers.
   "tunti", "tuntia",                                        // Finnish
   "godzina", "godziny", "godzin", "godz",                   // Polish
   "hodina", "hodiny", "hodin", "hodinu", "hod",             // Czech
@@ -195,10 +200,13 @@ export function parseDurationSeconds(text: string): number | null {
     firstValue(HOUR_RE, text) * 3600 +
     firstValue(MINUTE_RE, text) * 60 +
     firstValue(SECOND_RE, text);
-  if (!Number.isFinite(secs) || secs <= 0) return null;
-  // Round: "1,5 minuty" is 90s, but a fractional second would desync the
-  // 1-second countdown from the label it started from.
-  return secs <= MAX_TIMER_SECONDS ? Math.round(secs) : null;
+  // Round BEFORE the zero-check, not after. A sub-second total ("0,4 sekundy")
+  // clears `> 0` while rounding to exactly 0, and `tokenizeStepTimers` treats
+  // 0 as a real duration (it only null-checks), so cook mode would render a
+  // tappable button that does nothing when tapped.
+  const rounded = Math.round(secs);
+  if (!Number.isFinite(rounded) || rounded <= 0) return null;
+  return rounded <= MAX_TIMER_SECONDS ? rounded : null;
 }
 
 export interface StepSegment {
