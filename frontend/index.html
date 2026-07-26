@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#242424" />
+    <!-- index.css flips background-color under prefers-color-scheme: light
+         (#242424 dark default -> #ffffff light); split into two
+         media-scoped tags so mobile browser chrome matches the actual
+         rendered background in both modes, not just dark. -->
+    <meta name="theme-color" content="#242424" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
 
     <title>Mealbot — Meal Plans Screened Against the EU-14 Allergens</title>
     <meta
