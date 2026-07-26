@@ -50,9 +50,17 @@ async def void_outstanding_tokens(
 ) -> None:
     """Mark every unused token for this user as used. Caller commits.
 
-    Used when minting (only the newest link should work) and after a
-    successful redemption (a second link still sitting in the inbox must not
-    re-verify a later address change).
+    Called on the MINT path only, so a resend supersedes the previous link.
+    Deliberately NOT called from ``redeem``: the partial unique index
+    (user_id WHERE used_at IS NULL) already guarantees at most one live token
+    per user, so by the time a redemption burns that one there is nothing left
+    to void — the call would provably affect zero rows.
+
+    ⚠️ That reasoning depends on there being no way to change an account's
+    email address (``UserUpdate`` has no email field today). If an
+    email-change feature ever lands, a still-unredeemed link minted for the
+    OLD address would validate the NEW one, and whatever performs the change
+    must void outstanding tokens here.
     """
     await session.execute(
         update(EmailVerificationToken)

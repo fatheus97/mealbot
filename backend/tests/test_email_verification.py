@@ -185,6 +185,27 @@ class TestRedeem:
     async def test_rejects_an_unknown_token(self, db_session: AsyncSession) -> None:
         assert await ev.redeem(db_session, "not-a-real-token", datetime.now(UTC)) is None
 
+    async def test_redemption_leaves_no_other_live_token_behind(
+        self, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # This is why redeem() deliberately does NOT call
+        # void_outstanding_tokens: the partial unique index already guarantees
+        # at most one live token, so burning it leaves nothing to void. Pin the
+        # invariant rather than the (absent) call — if the index were ever
+        # dropped, this fails and the reasoning in the docstring stops holding.
+        token = await _mint(db_session, test_user)
+        await ev.redeem(db_session, token, datetime.now(UTC))
+        await db_session.flush()
+
+        live = (
+            await db_session.execute(
+                select(EmailVerificationToken)
+                .where(EmailVerificationToken.user_id == test_user.id)  # type: ignore[arg-type]
+                .where(EmailVerificationToken.used_at.is_(None))  # type: ignore[union-attr]
+            )
+        ).scalars().all()
+        assert live == []
+
     async def test_does_not_move_the_date_on_a_second_confirmation(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
