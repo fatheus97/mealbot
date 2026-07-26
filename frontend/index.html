@@ -2,9 +2,64 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mealbot-frontend</title>
+    <meta name="theme-color" content="#242424" />
+
+    <title>Mealbot — Meal Plans Screened Against the EU-14 Allergens</title>
+    <meta
+      name="description"
+      content="Combine multiple diets and allergies in one plan. Every recipe is screened against the 14 EU-regulated allergens, grounded in cited public-health sources."
+    />
+    <link rel="canonical" href="https://trymealbot.com/" />
+
+    <!-- Open Graph. No og:image yet — a self-hosted screenshot/hero asset is
+         a tracked fast-follow (docs/landing-page-plan.md); omitting it here
+         degrades gracefully to a text-only unfurl rather than a broken or
+         placeholder image. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Mealbot" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://trymealbot.com/" />
+    <meta property="og:title" content="Mealbot — Meal Plans Screened Against the EU-14 Allergens" />
+    <meta
+      property="og:description"
+      content="Combine multiple diets and allergies in one plan. Every recipe is screened against the 14 EU-regulated allergens, grounded in cited public-health sources."
+    />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Mealbot — Meal Plans Screened Against the EU-14 Allergens" />
+    <meta
+      name="twitter:description"
+      content="Combine multiple diets and allergies in one plan. Every recipe is screened against the 14 EU-regulated allergens, grounded in cited public-health sources."
+    />
+
+    <!-- Organization + SoftwareApplication only. No "logo" (no designed brand
+         asset yet) and deliberately NO price/offers — Stripe checkout is the
+         authoritative source for the live figure, and a hardcoded price here
+         would go stale and become a structured-data liability. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "name": "Mealbot",
+            "url": "https://trymealbot.com/"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Mealbot",
+            "applicationCategory": "LifestyleApplication",
+            "operatingSystem": "Web",
+            "url": "https://trymealbot.com/",
+            "description": "Combinable dietary-restriction and allergen-aware meal planning, with every recipe screened against the 14 EU-regulated allergens."
+          }
+        ]
+      }
+    </script>
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
   </head>
   <body>
     <div id="root"></div>
