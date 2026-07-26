@@ -146,6 +146,10 @@ jobs:
   frontend-security-headers:
     name: frontend security headers
     runs-on: ubuntu-latest
+    # Belt-and-suspenders alongside the per-curl --max-time below: if nginx
+    # somehow hangs in a way curl's own timeout doesn't catch, fail fast
+    # instead of riding out the 6h default.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
@@ -167,7 +171,7 @@ jobs:
       - name: Wait for nginx to be ready
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/ -o /dev/null; then
+            if curl -sf --connect-timeout 2 --max-time 5 http://localhost:8080/ -o /dev/null; then
               exit 0
             fi
             sleep 1
@@ -199,7 +203,7 @@ jobs:
           failed=0
           for route in "${routes[@]}"; do
             echo "--- ${route} ---"
-            headers="$(curl -sD - -o /dev/null "http://localhost:8080${route}")"
+            headers="$(curl -sD - --connect-timeout 2 --max-time 5 -o /dev/null "http://localhost:8080${route}")"
             echo "$headers"
             for h in "${required_headers[@]}"; do
               if ! grep -qi "^${h}:" <<<"$headers"; then
