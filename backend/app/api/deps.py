@@ -95,14 +95,47 @@ async def require_admin(
     return current_user
 
 
-async def require_active_subscription(
+async def require_verified_email(
     current_user: User = Depends(get_current_user),
+) -> User:
+    """Gate features behind a confirmed email address. 403 when unconfirmed.
+
+    Runs BEFORE the subscription gate (which depends on this), so an
+    unconfirmed user is told to confirm rather than to pay — you should not be
+    able to buy a subscription on an address we can't reach, which is also why
+    checkout depends on this directly.
+
+    Demo users are exempt: their address is server-generated, there is no
+    inbox to confirm, and the session is deleted within hours. Admins are NOT
+    exempt — an admin account is created by CLI, which stamps it verified, so
+    a genuinely unverified admin means something is wrong and should surface.
+
+    The SPA does not key its UI off this error: ``UserRead.email_verified``
+    carries the same state on the profile, so the banner and the disabled
+    controls are driven proactively (exactly as ``is_subscribed`` drives the
+    subscription banner). This is the server-side backstop.
+    """
+    if current_user.is_demo:
+        return current_user
+    if current_user.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please confirm your email address to use this feature.",
+        )
+    return current_user
+
+
+async def require_active_subscription(
+    current_user: User = Depends(require_verified_email),
 ) -> User:
     """Gate paid (generation) features. 402 when the caller isn't entitled.
 
     Entitlement (see stripe_service.is_entitled): a no-op while ``billing_enabled``
     is false, and always bypassed for admins + demo users. 402 (Payment Required)
     lets the SPA distinguish "pay to continue" from a 401 (re-login) or 403 (admin).
+
+    Chains from require_verified_email so generation inherits both gates in the
+    right order — confirm first, then pay.
     """
     from app.services import stripe_service
 

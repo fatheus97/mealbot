@@ -54,8 +54,10 @@ from app.models.user_schemas import (
     PasswordChangeRequest,
     ResetPasswordRequest,
     UserRead,
+    VerifyEmailRequest,
     user_to_read,
 )
+from app.services import email_verification
 from app.services.demo_user import cleanup_expired_demo_users, create_ephemeral_demo_user
 from app.services.password_reset import dispatch_reset_email, find_redeemable
 
@@ -613,3 +615,59 @@ def _ensure_aware(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
+
+
+# --- Email confirmation ---
+
+
+@router.post("/verify-email", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute")
+async def verify_email(
+    request: Request,
+    body: VerifyEmailRequest,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Redeem a confirmation link. Unauthenticated — the token IS the proof.
+
+    Deliberately does not require a session: the link is often opened in a
+    different browser (phone mail client) from the one that registered.
+
+    A token that's unknown, already used or expired gets 400. That's a real
+    failure the user needs to act on (resend), not something to paper over —
+    the double-click case is handled inside `redeem`, which stamps only the
+    first confirmation, so the *second* click of the same link is the one
+    legitimately-confusing case and it lands here as "already confirmed" from
+    the SPA's perspective (the profile already reads verified).
+    """
+    user = await email_verification.redeem(session, body.token, datetime.now(UTC))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This confirmation link is invalid or has expired.",
+        )
+    await session.commit()
+    logger.info("email_verified user_id=%s", user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute", key_func=user_id_key_func)
+async def resend_verification(
+    request: Request,
+    background: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Re-send the confirmation link to the CURRENT user's own address.
+
+    Authenticated and keyed by user id, not IP: the address is never taken
+    from the request, so this can only ever mail the caller's own inbox — it
+    is not an amplifier against a third party. The 60s per-user cooldown in
+    the service is the second floor under the rate limit.
+
+    Always 204, even when already verified or inside the cooldown: there is
+    nothing to disclose (the caller knows their own state from the profile)
+    and nothing actionable to report.
+    """
+    if current_user.id is not None:
+        background.add_task(email_verification.dispatch_verification_email, current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

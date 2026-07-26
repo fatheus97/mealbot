@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
@@ -751,6 +752,11 @@ class TestOwnershipChecks:
         user_b = User(
             email="userb@test.com",
             hashed_password=get_password_hash("userb-pw"),
+            # Verified: this test is about OWNERSHIP (expects 404 on someone
+            # else's plan). An unverified user would 403 at
+            # require_verified_email before the ownership check ever runs,
+            # which would silently stop testing what it claims to.
+            email_verified_at=datetime.now(UTC),
         )
         db_session.add(user_b)
         await db_session.flush()

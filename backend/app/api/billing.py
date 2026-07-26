@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_verified_email
 from app.core.config import settings
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
@@ -40,7 +40,11 @@ def _require_billing_available() -> None:
 async def create_checkout(
     request: Request,
     body: CheckoutRequest = CheckoutRequest(),
-    current_user: User = Depends(get_current_user),
+    # Gated on a confirmed address: nobody should be able to start paying us on
+    # an inbox we can't reach — receipts, dunning and password reset all go
+    # there, and an unreachable paying customer is a support problem that
+    # starts with money already taken.
+    current_user: User = Depends(require_verified_email),
     session: AsyncSession = Depends(get_session),
 ) -> BillingUrlResponse:
     """Start a subscription Checkout (10-day trial) for the chosen plan."""
