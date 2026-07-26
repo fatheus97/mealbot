@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.api.access_request import router as access_request_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.billing import router as billing_router
@@ -183,6 +184,7 @@ app.include_router(usage_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 app.include_router(feedback_router, prefix="/api")
+app.include_router(access_request_router, prefix="/api")
 
 # pro lokální vývoj:
 # uvicorn app.main:app --reload

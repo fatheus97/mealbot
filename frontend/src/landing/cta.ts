@@ -1,6 +1,7 @@
 // Registration-aware CTA enhancement for the static marketing landing (`/`).
 // Progressively enhances a safe static baseline — never the other way around:
-// the HTML already renders a working "Request access" (mailto) + "Log in"
+// the HTML already renders a working "Request access" (an in-page #access
+// anchor to the request form, with a noscript mailto fallback) + "Log in"
 // CTA with no JS at all, and this module only ever mutates it IN PLACE once
 // `GET /api/config` resolves. A fetch failure or a slow network leaves the
 // baseline exactly as authored (fail-safe), mirroring AuthContext's own
@@ -90,7 +91,7 @@ export function applyConfig(
 }
 
 /** True once /api/config says registration is open — the primary CTA then
- *  means "create an account" rather than "request access by email". */
+ *  means "create an account" rather than "jump to the request-access form". */
 export function primaryOpensRegister(config: PublicConfig | null): boolean {
   return config?.registration_enabled === true;
 }

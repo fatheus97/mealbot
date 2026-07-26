@@ -21,6 +21,11 @@ from app.core.config import settings
 from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import get_session
+from app.models.access_request_schemas import (
+    AccessRequestListResponse,
+    AccessRequestRead,
+    AccessRequestUpdate,
+)
 from app.models.admin_schemas import (
     ActivityBucket,
     ActivityStatsResponse,
@@ -46,6 +51,7 @@ from app.models.admin_schemas import (
     UserUsageAgg,
 )
 from app.models.db_models import (
+    AccessRequest,
     AuthSession,
     FeedbackReport,
     InviteToken,
@@ -73,6 +79,7 @@ from app.services import (
     feedback_triage,
     revenue_service,
 )
+from app.services.access_request import count_pending, emails_with_accounts
 from app.services.admin_audit import record_admin_action
 from app.services.invite import create_invite, invite_link, invite_status
 
@@ -1409,3 +1416,134 @@ async def accept_feedback(
             logger.exception("feedback ticket persist failed for report %s", feedback_id)
 
     return await _feedback_detail(session, report)
+
+
+# --- Access requests ---
+#
+# The public landing form (api/access_request.py) queues requests here while
+# registration is closed. This is the triage side: list, close out, erase.
+# The intended happy path is "generate an invite from this request", which the
+# dashboard performs as POST /invites followed by PATCH here — deliberately two
+# existing calls rather than a bespoke coupled endpoint, since the invite is the
+# valuable artifact and the status flip is bookkeeping that can be retried.
+
+_MAX_ACCESS_REQUEST_PAGE = 200
+
+
+@router.get("/access-requests", response_model=AccessRequestListResponse)
+async def list_access_requests(
+    request_status: Literal["pending", "handled", "dismissed"] | None = Query(
+        None, alias="status"
+    ),
+    limit: int = Query(_MAX_ACCESS_REQUEST_PAGE, ge=1, le=_MAX_ACCESS_REQUEST_PAGE),
+    _actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AccessRequestListResponse:
+    """List access requests newest-first, optionally filtered by status.
+
+    Annotates each row with whether that address already has an account — the
+    admin-only signal the public endpoint deliberately withholds, surfaced here
+    so "they already have access" is obvious without leaving the queue.
+    """
+    stmt = select(AccessRequest).order_by(
+        col(AccessRequest.created_at).desc(), col(AccessRequest.id).desc()
+    )
+    if request_status is not None:
+        stmt = stmt.where(col(AccessRequest.status) == request_status)
+    rows = list((await session.execute(stmt.limit(limit))).scalars().all())
+
+    with_accounts = await emails_with_accounts(session, rows)
+    return AccessRequestListResponse(
+        requests=[
+            AccessRequestRead(
+                id=r.id,  # type: ignore[arg-type]  # selected row always has an id
+                email=r.email,
+                message=r.message,
+                status=r.status,  # type: ignore[arg-type]  # constrained on write
+                created_at=r.created_at,
+                handled_at=r.handled_at,
+                has_account=r.id in with_accounts,
+            )
+            for r in rows
+        ],
+        pending_count=await count_pending(session),
+    )
+
+
+@router.patch("/access-requests/{request_id}", response_model=AccessRequestRead)
+async def update_access_request(
+    request_id: int,
+    body: AccessRequestUpdate,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AccessRequestRead:
+    """Close a request out as handled or dismissed.
+
+    Idempotent when it's already in the requested state; 409 when it's already
+    in the OTHER terminal state, so "dismiss" can't silently overwrite a
+    "handled" record of an invite that actually went out.
+    """
+    req = await session.get(AccessRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    if req.status != "pending" and req.status != body.status:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Request is already {req.status}",
+        )
+
+    previous = req.status
+    # Re-applying the SAME status is a no-op, not a re-stamp: overwriting
+    # handled_at/handled_by_admin_id would erase the record of who actually
+    # closed the request out and when. Return the current state unchanged.
+    if previous != body.status:
+        req.status = body.status
+        req.handled_at = datetime.now(UTC)
+        req.handled_by_admin_id = actor.id
+        session.add(req)
+        # Audited only on a real transition — a no-op re-apply would otherwise
+        # write a misleading "handled → handled" entry.
+        record_admin_action(
+            session,
+            actor=actor,
+            action=f"access_request.{body.status}",
+            detail={"access_request_id": str(request_id), "from": previous},
+        )
+        await session.commit()
+        await session.refresh(req)
+
+    with_accounts = await emails_with_accounts(session, [req])
+    return AccessRequestRead(
+        id=req.id,  # type: ignore[arg-type]  # fetched row always has an id
+        email=req.email,
+        message=req.message,
+        status=req.status,  # type: ignore[arg-type]  # constrained on write
+        created_at=req.created_at,
+        handled_at=req.handled_at,
+        has_account=req.id in with_accounts,
+    )
+
+
+@router.delete("/access-requests/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_access_request(
+    request_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Erase a request outright.
+
+    A real delete, not a status flip: the row holds a third party's email and
+    free text, so GDPR erasure has to actually remove it. The audit entry keeps
+    the id and the fact of deletion, never the address.
+    """
+    req = await session.get(AccessRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    await session.delete(req)
+    record_admin_action(
+        session,
+        actor=actor,
+        action="access_request.delete",
+        detail={"access_request_id": str(request_id)},
+    )
+    await session.commit()

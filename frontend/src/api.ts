@@ -1,5 +1,8 @@
 // frontend/src/api.ts
 import type {
+  AccessRequestItem,
+  AccessRequestListResponse,
+  AccessRequestStatus,
   ActivityStatsResponse,
   AdminFeedbackDetail,
   AdminFeedbackListResponse,
@@ -489,6 +492,34 @@ export async function revokeInvite(id: number): Promise<InviteListItem> {
   const res = await authFetch(`/admin/invites/${id}/revoke`, { method: "POST" });
   if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not revoke the invite"));
   return res.json();
+}
+
+// --- Access requests (admin triage of the public landing form) ---
+
+export async function fetchAccessRequests(
+  status?: AccessRequestStatus,
+): Promise<AccessRequestListResponse> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await authFetch(`/admin/access-requests${qs}`);
+  if (!res.ok) throw new Error(`Admin access requests failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAccessRequest(
+  id: number,
+  status: "handled" | "dismissed",
+): Promise<AccessRequestItem> {
+  const res = await authFetch(`/admin/access-requests/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not update the request"));
+  return res.json();
+}
+
+export async function deleteAccessRequest(id: number): Promise<void> {
+  const res = await authFetch(`/admin/access-requests/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not delete the request"));
 }
 
 // --- Invite redemption (unauthenticated self-register from an admin link) ---
