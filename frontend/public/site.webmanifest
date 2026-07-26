@@ -1,0 +1,14 @@
+{
+  "name": "Mealbot",
+  "short_name": "Mealbot",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#242424",
+  "background_color": "#242424",
+  "display": "standalone"
+}
