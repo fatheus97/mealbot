@@ -135,6 +135,16 @@ class Settings(BaseSettings):
     stripe_price_ids_annual_legacy: str | None = None
     # Absolute base URL of the SPA — Checkout/Portal redirect back here.
     frontend_base_url: str = "http://localhost:5173"
+
+    @field_validator("frontend_base_url", mode="after")
+    @classmethod
+    def _strip_trailing_slash(cls, v: str) -> str:
+        """Normalize away a trailing slash so every `f"{base}/app?..."` link
+        builder (invite/reset/checkout/portal) is correct regardless of how
+        the operator's env var is set — a trailing slash would otherwise
+        produce a double slash."""
+        return v.rstrip("/")
+
     # 10-day free trial before the first charge.
     trial_period_days: int = 10
 

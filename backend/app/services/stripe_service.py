@@ -250,8 +250,11 @@ async def create_checkout_session(
         customer_update={"address": "auto", "name": "auto"},
         # Reserved for the Phase-B feedback discounts.
         allow_promotion_codes=True,
-        success_url=f"{settings.frontend_base_url}/?billing=success",
-        cancel_url=f"{settings.frontend_base_url}/?billing=cancel",
+        # /app, not the root — the SPA's namespace since the landing-page
+        # split (docs/landing-page-plan.md); the root now hosts (or will
+        # host) the marketing page, which has no billing-return handler.
+        success_url=f"{settings.frontend_base_url}/app?billing=success",
+        cancel_url=f"{settings.frontend_base_url}/app?billing=cancel",
         **trial_kwargs,
     )
     if not checkout.url:
@@ -269,7 +272,8 @@ async def create_portal_session(user: User) -> str:
         customer=user.stripe_customer_id,
         # ?billing=managed lets the SPA re-sync the profile on return (a cancel /
         # card update just happened) instead of showing stale state until reload.
-        return_url=f"{settings.frontend_base_url}/?billing=managed",
+        # /app, not the root — see create_checkout_session above.
+        return_url=f"{settings.frontend_base_url}/app?billing=managed",
     )
     return portal.url
 

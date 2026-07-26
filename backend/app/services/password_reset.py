@@ -220,11 +220,14 @@ async def find_redeemable(
 def reset_link(token: str) -> str:
     """Build the emailed link.
 
-    Query param on the app root, not a `/reset-password` path: the SPA is
+    Query param on the SPA, not a `/reset-password` path: the SPA is
     state-routed with no router (same shape as `?billing=success`), so a real
-    path would have nothing to handle it.
+    path would have nothing to handle it. Points at `/app` — the SPA's
+    namespace since the landing-page split (docs/landing-page-plan.md) — so
+    this link keeps working once the root starts serving a marketing page
+    instead of the SPA.
     """
-    return f"{settings.frontend_base_url}/?reset_token={token}"
+    return f"{settings.frontend_base_url}/app?reset_token={token}"
 
 
 def reset_email_html(link: str) -> str:

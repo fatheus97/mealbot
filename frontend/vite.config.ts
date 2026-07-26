@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -13,6 +14,18 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        // Two-page build: index.html (the SPA today; the static marketing
+        // landing once that slice lands, see docs/landing-page-plan.md) and
+        // app.html (the SPA's own namespace at /app, nginx-routed — see
+        // nginx.conf). Keeps one image/nginx/CSP instead of a second service.
+        input: {
+          main: resolve(import.meta.dirname, 'index.html'),
+          app: resolve(import.meta.dirname, 'app.html'),
+        },
+      },
+    },
     server: {
       host: true, // Binds to 0.0.0.0 so the host can access it
       port: 5173,
