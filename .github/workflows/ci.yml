@@ -191,14 +191,14 @@ jobs:
             "Permissions-Policy"
             "Cross-Origin-Opener-Policy"
           )
-          # Known routes today (docs/landing-page-plan.md): the SPA shell at
-          # `/` (pre-Slice-3, still index.html) and its namespaced `/app`.
-          # Check BOTH the exact `/app` and the `/app/` prefix on purpose:
-          # nginx's `try_files ... /app.html` fallback internally
+          # Known routes (docs/landing-page-plan.md): `/` — the static
+          # marketing landing since Slice 3 (was the SPA shell pre-Slice-3;
+          # same route, no new one to add) — and the SPA's own namespace at
+          # `/app`. Check BOTH the exact `/app` and the `/app/` prefix on
+          # purpose: nginx's `try_files ... /app.html` fallback internally
           # re-matches into `location /`, which masks a broken
           # `location = /app` block if only the prefix form were tested —
-          # confirmed by hand while building this job. When Slice 3 lands
-          # the marketing page, add its route(s) here too.
+          # confirmed by hand while building this job.
           routes=("/" "/app" "/app/")
           failed=0
           for route in "${routes[@]}"; do
