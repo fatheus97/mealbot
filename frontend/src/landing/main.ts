@@ -17,6 +17,7 @@ import {
   type PublicConfig,
 } from "./cta";
 import { createAuthModal, type AuthModalElements } from "./authModal";
+import { createAccessForm, type AccessFormElements } from "./accessRequest";
 import { landingDemo } from "./authApi";
 import { captureAttribution } from "../utils/attribution";
 
@@ -85,13 +86,26 @@ if (forwardTarget) {
       );
     }
 
+    const accessForm = document.getElementById("access-form");
+    if (accessForm) {
+      createAccessForm({
+        form: accessForm as HTMLFormElement,
+        email: document.getElementById("access-email") as HTMLInputElement,
+        message: document.getElementById("access-message") as HTMLTextAreaElement,
+        submit: document.getElementById("access-submit") as HTMLButtonElement,
+        error: document.getElementById("access-error") as HTMLElement,
+        status: document.getElementById("access-status") as HTMLElement,
+      } satisfies AccessFormElements);
+    }
+
     fetch("/api/config")
       .then((r) => (r.ok ? (r.json() as Promise<PublicConfig>) : null))
       .then((config) => {
         applyConfig(config, { primary, demo }, search);
         // Only once registration is actually open does the primary CTA mean
-        // "sign up" — while it's closed it stays the mailto request-access
-        // link, which must NOT be hijacked into a register form that would 403.
+        // "sign up". While it's closed it stays the in-page #access anchor
+        // that scrolls to the request form — which must NOT be hijacked into
+        // a register dialog, since registering would 403.
         if (modal && primary && primaryOpensRegister(config)) {
           primary.addEventListener("click", (e) => {
             e.preventDefault();

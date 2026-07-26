@@ -1,8 +1,21 @@
 import { type CSSProperties, useState } from "react";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { ModalShell } from "../ModalShell";
-import { useCreateInvite, useInvites, useRevokeInvite } from "../../hooks/useServerState";
-import type { InviteCreateResponse, InviteListItem, InviteStatus } from "../../types";
+import {
+  useAccessRequests,
+  useCreateInvite,
+  useDeleteAccessRequest,
+  useInvites,
+  useRevokeInvite,
+  useUpdateAccessRequest,
+} from "../../hooks/useServerState";
+import type {
+  AccessRequestItem,
+  AccessRequestStatus,
+  InviteCreateResponse,
+  InviteListItem,
+  InviteStatus,
+} from "../../types";
 import { colors, radius } from "./theme";
 
 const EXPIRY_OPTIONS = [
@@ -19,8 +32,33 @@ export function InvitePanel() {
   const [showGenerate, setShowGenerate] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<InviteListItem | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  // Set when "Generate invite" was launched FROM a request row — on success we
+  // also close that request out as handled.
+  const [inviteForRequest, setInviteForRequest] = useState<AccessRequestItem | null>(null);
+  const updateRequestMut = useUpdateAccessRequest();
 
   const invites = invitesQuery.data?.invites ?? [];
+
+  function onInviteGenerated(): void {
+    const request = inviteForRequest;
+    if (!request) return;
+    // Clear any stale banner first (mirrors doRevoke) so an old failure can't
+    // stay on screen attached to this successful action.
+    setBanner(null);
+    // Bookkeeping, deliberately AFTER the invite exists: the link is the
+    // valuable artifact and it's already been minted, so a failure here must
+    // not read as "the invite failed". Surface it and leave the row pending —
+    // the admin can mark it handled by hand, and re-running is harmless.
+    updateRequestMut.mutate(
+      { id: request.id, status: "handled" },
+      {
+        onError: () =>
+          setBanner(
+            `Invite created, but ${request.email}'s request couldn't be marked handled. Mark it manually.`,
+          ),
+      },
+    );
+  }
 
   function doRevoke(): void {
     const target = revokeTarget;
@@ -62,6 +100,15 @@ export function InvitePanel() {
           {banner}
         </div>
       )}
+
+      <AccessRequestsSection
+        onGenerateInvite={(request) => {
+          setInviteForRequest(request);
+          setShowGenerate(true);
+        }}
+      />
+
+      <h3 style={{ margin: "1.75rem 0 0.75rem", fontSize: "1rem" }}>Invite links</h3>
 
       {invitesQuery.isLoading && (
         <div style={{ color: colors.textMuted, fontSize: 13 }}>Loading…</div>
@@ -129,7 +176,16 @@ export function InvitePanel() {
         </div>
       )}
 
-      {showGenerate && <GenerateInviteModal onClose={() => setShowGenerate(false)} />}
+      {showGenerate && (
+        <GenerateInviteModal
+          defaultNote={inviteForRequest ? `Access request #${inviteForRequest.id}` : ""}
+          onGenerated={onInviteGenerated}
+          onClose={() => {
+            setShowGenerate(false);
+            setInviteForRequest(null);
+          }}
+        />
+      )}
 
       {revokeTarget && (
         <ConfirmDialog
@@ -149,9 +205,19 @@ export function InvitePanel() {
   );
 }
 
-function GenerateInviteModal({ onClose }: { onClose: () => void }) {
+function GenerateInviteModal({
+  onClose,
+  defaultNote = "",
+  onGenerated,
+}: {
+  onClose: () => void;
+  /** Prefilled when launched from an access request, so the resulting invite
+   *  is traceable back to who asked. */
+  defaultNote?: string;
+  onGenerated?: () => void;
+}) {
   const createMut = useCreateInvite();
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(defaultNote);
   const [isComped, setIsComped] = useState(true);
   const [hours, setHours] = useState(48);
   const [result, setResult] = useState<InviteCreateResponse | null>(null);
@@ -164,7 +230,10 @@ function GenerateInviteModal({ onClose }: { onClose: () => void }) {
     createMut.mutate(
       { note: note.trim() || null, is_comped: isComped, expires_in_hours: hours },
       {
-        onSuccess: (r) => setResult(r),
+        onSuccess: (r) => {
+          setResult(r);
+          onGenerated?.();
+        },
         onError: (err) =>
           setError(err instanceof Error ? err.message : "Could not generate the invite."),
       },
@@ -256,6 +325,231 @@ function GenerateInviteModal({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </ModalShell>
+  );
+}
+
+/** The access-request queue: what the public landing form produced, and the
+ *  one-click path from a request to the invite that answers it. */
+function AccessRequestsSection({
+  onGenerateInvite,
+}: {
+  onGenerateInvite: (request: AccessRequestItem) => void;
+}) {
+  const [filter, setFilter] = useState<AccessRequestStatus>("pending");
+  const query = useAccessRequests(true, filter);
+  const updateMut = useUpdateAccessRequest();
+  const deleteMut = useDeleteAccessRequest();
+  const [deleteTarget, setDeleteTarget] = useState<AccessRequestItem | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const requests = query.data?.requests ?? [];
+  const pending = query.data?.pending_count ?? 0;
+
+  /** Scope the disabled state to the row actually in flight — one shared
+   *  mutation instance would otherwise disable the action on EVERY row. */
+  function isRowBusy(id: number): boolean {
+    return updateMut.isPending && updateMut.variables?.id === id;
+  }
+
+  function close(request: AccessRequestItem, status: "handled" | "dismissed"): void {
+    setError(null);
+    updateMut.mutate(
+      { id: request.id, status },
+      { onError: (e) => setError(e instanceof Error ? e.message : "Could not update it.") },
+    );
+  }
+
+  function doDelete(): void {
+    const target = deleteTarget;
+    if (!target) return;
+    setError(null);
+    deleteMut.mutate(target.id, {
+      onSuccess: () => setDeleteTarget(null),
+      onError: (e) => {
+        setError(e instanceof Error ? e.message : "Could not delete it.");
+        setDeleteTarget(null);
+      },
+    });
+  }
+
+  return (
+    <section style={{ marginBottom: "1.5rem" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+          marginBottom: "0.6rem",
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: "1rem" }}>
+          Access requests
+          {pending > 0 && (
+            <span
+              style={{
+                marginLeft: 8,
+                background: colors.accent,
+                color: "#fff",
+                borderRadius: 999,
+                padding: "1px 8px",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {pending}
+            </span>
+          )}
+        </h3>
+        <div style={{ display: "flex", gap: 4 }}>
+          {(["pending", "handled", "dismissed"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setFilter(s)}
+              aria-pressed={filter === s}
+              style={{
+                ...filterBtn,
+                background: filter === s ? colors.accent : "transparent",
+                color: filter === s ? "#fff" : colors.textBody,
+                borderColor: filter === s ? colors.accent : colors.border,
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p style={{ margin: "0 0 0.75rem", color: colors.textMuted, fontSize: 13, maxWidth: 640 }}>
+        Submitted from the landing page while registration is closed. Answer one by generating
+        an invite — that marks the request handled automatically.
+      </p>
+
+      {error && (
+        <div role="alert" style={bannerStyle}>
+          {error}
+        </div>
+      )}
+
+      {query.isLoading && <div style={{ color: colors.textMuted, fontSize: 13 }}>Loading…</div>}
+      {query.error && (
+        <div style={{ color: colors.danger, fontSize: 13 }}>Failed to load access requests.</div>
+      )}
+
+      {query.data && (
+        <div style={{ overflowX: "auto" }}>
+          <table
+            style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 640 }}
+          >
+            <thead>
+              <tr
+                style={{
+                  textAlign: "left",
+                  color: colors.textMuted,
+                  borderBottom: `1px solid ${colors.border}`,
+                }}
+              >
+                <th style={th}>Email</th>
+                <th style={th}>Message</th>
+                <th style={th}>Requested</th>
+                <th style={{ ...th, textAlign: "right" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map((r) => (
+                <tr key={r.id} style={{ borderBottom: `1px solid ${colors.borderSubtle}` }}>
+                  <td style={{ ...td, overflowWrap: "anywhere" }}>
+                    {/* Rendered as escaped React text — this is anonymous input. */}
+                    {r.email}
+                    {r.has_account && (
+                      <div style={{ fontSize: 11, color: colors.textMuted }}>
+                        already has an account
+                      </div>
+                    )}
+                  </td>
+                  {/* overflowWrap: a single unbroken token from an anonymous
+                      submitter would otherwise blow out the table width. */}
+                  <td
+                    style={{
+                      ...td,
+                      maxWidth: 320,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {r.message || <span style={{ color: colors.textFaint }}>—</span>}
+                  </td>
+                  <td style={{ ...td, whiteSpace: "nowrap", color: colors.textBody }}>
+                    {fmt(r.created_at)}
+                  </td>
+                  <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                    {r.status === "pending" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onGenerateInvite(r)}
+                          style={rowBtn}
+                        >
+                          Generate invite
+                        </button>{" "}
+                        {/* The manual close-out the "couldn't be marked
+                            handled" banner tells the admin to use — without
+                            it that instruction has no control to act on. */}
+                        <button
+                          type="button"
+                          onClick={() => close(r, "handled")}
+                          disabled={isRowBusy(r.id)}
+                          style={rowBtn}
+                        >
+                          Mark handled
+                        </button>{" "}
+                        <button
+                          type="button"
+                          onClick={() => close(r, "dismissed")}
+                          disabled={isRowBusy(r.id)}
+                          style={rowBtn}
+                        >
+                          Dismiss
+                        </button>{" "}
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(r)}
+                      style={dangerRowBtn}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {requests.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ ...td, color: colors.textFaint }}>
+                    No {filter} requests.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete this request?"
+          message={`Permanently erases ${deleteTarget.email}'s request and message. This is the GDPR erasure path — it cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={doDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={deleteMut.isPending}
+          loadingLabel="Deleting…"
+          destructive
+        />
+      )}
+    </section>
   );
 }
 
@@ -378,4 +672,23 @@ const bannerStyle: CSSProperties = {
   border: "1px solid #fecaca",
   fontSize: 13,
   marginBottom: "0.75rem",
+};
+
+const rowBtn: CSSProperties = {
+  padding: "3px 8px",
+  fontSize: 12,
+  borderRadius: 6,
+  border: `1px solid ${colors.border}`,
+  background: "transparent",
+  color: colors.textBody,
+  cursor: "pointer",
+};
+
+const filterBtn: CSSProperties = {
+  padding: "3px 10px",
+  fontSize: 12,
+  borderRadius: 6,
+  border: "1px solid",
+  cursor: "pointer",
+  textTransform: "capitalize",
 };

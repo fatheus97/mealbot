@@ -545,6 +545,28 @@ export interface InviteListResponse {
   invites: InviteListItem[];
 }
 
+// --- Access requests (public landing form → admin queue) ---
+
+export type AccessRequestStatus = "pending" | "handled" | "dismissed";
+
+export interface AccessRequestItem {
+  id: number;
+  email: string;
+  message: string;
+  status: AccessRequestStatus;
+  created_at: string;
+  handled_at: string | null;
+  /** Whether this address already has an account. Admin-only signal — the
+   *  public submit endpoint deliberately never reveals it. */
+  has_account: boolean;
+}
+
+export interface AccessRequestListResponse {
+  requests: AccessRequestItem[];
+  /** Pending total regardless of the active filter, for the tab badge. */
+  pending_count: number;
+}
+
 // --- User feedback (bug reports / feature requests) ---
 
 export type FeedbackKind = "bug" | "feature" | "other";

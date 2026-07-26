@@ -54,6 +54,13 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Stripe posts here server-to-server with no CSRF cookie; it is authenticated
     # by the Stripe-Signature HMAC (verified in the handler), not double-submit.
     "/api/billing/webhook",
+    # The landing page's "Request access" form is submitted by an anonymous
+    # visitor who has never had a session, so there is no CSRF cookie to
+    # double-submit. Not a meaningful CSRF target either: it takes no action on
+    # behalf of anyone, and the worst a forged cross-origin post achieves is
+    # queueing a request the admin can dismiss (bounded by a per-IP rate limit
+    # and one-pending-per-address).
+    "/api/access-requests",
 })
 
 

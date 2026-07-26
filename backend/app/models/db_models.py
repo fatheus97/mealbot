@@ -382,6 +382,68 @@ class InviteToken(SQLModel, table=True):
     revoked_at: datetime | None = Field(default=None)
 
 
+class AccessRequest(SQLModel, table=True):
+    """Someone asking for access from the public landing page while
+    registration is closed.
+
+    Replaces the landing page's old ``mailto:`` link so requests land in a
+    queue the admin can act on (Invites tab) instead of an inbox. The intended
+    close-out is "generate an invite from this request", which is why this
+    table deliberately stores nothing more than what's needed to contact the
+    person and decide.
+
+    **This is the only UNAUTHENTICATED WRITE surface in the app**, so the
+    hazards are spam and PII rather than privilege:
+
+    * ``email``/``message`` are USER INPUT — length-bounded at the API layer,
+      stored verbatim, and only ever rendered as escaped React text on the
+      admin dashboard. Nothing downstream interpolates them.
+    * ``normalized_email`` is the dedup key (same ``normalize_email`` used for
+      accounts). The plain index is deliberately **NOT unique**: a request that
+      was dismissed months ago shouldn't permanently bar that address from
+      asking again. One-pending-per-address is instead a PARTIAL unique index
+      (``uq_accessrequest_pending_email``, ``WHERE status='pending'``) declared
+      in ``__table_args__`` below, so the invariant is a DB fact rather than a
+      racy check-then-insert on an endpoint anyone can call.
+    * There is no ``user_id`` — by definition the requester has no account.
+      Submitting NEVER reveals whether the address already has one.
+    * ``handled_by_admin_id`` is a bare id with no FK so it survives a later
+      admin hard-delete (cf. ``FeedbackReport.reviewed_by_admin_id`` /
+      ``AdminAuditLog``).
+
+    GDPR: rows hold a third party's email + free text, so the admin API
+    exposes a real DELETE (not just a status flip) — retention is a
+    deliberate admin decision, and a handled request can be erased outright.
+    """
+
+    # Mirrors uq_accessrequest_pending_email in migration access_request_01 —
+    # keep the two in step or the model and the DB drift.
+    __table_args__ = (
+        Index(
+            "uq_accessrequest_pending_email",
+            "normalized_email",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    # As typed, for display and for actually contacting them.
+    email: str = Field(nullable=False, max_length=254)
+    # Canonical form, for one-pending-per-address dedup. Indexed, NOT unique.
+    normalized_email: str = Field(nullable=False, index=True, max_length=254)
+    # Why they want access. Bounded at the API layer; may be empty.
+    message: str = Field(default="", nullable=False)
+    # "pending" | "handled" | "dismissed". Loose str (not an enum column) so a
+    # new state needs no migration — same choice as FeedbackReport.status.
+    status: str = Field(default="pending", nullable=False, index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+    handled_at: datetime | None = Field(default=None)
+    handled_by_admin_id: int | None = Field(default=None)
+
+
 class StockItem(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)

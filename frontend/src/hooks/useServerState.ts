@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus } from '../types';
-import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, type AdminFeedbackQuery } from '../api';
+import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus } from '../types';
+import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, type AdminFeedbackQuery } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -593,6 +593,35 @@ export function useRevokeInvite() {
   return useMutation({
     mutationFn: (id: number) => revokeInvite(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] }),
+  });
+}
+
+// --- Access requests (admin triage of the public landing form) ---
+
+export function useAccessRequests(enabled: boolean, status?: AccessRequestStatus) {
+  return useQuery({
+    queryKey: ['admin', 'access-requests', status ?? 'all'],
+    queryFn: () => fetchAccessRequests(status),
+    enabled,
+  });
+}
+
+export function useUpdateAccessRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: "handled" | "dismissed" }) =>
+      updateAccessRequest(id, status),
+    // Every status filter shares the prefix, so one invalidate refreshes the
+    // list whichever tab the admin is on (and the pending badge with it).
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'access-requests'] }),
+  });
+}
+
+export function useDeleteAccessRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => deleteAccessRequest(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'access-requests'] }),
   });
 }
 

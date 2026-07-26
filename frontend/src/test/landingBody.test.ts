@@ -86,7 +86,11 @@ describe("landing body copy (built dist/index.html)", () => {
     it("has the CTA baseline: mailto Request access + Log in to /app, in a reserved container", () => {
       expect(body).toContain('id="cta-box"');
       expect(body).toContain('id="cta-primary"');
-      expect(body).toMatch(/id="cta-primary"[^>]*href="mailto:info@trymealbot\.com"/);
+      // While registration is closed the primary CTA scrolls to the request
+      // form rather than opening a mail client — and it must be a real
+      // in-page anchor so it works with JS disabled.
+      expect(body).toMatch(/id="cta-primary"[^>]*href="#access"/);
+      expect(body).toContain('id="access-form"');
       expect(body).toContain('id="cta-login"');
       expect(body).toMatch(/id="cta-login"[^>]*href="\/app"/);
     });
