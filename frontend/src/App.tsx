@@ -15,6 +15,8 @@ import { SubscriptionBanner } from "./components/billing/SubscriptionBanner";
 import { PaywallModal } from "./components/billing/PaywallModal";
 import { BillingReturnHandler } from "./components/billing/BillingReturnHandler";
 import { ResetPasswordModal } from "./components/ResetPasswordModal";
+import { EmailVerificationBanner } from "./components/auth/EmailVerificationBanner";
+import { VerifyEmailHandler } from "./components/auth/VerifyEmailHandler";
 import { InviteRegisterModal } from "./components/InviteRegisterModal";
 import type { MealPlanResponse, MealPlanSummary } from "./types";
 
@@ -74,6 +76,11 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
         )}
       </div>
       <AuthBar />
+      {/* Confirmation status first, then the persistent nag, then billing —
+          most-transient to most-persistent, so a just-confirmed message sits
+          above a banner that is about to disappear anyway. */}
+      <VerifyEmailHandler />
+      <EmailVerificationBanner />
       {userId && <SubscriptionBanner />}
       <Fridge />
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
