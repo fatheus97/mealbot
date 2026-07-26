@@ -340,6 +340,15 @@
         visibility: hidden;
         pointer-events: none;
       }
+      /* `.btn` sets display:inline-block, and an author rule beats the UA
+         stylesheet's `[hidden] { display: none }` — so a .btn carrying the
+         hidden attribute would otherwise render anyway. (That exact bug
+         shipped: a no-JS-only fallback button was visible to everyone.)
+         Restore the expected behaviour rather than relying on every future
+         author remembering it. */
+      .btn[hidden] {
+        display: none;
+      }
       footer {
         padding: 2rem 0 3rem;
       }
@@ -753,16 +762,15 @@
           with an invite.
         </p>
 
-        <!-- No JS: hide the form entirely and offer the mailto path instead.
-             Without this the form would native-submit; even with method=post
-             a dead-end submit is worse than the mailto: link this replaced,
-             and a GET submit would serialize the visitor's email and the
-             allergy/diet details we explicitly ask for into the URL, the
-             nginx access log and their browser history. -->
+        <!-- No JS: hide the form entirely. Without this it would native-submit
+             to a dead end, and a GET submit would serialize the visitor's
+             email and the allergy/diet details we explicitly ask for into the
+             URL, the nginx access log and their browser history. The
+             always-visible "Prefer email?" line below the form is the no-JS
+             path — no separate fallback button needed. -->
         <noscript>
           <style>
             #access-form { display: none; }
-            #access-noscript { display: inline-block; }
           </style>
         </noscript>
 
@@ -797,10 +805,6 @@
                rule in .claude/rules/frontend.md). -->
           <div id="access-error" class="form-status form-status-error" role="alert" hidden></div>
         </form>
-
-        <a id="access-noscript" class="btn btn-primary" href="mailto:info@trymealbot.com" hidden>
-          Request access by email
-        </a>
 
         <div id="access-status" class="form-status form-status-success" role="status" tabindex="-1" hidden></div>
 

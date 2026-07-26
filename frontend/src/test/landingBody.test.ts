@@ -95,6 +95,32 @@ describe("landing body copy (built dist/index.html)", () => {
       expect(body).toMatch(/id="cta-login"[^>]*href="\/app"/);
     });
 
+    it("no element carries `hidden` without a rule that actually hides it", () => {
+      // `.btn` sets display:inline-block, and an author rule beats the UA
+      // stylesheet's `[hidden] { display:none }` — so a .btn with the hidden
+      // attribute renders anyway. That shipped: a no-JS-only fallback button
+      // was visible to every visitor. Asserting the *attribute* is what let it
+      // through, so assert the CSS that backs it instead.
+      const styleBlock = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
+      const hiddenBtn = /class="[^"]*\bbtn\b[^"]*"[^>]*\shidden|hidden[^>]*class="[^"]*\bbtn\b/;
+      if (hiddenBtn.test(body)) {
+        expect(styleBlock).toMatch(/\.btn\[hidden\]\s*\{[^}]*display:\s*none/);
+      }
+      // The guard itself must exist regardless, so a future `hidden` .btn is
+      // hidden by default rather than depending on someone adding it then.
+      expect(styleBlock).toMatch(/\.btn\[hidden\]\s*\{[^}]*display:\s*none/);
+    });
+
+    it("keeps an always-visible mailto as the no-JS path (no separate fallback button)", () => {
+      // The <noscript> block hides the form; the contact line below it is what
+      // a no-JS visitor uses, so it must NOT be inside noscript or hidden.
+      expect(body).toContain("mailto:info@trymealbot.com");
+      expect(body).not.toContain('id="access-noscript"');
+      const noscript = body.match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1] ?? "";
+      expect(noscript).toContain("#access-form");
+      expect(noscript).not.toContain("mailto:");
+    });
+
     it("the demo CTA is reserved (present, invisible) by default — not removed from the flow", () => {
       // A plain `hidden` attribute (display:none) would change how many
       // boxes flex-wrap lays out the moment the enhancement script reveals
