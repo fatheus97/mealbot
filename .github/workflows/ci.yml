@@ -136,6 +136,88 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  # Regression guard for the nginx security-header footgun documented in
+  # frontend/nginx.conf: server-scope `add_header ... always` (the CSP et al.)
+  # is NOT inherited into a location block that declares its own add_header.
+  # This was previously only verified once by hand (build the prod image,
+  # curl / and /app). Builds the real production image (nginx multi-stage,
+  # not the dev override) and asserts every security header survives on
+  # every known route.
+  frontend-security-headers:
+    name: frontend security headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build production frontend image
+        run: docker build -t mealbot-frontend-headers-test -f frontend/Dockerfile frontend
+
+      - name: Start container
+        # nginx.conf proxies /api/ to http://backend:8000 by bare hostname
+        # (not a variable), so nginx fails DNS resolution and refuses to
+        # start unless "backend" resolves to *something* — even though this
+        # check never hits /api/. --add-host is the cheapest fix: it doesn't
+        # need to be listening, just resolvable.
+        run: |
+          docker run -d --name frontend-headers-test \
+            --add-host=backend:127.0.0.1 \
+            -p 8080:80 \
+            mealbot-frontend-headers-test
+
+      - name: Wait for nginx to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/ -o /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend container never became ready" >&2
+          docker logs frontend-headers-test
+          exit 1
+
+      - name: Assert security headers present on every known route
+        run: |
+          set -u
+          required_headers=(
+            "Content-Security-Policy"
+            "X-Content-Type-Options"
+            "X-Frame-Options"
+            "Referrer-Policy"
+            "Permissions-Policy"
+            "Cross-Origin-Opener-Policy"
+          )
+          # Known routes today (docs/landing-page-plan.md): the SPA shell at
+          # `/` (pre-Slice-3, still index.html) and its namespaced `/app`.
+          # Check BOTH the exact `/app` and the `/app/` prefix on purpose:
+          # nginx's `try_files ... /app.html` fallback internally
+          # re-matches into `location /`, which masks a broken
+          # `location = /app` block if only the prefix form were tested —
+          # confirmed by hand while building this job. When Slice 3 lands
+          # the marketing page, add its route(s) here too.
+          routes=("/" "/app" "/app/")
+          failed=0
+          for route in "${routes[@]}"; do
+            echo "--- ${route} ---"
+            headers="$(curl -sD - -o /dev/null "http://localhost:8080${route}")"
+            echo "$headers"
+            for h in "${required_headers[@]}"; do
+              if ! grep -qi "^${h}:" <<<"$headers"; then
+                echo "::error::Missing ${h} header on ${route}"
+                failed=1
+              fi
+            done
+          done
+          exit "$failed"
+
+      - name: Dump nginx logs on failure
+        if: failure()
+        run: docker logs frontend-headers-test
+
+      - name: Clean up container
+        if: always()
+        run: docker rm -f frontend-headers-test
+
   # The Claude PR Review guard decides whether a review actually happened; it has
   # silently mis-decided twice (#184 shipped it, PR #229 exposed the hole). Its
   # logic is therefore unit-tested like any other production code path.
