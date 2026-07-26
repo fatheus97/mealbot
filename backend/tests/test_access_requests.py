@@ -183,6 +183,49 @@ class TestOperatorAlert:
             await unauthed_client.post(ENDPOINT, json={"email": f"flood{i}@example.com"})
         assert len(sent) == 1
 
+    async def test_submit_takes_an_advisory_lock_serializing_the_empty_check(
+        self, db_session: AsyncSession
+    ) -> None:
+        """The sequential flood test can't catch the concurrent case.
+
+        There, each request fully commits before the next one reads. Two
+        DIFFERENT new addresses arriving at the same instant on an empty queue
+        would both read "empty" and both alert — unless the read+insert is
+        serialized. True concurrency can't be exercised here (the harness pins
+        every test to ONE connection inside a rolled-back transaction, so a
+        second real session would see none of this data), so assert the
+        mechanism instead: the advisory lock is actually held by this
+        transaction after a submit. That is what makes the check-then-insert
+        safe, and it's the part that would silently regress if removed.
+        """
+        from sqlalchemy import text as sql_text
+
+        from app.services.access_request import _SUBMIT_LOCK_KEY
+
+        held_before = (
+            await db_session.execute(
+                sql_text(
+                    "SELECT count(*) FROM pg_locks "
+                    "WHERE locktype = 'advisory' AND objid = :key"
+                ),
+                {"key": _SUBMIT_LOCK_KEY},
+            )
+        ).scalar_one()
+        assert held_before == 0
+
+        await submit_access_request(db_session, email="lock@example.com", message="")
+
+        held_after = (
+            await db_session.execute(
+                sql_text(
+                    "SELECT count(*) FROM pg_locks "
+                    "WHERE locktype = 'advisory' AND objid = :key"
+                ),
+                {"key": _SUBMIT_LOCK_KEY},
+            )
+        ).scalar_one()
+        assert held_after == 1
+
     async def test_alerts_again_once_the_operator_has_cleared_the_queue(
         self,
         client: AsyncClient,

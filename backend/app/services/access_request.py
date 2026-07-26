@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 PENDING = "pending"
 
+#: Arbitrary but STABLE key for the advisory lock taken in
+#: `submit_access_request`. Advisory locks share one global namespace per
+#: database, so this must not collide with another feature's key — keep it
+#: unique if a second advisory lock is ever introduced.
+_SUBMIT_LOCK_KEY = 8_240_117
+
 
 class SubmitOutcome(NamedTuple):
     """What the caller needs to know without learning anything it can leak."""
@@ -54,6 +60,19 @@ async def submit_access_request(
     race ``register_user`` avoids by leaning on its unique index.
     """
     normalized = normalize_email(email)
+    # Serialize submits for the duration of this transaction.
+    #
+    # Without it, `queue_was_empty` below is a read-before-insert with no lock:
+    # two DIFFERENT new addresses arriving concurrently on an empty queue both
+    # read "empty" and both fire an operator alert. That directly weakens the
+    # bound this whole path exists to provide (see notify_operator), and it
+    # would be inconsistent with the one-pending-per-address invariant right
+    # below, which is a DB constraint precisely because check-then-insert
+    # races. A transaction-scoped advisory lock is the cheap fix here: submits
+    # are rate-limited to a trickle, so serializing them costs nothing real,
+    # and the lock releases automatically on commit OR rollback.
+    await session.execute(select(func.pg_advisory_xact_lock(_SUBMIT_LOCK_KEY)))
+
     existing = (
         await session.execute(
             select(AccessRequest)
