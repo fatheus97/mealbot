@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlannedMeal } from "../../types";
 import { mealTypeLabel } from "../../constants/mealTypes";
@@ -314,6 +314,11 @@ export function CookMode({
   };
 
   const step = meal.steps[current] ?? "";
+  // Tokenizing compiles a large multi-language alternation, and this component
+  // re-renders once a second while a timer counts down. The step text only
+  // changes on navigation, so memoize on it rather than redoing the work 60x
+  // a minute for an identical result.
+  const stepSegments = useMemo(() => tokenizeStepTimers(step), [step]);
   const isLast = current >= total - 1;
   const manualSeconds = Math.round(Number(manualMin) * 60);
   const manualOk = manualSeconds > 0 && manualSeconds <= 6 * 3600;
@@ -381,7 +386,7 @@ export function CookMode({
           style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", overflowY: "auto" }}
         >
           <p style={{ fontSize: "1.6rem", lineHeight: 1.5, maxWidth: "40rem", margin: 0 }}>
-            {tokenizeStepTimers(step).map((seg, i) => {
+            {stepSegments.map((seg, i) => {
               const secs = seg.seconds;
               return secs != null ? (
                 <button key={i} type="button" onClick={() => startTimer(secs)} title="Start a timer" style={inlineTimer}>
