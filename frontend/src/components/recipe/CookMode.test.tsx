@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookMode } from './CookMode';
@@ -320,6 +320,78 @@ describe('CookMode', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // The lock-screen stall: a decrementing counter measures ticks, not elapsed
+  // time. Background tabs are throttled to ~1 tick/minute and a locked phone
+  // suspends them outright, so the old implementation silently stalled. These
+  // simulate that by advancing the CLOCK without letting the interval fire.
+  describe('wall-clock accuracy', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    function armTenMinuteTimer() {
+      renderCookMode();
+      fireEvent.click(screen.getByRole('button', { name: /next/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+    }
+
+    it('reports true elapsed time when the interval is suspended', () => {
+      armTenMinuteTimer();
+      expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+
+      // Phone locks: the clock keeps moving, the interval does not fire.
+      act(() => {
+        vi.setSystemTime(Date.now() + 4 * 60 * 1000);
+      });
+      // Returning to the foreground re-syncs immediately, without waiting a tick.
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      // A tick-counting countdown would still read 10:00 here.
+      expect(screen.getByLabelText(/Timer 6:00 remaining/i)).toBeInTheDocument();
+    });
+
+    it('fires the alarm for a timer that expired while the screen was off', () => {
+      armTenMinuteTimer();
+      act(() => {
+        vi.setSystemTime(Date.now() + 11 * 60 * 1000);
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(screen.getByText(/time's up/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Timer 0:00 remaining/i)).toBeInTheDocument();
+    });
+
+    it('does not count paused time against the timer', () => {
+      armTenMinuteTimer();
+      act(() => {
+        vi.advanceTimersByTime(60 * 1000); // 9:00 left
+      });
+      fireEvent.click(screen.getByRole('button', { name: /^pause$/i }));
+      expect(screen.getByLabelText(/Timer 9:00 remaining/i)).toBeInTheDocument();
+
+      // Five minutes pass while paused — the deadline must be re-projected on
+      // resume, not carried over from before the pause.
+      act(() => {
+        vi.setSystemTime(Date.now() + 5 * 60 * 1000);
+      });
+      expect(screen.getByLabelText(/Timer 9:00 remaining/i)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /^resume$/i }));
+      act(() => {
+        vi.advanceTimersByTime(30 * 1000);
+      });
+      expect(screen.getByLabelText(/Timer 8:30 remaining/i)).toBeInTheDocument();
+    });
+
+    it('never shows a negative remaining time', () => {
+      armTenMinuteTimer();
+      act(() => {
+        vi.setSystemTime(Date.now() + 60 * 60 * 1000); // an hour past the deadline
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(screen.getByLabelText(/Timer 0:00 remaining/i)).toBeInTheDocument();
+    });
   });
 
   it('navigates steps with the arrow keys', () => {
