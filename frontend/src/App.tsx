@@ -15,6 +15,8 @@ import { SubscriptionBanner } from "./components/billing/SubscriptionBanner";
 import { PaywallModal } from "./components/billing/PaywallModal";
 import { BillingReturnHandler } from "./components/billing/BillingReturnHandler";
 import { ResetPasswordModal } from "./components/ResetPasswordModal";
+import { EmailVerificationBanner } from "./components/auth/EmailVerificationBanner";
+import { VerifyEmailHandler } from "./components/auth/VerifyEmailHandler";
 import { InviteRegisterModal } from "./components/InviteRegisterModal";
 import type { MealPlanResponse, MealPlanSummary } from "./types";
 
@@ -74,6 +76,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
         )}
       </div>
       <AuthBar />
+      <EmailVerificationBanner />
       {userId && <SubscriptionBanner />}
       <Fridge />
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
@@ -132,6 +135,13 @@ export default function App() {
         {/* Reset-link landing (`/?reset_token=…`). Renders null unless the
             token is present; global so it works logged in or out. */}
         <ResetPasswordModal />
+        {/* Confirmation-link landing (`/app?verify_token=…`). MUST live here at
+            the root, NOT inside MainLayout: that subtree is keyed by userId, so
+            logging in (or the bootstrap /users call resolving) remounts it — and
+            because the effect strips the token from the URL on its first run, the
+            remount finds nothing, silently discarding the result of a redemption
+            that already burned the single-use token. */}
+        <VerifyEmailHandler />
         {/* Invite-link landing (`/?invite=…`). Same pattern — lets a hand-picked
             beta tester self-register while public registration is closed. */}
         <InviteRegisterModal />

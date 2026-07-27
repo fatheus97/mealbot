@@ -106,6 +106,16 @@ class User(SQLModel, table=True):
     is_active: bool = Field(
         default=True, sa_column_kwargs={"server_default": "true"}, nullable=False
     )
+    # When the user proved control of their address by following the emailed
+    # link. NULL = unverified: they can still log in, but generation and
+    # checkout are gated (see deps.require_verified_email).
+    #
+    # ⚠️ EVERY PRE-EXISTING ACCOUNT IS BACKFILLED TO NOW BY THE MIGRATION.
+    # Verification only makes sense for addresses captured after it shipped;
+    # leaving existing rows NULL would silently lock every current user out of
+    # generation the moment this deploys, for an address they never had a
+    # chance to confirm. New accounts start NULL and must verify.
+    email_verified_at: datetime | None = Field(default=None)
 
     # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
     # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
@@ -252,6 +262,51 @@ class PasswordResetToken(SQLModel, table=True):
         # absent under pytest and the race handling would go untested.
         Index(
             "uq_passwordresettoken_one_live_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("used_at IS NULL"),
+        ),
+    )
+
+
+class EmailVerificationToken(SQLModel, table=True):
+    """One issued "confirm your email address" link.
+
+    Deliberately a near-copy of ``PasswordResetToken``: same sha256-only
+    storage (a leaked DB dump can't be turned into a confirmed address), same
+    single-use ``used_at``, same TTL, and the same one-live-token-per-user
+    partial unique index so a resend can't leave two simultaneously-valid
+    links outstanding. That symmetry is the point — one proven shape for
+    "emailed secret that proves control of an inbox", not two divergent ones.
+
+    ``user_id`` CASCADEs (unlike the invite/audit tables): the token is
+    meaningless without its user and carries no money or ledger record, so it
+    should disappear with the account — same reasoning as
+    ``PasswordResetToken``.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    token_hash: str = Field(
+        sa_column=Column(String(64), unique=True, index=True, nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+    # Indexed standalone for a future retention sweep, mirroring
+    # PasswordResetToken.expires_at.
+    expires_at: datetime = Field(nullable=False, index=True)
+    used_at: datetime | None = Field(default=None)
+
+    __table_args__ = (
+        # Same rationale as uq_passwordresettoken_one_live_per_user: the mint
+        # path is a SELECT-then-INSERT with no lock, so a double-tapped resend
+        # can otherwise produce two live links. Declared here as well as in the
+        # migration because the test schema is built from SQLModel.metadata.
+        Index(
+            "uq_emailverificationtoken_one_live_per_user",
             "user_id",
             unique=True,
             postgresql_where=text("used_at IS NULL"),

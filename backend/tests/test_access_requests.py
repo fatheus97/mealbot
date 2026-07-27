@@ -17,6 +17,17 @@ from app.services.access_request import alert_html, submit_access_request
 ENDPOINT = "/api/access-requests"
 NEUTRAL = "Thanks — we've got your request and will be in touch by email."
 
+# pg_locks is CLUSTER-wide, not per-database. The `database = ...` filter is
+# load-bearing under `pytest -n auto`: each xdist worker gets its own database
+# but they share one Postgres cluster, so without it a sibling worker holding
+# the SAME advisory key makes this count non-deterministic. Observed flaking
+# roughly one run in three before the filter was added.
+_ADVISORY_LOCK_COUNT_SQL = (
+    "SELECT count(*) FROM pg_locks "
+    "WHERE locktype = 'advisory' AND objid = :key "
+    "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
+)
+
 
 async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
     test_user.is_admin = True
@@ -202,29 +213,17 @@ class TestOperatorAlert:
 
         from app.services.access_request import _SUBMIT_LOCK_KEY
 
-        held_before = (
-            await db_session.execute(
-                sql_text(
-                    "SELECT count(*) FROM pg_locks "
-                    "WHERE locktype = 'advisory' AND objid = :key"
-                ),
-                {"key": _SUBMIT_LOCK_KEY},
+        async def locks_held() -> int:
+            return int(
+                (
+                    await db_session.execute(sql_text(_ADVISORY_LOCK_COUNT_SQL),
+                                             {"key": _SUBMIT_LOCK_KEY})
+                ).scalar_one()
             )
-        ).scalar_one()
-        assert held_before == 0
 
+        assert await locks_held() == 0
         await submit_access_request(db_session, email="lock@example.com", message="")
-
-        held_after = (
-            await db_session.execute(
-                sql_text(
-                    "SELECT count(*) FROM pg_locks "
-                    "WHERE locktype = 'advisory' AND objid = :key"
-                ),
-                {"key": _SUBMIT_LOCK_KEY},
-            )
-        ).scalar_one()
-        assert held_after == 1
+        assert await locks_held() == 1
 
     async def test_alerts_again_once_the_operator_has_cleared_the_queue(
         self,

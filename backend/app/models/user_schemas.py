@@ -128,6 +128,13 @@ class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
 
+class VerifyEmailRequest(BaseModel):
+    """Body for POST /auth/verify-email. Bounded like ResetPasswordRequest —
+    the token is a 32-byte urlsafe string, so anything near the cap is junk."""
+
+    token: str = Field(min_length=1, max_length=512)
+
+
 class ResetPasswordRequest(BaseModel):
     """Body for POST /auth/reset-password.
 
@@ -167,6 +174,11 @@ class UserRead(UserBase):
     # Complimentary ("friendlist") access — the SPA hides subscription billing UI
     # for these users (their entitlement comes from comp, not a subscription).
     is_comped: bool = False
+    # Whether the address has been confirmed. Drives the SPA's "confirm your
+    # email" banner and its disabling of generation, exactly as is_subscribed
+    # drives the paywall UI — so the 403 from require_verified_email stays a
+    # backstop rather than the thing the UI has to react to.
+    email_verified: bool = True
 
 
 def user_to_read(
@@ -200,6 +212,9 @@ def user_to_read(
         cancel_at_period_end=u.cancel_at_period_end,
         is_subscribed=is_entitled(u),
         is_comped=u.is_comped,
+        # Demo accounts have a server-generated address with no inbox to
+        # confirm, so they read as verified rather than being nagged.
+        email_verified=u.is_demo or u.email_verified_at is not None,
     )
 
 class UserUpdate(SQLModel):

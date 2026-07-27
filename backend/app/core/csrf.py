@@ -51,6 +51,11 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # requires a secret from that mail, which a cross-origin attacker can't read.
     "/api/auth/forgot-password",
     "/api/auth/reset-password",
+    # Email confirmation is opened from a mail client, often in a different
+    # browser from the one that registered — by definition no CSRF cookie.
+    # Not a meaningful CSRF target either: it requires a secret from that
+    # mail, which a cross-origin attacker cannot read.
+    "/api/auth/verify-email",
     # Stripe posts here server-to-server with no CSRF cookie; it is authenticated
     # by the Stripe-Signature HMAC (verified in the handler), not double-submit.
     "/api/billing/webhook",

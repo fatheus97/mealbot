@@ -280,6 +280,12 @@ export interface AuthLoginResponse {
   is_subscribed: boolean;
   // Complimentary ("friendlist") access — the SPA hides subscription billing UI.
   is_comped: boolean;
+  // Whether the address has been confirmed. Drives the confirm-your-email
+  // banner and the disabled generate controls; the server's 403 on
+  // generation/checkout is only the backstop, exactly as is_subscribed relates
+  // to the 402. Optional so a pre-verification cached payload (or a test mock
+  // without the field) degrades to "verified" rather than nagging wrongly.
+  email_verified?: boolean;
 }
 
 /** Subscription plan the user can pick at checkout. */
@@ -308,6 +314,13 @@ export interface AuthState {
   cancelAtPeriodEnd: boolean;
   isSubscribed: boolean;
   isComped: boolean;
+  // False only once the profile has resolved AND says unconfirmed — defaults
+  // true so a slow /users call never flashes a "confirm your email" nag at
+  // someone who already has.
+  emailVerified: boolean;
+  // Re-send the confirmation link to the caller's own address. Always resolves
+  // (the endpoint is 204 even when already verified or inside the cooldown).
+  resendVerification: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setOnboardingCompleted: (value: boolean) => void;

@@ -247,8 +247,12 @@ export async function scanReceipt(file: File): Promise<ScannedItemsResponse> {
   });
   if (res.status === 402) throw new PaywallError();
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Receipt scan failed: ${res.status} - ${txt}`);
+    // Was a raw `${status} - ${body}` dump, which only ever surfaced on 5xx.
+    // The email-confirmation gate makes 403 a ROUTINE state here, and its
+    // detail ("Please confirm your email address…") is user-facing copy — so
+    // use the same extractor the other gated call sites use rather than
+    // showing the visitor a JSON blob.
+    throw new Error(await extractErrorDetail(res, "Receipt scan failed. Please try again."));
   }
   return res.json();
 }
@@ -492,6 +496,32 @@ export async function revokeInvite(id: number): Promise<InviteListItem> {
   const res = await authFetch(`/admin/invites/${id}/revoke`, { method: "POST" });
   if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not revoke the invite"));
   return res.json();
+}
+
+// --- Email confirmation ---
+
+/**
+ * Redeem a confirmation link. Unauthenticated on purpose — the token IS the
+ * proof, and these links are routinely opened from a phone mail client rather
+ * than the browser that registered. Throws on an invalid/expired/used token so
+ * the caller can offer a resend.
+ */
+export async function verifyEmail(token: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/auth/verify-email`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    throw new Error("This confirmation link is invalid or has expired.");
+  }
+}
+
+/** Re-send the confirmation link to the CURRENT user's own address. */
+export async function resendVerificationEmail(): Promise<void> {
+  const res = await authFetch("/auth/resend-verification", { method: "POST" });
+  if (!res.ok) throw new Error("Could not resend the confirmation email.");
 }
 
 // --- Access requests (admin triage of the public landing form) ---

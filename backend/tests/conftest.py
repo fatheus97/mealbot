@@ -1,5 +1,6 @@
 import os
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -210,6 +211,13 @@ async def test_user(db_session: AsyncSession) -> User:
     user = User(
         email=TEST_EMAIL,
         hashed_password=get_password_hash(TEST_PASSWORD),
+        # Verified by default: this fixture stands in for an ordinary existing
+        # account, which in production is exactly what the email_verify_01
+        # migration backfills. Leaving it NULL would make every generation
+        # test 403 on require_verified_email — the same lockout the backfill
+        # exists to prevent, just in miniature. Tests that care about the
+        # UNVERIFIED state set email_verified_at=None explicitly.
+        email_verified_at=datetime.now(UTC),
     )
     db_session.add(user)
     await db_session.flush()

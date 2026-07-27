@@ -30,6 +30,7 @@ export interface SessionProfile {
   cancel_at_period_end?: boolean;
   is_subscribed?: boolean;
   is_comped?: boolean;
+  email_verified?: boolean;
 }
 
 /** Every key this module owns. Exported so `clearSessionHints` and tests can
@@ -45,6 +46,7 @@ export const SESSION_HINT_KEYS = [
   "mealbot_cancel_at_period_end",
   "mealbot_is_subscribed",
   "mealbot_is_comped",
+  "mealbot_email_verified",
 ] as const;
 
 /** Write `value` when truthy, otherwise remove the key — so a stale hint from
@@ -79,6 +81,12 @@ export function storeSessionHints(profile: SessionProfile, demoFlag: boolean): v
   setOrRemove("mealbot_is_demo", demoFlag ? "true" : null);
   setOrRemove("mealbot_is_admin", profile.is_admin ? "true" : null);
   setOrRemove("mealbot_onboarding", profile.onboarding_completed ? "true" : null);
+  // Stored INVERTED (only the unverified case writes a key) so an absent key
+  // means "verified" — matching the optimistic default in AuthContext. Without
+  // this hint the confirm-your-email banner mounts into flow one round-trip
+  // after first paint and shoves the whole page down for every unverified user
+  // on every load (the recurring CLS bug in .claude/rules/frontend.md).
+  setOrRemove("mealbot_email_verified", profile.email_verified === false ? "false" : null);
 }
 
 /** Drop every hint (logout / account switch). Iterates SESSION_HINT_KEYS so a

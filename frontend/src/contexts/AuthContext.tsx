@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthLoginResponse, AuthState } from "../types";
-import { authFetch, redeemInvite } from "../api.ts";
+import { authFetch, redeemInvite, resendVerificationEmail } from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError } from "./authErrors";
 import { captureAttribution, getStoredAttribution } from "../utils/attribution";
@@ -44,6 +44,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isComped, setIsComped] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_comped") === "true"
   );
+  // Seeded from the hint, defaulting TRUE when absent (unlike the flags above,
+  // which default false). Two reasons: an optimistic default merely delays the
+  // nag by one round-trip whereas a pessimistic one would flash "confirm your
+  // email" at every verified user on every load; and seeding from the hint
+  // means a returning UNVERIFIED user gets the banner on first paint instead of
+  // having it shove the page down a round-trip later (CLS). The hint is only
+  // written for the unverified case — see storeSessionHints.
+  const [emailVerified, setEmailVerified] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_email_verified") !== "false"
+  );
   // null = /config not yet resolved; boolean = resolved value. Using null
   // as the unresolved sentinel lets the UI avoid a flash of the wrong
   // copy (e.g. rendering the "closed alpha" notice for the 50-200ms
@@ -69,6 +79,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCancelAtPeriodEnd(Boolean(profile.cancel_at_period_end));
     setIsSubscribed(Boolean(profile.is_subscribed));
     setIsComped(Boolean(profile.is_comped));
+    // `?? true` so a payload predating this field (or a test mock without it)
+    // reads as verified rather than nagging someone who has nothing to do.
+    setEmailVerified(profile.email_verified ?? true);
     // The landing page's login/register/demo modals write these same hints
     // before handing off to /app — see auth/sessionHints.ts for why that
     // matters (this provider's bootstrap only reconciles when a hint exists).
@@ -86,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCancelAtPeriodEnd(false);
     setIsSubscribed(false);
     setIsComped(false);
+    setEmailVerified(true);
     clearSessionHints();
 
     // Prevent cross-account leakage: drop cached server data and reset
@@ -154,6 +168,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const resendVerification = useCallback(async (): Promise<void> => {
+    await resendVerificationEmail();
   }, []);
 
   const refreshProfile = useCallback(async (): Promise<void> => {
@@ -269,7 +287,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

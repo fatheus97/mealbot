@@ -42,9 +42,15 @@ async def void_outstanding_tokens(
 ) -> None:
     """Mark every unused, unexpired token for this user as used. Caller commits.
 
-    Used both when minting (only the newest link should ever work) and on
-    successful redemption (a second link in the inbox must not still open the
-    account after the password has already been changed).
+    Called on the MINT path only (see create_reset_token), so a resend
+    supersedes the previous link. The docstring previously also claimed "on
+    successful redemption" — it never was, and services/email_verification.py
+    inherited the same wrong claim when it was written as a near-copy of this
+    module. Corrected here too so the next copy doesn't repeat it.
+
+    Redemption doesn't need it: the partial unique index
+    (user_id WHERE used_at IS NULL) already guarantees at most one live token
+    per user, so burning that one leaves nothing to void.
     """
     await session.execute(
         update(PasswordResetToken)

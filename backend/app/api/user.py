@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +26,7 @@ from app.models.user_schemas import (
     UserUpdate,
     user_to_read,
 )
+from app.services import email_verification
 from app.services.invite import find_redeemable_invite
 
 _VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
@@ -60,6 +61,7 @@ def _to_read(u: User) -> UserRead:
 @limiter.limit("5/minute")
 async def register_user(
         request: Request,
+        background: BackgroundTasks,
         session: AsyncSession = Depends(get_session)
 ) -> MessageResponse:
     # Guard runs before body parsing so callers get 403, not a 422 validation error
@@ -101,6 +103,13 @@ async def register_user(
         ) from None
 
     logger.info("user_registered user_id=%s", db_user.id)
+    if db_user.id is not None:
+        # Backgrounded so registration doesn't wait on Resend, and so a mail
+        # failure can't fail a registration that already committed. The user
+        # can always resend from the app.
+        background.add_task(
+            email_verification.dispatch_verification_email, db_user.id
+        )
     return MessageResponse(message="User created successfully. Please log in.")
 
 
@@ -113,6 +122,7 @@ async def register_user(
 @limiter.limit("5/minute")
 async def register_via_invite(
     request: Request,
+    background: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> MessageResponse:
     """Self-register a NEW account from an admin invite token.
@@ -169,6 +179,13 @@ async def register_via_invite(
     await session.commit()
 
     logger.info("invite_redeemed invite_id=%s user_id=%s", invite.id, db_user.id)
+    if db_user.id is not None:
+        # Invitees confirm too. The invite proves an ADMIN vouched for them; it
+        # does not prove the address they typed at redemption is reachable —
+        # they supply that themselves, so a typo is exactly as likely here.
+        background.add_task(
+            email_verification.dispatch_verification_email, db_user.id
+        )
     return MessageResponse(message="Account created. Please log in.")
 
 
