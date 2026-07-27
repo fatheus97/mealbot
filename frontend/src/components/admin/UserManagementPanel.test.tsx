@@ -14,6 +14,7 @@ vi.mock("../../api", () => ({
   createAdminUser: vi.fn(),
   updateAdminUser: vi.fn(),
   resetAdminUserOnboarding: vi.fn(),
+  verifyAdminUserEmail: vi.fn(),
   forceLogoutAdminUser: vi.fn(),
   deleteAdminUser: vi.fn(),
 }));
@@ -31,6 +32,7 @@ function mkUser(overrides: Partial<AdminUser> = {}): AdminUser {
     country: null,
     subscription_status: "none",
     current_period_end: null,
+    email_verified: true,
     ...overrides,
   };
 }
@@ -131,6 +133,81 @@ describe("UserManagementPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Deactivate" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Make admin" })).not.toBeInTheDocument();
+  });
+
+  it("badges an unverified user and offers the verify action only for them", async () => {
+    const stuck = mkUser({ id: 11, email: "stuck@example.com", email_verified: false });
+    const ok = mkUser({ id: 12, email: "fine@example.com", email_verified: true });
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp([stuck, ok]));
+    renderWithProviders(<UserManagementPanel />);
+
+    const stuckRow = (await screen.findByText("stuck@example.com")).closest("tr")!;
+    const okRow = screen.getByText("fine@example.com").closest("tr")!;
+
+    expect(within(stuckRow).getByText("Unverified")).toBeInTheDocument();
+    expect(within(stuckRow).getByRole("button", { name: "Verify email" })).toBeInTheDocument();
+    // A verified user gets neither the badge nor the remediation button.
+    expect(within(okRow).queryByText("Unverified")).not.toBeInTheDocument();
+    expect(within(okRow).queryByRole("button", { name: "Verify email" })).not.toBeInTheDocument();
+  });
+
+  it("never badges a demo account as unverified", async () => {
+    // The server derives email_verified=true for demo accounts (no inbox to
+    // confirm); this pins that the UI doesn't invent a stuck state for them.
+    const demo = mkUser({ id: 13, email: "demo2@example.com", is_demo: true });
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp([demo]));
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("demo2@example.com");
+
+    expect(screen.queryByText("Unverified")).not.toBeInTheDocument();
+  });
+
+  it("force-verifies an email through a confirm dialog", async () => {
+    const u = mkUser({ id: 14, email: "bounced@example.com", email_verified: false });
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp([u]));
+    vi.mocked(api.verifyAdminUserEmail).mockResolvedValue({ ...u, email_verified: true });
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("bounced@example.com");
+
+    await user.click(screen.getByRole("button", { name: "Verify email" }));
+    const dialog = await screen.findByRole("dialog");
+    // Gated behind a confirm because it bypasses the email gate irreversibly.
+    expect(api.verifyAdminUserEmail).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Mark confirmed" }));
+    await waitFor(() => expect(api.verifyAdminUserEmail).toHaveBeenCalledWith(14));
+  });
+
+  it("surfaces a verify failure inside the confirm dialog and keeps it open", async () => {
+    const u = mkUser({ id: 15, email: "oops@example.com", email_verified: false });
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp([u]));
+    vi.mocked(api.verifyAdminUserEmail).mockRejectedValue(
+      new Error("Demo accounts cannot be modified."),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("oops@example.com");
+
+    await user.click(screen.getByRole("button", { name: "Verify email" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Mark confirmed" }));
+
+    expect(await within(dialog).findByText(/cannot be modified/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("filters by unverified email", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("alice@example.com");
+
+    await user.selectOptions(screen.getByLabelText("Filter by status"), "unverified");
+    await waitFor(() =>
+      expect(api.fetchAdminUsers).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "unverified" }),
+      ),
+    );
   });
 
   it("force-logs-out through a confirm dialog", async () => {

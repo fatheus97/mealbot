@@ -5,10 +5,13 @@ reset-onboarding / force-logout. Covers the require_admin gate, the guards
 """
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.api.deps import require_verified_email
 from app.core.security import get_password_hash
 from app.models.db_models import AdminAuditLog, AuthSession, User
 
@@ -293,6 +296,121 @@ class TestResetOnboarding:
         await db_session.refresh(demo)
         assert demo.onboarding_completed is True  # unchanged
         assert await _actions_for(db_session, demo.id) == []  # type: ignore[arg-type]
+
+
+class TestVerifyEmail:
+    """POST /admin/users/{id}/verify-email — the manual remedy for a signup
+    stuck behind the email gate. It bypasses ``require_verified_email``, so the
+    audit row is part of the contract, not a nice-to-have."""
+
+    async def test_non_admin_gets_403(self, client: AsyncClient, test_user: User) -> None:
+        resp = await client.post(f"/api/admin/users/{test_user.id}/verify-email")
+        assert resp.status_code == 403
+
+    async def test_stamps_and_audits(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        target = await _seed(db_session, "stuck@example.com")
+        assert target.email_verified_at is None
+
+        before = datetime.now(UTC)
+        resp = await client.post(f"/api/admin/users/{target.id}/verify-email")
+        assert resp.status_code == 200
+        assert resp.json()["email_verified"] is True
+
+        await db_session.refresh(target)
+        assert target.email_verified_at is not None
+        # Stamped at action time, not backdated to signup.
+        stamped = target.email_verified_at
+        if stamped.tzinfo is None:
+            stamped = stamped.replace(tzinfo=UTC)
+        assert stamped >= before
+        assert _has(await _actions_for(db_session, target.id), "user.verify_email")  # type: ignore[arg-type]
+
+    async def test_audit_row_names_the_actor_and_target(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        # The whole point of auditing a gate bypass is attribution — assert the
+        # row actually carries who did it to whom, not just that a row exists.
+        await _make_admin(db_session, test_user)
+        target = await _seed(db_session, "attrib@example.com")
+        await client.post(f"/api/admin/users/{target.id}/verify-email")
+
+        row = (
+            await db_session.execute(
+                select(AdminAuditLog)
+                .where(AdminAuditLog.target_user_id == target.id)
+                .where(AdminAuditLog.action == "user.verify_email")
+            )
+        ).scalars().one()
+        assert row.actor_user_id == test_user.id
+        assert row.actor_email == test_user.email
+        assert row.target_email == "attrib@example.com"
+        # No detail on purpose: there is exactly one way to reach the audited
+        # branch, so any constant here would be the same on every row and add
+        # nothing the action name doesn't already carry (cf. reset_onboarding).
+        assert row.detail is None
+
+    async def test_idempotent_when_already_verified_no_audit(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        already = datetime.now(UTC) - timedelta(days=3)
+        target = await _seed(db_session, "done@example.com", email_verified_at=already)
+
+        resp = await client.post(f"/api/admin/users/{target.id}/verify-email")
+        assert resp.status_code == 200
+        assert resp.json()["email_verified"] is True
+        await db_session.refresh(target)
+        # The original stamp is preserved — a re-click must not rewrite history.
+        stamped = target.email_verified_at
+        assert stamped is not None
+        if stamped.tzinfo is None:
+            stamped = stamped.replace(tzinfo=UTC)
+        assert abs((stamped - already).total_seconds()) < 1
+        # Nothing was bypassed, so nothing is logged.
+        assert await _actions_for(db_session, target.id) == []  # type: ignore[arg-type]
+
+    async def test_not_found_404(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        assert (
+            await client.post("/api/admin/users/999999/verify-email")
+        ).status_code == 404
+
+    async def test_demo_user_rejected(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        demo = await _seed(db_session, "demo-verify@example.com", is_demo=True)
+        resp = await client.post(f"/api/admin/users/{demo.id}/verify-email")
+        assert resp.status_code == 400
+        await db_session.refresh(demo)
+        assert demo.email_verified_at is None  # unchanged
+        assert await _actions_for(db_session, demo.id) == []  # type: ignore[arg-type]
+
+    async def test_the_action_actually_lifts_the_gate(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        # The point of the whole feature: the stamp must satisfy the dependency
+        # that was 403ing the user. Asserted against require_verified_email
+        # itself rather than through a generation route, so it stays a pure,
+        # LLM-free check of the gate this action exists to unblock.
+        await _make_admin(db_session, test_user)
+        target = await _seed(db_session, "gated@example.com")
+
+        with pytest.raises(HTTPException) as blocked:
+            await require_verified_email(target)
+        assert blocked.value.status_code == 403
+
+        assert (
+            await client.post(f"/api/admin/users/{target.id}/verify-email")
+        ).status_code == 200
+
+        await db_session.refresh(target)
+        assert await require_verified_email(target) is target  # no raise
 
 
 class TestForceLogout:

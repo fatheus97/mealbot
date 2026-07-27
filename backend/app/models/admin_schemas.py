@@ -201,6 +201,15 @@ class AdminUserRead(BaseModel):
     country: str | None
     subscription_status: str
     current_period_end: datetime | None
+    # Whether the address is confirmed — the same derivation ``user_to_read``
+    # uses for ``UserRead.email_verified`` (demo accounts have no inbox to
+    # confirm, so they read as verified rather than as stuck). A bool, not the
+    # raw ``email_verified_at``: the admin needs "is this user gated out of
+    # generation?", and the timestamp would be a second, wider field to keep
+    # this projection honest about. Kept in lockstep with the ``unverified``
+    # value of the list endpoint's ``status`` filter — the filter's SQL must
+    # match this predicate exactly, or the table's badges contradict its filter.
+    email_verified: bool
 
 
 class AdminUserListResponse(BaseModel):

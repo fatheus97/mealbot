@@ -3,6 +3,8 @@
 Covers the require_admin gate, email search (incl. LIKE-wildcard escaping),
 status/role filters, pagination + total, and the safe projection.
 """
+from datetime import UTC, datetime
+
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +67,7 @@ class TestListing:
         assert {
             "id", "email", "created_at", "is_active", "is_admin", "is_demo",
             "is_comped", "onboarding_completed", "subscription_status",
+            "email_verified",
         }.issubset(row.keys())
 
 
@@ -111,6 +114,51 @@ class TestFilters:
         emails = {u["email"] for u in body["users"]}
         assert test_user.email in emails
         assert "disabled2@example.com" not in emails
+
+    async def test_status_unverified_filter(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        await _make_admin(db_session, test_user)  # conftest user is verified
+        await _seed(db_session, "stuck@example.com")  # email_verified_at defaults NULL
+        await _seed(
+            db_session, "confirmed@example.com", email_verified_at=datetime.now(UTC),
+        )
+
+        body = (await client.get("/api/admin/users", params={"status": "unverified"})).json()
+        assert {u["email"] for u in body["users"]} == {"stuck@example.com"}
+        assert body["total"] == 1
+
+    async def test_status_unverified_excludes_demo_accounts(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        # A demo account has a NULL stamp but reads as verified in the projection
+        # (no inbox to confirm). The filter must agree, or the table would show a
+        # row with no "Unverified" badge under the "Unverified email" filter.
+        await _make_admin(db_session, test_user)
+        demo = await _seed(db_session, "demo-unv@example.com", is_demo=True)
+        assert demo.email_verified_at is None
+
+        body = (await client.get("/api/admin/users", params={"status": "unverified"})).json()
+        assert "demo-unv@example.com" not in {u["email"] for u in body["users"]}
+
+    async def test_unverified_filter_agrees_with_the_projected_flag(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
+        # Pins the filter/flag lockstep the schema comment calls out: every row
+        # the filter returns must actually carry email_verified=false.
+        await _make_admin(db_session, test_user)
+        await _seed(db_session, "u1@example.com")
+        await _seed(db_session, "u2@example.com", is_demo=True)
+        await _seed(db_session, "u3@example.com", email_verified_at=datetime.now(UTC))
+
+        body = (await client.get("/api/admin/users", params={"status": "unverified"})).json()
+        assert body["users"], "expected at least one unverified row"
+        assert all(u["email_verified"] is False for u in body["users"])
+
+        # …and the converse: nobody flagged unverified is missing from it.
+        everyone = (await client.get("/api/admin/users")).json()["users"]
+        unflagged = {u["email"] for u in everyone if u["email_verified"] is False}
+        assert unflagged == {u["email"] for u in body["users"]}
 
     async def test_role_admin_filter(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession,

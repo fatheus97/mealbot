@@ -503,6 +503,10 @@ export interface AdminUser {
   country: string | null;
   subscription_status: string;
   current_period_end: string | null;
+  /** Confirmed email address. False ⇒ the user is 403'd out of generation and
+   *  checkout until they follow the link (or an admin force-verifies them).
+   *  Demo accounts always read true — no inbox to confirm. */
+  email_verified: boolean;
 }
 
 export interface AdminUserListResponse {
@@ -512,7 +516,10 @@ export interface AdminUserListResponse {
   users: AdminUser[];
 }
 
-export type AdminUserStatusFilter = "all" | "active" | "disabled";
+/** `unverified` filters on email confirmation, not enablement — orthogonal to
+ *  active/disabled, but sharing the select (same precedent as the role filter,
+ *  whose values are likewise independent booleans). */
+export type AdminUserStatusFilter = "all" | "active" | "disabled" | "unverified";
 export type AdminUserRoleFilter = "all" | "admin" | "demo" | "comped";
 
 /** Partial flag update sent to PATCH /admin/users/{id}. */
