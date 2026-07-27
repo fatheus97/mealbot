@@ -888,9 +888,10 @@ async def verify_user_email(
 
     **This bypasses a security gate** (``deps.require_verified_email``): it
     asserts control of an inbox that was never actually proven, so it is
-    audited as ``user.verify_email`` in the same transaction as the stamp. The
-    detail records the *decision*, not the timestamp — ``AdminAuditLog`` already
-    carries its own ``created_at``.
+    audited as ``user.verify_email`` in the same transaction as the stamp. No
+    ``detail`` — the action name already says everything a row could, since
+    there is exactly one way to reach this call (same shape as
+    reset-onboarding). The actor, target and timestamp come from the row itself.
 
     Idempotent: already-verified is a 200 no-op with no audit row (nothing was
     bypassed), same as reset-onboarding. Demo accounts 400 — their address is
@@ -910,13 +911,7 @@ async def verify_user_email(
         return _to_admin_user_read(target)
 
     target.email_verified_at = datetime.now(UTC)
-    record_admin_action(
-        session,
-        actor=actor,
-        action="user.verify_email",
-        target=target,
-        detail={"forced": "True"},
-    )
+    record_admin_action(session, actor=actor, action="user.verify_email", target=target)
     await session.commit()
     await session.refresh(target)
     return _to_admin_user_read(target)

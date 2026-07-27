@@ -347,6 +347,10 @@ class TestVerifyEmail:
         assert row.actor_user_id == test_user.id
         assert row.actor_email == test_user.email
         assert row.target_email == "attrib@example.com"
+        # No detail on purpose: there is exactly one way to reach the audited
+        # branch, so any constant here would be the same on every row and add
+        # nothing the action name doesn't already carry (cf. reset_onboarding).
+        assert row.detail is None
 
     async def test_idempotent_when_already_verified_no_audit(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession,
