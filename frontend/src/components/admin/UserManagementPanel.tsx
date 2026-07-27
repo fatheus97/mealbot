@@ -9,6 +9,7 @@ import {
   useForceLogoutAdminUser,
   useResetAdminUserOnboarding,
   useUpdateAdminUser,
+  useVerifyAdminUserEmail,
 } from "../../hooks/useServerState";
 import { deleteAdminUser, fetchAdminUsers, updateAdminUser } from "../../api";
 import type { AdminUser, AdminUserRoleFilter, AdminUserStatusFilter } from "../../types";
@@ -71,6 +72,7 @@ export function UserManagementPanel() {
   const updateMut = useUpdateAdminUser();
   const resetMut = useResetAdminUserOnboarding();
   const logoutMut = useForceLogoutAdminUser();
+  const verifyMut = useVerifyAdminUserEmail();
 
   const [banner, setBanner] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
@@ -230,6 +232,19 @@ export function UserManagementPanel() {
     runDirect((cb) => resetMut.mutate(u.id, cb));
   }
 
+  // Force-confirm a stuck signup. Confirmed rather than direct (unlike the
+  // comp/admin GRANT paths, which are one click) because it is irreversible —
+  // there is deliberately no un-verify — and it vouches for an inbox nobody
+  // proved. The copy spells out that the address stays unproven.
+  function verifyEmail(u: AdminUser): void {
+    askConfirm({
+      title: "Mark email as confirmed",
+      message: `Confirm ${u.email} without them clicking the link? This unblocks generation and checkout for an address that has not been proven — only do this if you've verified it another way. It can't be undone, and it's recorded in the audit log.`,
+      confirmLabel: "Mark confirmed",
+      run: (cb) => verifyMut.mutate(u.id, cb),
+    });
+  }
+
   function forceLogout(u: AdminUser): void {
     askConfirm({
       title: "Force log out",
@@ -279,6 +294,10 @@ export function UserManagementPanel() {
             <option value="all">All</option>
             <option value="active">Active</option>
             <option value="disabled">Disabled</option>
+            {/* Not an enablement value — this is the "who is stuck behind the
+                email gate?" lookup. Sharing the select keeps the toolbar at two
+                controls; the server predicate matches the Unverified badge. */}
+            <option value="unverified">Unverified email</option>
           </select>
         </label>
         <label style={filterLabel}>
@@ -423,6 +442,10 @@ export function UserManagementPanel() {
                     <td style={td}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {!u.is_active && <Badge label="Disabled" bg="#fee2e2" fg="#b91c1c" />}
+                        {/* Amber, not red: unverified is a stuck signup to chase,
+                            not a disabled account. Explicit bg+fg (like every
+                            Badge here) so it survives both colour schemes. */}
+                        {!u.email_verified && <Badge label="Unverified" bg="#fef3c7" fg="#92400e" />}
                         {u.is_admin && <Badge label="Admin" bg="#ede9fe" fg="#6d28d9" />}
                         {u.is_comped && <Badge label="Comped" bg="#dbeafe" fg="#1d4ed8" />}
                         {u.is_demo && <Badge label="Demo" bg="#f3f4f6" fg="#4b5563" />}
@@ -450,6 +473,9 @@ export function UserManagementPanel() {
                           <RowButton onClick={() => toggleComp(u)}>
                             {u.is_comped ? "Un-comp" : "Comp"}
                           </RowButton>
+                          {!u.email_verified && (
+                            <RowButton onClick={() => verifyEmail(u)}>Verify email</RowButton>
+                          )}
                           {u.onboarding_completed && (
                             <RowButton onClick={() => resetOnboarding(u)}>Reset onboarding</RowButton>
                           )}

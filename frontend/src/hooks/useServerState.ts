@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, PlannedMeal, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus } from '../types';
-import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, type AdminFeedbackQuery } from '../api';
+import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 
 // --- Queries (Data Fetching) ---
 
@@ -550,6 +550,14 @@ export function useResetAdminUserOnboarding() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => resetAdminUserOnboarding(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  });
+}
+
+export function useVerifyAdminUserEmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => verifyAdminUserEmail(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
   });
 }

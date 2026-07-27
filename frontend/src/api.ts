@@ -463,6 +463,14 @@ export async function resetAdminUserOnboarding(id: number): Promise<AdminUser> {
   return res.json();
 }
 
+/** Force-confirm a stuck user's address (POST /admin/users/{id}/verify-email).
+ *  Server-audited — it bypasses the email-confirmation gate. */
+export async function verifyAdminUserEmail(id: number): Promise<AdminUser> {
+  const res = await authFetch(`/admin/users/${id}/verify-email`, { method: "POST" });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not verify the email"));
+  return res.json();
+}
+
 export async function forceLogoutAdminUser(id: number): Promise<void> {
   const res = await authFetch(`/admin/users/${id}/logout`, { method: "POST" });
   if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not log the user out"));

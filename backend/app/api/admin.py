@@ -572,6 +572,9 @@ def _to_admin_user_read(u: User) -> AdminUserRead:
         country=u.country,
         subscription_status=u.subscription_status,
         current_period_end=u.current_period_end,
+        # Same derivation as user_schemas.user_to_read — demo accounts have a
+        # server-generated address with no inbox, so they are never "stuck".
+        email_verified=u.is_demo or u.email_verified_at is not None,
     )
 
 
@@ -580,7 +583,9 @@ async def list_users(
     q: str | None = Query(
         None, max_length=200, description="case-insensitive email substring"
     ),
-    status_filter: Literal["all", "active", "disabled"] = Query("all", alias="status"),
+    status_filter: Literal["all", "active", "disabled", "unverified"] = Query(
+        "all", alias="status"
+    ),
     role: Literal["all", "admin", "demo", "comped"] = "all",
     limit: int = Query(50, ge=1, le=_MAX_USER_PAGE),
     offset: int = Query(0, ge=0),
@@ -593,6 +598,15 @@ async def list_users(
     filters — not the page size — so the UI can page. Ordered newest-first
     (``created_at`` desc, ``id`` desc as a stable tiebreaker). The projection
     omits the password hash and raw Stripe ids by construction.
+
+    ``status=unverified`` is the odd one out: it filters on email confirmation
+    rather than enablement, so it is orthogonal to active/disabled rather than
+    another value of the same axis. It shares the select anyway — same
+    precedent as ``role``, whose admin/comped/demo values are likewise
+    independent booleans — because the alternative is a third toolbar control
+    for a diagnostic an admin reaches for rarely. Its predicate MUST stay the
+    exact negation of ``AdminUserRead.email_verified`` (hence the is_demo leg),
+    or a row could show the "Unverified" badge yet be missing from this filter.
     """
     filters: list[ColumnElement[bool]] = []
     if q:
@@ -601,6 +615,9 @@ async def list_users(
         filters.append(col(User.is_active).is_(True))
     elif status_filter == "disabled":
         filters.append(col(User.is_active).is_(False))
+    elif status_filter == "unverified":
+        filters.append(col(User.email_verified_at).is_(None))
+        filters.append(col(User.is_demo).is_(False))
     if role == "admin":
         filters.append(col(User.is_admin).is_(True))
     elif role == "demo":
@@ -844,6 +861,62 @@ async def reset_onboarding(
 
     target.onboarding_completed = False
     record_admin_action(session, actor=actor, action="user.reset_onboarding", target=target)
+    await session.commit()
+    await session.refresh(target)
+    return _to_admin_user_read(target)
+
+
+@router.post("/users/{user_id}/verify-email", response_model=AdminUserRead)
+async def verify_user_email(
+    user_id: int,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminUserRead:
+    """Force-confirm a user's email address — the manual remedy for a stuck signup.
+
+    Only self-registered users can get stuck (every operator path — the
+    create_user CLI and POST /admin/users — stamps the address as verified on
+    creation), so this exists for the case where the confirmation mail never
+    landed: a bounce, a typo'd address the user can still prove out-of-band, or
+    a provider outage. Without it the fix is a manual UPDATE against prod.
+
+    A one-way action endpoint rather than a field on ``AdminUserUpdate``,
+    matching reset-onboarding / force-logout. The PATCH body carries symmetric
+    toggles; this is not one. An "unverify" would have no operational use and
+    would be a live footgun — clearing the stamp 403s the user out of
+    generation and checkout with no way back except another admin action.
+
+    **This bypasses a security gate** (``deps.require_verified_email``): it
+    asserts control of an inbox that was never actually proven, so it is
+    audited as ``user.verify_email`` in the same transaction as the stamp. The
+    detail records the *decision*, not the timestamp — ``AdminAuditLog`` already
+    carries its own ``created_at``.
+
+    Idempotent: already-verified is a 200 no-op with no audit row (nothing was
+    bypassed), same as reset-onboarding. Demo accounts 400 — their address is
+    server-generated and already reads as verified.
+    """
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if target.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Demo accounts cannot be modified.",
+        )
+
+    if target.email_verified_at is not None:
+        # Already confirmed — no gate bypassed, so no audit noise.
+        return _to_admin_user_read(target)
+
+    target.email_verified_at = datetime.now(UTC)
+    record_admin_action(
+        session,
+        actor=actor,
+        action="user.verify_email",
+        target=target,
+        detail={"forced": "True"},
+    )
     await session.commit()
     await session.refresh(target)
     return _to_admin_user_read(target)
