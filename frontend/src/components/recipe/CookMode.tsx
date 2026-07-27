@@ -52,7 +52,35 @@ interface WakeLockLike {
   wakeLock?: { request(type: "screen"): Promise<WakeSentinel> };
 }
 
-type Timer = { remaining: number; total: number; running: boolean; finished: boolean };
+// `remaining` is DERIVED, never accumulated. A countdown that decrements a
+// counter on each interval tick measures "how many ticks fired", not "how much
+// time passed" — and background tabs are throttled to ~1 tick/minute while a
+// locked phone suspends them entirely, so a 20-minute timer set down on the
+// counter would silently stall and never ring. `endsAt` is the source of truth
+// (epoch ms); the interval only re-renders, and every tick recomputes from the
+// wall clock. While paused there is no deadline, so `remaining` holds the
+// frozen value and `endsAt` is null.
+type Timer = {
+  remaining: number;
+  total: number;
+  endsAt: number | null;
+  running: boolean;
+  finished: boolean;
+};
+
+// Seconds left until `endsAt`, never negative. Rounds so the first render of an
+// N-second timer reads exactly N (not N-1 from sub-millisecond scheduling lag).
+function secondsUntil(endsAt: number): number {
+  return Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+}
+
+// The write-side counterpart: the deadline `seconds` from now. Both clock reads
+// live at module scope so the component holds no direct `Date.now()` — these are
+// only ever reached from event handlers and effects, never during render, which
+// is also what react-hooks/purity checks for.
+function deadlineIn(seconds: number): number {
+  return Date.now() + seconds * 1000;
+}
 
 const chipBtn: React.CSSProperties = {
   padding: "0.4rem 0.9rem",
@@ -166,18 +194,36 @@ export function CookMode({
     }
   };
 
-  // Countdown: one interval while running; re-armed on pause/resume.
+  // Countdown: the interval exists only to trigger a re-render — the value it
+  // shows is recomputed from `endsAt` every time, so a throttled or entirely
+  // suspended interval costs display smoothness, never accuracy. Re-armed on
+  // pause/resume (the deadline changes) and synced on visibilitychange so
+  // returning from a locked screen corrects instantly instead of on the next
+  // tick, firing the alarm immediately if the timer expired while away.
+  const endsAt = timer?.endsAt ?? null;
+  const isRunning = timer?.running ?? false;
   useEffect(() => {
-    if (!timer?.running) return;
-    const id = window.setInterval(() => {
+    if (!isRunning || endsAt == null) return;
+    const sync = () => {
+      const left = secondsUntil(endsAt);
       setTimer((t) => {
-        if (!t || !t.running) return t;
-        if (t.remaining <= 1) return { ...t, remaining: 0, running: false, finished: true };
-        return { ...t, remaining: t.remaining - 1 };
+        // Ignore a stale tick whose deadline has already been replaced.
+        if (!t || !t.running || t.endsAt !== endsAt) return t;
+        if (left <= 0) return { ...t, remaining: 0, endsAt: null, running: false, finished: true };
+        return t.remaining === left ? t : { ...t, remaining: left };
       });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [timer?.running]);
+    };
+    sync();
+    const id = window.setInterval(sync, 1000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [isRunning, endsAt]);
 
   // Fire the alarm + notification exactly once when a timer finishes.
   useEffect(() => {
@@ -298,7 +344,26 @@ export function CookMode({
     stopAlarm(); // silence a still-ringing previous timer before replacing it
     requestNotify();
     ensureAudio(); // create inside the click gesture so playback is allowed later
-    setTimer({ remaining: seconds, total: seconds, running: true, finished: false });
+    setTimer({
+      remaining: seconds,
+      total: seconds,
+      endsAt: deadlineIn(seconds),
+      running: true,
+      finished: false,
+    });
+  };
+
+  // Pause freezes the seconds left; resume projects a fresh deadline from them,
+  // so paused time is not counted against the timer.
+  const togglePause = () => {
+    setTimer((t) => {
+      if (!t || t.finished) return t;
+      if (t.running) {
+        const left = t.endsAt != null ? secondsUntil(t.endsAt) : t.remaining;
+        return { ...t, remaining: left, endsAt: null, running: false };
+      }
+      return { ...t, endsAt: deadlineIn(t.remaining), running: true };
+    });
   };
 
   const dismissTimer = () => {
@@ -418,7 +483,7 @@ export function CookMode({
                 </>
               ) : (
                 <>
-                  <button type="button" onClick={() => setTimer((t) => (t ? { ...t, running: !t.running } : t))} style={chipBtn}>
+                  <button type="button" onClick={togglePause} style={chipBtn}>
                     {timer.running ? "Pause" : "Resume"}
                   </button>
                   <button type="button" onClick={dismissTimer} style={chipBtn}>
