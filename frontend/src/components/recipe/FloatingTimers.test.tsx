@@ -119,6 +119,59 @@ describe('FloatingTimers', () => {
     expect(screen.queryByRole('button', { name: /^pause$/i })).toBeNull();
   });
 
+  // Timers are app-level and outlive the overlay, but only one CookMode is ever
+  // mounted (MealPlanner keys it off a single `cookingMeal`). So another meal's
+  // timer can show up in this meal's bar — it must say whose it is.
+  it("names another meal's timer inside cook mode's bar", () => {
+    function TwoMeals() {
+      const [which, setWhich] = useState<'a' | 'b'>('a');
+      const [open, setOpen] = useState(true);
+      const meal = { ...sampleMeal(), name: which === 'a' ? 'Tomato Soup' : 'Beef Stew' };
+      return (
+        <CookTimerProvider>
+          {open && (
+            <CookMode
+              meal={meal}
+              storageKey={`cookmode:${which}`}
+              onDone={() => setOpen(false)}
+              onClose={() => setOpen(false)}
+            />
+          )}
+          <button type="button" onClick={() => { setWhich('b'); setOpen(true); }}>
+            cook the stew
+          </button>
+        </CookTimerProvider>
+      );
+    }
+    render(<TwoMeals />);
+    fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cook the stew/i }));
+
+    // The soup's timer is visible in the stew's bar and is attributed to the soup.
+    expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+    expect(screen.getByText('Tomato Soup')).toBeInTheDocument();
+  });
+
+  // Pausing reads the live clock. If the deadline slipped past in the up-to-1s
+  // gap before the next tick, the timer must FINISH, not freeze at 0:00 as a
+  // zombie that is neither running nor finished and so never rings.
+  it('finishes rather than zombifying when paused just past the deadline', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+
+    // Move the clock past the deadline without letting the interval fire, then
+    // hit Pause in that window.
+    act(() => {
+      vi.setSystemTime(Date.now() + 601 * 1000);
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^pause$/i }));
+
+    expect(screen.getByText(/time's up/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^resume$/i })).toBeNull();
+  });
+
   it('survives a lock screen while cook mode is closed', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));

@@ -157,13 +157,16 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
       prev.map((t) => {
         if (t.id !== id || t.finished) return t;
         if (t.running) {
+          const left = t.endsAt != null ? secondsUntil(t.endsAt) : t.remaining;
+          // The deadline can already have passed in the up-to-1s gap before the
+          // next tick would have caught it. Finish it rather than freezing a
+          // 0:00 timer that is neither running nor finished — that zombie never
+          // rings and never shows "Time's up".
+          if (left <= 0) {
+            return { ...t, remaining: 0, endsAt: null, running: false, finished: true };
+          }
           // Freeze the seconds left; drop the deadline so nothing counts down.
-          return {
-            ...t,
-            remaining: t.endsAt != null ? secondsUntil(t.endsAt) : t.remaining,
-            endsAt: null,
-            running: false,
-          };
+          return { ...t, remaining: left, endsAt: null, running: false };
         }
         // Project a FRESH deadline so paused time is not charged to the timer.
         return { ...t, endsAt: deadlineIn(t.remaining), running: true };

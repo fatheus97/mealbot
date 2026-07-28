@@ -300,6 +300,15 @@ export function CookMode({
                 >
                   {formatClock(t.remaining)}
                 </span>
+                {/* Name the timer whenever it isn't this meal's. Timers are
+                    app-level and outlive the overlay, so cooking A, closing with
+                    a timer running, then opening B would otherwise show A's
+                    countdown here unlabelled next to a bare "Cancel". */}
+                {t.label !== meal.name && (
+                  <span style={{ fontSize: "0.85rem", color: "#94a3b8", maxWidth: "12rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {t.label}
+                  </span>
+                )}
                 {t.finished ? (
                   <>
                     <strong style={{ color: "#f87171" }}>⏰ Time's up!</strong>
