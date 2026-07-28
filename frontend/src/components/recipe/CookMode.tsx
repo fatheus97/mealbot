@@ -16,10 +16,6 @@ interface Props {
   doneLabel?: string;
   donePending?: boolean;
   doneError?: string | null; // shown inside the overlay when a cook attempt fails
-  // How to show this overlay again after it's closed. Attached to any timer
-  // started here so the floating bubble doubles as a way back into cooking.
-  // Only the parent knows this, since it owns the open/closed state.
-  onReopen?: () => void;
 }
 
 function readStep(key: string): number {
@@ -84,7 +80,6 @@ export function CookMode({
   doneLabel = "Done cooking",
   donePending = false,
   doneError = null,
-  onReopen,
 }: Props) {
   const isMobile = useIsMobile();
   const total = meal.steps.length;
@@ -196,7 +191,7 @@ export function CookMode({
   // Tapping a duration ADDS a timer rather than replacing the running one —
   // "pasta on, now start the sauce" is the ordinary case. The bound and the
   // alarm both live in the store, which is the only place a timer is created.
-  const startTimer = (seconds: number) => start(seconds, meal.name, onReopen);
+  const startTimer = (seconds: number) => start(seconds, meal.name, storageKey);
 
   const handleDone = () => {
     // Storage is cleared by the parent AFTER the cook mutation succeeds, so a

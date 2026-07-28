@@ -32,19 +32,22 @@ export interface CookTimer {
   running: boolean;
   finished: boolean;
   /**
-   * Reopens the surface this timer was started from, so the bubble is a way
-   * BACK into cooking rather than just a readout. Supplied by that surface,
-   * which is the only thing that knows how to show itself again; cook mode
-   * restores its own step from localStorage, so you land where you left off.
-   * Optional — a timer whose origin is gone is still a perfectly good timer.
+   * Identifies the surface this timer was started from, so the bubble can be a
+   * way BACK into cooking rather than just a readout. Deliberately a KEY and
+   * not a callback: a captured callback is a point-in-time closure that keeps
+   * looking live after its component unmounts (switching away from the Cook Now
+   * tab) or after the meal stops being cookable (marked cooked while the timer
+   * runs) — a button that renders as interactive and silently does nothing.
+   * The handler is looked up in the live registry at click time instead, so it
+   * degrades to plain text exactly when there is genuinely nowhere to go.
    */
-  onReopen?: () => void;
+  reopenKey?: string;
 }
 
 interface CookTimerApi {
   timers: CookTimer[];
   /** Ignores a non-positive or over-cap duration. */
-  start: (seconds: number, label: string, onReopen?: () => void) => void;
+  start: (seconds: number, label: string, reopenKey?: string) => void;
   /** Pause a running timer, or resume a paused one. No-op once finished. */
   toggle: (id: string) => void;
   dismiss: (id: string) => void;
@@ -55,6 +58,13 @@ interface CookTimerApi {
    */
   suppressBubble: () => () => void;
   bubbleVisible: boolean;
+  /**
+   * The live way back for `reopenKey`, or undefined when nothing can currently
+   * show it. Resolved at call time — see `CookTimer.reopenKey`.
+   */
+  getReopen: (reopenKey: string | undefined) => (() => void) | undefined;
+  /** Registers a surface as the way back for `key`; returns the unregister. */
+  registerReopen: (key: string, run: () => void) => () => void;
 }
 
 const CookTimerContext = createContext<CookTimerApi | null>(null);
@@ -129,7 +139,7 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const start = useCallback(
-    (seconds: number, label: string, onReopen?: () => void) => {
+    (seconds: number, label: string, reopenKey?: string) => {
       // Guard here rather than at each call site: this is the only way a timer
       // is ever created, so the cap cannot be bypassed by a new surface.
       if (!(seconds > 0) || seconds > MAX_TIMER_SECONDS) return;
@@ -154,7 +164,7 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
           endsAt: deadlineIn(seconds),
           running: true,
           finished: false,
-          onReopen,
+          reopenKey,
         },
       ]);
     },
@@ -187,6 +197,30 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
     notifiedRef.current.delete(id);
     setTimers((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  // Live reopen registry, held in STATE rather than a ref: a bubble must stop
+  // looking clickable the moment its surface unmounts, which means consumers
+  // have to re-render when the set of targets changes.
+  const [reopeners, setReopeners] = useState<ReadonlyMap<string, () => void>>(new Map());
+
+  const registerReopen = useCallback((key: string, run: () => void) => {
+    setReopeners((prev) => new Map(prev).set(key, run));
+    return () => {
+      setReopeners((prev) => {
+        // Only clear if we're still the owner — a remount can register the same
+        // key before the old instance's cleanup runs.
+        if (prev.get(key) !== run) return prev;
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+    };
+  }, []);
+
+  const getReopen = useCallback(
+    (key: string | undefined) => (key ? reopeners.get(key) : undefined),
+    [reopeners],
+  );
 
   const suppressBubble = useCallback(() => {
     setSuppressCount((c) => c + 1);
@@ -268,8 +302,10 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
       dismiss,
       suppressBubble,
       bubbleVisible: suppressCount === 0 && timers.length > 0,
+      getReopen,
+      registerReopen,
     }),
-    [timers, start, toggle, dismiss, suppressBubble, suppressCount],
+    [timers, start, toggle, dismiss, suppressBubble, suppressCount, getReopen, registerReopen],
   );
 
   return <CookTimerContext.Provider value={value}>{children}</CookTimerContext.Provider>;
@@ -284,6 +320,33 @@ export function useCookTimers(): CookTimerApi {
     throw new Error("useCookTimers must be used inside a CookTimerProvider");
   }
   return ctx;
+}
+
+/**
+ * Registers this component as the way back into `key` while it is mounted AND
+ * `enabled`. Pass the same guard the surface uses for its own "start cooking"
+ * affordance, so the bubble can't route into a meal that is already cooked or
+ * a plan that is finished.
+ *
+ * `run` is read through a ref, so callers may pass an inline arrow without the
+ * registration churning (and looping) on every render.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useReopenTarget(key: string, run: () => void, enabled = true): void {
+  // Tolerates a missing provider, unlike useCookTimers. Offering a way back is
+  // passive: with no provider there are no timers and so nothing that could
+  // route here, and a card rendered in isolation shouldn't have to know about
+  // cooking timers at all.
+  const ctx = useContext(CookTimerContext);
+  const registerReopen = ctx?.registerReopen;
+  const runRef = useRef(run);
+  useEffect(() => {
+    runRef.current = run;
+  });
+  useEffect(() => {
+    if (!enabled || !registerReopen) return;
+    return registerReopen(key, () => runRef.current());
+  }, [key, enabled, registerReopen]);
 }
 
 /** Hides the floating bubble for as long as the calling component is mounted. */

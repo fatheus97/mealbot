@@ -86,7 +86,7 @@ function ReopenTarget({
 }
 
 export function FloatingTimers() {
-  const { timers, bubbleVisible, toggle, dismiss } = useCookTimers();
+  const { timers, bubbleVisible, toggle, dismiss, getReopen } = useCookTimers();
   const isMobile = useIsMobile();
 
   if (!bubbleVisible) return null;
@@ -113,10 +113,12 @@ export function FloatingTimers() {
         <div key={t.id} style={bubble} role="group" aria-label={`Timer for ${t.label}`}>
           {/* The clock + name are one target that takes you back into cooking,
               landing on the step you left (cook mode restores it from
-              localStorage). Falls back to plain text when the surface that
-              started the timer didn't supply a way back. Pause and ✕ stay
-              separate controls so tapping "resume cooking" can't cancel. */}
-          <ReopenTarget onReopen={t.onReopen} label={t.label}>
+              localStorage). The handler is resolved from the LIVE registry on
+              every render, so it degrades to plain text the moment nothing can
+              show that meal — its tab unmounted, or it stopped being cookable.
+              Pause and ✕ stay separate controls so tapping "back to cooking"
+              can't cancel the timer instead. */}
+          <ReopenTarget onReopen={getReopen(t.reopenKey)} label={t.label}>
             <span
               aria-label={`Timer ${formatClock(t.remaining)} remaining`}
               style={{
