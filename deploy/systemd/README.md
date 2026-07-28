@@ -13,12 +13,44 @@ the daemon's build cache / images, so it has no reason to enter a container).
 
 | Timer | Runs | Schedule | Needs env vars? |
 |---|---|---|---|
+| `mealbot-db-backup` | `scripts/db-backup.sh` — nightly `pg_dump` of the live database | daily 02:30 | No (`ALERT_*` only for failure mail) |
 | `mealbot-billing-alerts` | `app.scripts.billing_alerts` — VAT-threshold + monthly filing-reminder emails (#202) | daily 08:00 | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-authsession-cleanup` | `app.scripts.authsession_cleanup` — delete long-expired `authsession` rows so the table doesn't grow unbounded | daily 03:30 | No |
 | `mealbot-docker-cleanup` | `docker builder prune -af` + `docker image prune -af` — cap the ever-growing BuildKit build cache / unused images so the disk doesn't fill | **weekly** Sun 04:30 | No |
 
-The schedules are staggered (Sun 04:30 vs daily 03:30 vs daily 08:00) so they
-never contend for the small Hetzner box at once.
+The schedules are staggered (02:30 vs 03:30 vs Sun 04:30 vs 08:00) so they never
+contend for the small Hetzner box at once. The backup deliberately runs *before*
+the session sweep: if that sweep ever deletes something it shouldn't, the
+night's dump predates it.
+
+## Failure alerting (`mealbot-alert@.service`)
+
+Every job here is `Type=oneshot`, so before this existed a failure went to the
+journal and **nowhere else**. That is the worst possible property for scheduled
+work: a dead `mealbot-billing-alerts` unit is indistinguishable from *"no VAT
+threshold was reached"* — a failure you learn about from the tax authority.
+`Persistent=true` hides it further, because **missed** runs catch up after a
+reboot while **failing** runs stay silent, so the timers look healthier than
+they are.
+
+Each `.service` therefore declares:
+
+```ini
+OnFailure=mealbot-alert@%n.service
+```
+
+`mealbot-alert@.service` is one template for all of them — systemd substitutes
+the failing unit's own name, so a new job gets alerting by adding that single
+line. It emails the operator via the existing Resend path
+(`app.scripts.unit_failure_alert`) and **always exits 0**, including when the
+send fails: it runs *as* the failure handler, so a non-zero exit would only
+manufacture a second failed unit that nothing is watching.
+
+It needs the same `RESEND_API_KEY` / `ALERT_EMAIL_TO` as the billing job. With
+them unset it logs and exits cleanly rather than failing.
+
+> CI (`deploy units`) fails if any `mealbot-*.service` is missing its
+> `OnFailure=` line, so this can't silently regress.
 
 ---
 
@@ -178,6 +210,93 @@ journalctl -u mealbot-docker-cleanup.service -n 40 --no-pager
 Expected output: the two prune commands' summaries, each ending in a
 `Total reclaimed space: …` line. A `docker system df` before/after confirms the
 build-cache figure dropped.
+
+---
+
+## 4. Nightly database backup (`mealbot-db-backup`)
+
+Runs `scripts/db-backup.sh`: one `pg_dump --format=custom` per night into
+`/opt/mealbot/backups`, pruned to the last 14 days.
+
+**What this covers, and what it does not.** The dump lands on the same box and
+the same disk as the database. That covers the losses that actually happen — a
+bad migration, an accidental `DELETE`, a botched admin action — but **not**
+losing the box or the disk.
+
+- Check the **Hetzner console** for VM snapshots. A snapshot is crash-consistent
+  rather than a clean dump, but it is the difference between "lost a day" and
+  "lost everything".
+- An off-box copy (Hetzner Storage Box over sftp/rsync is the cheap fit) is the
+  obvious next step and needs a destination + credentials decision.
+
+The `SaleRecord` VAT/OSS ledger is why this isn't optional: it is deliberately
+`ondelete=SET NULL` so it survives user deletion, you are legally required to
+retain it, and nothing else in the system can reproduce it.
+
+### Install (one-time, on the VPS)
+
+```bash
+sudo mkdir -p /opt/mealbot/backups
+sudo chown deploy:deploy /opt/mealbot/backups
+
+sudo cp /opt/mealbot/deploy/systemd/mealbot-db-backup.service /etc/systemd/system/
+sudo cp /opt/mealbot/deploy/systemd/mealbot-db-backup.timer /etc/systemd/system/
+# the shared failure handler — install once, used by every job:
+sudo cp /opt/mealbot/deploy/systemd/mealbot-alert@.service /etc/systemd/system/
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now mealbot-db-backup.timer
+```
+
+Installing `mealbot-alert@.service` is required for **all four** timers — every
+`.service` now references it via `OnFailure=`. After copying it, re-run
+`daemon-reload` so the existing units pick the handler up.
+
+### Verify
+
+```bash
+# next scheduled run:
+systemctl list-timers mealbot-db-backup.timer
+
+# run it once right now (doesn't wait for 02:30):
+sudo systemctl start mealbot-db-backup.service
+
+# check the result:
+journalctl -u mealbot-db-backup.service -n 20 --no-pager
+ls -lh /opt/mealbot/backups
+```
+
+Expected output: `db-backup: wrote <size> to /opt/mealbot/backups/mealbot-….dump`
+followed by the prune/retention counts.
+
+### Rehearse the restore — do this, or you don't have backups
+
+A dump nobody has ever restored is a guess. `scripts/db-restore.sh` restores
+into a **scratch** database, counts the rows, and drops it again, so the
+rehearsal cannot touch production:
+
+```bash
+cd /opt/mealbot && ./scripts/db-restore.sh
+```
+
+Expected output: `db-restore: restored N user row(s), M salerecord row(s)`
+then `db-restore: scratch database dropped — rehearsal passed`. It exits
+non-zero if the restored database has no users.
+
+> **Real recovery is destructive and is not the default.** Restoring *over* the
+> live database drops and recreates it, losing everything written since the
+> dump. Stop the backend first, then name the target explicitly:
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend
+> TARGET_DB="$POSTGRES_DB" I_UNDERSTAND=yes ./scripts/db-restore.sh backups/mealbot-….dump
+> ```
+
+### Tuning
+
+`BACKUP_DIR` and `BACKUP_RETENTION_DAYS` (default 14) are read from the
+environment. Retention is what stops this job from becoming the thing that
+fills the disk.
 
 ---
 

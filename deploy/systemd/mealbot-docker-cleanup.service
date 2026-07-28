@@ -24,6 +24,9 @@ Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/READ
 # network-online.target.
 Requires=docker.service
 After=docker.service
+# Without this, a failing prune is silent until the disk fills again — the exact
+# 2026-07-21 outage this job exists to prevent.
+OnFailure=mealbot-alert@%n.service
 
 [Service]
 Type=oneshot

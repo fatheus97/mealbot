@@ -231,3 +231,96 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: bash .github/scripts/tests/test-ensure-review-posted.sh
+
+  # Every mealbot job is Type=oneshot, so a failure lands in the journal and
+  # nowhere else unless the unit declares OnFailure=. All three original timers
+  # shipped without one — a dead billing-alerts unit was indistinguishable from
+  # "no VAT threshold reached". This guard makes that regression impossible to
+  # add back silently: a new .service without an alert hook fails CI.
+  deploy-units:
+    name: deploy units
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Every scheduled unit alerts on failure
+        run: |
+          set -uo pipefail
+          failed=0
+          for svc in deploy/systemd/mealbot-*.service; do
+            # The alert template is the handler itself: it is triggered only by
+            # another unit's OnFailure=, and giving it one would loop.
+            if [ "$(basename "$svc")" = "mealbot-alert@.service" ]; then
+              if grep -q '^OnFailure=' "$svc"; then
+                echo "::error::${svc} must NOT declare OnFailure= (it would alert on itself)"
+                failed=1
+              fi
+              continue
+            fi
+            if ! grep -q '^OnFailure=mealbot-alert@%n\.service$' "$svc"; then
+              echo "::error::${svc} is missing 'OnFailure=mealbot-alert@%n.service'"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Scheduled units never run at boot
+        # A [Install] section on the .service would let `systemctl enable` on the
+        # wrong unit run the job at every boot instead of on its schedule.
+        run: |
+          set -uo pipefail
+          failed=0
+          for svc in deploy/systemd/mealbot-*.service; do
+            if grep -q '^\[Install\]' "$svc"; then
+              echo "::error::${svc} must not have an [Install] section — enable the .timer"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Every timer has a service and vice versa
+        run: |
+          set -uo pipefail
+          failed=0
+          for timer in deploy/systemd/mealbot-*.timer; do
+            svc="${timer%.timer}.service"
+            if [ ! -f "$svc" ]; then
+              echo "::error::${timer} has no matching ${svc}"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Backup scripts parse and pass shellcheck
+        run: |
+          set -uo pipefail
+          failed=0
+          for s in scripts/*.sh; do
+            bash -n "$s" || { echo "::error::${s} is not valid bash"; failed=1; }
+          done
+          shellcheck scripts/db-backup.sh scripts/db-restore.sh || failed=1
+          exit "$failed"
+
+      - name: Backup scripts are executable
+        # systemd ExecStart= runs the file directly; a non-executable script
+        # fails at runtime on the box, long after CI was green.
+        run: |
+          set -uo pipefail
+          failed=0
+          for s in scripts/db-backup.sh scripts/db-restore.sh; do
+            if [ ! -x "$s" ]; then
+              echo "::error::${s} is not executable (git update-index --chmod=+x ${s})"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: The backup job never prunes Docker volumes
+        # A volume prune anywhere in the deploy tooling would delete the Postgres
+        # data this whole PR exists to protect.
+        run: |
+          if grep -rn -- '--volumes' deploy/ scripts/; then
+            echo "::error::volume-touching prune found in deploy tooling"
+            exit 1
+          fi

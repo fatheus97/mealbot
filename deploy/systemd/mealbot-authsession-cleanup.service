@@ -18,6 +18,10 @@ Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/READ
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
+# Type=oneshot means a failure otherwise lands in the journal and nowhere else.
+# Persistent=true hides it further: a MISSED run catches up after a reboot while
+# a FAILING run stays quiet, so the timer looks healthier than it is.
+OnFailure=mealbot-alert@%n.service
 
 [Service]
 Type=oneshot
