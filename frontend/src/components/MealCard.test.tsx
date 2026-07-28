@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealCard } from "./MealCard";
+import { CookTimerProvider } from "../contexts/CookTimerContext";
 import type { MealEntrySummary, PlannedMeal } from "../types";
 
 // MealCard is purely presentational — no hooks, no react-query, no auth — so it
@@ -56,7 +57,16 @@ function renderCard(overrides: Partial<React.ComponentProps<typeof MealCard>> = 
     onFavoriteToggle: vi.fn(),
     ...overrides,
   };
-  return { props, ...render(<MealCard {...props} />) };
+  // MealCard renders CookMode when `isCooking`, and cooking timers now live in
+  // an app-level store, so the provider is part of the component's environment.
+  return {
+    props,
+    ...render(
+      <CookTimerProvider>
+        <MealCard {...props} />
+      </CookTimerProvider>,
+    ),
+  };
 }
 
 describe("MealCard", () => {
