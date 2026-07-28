@@ -79,6 +79,19 @@ class TestNeverFails:
         # Resend being down must not turn one failed unit into two.
         assert await ufa.main() == 0
 
+    async def test_exits_zero_when_the_send_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _boom(subject: str, html: str) -> bool:
+            raise RuntimeError("resend client blew up")
+
+        monkeypatch.setattr(ufa, "send_email", _boom)
+        monkeypatch.setattr("sys.argv", ["x", "mealbot-db-backup.service"])
+        # `send_email` returns False on a HANDLED failure, but a DNS error or a
+        # broken client raises — and an unhandled raise here exits non-zero,
+        # which is the one thing a failure handler must never do.
+        assert await ufa.main() == 0
+
 
 class TestEscaping:
     def test_escapes_the_unit_name(self) -> None:

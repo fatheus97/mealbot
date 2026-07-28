@@ -27,14 +27,34 @@
 
 set -euo pipefail
 
-# pg_dump runs inside the db container and its exit status arrives through a
-# pipe; without pipefail a dump that dies mid-stream still exits 0 and we would
-# happily publish a truncated file as a good backup.
+# `set -e` is what catches a failed dump: the pg_dump call is a redirect, not a
+# pipe, so its exit status is the command's own and aborts before the rename.
+# `pipefail` matters only for the piped helpers further down.
 BACKUP_DIR="${BACKUP_DIR:-/opt/mealbot/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 COMPOSE_FILES="${COMPOSE_FILES:--f docker-compose.yml -f docker-compose.prod.yml}"
 
 mkdir -p "$BACKUP_DIR"
+
+# Prune BEFORE dumping, not after. `set -e` means a failed dump aborts the
+# script, so a retention sweep placed at the end never runs on exactly the
+# nights that repeat — and a week of failures would then accumulate old dumps
+# while never writing a new one.
+deleted=$(find "$BACKUP_DIR" -maxdepth 1 -type f \
+  \( -name 'mealbot-*.dump' -o -name 'mealbot-*.dump.partial' \) \
+  -mtime "+$BACKUP_RETENTION_DAYS" -print -delete | wc -l)
+echo "db-backup: pruned $deleted file(s) older than ${BACKUP_RETENTION_DAYS}d"
+
+# Refuse rather than fill the disk Postgres itself lives on — this box has
+# already had one disk-full outage. Failing here fires OnFailure=, so the
+# operator gets mail instead of a wedged database. `|| true` because pipefail is
+# set and an unmatched glob (the very first run) would otherwise abort.
+avail=$(df -Pk "$BACKUP_DIR" | awk 'NR==2{print $4}')
+biggest=$(du -sk "$BACKUP_DIR"/mealbot-*.dump 2>/dev/null | sort -n | tail -1 | cut -f1 || true)
+if [ -n "$biggest" ] && [ "$avail" -lt $((biggest * 3)) ]; then
+  echo "db-backup: FAILED — less than 3x the largest dump free in $BACKUP_DIR" >&2
+  exit 1
+fi
 
 stamp="$(date -u +%Y-%m-%dT%H%M%SZ)"
 final="$BACKUP_DIR/mealbot-$stamp.dump"
@@ -45,7 +65,10 @@ final="$BACKUP_DIR/mealbot-$stamp.dump"
 partial="$final.partial"
 
 cleanup() { rm -f "$partial"; }
-trap cleanup EXIT
+# TERM/INT as well as EXIT: systemd sends SIGTERM on TimeoutStartSec, and bash's
+# default disposition kills the shell WITHOUT running an EXIT trap — which would
+# strand a full-size .partial on the disk until retention swept it 14 days later.
+trap cleanup EXIT TERM INT
 
 echo "db-backup: dumping to $final"
 
@@ -63,9 +86,15 @@ if [ ! -s "$partial" ]; then
   exit 1
 fi
 
-# Verify before publishing. `pg_restore --list` parses the archive's table of
-# contents, so it fails on a truncated or corrupt custom-format file. A backup
-# that has never been read is a guess, not a backup.
+# Verify before publishing. `pg_restore --list` parses the archive header and
+# table of contents, so it rejects a file that is empty, truncated at the FRONT,
+# or not a custom-format archive at all.
+#
+# Its limit, stated honestly: the TOC sits at the front, so a dump truncated at
+# the END still lists clean. This catches the common failure (the dump never
+# really started) and not the rare one (it died three-quarters through). The
+# real end-to-end proof is scripts/db-restore.sh, which restores and counts rows
+# — run it periodically; that is why it exists.
 # shellcheck disable=SC2086
 if ! docker compose $COMPOSE_FILES exec -T db pg_restore --list < "$partial" > /dev/null; then
   echo "db-backup: FAILED — archive did not verify" >&2
@@ -76,13 +105,6 @@ mv "$partial" "$final"
 trap - EXIT
 
 echo "db-backup: wrote $(du -h "$final" | cut -f1) to $final"
-
-# Prune old dumps AND any stale .partial files from previously killed runs.
-# Retention is what keeps this job from being the thing that fills the disk.
-deleted=$(find "$BACKUP_DIR" -maxdepth 1 -type f \
-  \( -name 'mealbot-*.dump' -o -name 'mealbot-*.dump.partial' \) \
-  -mtime "+$BACKUP_RETENTION_DAYS" -print -delete | wc -l)
-echo "db-backup: pruned $deleted file(s) older than ${BACKUP_RETENTION_DAYS}d"
 
 remaining=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mealbot-*.dump' | wc -l)
 echo "db-backup: $remaining dump(s) retained in $BACKUP_DIR"

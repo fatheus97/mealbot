@@ -55,7 +55,17 @@ async def main() -> int:
         print(f"unit_failure_alert: alerts not configured, skipped for {unit}")
         return 0
 
-    sent = await send_email(f"[mealbot] scheduled job failed: {unit}", _html(unit))
+    try:
+        sent = await send_email(f"[mealbot] scheduled job failed: {unit}", _html(unit))
+    except Exception:
+        # `send_email` returns False on a handled failure, but a DNS error or a
+        # broken client can still raise. This IS the failure handler: letting it
+        # propagate would exit non-zero and manufacture a second failed unit that
+        # nothing is watching, so the docstring's "exits 0 on every path" has to
+        # be literally true.
+        logger.exception("unit_failure_alert_send_raised unit=%s", unit)
+        return 0
+
     logger.info("unit_failure_alert unit=%s sent=%s", unit, sent)
     print(f"unit_failure_alert: unit={unit} sent={sent}")
     return 0

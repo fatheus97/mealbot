@@ -239,18 +239,30 @@ retain it, and nothing else in the system can reproduce it.
 sudo mkdir -p /opt/mealbot/backups
 sudo chown deploy:deploy /opt/mealbot/backups
 
-sudo cp /opt/mealbot/deploy/systemd/mealbot-db-backup.service /etc/systemd/system/
-sudo cp /opt/mealbot/deploy/systemd/mealbot-db-backup.timer /etc/systemd/system/
-# the shared failure handler — install once, used by every job:
-sudo cp /opt/mealbot/deploy/systemd/mealbot-alert@.service /etc/systemd/system/
+# Copy ALL units, not just the new ones — the three pre-existing .service files
+# were modified to add OnFailure=, and /etc/systemd/system/ holds independent
+# copies that `scripts/deploy.sh` never touches. Skip this and only the backup
+# job is alerted; billing-alerts stays silent.
+sudo cp /opt/mealbot/deploy/systemd/mealbot-*.service /etc/systemd/system/
+sudo cp /opt/mealbot/deploy/systemd/mealbot-*.timer   /etc/systemd/system/
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now mealbot-db-backup.timer
 ```
 
-Installing `mealbot-alert@.service` is required for **all four** timers — every
-`.service` now references it via `OnFailure=`. After copying it, re-run
-`daemon-reload` so the existing units pick the handler up.
+The wildcard copy also installs `mealbot-alert@.service`, the shared handler all
+four units reference. `daemon-reload` alone is **not** enough — it re-reads the
+*installed* copies, so without the `cp` the existing units keep their old,
+hookless definitions. Verify all four are actually wired:
+
+```bash
+systemctl show -p OnFailure \
+  mealbot-db-backup.service mealbot-billing-alerts.service \
+  mealbot-authsession-cleanup.service mealbot-docker-cleanup.service
+```
+
+Each line must show `OnFailure=mealbot-alert@<that-unit>.service`. An empty
+`OnFailure=` means the box is still running a pre-alerting copy.
 
 ### Verify
 
@@ -289,7 +301,7 @@ non-zero if the restored database has no users.
 >
 > ```bash
 > docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend
-> TARGET_DB="$POSTGRES_DB" I_UNDERSTAND=yes ./scripts/db-restore.sh backups/mealbot-….dump
+> TARGET_DB=live I_UNDERSTAND=yes ./scripts/db-restore.sh backups/mealbot-….dump
 > ```
 
 ### Tuning

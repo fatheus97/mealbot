@@ -319,8 +319,14 @@ jobs:
       - name: The backup job never prunes Docker volumes
         # A volume prune anywhere in the deploy tooling would delete the Postgres
         # data this whole PR exists to protect.
+        #
+        # Restricted to executable lines in executable files. A bare
+        # `grep -rn -- '--volumes' deploy/ scripts/` matches the COMMENTS warning
+        # against volume prunes (mealbot-docker-cleanup.service, README §3) and so
+        # fails on a clean tree — this step was red on the commit that introduced
+        # it. `^[^#]*` skips comment lines; --include skips prose files.
         run: |
-          if grep -rn -- '--volumes' deploy/ scripts/; then
+          if grep -rn --include='*.sh' --include='*.service' -E '^[^#]*--volumes' deploy/ scripts/; then
             echo "::error::volume-touching prune found in deploy tooling"
             exit 1
           fi

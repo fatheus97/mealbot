@@ -24,9 +24,11 @@
 [Unit]
 Description=mealbot failure alert for %i
 Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
-# Needs Docker (it shells out to `docker compose`) and the network (it calls the
-# Resend API). Not Requires=docker.service: if Docker itself is what died, this
-# handler should still be attempted rather than being skipped as unstartable.
+# Needs Docker (its ExecStart is `docker compose run`) and the network (it calls
+# the Resend API). Ordering only, no Requires=: a hard dependency would make this
+# unstartable in edge cases without buying anything, since a handler that runs
+# Docker cannot report a dead Docker anyway — dockerd being down is covered by
+# site-down monitoring, not by this unit.
 After=docker.service network-online.target
 Wants=network-online.target
 
