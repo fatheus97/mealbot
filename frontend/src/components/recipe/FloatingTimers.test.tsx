@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { useState } from 'react';
-import { CookTimerProvider } from '../../contexts/CookTimerContext';
+import { CookTimerProvider, useReopenTarget } from '../../contexts/CookTimerContext';
 import { FloatingTimers } from './FloatingTimers';
 import { CookMode } from './CookMode';
 import type { PlannedMeal } from '../../types';
@@ -12,21 +12,34 @@ function sampleMeal(): PlannedMeal {
     meal_type: 'soup',
     meal_type_label: 'Soup',
     ingredients: [{ name: 'tomato', quantity_grams: 300, is_spice: false }],
-    steps: ['Simmer for 10 minutes'],
+    steps: ['Simmer for 10 minutes', 'Then rest 3 minutes'],
     total_time_minutes: 20,
   };
 }
 
 // Mirrors the real composition: cook mode opens and closes over a page that
 // always has the bubble mounted (App renders both under one provider).
-function Harness() {
+const KEY = 'cookmode:test:0:0';
+
+// Stands in for a surface that can reopen cook mode (MealCard, CookNowForm):
+// it registers itself as the way back for as long as it is mounted and allowed.
+function Reopener({ onReopen, enabled = true }: { onReopen: () => void; enabled?: boolean }) {
+  useReopenTarget(KEY, onReopen, enabled);
+  return null;
+}
+
+function Harness({
+  withReopen = true,
+  reopenerMounted = true,
+}: { withReopen?: boolean; reopenerMounted?: boolean } = {}) {
   const [open, setOpen] = useState(true);
   return (
     <CookTimerProvider>
+      {reopenerMounted && <Reopener onReopen={() => setOpen(true)} enabled={withReopen} />}
       {open && (
         <CookMode
           meal={sampleMeal()}
-          storageKey="cookmode:test:0:0"
+          storageKey={KEY}
           onDone={() => setOpen(false)}
           onClose={() => setOpen(false)}
         />
@@ -170,6 +183,85 @@ describe('FloatingTimers', () => {
 
     expect(screen.getByText(/time's up/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^resume$/i })).toBeNull();
+  });
+
+  // The bubble is a way BACK into cooking, not just a readout.
+  it('reopens cook mode on the step you left, without cancelling the timer', () => {
+    render(<Harness />);
+    // Move to step 2 so the restored step is not the default.
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^3 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+    expect(screen.getByRole('group', { name: /timer for/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /back to cooking Tomato Soup/i }));
+
+    // Cook mode is back, on the step we left, and the timer kept running.
+    expect(screen.getByLabelText('Step 2 of 2')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /timer for/i })).toBeNull();
+    expect(screen.getByLabelText(/Timer 3:00 remaining/i)).toBeInTheDocument();
+  });
+
+  it('renders no back-button when nothing can show that meal', () => {
+    render(<Harness withReopen={false} />);
+    fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+
+    // The bubble still works as a readout with pause/dismiss — it just isn't a
+    // link, rather than being a button that does nothing.
+    expect(screen.getByRole('group', { name: /timer for/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /back to cooking/i })).toBeNull();
+  });
+
+  // A captured callback would still render as a live button here and silently
+  // no-op — the Cook Now tab unmounting is an everyday action, not an edge case.
+  it('stops offering a way back once the originating surface unmounts', () => {
+    function Unmountable() {
+      const [mounted, setMounted] = useState(true);
+      return (
+        <>
+          <Harness reopenerMounted={mounted} />
+          <button type="button" onClick={() => setMounted(false)}>
+            switch tab
+          </button>
+        </>
+      );
+    }
+    render(<Unmountable />);
+    fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+    expect(screen.getByRole('button', { name: /back to cooking/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /switch tab/i }));
+
+    expect(screen.queryByRole('button', { name: /back to cooking/i })).toBeNull();
+    // The timer itself is untouched — only the route back went away.
+    expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+  });
+
+  // The guard can flip while the timer runs (meal marked cooked, plan finished).
+  it('stops offering a way back once the meal is no longer cookable', () => {
+    function Guarded() {
+      const [cookable, setCookable] = useState(true);
+      return (
+        <>
+          <Harness withReopen={cookable} />
+          <button type="button" onClick={() => setCookable(false)}>
+            mark cooked
+          </button>
+        </>
+      );
+    }
+    render(<Guarded />);
+    fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+    expect(screen.getByRole('button', { name: /back to cooking/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /mark cooked/i }));
+
+    expect(screen.queryByRole('button', { name: /back to cooking/i })).toBeNull();
+    expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
   });
 
   it('survives a lock screen while cook mode is closed', () => {

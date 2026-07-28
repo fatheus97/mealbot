@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useReopenTarget } from "../contexts/CookTimerContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import {
   useFridge,
@@ -68,6 +69,11 @@ export function CookNowForm() {
   const [editing, setEditing] = useState(false);
   // Real-time cooking checklist open on the generated recipe.
   const [cooking, setCooking] = useState(false);
+  // Registered only while this form is mounted. It lives behind a tab
+  // (`{effectiveMode === "cook_now" && <CookNowForm />}`), so switching to Plan
+  // Ahead unmounts it — after which the bubble must stop offering a way back
+  // rather than rendering a button whose handler is bound to a dead instance.
+  useReopenTarget(COOKNOW_COOK_KEY, () => setCooking(true), recipe != null);
   // Track the request that produced `recipe` so /recipe/cook gets the same
   // context (server re-validates meal_type match). Resetting the form while
   // a recipe is on screen keeps the old pendingRequest until a new generate.
