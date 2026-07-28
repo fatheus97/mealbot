@@ -181,7 +181,31 @@ const SECOND_RE = new RegExp(SECOND_PART, "iu");
 // Longest plausible hands-on cooking timer. Anything above is a misparse (a
 // marinade "for 24 hours", an oven temperature that happened to collide) and a
 // button that silently arms a multi-hour countdown is worse than no button.
-const MAX_TIMER_SECONDS = 6 * 3600;
+// Also the cap the timer store enforces on manually-entered durations.
+export const MAX_TIMER_SECONDS = 6 * 3600;
+
+// --- Wall-clock helpers (shared by the timer store and every surface) -------
+// Timers are deadline-based, never tick-counted: a countdown that decrements on
+// each interval tick measures "how many ticks fired", not "how much time
+// passed", and background tabs are throttled while a locked phone suspends them
+// entirely. Keeping both clock reads here also keeps the components free of a
+// direct `Date.now()`, which is what react-hooks/purity checks for.
+
+/** Seconds left until `endsAt`, never negative. */
+export function secondsUntil(endsAt: number): number {
+  return Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+}
+
+/** The deadline `seconds` from now, as epoch ms. */
+export function deadlineIn(seconds: number): number {
+  return Date.now() + seconds * 1000;
+}
+
+/** `m:ss` for a countdown display. */
+export function formatClock(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
 
 function firstValue(re: RegExp, text: string): number {
   const m = re.exec(text);

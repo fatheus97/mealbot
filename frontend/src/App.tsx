@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { CookTimerProvider } from "./contexts/CookTimerContext";
+import { FloatingTimers } from "./components/recipe/FloatingTimers";
 import { useIsMobile } from "./hooks/useIsMobile";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AuthBar } from "./components/AuthBar";
@@ -125,6 +127,11 @@ function AuthRoot() {
 export default function App() {
   return (
     <ErrorBoundary>
+      {/* Cooking timers are app-level, NOT owned by the cook-mode modal: closing
+          the overlay to check the fridge must not destroy a running countdown.
+          It also sits OUTSIDE MainLayout for the same reason that subtree is
+          keyed by userId — anything inside it remounts when login resolves. */}
+      <CookTimerProvider>
       <AuthProvider>
         <AuthRoot />
         {/* Global billing surfaces — the paywall opens on any 402, and the
@@ -145,7 +152,12 @@ export default function App() {
         {/* Invite-link landing (`/?invite=…`). Same pattern — lets a hand-picked
             beta tester self-register while public registration is closed. */}
         <InviteRegisterModal />
+        {/* Running cooking timers, reachable from anywhere once cook mode is
+            closed. Renders null while cook mode is open (it shows its own bar)
+            and whenever no timer is running. */}
+        <FloatingTimers />
       </AuthProvider>
+      </CookTimerProvider>
     </ErrorBoundary>
   );
 }

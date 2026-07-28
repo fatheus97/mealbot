@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookMode } from './CookMode';
+import { CookTimerProvider } from '../../contexts/CookTimerContext';
 import { parseDurationSeconds, tokenizeStepTimers, TIME_WORD_TABLES } from './cookMode.utils';
 import { setMobileViewport } from '../../test/test-utils';
 import type { PlannedMeal } from '../../types';
@@ -26,7 +27,9 @@ function renderCookMode(overrides: Record<string, unknown> = {}) {
   const onDone = vi.fn();
   const onClose = vi.fn();
   render(
-    <CookMode meal={sampleMeal()} storageKey={KEY} onDone={onDone} onClose={onClose} {...overrides} />,
+    <CookTimerProvider>
+      <CookMode meal={sampleMeal()} storageKey={KEY} onDone={onDone} onClose={onClose} {...overrides} />
+    </CookTimerProvider>,
   );
   return { onDone, onClose };
 }
@@ -283,7 +286,11 @@ describe('CookMode', () => {
     }
   });
 
-  it('replaces a finished timer (silencing its alarm) when a new one starts', () => {
+  // Semantics deliberately changed: tapping a duration used to REPLACE the
+  // running timer, which made "pasta on, now start the sauce" impossible. It
+  // now adds one, and a finished timer keeps announcing itself until dismissed
+  // rather than being silently discarded by the next tap.
+  it('adds a second timer instead of replacing a finished one', () => {
     vi.useFakeTimers();
     try {
       renderCookMode();
@@ -293,11 +300,46 @@ describe('CookMode', () => {
         vi.advanceTimersByTime(600 * 1000); // run it to completion
       });
       expect(screen.getByText(/time's up/i)).toBeInTheDocument();
-      // Tapping the duration again restarts — the finished state is replaced
-      // (startTimer calls stopAlarm, so the previous alarm can't keep ringing).
+
       fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
-      expect(screen.queryByText(/time's up/i)).toBeNull();
+      // The finished one is still there awaiting acknowledgement...
+      expect(screen.getByText(/time's up/i)).toBeInTheDocument();
+      // ...alongside a freshly armed one.
       expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+      expect(screen.getAllByLabelText(/Timer .* remaining/i)).toHaveLength(2);
+
+      // Dismissing the finished one leaves the running one untouched.
+      fireEvent.click(screen.getByRole('button', { name: /^dismiss$/i }));
+      expect(screen.queryByText(/time's up/i)).toBeNull();
+      expect(screen.getAllByLabelText(/Timer .* remaining/i)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs several timers at once, each with its own controls', () => {
+    vi.useFakeTimers();
+    try {
+      renderCookMode({
+        meal: { ...sampleMeal(), steps: ['Boil 10 minutes then simmer 3 minutes'] },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^3 minutes$/i }));
+      expect(screen.getAllByLabelText(/Timer .* remaining/i)).toHaveLength(2);
+
+      act(() => {
+        vi.advanceTimersByTime(60 * 1000);
+      });
+      // Both counted down independently off the same shared interval.
+      expect(screen.getByLabelText(/Timer 9:00 remaining/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Timer 2:00 remaining/i)).toBeInTheDocument();
+
+      // The shorter one finishing does not disturb the longer one.
+      act(() => {
+        vi.advanceTimersByTime(120 * 1000);
+      });
+      expect(screen.getByText(/time's up/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Timer 7:00 remaining/i)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

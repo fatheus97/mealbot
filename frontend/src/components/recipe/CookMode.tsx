@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlannedMeal } from "../../types";
 import { mealTypeLabel } from "../../constants/mealTypes";
-import { tokenizeStepTimers } from "./cookMode.utils";
+import { formatClock, tokenizeStepTimers } from "./cookMode.utils";
+import { useCookTimers, useSuppressTimerBubble } from "../../contexts/CookTimerContext";
 import { useIsMobile } from "../../hooks/useIsMobile";
 
 interface Props {
@@ -15,11 +16,6 @@ interface Props {
   doneLabel?: string;
   donePending?: boolean;
   doneError?: string | null; // shown inside the overlay when a cook attempt fails
-}
-
-function formatClock(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function readStep(key: string): number {
@@ -50,36 +46,6 @@ interface WakeSentinel {
 
 interface WakeLockLike {
   wakeLock?: { request(type: "screen"): Promise<WakeSentinel> };
-}
-
-// `remaining` is DERIVED, never accumulated. A countdown that decrements a
-// counter on each interval tick measures "how many ticks fired", not "how much
-// time passed" — and background tabs are throttled to ~1 tick/minute while a
-// locked phone suspends them entirely, so a 20-minute timer set down on the
-// counter would silently stall and never ring. `endsAt` is the source of truth
-// (epoch ms); the interval only re-renders, and every tick recomputes from the
-// wall clock. While paused there is no deadline, so `remaining` holds the
-// frozen value and `endsAt` is null.
-type Timer = {
-  remaining: number;
-  total: number;
-  endsAt: number | null;
-  running: boolean;
-  finished: boolean;
-};
-
-// Seconds left until `endsAt`, never negative. Rounds so the first render of an
-// N-second timer reads exactly N (not N-1 from sub-millisecond scheduling lag).
-function secondsUntil(endsAt: number): number {
-  return Math.max(0, Math.round((endsAt - Date.now()) / 1000));
-}
-
-// The write-side counterpart: the deadline `seconds` from now. Both clock reads
-// live at module scope so the component holds no direct `Date.now()` — these are
-// only ever reached from event handlers and effects, never during render, which
-// is also what react-hooks/purity checks for.
-function deadlineIn(seconds: number): number {
-  return Date.now() + seconds * 1000;
 }
 
 const chipBtn: React.CSSProperties = {
@@ -119,120 +85,13 @@ export function CookMode({
   const total = meal.steps.length;
   const [current, setCurrent] = useState<number>(() => Math.min(readStep(storageKey), Math.max(0, total - 1)));
   const [showIngredients, setShowIngredients] = useState(false);
-  const [timer, setTimer] = useState<Timer | null>(null);
   const [manualMin, setManualMin] = useState("");
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const alarmIntervalRef = useRef<number | null>(null);
-
-  const ensureAudio = (): AudioContext | null => {
-    if (audioCtxRef.current) return audioCtxRef.current;
-    const Ctx =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return null;
-    try {
-      audioCtxRef.current = new Ctx();
-    } catch {
-      return null;
-    }
-    return audioCtxRef.current;
-  };
-
-  const beep = () => {
-    const ctx = audioCtxRef.current;
-    if (!ctx) return;
-    try {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.frequency.value = 880;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.26);
-    } catch {
-      // audio failed — the visual "Time's up" banner still shows
-    }
-  };
-
-  const stopAlarm = () => {
-    if (alarmIntervalRef.current != null) {
-      clearInterval(alarmIntervalRef.current);
-      alarmIntervalRef.current = null;
-    }
-  };
-
-  const startAlarm = () => {
-    const ctx = ensureAudio();
-    if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
-    beep();
-    if (alarmIntervalRef.current == null) {
-      alarmIntervalRef.current = window.setInterval(beep, 900);
-    }
-  };
-
-  const notify = (body: string) => {
-    try {
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification("Cooking timer", { body });
-      }
-    } catch {
-      // notification blocked — non-fatal
-    }
-  };
-
-  const requestNotify = () => {
-    try {
-      if (typeof Notification !== "undefined" && Notification.permission === "default") {
-        Notification.requestPermission().catch(() => {});
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  // Countdown: the interval exists only to trigger a re-render — the value it
-  // shows is recomputed from `endsAt` every time, so a throttled or entirely
-  // suspended interval costs display smoothness, never accuracy. Re-armed on
-  // pause/resume (the deadline changes) and synced on visibilitychange so
-  // returning from a locked screen corrects instantly instead of on the next
-  // tick, firing the alarm immediately if the timer expired while away.
-  const endsAt = timer?.endsAt ?? null;
-  const isRunning = timer?.running ?? false;
-  useEffect(() => {
-    if (!isRunning || endsAt == null) return;
-    const sync = () => {
-      const left = secondsUntil(endsAt);
-      setTimer((t) => {
-        // Ignore a stale tick whose deadline has already been replaced.
-        if (!t || !t.running || t.endsAt !== endsAt) return t;
-        if (left <= 0) return { ...t, remaining: 0, endsAt: null, running: false, finished: true };
-        return t.remaining === left ? t : { ...t, remaining: left };
-      });
-    };
-    sync();
-    const id = window.setInterval(sync, 1000);
-    const onVis = () => {
-      if (document.visibilityState === "visible") sync();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [isRunning, endsAt]);
-
-  // Fire the alarm + notification exactly once when a timer finishes.
-  useEffect(() => {
-    if (timer?.finished) {
-      startAlarm();
-      notify(`Timer finished — ${meal.name}`);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timer?.finished]);
+  // Timers live at app level, so one started here survives closing this overlay
+  // to check the fridge — and several can run at once. While cook mode is open
+  // the floating bubble stays hidden, since the bar below shows the same list.
+  const { timers, start, toggle, dismiss } = useCookTimers();
+  useSuppressTimerBubble();
 
   // Keyboard: ← / → move between steps (ignored while typing in a field).
   useEffect(() => {
@@ -296,14 +155,6 @@ export function CookMode({
     };
   }, []);
 
-  // Teardown: stop any alarm and close the audio context on unmount.
-  useEffect(() => {
-    return () => {
-      stopAlarm();
-      audioCtxRef.current?.close().catch(() => {});
-    };
-  }, []);
-
   const move = (delta: number) => {
     setCurrent((c) => {
       const next = Math.max(0, Math.min(total - 1, c + delta));
@@ -337,44 +188,14 @@ export function CookMode({
     touchStartRef.current = null;
   };
 
-  const startTimer = (seconds: number) => {
-    // Same lower + upper bound as auto-detected durations, so a fat-fingered
-    // manual entry can't spawn a multi-day timer.
-    if (!(seconds > 0) || seconds > 6 * 3600) return;
-    stopAlarm(); // silence a still-ringing previous timer before replacing it
-    requestNotify();
-    ensureAudio(); // create inside the click gesture so playback is allowed later
-    setTimer({
-      remaining: seconds,
-      total: seconds,
-      endsAt: deadlineIn(seconds),
-      running: true,
-      finished: false,
-    });
-  };
-
-  // Pause freezes the seconds left; resume projects a fresh deadline from them,
-  // so paused time is not counted against the timer.
-  const togglePause = () => {
-    setTimer((t) => {
-      if (!t || t.finished) return t;
-      if (t.running) {
-        const left = t.endsAt != null ? secondsUntil(t.endsAt) : t.remaining;
-        return { ...t, remaining: left, endsAt: null, running: false };
-      }
-      return { ...t, endsAt: deadlineIn(t.remaining), running: true };
-    });
-  };
-
-  const dismissTimer = () => {
-    stopAlarm();
-    setTimer(null);
-  };
+  // Tapping a duration ADDS a timer rather than replacing the running one —
+  // "pasta on, now start the sauce" is the ordinary case. The bound and the
+  // alarm both live in the store, which is the only place a timer is created.
+  const startTimer = (seconds: number) => start(seconds, meal.name);
 
   const handleDone = () => {
     // Storage is cleared by the parent AFTER the cook mutation succeeds, so a
     // failed cook keeps this overlay + its saved progress intact for a retry.
-    stopAlarm();
     onDone();
   };
 
@@ -464,56 +285,72 @@ export function CookMode({
           </p>
         </div>
 
-        {/* Timer bar (bottom) */}
-        <div style={{ minHeight: "3rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap", margin: "0.5rem 0" }}>
-          {timer ? (
-            <>
-              <span
-                aria-label={`Timer ${formatClock(timer.remaining)} remaining`}
-                style={{ fontSize: "1.9rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: timer.finished ? "#f87171" : "#22c55e" }}
-              >
-                {formatClock(timer.remaining)}
-              </span>
-              {timer.finished ? (
-                <>
-                  <strong style={{ color: "#f87171" }}>⏰ Time's up!</strong>
-                  <button type="button" onClick={dismissTimer} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
-                    Dismiss
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button type="button" onClick={togglePause} style={chipBtn}>
-                    {timer.running ? "Pause" : "Resume"}
-                  </button>
-                  <button type="button" onClick={dismissTimer} style={chipBtn}>
-                    Cancel
-                  </button>
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <span style={{ fontSize: "0.85rem", color: "#64748b" }}>Tap a time in the step, or set one:</span>
-              <input
-                type="number"
-                min={1}
-                value={manualMin}
-                onChange={(e) => setManualMin(e.target.value)}
-                placeholder="min"
-                aria-label="Custom timer minutes"
-                style={{ width: "4.5rem", padding: "0.35rem", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#e2e8f0", userSelect: "text", WebkitUserSelect: "text" }}
-              />
-              <button
-                type="button"
-                onClick={() => startTimer(manualSeconds)}
-                disabled={!manualOk}
-                style={{ ...chipBtn, opacity: manualOk ? 1 : 0.5 }}
-              >
-                Set timer
-              </button>
-            </>
-          )}
+        {/* Timer bar (bottom). Every running timer is listed — a second one is
+            added, never swapped in, so "pasta on, now the sauce" works. The
+            manual row stays available underneath instead of being replaced by
+            the first timer, since that was the only way to add another. */}
+        <div style={{ minHeight: "3rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", margin: "0.5rem 0" }}>
+          {/* Many timers scroll rather than squeezing the step text above. */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", maxHeight: "30vh", overflowY: "auto", width: "100%" }}>
+            {timers.map((t) => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                <span
+                  aria-label={`Timer ${formatClock(t.remaining)} remaining`}
+                  style={{ fontSize: timers.length > 1 ? "1.3rem" : "1.9rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: t.finished ? "#f87171" : "#22c55e" }}
+                >
+                  {formatClock(t.remaining)}
+                </span>
+                {/* Name the timer whenever it isn't this meal's. Timers are
+                    app-level and outlive the overlay, so cooking A, closing with
+                    a timer running, then opening B would otherwise show A's
+                    countdown here unlabelled next to a bare "Cancel". */}
+                {t.label !== meal.name && (
+                  <span style={{ fontSize: "0.85rem", color: "#94a3b8", maxWidth: "12rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {t.label}
+                  </span>
+                )}
+                {t.finished ? (
+                  <>
+                    <strong style={{ color: "#f87171" }}>⏰ Time's up!</strong>
+                    <button type="button" onClick={() => dismiss(t.id)} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
+                      Dismiss
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => toggle(t.id)} style={chipBtn}>
+                      {t.running ? "Pause" : "Resume"}
+                    </button>
+                    <button type="button" onClick={() => dismiss(t.id)} style={chipBtn}>
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
+              {timers.length > 0 ? "Add another:" : "Tap a time in the step, or set one:"}
+            </span>
+            <input
+              type="number"
+              min={1}
+              value={manualMin}
+              onChange={(e) => setManualMin(e.target.value)}
+              placeholder="min"
+              aria-label="Custom timer minutes"
+              style={{ width: "4.5rem", padding: "0.35rem", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#e2e8f0", userSelect: "text", WebkitUserSelect: "text" }}
+            />
+            <button
+              type="button"
+              onClick={() => startTimer(manualSeconds)}
+              disabled={!manualOk}
+              style={{ ...chipBtn, opacity: manualOk ? 1 : 0.5 }}
+            >
+              Set timer
+            </button>
+          </div>
         </div>
 
         {doneError && (
