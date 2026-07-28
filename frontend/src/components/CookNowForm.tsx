@@ -421,6 +421,7 @@ export function CookNowForm() {
               storageKey={COOKNOW_COOK_KEY}
               onDone={handleCook}
               onClose={() => setCooking(false)}
+              onReopen={() => setCooking(true)}
               doneLabel="Mark as cooked"
               donePending={cookMutation.isPending}
               doneError={

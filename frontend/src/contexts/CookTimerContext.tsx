@@ -31,12 +31,20 @@ export interface CookTimer {
   endsAt: number | null;
   running: boolean;
   finished: boolean;
+  /**
+   * Reopens the surface this timer was started from, so the bubble is a way
+   * BACK into cooking rather than just a readout. Supplied by that surface,
+   * which is the only thing that knows how to show itself again; cook mode
+   * restores its own step from localStorage, so you land where you left off.
+   * Optional — a timer whose origin is gone is still a perfectly good timer.
+   */
+  onReopen?: () => void;
 }
 
 interface CookTimerApi {
   timers: CookTimer[];
   /** Ignores a non-positive or over-cap duration. */
-  start: (seconds: number, label: string) => void;
+  start: (seconds: number, label: string, onReopen?: () => void) => void;
   /** Pause a running timer, or resume a paused one. No-op once finished. */
   toggle: (id: string) => void;
   dismiss: (id: string) => void;
@@ -121,7 +129,7 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const start = useCallback(
-    (seconds: number, label: string) => {
+    (seconds: number, label: string, onReopen?: () => void) => {
       // Guard here rather than at each call site: this is the only way a timer
       // is ever created, so the cap cannot be bypassed by a new surface.
       if (!(seconds > 0) || seconds > MAX_TIMER_SECONDS) return;
@@ -146,6 +154,7 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
           endsAt: deadlineIn(seconds),
           running: true,
           finished: false,
+          onReopen,
         },
       ]);
     },

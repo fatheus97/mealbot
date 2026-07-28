@@ -302,6 +302,7 @@ export function MealCard({
           storageKey={cookStorageKey}
           onDone={onFinishCooking}
           onClose={onStopCooking}
+          onReopen={onStartCooking}
           doneLabel="Mark as cooked"
           donePending={cookPending}
           doneError={

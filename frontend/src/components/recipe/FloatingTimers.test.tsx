@@ -12,14 +12,14 @@ function sampleMeal(): PlannedMeal {
     meal_type: 'soup',
     meal_type_label: 'Soup',
     ingredients: [{ name: 'tomato', quantity_grams: 300, is_spice: false }],
-    steps: ['Simmer for 10 minutes'],
+    steps: ['Simmer for 10 minutes', 'Then rest 3 minutes'],
     total_time_minutes: 20,
   };
 }
 
 // Mirrors the real composition: cook mode opens and closes over a page that
 // always has the bubble mounted (App renders both under one provider).
-function Harness() {
+function Harness({ withReopen = true }: { withReopen?: boolean } = {}) {
   const [open, setOpen] = useState(true);
   return (
     <CookTimerProvider>
@@ -29,6 +29,7 @@ function Harness() {
           storageKey="cookmode:test:0:0"
           onDone={() => setOpen(false)}
           onClose={() => setOpen(false)}
+          onReopen={withReopen ? () => setOpen(true) : undefined}
         />
       )}
       <button type="button" onClick={() => setOpen(true)}>
@@ -170,6 +171,35 @@ describe('FloatingTimers', () => {
 
     expect(screen.getByText(/time's up/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^resume$/i })).toBeNull();
+  });
+
+  // The bubble is a way BACK into cooking, not just a readout.
+  it('reopens cook mode on the step you left, without cancelling the timer', () => {
+    render(<Harness />);
+    // Move to step 2 so the restored step is not the default.
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^3 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+    expect(screen.getByRole('group', { name: /timer for/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /back to cooking Tomato Soup/i }));
+
+    // Cook mode is back, on the step we left, and the timer kept running.
+    expect(screen.getByLabelText('Step 2 of 2')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /timer for/i })).toBeNull();
+    expect(screen.getByLabelText(/Timer 3:00 remaining/i)).toBeInTheDocument();
+  });
+
+  it('renders no back-button when the surface supplied no way back', () => {
+    render(<Harness withReopen={false} />);
+    fireEvent.click(screen.getByRole('button', { name: /^10 minutes$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close cooking mode/i }));
+
+    // The bubble still works as a readout with pause/dismiss — it just isn't a
+    // link, rather than being a button that does nothing.
+    expect(screen.getByRole('group', { name: /timer for/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Timer 10:00 remaining/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /back to cooking/i })).toBeNull();
   });
 
   it('survives a lock screen while cook mode is closed', () => {
