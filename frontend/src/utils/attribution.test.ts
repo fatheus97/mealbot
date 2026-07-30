@@ -125,14 +125,18 @@ describe("getStoredAttribution", () => {
     expect(getStoredAttribution().utm_source).toBe("google");
   });
 
-  it("ignores a stale localStorage blob left by the old persisted version", () => {
+  it("removes a stale localStorage blob left by the old persisted version", () => {
     // Browsers of existing visitors still hold `mealbot_attribution` from
-    // before this change. It must be inert, not silently re-adopted.
+    // before this change. It must be inert AND actively cleared — continuing to
+    // hold unnecessary data on someone's device is the thing this change exists
+    // to stop. Asserting only that it isn't READ would pass even if the
+    // removeItem were deleted.
     localStorage.setItem(
       "mealbot_attribution",
       JSON.stringify({ utm_source: "old-persisted-value" }),
     );
     captureAttribution();
     expect(getStoredAttribution()).toEqual({});
+    expect(localStorage.getItem("mealbot_attribution")).toBeNull();
   });
 });

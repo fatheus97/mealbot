@@ -574,8 +574,16 @@ class TestModelChainKeyCheck:
 
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any("fallback provider 'openai'" in r.getMessage() for r in warnings)
-        # Primary is keyed → no ERROR.
-        assert not [r for r in caplog.records if r.levelno == logging.ERROR]
+        # Primary is keyed → no ERROR *about keys*. This chain also trips the
+        # privacy-disclosure tripwire (openai is undisclosed), which is a
+        # deliberate, orthogonal signal — exclude it rather than weakening the
+        # key assertion to "some errors are fine".
+        key_errors = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.ERROR and "UNDISCLOSED" not in r.getMessage()
+        ]
+        assert not key_errors
 
     @patch("app.llm.client.settings")
     def test_single_provider_chain_logs_info_nudge(
@@ -600,7 +608,7 @@ class TestModelChainKeyCheck:
         )
 
     @patch("app.llm.client.settings")
-    def test_fully_wired_multiprovider_is_quiet(
+    def test_fully_wired_multiprovider_logs_no_key_or_resilience_noise(
         self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
     ) -> None:
         mock_settings.model_chain = _chain("gemini/gemini-2.5-flash", "openai/gpt-4o-mini")
@@ -611,7 +619,17 @@ class TestModelChainKeyCheck:
         with caplog.at_level(logging.INFO, logger="app.llm.client"):
             check_model_chain_keys()
 
-        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        # Every key is present and the chain spans two providers, so neither the
+        # key check nor the resilience nudge has anything to say. The disclosure
+        # tripwire DOES fire here (openai is not in DISCLOSED_PROVIDERS) and that
+        # is correct — it is asserted in TestPrivacyDisclosureTripwire, so filter
+        # it out here instead of letting it mask a real key regression.
+        noise = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "UNDISCLOSED" not in r.getMessage()
+        ]
+        assert not noise
         assert not [r for r in caplog.records if "single-provider" in r.getMessage()]
 
     @patch("app.llm.client.settings")
@@ -736,3 +754,83 @@ class TestClientUsageCapture:
         with capture_llm_usage() as bucket:
             await client.chat_json("sys", "usr", SingleDayResponse)
         assert bucket == []
+
+
+class TestPrivacyDisclosureTripwire:
+    """LLM_MODELS must not route user content to a provider the published
+    privacy policy never named.
+
+    Every entry in the chain receives the full generation prompt — declared
+    allergens, diet types (incl. halal/kosher/baby-food), the free-text
+    avoid-list and the user's fridge. frontend/privacy.html tells users that
+    goes to Google and nobody else, so adding a provider silently makes a
+    published legal page false. Nothing else in the system would notice.
+
+    Not hypothetical: `.env.example` shipped `openai/gpt-4o-mini` as a fallback,
+    so "copy the example into prod" was enough to trigger it.
+    """
+
+    @patch("app.llm.client.settings")
+    def test_undisclosed_provider_logs_an_error(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_settings.model_chain = _chain(
+            "gemini/gemini-2.5-flash", "openai/gpt-4o-mini"
+        )
+        mock_settings.gemini_api_key = "real"
+        mock_settings.openai_api_key = "real"
+        mock_settings.deepseek_api_key = None
+
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        # ERROR, not WARNING: a silently-false privacy policy is a regulatory
+        # problem, not untidiness.
+        assert any("UNDISCLOSED provider(s): openai" in r.getMessage() for r in errors)
+
+    @patch("app.llm.client.settings")
+    def test_names_every_undisclosed_provider_not_just_the_first(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_settings.model_chain = _chain(
+            "gemini/gemini-2.5-flash", "deepseek/deepseek-chat", "openai/gpt-4o-mini"
+        )
+        mock_settings.gemini_api_key = "real"
+        mock_settings.openai_api_key = "real"
+        mock_settings.deepseek_api_key = "real"
+
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+
+        msg = " ".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.ERROR
+        )
+        assert "deepseek" in msg and "openai" in msg
+
+    @patch("app.llm.client.settings")
+    def test_all_gemini_chain_is_silent(
+        self, mock_settings: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # The deployed config. It must not cry wolf, or the real signal gets
+        # tuned out.
+        mock_settings.model_chain = _chain(
+            "gemini/gemini-2.5-flash", "gemini/gemini-2.5-flash-lite"
+        )
+        mock_settings.gemini_api_key = "real"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        with caplog.at_level(logging.INFO, logger="app.llm.client"):
+            check_model_chain_keys()
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert not any("UNDISCLOSED" in r.getMessage() for r in errors)
+
+    def test_disclosed_providers_matches_what_the_policy_says(self) -> None:
+        # The set is the code's copy of a public promise. If someone widens it,
+        # they must have edited the policy in the same change — this is the
+        # reminder that the two travel together.
+        from app.llm.client import DISCLOSED_PROVIDERS
+
+        assert frozenset({LLMProvider.GEMINI}) == DISCLOSED_PROVIDERS

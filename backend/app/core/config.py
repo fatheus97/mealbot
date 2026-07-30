@@ -42,6 +42,12 @@ def normalize_optional_key(value: str | None) -> str | None:
 class Settings(BaseSettings):
     # Ordered model fallback chain — "provider/model,provider/model,..."
     # First model is primary; subsequent models are tried on quota errors (429).
+    #
+    # ⚠️ EVERY entry receives the full generation prompt, including declared
+    # allergens and diet types. frontend/privacy.html discloses Google as the
+    # only recipient, so adding a provider here makes that published policy
+    # false — see DISCLOSED_PROVIDERS in app/llm/client.py, which logs an ERROR
+    # at startup if the chain and the policy disagree.
     # Typed as str | list so pydantic-settings passes the raw env string through
     # to our field_validator instead of attempting JSON decode.
     llm_models: str | list[ModelEntry] = [
