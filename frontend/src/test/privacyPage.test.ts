@@ -99,6 +99,29 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
     });
   });
 
+  describe("identifies the controller", () => {
+    it("carries no unfilled placeholders", () => {
+      // The page shipped with [OPERATOR — …] blanks only the operator could
+      // fill. Publishing those to a live legal page would be worse than having
+      // no policy, so this fails loudly if one is ever reintroduced.
+      const placeholders = html.match(/\[OPERATOR[^\]]*\]/g);
+      expect(placeholders).toBeNull();
+    });
+
+    it("names the controller, address and IČO", () => {
+      // Identifying the controller is the one thing a privacy policy cannot
+      // omit — without it the reader has nobody to address a request to.
+      expect(html).toContain("František Bláha");
+      expect(html).toMatch(/IČO\s*22059946/);
+      expect(html).toMatch(/Hradec Králové/);
+      expect(html).toMatch(/mailto:info@trymealbot\.com/);
+    });
+
+    it("states where the servers physically are", () => {
+      expect(html).toMatch(/Nuremberg, Germany/);
+    });
+  });
+
   describe("reachability", () => {
     it("is linked from the landing page footer", () => {
       // An unlinked policy is not a published policy.
