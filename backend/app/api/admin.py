@@ -59,10 +59,7 @@ from app.models.db_models import (
     MachineGeneration,
     MealEntry,
     MealPlan,
-    PantryStaple,
-    PasswordResetToken,
     SaleRecord,
-    StockItem,
     User,
 )
 from app.models.feedback_schemas import (
@@ -82,6 +79,7 @@ from app.services import (
 from app.services.access_request import count_pending, emails_with_accounts
 from app.services.admin_audit import record_admin_action
 from app.services.invite import create_invite, invite_link, invite_status
+from app.services.user_purge import purge_user_owned_rows
 
 logger = logging.getLogger(__name__)
 
@@ -964,8 +962,10 @@ async def delete_user(
       person attached (a deleted user must not erase tax records).
     - Telemetry (**MachineGeneration / LlmUsage / MachineCorrection**) is
       ``ON DELETE CASCADE`` — the DB removes it when the user row goes.
-    - The remaining owned tables have no DB cascade, so we delete them
-      explicitly, **MealEntry before MealPlan** (``MealEntry.meal_plan_id`` FK).
+    - The remaining owned tables have no DB cascade, so we delete them explicitly
+      via ``services.user_purge.purge_user_owned_rows`` — the single list shared
+      with the demo-user sweep, which is where the table order and the
+      what-belongs-here rule are documented.
     - The **AdminAuditLog** row written below has no FK to ``user``, so it
       survives the delete — the permanent record of who deleted whom.
 
@@ -1001,15 +1001,9 @@ async def delete_user(
         detail={"email": target.email},
     )
 
-    # Purge owned rows the DB won't cascade — children before parents.
-    await session.execute(delete(MealEntry).where(col(MealEntry.user_id) == user_id))
-    await session.execute(delete(MealPlan).where(col(MealPlan.user_id) == user_id))
-    await session.execute(delete(StockItem).where(col(StockItem.user_id) == user_id))
-    await session.execute(delete(PantryStaple).where(col(PantryStaple.user_id) == user_id))
-    await session.execute(delete(AuthSession).where(col(AuthSession.user_id) == user_id))
-    await session.execute(
-        delete(PasswordResetToken).where(col(PasswordResetToken.user_id) == user_id)
-    )
+    # Purge owned rows the DB won't cascade — children before parents. Shared with
+    # the demo-user sweep (services.user_purge) so the two lists can't drift.
+    await purge_user_owned_rows(session, [user_id])
     # Deleting the user cascades telemetry (ON DELETE CASCADE) and anonymises
     # SaleRecord + InviteToken (ON DELETE SET NULL) — the ledger and the invite
     # audit trail survive the account.
