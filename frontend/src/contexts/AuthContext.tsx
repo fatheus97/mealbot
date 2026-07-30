@@ -21,6 +21,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [onboardingCompleted, setOnboardingCompletedState] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_onboarding") === "true"
   );
+  // Display preference, mirrored here like the other profile-derived render
+  // hints so a leaf renderer can read it without a react-query subscription.
+  // Defaults false everywhere, so a component rendered outside the provider (or
+  // in a bare unit test) simply shows grams.
+  const [showPieces, setShowPieces] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_show_pieces") === "true"
+  );
   const [isDemo, setIsDemo] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_is_demo") === "true"
   );
@@ -71,6 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsDemo(demoFlag);
     setIsAdmin(Boolean(profile.is_admin));
     setOnboardingCompletedState(profile.onboarding_completed);
+    setShowPieces(Boolean(profile.show_pieces));
+    window.localStorage.setItem("mealbot_show_pieces", String(Boolean(profile.show_pieces)));
     // Billing state (defensive ?? / Boolean so a pre-billing cached payload or a
     // test mock without these fields degrades to "not subscribed", not undefined).
     const subStatus = profile.subscription_status ?? "none";
@@ -94,6 +103,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsDemo(false);
     setIsAdmin(false);
     setOnboardingCompletedState(false);
+    setShowPieces(false);
+    window.localStorage.removeItem("mealbot_show_pieces");
     setSubscriptionStatus("none");
     setCurrentPeriodEnd(null);
     setCancelAtPeriodEnd(false);
@@ -287,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
@@ -300,4 +311,17 @@ export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) throw new Error("useAuth must be used within an AuthProvider");
   return context;
+}
+
+/**
+ * The "show pieces instead of grams" display preference.
+ *
+ * Provider-TOLERANT, unlike useAuth: ingredient lists are leaf renderers that
+ * appear in isolated unit tests and in surfaces mounted outside AuthProvider.
+ * No provider means "preference unknown", which must degrade to grams — always
+ * the correct rendering — rather than throwing.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useShowPieces(): boolean {
+  return useContext(AuthContext)?.showPieces ?? false;
 }
