@@ -77,7 +77,7 @@
                 "name": "Which allergens does it screen for?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "The 14 major allergens EU food-labelling law requires to be declared (Regulation (EU) No 1169/2011): gluten (cereals), crustaceans, eggs, fish, peanuts, soy, milk/dairy, tree nuts, celery, mustard, sesame, sulphites, lupin, and molluscs — plus their common derivatives."
+                  "text": "You can declare all 14 major allergens EU food-labelling law requires (Regulation (EU) No 1169/2011): gluten (cereals), crustaceans, eggs, fish, peanuts, soy, milk/dairy, tree nuts, celery, mustard, sesame, sulphites, lupin, and molluscs. Thirteen of those are then checked by a deterministic screen against the generated ingredients and their common derivatives. Sulphites are the exception: whether they have to be declared depends on the amount left in the finished product, which can't be computed from a recipe, so they are handled by the recipe instructions only and not by that screen."
                 }
               },
               {
@@ -616,8 +616,8 @@
         <p>
           Every generated recipe is checked against your declared allergens and their common derivatives
           before it reaches you. A combination that's unusually difficult — a strict vegan diet plus a
-          tree-nut allergy, say — is flagged with a suggestion to consult a dietitian: guidance, not a
-          medical determination.
+          tree-nut allergy, say — is taken into account when the plan is generated. For a diagnosed
+          condition or allergy, talk to a professional: this is guidance, not a medical determination.
         </p>
         <div class="disclaimer">
           Recipes are screened against your selected allergens and their common derivatives — this is a
@@ -631,7 +631,7 @@
         <p>
           The allergen list follows EU FIC Regulation (EU) No 1169/2011 — the same 14 allergens food labels
           are legally required to declare. Dietary patterns like low-FODMAP, DASH, and Mediterranean are
-          defined the way the Monash University FODMAP program, NHLBI, and EFSA define them, not invented on
+          defined the way the Monash University FODMAP program and NHLBI define them, not invented on
           the fly. This is a foundation the recipes are grounded in, not a substitute for medical or
           dietetic advice.
         </p>
@@ -726,9 +726,13 @@
         <details class="card">
           <summary>Which allergens does it screen for?</summary>
           <div class="answer">
-            The 14 major allergens EU food-labelling law requires to be declared (Regulation (EU) No
+            You can declare all 14 major allergens EU food-labelling law requires (Regulation (EU) No
             1169/2011): gluten (cereals), crustaceans, eggs, fish, peanuts, soy, milk/dairy, tree nuts,
-            celery, mustard, sesame, sulphites, lupin, and molluscs — plus their common derivatives.
+            celery, mustard, sesame, sulphites, lupin, and molluscs. Thirteen of those are then checked
+            by a deterministic screen against the generated ingredients and their common derivatives.
+            Sulphites are the exception: whether they have to be declared depends on the amount left in
+            the finished product, which can't be computed from a recipe, so they are handled by the
+            recipe instructions only and not by that screen.
           </div>
         </details>
         <details class="card">
@@ -825,6 +829,8 @@
         Contact: <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>
         &middot;
         <a href="/privacy">Privacy Policy</a>
+        &middot;
+        <a href="/terms">Terms of Service</a>
       </p>
     </footer>
 

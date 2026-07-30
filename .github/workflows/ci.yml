@@ -199,7 +199,7 @@ jobs:
           # re-matches into `location /`, which masks a broken
           # `location = /app` block if only the prefix form were tested —
           # confirmed by hand while building this job.
-          routes=("/" "/app" "/app/" "/privacy")
+          routes=("/" "/app" "/app/" "/privacy" "/terms")
           failed=0
           for route in "${routes[@]}"; do
             echo "--- ${route} ---"

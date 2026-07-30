@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terms of Service — Mealbot</title>
+    <meta
+      name="description"
+      content="The terms you agree to when using Mealbot: price, billing, fair use, what the allergen screening does and does not do, and how either of us can end the agreement."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#242424" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /* Matched-pair theming, same as index.html / privacy.html: every custom
+         property is reassigned under the light query, so nothing pairs a
+         hardcoded background with the adaptive default text colour. */
+      :root {
+        color-scheme: light dark;
+        --bg: #242424;
+        --fg: rgba(255, 255, 255, 0.87);
+        --muted: rgba(255, 255, 255, 0.65);
+        --card-bg: #1c1c1c;
+        --card-fg: rgba(255, 255, 255, 0.92);
+        --card-border: #3a3a3a;
+        --accent: #5b8def;
+        --note-bg: #2a2415;
+        --note-fg: rgba(255, 255, 255, 0.92);
+        --note-border: #5c4f2a;
+        --warn-bg: #2a1f1f;
+        --warn-fg: rgba(255, 255, 255, 0.92);
+        --warn-border: #5c3a3a;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --fg: #213547;
+          --muted: #64748b;
+          --card-bg: #f8fafc;
+          --card-fg: #1e293b;
+          --card-border: #e2e8f0;
+          --accent: #2563eb;
+          --note-bg: #fffbeb;
+          --note-fg: #713f12;
+          --note-border: #fde68a;
+          --warn-bg: #fef2f2;
+          --warn-fg: #7f1d1d;
+          --warn-border: #fecaca;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.65;
+        font-size: 16px;
+      }
+
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+      h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 0.35rem; }
+      h2 {
+        font-size: 1.25rem;
+        margin: 2.5rem 0 0.75rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--card-border);
+      }
+      h3 { font-size: 1.02rem; margin: 1.5rem 0 0.4rem; }
+      .muted { color: var(--muted); }
+      a { color: var(--accent); }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 4px;
+        padding: 0.05em 0.35em;
+      }
+
+      /* Self-contained surfaces: background AND colour set together. */
+      .note, .warn, .card {
+        border-radius: 8px;
+        padding: 0.9rem 1.1rem;
+        margin: 1.25rem 0;
+        border: 1px solid;
+      }
+      .note { background: var(--note-bg); color: var(--note-fg); border-color: var(--note-border); }
+      .warn { background: var(--warn-bg); color: var(--warn-fg); border-color: var(--warn-border); }
+      .card { background: var(--card-bg); color: var(--card-fg); border-color: var(--card-border); }
+      .note p:last-child, .warn p:last-child, .card p:last-child,
+      .card ul:last-child, .warn ul:last-child { margin-bottom: 0; }
+      .note p:first-child, .warn p:first-child, .card p:first-child { margin-top: 0; }
+
+      /* Wide content scrolls inside its own box; the page never scrolls sideways. */
+      .table-scroll { overflow-x: auto; margin: 1rem 0; }
+      table { border-collapse: collapse; width: 100%; min-width: 460px; font-size: 0.92rem; }
+      th, td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.55rem 0.7rem;
+        border-bottom: 1px solid var(--card-border);
+      }
+      th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+      .back { display: inline-block; margin-bottom: 1.5rem; font-size: 0.9rem; }
+      footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--card-border); }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <a class="back" href="/">&larr; Back to Mealbot</a>
+
+      <h1>Terms of Service</h1>
+      <p class="muted">Last updated: 30 July 2026</p>
+
+      <p>
+        These are the terms you agree to by using Mealbot. They are written to match what the
+        software actually does — including the parts that are limited, which are set out plainly
+        rather than buried.
+      </p>
+
+      <div class="warn">
+        <p>
+          <strong>Read the safety section.</strong> Mealbot screens recipes against allergens you
+          declare, but that screening has real limits — most importantly, it currently only
+          recognises <strong>English</strong> ingredient names, while recipes can be generated in
+          many other languages. It is a helper, never a guarantee, and never a substitute for
+          reading the actual product label.
+        </p>
+      </div>
+
+      <h2>1. Who you are contracting with</h2>
+      <p>
+        Mealbot is operated by <strong>František Bláha</strong>, Jana Černého 489/2b, Věkoše,
+        503 41 Hradec Králové, Czech Republic, IČO 22059946, not registered for VAT
+        (<span lang="cs">neplátce DPH</span>). "We" and "us" mean that person; "you" means you.
+      </p>
+      <p>
+        Contact: <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>. How we handle your
+        data is covered separately in our <a href="/privacy">Privacy Policy</a>.
+      </p>
+
+      <h2>2. What Mealbot is</h2>
+      <p>
+        Mealbot generates meal plans and recipes using an AI model, taking account of dietary
+        patterns and allergens you declare, and helps you manage a shopping list, a fridge
+        inventory and a cookbook.
+      </p>
+      <p>
+        Access is currently <strong>invitation only</strong>. If you were given an invite link, it
+        works once, expires after about 48 hours, and cannot be transferred once used.
+      </p>
+      <p>
+        Demo accounts are a preview, not a service: they last about two hours, their data is then
+        deleted, and <strong>they return fixed example content rather than AI-generated
+        plans</strong>. Nothing in these terms about generation quality or screening applies to a
+        demo account.
+      </p>
+
+      <h2>3. Your account</h2>
+      <p>
+        One account per person. Keep your password to yourself — you are responsible for what
+        happens under your account. You must confirm your email address before you can generate
+        plans or subscribe.
+      </p>
+      <p>
+        You must be at least 16 to use Mealbot. It is not intended for children.
+      </p>
+
+      <h2>4. Price and billing</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Plan</th><th>Price</th></tr></thead>
+          <tbody>
+            <tr><td>Monthly</td><td>€4.99 per month</td></tr>
+            <tr><td>Annual</td><td>€2.99 per month, billed €35.88 once a year</td></tr>
+            <tr><td>Free trial</td><td>10 days</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>Stripe's checkout page always shows the exact, current figure</strong>, and that is
+        the price that applies to your purchase. If anything here ever disagrees with checkout,
+        checkout is right.
+      </p>
+      <p>
+        <strong>Subscriptions renew automatically</strong> at the end of each period until you
+        cancel. Payments are handled by Stripe; we never see or store your card details.
+      </p>
+
+      <h3>The free trial</h3>
+      <p>
+        The trial runs for 10 days and requires a payment method up front. Unless you cancel
+        before it ends, your subscription starts automatically and you are charged.
+      </p>
+      <p>
+        <strong>One free trial per person, and one per payment card.</strong> If you have had a
+        trial before — or the card has already been used for a trial on another account — you will
+        be charged straight away instead of receiving a second free period. Attempting to obtain
+        extra trials with additional email addresses or cards is not permitted.
+      </p>
+
+      <h3>Cancelling</h3>
+      <p>
+        Cancel any time from the billing portal, reachable from your account. You keep access until
+        the end of the period you have already paid for; we do not cut you off mid-period.
+      </p>
+
+      <h3>Refunds and your right to withdraw</h3>
+      <div class="note">
+        <p>
+          Mealbot is a digital service you can use immediately. By starting a subscription you ask
+          us to begin providing it right away and you acknowledge that you therefore
+          <strong>lose the 14-day right of withdrawal</strong> that would otherwise apply to a
+          distance contract.
+        </p>
+        <p>
+          The <strong>10-day free trial is the try-before-you-buy period</strong> — nobody is
+          charged without having had the chance to use Mealbot first. We do not offer refunds for
+          periods already started. This does not affect your statutory rights if the service is
+          faulty or not as described.
+        </p>
+      </div>
+      <p>
+        If something has genuinely gone wrong — a billing error, or the service not working —
+        email us. We would rather fix it than argue about it.
+      </p>
+
+      <h2>5. Fair use and service limits</h2>
+      <p>
+        AI generation costs us money per request, so there is a fair-use ceiling on how much
+        generation one account can do:
+      </p>
+      <div class="card">
+        <ul>
+          <li>
+            <strong>Subscribers:</strong> roughly €2 of model usage per calendar month, resetting
+            on the 1st.
+          </li>
+          <li>
+            <strong>During a free trial:</strong> roughly €0.75 for the whole trial. This does not
+            reset — if you use it up early, generation stops until you subscribe.
+          </li>
+        </ul>
+      </div>
+      <p>
+        These are approximate operational limits, not a metered allowance you are buying, and we
+        may adjust them. Generations that fail or are refused do not count against your allowance.
+        Reading, editing and managing content you already have is never blocked by this limit.
+      </p>
+      <p>There are also some fixed limits on what a single request can ask for:</p>
+      <div class="card">
+        <ul>
+          <li>1–7 days per plan, 1–6 meals per day, 1–10 people</li>
+          <li>Up to 20 declared allergens; up to 500 fridge items; up to 200 pantry staples</li>
+          <li>Receipt uploads: JPEG, PNG or PDF, up to 10&nbsp;MB</li>
+          <li>Short free-text entries — long ones may be shortened or dropped</li>
+        </ul>
+      </div>
+      <p>
+        We also apply per-minute request limits to keep the service responsive. If you hit one,
+        wait a moment and try again.
+      </p>
+      <p class="muted">
+        Note: generating a new plan replaces your previous <em>unconfirmed</em> plan. Plans you
+        have confirmed are kept.
+      </p>
+
+      <h2>6. Acceptable use</h2>
+      <p>Don't:</p>
+      <div class="card">
+        <ul>
+          <li>Share your account, or use someone else's.</li>
+          <li>Create additional accounts, or use extra email addresses or cards, to get around
+              trial limits, fair-use limits or a suspension.</li>
+          <li>Access Mealbot by automated means, scrape it, or resell access to it.</li>
+          <li>Try to manipulate the AI into producing content outside the purpose of the service,
+              or to extract its instructions.</li>
+          <li>Submit content that is unlawful, or that you have no right to submit.</li>
+          <li>Attempt to break, overload, or probe the security of the service.</li>
+        </ul>
+      </div>
+
+      <h2>7. Your content, and ours</h2>
+      <p>
+        <strong>What you write stays yours</strong> — your notes, preferences, fridge contents and
+        edits. You give us permission to store and process it so we can run the service for you.
+      </p>
+      <p>
+        Recipes generated for you are yours to cook, keep, adapt and share. We claim no ownership
+        of them, and we make no claim that AI-generated text is original or that it can be
+        protected by copyright.
+      </p>
+      <div class="note">
+        <p>
+          <strong>Recipes you favourite may help improve suggestions for other users.</strong> When
+          you favourite a recipe, we store a mathematical representation of it that can be used to
+          suggest similar ideas to other people. Nothing identifying you is attached, and it is
+          never shown as "someone else's recipe". Un-favourite a recipe and that representation is
+          removed.
+        </p>
+      </div>
+      <p>
+        We also keep records of what the AI produced and any corrections you make to it, so we can
+        find where it goes wrong and improve it. This is covered in the
+        <a href="/privacy">Privacy Policy</a>.
+      </p>
+      <p>
+        <strong>Feedback:</strong> if you send us a bug report or suggestion, we may act on it
+        freely, with no obligation of confidentiality and no compensation beyond any credit we
+        explicitly offer. Accepted reports may be copied into our private issue tracker. Don't send
+        us anything confidential.
+      </p>
+
+      <h2>8. Allergens, diets and safety</h2>
+      <div class="warn">
+        <p>
+          <strong>Mealbot is a helper, not a guarantee, and not medical or dietary advice.</strong>
+          Always check the actual product labels yourself. For a diagnosed condition or allergy,
+          talk to a doctor or a registered dietitian.
+        </p>
+      </div>
+      <p>
+        When you declare allergens, we do two things: we instruct the AI to avoid them, and then we
+        run a separate, automatic check over the generated ingredients. If that check cannot
+        produce a plan that avoids your allergens, we refuse to show you one rather than showing
+        you something doubtful.
+      </p>
+      <p><strong>What that check cannot do — please read this properly:</strong></p>
+      <div class="card">
+        <ul>
+          <li>
+            <strong>It currently recognises English ingredient names only.</strong> Mealbot can
+            generate recipes in many languages, and when it does, the automatic check will not
+            match the translated ingredient names. In that case you are relying on the AI's own
+            care and on your own label-reading, not on our screening.
+          </li>
+          <li>
+            <strong>Sulphites are not covered by the automatic check.</strong> Whether sulphites
+            must be declared depends on how much remains in the finished product, which cannot be
+            worked out from a recipe. We instruct the AI to avoid them, but there is no
+            deterministic backstop.
+          </li>
+          <li>
+            <strong>It reads ingredient lists, not cooking steps.</strong> Something introduced
+            only in the method — "brush with butter", "serve with bread" — will not be caught.
+          </li>
+          <li>
+            <strong>It does not re-check meals you edit yourself.</strong> If you change a recipe,
+            the result is not screened again.
+          </li>
+          <li>
+            <strong>It cannot know about cross-contamination, "may contain" warnings, or
+            reformulated products.</strong> Only the label in your hand can tell you that.
+          </li>
+          <li>
+            <strong>If you declare no allergens, nothing is screened at all.</strong> Your
+            declaration is stored in your browser, so clearing site data or switching device can
+            reset it — check it is still set before you rely on it.
+          </li>
+        </ul>
+      </div>
+      <p>
+        <strong>Halal and kosher</strong> options bias the recipes toward compliance. They are not
+        certification and involve no verification of sourcing or preparation.
+      </p>
+      <p>
+        <strong>Diets associated with medical conditions</strong> — gluten-free, low-FODMAP,
+        diabetic, keto and similar — are offered as recipe styles. Low-FODMAP in particular is
+        normally a temporary, dietitian-supervised elimination process, not a permanent way of
+        eating. Mealbot does not supervise it and is not a clinical tool.
+      </p>
+      <div class="warn">
+        <p>
+          <strong>Baby food.</strong> The infant option applies general weaning guidance to the
+          recipe instructions — avoiding honey, added salt and sugar, whole nuts, raw egg and
+          obvious choking hazards. It has <strong>no automatic safety check behind it</strong>, the
+          way allergens do. Infant feeding carries real risks including choking and allergy
+          introduction. Use it as inspiration only, and follow your paediatrician or health
+          visitor.
+        </p>
+      </div>
+
+      <h2>9. Availability</h2>
+      <p>
+        Mealbot is provided as-is. We do not promise any particular uptime, and we can change,
+        suspend or remove features. Generation depends on an external AI provider, so an outage
+        there is an outage here. We do not credit or compensate for downtime or failed
+        generations.
+      </p>
+      <p>
+        We take backups, but you should not treat Mealbot as the only copy of anything you care
+        about.
+      </p>
+
+      <h2>10. Liability</h2>
+      <p>
+        To the extent the law allows, we are not liable for indirect or consequential loss, for
+        lost data, or for decisions you make based on generated content — including food choices.
+        Where we are liable, that liability is limited to what you paid us in the 12 months before
+        the claim.
+      </p>
+      <p>
+        Nothing here limits liability that cannot legally be limited — including for death or
+        personal injury caused by negligence, or for fraud. If you are a consumer, your mandatory
+        statutory rights under the law of your country of residence are unaffected by these terms.
+      </p>
+
+      <h2>11. Ending the agreement</h2>
+      <p>
+        You can stop using Mealbot at any time, and cancel your subscription from the billing
+        portal. Ask us and we will delete your account — see the
+        <a href="/privacy">Privacy Policy</a> for what deletion does and does not remove.
+      </p>
+      <p>
+        We may suspend or close an account that breaches these terms, and we may withdraw the
+        service. If we close your account without you having breached anything, and you have paid
+        for a period you can no longer use, we will refund the unused part.
+      </p>
+
+      <h2>12. Changes to these terms</h2>
+      <p>
+        We may update these terms. The date at the top changes when we do. If a change materially
+        affects your rights, we will email you before it takes effect, and continuing to use
+        Mealbot after that means you accept it. If you don't, cancel — that is the remedy.
+      </p>
+
+      <h2>13. Law and disputes</h2>
+      <p>
+        Czech law governs these terms. If you are a consumer in the EU, you keep the protection of
+        the mandatory rules of your own country and can bring proceedings there.
+      </p>
+      <p>
+        Talk to us first — <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> — most
+        things are solvable that way. Czech consumers may also approach the Czech Trade Inspection
+        Authority (<a href="https://www.coi.cz" rel="noopener">ČOI</a>) for out-of-court
+        resolution.
+      </p>
+
+      <footer>
+        <p class="muted" style="font-size: 0.85rem;">
+          Questions? <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> &middot;
+          <a href="/privacy">Privacy Policy</a> &middot;
+          <a href="/">Back to Mealbot</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
