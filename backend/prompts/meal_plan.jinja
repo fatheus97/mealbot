@@ -19,7 +19,7 @@ User context:
 — Country: {{ country or "not specified" }}
 — Recipe style preference: {{ variability or "traditional" }}
 — Include spices/seasonings in shopping list: {{ "yes" if include_spices else "no" }}
-— Measurement preference (steps only): {{ measurement_system or "metric" }}
+— Measurement preference (steps only): {% if measurement_system == "none" %}no preference — use what is normal for the language/country above{% else %}{{ measurement_system or "metric" }}{% endif %}
 — URGENT ingredients (need_to_use=true) - these are at risk of going to waste soon:
 {% set urgent_ings = (stock_items | selectattr("need_to_use", "equalto", True) | list) if stock_items else [] %}
 <user_content type="urgent_stock">
@@ -152,8 +152,10 @@ Other rules:
 {% endif %}
 — All ingredient amounts in grams as numeric "quantity_grams". No units in name or quantity.
 — For an ingredient people buy and count as WHOLE UNITS (eggs, onions, lemons, garlic cloves, potatoes, carrots, bananas, chicken breasts, bread slices), ALSO give "canonical_name": the lowercase SINGULAR ENGLISH name of that item ("egg", "onion", "lemon"), no matter which language everything else is written in. It is an internal lookup key and is never shown to the user. OMIT it for anything not counted in whole units — flour, milk, rice, oil, minced meat, grated cheese, spices. Never put a count in it; "quantity_grams" stays the amount.
-— Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
-— Write every step to be SELF-CONTAINED: the first time an ingredient is used, state its amount INLINE in the step text (e.g. "Add 200 g flour and 2 eggs and whisk", "Stir in 1 tsp paprika") so the cook never has to look back at the ingredient list. Use the {{ measurement_system }} system for these inline amounts{% if not include_spices %} (spoons/splashes for is_spice items per the rule above){% endif %}; the structured "ingredients" quantities stay in grams.
+{% if measurement_system == "none" %}— Use whichever units are natural for the language and country above in "steps". Keep using grams in "ingredients".
+{% else %}— Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
+{% endif %}
+— Write every step to be SELF-CONTAINED: the first time an ingredient is used, state its amount INLINE in the step text (e.g. "Add 200 g flour and 2 eggs and whisk", "Stir in 1 tsp paprika") so the cook never has to look back at the ingredient list. Use {% if measurement_system == "none" %}units natural for that language/country{% else %}the {{ measurement_system }} system{% endif %} for these inline amounts{% if not include_spices %} (spoons/splashes for is_spice items per the rule above){% endif %}; the structured "ingredients" quantities stay in grams.
 — When a step involves cooking, simmering, baking, chilling, or resting for a set time, phrase the duration explicitly as a whole number followed by "minute"/"minutes" (e.g. "simmer for 10 minutes", "bake 25 minutes", "rest 5 minutes") so it can be timed.
 — "total_time_minutes" is an integer: the total time from starting prep to finishing cooking, including prep, active cooking, and any resting/baking/marinating time. Give a realistic estimate for a home cook; must be between 1 and 600.
 
