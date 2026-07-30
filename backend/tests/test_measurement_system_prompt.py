@@ -6,10 +6,15 @@ Exposing it in Settings makes it reachable, and the templates interpolated it
 raw: "Use none measurement system in steps" is an instruction the model cannot
 follow. These pin the wording for each value so that can't come back.
 """
+from pathlib import Path
+
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
-_env = Environment(loader=FileSystemLoader("prompts"))
+# Resolved from this file, not the cwd, so the test works from any invocation —
+# matching test_meal_planner_prompt.py. A bare "prompts" only resolves when
+# pytest happens to run from backend/.
+_env = Environment(loader=FileSystemLoader(Path(__file__).resolve().parents[1] / "prompts"))
 
 TEMPLATES = ["meal_plan.jinja", "meal_plan_partial.jinja"]
 
