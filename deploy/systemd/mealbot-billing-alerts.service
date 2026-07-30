@@ -18,6 +18,11 @@ Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/READ
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
+# The most important OnFailure on the box: this job is the ONLY thing watching
+# the VAT/OSS registration thresholds. Broken, it is indistinguishable from
+# "no threshold was reached" — a failure you would otherwise discover from the
+# tax authority rather than from your own logs.
+OnFailure=mealbot-alert@%n.service
 
 [Service]
 Type=oneshot
