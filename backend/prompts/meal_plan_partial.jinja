@@ -150,6 +150,8 @@ Other rules:
 {% endif %}
 — All ingredient amounts in grams as numeric "quantity_grams". No units in name or quantity.
 — For an ingredient people buy and count as WHOLE UNITS (eggs, onions, lemons, garlic cloves, potatoes, carrots, bananas, chicken breasts, bread slices), ALSO give "canonical_name": the lowercase SINGULAR ENGLISH name of that item ("egg", "onion", "lemon"), no matter which language everything else is written in. It is an internal lookup key and is never shown to the user. OMIT it for anything not counted in whole units — flour, milk, rice, oil, minced meat, grated cheese, spices. Never put a count in it; "quantity_grams" stays the amount.
+{% if needs_name_en %}— SAFETY-CRITICAL: for EVERY ingredient, also give "name_en" — that ingredient's plain ENGLISH name, lowercase ("mléko" -> "milk", "Weizenmehl" -> "wheat flour", "vejce" -> "egg"). Unlike "canonical_name" this is required for EVERY ingredient including bulk ones (flour, milk, cheese, minced meat, oil), not just countable items. It is an internal key, never shown to the user, and it is what the allergen check reads — an ingredient without it cannot be checked and the whole plan is rejected. Translate the ingredient itself, not the dish.
+{% endif %}
 {% if measurement_system == "none" %}— Use whichever units are natural for the language and country above in "steps". Keep using grams in "ingredients".
 {% else %}— Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
 {% endif %}

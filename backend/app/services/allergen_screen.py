@@ -251,8 +251,35 @@ def _qualifier_suppressed(lname: str) -> frozenset[Allergen]:
     return frozenset(out)
 
 
+#: Sentinel `matched_term` for an ingredient the screen could not read, because
+#: the plan is in another language and the model supplied no English name. It is
+#: NOT a detected allergen — it means "unverifiable", which fails closed exactly
+#: like a real hit.
+UNSCREENABLE_TERM = "<no english name>"
+
+
+def is_english_language(language: str | None) -> bool:
+    """True when generated ingredient names are already the English the term
+    lists are written in.
+
+    Unset counts as English: `language` defaults empty on older requests and the
+    prompt falls back to English (`{{ language or "English" }}`), so treating
+    blank as non-English would fail-close every legacy request instead.
+    """
+    # Strip BEFORE the emptiness test: a whitespace-only value is truthy, so
+    # testing `not language` first would send "   " down the non-English branch
+    # and fail-close a request that is really just unset.
+    normalized = (language or "").strip().lower()
+    if not normalized:
+        return True
+    return normalized in {"en", "eng", "english", "en-us", "en-gb"}
+
+
 def screen_meals_for_allergens(
-    meals: Sequence[PlannedMeal], allergens: Sequence[Allergen],
+    meals: Sequence[PlannedMeal],
+    allergens: Sequence[Allergen],
+    *,
+    language: str | None = None,
 ) -> list[AllergenViolation]:
     """Scan every ingredient of every meal against the declared allergens' term
     sets. Returns all violations (empty ⇒ the day is clean).
@@ -260,29 +287,63 @@ def screen_meals_for_allergens(
     SULPHITES are dropped from the deterministic screen (see module docstring).
     When no screenable allergen is declared this is a no-op — which is why the
     whole feature is inert until a UI (slice 5) lets users declare allergens.
+
+    **Language.** The term lists are ENGLISH. The prompt writes ingredient names
+    in the user's language, so on a non-English plan `name` matches nothing and
+    the screen silently degrades to prompt-only avoidance — the fail-closed 422
+    can then never fire. So on a non-English plan we screen the model-supplied
+    `name_en`, and an ingredient without one is reported as UNSCREENABLE rather
+    than passed. The caller treats any violation as a reject-and-regenerate, so
+    an omission costs a retry and ultimately fails closed; it never ships an
+    unverified meal.
+
+    `name` is still screened in BOTH cases — loanwords and untranslated brand
+    names ("mozzarella", "tofu") often survive into a localized plan, and an
+    extra English match there can only over-flag, which is the safe direction.
     """
     screenable: list[Allergen] = [a for a in allergens if a != Allergen.SULPHITES]
     if not screenable:
         return []
 
+    english = is_english_language(language)
     terms_by_allergen = resolve_dietary_context([], screenable).allergen_terms()
     violations: list[AllergenViolation] = []
     for meal in meals:
         for ing in meal.ingredients:
-            suppressed = _qualifier_suppressed(ing.name.lower())
-            for allergen, terms in terms_by_allergen.items():
-                if allergen in suppressed:
-                    continue
-                matched = _find_violation_term(
-                    ing.name, terms, _SAFE_COMPOUNDS.get(allergen, frozenset()),
-                )
-                if matched is not None:
-                    violations.append(
-                        AllergenViolation(
-                            meal_name=meal.name,
-                            ingredient=ing.name,
-                            allergen=allergen,
-                            matched_term=matched,
-                        )
+            name_en = (ing.name_en or "").strip()
+            if not english and not name_en:
+                # Cannot verify this ingredient at all. Report it against the
+                # first declared allergen so the existing reject→regenerate →
+                # fail-closed path handles it; the sentinel term keeps it
+                # distinguishable from a genuine allergen hit in the logs.
+                violations.append(
+                    AllergenViolation(
+                        meal_name=meal.name,
+                        ingredient=ing.name,
+                        allergen=screenable[0],
+                        matched_term=UNSCREENABLE_TERM,
                     )
+                )
+                continue
+
+            # Screen every name we have. Qualifier suppression is evaluated per
+            # name: "vegan" in the localized name says nothing about the English
+            # one, and vice versa.
+            candidates = [ing.name] + ([name_en] if name_en else [])
+            for allergen, terms in terms_by_allergen.items():
+                safe = _SAFE_COMPOUNDS.get(allergen, frozenset())
+                for candidate in candidates:
+                    if allergen in _qualifier_suppressed(candidate.lower()):
+                        continue
+                    matched = _find_violation_term(candidate, terms, safe)
+                    if matched is not None:
+                        violations.append(
+                            AllergenViolation(
+                                meal_name=meal.name,
+                                ingredient=ing.name,
+                                allergen=allergen,
+                                matched_term=matched,
+                            )
+                        )
+                        break  # one violation per (ingredient, allergen)
     return violations
