@@ -1,0 +1,27 @@
+# Schedules mealbot-db-backup.service once a day.
+#
+# This is the unit you enable:
+#   systemctl enable --now mealbot-db-backup.timer
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=Schedule the mealbot nightly Postgres dump
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# 02:30 server-local — an hour before the 03:30 authsession sweep, two hours
+# before the Sunday 04:30 docker prune, and well clear of the 08:00 billing
+# timer, so the four never contend for the small Hetzner box at once. Taking the
+# dump BEFORE the session cleanup is deliberate: if that sweep ever deletes
+# something it shouldn't, the night's backup predates it.
+OnCalendar=*-*-* 02:30:00
+# If the box was powered off at 02:30, run as soon as it's back up. A skipped
+# night is a night with no recovery point.
+Persistent=true
+# Small jitter so this doesn't fire at the exact same instant as any other timer
+# competing for the box.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

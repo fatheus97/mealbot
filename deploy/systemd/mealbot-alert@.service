@@ -1,0 +1,49 @@
+# mealbot — templated failure handler for every scheduled unit.
+#
+# One template serves all of them. Each job declares:
+#
+#   OnFailure=mealbot-alert@%n.service
+#
+# and systemd substitutes that unit's own name, so `%i` here is e.g.
+# `mealbot-db-backup.service`. Nothing to duplicate per job, and a new timer
+# gets failure alerting by adding one line to it.
+#
+# Why this exists: every mealbot job is Type=oneshot, so before this a failure
+# went to the journal and nowhere else. A dead mealbot-billing-alerts unit is
+# indistinguishable from "no VAT threshold was reached" — a failure you would
+# otherwise learn about from the tax authority. Persistent=true made that
+# *worse*, not better: MISSED runs catch up after a reboot while FAILING runs
+# stay silent, so the timers look more trustworthy than they actually are.
+#
+# Deliberately has NO [Install] section and NO OnFailure= of its own — it is
+# triggered only by another unit's OnFailure=, never at boot, and a handler that
+# alerts on its own failure would loop.
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=mealbot failure alert for %i
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# Needs Docker (its ExecStart is `docker compose run`) and the network (it calls
+# the Resend API). Ordering only, no Requires=: a hard dependency would make this
+# unstartable in edge cases without buying anything, since a handler that runs
+# Docker cannot report a dead Docker anyway — dockerd being down is covered by
+# site-down monitoring, not by this unit.
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Same non-root, docker-group user as every other mealbot unit.
+User=deploy
+WorkingDirectory=/opt/mealbot
+# A one-off container, matching the sibling jobs: the alert must still send
+# during the window when the backend container is restarting (a mid-deploy
+# failure is exactly when you want to hear about it). `-T` disables pseudo-TTY
+# allocation — there is no controlling terminal under systemd. The container
+# inherits the app's .env, so RESEND_API_KEY / ALERT_EMAIL_TO come from there;
+# with those unset the script logs and exits 0 rather than failing.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps -T backend python -m app.scripts.unit_failure_alert %i
+# Shorter than the jobs it watches: this is one HTTP call, and a wedged alert
+# handler must not outlive the incident it is reporting.
+TimeoutStartSec=120
