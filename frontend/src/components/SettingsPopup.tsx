@@ -35,6 +35,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         country: values.country || null,
         language: values.language,
         variability: values.variability,
+        measurement_system: values.measurement_system,
         include_spices: values.include_spices,
         show_pieces: values.show_pieces,
         track_snacks: values.track_snacks,
@@ -142,6 +143,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             country: profile.country ?? "",
             language: profile.language,
             variability: profile.variability,
+            measurement_system: profile.measurement_system ?? "metric",
             include_spices: profile.include_spices,
             // ?? false like the billing fields: a payload cached before this field
             // existed would otherwise send undefined and look like a no-op save.

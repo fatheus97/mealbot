@@ -128,6 +128,7 @@ describe('OnboardingModal', () => {
         country: 'Germany',
         language: 'English',
         variability: 'traditional',
+        measurement_system: 'metric',
         include_spices: true,
         show_pieces: false,
         track_snacks: true,

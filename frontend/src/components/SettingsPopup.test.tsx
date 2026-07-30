@@ -187,6 +187,33 @@ describe('SettingsPopup', () => {
     });
   });
 
+  // Same class of bug as show_pieces: the payload is rebuilt field-by-field
+  // here, and `Partial<Pick<…>>` type-checks an omission. Only an assertion on
+  // what reaches the API catches a dropped field.
+  it('sends the measurement system when it is changed', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    mockedUpdateProfile.mockResolvedValueOnce({ ...mockProfile, measurement_system: 'imperial' });
+    const user = userEvent.setup();
+
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByDisplayValue('Germany')).toBeInTheDocument());
+    await waitFor(() => expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
+    );
+
+    await user.click(screen.getByRole('radio', { name: /imperial/i }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
+
+    await waitFor(() => {
+      expect(mockedUpdateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ measurement_system: 'imperial' }),
+      );
+    });
+  });
+
   it('submits updated preferences and closes', async () => {
     loginUser();
     // fetchUserProfile is called on mount AND after mutation invalidation
@@ -222,6 +249,7 @@ describe('SettingsPopup', () => {
         country: 'Germany',
         language: 'English',
         variability: 'experimental',
+        measurement_system: 'metric',
         include_spices: true,
         show_pieces: false,
         track_snacks: true,

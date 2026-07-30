@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import type { Variability } from "../types";
+import type { MeasurementSystem, Variability } from "../types";
 import type { MealType } from "../constants/mealTypes";
 import { authFetch } from "../api.ts";
 import { DayLayoutEditor } from "./DayLayoutEditor";
@@ -8,6 +8,7 @@ export interface PreferencesFormValues {
   country: string;
   language: string;
   variability: Variability;
+  measurement_system: MeasurementSystem;
   include_spices: boolean;
   show_pieces: boolean;
   track_snacks: boolean;
@@ -70,6 +71,9 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [country, setCountry] = useState(initialValues.country);
   const [language, setLanguage] = useState(initialValues.language);
   const [variability, setVariability] = useState<Variability>(initialValues.variability);
+  const [measurementSystem, setMeasurementSystem] = useState<MeasurementSystem>(
+    initialValues.measurement_system,
+  );
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
   const [showPieces, setShowPieces] = useState(initialValues.show_pieces);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
@@ -99,6 +103,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
       country: country.trim(),
       language: language.trim(),
       variability,
+      measurement_system: measurementSystem,
       include_spices: includeSpices,
       show_pieces: showPieces,
       track_snacks: trackSnacks,
@@ -198,6 +203,39 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           {variability === "traditional"
             ? "Classic dishes typical for your country"
             : "Creative combinations, fusion cuisine, and novel techniques"}
+        </p>
+      </fieldset>
+
+      {/* Backend column, prompt variable and PATCH validation for this have
+          existed since the first migration — it just had no control, so every
+          user sat on the "metric" default. Affects recipe STEPS only; the
+          structured ingredient amounts are always grams. */}
+      <fieldset style={{ border: "1px solid #ddd", borderRadius: "6px", padding: "0.75rem 1rem" }}>
+        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>Units in recipe steps</legend>
+        <div style={{ display: "flex", gap: "1.5rem", marginTop: "0.25rem", flexWrap: "wrap" }}>
+          {([
+            ["metric", "Metric"],
+            ["imperial", "Imperial"],
+            ["none", "Match my language"],
+          ] as const).map(([value, label]) => (
+            <label key={value} style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+              <input
+                type="radio"
+                name="measurement_system"
+                value={value}
+                checked={measurementSystem === value}
+                onChange={() => setMeasurementSystem(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <p style={{ fontSize: "0.85rem", color: "#666", margin: "0.5rem 0 0" }}>
+          {measurementSystem === "metric"
+            ? "Grams, millilitres, °C in the cooking steps"
+            : measurementSystem === "imperial"
+              ? "Cups, ounces, °F in the cooking steps"
+              : "Whatever units are normal for your language and country"}
         </p>
       </fieldset>
 
