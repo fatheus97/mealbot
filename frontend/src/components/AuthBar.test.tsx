@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { captureAttribution, __resetAttributionForTests } from '../utils/attribution';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -295,10 +296,15 @@ describe('AuthBar', () => {
   it('replays stored first-touch attribution into the register payload', async () => {
     // A prior landing captured this; register must forward it so the signup is
     // traceable to its campaign.
-    localStorage.setItem(
-      'mealbot_attribution',
-      JSON.stringify({ utm_source: 'google', utm_medium: 'cpc', referrer: 'https://ph.example' }),
-    );
+    // Captured from the URL/referrer rather than seeded into localStorage:
+    // attribution lives in memory now, so it needs no cookie consent.
+    __resetAttributionForTests();
+    window.history.replaceState(null, '', '/?utm_source=google&utm_medium=cpc');
+    Object.defineProperty(document, 'referrer', {
+      value: 'https://ph.example',
+      configurable: true,
+    });
+    captureAttribution();
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') {
         return Promise.resolve({

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { captureAttribution, __resetAttributionForTests } from "../utils/attribution";
 import {
   landingDemo,
   landingLogin,
@@ -102,10 +103,10 @@ describe("landing authApi", () => {
 
   describe("landingRegister", () => {
     it("registers then logs in, replaying stored attribution", async () => {
-      localStorage.setItem(
-        "mealbot_attribution",
-        JSON.stringify({ utm_source: "google", utm_medium: "cpc" }),
-      );
+      // In-memory capture (no device storage -> no consent banner needed).
+      __resetAttributionForTests();
+      window.history.replaceState(null, "", "/?utm_source=google&utm_medium=cpc");
+      captureAttribution();
       vi.mocked(fetch)
         .mockResolvedValueOnce(jsonResponse({ message: "created" })) // register
         .mockResolvedValueOnce(jsonResponse(PROFILE)); // auto-login
