@@ -9,6 +9,7 @@ export interface PreferencesFormValues {
   language: string;
   variability: Variability;
   include_spices: boolean;
+  show_pieces: boolean;
   track_snacks: boolean;
   // [] means "no default set" (the backend clears the column); a populated
   // list is stored verbatim and used as the per-day shape in Phase 3.
@@ -70,6 +71,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [language, setLanguage] = useState(initialValues.language);
   const [variability, setVariability] = useState<Variability>(initialValues.variability);
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
+  const [showPieces, setShowPieces] = useState(initialValues.show_pieces);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
   const [defaultDayLayout, setDefaultDayLayout] = useState<MealType[]>(
     initialValues.default_day_layout,
@@ -98,6 +100,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
       language: language.trim(),
       variability,
       include_spices: includeSpices,
+      show_pieces: showPieces,
       track_snacks: trackSnacks,
       default_day_layout: defaultDayLayout,
     });
@@ -212,6 +215,24 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
             Seasonings only (salt, pepper, herbs). If off, they won't appear in
             stock/shopping lists (still in recipe steps). For groceries you always
             keep — oil, flour, rice — use Pantry staples below.
+          </span>
+        </span>
+      </label>
+
+      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={showPieces}
+          onChange={(e) => setShowPieces(e.target.checked)}
+          style={{ width: "18px", height: "18px" }}
+        />
+        <span>
+          <span style={{ fontWeight: 600 }}>Show pieces instead of grams</span>
+          <br />
+          <span style={{ fontSize: "0.85rem", color: "#666" }}>
+            For things you buy whole — "2 eggs" rather than "120g". Only where the
+            amount matches whole pieces; everything else stays in grams, and the
+            exact grams are always in the tooltip.
           </span>
         </span>
       </label>

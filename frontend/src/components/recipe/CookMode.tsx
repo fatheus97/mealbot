@@ -4,6 +4,8 @@ import type { PlannedMeal } from "../../types";
 import { mealTypeLabel } from "../../constants/mealTypes";
 import { formatClock, tokenizeStepTimers } from "./cookMode.utils";
 import { useCookTimers, useSuppressTimerBubble } from "../../contexts/CookTimerContext";
+import { useShowPieces } from "../../contexts/AuthContext";
+import { formatAmount } from "../../utils/pieces";
 import { useIsMobile } from "../../hooks/useIsMobile";
 
 interface Props {
@@ -91,6 +93,7 @@ export function CookMode({
   // to check the fridge — and several can run at once. While cook mode is open
   // the floating bubble stays hidden, since the bar below shows the same list.
   const { timers, start, toggle, dismiss } = useCookTimers();
+  const showPieces = useShowPieces();
   useSuppressTimerBubble();
 
   // Keyboard: ← / → move between steps (ignored while typing in a field).
@@ -410,7 +413,21 @@ export function CookMode({
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {meal.ingredients.map((ing, i) => (
               <li key={i} style={{ padding: "0.3rem 0", borderBottom: "1px solid #1e293b", fontSize: "0.95rem" }}>
-                {ing.is_spice ? <em>{ing.name}</em> : <span>{ing.name} — {Math.round(ing.quantity_grams)}g</span>}
+                {ing.is_spice ? (
+                  <em>{ing.name}</em>
+                ) : (
+                  (() => {
+                    // Same read-only display rule as every other ingredient
+                    // list — an amount must not read "2 pcs" on the card and
+                    // "100g" mid-recipe for the same ingredient.
+                    const a = formatAmount(ing.quantity_grams, ing.canonical_name, showPieces);
+                    return (
+                      <span title={a.isPieces ? a.exactGrams : undefined}>
+                        {ing.name} — {a.text}
+                      </span>
+                    );
+                  })()
+                )}
               </li>
             ))}
           </ul>

@@ -36,6 +36,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         language: values.language,
         variability: values.variability,
         include_spices: values.include_spices,
+        show_pieces: values.show_pieces,
         track_snacks: values.track_snacks,
         // Send the raw array (possibly []). The backend treats [] as "clear"
         // and a populated list as the new stored layout.
@@ -142,6 +143,9 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             language: profile.language,
             variability: profile.variability,
             include_spices: profile.include_spices,
+            // ?? false like the billing fields: a payload cached before this field
+            // existed would otherwise send undefined and look like a no-op save.
+            show_pieces: profile.show_pieces ?? false,
             track_snacks: profile.track_snacks,
             default_day_layout: profile.default_day_layout ?? [],
           }}

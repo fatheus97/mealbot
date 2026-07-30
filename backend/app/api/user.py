@@ -253,6 +253,8 @@ async def update_user(
 
     if patch.track_snacks is not None:
         current_user.track_snacks = bool(patch.track_snacks)
+    if patch.show_pieces is not None:
+        current_user.show_pieces = bool(patch.show_pieces)
 
     if patch.onboarding_completed is not None:
         current_user.onboarding_completed = bool(patch.onboarding_completed)

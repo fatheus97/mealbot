@@ -61,6 +61,11 @@ class User(SQLModel, table=True):
     # include snacks/ready-to-eat items from receipt scans
     track_snacks: bool = Field(default=True)
 
+    # Show countable ingredients as a piece count ("2 eggs") instead of grams.
+    # DISPLAY ONLY — grams stay the single stored quantity and the only thing any
+    # arithmetic reads, so this can never change what a plan buys or debits.
+    show_pieces: bool = Field(default=False)
+
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)
 
