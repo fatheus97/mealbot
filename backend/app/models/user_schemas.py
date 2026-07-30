@@ -160,6 +160,7 @@ class UserRead(UserBase):
     variability: str
     include_spices: bool
     track_snacks: bool
+    show_pieces: bool
     onboarding_completed: bool
     is_demo: bool = False
     is_admin: bool = False
@@ -203,6 +204,7 @@ def user_to_read(
         variability=u.variability,
         include_spices=u.include_spices,
         track_snacks=u.track_snacks,
+        show_pieces=u.show_pieces,
         onboarding_completed=u.onboarding_completed,
         is_demo=u.is_demo,
         is_admin=u.is_admin,
@@ -224,6 +226,7 @@ class UserUpdate(SQLModel):
     variability: str | None = None
     include_spices: bool | None = None
     track_snacks: bool | None = None
+    show_pieces: bool | None = None
     onboarding_completed: bool | None = None
     # list[MealType] enforces the enum at the API boundary — unknown slot
     # names get a 422, never reach the DB. An empty list clears the stored

@@ -16,6 +16,7 @@ const defaultValues: PreferencesFormValues = {
   language: 'English',
   variability: 'traditional',
   include_spices: true,
+  show_pieces: false,
   track_snacks: true,
   default_day_layout: [],
 };
@@ -112,6 +113,7 @@ describe('PreferencesForm', () => {
       language: 'English',
       variability: 'experimental',
       include_spices: false,
+      show_pieces: false,
       track_snacks: true,
       default_day_layout: [],
     });
@@ -128,6 +130,7 @@ describe('PreferencesForm', () => {
           language: 'English',
           variability: 'traditional',
           include_spices: true,
+          show_pieces: false,
           track_snacks: true,
           default_day_layout: [],
         }}
@@ -146,6 +149,7 @@ describe('PreferencesForm', () => {
       language: 'English',
       variability: 'traditional',
       include_spices: true,
+      show_pieces: false,
       track_snacks: true,
       default_day_layout: [],
     });
@@ -254,6 +258,7 @@ describe('PreferencesForm', () => {
           language: 'English',
           variability: 'traditional',
           include_spices: true,
+          show_pieces: false,
           track_snacks: true,
           default_day_layout: [],
         }}
