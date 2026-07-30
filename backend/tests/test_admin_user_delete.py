@@ -21,6 +21,7 @@ from app.models.db_models import (
     MachineGeneration,
     MealEntry,
     MealPlan,
+    PantryStaple,
     PasswordResetToken,
     SaleRecord,
     StockItem,
@@ -117,6 +118,7 @@ class TestDeletePurgesDataAndPreservesLedger:
                 name="Soup", meal_type="main_course", meal_json="{}",
             ),
             StockItem(user_id=vid, name="egg", quantity_grams=100),
+            PantryStaple(user_id=vid, name="olive oil"),
             AuthSession(
                 user_id=vid, refresh_token_hash="d" * 64,
                 expires_at=datetime.now(UTC) + timedelta(days=1),
@@ -150,6 +152,7 @@ class TestDeletePurgesDataAndPreservesLedger:
         assert await _count(db_session, MealEntry, vid) == 0
         assert await _count(db_session, MealPlan, vid) == 0
         assert await _count(db_session, StockItem, vid) == 0
+        assert await _count(db_session, PantryStaple, vid) == 0
         assert await _count(db_session, AuthSession, vid) == 0
         assert await _count(db_session, PasswordResetToken, vid) == 0
         assert await _count(db_session, MachineGeneration, vid) == 0  # ON DELETE CASCADE

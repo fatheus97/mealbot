@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
-from app.models.db_models import StockItem, User
+from app.models.db_models import PantryStaple, StockItem, User
 
 
 class TestPublicConfig:
@@ -158,3 +158,34 @@ class TestDemoSession:
         remaining = result2.scalars().all()
         assert len(remaining) == 1
         assert remaining[0].id != old_id
+
+    async def test_sweep_purges_pantry_staples(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # Regression: PUT /api/staples has no demo guard, so a demo visitor can own a
+        # PantryStaple, and PantryStaple.user_id has no ondelete. When the sweep's
+        # purge list omitted the table, the final delete(User) raised IntegrityError —
+        # and since the sweep runs FIRST in POST /api/auth/demo, that wedged demo
+        # session creation for every later visitor until the rows were cleaned by hand.
+        with patch("app.core.config.settings.demo_mode", True):
+            await unauthed_client.post("/api/auth/demo")
+
+        result = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712
+        old_user = result.scalars().first()
+        assert old_user is not None and old_user.id is not None
+        old_id = old_user.id
+        db_session.add(PantryStaple(user_id=old_id, name="Olive oil"))
+        old_user.created_at = datetime.now(UTC) - timedelta(hours=3)
+        db_session.add(old_user)
+        await db_session.commit()
+
+        with patch("app.core.config.settings.demo_mode", True):
+            resp = await unauthed_client.post("/api/auth/demo")
+        assert resp.status_code == 200
+
+        staples = await db_session.execute(
+            select(PantryStaple).where(PantryStaple.user_id == old_id)  # type: ignore[arg-type]
+        )
+        assert staples.scalars().all() == []
+        result2 = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712
+        assert [u.id for u in result2.scalars().all()] == [resp.json()["id"]]
