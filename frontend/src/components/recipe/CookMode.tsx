@@ -191,7 +191,7 @@ export function CookMode({
   // Tapping a duration ADDS a timer rather than replacing the running one —
   // "pasta on, now start the sauce" is the ordinary case. The bound and the
   // alarm both live in the store, which is the only place a timer is created.
-  const startTimer = (seconds: number) => start(seconds, meal.name);
+  const startTimer = (seconds: number) => start(seconds, meal.name, storageKey);
 
   const handleDone = () => {
     // Storage is cleared by the parent AFTER the cook mutation succeeds, so a

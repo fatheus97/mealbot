@@ -3,6 +3,7 @@ import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
 import { CookMode } from "./recipe/CookMode";
+import { useReopenTarget } from "../contexts/CookTimerContext";
 import { mealTypeLabel } from "../constants/mealTypes";
 import { LEFTOVER_SHORT_LABEL } from "../utils/leftovers";
 import type { MealEntrySummary, PlannedMeal } from "../types";
@@ -97,6 +98,15 @@ export function MealCard({
   // an ordinary meal could legitimately have no ingredients.
   const isLeftover = meal.leftover_of != null;
 
+  // Whether cook mode may be entered for this meal at all. Named because the
+  // floating timer bubble routes back in through the SAME gate: a timer can
+  // outlive the state that allowed it (mark the meal cooked, or finish the
+  // plan, while it counts down), and the bubble must not reopen cook mode for
+  // a meal that no longer offers "Start cooking".
+  const canStartCooking =
+    isConfirmed && !isFinished && !!entry && !isCooked && !isLeftover && (meal.steps?.length ?? 0) > 0;
+  useReopenTarget(cookStorageKey, onStartCooking, canStartCooking);
+
   // Explicit precedence instead of a fourth nested ternary. Cooked wins (it is
   // the most recent fact about the meal), then frozen (an active user choice),
   // then leftover (a static property).
@@ -190,7 +200,7 @@ export function MealCard({
             progress under cookmode:${planId}:${day}:${meal} for a meal that
             isn't being cooked. Marking it cooked via the Cook button is still
             correct and stays available. */}
-        {isConfirmed && !isFinished && entry && !isCooked && !isEditing && !isCooking && !isLeftover && (meal.steps?.length ?? 0) > 0 && (
+        {canStartCooking && !isEditing && !isCooking && (
           <button
             onClick={onStartCooking}
             title="Cook this recipe step by step"
