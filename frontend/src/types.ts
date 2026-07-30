@@ -13,6 +13,11 @@ export interface IngredientAmount {
   name: string;
   quantity_grams: number;
   is_spice?: boolean;
+  // Lowercase-singular ENGLISH lookup key for the piece-weight table, set only
+  // for countable whole items. `name` is in the user's language, so it can't be
+  // the key. Absent on plans generated before the field existed — those simply
+  // show grams. See utils/pieces.ts.
+  canonical_name?: string | null;
 }
 
 export interface MealPlanRequest {
@@ -266,6 +271,7 @@ export interface AuthLoginResponse {
   variability: Variability;
   include_spices: boolean;
   track_snacks: boolean;
+  show_pieces: boolean;
   onboarding_completed: boolean;
   is_demo: boolean;
   is_admin: boolean;
@@ -295,6 +301,9 @@ export interface AuthState {
   userId: number | null;
   email: string;
   onboardingCompleted: boolean;
+  // Mirrored profile display preference — see utils/pieces.ts. Lives here so a
+  // leaf renderer can read it without its own react-query subscription.
+  showPieces: boolean;
   isDemo: boolean;
   isAdmin: boolean;
   // null until /api/config resolves, then boolean. Using null as the
@@ -343,6 +352,7 @@ export interface UserProfile {
   variability: Variability;
   include_spices: boolean;
   track_snacks: boolean;
+  show_pieces: boolean;
   onboarding_completed: boolean;
   is_admin: boolean;
   // Preferred shape of a single day's meals. null = user hasn't set one;

@@ -142,6 +142,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             language: profile.language,
             variability: profile.variability,
             include_spices: profile.include_spices,
+            show_pieces: profile.show_pieces,
             track_snacks: profile.track_snacks,
             default_day_layout: profile.default_day_layout ?? [],
           }}

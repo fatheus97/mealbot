@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties } from "react";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth, useShowPieces } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { formatAmount } from "../utils/pieces";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
@@ -32,9 +33,16 @@ function resizeLayouts(
 // Plain-text render of the shopping list for clipboard / share export, e.g.
 // "Eggs — 200g\nMilk — 500g". Empty string when there's nothing to export so
 // callers can bail without emitting a blank clipboard entry.
-function shoppingListToText(items: IngredientAmount[] | undefined): string {
+function shoppingListToText(
+  items: IngredientAmount[] | undefined,
+  showPieces: boolean,
+): string {
   if (!items || items.length === 0) return "";
-  return items.map((i) => `${i.name} — ${Math.round(i.quantity_grams)}g`).join("\n");
+  // Copy/Share follow what is on screen — a list you copy to your phone and
+  // then read in the aisle should not silently switch units on you.
+  return items
+    .map((i) => `${i.name} — ${formatAmount(i.quantity_grams, i.canonical_name, showPieces).text}`)
+    .join("\n");
 }
 
 // Explicit light-surface buttons for the shopping-list card. The card is on the
@@ -62,6 +70,7 @@ interface MealPlannerProps {
 
 export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
   const { userId } = useAuth();
+  const showPieces = useShowPieces();
   const isMobile = useIsMobile();
   const generatePlanMutation = useGeneratePlan();
   const regenerateMutation = useRegeneratePlan();
@@ -299,7 +308,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   };
 
   const copyShoppingList = () => {
-    const text = shoppingListToText(currentPlan?.shopping_list);
+    const text = shoppingListToText(currentPlan?.shopping_list, showPieces);
     if (!text) return;
     // Best-effort — optional chaining short-circuits the whole chain (incl.
     // .then) when the Clipboard API is unavailable, so this never throws.
@@ -310,7 +319,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   };
 
   const shareShoppingList = () => {
-    const text = shoppingListToText(currentPlan?.shopping_list);
+    const text = shoppingListToText(currentPlan?.shopping_list, showPieces);
     if (!text) return;
     // Only reachable from a button rendered when navigator.share exists.
     // Swallow rejections, including the user dismissing the share sheet.
@@ -851,9 +860,21 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                           onChange={() => toggleShoppingItem(i)}
                           aria-label={`Mark ${item.name} as bought`}
                         />
-                        <span style={{ textDecoration: checked ? "line-through" : "none", color: checked ? "#6b7280" : "inherit" }}>
-                          {item.name} — {Math.round(item.quantity_grams)}g
-                        </span>
+                        {(() => {
+                          // The shopping list is where a piece count earns its
+                          // keep: "8 eggs" is what you count into the trolley,
+                          // "480g" is not. Exact grams stay in the title, since
+                          // the count comes from a typical piece weight.
+                          const a = formatAmount(item.quantity_grams, item.canonical_name, showPieces);
+                          return (
+                            <span
+                              title={a.isPieces ? a.exactGrams : undefined}
+                              style={{ textDecoration: checked ? "line-through" : "none", color: checked ? "#6b7280" : "inherit" }}
+                            >
+                              {item.name} — {a.text}
+                            </span>
+                          );
+                        })()}
                       </label>
                     </li>
                   );

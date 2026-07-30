@@ -62,6 +62,7 @@ export function OnboardingModal() {
             language: "English",
             variability: "traditional",
             include_spices: true,
+            show_pieces: false,
             track_snacks: true,
             default_day_layout: [],
           }}
