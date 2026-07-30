@@ -149,6 +149,7 @@ Other rules:
 — In steps, prefer 'spoon'/'teaspoon'/'splash' over grams for is_spice=true items.
 {% endif %}
 — All ingredient amounts in grams as numeric "quantity_grams". No units in name or quantity.
+— For an ingredient people buy and count as WHOLE UNITS (eggs, onions, lemons, garlic cloves, potatoes, carrots, bananas, chicken breasts, bread slices), ALSO give "canonical_name": the lowercase SINGULAR ENGLISH name of that item ("egg", "onion", "lemon"), no matter which language everything else is written in. It is an internal lookup key and is never shown to the user. OMIT it for anything not counted in whole units — flour, milk, rice, oil, minced meat, grated cheese, spices. Never put a count in it; "quantity_grams" stays the amount.
 — Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
 — Write every step to be SELF-CONTAINED: the first time an ingredient is used, state its amount INLINE in the step text (e.g. "Add 200 g flour and 2 eggs and whisk", "Stir in 1 tsp paprika") so the cook never has to look back at the ingredient list. Use the {{ measurement_system }} system for these inline amounts{% if not include_spices %} (spoons/splashes for is_spice items per the rule above){% endif %}; the structured "ingredients" quantities stay in grams.
 — When a step involves cooking, simmering, baking, chilling, or resting for a set time, phrase the duration explicitly as a whole number followed by "minute"/"minutes" (e.g. "simmer for 10 minutes", "bake 25 minutes", "rest 5 minutes") so it can be timed.
@@ -166,7 +167,8 @@ Output JSON schema (must match exactly):
         {
           "name": <string>,
           "quantity_grams": <number>,
-          "is_spice": <boolean>
+          "is_spice": <boolean>,
+          "canonical_name": <string|null>
         }
       ],
       "steps": [<string>],
