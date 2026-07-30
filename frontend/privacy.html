@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — Mealbot</title>
+    <meta
+      name="description"
+      content="What Mealbot collects, who receives it, how long it is kept, and what you can ask us to do about it."
+    />
+    <!-- Not a page we want ranking above the product, but it must be reachable. -->
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#242424" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /* Same matched-pair theming as index.html: every custom property is
+         reassigned under the light query, so nothing pairs a hardcoded
+         background with the adaptive default text colour. */
+      :root {
+        color-scheme: light dark;
+        --bg: #242424;
+        --fg: rgba(255, 255, 255, 0.87);
+        --muted: rgba(255, 255, 255, 0.65);
+        --card-bg: #1c1c1c;
+        --card-fg: rgba(255, 255, 255, 0.92);
+        --card-border: #3a3a3a;
+        --accent: #5b8def;
+        --note-bg: #2a2415;
+        --note-fg: rgba(255, 255, 255, 0.92);
+        --note-border: #5c4f2a;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --fg: #213547;
+          --muted: #64748b;
+          --card-bg: #f8fafc;
+          --card-fg: #1e293b;
+          --card-border: #e2e8f0;
+          --accent: #2563eb;
+          --note-bg: #fffbeb;
+          --note-fg: #713f12;
+          --note-border: #fde68a;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.65;
+        font-size: 16px;
+      }
+
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+      h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 0.35rem; }
+      h2 {
+        font-size: 1.25rem;
+        margin: 2.5rem 0 0.75rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--card-border);
+      }
+      h3 { font-size: 1.02rem; margin: 1.5rem 0 0.4rem; }
+      p, li { color: var(--fg); }
+      .muted { color: var(--muted); }
+      a { color: var(--accent); }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 4px;
+        padding: 0.05em 0.35em;
+      }
+
+      /* Self-contained surface: background AND colour set together. */
+      .note {
+        background: var(--note-bg);
+        color: var(--note-fg);
+        border: 1px solid var(--note-border);
+        border-radius: 8px;
+        padding: 0.9rem 1.1rem;
+        margin: 1.25rem 0;
+      }
+      .note p:last-child { margin-bottom: 0; }
+      .note p:first-child { margin-top: 0; }
+
+      .card {
+        background: var(--card-bg);
+        color: var(--card-fg);
+        border: 1px solid var(--card-border);
+        border-radius: 8px;
+        padding: 0.9rem 1.1rem;
+        margin: 1.25rem 0;
+      }
+
+      /* Wide content scrolls inside its own box; the page never scrolls sideways. */
+      .table-scroll { overflow-x: auto; margin: 1rem 0; }
+      table { border-collapse: collapse; width: 100%; min-width: 480px; font-size: 0.92rem; }
+      th, td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.55rem 0.7rem;
+        border-bottom: 1px solid var(--card-border);
+      }
+      th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+      .back { display: inline-block; margin-bottom: 1.5rem; font-size: 0.9rem; }
+      footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--card-border); }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <a class="back" href="/">&larr; Back to Mealbot</a>
+
+      <h1>Privacy Policy</h1>
+      <p class="muted">Last updated: 30 July 2026</p>
+
+      <p>
+        This describes what Mealbot actually does with your data — written from the code, not
+        from a template. Where something is imperfect, it says so.
+      </p>
+
+      <div class="note">
+        <p>
+          <strong>The short version.</strong> We use three cookies, all of them needed to keep
+          you signed in. We run no analytics, no advertising and no third-party trackers of any
+          kind. We never see your card details. But your <strong>dietary restrictions and
+          allergies are sent to Google</strong> to generate your meal plans — that is how the
+          product works, and it is the most important thing on this page.
+        </p>
+      </div>
+
+      <h2>Who is responsible</h2>
+      <p>
+        Mealbot is run by <strong>[OPERATOR — legal name]</strong>, [OPERATOR — registered
+        address], [OPERATOR — IČO / VAT number], Czech Republic. We are the data controller.
+      </p>
+      <p>
+        For anything on this page, including any request below, email
+        <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>.
+      </p>
+
+      <h2>What we collect</h2>
+
+      <h3>Your account</h3>
+      <p>
+        Your email address and a hashed password (bcrypt — we never store or log the password
+        itself). Plus the state we need to run your account: when you registered, whether your
+        email is confirmed, and your subscription status.
+      </p>
+
+      <h3>What you create in the app</h3>
+      <p>
+        Your cooking preferences (country, language, units, whether to include spices), your
+        fridge contents and pantry staples, your meal plans and recipes, and when you marked a
+        meal as cooked. Free-text fields you fill in — taste preferences, ingredients to avoid,
+        notes — are stored as you wrote them.
+      </p>
+
+      <h3>Dietary restrictions and allergies</h3>
+      <p>
+        This is health-related information, and in some cases (halal, kosher) it can reveal
+        religious belief. We treat it as the most sensitive thing we hold. It is covered
+        separately below because of where it goes.
+      </p>
+
+      <h3>Payment</h3>
+      <p>
+        <strong>We never receive your card details.</strong> Checkout is hosted by Stripe and
+        card data never touches our servers. Stripe collects your name, billing address, card
+        and any VAT ID directly. We store only identifiers and status — your Stripe customer
+        and subscription IDs, whether your subscription is active, and when the period ends.
+      </p>
+      <p>
+        For each payment we keep an invoice record: amount, currency, your country, and whether
+        it was a business purchase. We need this for VAT.
+      </p>
+      <p class="muted">
+        We also store a one-way, keyed fingerprint derived from your card by Stripe — not the
+        card number, and not reversible. It exists only to stop the same card opening unlimited
+        free trials.
+      </p>
+
+      <h3>Support and access requests</h3>
+      <p>
+        If you send feedback, we store your message. If you request access from the landing
+        page while sign-ups are closed, we store the email address and message you submit —
+        including any dietary details you choose to mention there.
+      </p>
+
+      <h3>Technical</h3>
+      <p>
+        Login sessions (a hash of the session token, timestamps, and your browser's user-agent
+        string). Counts of AI tokens used, to enforce fair-use limits — this records how much
+        was used, never what was in it.
+      </p>
+      <p>
+        We also keep a copy of what was sent to the AI and what it returned, plus any edits you
+        make to its output, so we can tell where the AI gets things wrong. This copy includes
+        your dietary restrictions. There is currently no way to opt out of this; if that matters
+        to you, email us.
+      </p>
+      <p>
+        Our web server writes standard access logs containing your IP address, the page
+        requested, and your user-agent. We do not put IP addresses in our database and we do not
+        use them for analytics.
+      </p>
+
+      <h2>Your dietary data goes to Google</h2>
+      <div class="note">
+        <p>
+          To build a meal plan we send your request to <strong>Google's Gemini API</strong>. That
+          request includes your <strong>declared allergens, your diet types</strong> (including
+          halal, kosher, diabetic, low-FODMAP and baby-food), your free-text
+          ingredients-to-avoid, your taste preferences, your household size and your fridge
+          contents.
+        </p>
+        <p>
+          <strong>We do not send your email address, your name, or any account identifier.</strong>
+          Google receives the content, not who you are.
+        </p>
+      </div>
+      <p>
+        The same applies to a receipt photo if you use the scanner (the image is sent), and to
+        feedback you submit (the text is sent, to categorise it automatically).
+      </p>
+      <p>
+        After generation, we run our own deterministic check against your declared allergens and
+        refuse to show a plan that fails it. That is a safety net on top of the model, not a
+        replacement for reading labels.
+      </p>
+      <p class="muted">
+        We use Google's standard API. If you would rather not have this data processed this way,
+        the honest answer is that Mealbot cannot generate plans without it.
+      </p>
+
+      <h2>Who else receives your data</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Who</th><th>What they get</th><th>Why</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Google (Gemini API)</td>
+              <td>Your meal-plan request, including dietary restrictions, fridge contents, receipt images and feedback text. No identity.</td>
+              <td>Generating plans and recipes</td>
+            </tr>
+            <tr>
+              <td>Stripe</td>
+              <td>Your email and internal user ID; they separately collect your name, address, VAT ID and card</td>
+              <td>Payments and subscriptions</td>
+            </tr>
+            <tr>
+              <td>Resend</td>
+              <td>Your email address and the contents of the email we send you</td>
+              <td>Sending sign-in, password-reset and verification email</td>
+            </tr>
+            <tr>
+              <td>GitHub</td>
+              <td>The text of feedback you submit, filed to a private repository under a numeric ID</td>
+              <td>Tracking reported bugs</td>
+            </tr>
+            <tr>
+              <td>Hetzner</td>
+              <td>Everything, as our hosting provider</td>
+              <td>Running the servers</td>
+            </tr>
+            <tr>
+              <td>Cloudflare</td>
+              <td>DNS lookups for our domain</td>
+              <td>Domain name resolution</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        That is the complete list. We do not sell your data, we do not share it for advertising,
+        and no other company receives it.
+      </p>
+      <p class="muted">
+        Servers are hosted with Hetzner Online GmbH in <strong>[OPERATOR — confirm datacentre
+        location]</strong>. Google, Stripe, Resend and GitHub may process data outside the EU
+        under their own terms.
+      </p>
+
+      <h2>Cookies</h2>
+      <p>
+        We use three cookies and they are all strictly necessary, so there is no consent banner
+        to click:
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Cookie</th><th>Purpose</th><th>Lifetime</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>mealbot_at</code></td><td>Keeps you signed in</td><td>15 minutes</td></tr>
+            <tr><td><code>mealbot_rt</code></td><td>Renews your session</td><td>30 days</td></tr>
+            <tr><td><code>mealbot_csrf</code></td><td>Blocks cross-site request forgery</td><td>30 days</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>If you never sign in, we set no cookies at all.</strong> There is no analytics
+        cookie, no advertising cookie and no session-replay script anywhere on this site.
+      </p>
+      <p>
+        Your browser also stores some things locally so the app works — who you are signed in
+        as, your saved preferences, and your place in a recipe you are cooking. That stays on
+        your device and is cleared when you sign out.
+      </p>
+
+      <h2>How long we keep things</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>What</th><th>How long</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Login sessions</td><td>Deleted 7 days after they expire</td></tr>
+            <tr><td>Meal plans you never confirmed</td><td>Deleted when you next generate a plan</td></tr>
+            <tr><td>Demo accounts and their data</td><td>About 2 hours</td></tr>
+            <tr><td>Database backups</td><td>14 days</td></tr>
+            <tr><td>Your account and everything in it</td><td>Until the account is deleted</td></tr>
+            <tr><td>Invoice records (VAT)</td><td>Kept after deletion, as tax law requires</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Your rights — and what we can actually do today</h2>
+      <p>
+        You can ask us to give you a copy of your data, correct it, delete it, or restrict how we
+        use it. Email <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> and we will
+        action it.
+      </p>
+      <p>
+        Being straight with you about the current state, because a policy that promises buttons
+        that do not exist is worthless:
+      </p>
+      <div class="card">
+        <ul>
+          <li>
+            <strong>There is no "delete my account" button yet.</strong> Email us and we will do
+            it manually.
+          </li>
+          <li>
+            <strong>There is no self-service data export yet.</strong> Ask and we will put your
+            data together by hand.
+          </li>
+          <li>
+            <strong>You cannot change your email address in the app.</strong> Email us.
+          </li>
+          <li>
+            <strong>Deletion is not instant or absolute.</strong> Your invoice records are kept
+            for tax purposes; your email remains in our internal admin log as a record that the
+            deletion happened; your customer record at Stripe and any bug report already filed
+            are not removed automatically; and you will remain in database backups for up to 14
+            days.
+          </li>
+        </ul>
+      </div>
+      <p>
+        You can also complain to the Czech data protection authority
+        (<a href="https://uoou.gov.cz" rel="noopener">Úřad pro ochranu osobních údajů</a>).
+      </p>
+
+      <h2>Security</h2>
+      <p>
+        Passwords are hashed with bcrypt. Session, reset and verification tokens are stored only
+        as SHA-256 hashes, are single-use, and expire. The site is HTTPS-only. Cookies are
+        HttpOnly, Secure and SameSite. We use a strict Content-Security-Policy that blocks
+        third-party scripts. Card data never reaches our servers.
+      </p>
+      <p class="muted">
+        No system is perfect. If you find a security problem, please email us — we would much
+        rather hear it from you.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        Mealbot is not intended for children under 16. The baby-food option is for adults
+        planning food for an infant; we do not knowingly collect data from children.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        If we change this policy we will update the date at the top. If a change materially
+        affects how we use your data, we will email you about it.
+      </p>
+
+      <footer>
+        <p class="muted" style="font-size: 0.85rem;">
+          Questions? <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> &middot;
+          <a href="/">Back to Mealbot</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
