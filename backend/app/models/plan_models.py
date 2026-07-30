@@ -13,6 +13,25 @@ if TYPE_CHECKING:
     from app.models.db_models import MealEntry
 
 
+def _normalize_canonical_key(v: object) -> object:
+    """Normalize a ``canonical_name`` lookup key (mode="before").
+
+    Shared by every model carrying the field so they cannot drift apart. It is a
+    LOOKUP KEY, not display text, so case and surrounding whitespace are noise:
+    fold them, and collapse an empty result to None so "" and "absent" don't
+    become two states the lookup has to handle separately.
+
+    Fence-stripped like the free-text names: the field is reachable from
+    CLIENT-submitted PlannedMeals (Cook Now, edit, favorite), not only from LLM
+    output, so it gets the same treatment as any other untrusted string.
+    """
+    if not isinstance(v, str):
+        return v
+    # _strip_prompt_fence_tags returns a str for a str input.
+    cleaned = str(_strip_prompt_fence_tags(v)).strip().lower()
+    return cleaned or None
+
+
 def _strip_prompt_fence_tags(v: object) -> object:
     """Remove < and > from a free-text name (mode="before", so length checks
     apply to the cleaned value).
@@ -357,16 +376,7 @@ class IngredientAmount(BaseModel):
     @field_validator("canonical_name", mode="before")
     @classmethod
     def _normalize_canonical(cls, v: object) -> object:
-        # Lookup key, not display text: normalize case/whitespace so the
-        # frontend table can match exactly, and drop an empty string to None so
-        # "" and "absent" don't become two different states downstream.
-        if not isinstance(v, str):
-            return v
-        cleaned = _strip_prompt_fence_tags(v)
-        if isinstance(cleaned, str):
-            cleaned = cleaned.strip().lower()
-            return cleaned or None
-        return cleaned
+        return _normalize_canonical_key(v)
 
     @field_validator("quantity_grams")
     @classmethod
@@ -427,13 +437,7 @@ class ShoppingListItem(BaseModel):
     @field_validator("canonical_name", mode="before")
     @classmethod
     def _normalize_canonical(cls, v: object) -> object:
-        if not isinstance(v, str):
-            return v
-        cleaned = _strip_prompt_fence_tags(v)
-        if isinstance(cleaned, str):
-            cleaned = cleaned.strip().lower()
-            return cleaned or None
-        return cleaned
+        return _normalize_canonical_key(v)
 
 
 class ConsumedBatch(BaseModel):
