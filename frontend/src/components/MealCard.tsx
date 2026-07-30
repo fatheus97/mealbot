@@ -301,7 +301,7 @@ export function MealCard({
           )}
 
           <div style={{ fontSize: "0.9em" }}>
-            <RecipeSteps steps={meal.steps ?? []} />
+            <RecipeSteps steps={meal.steps ?? []} timerLabel={meal.name} reopenKey={cookStorageKey} />
           </div>
         </>
       )}

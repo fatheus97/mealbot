@@ -416,7 +416,7 @@ export function CookNowForm() {
                 <IngredientsList ingredients={recipe.ingredients} />
               </div>
 
-              <RecipeSteps steps={recipe.steps} />
+              <RecipeSteps steps={recipe.steps} timerLabel={recipe.name} reopenKey={COOKNOW_COOK_KEY} />
             </>
           )}
 
