@@ -158,6 +158,35 @@ describe('SettingsPopup', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  // The gap this closes: PreferencesForm reported show_pieces correctly, but
+  // this component rebuilt the PATCH body field-by-field and dropped it. Saving
+  // looked like it worked and the preference silently reverted. `Partial<Pick<…>>`
+  // makes every field optional, so nothing type-checked the omission — only an
+  // assertion on what actually reaches the API can catch it.
+  it('sends the show-pieces preference when it is toggled on', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    mockedUpdateProfile.mockResolvedValueOnce({ ...mockProfile, show_pieces: true });
+    const user = userEvent.setup();
+
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByDisplayValue('Germany')).toBeInTheDocument());
+    await waitFor(() => expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: /show pieces instead of grams/i }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
+
+    await waitFor(() => {
+      expect(mockedUpdateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ show_pieces: true }),
+      );
+    });
+  });
+
   it('submits updated preferences and closes', async () => {
     loginUser();
     // fetchUserProfile is called on mount AND after mutation invalidation
@@ -194,6 +223,7 @@ describe('SettingsPopup', () => {
         language: 'English',
         variability: 'experimental',
         include_spices: true,
+        show_pieces: false,
         track_snacks: true,
         default_day_layout: [],
       });
