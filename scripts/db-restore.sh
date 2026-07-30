@@ -67,6 +67,16 @@ live_db=$(docker compose $COMPOSE_FILES exec -T db sh -c 'printf %s "$POSTGRES_D
 # safety decision below is a comparison against it, and comparing against "" would
 # make the live database look like just another target.
 [ -n "$live_db" ] || { echo "db-restore: could not read the live database name — refusing" >&2; exit 1; }
+# Same identifier constraint as TARGET_DB. `live_db` comes from the container's
+# POSTGRES_DB and is interpolated into quoted SQL identifiers on the destructive
+# path (`ALTER DATABASE "$live_db" RENAME TO …`), so validating one and not the
+# other left the injection route open on exactly the branch that overwrites
+# production. A malformed .env, not an external attacker — defense in depth, but
+# the inconsistency is the bug.
+case "$live_db" in
+  [a-zA-Z_][a-zA-Z0-9_]*) ;;
+  *) echo "db-restore: live database name '$live_db' is not a plain identifier — refusing" >&2; exit 1 ;;
+esac
 
 # `live` is the only spelling that resolves to production. An `if` (not
 # `[ … ] && …`) because under `set -e` a false test as the last command of an
