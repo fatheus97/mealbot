@@ -584,9 +584,17 @@ def check_model_chain_keys() -> None:
 
     if len({entry.provider for entry in chain}) == 1:
         only = chain[0].provider.value
+        # Prod runs a single-provider Gemini chain, so this fires on EVERY boot.
+        # Without the second sentence it would stand there recommending exactly
+        # the change the disclosure tripwire below flags as a violation — two log
+        # lines from one function arguing past each other. The advice is still
+        # right; it is the ordering that matters.
         logger.info(
             "LLM model chain is single-provider (%s) — a provider-wide outage has "
-            "no fallback. Add a funded non-%s entry to LLM_MODELS for resilience.",
+            "no fallback. Adding a funded non-%s entry to LLM_MODELS improves "
+            "resilience, but every entry receives user dietary data: disclose the "
+            "provider in frontend/privacy.html and add it to DISCLOSED_PROVIDERS "
+            "first, then change the chain.",
             only, only,
         )
 
