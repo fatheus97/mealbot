@@ -44,8 +44,12 @@ export interface CookTimer {
   reopenKey?: string;
 }
 
-interface CookTimerApi {
-  timers: CookTimer[];
+// Actions are split from state into their own context, and it is not cosmetic:
+// the state changes once a SECOND while any timer runs. A component that only
+// needs to start a timer — a recipe step list, a card registering a way back —
+// must not re-render on every tick just because it touched this context. Every
+// action is a stable useCallback, so this value never changes identity.
+interface CookTimerActions {
   /** Ignores a non-positive or over-cap duration. */
   start: (seconds: number, label: string, reopenKey?: string) => void;
   /** Pause a running timer, or resume a paused one. No-op once finished. */
@@ -57,17 +61,24 @@ interface CookTimerApi {
    * counted, so a StrictMode double-mount cannot leave the bubble stuck.
    */
   suppressBubble: () => () => void;
+  /** Registers a surface as the way back for `key`; returns the unregister. */
+  registerReopen: (key: string, run: () => void) => () => void;
+}
+
+interface CookTimerState {
+  timers: CookTimer[];
   bubbleVisible: boolean;
   /**
    * The live way back for `reopenKey`, or undefined when nothing can currently
    * show it. Resolved at call time — see `CookTimer.reopenKey`.
    */
   getReopen: (reopenKey: string | undefined) => (() => void) | undefined;
-  /** Registers a surface as the way back for `key`; returns the unregister. */
-  registerReopen: (key: string, run: () => void) => () => void;
 }
 
-const CookTimerContext = createContext<CookTimerApi | null>(null);
+type CookTimerApi = CookTimerActions & CookTimerState;
+
+const CookTimerActionsContext = createContext<CookTimerActions | null>(null);
+const CookTimerStateContext = createContext<CookTimerState | null>(null);
 
 export function CookTimerProvider({ children }: { children: ReactNode }) {
   const [timers, setTimers] = useState<CookTimer[]>([]);
@@ -294,32 +305,54 @@ export function CookTimerProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const value = useMemo<CookTimerApi>(
-    () => ({
-      timers,
-      start,
-      toggle,
-      dismiss,
-      suppressBubble,
-      bubbleVisible: suppressCount === 0 && timers.length > 0,
-      getReopen,
-      registerReopen,
-    }),
-    [timers, start, toggle, dismiss, suppressBubble, suppressCount, getReopen, registerReopen],
+  // Stable for the provider's lifetime: every member is a useCallback with no
+  // changing deps, so action-only consumers never re-render from a timer tick.
+  const actions = useMemo<CookTimerActions>(
+    () => ({ start, toggle, dismiss, suppressBubble, registerReopen }),
+    [start, toggle, dismiss, suppressBubble, registerReopen],
   );
 
-  return <CookTimerContext.Provider value={value}>{children}</CookTimerContext.Provider>;
+  const state = useMemo<CookTimerState>(
+    () => ({
+      timers,
+      bubbleVisible: suppressCount === 0 && timers.length > 0,
+      getReopen,
+    }),
+    [timers, suppressCount, getReopen],
+  );
+
+  return (
+    <CookTimerActionsContext.Provider value={actions}>
+      <CookTimerStateContext.Provider value={state}>{children}</CookTimerStateContext.Provider>
+    </CookTimerActionsContext.Provider>
+  );
 }
 
+/**
+ * Timer state AND actions. Only for surfaces that actually render the timers
+ * (cook mode's bar, the floating bubble) — it re-renders every second while one
+ * runs. Anything that merely STARTS a timer wants useCookTimerActions.
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useCookTimers(): CookTimerApi {
-  const ctx = useContext(CookTimerContext);
-  if (!ctx) {
+  const actions = useContext(CookTimerActionsContext);
+  const state = useContext(CookTimerStateContext);
+  if (!actions || !state) {
     // Fail loudly rather than silently dropping timers on the floor — a surface
     // rendered outside the provider would otherwise look fine until you tapped.
     throw new Error("useCookTimers must be used inside a CookTimerProvider");
   }
-  return ctx;
+  return { ...actions, ...state };
+}
+
+/**
+ * Actions only, and null outside a provider. Both properties matter: no
+ * per-tick re-render, and a component that merely OFFERS to start a timer can
+ * still be rendered (or unit-tested) standalone — it just won't offer it.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useOptionalCookTimerActions(): CookTimerActions | null {
+  return useContext(CookTimerActionsContext);
 }
 
 /**
@@ -333,12 +366,9 @@ export function useCookTimers(): CookTimerApi {
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useReopenTarget(key: string, run: () => void, enabled = true): void {
-  // Tolerates a missing provider, unlike useCookTimers. Offering a way back is
-  // passive: with no provider there are no timers and so nothing that could
-  // route here, and a card rendered in isolation shouldn't have to know about
-  // cooking timers at all.
-  const ctx = useContext(CookTimerContext);
-  const registerReopen = ctx?.registerReopen;
+  // Actions-only + provider-tolerant: registering a way back is passive, and
+  // subscribing to timer state here would re-render the whole card every second.
+  const registerReopen = useOptionalCookTimerActions()?.registerReopen;
   const runRef = useRef(run);
   useEffect(() => {
     runRef.current = run;
@@ -352,6 +382,8 @@ export function useReopenTarget(key: string, run: () => void, enabled = true): v
 /** Hides the floating bubble for as long as the calling component is mounted. */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useSuppressTimerBubble(): void {
-  const { suppressBubble } = useCookTimers();
+  const actions = useContext(CookTimerActionsContext);
+  if (!actions) throw new Error("useSuppressTimerBubble must be used inside a CookTimerProvider");
+  const { suppressBubble } = actions;
   useEffect(() => suppressBubble(), [suppressBubble]);
 }

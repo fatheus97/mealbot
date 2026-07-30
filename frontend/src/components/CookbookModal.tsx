@@ -805,7 +805,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
           <IngredientsList ingredients={item.ingredients} block />
 
           <h3 style={{ ...sectionHeading, fontSize: "1.1rem", margin: "1.4rem 0 0.5rem" }}>Steps</h3>
-          <RecipeSteps steps={item.steps} />
+          <RecipeSteps steps={item.steps} timerLabel={item.name} />
 
           <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "1.4rem" }}>
             <button
@@ -938,7 +938,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
           className="cookbook-scroll-hide"
           style={{ ...pageScrollStyle, ...inkStyle }}
         >
-          <RecipeSteps steps={item.steps} />
+          <RecipeSteps steps={item.steps} timerLabel={item.name} />
         </div>
 
         {/* Remove pinned to bottom-right, parchment-styled. */}
