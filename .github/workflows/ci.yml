@@ -199,7 +199,7 @@ jobs:
           # re-matches into `location /`, which masks a broken
           # `location = /app` block if only the prefix form were tested —
           # confirmed by hand while building this job.
-          routes=("/" "/app" "/app/")
+          routes=("/" "/app" "/app/" "/privacy")
           failed=0
           for route in "${routes[@]}"; do
             echo "--- ${route} ---"
@@ -213,6 +213,28 @@ jobs:
             done
           done
           exit "$failed"
+
+      - name: Access log must not record emailed secrets
+        # Every single-use secret this app mails (reset / verify / invite) travels
+        # as a query param, and nginx's STOCK log format logs "$request" — the
+        # whole request line, query string included — right next to the client IP.
+        # frontend/nginx.conf therefore defines `mealbot_noqs`, which logs $uri
+        # instead. This proves it end to end rather than trusting the config.
+        run: |
+          set -u
+          canary="ci-canary-$(date +%s)-do-not-log"
+          for p in "reset_token" "verify_token" "invite"; do
+            curl -s -o /dev/null --connect-timeout 2 --max-time 5 \
+              "http://localhost:8080/?${p}=${canary}"
+          done
+          # Give nginx a moment to flush its buffered access log.
+          sleep 2
+          if docker logs frontend-headers-test 2>&1 | grep -q "$canary"; then
+            echo "::error::nginx logged an emailed secret from the query string"
+            docker logs frontend-headers-test 2>&1 | grep "$canary" | head -3
+            exit 1
+          fi
+          echo "access log kept the secrets out"
 
       - name: Dump nginx logs on failure
         if: failure()

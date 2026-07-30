@@ -584,11 +584,64 @@ def check_model_chain_keys() -> None:
 
     if len({entry.provider for entry in chain}) == 1:
         only = chain[0].provider.value
+        # Prod runs a single-provider Gemini chain, so this fires on EVERY boot.
+        # Without the second sentence it would stand there recommending exactly
+        # the change the disclosure tripwire below flags as a violation — two log
+        # lines from one function arguing past each other. The advice is still
+        # right; it is the ordering that matters.
         logger.info(
             "LLM model chain is single-provider (%s) — a provider-wide outage has "
-            "no fallback. Add a funded non-%s entry to LLM_MODELS for resilience.",
+            "no fallback. Adding a funded non-%s entry to LLM_MODELS improves "
+            "resilience, but every entry receives user dietary data: disclose the "
+            "provider in frontend/privacy.html and add it to DISCLOSED_PROVIDERS "
+            "first, then change the chain.",
             only, only,
         )
+
+    _warn_if_chain_contradicts_privacy_policy(chain)
+
+
+#: Providers the published privacy policy names as recipients of user content.
+#: frontend/privacy.html tells users their dietary restrictions and allergies —
+#: health data, and for halal/kosher religious belief — go to Google and to
+#: nobody else. That page is a public promise; this set is the code's copy of it.
+DISCLOSED_PROVIDERS = frozenset({LLMProvider.GEMINI})
+
+
+def _warn_if_chain_contradicts_privacy_policy(chain: list[ModelEntry]) -> None:
+    """Shout if LLM_MODELS routes user content to a provider we never disclosed.
+
+    **This is a compliance tripwire, not a resilience one.** Every entry in the
+    chain receives the full generation prompt — declared allergens, diet types
+    (including halal/kosher/diabetic/baby-food), the free-text avoid-list and the
+    user's whole fridge. Adding a provider to LLM_MODELS therefore silently makes
+    the published privacy policy false, and nothing else in the system would
+    notice.
+
+    The trap is concrete rather than hypothetical: `.env.example` once shipped
+    `openai/gpt-4o-mini` as a fallback entry, so the single most natural ops move
+    — copy the example into prod — would have started sending health data to an
+    undisclosed processor. Flagged in review of the privacy-policy PR.
+
+    Deliberately a log line, not a raise: refusing to boot over a *disclosure*
+    mismatch would turn a paperwork problem into an outage, and the operator may
+    genuinely intend the change and be about to update the policy. It is an
+    ERROR (not a warning) because a silently-false privacy policy is a
+    regulatory problem, not a tidiness one.
+    """
+    undisclosed = sorted(
+        {e.provider.value for e in chain if e.provider not in DISCLOSED_PROVIDERS}
+    )
+    if not undisclosed:
+        return
+    logger.error(
+        "LLM_MODELS routes user content to UNDISCLOSED provider(s): %s. "
+        "frontend/privacy.html tells users their dietary restrictions and "
+        "allergies go to Google only. Every chain entry receives that data, so "
+        "the published policy is now inaccurate — update it (and this module's "
+        "DISCLOSED_PROVIDERS) or remove the provider from LLM_MODELS.",
+        ", ".join(undisclosed),
+    )
 
 
 llm_client = LLMClient()

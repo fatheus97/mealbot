@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { captureAttribution, getStoredAttribution } from "./attribution";
-
-const KEY = "mealbot_attribution";
+import {
+  captureAttribution,
+  getStoredAttribution,
+  __resetAttributionForTests,
+} from "./attribution";
 
 function setUrl(search: string) {
   window.history.replaceState(null, "", `/${search}`);
@@ -12,12 +14,14 @@ function setReferrer(value: string) {
 }
 
 beforeEach(() => {
+  __resetAttributionForTests();
   localStorage.clear();
   setUrl("");
   setReferrer("");
 });
 
 afterEach(() => {
+  __resetAttributionForTests();
   setUrl("");
   setReferrer("");
 });
@@ -47,10 +51,10 @@ describe("captureAttribution", () => {
     expect(getStoredAttribution().utm_source).toBe("google");
   });
 
-  it("stores nothing on a direct visit (no utm, no referrer)", () => {
+  it("captures nothing on a direct visit (no utm, no referrer)", () => {
     captureAttribution();
-    expect(localStorage.getItem(KEY)).toBeNull();
-    // ...so a *later* utm'd visit in the same browser can still be first-touch.
+    expect(getStoredAttribution()).toEqual({});
+    // ...so a *later* utm'd visit on the same page can still be first-touch.
     setUrl("?utm_source=twitter");
     captureAttribution();
     expect(getStoredAttribution().utm_source).toBe("twitter");
@@ -72,21 +76,67 @@ describe("captureAttribution", () => {
   });
 });
 
+describe("no storage on the visitor's device", () => {
+  // The whole point of the in-memory rewrite: marketing attribution is not
+  // strictly necessary, and ePrivacy treats localStorage exactly like a cookie,
+  // so persisting this was the single thing on the site that would have needed
+  // a consent banner. If someone reintroduces the write, this fails.
+  it("writes nothing to localStorage", () => {
+    setUrl("?utm_source=google&utm_medium=cpc&utm_campaign=launch");
+    setReferrer("https://news.example.com/post");
+    captureAttribution();
+
+    expect(getStoredAttribution().utm_source).toBe("google"); // it did capture
+    expect(localStorage.length).toBe(0); // ...and stored nothing on the device
+  });
+
+  it("writes nothing to sessionStorage either", () => {
+    // sessionStorage is still storage on terminal equipment — same rule, so
+    // "just use sessionStorage" is not a workaround for the consent question.
+    setUrl("?utm_source=google");
+    captureAttribution();
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("does not survive a fresh page (no cross-session first-touch)", () => {
+    setUrl("?utm_source=google");
+    captureAttribution();
+    expect(getStoredAttribution().utm_source).toBe("google");
+
+    // A new document starts from nothing — this is the deliberate cost of
+    // dropping persistence, not a bug. Cross-session recognition is exactly
+    // the part that would require consent.
+    __resetAttributionForTests();
+    setUrl("");
+    expect(getStoredAttribution()).toEqual({});
+  });
+});
+
 describe("getStoredAttribution", () => {
-  it("returns an empty object when nothing is stored", () => {
+  it("returns an empty object when nothing is captured", () => {
     expect(getStoredAttribution()).toEqual({});
   });
 
-  it("returns an empty object for a corrupt blob", () => {
-    localStorage.setItem(KEY, "not json{");
-    expect(getStoredAttribution()).toEqual({});
+  it("returns a copy, so a caller cannot mutate the stored capture", () => {
+    setUrl("?utm_source=google");
+    captureAttribution();
+    const first = getStoredAttribution();
+    first.utm_source = "tampered";
+    expect(getStoredAttribution().utm_source).toBe("google");
   });
 
-  it("drops unknown / non-string keys from a tampered blob", () => {
+  it("removes a stale localStorage blob left by the old persisted version", () => {
+    // Browsers of existing visitors still hold `mealbot_attribution` from
+    // before this change. It must be inert AND actively cleared — continuing to
+    // hold unnecessary data on someone's device is the thing this change exists
+    // to stop. Asserting only that it isn't READ would pass even if the
+    // removeItem were deleted.
     localStorage.setItem(
-      KEY,
-      JSON.stringify({ utm_source: "google", evil: "x", utm_medium: 42 }),
+      "mealbot_attribution",
+      JSON.stringify({ utm_source: "old-persisted-value" }),
     );
-    expect(getStoredAttribution()).toEqual({ utm_source: "google" });
+    captureAttribution();
+    expect(getStoredAttribution()).toEqual({});
+    expect(localStorage.getItem("mealbot_attribution")).toBeNull();
   });
 });

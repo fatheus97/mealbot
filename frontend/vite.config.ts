@@ -16,13 +16,14 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     build: {
       rollupOptions: {
-        // Two-page build: index.html (the SPA today; the static marketing
-        // landing once that slice lands, see docs/landing-page-plan.md) and
+        // Three-page build: index.html (the static marketing landing at `/`),
         // app.html (the SPA's own namespace at /app, nginx-routed — see
-        // nginx.conf). Keeps one image/nginx/CSP instead of a second service.
+        // nginx.conf) and privacy.html (a static legal page at /privacy).
+        // Keeps one image/nginx/CSP instead of a second service.
         input: {
           main: resolve(import.meta.dirname, 'index.html'),
           app: resolve(import.meta.dirname, 'app.html'),
+          privacy: resolve(import.meta.dirname, 'privacy.html'),
         },
       },
     },
