@@ -42,6 +42,13 @@ def compute_shopping_list_from_plan(
     staples = staples or frozenset()
     # Sum required grams per ingredient over all days and meals
     required: dict[str, float] = defaultdict(float)
+    # Canonical (English) key per aggregated ingredient, so the shopping list can
+    # be shown in pieces. Deliberately FIRST-WINS and dropped on disagreement:
+    # two meals that spell the same localized name but disagree on what it is
+    # mean we cannot trust either, and showing a confident wrong piece count is
+    # worse than showing grams.
+    canonical: dict[str, str | None] = {}
+    canonical_conflict: set[str] = set()
     for day in days:
         for meal in day.meals:
             # A leftover's food was bought as part of its source meal (which was
@@ -64,6 +71,11 @@ def compute_shopping_list_from_plan(
                     # A user "always have" staple — never put it on the list.
                     continue
                 required[key] += ing.quantity_grams
+                if key in canonical:
+                    if canonical[key] != ing.canonical_name:
+                        canonical_conflict.add(key)
+                else:
+                    canonical[key] = ing.canonical_name
 
     # Initial fridge amounts
     available: dict[str, float] = {}
@@ -89,6 +101,7 @@ def compute_shopping_list_from_plan(
                 ShoppingListItem(
                     name=pretty_name.get(key, key),
                     quantity_grams=missing,
+                    canonical_name=None if key in canonical_conflict else canonical.get(key),
                 )
             )
 

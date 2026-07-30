@@ -323,12 +323,50 @@ class IngredientAmount(BaseModel):
     quantity_grams: float = Field(..., allow_inf_nan=False,
                                   description="The weight in grams. If the recipe uses volume (cups), estimate the weight.")
     is_spice: bool = Field(default=False, description="True for spices/herbs/seasonings when include_spices is off.")
+    # Lookup key for the frontend's piece-weight table, so a countable
+    # ingredient can be shown as "2 pcs" instead of "120 g".
+    #
+    # It exists because `name` is written in the USER'S language (see the
+    # meal-plan prompt's "ALL output text ... in {{ language }}" rule), so a
+    # table keyed on names would only ever work for English speakers. This is a
+    # stable ENGLISH key the model supplies alongside the localized name.
+    #
+    # The model proposes a NAME, never a count: the count is derived
+    # deterministically from `quantity_grams` and a curated, sourced weight
+    # table, and an unrecognised key simply falls back to grams. That keeps a
+    # hallucinated value from ever becoming a number the user reads.
+    #
+    # Optional and nullable: plans generated before this field existed replay
+    # from `response_json` without it and degrade to grams.
+    canonical_name: str | None = Field(
+        default=None,
+        max_length=60,
+        description=(
+            "Lowercase SINGULAR English name for countable whole items only "
+            "(e.g. 'egg', 'onion', 'lemon'). Omit for anything not counted in "
+            "whole units (flour, milk, rice, minced meat)."
+        ),
+    )
 
     @field_validator("name", mode="before")
     @classmethod
     def _strip_fence_tags(cls, v: object) -> object:
         # Ingredient names render into fenced LLM prompts (frozen_meals, stock).
         return _strip_prompt_fence_tags(v)
+
+    @field_validator("canonical_name", mode="before")
+    @classmethod
+    def _normalize_canonical(cls, v: object) -> object:
+        # Lookup key, not display text: normalize case/whitespace so the
+        # frontend table can match exactly, and drop an empty string to None so
+        # "" and "absent" don't become two different states downstream.
+        if not isinstance(v, str):
+            return v
+        cleaned = _strip_prompt_fence_tags(v)
+        if isinstance(cleaned, str):
+            cleaned = cleaned.strip().lower()
+            return cleaned or None
+        return cleaned
 
     @field_validator("quantity_grams")
     @classmethod
@@ -376,11 +414,26 @@ class ShoppingListItem(BaseModel):
     """
     name: str = Field(..., max_length=100)
     quantity_grams: float = Field(..., gt=0, allow_inf_nan=False)
+    # Carried through aggregation from the meals' IngredientAmounts so the
+    # shopping list can read "8 eggs" instead of "480 g" — the surface where a
+    # piece count is most useful. See IngredientAmount.canonical_name.
+    canonical_name: str | None = Field(default=None, max_length=60)
 
     @field_validator("name", mode="before")
     @classmethod
     def _strip_fence_tags(cls, v: object) -> object:
         return _strip_prompt_fence_tags(v)
+
+    @field_validator("canonical_name", mode="before")
+    @classmethod
+    def _normalize_canonical(cls, v: object) -> object:
+        if not isinstance(v, str):
+            return v
+        cleaned = _strip_prompt_fence_tags(v)
+        if isinstance(cleaned, str):
+            cleaned = cleaned.strip().lower()
+            return cleaned or None
+        return cleaned
 
 
 class ConsumedBatch(BaseModel):

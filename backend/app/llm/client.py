@@ -295,9 +295,9 @@ class LLMClient:
                 "meal_type": "breakfast",
                 "meal_type_label": "Breakfast",
                 "ingredients": [
-                    {"name": "eggs", "quantity_grams": 120},
+                    {"name": "eggs", "quantity_grams": 120, "canonical_name": "egg"},
                     {"name": "greek yogurt", "quantity_grams": 150},
-                    {"name": "lemons", "quantity_grams": 30},
+                    {"name": "lemons", "quantity_grams": 30, "canonical_name": "lemon"},
                 ],
                 "steps": [
                     "Whisk eggs and season with salt and pepper.",
@@ -351,7 +351,7 @@ class LLMClient:
                 "meal_type_label": "Snack",
                 "ingredients": [
                     {"name": "greek yogurt", "quantity_grams": 150},
-                    {"name": "lemons", "quantity_grams": 20},
+                    {"name": "lemons", "quantity_grams": 20, "canonical_name": "lemon"},
                 ],
                 "steps": ["Drizzle lemon juice over Greek yogurt and enjoy."],
                 "total_time_minutes": 3,
@@ -363,7 +363,7 @@ class LLMClient:
                 "meal_type": "breakfast",
                 "meal_type_label": "Breakfast",
                 "ingredients": [
-                    {"name": "eggs", "quantity_grams": 180},
+                    {"name": "eggs", "quantity_grams": 180, "canonical_name": "egg"},
                     {"name": "cheddar cheese", "quantity_grams": 50},
                     {"name": "olive oil", "quantity_grams": 10},
                 ],
@@ -383,7 +383,7 @@ class LLMClient:
                     {"name": "cherry tomatoes", "quantity_grams": 150},
                     {"name": "chicken breast", "quantity_grams": 150},
                     {"name": "olive oil", "quantity_grams": 20},
-                    {"name": "lemons", "quantity_grams": 30},
+                    {"name": "lemons", "quantity_grams": 30, "canonical_name": "lemon"},
                 ],
                 "steps": [
                     "Grill or pan-fry chicken breast until cooked through, then slice.",
@@ -399,7 +399,7 @@ class LLMClient:
                 "ingredients": [
                     {"name": "chicken breast", "quantity_grams": 250},
                     {"name": "rice", "quantity_grams": 180},
-                    {"name": "onions", "quantity_grams": 120},
+                    {"name": "onions", "quantity_grams": 120, "canonical_name": "onion"},
                     {"name": "olive oil", "quantity_grams": 20},
                     {"name": "garlic", "quantity_grams": 10},
                 ],
@@ -428,7 +428,7 @@ class LLMClient:
                 "meal_type": "breakfast",
                 "meal_type_label": "Breakfast",
                 "ingredients": [
-                    {"name": "eggs", "quantity_grams": 180},
+                    {"name": "eggs", "quantity_grams": 180, "canonical_name": "egg"},
                     {"name": "greek yogurt", "quantity_grams": 100},
                     {"name": "olive oil", "quantity_grams": 10},
                 ],
@@ -463,7 +463,7 @@ class LLMClient:
                 "ingredients": [
                     {"name": "chicken breast", "quantity_grams": 280},
                     {"name": "cherry tomatoes", "quantity_grams": 180},
-                    {"name": "lemons", "quantity_grams": 50},
+                    {"name": "lemons", "quantity_grams": 50, "canonical_name": "lemon"},
                     {"name": "olive oil", "quantity_grams": 30},
                     {"name": "garlic", "quantity_grams": 10},
                 ],
