@@ -62,7 +62,7 @@ async def _generate_and_screen(
     user_prompt: str,
     allergens: list[Allergen],
     mock: bool,
-    language: str | None = None,
+    language: str | None,
     mock_context: dict[str, object] | None = None,
     max_retries: int = _MAX_ALLERGEN_SCREEN_RETRIES,
 ) -> SingleDayResponse:
@@ -95,12 +95,18 @@ async def _generate_and_screen(
             mock=mock,
         )
         response = raw.to_planned_day()
-        # The mock LLM (mock=True: demo accounts, local dev with llm_mock) is
-        # DETERMINISTIC per day, so screening + regenerating it would loop to a
-        # guaranteed fail-closed on any canned meal that happens to contain a
-        # declared allergen. Mock output is demo/dev content, not a real dietary
-        # plan and not an allergen-safety surface — skip the screen in mock mode.
-        if mock or not allergens:
+        # The mock LLM is DETERMINISTIC per day, so screening + regenerating it
+        # would loop to a guaranteed fail-closed on any canned meal that happens
+        # to contain a declared allergen. Mock output is demo/dev content, not a
+        # real dietary plan and not an allergen-safety surface — skip the screen.
+        #
+        # `settings.llm_mock` is checked as well as the `mock` argument because
+        # llm/client.py serves canned data on EITHER (`if mock or settings.llm_mock`).
+        # Testing only the argument left a whole-environment LLM_MOCK=true serving
+        # fixtures — which carry no name_en — into a live screen: every ingredient
+        # unscreenable, every non-English allergic request 422. Dev/staging only,
+        # but it would look exactly like the feature being broken.
+        if mock or settings.llm_mock or not allergens:
             return response
         last = screen_meals_for_allergens(response.meals, allergens, language=language)
         if not last:
@@ -110,7 +116,7 @@ async def _generate_and_screen(
             template_name,
             attempt + 1,
             max_retries + 1,
-            [f"{v.ingredient}->{v.allergen.value}" for v in last],
+            [f"{v.ingredient}->{v.allergen.value}({v.matched_term})" for v in last],
         )
     raise AllergenScreenError(last)
 
@@ -297,8 +303,16 @@ async def generate_single_day_with_rag(
             # allergen — it would suggest exactly what the screen then rejects,
             # causing needless regeneration (and, if every retry hit, a
             # fail-closed on a request the standard pipeline could satisfy).
+            # language=None (English matching) deliberately: these are STORED
+            # meals from other users, written at an unknown time in an unknown
+            # language, and English-authored meals never carry name_en by design.
+            # Screening them as non-English would mark every one UNSCREENABLE and
+            # empty the RAG pool permanently. English matching still checks BOTH
+            # name and name_en (candidates includes it whenever present), so this
+            # only ever under-filters an ADVISORY prompt example — the real gate
+            # is the post-generation screen, which uses the true language.
             if req.allergens and screen_meals_for_allergens(
-                [meal], req.allergens, language=req.language,
+                [meal], req.allergens, language=None,
             ):
                 continue
             retrieved_meals.append({

@@ -46,6 +46,13 @@ from app.core.dietary_reference import ALLERGEN_INFO, resolve_dietary_context
 from app.models.plan_models import PlannedMeal
 
 
+#: Sentinel `matched_term` for an ingredient the screen could not read, because
+#: the plan is in another language and the model supplied no English name. It is
+#: NOT a detected allergen — it means "unverifiable", which fails closed exactly
+#: like a real hit.
+UNSCREENABLE_TERM = "<no english name>"
+
+
 @dataclass(frozen=True)
 class AllergenViolation:
     """One generated ingredient that matched a declared allergen's term set."""
@@ -64,7 +71,8 @@ class AllergenScreenError(Exception):
     def __init__(self, violations: Sequence[AllergenViolation]) -> None:
         self.violations = list(violations)
         summary = ", ".join(
-            f"{v.ingredient!r}→{v.allergen.value}" for v in self.violations
+            f"{v.ingredient!r}→{v.allergen.value} [{v.matched_term}]"
+            for v in self.violations
         )
         super().__init__(
             f"could not generate a plan free of declared allergens: {summary}"
@@ -91,6 +99,20 @@ class AllergenScreenError(Exception):
         (``docs/dietary-reference.md`` Part 4) — and it never implies the plan
         we withheld was itself unsafe (it was withheld precisely because it
         wasn't clean)."""
+        # An all-unscreenable round detected NO allergen — the violations carry
+        # an arbitrary declared one purely to reuse the reject→regenerate path.
+        # Naming it here would tell a user to remove an allergen that was never
+        # found, and following that advice walks them down to zero declared
+        # allergens, at which point the screen is skipped entirely and the
+        # request "succeeds". That is the worst possible advice to give someone
+        # with an allergy, so this case gets its own message.
+        if self.violations and all(
+            v.matched_term == UNSCREENABLE_TERM for v in self.violations
+        ):
+            return (
+                "We couldn't check this meal against your allergens, so we "
+                "didn't show it. Please try generating again."
+            )
         labels = [
             ALLERGEN_INFO[a].label if a in ALLERGEN_INFO
             else a.value.replace("_", " ")
@@ -251,13 +273,6 @@ def _qualifier_suppressed(lname: str) -> frozenset[Allergen]:
     return frozenset(out)
 
 
-#: Sentinel `matched_term` for an ingredient the screen could not read, because
-#: the plan is in another language and the model supplied no English name. It is
-#: NOT a detected allergen — it means "unverifiable", which fails closed exactly
-#: like a real hit.
-UNSCREENABLE_TERM = "<no english name>"
-
-
 def is_english_language(language: str | None) -> bool:
     """True when generated ingredient names are already the English the term
     lists are written in.
@@ -279,7 +294,7 @@ def screen_meals_for_allergens(
     meals: Sequence[PlannedMeal],
     allergens: Sequence[Allergen],
     *,
-    language: str | None = None,
+    language: str | None,
 ) -> list[AllergenViolation]:
     """Scan every ingredient of every meal against the declared allergens' term
     sets. Returns all violations (empty ⇒ the day is clean).
@@ -314,8 +329,10 @@ def screen_meals_for_allergens(
             if not english and not name_en:
                 # Cannot verify this ingredient at all. Report it against the
                 # first declared allergen so the existing reject→regenerate →
-                # fail-closed path handles it; the sentinel term keeps it
-                # distinguishable from a genuine allergen hit in the logs.
+                # fail-closed path handles it. The allergen is therefore
+                # ARBITRARY, not detected — which is why user_detail special-cases
+                # an all-unscreenable round rather than naming it, and why both
+                # log sites print matched_term.
                 violations.append(
                     AllergenViolation(
                         meal_name=meal.name,

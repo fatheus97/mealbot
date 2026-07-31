@@ -31,7 +31,10 @@ def _meal(*ingredient_names: str) -> PlannedMeal:
 def _hit(ingredient: str, allergens: list[Allergen]) -> list[Allergen]:
     """Which allergens a single ingredient trips."""
     return [
-        v.allergen for v in screen_meals_for_allergens([_meal(ingredient)], allergens)
+        v.allergen
+        for v in screen_meals_for_allergens(
+            [_meal(ingredient)], allergens, language="English"
+        )
     ]
 
 
@@ -129,22 +132,27 @@ class TestSulphitesExcluded:
         assert screen_meals_for_allergens(
             [_meal("dried apricots", "red wine", "white wine vinegar")],
             [Allergen.SULPHITES],
+            language="English",
         ) == []
 
 
 class TestNoOp:
     def test_no_allergens_is_noop(self):
-        assert screen_meals_for_allergens([_meal("milk", "wheat", "peanuts")], []) == []
+        assert screen_meals_for_allergens(
+            [_meal("milk", "wheat", "peanuts")], [], language="English"
+        ) == []
 
     def test_only_sulphites_is_noop(self):
-        assert screen_meals_for_allergens([_meal("wine")], [Allergen.SULPHITES]) == []
+        assert screen_meals_for_allergens(
+            [_meal("wine")], [Allergen.SULPHITES], language="English"
+        ) == []
 
     def test_leftover_meal_with_no_ingredients_is_clean(self):
         empty = PlannedMeal(
             name="Reheated leftovers", meal_type=MealType.MAIN_COURSE,
             ingredients=[], steps=["reheat"],
         )
-        assert screen_meals_for_allergens([empty], [Allergen.MILK]) == []
+        assert screen_meals_for_allergens([empty], [Allergen.MILK], language="English") == []
 
 
 class TestViolationDetails:
@@ -154,7 +162,7 @@ class TestViolationDetails:
             ingredients=[IngredientAmount(name="cheddar cheese", quantity_grams=100)],
             steps=["cook"],
         )
-        violations = screen_meals_for_allergens([meal], [Allergen.MILK])
+        violations = screen_meals_for_allergens([meal], [Allergen.MILK], language="English")
         assert len(violations) == 1
         v = violations[0]
         assert v.allergen == Allergen.MILK
@@ -165,7 +173,7 @@ class TestViolationDetails:
     def test_multiple_violations_across_meals(self):
         meals = [_meal("milk"), _meal("salmon")]
         violations = screen_meals_for_allergens(
-            meals, [Allergen.MILK, Allergen.FISH],
+            meals, [Allergen.MILK, Allergen.FISH], language="English",
         )
         got = {(v.ingredient, v.allergen) for v in violations}
         assert (("milk", Allergen.MILK)) in got
@@ -219,6 +227,7 @@ class TestSafetyReviewRegressions:
         # still real dairy and must be flagged.
         v = screen_meals_for_allergens(
             [_meal("coconut cream and double cream")], [Allergen.MILK],
+            language="English",
         )
         assert any(x.allergen == Allergen.MILK for x in v)
 
@@ -478,3 +487,77 @@ class TestOneViolationPerIngredientAllergenPair:
             [meal], [Allergen.MILK], language="cs"
         )
         assert len(violations) == 1
+
+
+class TestUnscreenableUserMessage:
+    """An all-unscreenable round must not name an allergen that was never found.
+
+    The violations carry an ARBITRARY declared allergen (screenable[0]) purely to
+    reuse the reject→regenerate path. The normal message says "couldn't generate
+    a meal that avoids {X} — try removing an allergen", so an allergic user would
+    remove X, get the identical error against the next allergen, and eventually
+    declare none at all — at which point the screen is skipped and the request
+    "succeeds". That is the worst advice this product could give.
+    """
+
+    def test_all_unscreenable_gets_its_own_message(self) -> None:
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Jídlo",
+                ingredient="mléko",
+                allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            )
+        ])
+        detail = err.user_detail
+        assert "couldn't check this meal" in detail.lower()
+        # Must NOT name the arbitrary allergen, and must NOT advise removing one.
+        assert "milk" not in detail.lower()
+        assert "removing an allergen" not in detail.lower()
+
+    def test_a_real_hit_still_names_the_allergen(self) -> None:
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Dish", ingredient="milk", allergen=Allergen.MILK,
+                matched_term="milk",
+            )
+        ])
+        assert "milk" in err.user_detail.lower()
+
+    def test_a_mixed_round_names_the_real_allergen(self) -> None:
+        # A genuine hit alongside an unverifiable ingredient is still a genuine
+        # hit — the specific message wins.
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="D", ingredient="mléko", allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            ),
+            AllergenViolation(
+                meal_name="D", ingredient="arašídy", allergen=Allergen.PEANUTS,
+                matched_term="peanut",
+            ),
+        ])
+        assert "peanut" in err.user_detail.lower()
+
+    def test_the_sentinel_reaches_the_log_summary(self) -> None:
+        # Without matched_term in the message, a missing translation is
+        # indistinguishable from a real allergen hit in production logs — which
+        # is the only signal that the prompt contract has broken.
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Jídlo", ingredient="mléko", allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            )
+        ])
+        assert UNSCREENABLE_TERM in str(err)
+
+
+class TestLanguageIsRequired:
+    def test_omitting_language_is_a_type_error(self) -> None:
+        # It used to default to None, which means English matching — so a
+        # forgotten kwarg silently reinstated the exact bug this module fixes.
+        # Required keyword + mypy strict makes that a build failure instead.
+        import pytest
+
+        with pytest.raises(TypeError):
+            screen_meals_for_allergens([_meal("milk")], [Allergen.MILK])  # type: ignore[call-arg]
