@@ -14,7 +14,6 @@ from sqlmodel import col, delete, select
 from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import StockItem, User
-from app.services.user_purge import purge_user_owned_rows
 
 # (name, grams, expiry_offset_days, need_to_use)
 _FRIDGE_SEED: list[tuple[str, float, int | None, bool]] = [
@@ -73,11 +72,12 @@ async def create_ephemeral_demo_user(session: AsyncSession) -> User:
 async def cleanup_expired_demo_users(session: AsyncSession, ttl_minutes: int) -> int:
     """Delete demo users older than ttl_minutes plus all their owned data.
 
-    SQLModel relationships have no DB-level cascade, so the owned rows go first,
-    inside a single transaction — via the shared ``purge_user_owned_rows`` list, so
-    this sweep and the admin hard-delete can't drift apart again (a table missing
-    here is an IntegrityError on the ``delete(User)`` below, which wedges
-    ``POST /api/auth/demo`` for every subsequent visitor). Caller must commit.
+    One statement: every FK into ``user.id`` declares an ``ondelete`` (see the
+    rule on ``User``), so the database removes the owned rows. This used to be an
+    app-level purge list, and a table missing from it was an IntegrityError here —
+    which, because the sweep is the first thing ``POST /api/auth/demo`` does,
+    wedged demo session creation for every subsequent visitor (#337). A list the
+    DB enforces can't be forgotten. Caller must commit.
     """
     cutoff = datetime.now(UTC) - timedelta(minutes=ttl_minutes)
     result = await session.execute(
@@ -87,7 +87,8 @@ async def cleanup_expired_demo_users(session: AsyncSession, ttl_minutes: int) ->
     if not expired_ids:
         return 0
 
-    await purge_user_owned_rows(session, expired_ids)
+    # Core delete, not ORM session.delete: the ORM would try to null-update the
+    # NOT NULL child FKs instead of letting the DB cascade fire.
     await session.execute(
         delete(User).where(col(User.id).in_(expired_ids))
     )

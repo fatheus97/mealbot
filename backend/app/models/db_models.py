@@ -184,6 +184,26 @@ class User(SQLModel, table=True):
     signup_utm_campaign: str | None = Field(default=None, max_length=200)
     signup_referrer: str | None = Field(default=None, max_length=500)
 
+    # --- Deleting a user: the rule, enforced by the DATABASE ---
+    #
+    # EVERY FK pointing at ``user.id`` must declare an ``ondelete``, and there are
+    # only two answers:
+    #   * ``CASCADE``  — the row is the user's own data and is meaningless without
+    #     them (plans, entries, fridge, staples, sessions, tokens, telemetry,
+    #     feedback). It dies with the account.
+    #   * ``SET NULL`` — the row must OUTLIVE the account: ``SaleRecord`` (VAT /
+    #     revenue ledger) and ``InviteToken`` (audit trail). Anonymised, not
+    #     deleted.
+    # There is no third option. A bare ``foreign_key="user.id"`` means Postgres
+    # NO ACTION, which turns a hard-delete into an IntegrityError — which is
+    # exactly how #337 wedged ``POST /api/auth/demo`` in production when
+    # ``PantryStaple`` was missing from an app-level purge list.
+    #
+    # That list is gone (see migration ``user_cascade_01``). The delete paths —
+    # admin ``DELETE /api/admin/users/{id}`` and the demo sweep — now issue a
+    # single ``DELETE FROM "user"`` and let the DB do the rest, so a new
+    # user-owned table can no longer be forgotten in one path and not the other.
+    # ``tests/test_user_cascade.py`` fails if a future FK omits its ``ondelete``.
     fridge_items: list[StockItem] = Relationship(back_populates="user")
     meal_plans: list[MealPlan] = Relationship(back_populates="user")
     meal_entries: list[MealEntry] = Relationship(back_populates="user")
@@ -198,7 +218,9 @@ class AuthSession(SQLModel, table=True):
     whole user."""
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
     refresh_token_hash: str = Field(
         sa_column=Column(String(64), unique=True, index=True, nullable=False),
     )
@@ -216,6 +238,13 @@ class AuthSession(SQLModel, table=True):
     # Forensic chain pointer. When this row is rotated, we set replaced_by_id
     # to the new row's id; if a refresh comes in for this (revoked) row we
     # know the new row is still trusted, but the request itself is reuse.
+    #
+    # No ondelete, and that is safe under the user CASCADE above: a rotation
+    # chain never crosses users, so the cascade's single
+    # ``DELETE FROM authsession WHERE user_id = ...`` removes referrer and
+    # referent together, and the end-of-statement NO ACTION check sees nothing
+    # dangling. (Contrast ``MealEntry.meal_plan_id``, which spans two tables and
+    # therefore two cascade statements — it needs its own CASCADE.)
     replaced_by_id: int | None = Field(
         default=None, foreign_key="authsession.id"
     )
@@ -246,7 +275,9 @@ class PasswordResetToken(SQLModel, table=True):
     """
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
     token_hash: str = Field(
         sa_column=Column(String(64), unique=True, index=True, nullable=False),
     )
@@ -506,7 +537,7 @@ class AccessRequest(SQLModel, table=True):
 
 class StockItem(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     name: str = Field(index=True)
     quantity_grams: float = Field(ge=0)
     need_to_use: bool = Field(default=False, index=True)
@@ -522,19 +553,21 @@ class PantryStaple(SQLModel, table=True):
 
     Deliberately a name-only per-user collection — the StockItem shape minus the
     stock fields — because a staple is a membership set, not inventory (no
-    quantity, no expiry). No DB cascade and no ORM back-relationship (like
-    InviteToken): the write path is delete-all-then-insert and delete_user purges
-    it explicitly, so neither is needed. Duplicate-name protection is handled in
-    the service layer (case-insensitive dedup on the replace-all write), so the
-    table needs no unique constraint."""
+    quantity, no expiry). No ORM back-relationship (like InviteToken): the write
+    path is delete-all-then-insert, so it would be unused machinery. Duplicate-name
+    protection is handled in the service layer (case-insensitive dedup on the
+    replace-all write), so the table needs no unique constraint.
+
+    This is the table that shipped with a bare ``user_id`` FK and no ondelete,
+    which is what wedged the demo sweep in #337."""
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     name: str = Field(index=True)
 
 
 class MealPlan(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     days: int
     meals_per_day: int
@@ -586,8 +619,18 @@ class MealPlan(SQLModel, table=True):
 
 class MealEntry(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True)
-    meal_plan_id: int = Field(foreign_key="mealplan.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    # CASCADE is load-bearing, not cosmetic. Deleting a user fires one cascade
+    # statement PER referencing FK, in an order that depends on constraint OIDs
+    # and so differs between databases. If this FK were NO ACTION, the
+    # ``DELETE FROM mealplan WHERE user_id = ...`` cascade would run its
+    # end-of-statement RI check while the user's mealentry rows may still exist
+    # (their own cascade not yet fired) → IntegrityError, non-deterministically.
+    # Cascading here removes the check entirely. Also drops the ordering
+    # requirement the old app-level purge list encoded ("children before parents").
+    meal_plan_id: int = Field(
+        foreign_key="mealplan.id", index=True, ondelete="CASCADE"
+    )
     day_index: int = Field(description="Which day of the plan this meal belongs to (1-based).")
     meal_index: int = Field(description="Index of the meal within the day (1-based).")
     name: str = Field(index=True)
