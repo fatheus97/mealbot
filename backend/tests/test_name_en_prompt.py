@@ -141,3 +141,30 @@ class TestPromptAndScreenAgree:
         ]:
             needs = not is_english_language(lang)
             assert needs is expect_field, lang
+
+
+class TestStepsMayNotIntroduceIngredients:
+    """The language-independent half of the cooking-step fix.
+
+    The deterministic step scan uses ENGLISH terms, so on a non-English plan it
+    mostly matches nothing. The structural defence is this prompt rule: if steps
+    can only use listed ingredients, then screening the (translated, screened)
+    ingredient list covers the whole recipe.
+    """
+
+    def test_both_templates_forbid_unlisted_ingredients_in_steps(self) -> None:
+        for t in TEMPLATES:
+            out = _render(t, language="cs", needs_name_en=True)
+            assert 'NEVER use anything in "steps" that is not in' in out, t
+
+    def test_the_rule_is_language_independent(self) -> None:
+        # It must NOT be gated on needs_name_en — English plans need it just as
+        # much, and it is the only protection non-English plans get for steps.
+        for t in TEMPLATES:
+            out = _render(t, language="en", needs_name_en=False)
+            assert 'NEVER use anything in "steps" that is not in' in out, t
+
+    def test_it_says_why(self) -> None:
+        for t in TEMPLATES:
+            out = _render(t, language="en", needs_name_en=False)
+            assert "the allergen check reads the ingredient list" in out, t
