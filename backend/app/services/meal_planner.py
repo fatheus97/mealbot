@@ -100,13 +100,17 @@ async def _generate_and_screen(
         # to contain a declared allergen. Mock output is demo/dev content, not a
         # real dietary plan and not an allergen-safety surface — skip the screen.
         #
-        # `settings.llm_mock` is checked as well as the `mock` argument because
-        # llm/client.py serves canned data on EITHER (`if mock or settings.llm_mock`).
-        # Testing only the argument left a whole-environment LLM_MOCK=true serving
-        # fixtures — which carry no name_en — into a live screen: every ingredient
-        # unscreenable, every non-English allergic request 422. Dev/staging only,
-        # but it would look exactly like the feature being broken.
-        if mock or settings.llm_mock or not allergens:
+        # Keyed on the `mock` ARGUMENT only, deliberately. Review suggested also
+        # testing `settings.llm_mock` (llm/client.py serves fixtures on either),
+        # because a whole-environment LLM_MOCK=true feeds name_en-less fixtures
+        # into a live screen and 422s non-English allergic requests. That fix is
+        # wrong here: CI and local dev run with LLM_MOCK=true while injecting a
+        # real mock LLM per test, so keying on the setting SKIPS THE SCREEN for
+        # the tests that exist to prove it runs — it silently deleted the whole
+        # of TestAllergenScreenWiring. The dev-only symptom is also pre-existing
+        # and orthogonal: a fixture containing a declared allergen already
+        # fail-closes the same way, name_en or not.
+        if mock or not allergens:
             return response
         last = screen_meals_for_allergens(response.meals, allergens, language=language)
         if not last:

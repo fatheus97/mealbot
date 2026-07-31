@@ -46,13 +46,6 @@ from app.core.dietary_reference import ALLERGEN_INFO, resolve_dietary_context
 from app.models.plan_models import PlannedMeal
 
 
-#: Sentinel `matched_term` for an ingredient the screen could not read, because
-#: the plan is in another language and the model supplied no English name. It is
-#: NOT a detected allergen — it means "unverifiable", which fails closed exactly
-#: like a real hit.
-UNSCREENABLE_TERM = "<no english name>"
-
-
 @dataclass(frozen=True)
 class AllergenViolation:
     """One generated ingredient that matched a declared allergen's term set."""
@@ -271,6 +264,13 @@ def _qualifier_suppressed(lname: str) -> frozenset[Allergen]:
             out |= allergens
             break
     return frozenset(out)
+
+
+#: Sentinel `matched_term` for an ingredient the screen could not read, because
+#: the plan is in another language and the model supplied no English name. It is
+#: NOT a detected allergen — it means "unverifiable", which fails closed exactly
+#: like a real hit.
+UNSCREENABLE_TERM = "<no english name>"
 
 
 def is_english_language(language: str | None) -> bool:

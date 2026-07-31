@@ -189,7 +189,7 @@ Output JSON schema (must match exactly):
 {% else %}
 — Set "is_spice" following the pantry flavoring rule above. When in doubt: if you'd use it by feel rather than by weighing, set true.
 {% endif %}
-— ALL output text (meal names, ingredient names, cooking steps, meal_type_label) MUST be written in {{ language or "English" }}. EXCEPTION — the internal lookup keys "canonical_name"{% if needs_name_en %} and "name_en"{% endif %} are ALWAYS plain English and must NOT be translated: they are never shown to the user{% if needs_name_en %}, and "name_en" is what the allergen check reads, so translating it disables that check{% endif %}.
+— ALL output text (meal names, ingredient names, cooking steps, meal_type_label) MUST be written in {{ language or "English" }}. The internal lookup keys "canonical_name"{% if needs_name_en %} and "name_en"{% endif %} are the ONLY exception: they are ALWAYS plain English, must NOT be translated, and are never shown to the user{% if needs_name_en %} — "name_en" is what the allergen check reads, so translating it disables that check{% endif %}.
 — "meal_type" must ALWAYS be one of the English enum values above. "meal_type_label" is the display name in {{ language or "English" }}.
 
 ALWAYS Return ONLY minified JSON. No explanations.
