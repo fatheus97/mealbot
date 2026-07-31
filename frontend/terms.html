@@ -347,8 +347,12 @@
             deterministic backstop.
           </li>
           <li>
-            <strong>It reads ingredient lists, not cooking steps.</strong> Something introduced
-            only in the method — "brush with butter", "serve with bread" — will not be caught.
+            <strong>Cooking steps are checked in English only.</strong> We check both the
+            ingredient list and the recipe steps, and we instruct the AI never to use anything
+            in a step that isn't in the ingredient list. But steps are written in your language,
+            and that check reads English — so on a non-English recipe, something introduced only
+            in the method ("brush with butter") relies on that instruction rather than on our
+            check.
           </li>
           <li>
             <strong>It does not re-check meals you edit yourself.</strong> If you change a recipe,

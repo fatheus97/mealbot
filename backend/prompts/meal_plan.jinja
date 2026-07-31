@@ -157,6 +157,11 @@ Other rules:
 {% if measurement_system == "none" %}— Use whichever units are natural for the language and country above in "steps". Keep using grams in "ingredients".
 {% else %}— Use {{ measurement_system }} measurement system in "steps". Keep using grams in "ingredients".
 {% endif %}
+— NEVER use anything in "steps" that is not in that meal's "ingredients" list. No garnish,
+  no "brush with butter", no "serve with bread or rice on the side", no oil or seasoning that
+  is not listed. If a step needs it, it MUST be an ingredient with an amount. This is a safety
+  rule, not a style rule: the allergen check reads the ingredient list, so anything that enters
+  the recipe only through a step is never checked against the user's allergies.
 — Write every step to be SELF-CONTAINED: the first time an ingredient is used, state its amount INLINE in the step text (e.g. "Add 200 g flour and 2 eggs and whisk", "Stir in 1 tsp paprika") so the cook never has to look back at the ingredient list. Use {% if measurement_system == "none" %}units natural for that language/country{% else %}the {{ measurement_system }} system{% endif %} for these inline amounts{% if not include_spices %} (spoons/splashes for is_spice items per the rule above){% endif %}; the structured "ingredients" quantities stay in grams.
 — When a step involves cooking, simmering, baking, chilling, or resting for a set time, phrase the duration explicitly as a whole number followed by "minute"/"minutes" (e.g. "simmer for 10 minutes", "bake 25 minutes", "rest 5 minutes") so it can be timed.
 — "total_time_minutes" is an integer: the total time from starting prep to finishing cooking, including prep, active cooking, and any resting/baking/marinating time. Give a realistic estimate for a home cook; must be between 1 and 600.

@@ -48,12 +48,17 @@ from app.models.plan_models import PlannedMeal
 
 @dataclass(frozen=True)
 class AllergenViolation:
-    """One generated ingredient that matched a declared allergen's term set."""
+    """One generated ingredient — or cooking step — that matched a declared
+    allergen's term set."""
 
     meal_name: str
     ingredient: str
     allergen: Allergen
     matched_term: str
+    #: Where the match came from. Defaults to "ingredient" so the many existing
+    #: positional constructions keep working; a step hit sets "step" and puts the
+    #: offending step text in `ingredient`, which is otherwise misnamed for it.
+    source: str = "ingredient"
 
 
 class AllergenScreenError(Exception):
@@ -325,6 +330,24 @@ def screen_meals_for_allergens(
     `name` is still screened in BOTH cases — loanwords and untranslated brand
     names ("mozzarella", "tofu") often survive into a localized plan, and an
     extra English match there can only over-flag, which is the safe direction.
+
+    **Cooking steps are screened too**, because an allergen can enter a recipe
+    only in the method — "brush with butter", "serve with bread" — and never
+    appear in the ingredient list at all. That was a real hole: the ingredient
+    list could be spotless while the instructions told you to add the allergen.
+
+    Two honest limits on the step scan:
+
+    * Steps are prose in the USER'S language and there is no `name_en` for them,
+      so on a non-English plan the English terms mostly won't match. The
+      structural defence there is the prompt rule forbidding steps from using
+      anything absent from the ingredient list — which makes the (screened)
+      ingredient list the complete picture. Steps are NEVER reported as
+      UNSCREENABLE: unlike an ingredient we can demand a translation for, we
+      have nothing to demand here, and failing closed on every non-English step
+      would block those users entirely for no gain.
+    * An allergen already present in the ingredient list is flagged there
+      anyway, so this only ever adds the case it exists for.
     """
     screenable: list[Allergen] = [a for a in allergens if a != Allergen.SULPHITES]
     if not screenable:
@@ -373,4 +396,29 @@ def screen_meals_for_allergens(
                             )
                         )
                         break  # one violation per (ingredient, allergen)
+
+        # Steps. An allergen that only ever appears in the method — "brush with
+        # butter", "serve with bread" — never reaches the ingredient loop above.
+        for step in meal.steps:
+            for allergen, terms in terms_by_allergen.items():
+                if allergen in _qualifier_suppressed(step.lower()):
+                    continue
+                matched = _find_violation_term(
+                    step, terms, _SAFE_COMPOUNDS.get(allergen, frozenset())
+                )
+                if matched is None:
+                    continue
+                violations.append(
+                    AllergenViolation(
+                        meal_name=meal.name,
+                        # `ingredient` carries the step text here; `source`
+                        # distinguishes it. Truncated because a step can be 1000
+                        # chars and this lands in log lines and the exception str.
+                        ingredient=step[:80],
+                        allergen=allergen,
+                        matched_term=matched,
+                        source="step",
+                    )
+                )
+                break  # one violation per (step, allergen)
     return violations

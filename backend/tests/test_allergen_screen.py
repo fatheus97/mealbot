@@ -582,3 +582,102 @@ class TestLanguageIsRequired:
 
         with pytest.raises(TypeError):
             screen_meals_for_allergens([_meal("milk")], [Allergen.MILK])  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# Cooking steps (the "brush with butter" hole)
+# ---------------------------------------------------------------------------
+
+
+def _meal_with_steps(ingredient_names: list[str], steps: list[str]) -> PlannedMeal:
+    return PlannedMeal(
+        name="Test Dish",
+        meal_type=MealType.MAIN_COURSE,
+        ingredients=[
+            IngredientAmount(name=n, quantity_grams=100) for n in ingredient_names
+        ],
+        steps=steps,
+    )
+
+
+class TestStepsAreScreened:
+    """An allergen can enter a recipe only through the method."""
+
+    def test_allergen_only_in_a_step_is_caught(self) -> None:
+        # The exact hole: ingredient list spotless, instructions say add butter.
+        meal = _meal_with_steps(
+            ["chicken breast", "rice"], ["Cook the rice.", "Brush with butter."]
+        )
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="English"
+        )
+        assert [v.allergen for v in violations] == [Allergen.MILK]
+        assert violations[0].source == "step"
+        assert "butter" in violations[0].ingredient.lower()
+
+    def test_serve_with_bread_trips_gluten(self) -> None:
+        meal = _meal_with_steps(["soup"], ["Serve with bread on the side."])
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.CEREALS_WITH_GLUTEN], language="English"
+        )
+        assert [v.source for v in violations] == ["step"]
+
+    def test_clean_steps_pass(self) -> None:
+        # Must not over-flag, or every plan loops to a fail-closed.
+        meal = _meal_with_steps(
+            ["chicken breast", "rice"],
+            ["Season the chicken.", "Simmer the rice for 12 minutes.", "Serve hot."],
+        )
+        assert screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="English"
+        ) == []
+
+    def test_negation_and_qualifiers_apply_to_steps_too(self) -> None:
+        # "gluten-free bread" in a step is not a gluten hit — same matcher rules
+        # as ingredient names, or a coeliac plan can never mention its own bread.
+        meal = _meal_with_steps(["soup"], ["Serve with gluten-free bread."])
+        assert screen_meals_for_allergens(
+            [meal], [Allergen.CEREALS_WITH_GLUTEN], language="English"
+        ) == []
+
+    def test_ingredient_hits_still_reported_as_ingredient(self) -> None:
+        meal = _meal_with_steps(["whole milk"], ["Warm the milk."])
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="English"
+        )
+        sources = {v.source for v in violations}
+        # Both surfaces trip here; the ingredient one must not be relabelled.
+        assert "ingredient" in sources
+
+    def test_one_violation_per_step_and_allergen(self) -> None:
+        meal = _meal_with_steps(["soup"], ["Add butter, then more butter."])
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="English"
+        )
+        assert len(violations) == 1
+
+    def test_steps_are_never_reported_unscreenable(self) -> None:
+        # Steps have no name_en to demand, so a non-English plan must not
+        # fail-close on step text — that would block those users entirely for no
+        # gain. The ingredient (which CAN carry name_en) still fails closed.
+        meal = PlannedMeal(
+            name="Jídlo",
+            meal_type=MealType.MAIN_COURSE,
+            ingredients=[
+                IngredientAmount(name="kuřecí prsa", quantity_grams=100, name_en="chicken breast")
+            ],
+            steps=["Potřete máslem."],
+        )
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="cs"
+        )
+        assert all(v.matched_term != UNSCREENABLE_TERM for v in violations)
+
+    def test_a_step_hit_still_names_the_allergen_to_the_user(self) -> None:
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="D", ingredient="Brush with butter.",
+                allergen=Allergen.MILK, matched_term="butter", source="step",
+            )
+        ])
+        assert "milk" in err.user_detail.lower()

@@ -40,8 +40,13 @@ describe.skipIf(!built)("terms of service (built dist/terms.html)", () => {
       expect(html).toMatch(/Sulphites are not covered/i);
     });
 
-    it("discloses that only ingredient lists are scanned, not steps", () => {
-      expect(html).toMatch(/ingredient lists, not cooking steps/i);
+    it("discloses the language limit on step checking", () => {
+      // Steps ARE screened now, but with English terms against prose written in
+      // the user's language — so on a non-English recipe the defence is the
+      // prompt rule, not the check. Claiming steps are simply "checked" would
+      // overstate it for exactly the users the i18n work was for.
+      expect(html).toMatch(/Cooking steps are checked in English only/i);
+      expect(html).toMatch(/never to use anything\s+in a step that isn't in the ingredient list/i);
     });
 
     it("discloses that user-edited meals are not re-screened", () => {
