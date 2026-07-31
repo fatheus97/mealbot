@@ -13,10 +13,11 @@ AI-powered meal planner with two modes: **Plan Ahead** builds multi-day meal pla
 - **Receipt Scanning** — Upload receipt images or PDFs to auto-populate fridge via LLM vision.
 - **Selective Regeneration** — Freeze meals you like, regenerate the rest.
 - **Cooking Tracker** — Mark meals as cooked, rate them, finish plans and return unused ingredients.
-- **Shopping List** — Auto-computed from plan vs. fridge diff.
+- **Shopping List** — Auto-computed from plan vs. fridge diff. Copy / share / tick items off; amounts can show as piece counts ("8 eggs") instead of grams.
+- **Cooking Mode** — Fullscreen step-by-step checklist with tap-a-duration timers: "simmer for 5 minutes" starts a 5:00 countdown, in whatever language the recipe was generated in. Several timers run at once, survive leaving the screen in a floating bubble that takes you back to the step you left, and are deadline-based so a backgrounded tab or locked phone can't stall them. Holds a screen wake-lock while cooking.
 - **Meal History** — Track confirmed meals to avoid repetition.
 - **RAG-powered inspiration** — Meals rated ≥4 stars are embedded (pgvector + all-MiniLM-L6-v2) and retrieved as in-context examples for future generations. Hybrid retrieval boosts the user's own favorites over the global corpus.
-- **User Preferences** — Country, language, measurement system, variability, spice tracking, default day layout.
+- **User Preferences** — Country, language, units in recipe steps (metric / imperial / match-my-language), pieces-instead-of-grams display, variability, spice tracking, pantry staples, default day layout.
 - **Auth** — JWT-based login with rate limiting, password complexity requirements, server-side logout (token revocation via `token_version`).
 - **Demo Mode** — Optional one-click "Try Demo" session that mocks LLM calls per-user, so real alpha accounts on the same server still hit the real LLM.
 - **Closed Alpha** — Public registration disabled by default; users created via CLI script.
