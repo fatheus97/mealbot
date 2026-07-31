@@ -9,8 +9,10 @@ from app.core.dietary import Allergen
 from app.core.meal_types import MealType
 from app.models.plan_models import IngredientAmount, PlannedMeal
 from app.services.allergen_screen import (
+    UNSCREENABLE_TERM,
     AllergenScreenError,
     AllergenViolation,
+    is_english_language,
     screen_meals_for_allergens,
 )
 
@@ -29,7 +31,10 @@ def _meal(*ingredient_names: str) -> PlannedMeal:
 def _hit(ingredient: str, allergens: list[Allergen]) -> list[Allergen]:
     """Which allergens a single ingredient trips."""
     return [
-        v.allergen for v in screen_meals_for_allergens([_meal(ingredient)], allergens)
+        v.allergen
+        for v in screen_meals_for_allergens(
+            [_meal(ingredient)], allergens, language="English"
+        )
     ]
 
 
@@ -127,22 +132,27 @@ class TestSulphitesExcluded:
         assert screen_meals_for_allergens(
             [_meal("dried apricots", "red wine", "white wine vinegar")],
             [Allergen.SULPHITES],
+            language="English",
         ) == []
 
 
 class TestNoOp:
     def test_no_allergens_is_noop(self):
-        assert screen_meals_for_allergens([_meal("milk", "wheat", "peanuts")], []) == []
+        assert screen_meals_for_allergens(
+            [_meal("milk", "wheat", "peanuts")], [], language="English"
+        ) == []
 
     def test_only_sulphites_is_noop(self):
-        assert screen_meals_for_allergens([_meal("wine")], [Allergen.SULPHITES]) == []
+        assert screen_meals_for_allergens(
+            [_meal("wine")], [Allergen.SULPHITES], language="English"
+        ) == []
 
     def test_leftover_meal_with_no_ingredients_is_clean(self):
         empty = PlannedMeal(
             name="Reheated leftovers", meal_type=MealType.MAIN_COURSE,
             ingredients=[], steps=["reheat"],
         )
-        assert screen_meals_for_allergens([empty], [Allergen.MILK]) == []
+        assert screen_meals_for_allergens([empty], [Allergen.MILK], language="English") == []
 
 
 class TestViolationDetails:
@@ -152,7 +162,7 @@ class TestViolationDetails:
             ingredients=[IngredientAmount(name="cheddar cheese", quantity_grams=100)],
             steps=["cook"],
         )
-        violations = screen_meals_for_allergens([meal], [Allergen.MILK])
+        violations = screen_meals_for_allergens([meal], [Allergen.MILK], language="English")
         assert len(violations) == 1
         v = violations[0]
         assert v.allergen == Allergen.MILK
@@ -163,7 +173,7 @@ class TestViolationDetails:
     def test_multiple_violations_across_meals(self):
         meals = [_meal("milk"), _meal("salmon")]
         violations = screen_meals_for_allergens(
-            meals, [Allergen.MILK, Allergen.FISH],
+            meals, [Allergen.MILK, Allergen.FISH], language="English",
         )
         got = {(v.ingredient, v.allergen) for v in violations}
         assert (("milk", Allergen.MILK)) in got
@@ -217,6 +227,7 @@ class TestSafetyReviewRegressions:
         # still real dairy and must be flagged.
         v = screen_meals_for_allergens(
             [_meal("coconut cream and double cream")], [Allergen.MILK],
+            language="English",
         )
         assert any(x.allergen == Allergen.MILK for x in v)
 
@@ -341,3 +352,233 @@ class TestAllergenScreenError:
         # raises, never renders a dangling "avoids .").
         detail = AllergenScreenError([]).user_detail
         assert "your selected allergens" in detail
+
+
+# ---------------------------------------------------------------------------
+# Non-English plans (the gap that shipped)
+# ---------------------------------------------------------------------------
+
+
+def _meal_localized(*pairs: tuple[str, str | None]) -> PlannedMeal:
+    """Meal whose ingredients carry a localized `name` and an English `name_en`."""
+    return PlannedMeal(
+        name="Testovací jídlo",
+        meal_type=MealType.MAIN_COURSE,
+        ingredients=[
+            IngredientAmount(name=n, quantity_grams=100, name_en=en)
+            for n, en in pairs
+        ],
+        steps=["vařit"],
+    )
+
+
+class TestEnglishLanguagePredicate:
+    def test_blank_and_none_count_as_english(self) -> None:
+        # The prompt falls back to English when `language` is unset, so treating
+        # blank as non-English would fail-close every legacy request.
+        for value in (None, "", "   "):
+            assert is_english_language(value) is True
+
+    def test_english_spellings(self) -> None:
+        for value in ("en", "EN", "English", " english ", "en-GB"):
+            assert is_english_language(value) is True
+
+    def test_other_languages(self) -> None:
+        for value in ("cs", "Czech", "de", "German", "fr", "es"):
+            assert is_english_language(value) is False
+
+
+class TestNonEnglishScreening:
+    """The bug: term lists are English, generated names are not.
+
+    Before `name_en`, every one of these returned NO violations — the screen was
+    silently inert for non-English accounts and the fail-closed 422 could never
+    fire.
+    """
+
+    def test_czech_milk_is_caught_via_name_en(self) -> None:
+        meal = _meal_localized(("mléko", "milk"))
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="cs"
+        )
+        assert [v.allergen for v in violations] == [Allergen.MILK]
+        # The user-facing ingredient stays the localized one they'd actually see.
+        assert violations[0].ingredient == "mléko"
+
+    def test_german_wheat_flour_is_caught_via_name_en(self) -> None:
+        meal = _meal_localized(("Weizenmehl", "wheat flour"))
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.CEREALS_WITH_GLUTEN], language="de"
+        )
+        assert [v.allergen for v in violations] == [Allergen.CEREALS_WITH_GLUTEN]
+
+    def test_localized_name_is_still_screened_for_loanwords(self) -> None:
+        # "mozzarella" survives untranslated into a Czech plan. Even with a
+        # useless name_en, the English term still matches the localized name —
+        # screening both can only over-flag, which is the safe direction.
+        meal = _meal_localized(("mozzarella", "cheese"))
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="cs"
+        )
+        assert violations != []
+
+    def test_clean_localized_meal_passes(self) -> None:
+        # Must not over-flag, or a non-English dairy-free user can never generate.
+        meal = _meal_localized(("rýže", "rice"), ("mrkev", "carrot"))
+        assert screen_meals_for_allergens([meal], [Allergen.MILK], language="cs") == []
+
+    def test_qualifier_suppression_works_on_the_english_name(self) -> None:
+        # "vegan cheese" is safe; the localized name carries no such signal, so
+        # suppression has to be evaluated per name.
+        meal = _meal_localized(("veganský sýr", "vegan cheese"))
+        assert screen_meals_for_allergens([meal], [Allergen.MILK], language="cs") == []
+
+
+class TestUnscreenableFailsClosed:
+    """A missing English name must never read as 'clean'."""
+
+    def test_missing_name_en_on_a_non_english_plan_is_a_violation(self) -> None:
+        meal = _meal_localized(("mléko", None))
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="cs"
+        )
+        assert len(violations) == 1
+        assert violations[0].matched_term == UNSCREENABLE_TERM
+        # Tagged against a declared allergen so the existing
+        # reject→regenerate→fail-closed path carries it without special-casing.
+        assert violations[0].allergen == Allergen.MILK
+
+    def test_blank_name_en_is_treated_as_missing(self) -> None:
+        # The model-facing normalizer folds "" and "   " to None, so both the
+        # absent and blank cases land on the same branch.
+        meal = _meal_localized(("mléko", "   "))
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="cs"
+        )
+        assert [v.matched_term for v in violations] == [UNSCREENABLE_TERM]
+
+    def test_missing_name_en_on_an_english_plan_is_fine(self) -> None:
+        # English plans have never needed name_en — `name` IS the English name.
+        # Requiring it here would fail-close every existing English user.
+        meal = _meal_localized(("rice", None), ("carrot", None))
+        assert screen_meals_for_allergens([meal], [Allergen.MILK], language="en") == []
+
+    def test_missing_name_en_with_no_declared_allergen_is_a_no_op(self) -> None:
+        # No allergens declared → nothing to verify → no reason to fail closed.
+        meal = _meal_localized(("mléko", None))
+        assert screen_meals_for_allergens([meal], [], language="cs") == []
+
+    def test_sulphites_only_still_no_ops_on_a_non_english_plan(self) -> None:
+        # Sulphites are excluded from the deterministic screen, so a
+        # sulphites-only declaration leaves nothing screenable — it must not
+        # start fail-closing non-English plans as a side effect of this change.
+        meal = _meal_localized(("víno", None))
+        assert screen_meals_for_allergens(
+            [meal], [Allergen.SULPHITES], language="cs"
+        ) == []
+
+
+class TestOneViolationPerIngredientAllergenPair:
+    def test_a_match_in_both_names_reports_once(self) -> None:
+        # "milk" matches the localized name AND name_en; without the break the
+        # same ingredient/allergen pair would be reported twice.
+        meal = _meal_localized(("milk", "milk"))
+        violations = screen_meals_for_allergens(
+            [meal], [Allergen.MILK], language="cs"
+        )
+        assert len(violations) == 1
+
+
+class TestUnscreenableUserMessage:
+    """An all-unscreenable round must not name an allergen that was never found.
+
+    The violations carry an ARBITRARY declared allergen (screenable[0]) purely to
+    reuse the reject→regenerate path. The normal message says "couldn't generate
+    a meal that avoids {X} — try removing an allergen", so an allergic user would
+    remove X, get the identical error against the next allergen, and eventually
+    declare none at all — at which point the screen is skipped and the request
+    "succeeds". That is the worst advice this product could give.
+    """
+
+    def test_all_unscreenable_gets_its_own_message(self) -> None:
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Jídlo",
+                ingredient="mléko",
+                allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            )
+        ])
+        detail = err.user_detail
+        assert "couldn't check this meal" in detail.lower()
+        # Must NOT name the arbitrary allergen, and must NOT advise removing one.
+        assert "milk" not in detail.lower()
+        assert "removing an allergen" not in detail.lower()
+
+    def test_a_real_hit_still_names_the_allergen(self) -> None:
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Dish", ingredient="milk", allergen=Allergen.MILK,
+                matched_term="milk",
+            )
+        ])
+        assert "milk" in err.user_detail.lower()
+
+    def test_a_mixed_round_names_only_the_detected_allergen(self) -> None:
+        # A genuine hit alongside an unverifiable ingredient is still a genuine
+        # hit — but ONLY the detected allergen may be named.
+        #
+        # This test previously asserted just `"peanut" in detail` and passed
+        # while the message also said "milk", which is the harm: MILK is only
+        # there because the unscreenable ingredient is tagged with
+        # screenable[0]. A user told to "remove an allergen" could drop MILK —
+        # never ruled out — and permanently disable its only deterministic check.
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="D", ingredient="mléko", allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            ),
+            AllergenViolation(
+                meal_name="D", ingredient="arašídy", allergen=Allergen.PEANUTS,
+                matched_term="peanut",
+            ),
+        ])
+        detail = err.user_detail.lower()
+        assert "peanut" in detail
+        assert "milk" not in detail
+
+    def test_offending_allergens_excludes_unscreenable_tags(self) -> None:
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="D", ingredient="mléko", allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            ),
+            AllergenViolation(
+                meal_name="D", ingredient="arašídy", allergen=Allergen.PEANUTS,
+                matched_term="peanut",
+            ),
+        ])
+        assert err.offending_allergens() == [Allergen.PEANUTS]
+
+    def test_the_sentinel_reaches_the_log_summary(self) -> None:
+        # Without matched_term in the message, a missing translation is
+        # indistinguishable from a real allergen hit in production logs — which
+        # is the only signal that the prompt contract has broken.
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="Jídlo", ingredient="mléko", allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            )
+        ])
+        assert UNSCREENABLE_TERM in str(err)
+
+
+class TestLanguageIsRequired:
+    def test_omitting_language_is_a_type_error(self) -> None:
+        # It used to default to None, which means English matching — so a
+        # forgotten kwarg silently reinstated the exact bug this module fixes.
+        # Required keyword + mypy strict makes that a build failure instead.
+        import pytest
+
+        with pytest.raises(TypeError):
+            screen_meals_for_allergens([_meal("milk")], [Allergen.MILK])  # type: ignore[call-arg]

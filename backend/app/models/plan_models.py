@@ -367,15 +367,49 @@ class IngredientAmount(BaseModel):
         ),
     )
 
+    # English name of the ingredient, for the ALLERGEN SCREEN — nothing else.
+    #
+    # Deliberately separate from `canonical_name` even though both are English.
+    # They have opposite scopes and merging them breaks one of the two:
+    #   - `canonical_name` is a piece-weight lookup key, emitted ONLY for
+    #     countable whole items and omitted for flour/milk/minced meat. Widening
+    #     it to everything would make the model emit "sausage" for sausage meat
+    #     and the UI would show "3 pcs" of it.
+    #   - `name_en` must cover EVERY ingredient, and the ones it matters most for
+    #     are exactly the bulk ones canonical_name omits — milk, flour, cheese.
+    #
+    # Why it exists: `name` is written in the USER'S language (the prompt's "ALL
+    # output text ... in {{ language }}" rule) while the allergen term lists in
+    # dietary_reference.py are English. Without an English name the deterministic
+    # screen matches nothing for a Czech or German user — it silently degrades to
+    # prompt-only avoidance, and the fail-closed 422 can never fire. That was
+    # live for every non-English account until this field landed.
+    #
+    # The model only ever TRANSLATES here; it never decides safety. A missing or
+    # blank value on a non-English plan is treated as UNSCREENABLE and rejected
+    # by the screen, so an omission fails closed rather than passing silently.
+    name_en: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "The ingredient's plain ENGLISH name, always lowercase, for every "
+            "ingredient, whatever language the rest of the output is in "
+            "(e.g. name='mléko' -> name_en='milk'). Never shown to the user."
+        ),
+    )
+
     @field_validator("name", mode="before")
     @classmethod
     def _strip_fence_tags(cls, v: object) -> object:
         # Ingredient names render into fenced LLM prompts (frozen_meals, stock).
         return _strip_prompt_fence_tags(v)
 
-    @field_validator("canonical_name", mode="before")
+    @field_validator("canonical_name", "name_en", mode="before")
     @classmethod
     def _normalize_canonical(cls, v: object) -> object:
+        # Same treatment for both: lookup keys, not display text — case-folded,
+        # whitespace-trimmed, ""→None so "blank" and "absent" are one state, and
+        # fence-stripped because client-write paths can reach these fields too.
         return _normalize_canonical_key(v)
 
     @field_validator("quantity_grams")

@@ -20,6 +20,7 @@ from app.models.plan_models import (
 from app.services.allergen_screen import (
     AllergenScreenError,
     AllergenViolation,
+    is_english_language,
     screen_meals_for_allergens,
 )
 from app.services.recipe_retriever import MealHit, retrieve_rated_meals
@@ -61,6 +62,7 @@ async def _generate_and_screen(
     user_prompt: str,
     allergens: list[Allergen],
     mock: bool,
+    language: str | None,
     mock_context: dict[str, object] | None = None,
     max_retries: int = _MAX_ALLERGEN_SCREEN_RETRIES,
 ) -> SingleDayResponse:
@@ -93,14 +95,24 @@ async def _generate_and_screen(
             mock=mock,
         )
         response = raw.to_planned_day()
-        # The mock LLM (mock=True: demo accounts, local dev with llm_mock) is
-        # DETERMINISTIC per day, so screening + regenerating it would loop to a
-        # guaranteed fail-closed on any canned meal that happens to contain a
-        # declared allergen. Mock output is demo/dev content, not a real dietary
-        # plan and not an allergen-safety surface — skip the screen in mock mode.
+        # The mock LLM is DETERMINISTIC per day, so screening + regenerating it
+        # would loop to a guaranteed fail-closed on any canned meal that happens
+        # to contain a declared allergen. Mock output is demo/dev content, not a
+        # real dietary plan and not an allergen-safety surface — skip the screen.
+        #
+        # Keyed on the `mock` ARGUMENT only, deliberately. Review suggested also
+        # testing `settings.llm_mock` (llm/client.py serves fixtures on either),
+        # because a whole-environment LLM_MOCK=true feeds name_en-less fixtures
+        # into a live screen and 422s non-English allergic requests. That fix is
+        # wrong here: CI and local dev run with LLM_MOCK=true while injecting a
+        # real mock LLM per test, so keying on the setting SKIPS THE SCREEN for
+        # the tests that exist to prove it runs — it silently deleted the whole
+        # of TestAllergenScreenWiring. The dev-only symptom is also pre-existing
+        # and orthogonal: a fixture containing a declared allergen already
+        # fail-closes the same way, name_en or not.
         if mock or not allergens:
             return response
-        last = screen_meals_for_allergens(response.meals, allergens)
+        last = screen_meals_for_allergens(response.meals, allergens, language=language)
         if not last:
             return response
         logger.warning(
@@ -108,7 +120,7 @@ async def _generate_and_screen(
             template_name,
             attempt + 1,
             max_retries + 1,
-            [f"{v.ingredient}->{v.allergen.value}" for v in last],
+            [f"{v.ingredient}->{v.allergen.value}({v.matched_term})" for v in last],
         )
     raise AllergenScreenError(last)
 
@@ -144,6 +156,9 @@ async def generate_single_day(
         dietary_context_lines=resolve_dietary_context(
             req.diet_types, req.allergens,
         ).prompt_lines(),
+        # Same predicate the screen uses, so the prompt can never ask for a
+        # field the screen doesn't require (or skip one it does).
+        needs_name_en=not is_english_language(req.language),
         slot_layout=slot_layout,
         slot_portions=slot_portions,
     )
@@ -163,6 +178,7 @@ async def generate_single_day(
         user_prompt=user_prompt,
         allergens=req.allergens,
         mock=mock,
+        language=req.language,
         mock_context=mock_context,
     )
 
@@ -200,6 +216,9 @@ async def generate_partial_day(
         dietary_context_lines=resolve_dietary_context(
             req.diet_types, req.allergens,
         ).prompt_lines(),
+        # Same predicate the screen uses, so the prompt can never ask for a
+        # field the screen doesn't require (or skip one it does).
+        needs_name_en=not is_english_language(req.language),
         frozen_meals=[m.model_dump() for m in frozen_meals],
         slots_to_generate=slots_to_generate,
         replaced_meals=replaced_meals or [],
@@ -211,6 +230,7 @@ async def generate_partial_day(
         user_prompt=user_prompt,
         allergens=req.allergens,
         mock=mock,
+        language=req.language,
     )
 
     # Validate that returned meals match requested slots. ``.value`` gives the
@@ -287,7 +307,17 @@ async def generate_single_day_with_rag(
             # allergen — it would suggest exactly what the screen then rejects,
             # causing needless regeneration (and, if every retry hit, a
             # fail-closed on a request the standard pipeline could satisfy).
-            if req.allergens and screen_meals_for_allergens([meal], req.allergens):
+            # language=None (English matching) deliberately: these are STORED
+            # meals from other users, written at an unknown time in an unknown
+            # language, and English-authored meals never carry name_en by design.
+            # Screening them as non-English would mark every one UNSCREENABLE and
+            # empty the RAG pool permanently. English matching still checks BOTH
+            # name and name_en (candidates includes it whenever present), so this
+            # only ever under-filters an ADVISORY prompt example — the real gate
+            # is the post-generation screen, which uses the true language.
+            if req.allergens and screen_meals_for_allergens(
+                [meal], req.allergens, language=None,
+            ):
                 continue
             retrieved_meals.append({
                 "name": meal.name,
@@ -316,6 +346,9 @@ async def generate_single_day_with_rag(
         dietary_context_lines=resolve_dietary_context(
             req.diet_types, req.allergens,
         ).prompt_lines(),
+        # Same predicate the screen uses, so the prompt can never ask for a
+        # field the screen doesn't require (or skip one it does).
+        needs_name_en=not is_english_language(req.language),
         retrieved_meals=retrieved_meals,
         slot_layout=slot_layout,
         slot_portions=slot_portions,
@@ -328,6 +361,7 @@ async def generate_single_day_with_rag(
         user_prompt=user_prompt,
         allergens=req.allergens,
         mock=mock,
+        language=req.language,
         # One shot on the RAG path — a screen hit falls back to the standard
         # pipeline (full budget) rather than re-sampling RAG. See the constant.
         max_retries=_RAG_MAX_ALLERGEN_SCREEN_RETRIES,

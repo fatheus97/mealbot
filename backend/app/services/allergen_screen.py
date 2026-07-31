@@ -64,18 +64,31 @@ class AllergenScreenError(Exception):
     def __init__(self, violations: Sequence[AllergenViolation]) -> None:
         self.violations = list(violations)
         summary = ", ".join(
-            f"{v.ingredient!r}→{v.allergen.value}" for v in self.violations
+            f"{v.ingredient!r}→{v.allergen.value} [{v.matched_term}]"
+            for v in self.violations
         )
         super().__init__(
             f"could not generate a plan free of declared allergens: {summary}"
         )
 
     def offending_allergens(self) -> list[Allergen]:
-        """The DISTINCT declared allergens the final rejected attempt still
-        tripped, in first-seen order — so a user-facing message can name them
-        (the raw ``violations`` list repeats an allergen once per ingredient)."""
+        """The DISTINCT allergens actually DETECTED in the final rejected
+        attempt, in first-seen order — so a user-facing message can name them
+        (the raw ``violations`` list repeats an allergen once per ingredient).
+
+        Excludes UNSCREENABLE violations. Those carry an ARBITRARY declared
+        allergen (the screen tags them with ``screenable[0]``) purely so the
+        reject→regenerate path can carry them; nothing was actually detected.
+        Counting them would name an allergen that was never found — and on a
+        MIXED round (one real hit plus one unverifiable ingredient) that is
+        exactly what happened: the message listed both, so a user told to
+        "remove an allergen" could remove the one that was never ruled out,
+        permanently disabling the only deterministic check for it.
+        """
         ordered: dict[Allergen, None] = {}
         for v in self.violations:
+            if v.matched_term == UNSCREENABLE_TERM:
+                continue
             ordered.setdefault(v.allergen, None)
         return list(ordered)
 
@@ -91,10 +104,22 @@ class AllergenScreenError(Exception):
         (``docs/dietary-reference.md`` Part 4) — and it never implies the plan
         we withheld was itself unsafe (it was withheld precisely because it
         wasn't clean)."""
+        # Nothing was DETECTED — every violation was an unverifiable ingredient.
+        # Naming the arbitrary allergen they carry would tell the user to remove
+        # an allergen that was never found, and following that advice walks them
+        # down to zero declared allergens, at which point the screen is skipped
+        # entirely and the request "succeeds". Worst possible advice to give
+        # someone with an allergy, so this case gets its own message.
+        detected = self.offending_allergens()
+        if self.violations and not detected:
+            return (
+                "We couldn't check this meal against your allergens, so we "
+                "didn't show it. Please try generating again."
+            )
         labels = [
             ALLERGEN_INFO[a].label if a in ALLERGEN_INFO
             else a.value.replace("_", " ")
-            for a in self.offending_allergens()
+            for a in detected
         ]
         named = ", ".join(labels) or "your selected allergens"
         return (
@@ -251,8 +276,35 @@ def _qualifier_suppressed(lname: str) -> frozenset[Allergen]:
     return frozenset(out)
 
 
+#: Sentinel `matched_term` for an ingredient the screen could not read, because
+#: the plan is in another language and the model supplied no English name. It is
+#: NOT a detected allergen — it means "unverifiable", which fails closed exactly
+#: like a real hit.
+UNSCREENABLE_TERM = "<no english name>"
+
+
+def is_english_language(language: str | None) -> bool:
+    """True when generated ingredient names are already the English the term
+    lists are written in.
+
+    Unset counts as English: `language` defaults empty on older requests and the
+    prompt falls back to English (`{{ language or "English" }}`), so treating
+    blank as non-English would fail-close every legacy request instead.
+    """
+    # Strip BEFORE the emptiness test: a whitespace-only value is truthy, so
+    # testing `not language` first would send "   " down the non-English branch
+    # and fail-close a request that is really just unset.
+    normalized = (language or "").strip().lower()
+    if not normalized:
+        return True
+    return normalized in {"en", "eng", "english", "en-us", "en-gb"}
+
+
 def screen_meals_for_allergens(
-    meals: Sequence[PlannedMeal], allergens: Sequence[Allergen],
+    meals: Sequence[PlannedMeal],
+    allergens: Sequence[Allergen],
+    *,
+    language: str | None,
 ) -> list[AllergenViolation]:
     """Scan every ingredient of every meal against the declared allergens' term
     sets. Returns all violations (empty ⇒ the day is clean).
@@ -260,29 +312,65 @@ def screen_meals_for_allergens(
     SULPHITES are dropped from the deterministic screen (see module docstring).
     When no screenable allergen is declared this is a no-op — which is why the
     whole feature is inert until a UI (slice 5) lets users declare allergens.
+
+    **Language.** The term lists are ENGLISH. The prompt writes ingredient names
+    in the user's language, so on a non-English plan `name` matches nothing and
+    the screen silently degrades to prompt-only avoidance — the fail-closed 422
+    can then never fire. So on a non-English plan we screen the model-supplied
+    `name_en`, and an ingredient without one is reported as UNSCREENABLE rather
+    than passed. The caller treats any violation as a reject-and-regenerate, so
+    an omission costs a retry and ultimately fails closed; it never ships an
+    unverified meal.
+
+    `name` is still screened in BOTH cases — loanwords and untranslated brand
+    names ("mozzarella", "tofu") often survive into a localized plan, and an
+    extra English match there can only over-flag, which is the safe direction.
     """
     screenable: list[Allergen] = [a for a in allergens if a != Allergen.SULPHITES]
     if not screenable:
         return []
 
+    english = is_english_language(language)
     terms_by_allergen = resolve_dietary_context([], screenable).allergen_terms()
     violations: list[AllergenViolation] = []
     for meal in meals:
         for ing in meal.ingredients:
-            suppressed = _qualifier_suppressed(ing.name.lower())
-            for allergen, terms in terms_by_allergen.items():
-                if allergen in suppressed:
-                    continue
-                matched = _find_violation_term(
-                    ing.name, terms, _SAFE_COMPOUNDS.get(allergen, frozenset()),
-                )
-                if matched is not None:
-                    violations.append(
-                        AllergenViolation(
-                            meal_name=meal.name,
-                            ingredient=ing.name,
-                            allergen=allergen,
-                            matched_term=matched,
-                        )
+            name_en = (ing.name_en or "").strip()
+            if not english and not name_en:
+                # Cannot verify this ingredient at all. Report it against the
+                # first declared allergen so the existing reject→regenerate →
+                # fail-closed path handles it. The allergen is therefore
+                # ARBITRARY, not detected — which is why user_detail special-cases
+                # an all-unscreenable round rather than naming it, and why both
+                # log sites print matched_term.
+                violations.append(
+                    AllergenViolation(
+                        meal_name=meal.name,
+                        ingredient=ing.name,
+                        allergen=screenable[0],
+                        matched_term=UNSCREENABLE_TERM,
                     )
+                )
+                continue
+
+            # Screen every name we have. Qualifier suppression is evaluated per
+            # name: "vegan" in the localized name says nothing about the English
+            # one, and vice versa.
+            candidates = [ing.name] + ([name_en] if name_en else [])
+            for allergen, terms in terms_by_allergen.items():
+                safe = _SAFE_COMPOUNDS.get(allergen, frozenset())
+                for candidate in candidates:
+                    if allergen in _qualifier_suppressed(candidate.lower()):
+                        continue
+                    matched = _find_violation_term(candidate, terms, safe)
+                    if matched is not None:
+                        violations.append(
+                            AllergenViolation(
+                                meal_name=meal.name,
+                                ingredient=ing.name,
+                                allergen=allergen,
+                                matched_term=matched,
+                            )
+                        )
+                        break  # one violation per (ingredient, allergen)
     return violations
