@@ -614,6 +614,36 @@ class PlannedMeal(GeneratedMeal):
         return self
 
 
+class AllergenWarning(BaseModel):
+    """One allergen the user's own edit reintroduced into a meal.
+
+    A WARNING, never a rejection. When generation produces something we cannot
+    verify we withhold it — that is our output. An edit is the user's own recipe
+    and their own declared allergy: hard-blocking it would be patronising, is
+    trivially worked around, and would push people to keep a "real" copy
+    somewhere we cannot check at all. So the edit saves and the UI says loudly
+    what it found.
+    """
+
+    allergen: str = Field(..., description="Allergen enum value, e.g. 'milk'.")
+    label: str = Field(..., description="Human label for the UI, e.g. 'Milk'.")
+    ingredient: str = Field(
+        ..., description="The ingredient name, or the step text for a step hit."
+    )
+    source: str = Field(..., description="'ingredient' or 'step'.")
+
+
+class MealEditResponse(PlannedMeal):
+    """The saved meal, plus anything the allergen screen found in it.
+
+    SUBCLASSES PlannedMeal deliberately: the JSON keeps every key the endpoint
+    already returned and adds one optional array, so a client that knows nothing
+    about warnings keeps working unchanged. Returning a wrapper
+    ({meal, warnings}) would have been a breaking change for no benefit.
+    """
+
+    allergen_warnings: list[AllergenWarning] = Field(default_factory=list)
+
 class MealEditRequest(BaseModel):
     """User-edited content for a single meal (name, ingredients, steps, time).
 

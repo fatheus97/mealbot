@@ -369,3 +369,137 @@ class TestMealEdit:
         )
         assert resp.status_code == 422
         assert "meal_index" in resp.json()["detail"]
+
+
+class TestEditAllergenWarning:
+    """A user's own edit is WARNED about, never blocked.
+
+    Withholding is right for OUR output — generation fails closed. An edit is
+    the user's own recipe and their own declared allergy, so hard-blocking would
+    be patronising, is trivially routed around, and would push people to keep a
+    "real" copy somewhere we cannot check at all.
+    """
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_edit_that_adds_a_declared_allergen_saves_and_warns(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        mock_gen.return_value = _fake_day()
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2, "allergens": ["milk"]},
+        )
+        assert resp.status_code == 200
+        plan_id = resp.json()["plan_id"]
+
+        edit = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json={
+                "name": "Creamy Pasta",
+                "ingredients": [{"name": "double cream", "quantity_grams": 100}],
+                "steps": ["Stir"],
+                "total_time_minutes": 10,
+            },
+        )
+        # SAVED — not rejected.
+        assert edit.status_code == 200
+        body = edit.json()
+        assert body["name"] == "Creamy Pasta"
+
+        warnings = body["allergen_warnings"]
+        assert [w["allergen"] for w in warnings] == ["milk"]
+        assert warnings[0]["source"] == "ingredient"
+        assert "cream" in warnings[0]["ingredient"].lower()
+        assert warnings[0]["label"]  # non-empty, for the UI
+
+        # And it really persisted.
+        detail = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
+        assert detail.json()["days"][0]["meals"][0]["name"] == "Creamy Pasta"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_an_allergen_added_only_in_a_step_is_warned(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        mock_gen.return_value = _fake_day()
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2, "allergens": ["milk"]},
+        )
+        plan_id = resp.json()["plan_id"]
+
+        edit = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json={
+                "name": "Toast",
+                "ingredients": [{"name": "rice", "quantity_grams": 100}],
+                "steps": ["Brush with butter and serve."],
+                "total_time_minutes": 5,
+            },
+        )
+        assert edit.status_code == 200
+        warnings = edit.json()["allergen_warnings"]
+        assert [w["source"] for w in warnings] == ["step"]
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_clean_edit_warns_nothing(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        mock_gen.return_value = _fake_day()
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2, "allergens": ["milk"]},
+        )
+        plan_id = resp.json()["plan_id"]
+
+        edit = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json=_EDIT_BODY,
+        )
+        assert edit.status_code == 200
+        assert edit.json()["allergen_warnings"] == []
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_no_declared_allergens_means_no_screening(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        # The plan was never built to avoid anything, so there is nothing to
+        # warn against — adding cream is just cooking.
+        mock_gen.return_value = _fake_day()
+        plan_id = await _create_plan(client, auth_headers)
+
+        edit = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json={
+                "name": "Creamy Pasta",
+                "ingredients": [{"name": "double cream", "quantity_grams": 100}],
+                "steps": ["Stir"],
+                "total_time_minutes": 10,
+            },
+        )
+        assert edit.status_code == 200
+        assert edit.json()["allergen_warnings"] == []
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_response_still_carries_every_planned_meal_field(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        # MealEditResponse SUBCLASSES PlannedMeal precisely so old clients keep
+        # working. If someone ever swaps it for a {meal, warnings} wrapper, this
+        # fails instead of silently breaking the editor.
+        mock_gen.return_value = _fake_day()
+        plan_id = await _create_plan(client, auth_headers)
+        edit = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json=_EDIT_BODY,
+        )
+        body = edit.json()
+        for key in ("name", "meal_type", "meal_type_label", "ingredients", "steps"):
+            assert key in body, key

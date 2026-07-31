@@ -49,8 +49,11 @@ describe.skipIf(!built)("terms of service (built dist/terms.html)", () => {
       expect(html).toMatch(/never to use anything\s+in a step that isn't in the ingredient list/i);
     });
 
-    it("discloses that user-edited meals are not re-screened", () => {
-      expect(html).toMatch(/does not re-check meals you edit/i);
+    it("states that edits are checked but not blocked", () => {
+      // Warn-don't-block: withholding is right for OUR output, but an edit is
+      // the user's own recipe and their own declared allergy.
+      expect(html).toMatch(/Edits you make are checked, but not blocked/i);
+      expect(html).toMatch(/we still save it/i);
     });
 
     it("warns that baby food has no automatic safety check", () => {

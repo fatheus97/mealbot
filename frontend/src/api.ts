@@ -27,7 +27,7 @@ import type {
   MealEntrySummary,
   MealPlanResponse,
   OverviewStats,
-  PlannedMeal,
+  MealEditResponse,
   RevenueStats,
   ScannedItemsResponse,
   SingleRecipeRequest,
@@ -314,7 +314,7 @@ export async function updateMeal(
   dayIndex: number,
   mealIndex: number,
   body: MealEditRequest,
-): Promise<PlannedMeal> {
+): Promise<MealEditResponse> {
   const res = await authFetch(
     `/plan/${planId}/days/${dayIndex}/meals/${mealIndex}`,
     { method: "PATCH", body: JSON.stringify(body) },
