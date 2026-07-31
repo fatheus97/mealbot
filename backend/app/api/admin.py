@@ -79,7 +79,6 @@ from app.services import (
 from app.services.access_request import count_pending, emails_with_accounts
 from app.services.admin_audit import record_admin_action
 from app.services.invite import create_invite, invite_link, invite_status
-from app.services.user_purge import purge_user_owned_rows
 
 logger = logging.getLogger(__name__)
 
@@ -956,22 +955,21 @@ async def delete_user(
     before the self-guard so the reject stays reachable); 409 deleting your own
     account (self-guard).
 
-    Data handling (verified against db_models FKs):
-    - **SaleRecord** is ANONYMISED, not deleted — its ``user_id`` FK is
-      ``ON DELETE SET NULL``, so the VAT/revenue history survives without a
-      person attached (a deleted user must not erase tax records).
-    - Telemetry (**MachineGeneration / LlmUsage / MachineCorrection**) is
-      ``ON DELETE CASCADE`` — the DB removes it when the user row goes.
-    - The remaining owned tables have no DB cascade, so we delete them explicitly
-      via ``services.user_purge.purge_user_owned_rows`` — the single list shared
-      with the demo-user sweep, which is where the table order and the
-      what-belongs-here rule are documented.
+    Data handling — one ``DELETE FROM "user"``; the FKs decide the rest. Every FK
+    into ``user.id`` declares an ``ondelete`` (the rule lives on the ``User``
+    model), so there is no app-level purge list to keep in sync:
+    - **SaleRecord** and **InviteToken** are ANONYMISED, not deleted
+      (``ON DELETE SET NULL``) — the VAT/revenue history and the invite audit
+      trail survive without a person attached; a deleted user must not erase tax
+      records.
+    - Everything the user owns — plans, entries, fridge, staples, sessions,
+      reset/verification tokens, telemetry, feedback — is ``ON DELETE CASCADE``.
     - The **AdminAuditLog** row written below has no FK to ``user``, so it
       survives the delete — the permanent record of who deleted whom.
 
-    Core ``delete()`` statements (not ORM ``session.delete``) so the NOT NULL
-    child FKs aren't null-updated by ORM relationship handling, and the DB-level
-    CASCADE / SET NULL fire on the final user delete.
+    A Core ``delete()`` statement (not ORM ``session.delete``) so the NOT NULL
+    child FKs aren't null-updated by ORM relationship handling and the DB-level
+    CASCADE / SET NULL actually fire.
     """
     target = await session.get(User, user_id)
     if target is None:
@@ -1001,12 +999,9 @@ async def delete_user(
         detail={"email": target.email},
     )
 
-    # Purge owned rows the DB won't cascade — children before parents. Shared with
-    # the demo-user sweep (services.user_purge) so the two lists can't drift.
-    await purge_user_owned_rows(session, [user_id])
-    # Deleting the user cascades telemetry (ON DELETE CASCADE) and anonymises
-    # SaleRecord + InviteToken (ON DELETE SET NULL) — the ledger and the invite
-    # audit trail survive the account.
+    # Cascades every owned table (ON DELETE CASCADE) and anonymises SaleRecord +
+    # InviteToken (ON DELETE SET NULL) — the ledger and the invite audit trail
+    # survive the account.
     await session.execute(delete(User).where(col(User.id) == user_id))
     await session.commit()
     logger.info("admin_user_deleted actor_id=%s target_id=%s", actor.id, user_id)
