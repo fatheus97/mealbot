@@ -524,9 +524,15 @@ class TestUnscreenableUserMessage:
         ])
         assert "milk" in err.user_detail.lower()
 
-    def test_a_mixed_round_names_the_real_allergen(self) -> None:
+    def test_a_mixed_round_names_only_the_detected_allergen(self) -> None:
         # A genuine hit alongside an unverifiable ingredient is still a genuine
-        # hit — the specific message wins.
+        # hit — but ONLY the detected allergen may be named.
+        #
+        # This test previously asserted just `"peanut" in detail` and passed
+        # while the message also said "milk", which is the harm: MILK is only
+        # there because the unscreenable ingredient is tagged with
+        # screenable[0]. A user told to "remove an allergen" could drop MILK —
+        # never ruled out — and permanently disable its only deterministic check.
         err = AllergenScreenError([
             AllergenViolation(
                 meal_name="D", ingredient="mléko", allergen=Allergen.MILK,
@@ -537,7 +543,22 @@ class TestUnscreenableUserMessage:
                 matched_term="peanut",
             ),
         ])
-        assert "peanut" in err.user_detail.lower()
+        detail = err.user_detail.lower()
+        assert "peanut" in detail
+        assert "milk" not in detail
+
+    def test_offending_allergens_excludes_unscreenable_tags(self) -> None:
+        err = AllergenScreenError([
+            AllergenViolation(
+                meal_name="D", ingredient="mléko", allergen=Allergen.MILK,
+                matched_term=UNSCREENABLE_TERM,
+            ),
+            AllergenViolation(
+                meal_name="D", ingredient="arašídy", allergen=Allergen.PEANUTS,
+                matched_term="peanut",
+            ),
+        ])
+        assert err.offending_allergens() == [Allergen.PEANUTS]
 
     def test_the_sentinel_reaches_the_log_summary(self) -> None:
         # Without matched_term in the message, a missing translation is

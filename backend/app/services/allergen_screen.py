@@ -72,11 +72,23 @@ class AllergenScreenError(Exception):
         )
 
     def offending_allergens(self) -> list[Allergen]:
-        """The DISTINCT declared allergens the final rejected attempt still
-        tripped, in first-seen order — so a user-facing message can name them
-        (the raw ``violations`` list repeats an allergen once per ingredient)."""
+        """The DISTINCT allergens actually DETECTED in the final rejected
+        attempt, in first-seen order — so a user-facing message can name them
+        (the raw ``violations`` list repeats an allergen once per ingredient).
+
+        Excludes UNSCREENABLE violations. Those carry an ARBITRARY declared
+        allergen (the screen tags them with ``screenable[0]``) purely so the
+        reject→regenerate path can carry them; nothing was actually detected.
+        Counting them would name an allergen that was never found — and on a
+        MIXED round (one real hit plus one unverifiable ingredient) that is
+        exactly what happened: the message listed both, so a user told to
+        "remove an allergen" could remove the one that was never ruled out,
+        permanently disabling the only deterministic check for it.
+        """
         ordered: dict[Allergen, None] = {}
         for v in self.violations:
+            if v.matched_term == UNSCREENABLE_TERM:
+                continue
             ordered.setdefault(v.allergen, None)
         return list(ordered)
 
@@ -92,16 +104,14 @@ class AllergenScreenError(Exception):
         (``docs/dietary-reference.md`` Part 4) — and it never implies the plan
         we withheld was itself unsafe (it was withheld precisely because it
         wasn't clean)."""
-        # An all-unscreenable round detected NO allergen — the violations carry
-        # an arbitrary declared one purely to reuse the reject→regenerate path.
-        # Naming it here would tell a user to remove an allergen that was never
-        # found, and following that advice walks them down to zero declared
-        # allergens, at which point the screen is skipped entirely and the
-        # request "succeeds". That is the worst possible advice to give someone
-        # with an allergy, so this case gets its own message.
-        if self.violations and all(
-            v.matched_term == UNSCREENABLE_TERM for v in self.violations
-        ):
+        # Nothing was DETECTED — every violation was an unverifiable ingredient.
+        # Naming the arbitrary allergen they carry would tell the user to remove
+        # an allergen that was never found, and following that advice walks them
+        # down to zero declared allergens, at which point the screen is skipped
+        # entirely and the request "succeeds". Worst possible advice to give
+        # someone with an allergy, so this case gets its own message.
+        detected = self.offending_allergens()
+        if self.violations and not detected:
             return (
                 "We couldn't check this meal against your allergens, so we "
                 "didn't show it. Please try generating again."
@@ -109,7 +119,7 @@ class AllergenScreenError(Exception):
         labels = [
             ALLERGEN_INFO[a].label if a in ALLERGEN_INFO
             else a.value.replace("_", " ")
-            for a in self.offending_allergens()
+            for a in detected
         ]
         named = ", ".join(labels) or "your selected allergens"
         return (
