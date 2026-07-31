@@ -1,40 +1,75 @@
 # MealBot
 
-AI-powered meal planner with two modes: **Plan Ahead** builds multi-day meal plans with a shopping list, and **Cook Now** generates a single recipe you're about to cook right now. Both use what's in your fridge, your dietary preferences, and past meals you rated highly. Uses structured LLM output (Gemini, DeepSeek, or OpenAI — ordered fallback) to produce validated, actionable recipes.
+AI meal planner built around a real constraint: **what is actually in your fridge**, and **what you cannot eat**.
 
-## Features
+Two generation modes. **Plan Ahead** builds a multi-day plan and the shopping list that goes with it. **Cook Now** produces a single recipe for the meal you are about to start. Both read your fridge, your dietary restrictions and the meals you rated highly, and both return validated structured output rather than free text.
 
-- **Two generation modes**
-  - **Plan Ahead** — 1–7 day plans with shopping list, fridge commit, confirm/cook flow.
-  - **Cook Now** — Single-recipe generator for "I'm cooking right now." No shopping list; the recipe is persisted + fridge-debited + marked cooked in one step.
-- **User-chosen meal-slot taxonomy** — 11 curated types (`sweet_breakfast`, `savory_breakfast`, `brunch`, `snack`, `soup`, `light_lunch`, `main_course`, `side_dish`, `hot_dinner`, `cold_dinner`, `dessert`). The user picks the slots; the LLM fills them.
-- **Configurable day layouts** — Save a default per-day meal shape in preferences; override per day when generating a plan.
-- **Fridge Management** — Track ingredients with expiration dates, auto-deduct after confirming a plan, FIFO allocation per meal.
-- **Receipt Scanning** — Upload receipt images or PDFs to auto-populate fridge via LLM vision.
-- **Selective Regeneration** — Freeze meals you like, regenerate the rest.
-- **Cooking Tracker** — Mark meals as cooked, rate them, finish plans and return unused ingredients.
-- **Shopping List** — Auto-computed from plan vs. fridge diff. Copy / share / tick items off; amounts can show as piece counts ("8 eggs") instead of grams.
-- **Cooking Mode** — Fullscreen step-by-step checklist with tap-a-duration timers: "simmer for 5 minutes" starts a 5:00 countdown, in whatever language the recipe was generated in. Several timers run at once, survive leaving the screen in a floating bubble that takes you back to the step you left, and are deadline-based so a backgrounded tab or locked phone can't stall them. Holds a screen wake-lock while cooking.
-- **Meal History** — Track confirmed meals to avoid repetition.
-- **RAG-powered inspiration** — Meals rated ≥4 stars are embedded (pgvector + all-MiniLM-L6-v2) and retrieved as in-context examples for future generations. Hybrid retrieval boosts the user's own favorites over the global corpus.
-- **User Preferences** — Country, language, units in recipe steps (metric / imperial / match-my-language), pieces-instead-of-grams display, variability, spice tracking, pantry staples, default day layout.
-- **Auth** — JWT-based login with rate limiting, password complexity requirements, server-side logout (token revocation via `token_version`).
-- **Demo Mode** — Optional one-click "Try Demo" session that mocks LLM calls per-user, so real alpha accounts on the same server still hit the real LLM.
-- **Closed Alpha** — Public registration disabled by default; users created via CLI script.
+Live at **[trymealbot.com](https://trymealbot.com)** — closed alpha, paid subscription, public registration currently disabled.
 
-## Tech Stack
+---
+
+## What it does
+
+### Planning and cooking
+
+- **Plan Ahead** — 1–7 day plans with a computed shopping list, fridge commit, and a confirm → cook → finish lifecycle that can be reversed (unconfirm restores fridge stock exactly).
+- **Cook Now** — one-shot recipe generator. Persists, FIFO-debits the fridge and marks the meal cooked in a single step.
+- **You choose the slots, the LLM fills them** — 11 curated meal types (`sweet_breakfast`, `savory_breakfast`, `brunch`, `snack`, `soup`, `light_lunch`, `main_course`, `side_dish`, `hot_dinner`, `cold_dinner`, `dessert`), with a saveable default day shape and per-day overrides.
+- **Calendar** — plans carry a real start date; day N is `start_date + (N-1)`. Month-grid view showing every meal per day, with reschedule-by-drag.
+- **Leftovers** — "cook a bigger dinner, eat it as tomorrow's lunch". Modelled as a *link* to an earlier meal, not a meal type, so it consumes no extra stock, never lands on the shopping list, and keeps its provenance.
+- **Cooking mode** — fullscreen step-by-step checklist. Durations in the step text are tappable: "simmer for 5 minutes" starts a 5:00 countdown, in whatever language the recipe was generated in. Several timers run at once, survive leaving the screen in a floating bubble that returns you to the step you left, and are deadline-based so a backgrounded tab or locked phone can't stall them. Holds a screen wake-lock while you cook.
+- **Editable results** — rename a meal, fix its ingredients or steps, before or after confirming.
+- **Selective regeneration** — freeze the meals you like, regenerate the rest.
+
+### Dietary safety
+
+- **Combinable restrictions** — stack dietary patterns (vegan + gluten-free + low-FODMAP) instead of picking one, plus a structured allergen field kept separate from taste dislikes: allergies are hard constraints, not preferences.
+- **Grounded in cited references, not the model's guess** — the EU-14 allergens of Reg. (EU) No 1169/2011 with their legal "products thereof" derivatives, and dietary patterns defined the way Monash/NHLBI/EFSA define them. Encoded as a sourced reference layer ([`docs/dietary-reference.md`](docs/dietary-reference.md)) and composed into the prompt as hard constraints.
+- **Deterministic post-generation screen** — every generated ingredient is scanned against the declared allergens and their derivatives. A hit regenerates; if it never comes back clean the request **fails closed** rather than serving a plan. Prompting alone is not treated as a guarantee.
+- Marketing and UI stay on the right side of the line: *screened against*, never *safe for*. Guidance, not a medical determination.
+
+### Fridge and shopping
+
+- **Fridge** — quantities, expiration dates, need-to-use flags, FIFO allocation per meal.
+- **Receipt scanning** — photograph or upload a receipt (image or PDF); LLM vision extracts items, normalizes names against what you already have, and merges.
+- **Shopping list** — computed from plan minus fridge. Copy, share, tick items off. Amounts can display as piece counts ("8 eggs") instead of grams.
+- **Pantry staples** — an "always have" list (salt, oil, flour) excluded from the list at generation time.
+
+### Accounts, billing, feedback
+
+- **Auth** — HttpOnly cookie sessions with rotating refresh tokens, CSRF double-submit, device session list, refresh-token reuse detection, and `token_version` mass revocation. Password reset and email verification by mail.
+- **Subscription paygate** — Stripe subscriptions with a free trial; a `402` gate on the four generation endpoints. Entitlement is a local read on webhook-mirrored state, so the paywall check costs one DB read. Admin/demo/comped accounts bypass.
+- **Revenue and VAT tracking** — append-only sale ledger with EU-OSS and CZ domestic threshold tracking, and operator alerts as they approach.
+- **Per-user LLM cost cap** — spend is metered per user against a monthly ceiling, so a runaway account can't burn the budget.
+- **In-app feedback** — report a bug or request a feature; accepted reports can mint a real invoice credit and open a ticket.
+- **Demo mode** — one-click "Try Demo" session with per-user mocked LLM calls, so demo traffic never spends tokens while real accounts on the same server still hit the provider.
+- **Invite links** — single-use, expiring, comp-by-default links that let hand-picked testers self-register while public registration stays closed.
+
+### Admin and operations
+
+- **Admin dashboard** — usage/cost, revenue and VAT, activation funnel, generation activity, and full user management (create, disable, comp, force-logout, guarded hard-delete that anonymizes the VAT ledger rather than cascading it away), all behind a fail-closed RBAC dependency and an append-only audit log.
+- **RAG** — meals you favourite are embedded (pgvector + `all-MiniLM-L6-v2`) and retrieved as in-context examples, with your own favourites boosted over the global corpus.
+- **Scheduled jobs** — systemd timers for nightly database backup, session-table pruning, billing alerts and Docker disk cleanup, each alerting by email on failure.
+
+---
+
+## Tech stack
 
 | Layer | Stack |
 |-------|-------|
-| **Backend** | FastAPI, Python 3.11, async, Pydantic v2 |
-| **Frontend** | React 19, TypeScript, Zustand, TanStack Query |
-| **Database** | PostgreSQL 15 + pgvector (for RAG) |
-| **LLM** | Gemini 2.5 Flash (default), DeepSeek, or OpenAI — with ordered fallback chain |
-| **Infra** | Docker Compose, Caddy (production reverse proxy + auto HTTPS) |
+| **Backend** | FastAPI, Python 3.14, fully async, Pydantic v2 / SQLModel |
+| **Frontend** | React 19, TypeScript, Vite, TanStack Query, Zustand |
+| **Database** | PostgreSQL 15 + pgvector |
+| **LLM** | `instructor`-enforced structured output over Gemini / OpenAI / DeepSeek, ordered fallback chain with retry and backoff |
+| **Payments** | Stripe (subscriptions, Customer Portal, webhooks) |
+| **Mail** | Resend |
+| **Infra** | Docker Compose, Caddy (auto-HTTPS), nginx (static + SPA), GitHub Actions CI + SSH auto-deploy |
 
-## Quick Start
+Quality gates in CI: pytest, mypy `--strict`, ruff, eslint, `tsc -b`, a frontend security-headers check, gitleaks, and an AI review whose completion is itself verified by a guard job.
 
-### 1. Clone and configure
+---
+
+## Quick start
 
 ```bash
 git clone https://github.com/fatheus97/mealbot.git
@@ -42,12 +77,13 @@ cd mealbot
 cp .env.example .env
 ```
 
-Edit `.env` and set at minimum:
-- `POSTGRES_USER` and `POSTGRES_PASSWORD` — no defaults, must be set
-- `GEMINI_API_KEY` (or `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` depending on your `LLM_MODELS` chain)
-- `SECRET_KEY` — must be ≥32 characters, generate with `python -c "import secrets; print(secrets.token_urlsafe(64))"`
+Set at minimum:
 
-### 2. Start
+- `POSTGRES_USER` / `POSTGRES_PASSWORD` — no defaults
+- `SECRET_KEY` — ≥32 chars; generate with `python -c "import secrets; print(secrets.token_urlsafe(64))"`
+- `GEMINI_API_KEY` (or `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`, matching your `LLM_MODELS` chain)
+
+Then:
 
 ```bash
 docker compose up --build
@@ -55,153 +91,142 @@ docker compose up --build
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:5173 |
+| Frontend (Vite dev server) | http://localhost:5174 |
 | Backend API | http://localhost:8000 |
 | API docs | http://localhost:8000/docs |
-| Health check | http://localhost:8000/health |
+| Health | http://localhost:8000/health |
 
-## API Endpoints
+`docker-compose.override.yml` applies automatically in local dev: it swaps the frontend from the production nginx image to `npm run dev` with hot reload, which is why the dev port is **5174** and not the `5173` the base compose file publishes.
 
-### Public
-| Method | Path | Description |
-|--------|------|-------------|
-| GET, HEAD | `/health` | Liveness probe (HEAD for UptimeRobot free tier) |
-| GET | `/api/config` | Non-secret runtime flags (`demo_mode`, `registration_enabled`) |
-| GET | `/api/countries` | Canonical country whitelist for the settings picker |
-| GET | `/api/languages` | Canonical language whitelist for the settings picker |
-
-### Auth
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/users/register` | Create account (disabled when `REGISTRATION_ENABLED=false`) |
-| POST | `/api/users/login` | Get JWT token |
-| POST | `/api/users/logout` | Revoke outstanding tokens (bumps `token_version`) |
-| GET | `/api/users` | Get profile |
-| PATCH | `/api/users` | Update preferences (`default_day_layout`, country, language, etc.) |
-| POST | `/api/demo/session` | Mint a demo JWT (gated on `DEMO_MODE=true`) |
-
-### Fridge
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/fridge` | List fridge items |
-| PUT | `/api/fridge` | Replace fridge contents |
-| POST | `/api/fridge/scan` | Upload receipt image/PDF to extract items |
-| POST | `/api/fridge/merge` | Merge scanned items into fridge |
-
-### Plan Ahead (multi-day)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/plan` | List confirmed plans (excludes Cook Now entries) |
-| POST | `/api/plan?days=N` | Generate multi-day meal plan (accepts optional `day_layouts`) |
-| GET | `/api/plan/{id}` | Get full plan detail |
-| DELETE | `/api/plan/{id}` | Delete a plan |
-| POST | `/api/plan/{id}/regenerate` | Regenerate unfrozen meals |
-| POST | `/api/plan/{id}/confirm` | Confirm plan, FIFO-debit fridge |
-| POST | `/api/plan/{id}/finish` | Finish plan, return unused ingredients |
-| GET | `/api/plan/{id}/meals` | List meal entries |
-| POST | `/api/plan/{id}/meals/{mid}/cook` | Mark meal as cooked |
-| POST | `/api/plan/{id}/meals/{mid}/uncook` | Unmark meal as cooked |
-| POST | `/api/plan/{id}/meals/{mid}/rate` | Rate a meal (1–5); ≥4 triggers RAG embedding |
-
-### Cook Now (single-recipe)
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/recipe/generate` | Preview a single recipe (no DB write) |
-| POST | `/api/recipe/cook` | Persist + FIFO-debit + mark cooked in one step |
-
-### History
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/meals` | Meal history across all plans |
-
-## Running Tests
-
-Dev dependencies (pytest, mypy, etc.) are installed automatically in local development via the `INSTALL_DEV` build arg in `docker-compose.override.yml`.
+Registration is **disabled by default**. Create the first account from the CLI:
 
 ```bash
-# Start test database and backend
-docker compose up -d test-db backend
-
-# Run tests
-docker compose exec \
-  -e TEST_DATABASE_URL=postgresql+psycopg://testuser:testpassword@test-db:5432/mealbot_test \
-  -e SECRET_KEY=test-secret-key-that-is-long-enough-for-validation \
-  backend python -m pytest -v
+docker compose exec backend python -m app.scripts.create_user \
+  --email you@example.com --password "StrongPassword123!" --admin
 ```
 
-## Production Deployment
+No LLM key handy? Set `LLM_MOCK=true` to run the whole app against canned responses.
 
-Production uses `docker-compose.prod.yml` which adds Caddy for automatic HTTPS, disables dev ports, and removes volume mounts. Image digests are pinned; Postgres enforces a `statement_timeout`; a dedicated `migrate` service runs `alembic upgrade head` on every startup before the backend comes up, so deploys don't need a manual migration step.
+---
 
-**Build-time secret**: `HF_TOKEN` (optional) — a Hugging Face read token, passed as a BuildKit secret during `docker compose build` to authenticate the one-time embedding-model download baked into the image. Not read at runtime; set it in the shell (`export HF_TOKEN=hf_...`) before building. Anonymous access still works — the token just suppresses the HF warnings and lifts the rate limit during the build.
+## API
+
+All routes are under `/api`. Interactive docs at `/docs`.
+
+| Area | Routes |
+|------|--------|
+| **Public** | `GET,HEAD /health` · `GET /config` · `GET /countries` · `GET /languages` |
+| **Auth** | `POST /users/register` · `/auth/login` · `/auth/logout` · `/auth/logout-all` · `/auth/refresh` · `/auth/password` · `/auth/forgot-password` · `/auth/reset-password` · `/auth/verify-email` · `/auth/resend-verification` · `/auth/demo` |
+| **Profile** | `GET,PATCH /users` — country, language, units, display and generation preferences |
+| **Fridge** | `GET,PUT /fridge` · `POST /fridge/scan` · `POST /fridge/merge` |
+| **Staples** | `GET,PUT /staples` |
+| **Plan Ahead** | `GET,POST /plan` · `GET,PATCH,DELETE /plan/{id}` · `/plan/calendar` · `/plan/{id}/regenerate` · `/confirm` · `/unconfirm` · `/finish` · `/reopen` · `/plan/{id}/meals` · `/meals/{id}/cook` · `/uncook` · `/favorite` |
+| **Cook Now** | `POST /recipe/generate` · `/recipe/cook` · `/recipe/favorite` |
+| **Cookbook** | `GET /cookbook` · `GET /cookbook/count` · `DELETE /cookbook/{id}` |
+| **History** | `GET /meals` |
+| **Usage** | `GET /usage/me` |
+| **Billing** | `POST /billing/checkout` · `/billing/portal` · `/billing/webhook` |
+| **Feedback** | `POST /feedback` |
+| **Access requests** | `POST /access-requests` |
+| **Admin** | `/admin/stats/{overview,usage,usage/by-user,activity,revenue,funnel}` · `/admin/users` · `/admin/invites` · `/admin/feedback` · `/admin/access-requests` |
+
+---
+
+## Testing
 
 ```bash
-# Create .env with production secrets (see .env.example).
-# Set DOMAIN, ALLOWED_ORIGINS, REGISTRATION_ENABLED=false, DEMO_MODE as needed,
-# strong POSTGRES_PASSWORD, and a SECRET_KEY ≥32 chars (rejects "CHANGE_ME").
+docker compose up -d test-db
+docker compose exec backend pytest          # ~1400 tests
+docker compose exec backend mypy .          # strict
+docker compose exec backend ruff check .
+```
 
-# Start — migrate service runs alembic upgrade head, then backend starts.
+Frontend (~670 tests) runs under Vitest:
+
+```bash
+docker compose exec frontend npm test
+docker compose exec frontend npx tsc -b     # -b, not --noEmit: covers test files too
+```
+
+LLM tests that call a real provider are opt-in via `RUN_LLM_TESTS=true` and stay off in CI.
+
+---
+
+## Production
+
+`docker-compose.prod.yml` layers on Caddy (auto-HTTPS), drops dev port publishing and volume mounts, pins image digests and sets a Postgres `statement_timeout`. A one-shot `migrate` service runs `alembic upgrade head` before the backend starts, so a deploy never needs a manual migration step.
+
+**Merging to `main` is the deploy** — `deploy.yml` SSHes to the box and rebuilds; a squash merge is live in about two minutes, migrations included.
+
+```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-
-# Create user accounts (registration is disabled in prod)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend \
-  python -m app.scripts.create_user --email user@example.com --password "StrongPassword123!"
 ```
 
-## Project Structure
+Changing an env var on the box requires `up -d`, never `restart` — `restart` reuses the old environment.
+
+Scheduled jobs are systemd units in [`deploy/systemd/`](deploy/systemd/) and must be installed on the machine once; `deploy.sh` only swaps containers.
+
+**Build-time secret:** `HF_TOKEN` (optional) — a Hugging Face read token passed as a BuildKit secret to authenticate the one-time embedding-model download baked into the image. Anonymous access works too; the token just lifts the build-time rate limit.
+
+---
+
+## Project structure
 
 ```
 backend/
 ├── app/
-│   ├── api/            # FastAPI routers (plan, recipe, fridge, history, user)
-│   ├── core/           # Config, security (JWT, bcrypt), meal-type taxonomy
-│   ├── models/         # SQLModel DB models + Pydantic schemas
-│   ├── scripts/        # CLI tools (create_user.py)
-│   ├── services/       # LLM integration (meal_planner, receipt_scanner, recipe_retriever, plan_service, fridge_service)
-│   └── utils.py        # Shopping list computation, fridge subtraction
-├── tests/              # pytest test suite
-└── requirements.txt
+│   ├── api/        # routers: plan, recipe, fridge, pantry, cookbook, user, auth,
+│   │               #          usage, admin, billing, feedback, access_request, history
+│   ├── core/       # config, security, meal types, dietary + allergen reference data
+│   ├── llm/        # provider clients, fallback chain, token-usage capture
+│   ├── models/     # SQLModel tables + Pydantic request/response schemas
+│   ├── services/   # meal_planner, allergen_screen, plan_service, stripe_service,
+│   │               # receipt_scanner, recipe_retriever, feedback_*, email_* …
+│   └── scripts/    # create_user, backfill embeddings, scheduled-job entrypoints
+├── prompts/        # Jinja LLM prompt templates
+├── alembic/        # migrations
+└── tests/
 
 frontend/
-├── src/
-│   ├── components/     # React components (Fridge, MealPlanner, CookNowForm, DayLayoutEditor, etc.)
-│   ├── constants/      # MealType taxonomy mirror of backend/app/core/meal_types.py
-│   ├── contexts/       # Auth context
-│   ├── hooks/          # Server state hooks
-│   ├── store/          # Zustand stores
-│   └── api.ts          # API client
-└── package.json
+├── index.html      # static marketing landing page
+├── app.html        # the SPA, served at /app
+├── privacy.html · terms.html
+└── src/
+    ├── components/ # planner, fridge, cookbook, recipe/, admin/, billing/
+    ├── contexts/   # auth, cooking timers
+    ├── landing/    # typed logic for the static pages
+    ├── hooks/ store/ utils/ constants/
+
+deploy/systemd/     # backup, cleanup and alert timers
+docs/               # dietary reference, landing-page plan
 ```
 
-## Environment Variables
+---
 
-See `.env.example` for all options. Key variables:
+## Configuration
+
+`.env.example` carries the core set; [`backend/app/core/config.py`](backend/app/core/config.py) is the authoritative list (~70 settings, all with defaults except the ones below).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SECRET_KEY` | Yes | JWT signing key (≥32 chars, rejects `CHANGE_ME`) |
-| `POSTGRES_USER` | Yes | Postgres username (no default) |
-| `POSTGRES_PASSWORD` | Yes | Postgres password (no default) |
-| `LLM_MODELS` | No | Ordered fallback chain, e.g. `deepseek/deepseek-chat,gemini/gemini-2.5-flash` |
-| `GEMINI_API_KEY` | If using Gemini | Google AI Studio key |
-| `OPENAI_API_KEY` | If using OpenAI | OpenAI platform key |
-| `DEEPSEEK_API_KEY` | If using DeepSeek | DeepSeek platform key |
-| `LLM_MOCK` | No | `true` to bypass LLM calls with fake data (real users still hit the LLM; demo users are auto-mocked) |
-| `USE_RAG` | No | `true` to retrieve highly-rated past meals as prompt context |
-| `RAG_OWN_USER_FETCH` | No | Hybrid retrieval: closest own-user meals to fetch (default: `5`) |
-| `RAG_GLOBAL_FETCH` | No | Hybrid retrieval: closest meals across all users to fetch (default: `15`) |
-| `RAG_USER_BOOST` | No | `<1.0` multiplies own-user distances so favorites rank higher (default: `0.7`) |
-| `RAG_MIN_RESULTS` | No | Minimum relevant hits needed; otherwise fall back to standard pipeline (default: `3`) |
-| `RAG_MAX_DISTANCE` | No | Hits with adjusted distance ≥ this are dropped (default: `0.4`) |
-| `RAG_MAX_CONTEXT_MEALS` | No | Cap on examples sent to the LLM (default: `8`) |
-| `REGISTRATION_ENABLED` | No | `true` to allow public signup (default: `true`, set `false` for closed alpha) |
-| `DEMO_MODE` | No | `true` to enable `POST /api/demo/session` and the "Try Demo" button |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | JWT token lifetime in minutes (default: `1440` = 24h) |
-| `ALLOWED_ORIGINS` | No | Comma-separated CORS origins (default: `http://localhost:5173,http://localhost:5174`) |
-| `DOMAIN` | Prod only | Domain for Caddy HTTPS, e.g. `yourdomain.com` |
-| `RUN_LLM_TESTS` | No | `true` to run LLM consistency tests (calls the real provider; off by default in CI) |
+| `SECRET_KEY` | Yes | JWT signing key, ≥32 chars, rejects `CHANGE_ME` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` | Yes | No defaults |
+| `GEMINI_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` | One | Match your `LLM_MODELS` chain |
+| `LLM_MODELS` | No | Ordered fallback chain, e.g. `gemini/gemini-2.5-flash,gemini/gemini-2.5-flash-lite` |
+| `LLM_MOCK` | No | Bypass the LLM with canned data (demo users are always mocked) |
+| `REGISTRATION_ENABLED` | No | Public signup. Default `false` |
+| `DEMO_MODE` | No | Enables the "Try Demo" button. Default `false` |
+| `BILLING_ENABLED` | No | Stripe paygate. Default `false` — off means everyone is entitled |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_ID` | If billing | Subscription config |
+| `RESEND_API_KEY` / `ALERT_EMAIL_FROM` | For mail | Verification, password reset, operator alerts |
+| `USE_RAG` | No | Retrieve favourited meals as prompt context. Default `false` |
+| `USAGE_CAP_ENABLED` | No | Per-user monthly LLM cost ceiling. Default `true` |
+| `LEFTOVERS_ENABLED` | No | Kill switch for leftover linking. Default `true` |
+| `COOKIE_SECURE` / `CSRF_ENABLED` | No | Both default `true`; only relax for local HTTP |
+| `DOMAIN` / `ALLOWED_ORIGINS` | Prod | Caddy HTTPS domain and CORS origins |
+
+---
 
 ## License
 
-This project is proprietary software. Source code is publicly available 
-for portfolio and review purposes only. See [LICENSE](LICENSE) for details.
+Proprietary. Source is public for portfolio and review purposes only — see [LICENSE](LICENSE).
