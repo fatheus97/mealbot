@@ -644,6 +644,7 @@ class MealEditResponse(PlannedMeal):
 
     allergen_warnings: list[AllergenWarning] = Field(default_factory=list)
 
+
 class MealEditRequest(BaseModel):
     """User-edited content for a single meal (name, ingredients, steps, time).
 

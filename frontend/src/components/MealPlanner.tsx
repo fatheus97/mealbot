@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties } from "react";
 import type { AllergenWarning } from "../types";
+import { AllergenEditWarning } from "./AllergenEditWarning";
 import { useAuth, useShowPieces } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { formatAmount } from "../utils/pieces";
@@ -467,40 +468,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
 
   return (
     <section style={{ marginBottom: "2rem", borderTop: "2px solid #eee", paddingTop: "2rem" }}>
-      {/* Allergen warning for the user's OWN edit. position:fixed keeps it out
-          of document flow, so it can't shove the editor down under the cursor
-          when it appears (the CLS rule in .claude/rules/frontend.md). Explicit
-          background AND colour so it reads in both OS colour schemes. */}
-      {allergenWarnings.length > 0 && (
-        <div role="alert" style={allergenWarnStyle}>
-          <div style={{ flex: 1 }}>
-            <strong>
-              Heads up — your edit added{" "}
-              {[...new Set(allergenWarnings.map((w) => w.label))].join(", ")}.
-            </strong>
-            <div style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
-              You declared {allergenWarnings.length === 1 ? "this allergen" : "these allergens"}{" "}
-              for this plan. We saved your change — it's your recipe — but wanted you to know.
-            </div>
-            <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.1rem", fontSize: "0.85rem" }}>
-              {allergenWarnings.slice(0, 4).map((w, i) => (
-                <li key={`${w.allergen}-${i}`}>
-                  {w.source === "step" ? "In a step: " : ""}
-                  {w.ingredient}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <button
-            type="button"
-            onClick={() => setAllergenWarnings([])}
-            aria-label="Dismiss allergen warning"
-            style={allergenWarnCloseStyle}
-          >
-            &times;
-          </button>
-        </div>
-      )}
+      <AllergenEditWarning
+        warnings={allergenWarnings}
+        onDismiss={() => setAllergenWarnings([])}
+      />
       <h2>Meal Planner</h2>
 
       <div role="tablist" style={{ display: "flex", gap: "0.25rem", marginBottom: "1rem", borderBottom: "2px solid #e5e7eb" }}>
@@ -927,34 +898,3 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     </section>
   );
 }
-
-// Floated, so appearing can never shift the page. Self-contained opaque
-// surface: background AND colour set together, which is what keeps it legible
-// in both OS colour schemes (inline styles cannot reach @media).
-const allergenWarnStyle: CSSProperties = {
-  position: "fixed",
-  top: "1rem",
-  left: "50%",
-  transform: "translateX(-50%)",
-  zIndex: 1400,
-  maxWidth: "min(560px, calc(100vw - 2rem))",
-  display: "flex",
-  alignItems: "flex-start",
-  gap: "0.75rem",
-  backgroundColor: "#fee2e2",
-  color: "#7f1d1d",
-  border: "1px solid #fecaca",
-  borderRadius: 8,
-  padding: "0.8rem 1rem",
-  boxShadow: "0 2px 12px rgba(0, 0, 0, 0.25)",
-};
-
-const allergenWarnCloseStyle: CSSProperties = {
-  background: "none",
-  border: "none",
-  color: "inherit",
-  fontSize: "1.2rem",
-  lineHeight: 1,
-  cursor: "pointer",
-  padding: "0 0.2rem",
-};

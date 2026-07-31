@@ -1119,8 +1119,21 @@ def _screen_edited_meal(meal: PlannedMeal, plan: MealPlan) -> list[AllergenWarni
     if not original.allergens:
         return []
 
+    # language=None (English matching) deliberately, NOT the plan's language.
+    #
+    # An edit body has no `name_en` and never can: the editor has no field for
+    # it and this path makes no LLM call to backfill one. Passing a non-English
+    # language would therefore mark EVERY edited ingredient UNSCREENABLE, and
+    # the filter below drops those — so on a Czech or Spanish plan the user
+    # could type "cream" straight back in and get no warning at all. The feature
+    # would have been silently dead for exactly the users #341 was about.
+    #
+    # English matching instead checks the typed name against the English terms.
+    # Its honest limit: a Czech user typing "smetana" still gets no warning
+    # (nothing to translate it) — but that is the pre-existing gap, not a
+    # regression, and "cream" now warns where before nothing did.
     violations = screen_meals_for_allergens(
-        [meal], original.allergens, language=original.language,
+        [meal], original.allergens, language=None,
     )
     return [
         AllergenWarning(
@@ -1139,6 +1152,7 @@ def _screen_edited_meal(meal: PlannedMeal, plan: MealPlan) -> list[AllergenWarni
         # detected — the same mistake the fail-closed 422 message had to fix.
         if v.matched_term != UNSCREENABLE_TERM
     ]
+
 
 # PATCH /api/plan/{plan_id}/days/{day_index}/meals/{meal_index} — Edit meal content
 @router.patch(

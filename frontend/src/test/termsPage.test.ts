@@ -54,6 +54,10 @@ describe.skipIf(!built)("terms of service (built dist/terms.html)", () => {
       // the user's own recipe and their own declared allergy.
       expect(html).toMatch(/Edits you make are checked, but not blocked/i);
       expect(html).toMatch(/we still save it/i);
+      // The edit path has no name_en to screen against, so it matches English
+      // names only. Claiming an unqualified "we tell you clearly" would be a
+      // promise the code cannot keep for non-English users.
+      expect(html).toMatch(/reads English ingredient names/i);
     });
 
     it("warns that baby food has no automatic safety check", () => {
