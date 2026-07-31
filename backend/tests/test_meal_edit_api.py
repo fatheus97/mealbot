@@ -419,6 +419,52 @@ class TestEditAllergenWarning:
         assert detail.json()["days"][0]["meals"][0]["name"] == "Creamy Pasta"
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_warns_on_a_non_english_plan_too(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        """The regression that already shipped once in this PR.
+
+        An edit body has no `name_en` and never can — no field in the editor, no
+        LLM call on this path. Screening it with the PLAN's language therefore
+        tagged every edited ingredient UNSCREENABLE, and the warning filter
+        dropped it, so a Czech user could type "cream" back into a milk-free
+        plan and be told nothing. `_screen_edited_meal` passes language=None for
+        exactly this reason; without this test, reverting that would pass CI in
+        silence.
+        """
+        mock_gen.return_value = _fake_day()
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={
+                "meals_per_day": 1,
+                "people_count": 2,
+                "allergens": ["milk"],
+                "language": "cs",
+            },
+        )
+        assert resp.status_code == 200
+        plan_id = resp.json()["plan_id"]
+
+        edit = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json={
+                "name": "Smetanova omacka",
+                "ingredients": [{"name": "double cream", "quantity_grams": 100}],
+                "steps": ["Michejte"],
+                "total_time_minutes": 10,
+            },
+        )
+        assert edit.status_code == 200
+        warnings = edit.json()["allergen_warnings"]
+        assert [w["allergen"] for w in warnings] == ["milk"], (
+            "non-English plan lost its ingredient warning — is the edit screen "
+            "passing the plan language again?"
+        )
+        assert warnings[0]["source"] == "ingredient"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_an_allergen_added_only_in_a_step_is_warned(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
     ):
