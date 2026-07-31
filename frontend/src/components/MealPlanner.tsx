@@ -1,4 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties } from "react";
+import type { AllergenWarning } from "../types";
+import { AllergenEditWarning } from "./AllergenEditWarning";
 import { useAuth, useShowPieces } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { formatAmount } from "../utils/pieces";
@@ -86,6 +88,9 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Which meal (if any) is currently open in the inline editor, keyed by
   // "day-meal" (0-based, matching the render indices).
   const [editingMeal, setEditingMeal] = useState<string | null>(null);
+  // Allergens the user's own edit reintroduced. Warn, never block — this is
+  // their recipe and their declared allergy; the save has already happened.
+  const [allergenWarnings, setAllergenWarnings] = useState<AllergenWarning[]>([]);
   // Which meal (if any) is open in real-time cooking mode, same "day-meal" key.
   const [cookingMeal, setCookingMeal] = useState<string | null>(null);
 
@@ -411,6 +416,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       },
       {
         onSuccess: (serverMeal) => {
+          setAllergenWarnings(serverMeal.allergen_warnings ?? []);
           // Replace the edited meal in local plan state with the server's
           // canonical version (echoes back preserved meal_type etc.).
           setCurrentPlan((prev) =>
@@ -462,6 +468,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
 
   return (
     <section style={{ marginBottom: "2rem", borderTop: "2px solid #eee", paddingTop: "2rem" }}>
+      <AllergenEditWarning
+        warnings={allergenWarnings}
+        onDismiss={() => setAllergenWarnings([])}
+      />
       <h2>Meal Planner</h2>
 
       <div role="tablist" style={{ display: "flex", gap: "0.25rem", marginBottom: "1rem", borderBottom: "2px solid #e5e7eb" }}>

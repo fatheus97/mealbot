@@ -11,12 +11,14 @@ from sqlmodel import col, select
 from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
+from app.core.dietary_reference import ALLERGEN_INFO
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
+    AllergenWarning,
     CalendarDay,
     CalendarMeal,
     CalendarPlanEntry,
@@ -25,6 +27,7 @@ from app.models.plan_models import (
     FavoriteToggleRequest,
     FinishPlanResponse,
     MealEditRequest,
+    MealEditResponse,
     MealEntrySummary,
     MealPlanRequest,
     MealPlanResponse,
@@ -38,7 +41,11 @@ from app.models.plan_models import (
     StockItemDTO,
     validate_plan_start_date,
 )
-from app.services.allergen_screen import AllergenScreenError
+from app.services.allergen_screen import (
+    UNSCREENABLE_TERM,
+    AllergenScreenError,
+    screen_meals_for_allergens,
+)
 from app.services.fridge_service import (
     get_fridge_items,
 )
@@ -1084,10 +1091,73 @@ async def uncook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
+def _screen_edited_meal(meal: PlannedMeal, plan: MealPlan) -> list[AllergenWarning]:
+    """Re-screen a user-edited meal against the allergens the PLAN was built for.
+
+    WARN, never block. Withholding is right for OUR output; an edit is the
+    user's own recipe and their own declared allergy, so the edit saves and the
+    UI says loudly what was found.
+
+    The allergens come from the plan's stored request, not the client — there is
+    no server-side allergen profile (they live in browser storage and are sent
+    per generation), so the stored request is the only server-authoritative
+    record of what this plan was built to avoid, and it cannot be tampered with
+    by the edit payload.
+
+    Never raises: a plan whose request_json predates a schema change must still
+    be editable. A screen we cannot run degrades to no warning, which is exactly
+    the behaviour before this existed.
+    """
+    try:
+        original = MealPlanRequest.model_validate_json(plan.request_json)
+    except ValidationError:
+        logger.warning(
+            "Could not parse request_json for plan %d — skipping edit screen", plan.id
+        )
+        return []
+
+    if not original.allergens:
+        return []
+
+    # language=None (English matching) deliberately, NOT the plan's language.
+    #
+    # An edit body has no `name_en` and never can: the editor has no field for
+    # it and this path makes no LLM call to backfill one. Passing a non-English
+    # language would therefore mark EVERY edited ingredient UNSCREENABLE, and
+    # the filter below drops those — so on a Czech or Spanish plan the user
+    # could type "cream" straight back in and get no warning at all. The feature
+    # would have been silently dead for exactly the users #341 was about.
+    #
+    # English matching instead checks the typed name against the English terms.
+    # Its honest limit: a Czech user typing "smetana" still gets no warning
+    # (nothing to translate it) — but that is the pre-existing gap, not a
+    # regression, and "cream" now warns where before nothing did.
+    violations = screen_meals_for_allergens(
+        [meal], original.allergens, language=None,
+    )
+    return [
+        AllergenWarning(
+            allergen=v.allergen.value,
+            label=(
+                ALLERGEN_INFO[v.allergen].label
+                if v.allergen in ALLERGEN_INFO
+                else v.allergen.value.replace("_", " ")
+            ),
+            ingredient=v.ingredient,
+            source=v.source,
+        )
+        for v in violations
+        # An UNSCREENABLE tag means "we could not check", not "we found this".
+        # Surfacing it as an allergen warning would name one that was never
+        # detected — the same mistake the fail-closed 422 message had to fix.
+        if v.matched_term != UNSCREENABLE_TERM
+    ]
+
+
 # PATCH /api/plan/{plan_id}/days/{day_index}/meals/{meal_index} — Edit meal content
 @router.patch(
     "/{plan_id}/days/{day_index}/meals/{meal_index}",
-    response_model=PlannedMeal,
+    response_model=MealEditResponse,
 )
 @limiter.limit("30/minute", key_func=user_id_key_func)
 async def edit_meal(
@@ -1098,7 +1168,7 @@ async def edit_meal(
     body: MealEditRequest,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> PlannedMeal:
+) -> MealEditResponse:
     """Edit one meal's content (name, ingredients, steps, time) in place.
 
     Positional address — day_index/meal_index are 0-based, matching
@@ -1307,7 +1377,10 @@ async def edit_meal(
         )
 
     await session.commit()
-    return updated_meal
+    return MealEditResponse(
+        **updated_meal.model_dump(),
+        allergen_warnings=_screen_edited_meal(updated_meal, plan),
+    )
 
 
 # GET /api/plan/{plan_id}/meals — List meal entries for a plan

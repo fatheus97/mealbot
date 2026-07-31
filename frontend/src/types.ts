@@ -48,6 +48,15 @@ export interface LeftoverRef {
   meal_index: number;
 }
 
+/** One allergen the user's own edit reintroduced. A warning, never a block. */
+export interface AllergenWarning {
+  allergen: string;
+  label: string;
+  /** Ingredient name, or the step text when `source` is "step". */
+  ingredient: string;
+  source: "ingredient" | "step";
+}
+
 export interface PlannedMeal {
   name: string;
   // Server returns the strict MealType enum on freshly-generated meals, but
@@ -683,3 +692,11 @@ export type FeedbackStatusFilter =
   | "rejected"
   | "spam";
 
+
+/**
+ * PATCH meal response: the saved meal plus anything the allergen screen found.
+ * The backend subclasses PlannedMeal, so this is PlannedMeal + one array.
+ */
+export interface MealEditResponse extends PlannedMeal {
+  allergen_warnings?: AllergenWarning[];
+}
