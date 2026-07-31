@@ -11,12 +11,12 @@ from sqlmodel import col, select
 from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
+from app.core.dietary_reference import ALLERGEN_INFO
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
-from app.core.dietary_reference import ALLERGEN_INFO
 from app.models.plan_models import (
     AllergenWarning,
     CalendarDay,
