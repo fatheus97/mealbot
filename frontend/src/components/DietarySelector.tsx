@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { InfoHint } from "./InfoHint";
 
 import {
   ALLERGEN_LABELS,
@@ -109,16 +110,48 @@ export function DietarySelector({
       <div>
         <div style={sectionLabel}>Allergies to avoid</div>
         <div style={chipRow}>
-          {ALLERGENS.map((a) => (
-            <Chip
-              key={a}
-              label={ALLERGEN_LABELS[a]}
-              selected={allergens.includes(a)}
-              accent="#b91c1c"
-              onClick={() => onToggleAllergen(a)}
-              disabled={disabled}
-            />
-          ))}
+          {ALLERGENS.map((a) => {
+            const chip = (
+              <Chip
+                key={a}
+                label={ALLERGEN_LABELS[a]}
+                selected={allergens.includes(a)}
+                accent="#b91c1c"
+                onClick={() => onToggleAllergen(a)}
+                disabled={disabled}
+              />
+            );
+            // Sulphites are the one allergen with NO deterministic screen:
+            // whether they must be declared depends on the SO2 left in the
+            // finished product, which cannot be computed from a recipe
+            // (allergen_screen.py drops them from the screenable set).
+            //
+            // Deliberately still offered rather than removed — declaring it
+            // still instructs the model to avoid wine, vinegar and dried
+            // fruit, and dropping the chip would take away the only protection
+            // these users get. Transparency, not endorsement: keep it, and say
+            // at the point of choice how it differs. An inline hint rather than
+            // a conditional line, so selecting it shifts no layout.
+            if (a !== "sulphites") return chip;
+            return (
+              <span
+                key={a}
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+              >
+                {chip}
+                <InfoHint
+                  label="About sulphite screening"
+                  text={
+                    "Sulphites are handled differently. We tell the AI to avoid them, " +
+                    "but unlike the other 13 allergens there is no automatic check " +
+                    "afterwards — whether sulphites must be declared depends on how much " +
+                    "is left in the finished product, which can't be worked out from a " +
+                    "recipe. Check labels on wine, vinegar and dried fruit yourself."
+                  }
+                />
+              </span>
+            );
+          })}
         </div>
         {/* Transparency, never a guarantee — mirrors the backend liability rule
             (docs/dietary-reference.md Part 4). Never say "safe". */}

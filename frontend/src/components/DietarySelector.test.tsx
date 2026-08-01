@@ -70,3 +70,69 @@ describe('DietarySelector', () => {
     expect(screen.getByRole('button', { name: 'Milk / dairy' })).toBeDisabled();
   });
 });
+
+describe('sulphites disclosure', () => {
+  it('still offers sulphites as a chip', () => {
+    // Deliberately NOT removed. Declaring it still instructs the model to avoid
+    // wine, vinegar and dried fruit — dropping the chip would take away the only
+    // protection a sulphite-sensitive user gets, which is worse than the gap.
+    render(
+      <DietarySelector
+        dietTypes={[]}
+        allergens={[]}
+        onToggleDiet={vi.fn()}
+        onToggleAllergen={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Sulphites' })).toBeInTheDocument();
+  });
+
+  it('carries an info hint explaining it is not automatically checked', async () => {
+    const user = userEvent.setup();
+    render(
+      <DietarySelector
+        dietTypes={[]}
+        allergens={[]}
+        onToggleDiet={vi.fn()}
+        onToggleAllergen={vi.fn()}
+      />,
+    );
+
+    const hint = screen.getByRole('button', { name: /about sulphite screening/i });
+    await user.click(hint);
+
+    // The point of choice is where the difference has to be stated.
+    expect(screen.getByText(/no automatic check/i)).toBeInTheDocument();
+    expect(screen.getByText(/other 13 allergens/i)).toBeInTheDocument();
+  });
+
+  it('no other allergen carries a hint', () => {
+    // If a second one ever needs one, that is a deliberate decision — not a
+    // copy-paste. Exactly one is the invariant today.
+    render(
+      <DietarySelector
+        dietTypes={[]}
+        allergens={[]}
+        onToggleDiet={vi.fn()}
+        onToggleAllergen={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole('button', { name: /more information|about .* screening/i }))
+      .toHaveLength(1);
+  });
+
+  it('keeps the no-guarantee wording and avoids the word "safe"', () => {
+    // docs/dietary-reference.md Part 4 — the hint must not smuggle in a
+    // reassurance the screen cannot back.
+    render(
+      <DietarySelector
+        dietTypes={['vegan']}
+        allergens={['sulphites']}
+        onToggleDiet={vi.fn()}
+        onToggleAllergen={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/not a guarantee/i)).toBeInTheDocument();
+    expect(screen.queryByText(/\bsafe\b/i)).not.toBeInTheDocument();
+  });
+});
