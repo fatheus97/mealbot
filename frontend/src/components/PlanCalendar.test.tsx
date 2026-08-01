@@ -36,10 +36,23 @@ const okJson = (body: unknown) => ({
  * the month grid, two nodes matched, and three tests began failing in a file
  * nobody had touched — a time bomb that fires on a date, not on a change.
  *
- * Deriving from today keeps the plan permanently outside the default grid, so
- * the assertions stay single-match whenever the suite runs. Chosen over
+ * Deriving from today keeps the plan outside the default grid, so the
+ * assertions stay single-match whenever the suite runs. Chosen over
  * vi.setSystemTime, which needs fake timers and would fight userEvent/waitFor
  * in this file.
+ *
+ * ⚠️ THE DAY MUST BE 15 OR LATER. monthMatrix() always emits a 6x7 = 42-cell
+ * grid rewound to the week's Sunday, and PlanCalendar renders a chip for EVERY
+ * cell — `inMonth` only changes styling, not whether the meal name is in the
+ * DOM. So the current month's grid spills into next month by
+ *
+ *     42 - weekday(1st, 0=Sun) - daysInMonth
+ *
+ * which peaks at 42 - 0 - 28 = 14 (a 28-day February beginning on a Sunday).
+ * Days 1-14 of next month can therefore land in a rendered cell and make the
+ * /Chicken Curry/ assertions multi-match again — the same failure this helper
+ * exists to prevent, re-triggered by calendar SHAPE instead of a literal.
+ * Day 15+ is the only month-shape-independent safe zone; 20/21 leaves margin.
  */
 function nextMonthDay(day: number): string {
   const now = new Date();
@@ -51,8 +64,8 @@ function nextMonthDay(day: number): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-const PLAN_START = nextMonthDay(10);
-const PLAN_DAY2 = nextMonthDay(11);
+const PLAN_START = nextMonthDay(20);
+const PLAN_DAY2 = nextMonthDay(21);
 
 const CALENDAR = {
   plans: [
@@ -273,5 +286,35 @@ describe("PlanCalendar", () => {
     await user.click(nextBtn);
     const after = nextBtn.parentElement?.querySelector("strong")?.textContent;
     expect(after).not.toBe(before);
+  });
+});
+
+describe("fixture-date invariant", () => {
+  it("keeps the fixture past the grid's maximum spill into next month", () => {
+    // monthMatrix() emits a fixed 6x7 grid rewound to Sunday, and every cell
+    // renders its chips, so the current month can show up to
+    //   42 - weekday(1st) - daysInMonth
+    // days of the NEXT month — peaking at 42 - 0 - 28 = 14. A fixture on day
+    // 1..14 can therefore appear in the default grid AND the agenda list, which
+    // is exactly the multi-match failure this file was fixed for. Guard the
+    // invariant rather than trusting a comment.
+    const MAX_SPILL = 14;
+    for (const iso of [PLAN_START, PLAN_DAY2]) {
+      expect(Number(iso.slice(-2))).toBeGreaterThan(MAX_SPILL);
+    }
+  });
+
+  it("worst-case month shape really does spill 14 days", () => {
+    // Proves MAX_SPILL above rather than asserting it from memory: February in
+    // a non-leap year starting on a Sunday is the extreme.
+    let worst = 0;
+    for (let year = 2026; year < 2046; year++) {
+      for (let month = 0; month < 12; month++) {
+        const first = new Date(year, month, 1);
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        worst = Math.max(worst, 42 - first.getDay() - daysInMonth);
+      }
+    }
+    expect(worst).toBe(14);
   });
 });
