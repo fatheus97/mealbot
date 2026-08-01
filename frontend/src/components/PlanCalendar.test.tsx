@@ -25,17 +25,46 @@ const okJson = (body: unknown) => ({
   json: () => Promise.resolve(body),
 });
 
+
+/**
+ * Fixture dates in the month AFTER today, as YYYY-MM-DD.
+ *
+ * These used to hardcode a fixed August-2026 start. The calendar opens on the
+ * CURRENT month, so while today was earlier than that the plan rendered only in
+ * the agenda list and the /Chicken Curry/ assertions matched exactly one node.
+ * The moment the real clock reached that month the same plan ALSO rendered in
+ * the month grid, two nodes matched, and three tests began failing in a file
+ * nobody had touched — a time bomb that fires on a date, not on a change.
+ *
+ * Deriving from today keeps the plan permanently outside the default grid, so
+ * the assertions stay single-match whenever the suite runs. Chosen over
+ * vi.setSystemTime, which needs fake timers and would fight userEvent/waitFor
+ * in this file.
+ */
+function nextMonthDay(day: number): string {
+  const now = new Date();
+  // Day 1 of next month, then set the day — never overflows (no 31 Feb).
+  const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  d.setDate(day);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+const PLAN_START = nextMonthDay(10);
+const PLAN_DAY2 = nextMonthDay(11);
+
 const CALENDAR = {
   plans: [
     {
       plan_id: 5,
-      start_date: "2026-08-10",
+      start_date: PLAN_START,
       status: "planned",
       days: [
         // CalendarMeal objects, not name strings. Day 2 is leftovers of day 1
         // so every render path (grid chip, agenda, title) is exercised.
         {
-          date: "2026-08-10",
+          date: PLAN_START,
           day_index: 1,
           meals: [
             {
@@ -47,7 +76,7 @@ const CALENDAR = {
           ],
         },
         {
-          date: "2026-08-11",
+          date: PLAN_DAY2,
           day_index: 2,
           meals: [
             {
@@ -63,7 +92,7 @@ const CALENDAR = {
             {
               name: "Leftovers: Tomato Soup",
               is_leftover: true,
-              source_date: "2026-08-11",
+              source_date: PLAN_DAY2,
               source_name: "Tomato Soup",
             },
           ],
@@ -80,7 +109,7 @@ const PLAN_LIST = [
     days: 2,
     meals_per_day: 1,
     people_count: 2,
-    start_date: "2026-08-10",
+    start_date: PLAN_START,
     status: "planned",
     total_meals: 2,
     cooked_meals: 0,
@@ -153,7 +182,7 @@ describe("PlanCalendar", () => {
     routeDefault();
     mockedFetchPlan.mockResolvedValue({
       plan_id: 5,
-      start_date: "2026-08-10",
+      start_date: PLAN_START,
       days: [],
       shopping_list: [],
     });
