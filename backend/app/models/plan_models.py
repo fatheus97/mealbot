@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic.json_schema import JsonDict
 
 from app.core.dietary import Allergen, DietType
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
@@ -47,6 +48,33 @@ def _strip_prompt_fence_tags(v: object) -> object:
     if isinstance(v, str):
         return v.replace("<", "").replace(">", "")
     return v
+
+
+def _hide_array_bounds(schema: JsonDict) -> None:
+    """Keep ``maxItems``/``minItems`` out of the EMITTED JSON schema. Pydantic
+    still enforces the bound — only what we hand the LLM changes.
+
+    Gemini compiles ``response_schema`` into a constrained decoder. An array
+    length limit on a list of OBJECTS multiplies out against every bound inside
+    those objects, and past some threshold the whole request is rejected with
+    400 INVALID_ARGUMENT / "The specified schema produces a constraint that has
+    too many states for serving". That is a SERVING-SIDE limit: on 2026-08-02 it
+    took out every generation path in prod (/api/plan and /api/recipe/generate,
+    both models in the chain) with no deploy of ours — Google tightened it under
+    a schema that had been working. Measured against the live API, dropping just
+    these two keys is what brings the schema back under the limit; the string
+    and integer bounds are affordable and stay visible.
+
+    The bounds exist for the CLIENT-write paths (Cook Now posts a whole
+    PlannedMeal — see IngredientAmount), and validation there is untouched. LLM
+    output never came near 40 ingredients / 50 steps, so nothing is lost by not
+    stating them in the prompt schema.
+
+    Apply to every bounded list on a model that can be an LLM ``response_model``
+    — ``test_llm_schemas.py`` fails the build if one is missed.
+    """
+    schema.pop("maxItems", None)
+    schema.pop("minItems", None)
 
 
 # Calendar scheduling bounds. A plan can be dated a little into the past (you can
@@ -524,8 +552,12 @@ class GeneratedMeal(BaseModel):
     name: str = Field(..., max_length=200)
     meal_type: MealType
     meal_type_label: str = Field(default="", max_length=100)
-    ingredients: list[IngredientAmount] = Field(..., max_length=40)
-    steps: list[str] = Field(..., max_length=50)
+    # json_schema_extra: enforced here, hidden from the LLM schema — see
+    # _hide_array_bounds (a serving-side Gemini limit, not a style choice).
+    ingredients: list[IngredientAmount] = Field(
+        ..., max_length=40, json_schema_extra=_hide_array_bounds,
+    )
+    steps: list[str] = Field(..., max_length=50, json_schema_extra=_hide_array_bounds)
     # Optional so legacy meal_json rows (pre-feature) still parse during RAG retrieval.
     # New generations are instructed by the prompt to always populate it.
     total_time_minutes: int | None = Field(
