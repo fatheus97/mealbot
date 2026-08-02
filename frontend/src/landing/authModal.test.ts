@@ -23,6 +23,7 @@ function mountModal(): AuthModalElements {
       <form id="auth-form">
         <input id="auth-email" />
         <input id="auth-password" type="password" autocomplete="current-password" />
+        <label id="auth-consent" hidden><input type="checkbox" id="auth-accept-terms" /></label>
         <button type="submit" id="auth-submit">Log in</button>
       </form>
       <span id="auth-switch-prompt"></span>
@@ -40,6 +41,8 @@ function mountModal(): AuthModalElements {
     closeButton: $("auth-close"),
     switchButton: $("auth-switch"),
     switchPrompt: $("auth-switch-prompt"),
+    consent: $("auth-consent"),
+    acceptTermsInput: $("auth-accept-terms") as HTMLInputElement,
   };
 }
 
@@ -68,7 +71,7 @@ describe("validate", () => {
   });
 
   it("accepts valid input", () => {
-    expect(validate("register", "a@b.com", "TestPassword123")).toBeNull();
+    expect(validate("register", "a@b.com", "TestPassword123", true)).toBeNull();
   });
 });
 
@@ -130,9 +133,11 @@ describe("auth modal", () => {
     els.switchButton.click();
     els.emailInput.value = "n@b.com";
     els.passwordInput.value = "TestPassword123";
+    els.acceptTermsInput.checked = true;
     els.form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/app?utm_source=x"));
-    expect(landingRegister).toHaveBeenCalledWith("n@b.com", "TestPassword123");
+    // Consent is forwarded as the user actually left it, not hardcoded.
+    expect(landingRegister).toHaveBeenCalledWith("n@b.com", "TestPassword123", true);
   });
 
   it("surfaces the API error, re-enables the form, and does NOT navigate", async () => {
@@ -176,6 +181,7 @@ describe("auth modal", () => {
     els.switchButton.click(); // -> register
     els.emailInput.value = "n@b.com";
     els.passwordInput.value = "TestPassword123";
+    els.acceptTermsInput.checked = true;
     els.form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
 
     await vi.waitFor(() => expect(els.error.hidden).toBe(false));
@@ -191,6 +197,7 @@ describe("auth modal", () => {
     els.switchButton.click();
     els.emailInput.value = "n@b.com";
     els.passwordInput.value = "TestPassword123";
+    els.acceptTermsInput.checked = true;
     els.form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
 
     await vi.waitFor(() => expect(els.error.hidden).toBe(false));
@@ -210,5 +217,25 @@ describe("auth modal", () => {
 
     handle.close();
     expect(document.body.style.overflow).toBe("auto");
+  });
+});
+
+describe("terms consent (landing)", () => {
+  it("blocks a register submit when the box is unticked", () => {
+    // The server 422s without it, but bouncing off the API to learn that is a
+    // worse experience than the form saying so.
+    expect(validate("register", "a@b.com", "TestPassword123", false)).toMatch(
+      /terms of service/i,
+    );
+  });
+
+  it("never asks a returning user to accept anything to log in", () => {
+    expect(validate("login", "a@b.com", "pw", false)).toBeNull();
+  });
+
+  it("reports a weak password before the checkbox", () => {
+    // Otherwise a user with both problems fixes the box, resubmits, and only
+    // then learns about the password.
+    expect(validate("register", "a@b.com", "short", false)).toMatch(/at least 8/i);
   });
 });

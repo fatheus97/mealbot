@@ -43,8 +43,49 @@ _ATTRIBUTION_CAPS = {"referrer": 500}
 _ATTRIBUTION_DEFAULT_CAP = 200
 
 
-class UserCreate(UserBase):
+def validate_terms_accepted(v: bool) -> bool:
+    """Shared rule for every path where the user is present to consent.
+
+    Required, not defaulted, and rejected when false. A default would let a
+    client omit the field and still get a stamped acceptance row — which is the
+    precise thing that makes the record worth nothing. Kept as a module function
+    so the two self-registration schemas cannot drift on what counts as consent.
+    """
+    if not v:
+        raise ValueError(
+            "You must accept the Terms of Service and Privacy Policy to create an account"
+        )
+    return v
+
+
+class Credentials(UserBase):
+    """Email + password rules alone.
+
+    Split out of ``UserCreate`` so the ``create_user`` CLI has something to
+    validate against that does NOT demand consent. An operator creating an
+    account cannot accept the Terms on the user's behalf, so requiring
+    ``accept_terms`` on that path would only teach the operator to pass True —
+    a lie dressed up as validation, against a row this deliberately leaves
+    unstamped.
+    """
+
     password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
+
+
+class UserCreate(Credentials):
+    # No default: an absent field is a 422, not a silent False and not a silent
+    # True. See validate_terms_accepted.
+    accept_terms: bool
+
+    @field_validator("accept_terms")
+    @classmethod
+    def terms_accepted(cls, v: bool) -> bool:
+        return validate_terms_accepted(v)
 
     # First-touch acquisition attribution from the landing URL. Optional so
     # existing clients and a direct (no-UTM) signup keep working. Attacker-
@@ -53,11 +94,6 @@ class UserCreate(UserBase):
     utm_medium: str | None = None
     utm_campaign: str | None = None
     referrer: str | None = None
-
-    @field_validator("password")
-    @classmethod
-    def password_complexity(cls, v: str) -> str:
-        return validate_password_complexity(v)
 
     @field_validator("utm_source", "utm_medium", "utm_campaign", "referrer", mode="before")
     @classmethod
@@ -96,11 +132,20 @@ class InviteRedeem(BaseModel):
     token: str = Field(min_length=1, max_length=512)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    # An invitee is a first-time user creating their own account, exactly like
+    # /users/register — the invite grants the right to register, not consent to
+    # the Terms on their behalf.
+    accept_terms: bool
 
     @field_validator("password")
     @classmethod
     def _password_complexity(cls, v: str) -> str:
         return validate_password_complexity(v)
+
+    @field_validator("accept_terms")
+    @classmethod
+    def _terms_accepted(cls, v: bool) -> bool:
+        return validate_terms_accepted(v)
 
 
 class EmailChangeRequest(BaseModel):

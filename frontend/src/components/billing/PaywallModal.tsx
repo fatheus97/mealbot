@@ -220,7 +220,32 @@ export function PaywallModal() {
             {checkoutPending ? "Starting…" : "Start free trial"}
           </button>
         </div>
+
+        {/* The paywall is where money starts changing hands, and it linked to
+            neither legal document. Both open in a new tab so reading them does
+            not abandon a checkout mid-flow. Colours are pinned against this
+            card's own explicit light surface. */}
+        <p
+          style={{
+            margin: "1rem 0 0",
+            fontSize: "0.78rem",
+            color: "#6b7280",
+            textAlign: "right",
+          }}
+        >
+          By subscribing you agree to our{" "}
+          <a href="/terms" target="_blank" rel="noopener noreferrer" style={legalLink}>
+            Terms of Service
+          </a>{" "}
+          and{" "}
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" style={legalLink}>
+            Privacy Policy
+          </a>
+          .
+        </p>
       </div>
     </div>
   );
 }
+
+const legalLink: React.CSSProperties = { color: "#2563eb", textDecoration: "underline" };

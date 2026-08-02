@@ -40,7 +40,7 @@ class TestCsrfAllowList:
         with _patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "csrf-exempt@test.com", "password": "ValidPass123"},
+                json={"email": "csrf-exempt@test.com", "accept_terms": True, "password": "ValidPass123"},
             )
         # No 403 from CSRF middleware (would short-circuit before the route).
         assert resp.status_code != 403

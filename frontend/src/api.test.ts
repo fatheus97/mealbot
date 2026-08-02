@@ -228,31 +228,31 @@ describe('admin invites', () => {
 describe('redeemInvite', () => {
   it('resolves on 201', async () => {
     mockFetch(201);
-    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).resolves.toBeUndefined();
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123', true)).resolves.toBeUndefined();
   });
 
   it('maps a 400 to the backend opaque detail', async () => {
     mockFetch(400, { detail: 'This invite link is invalid or has expired.' });
-    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).rejects.toThrow(
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123', true)).rejects.toThrow(
       /invalid or has expired/i,
     );
   });
 
   it('maps a 409 to an email-taken message', async () => {
     mockFetch(409, { detail: 'Email already registered' });
-    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).rejects.toThrow(
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123', true)).rejects.toThrow(
       /already registered/i,
     );
   });
 
   it('maps a 422 Pydantic list to the first message', async () => {
     mockFetch(422, { detail: [{ msg: 'Password must contain at least one digit' }] });
-    await expect(redeemInvite('tok', 'a@b.com', 'weakpass')).rejects.toThrow(/at least one digit/i);
+    await expect(redeemInvite('tok', 'a@b.com', 'weakpass', true)).rejects.toThrow(/at least one digit/i);
   });
 
   it('maps a 429 to a rate-limit message', async () => {
     mockFetch(429, {});
-    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).rejects.toThrow(
+    await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123', true)).rejects.toThrow(
       /too many attempts/i,
     );
   });

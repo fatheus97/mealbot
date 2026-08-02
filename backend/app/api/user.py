@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.email_normalize import normalize_email
 from app.core.language_whitelist import normalize_language
+from app.core.legal import TERMS_VERSION
 from app.core.meal_types import MealType
 from app.core.rate_limit import limiter
 from app.core.security import get_password_hash
@@ -86,6 +87,13 @@ async def register_user(
         email=user.email,
         normalized_email=normalize_email(user.email),
         hashed_password=hashed_pw,
+        # Stamped from the SERVER clock and the server's own TERMS_VERSION, not
+        # from anything the client sent. The body carries one bit — "I ticked
+        # the box" — and UserCreate has already rejected the request if it is
+        # false or absent; letting the client name the time or the version it
+        # accepted would make the record forgeable and therefore pointless.
+        terms_accepted_at=datetime.now(UTC),
+        terms_version=TERMS_VERSION,
         # First-touch attribution (already trimmed/truncated by UserCreate).
         signup_utm_source=user.utm_source,
         signup_utm_medium=user.utm_medium,
@@ -157,6 +165,10 @@ async def register_via_invite(
         # Entitlement comes from the token, never the body — is_comped stays
         # server-set-only.
         is_comped=invite.is_comped,
+        # Server clock and server version, same as register_user: `now` is
+        # already the request's own timestamp, taken before any I/O.
+        terms_accepted_at=now,
+        terms_version=TERMS_VERSION,
     )
     session.add(db_user)
     try:

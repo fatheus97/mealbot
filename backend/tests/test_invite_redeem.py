@@ -50,7 +50,7 @@ class TestRedeem:
         with patch.object(settings, "registration_enabled", False):
             resp = await unauthed_client.post(
                 REDEEM,
-                json={"token": token, "email": "beta@example.com", "password": "BetaPass123"},
+                json={"token": token, "email": "beta@example.com", "accept_terms": True, "password": "BetaPass123"},
             )
         assert resp.status_code == 201
 
@@ -75,7 +75,7 @@ class TestRedeem:
         with patch.object(settings, "registration_enabled", False):
             created = await unauthed_client.post(
                 REDEEM,
-                json={"token": token, "email": "login@example.com", "password": "LoginPass123"},
+                json={"token": token, "email": "login@example.com", "accept_terms": True, "password": "LoginPass123"},
             )
             assert created.status_code == 201
             logged_in = await unauthed_client.post(
@@ -95,6 +95,7 @@ class TestRedeem:
             json={
                 "token": token,
                 "email": "nc@example.com",
+                "accept_terms": True,
                 "password": "NoComp123",
                 "is_comped": True,
             },
@@ -114,7 +115,7 @@ class TestRedeem:
         await db_session.flush()
         resp = await unauthed_client.post(
             REDEEM,
-            json={"token": token, "email": "exp@example.com", "password": "ExpPass123"},
+            json={"token": token, "email": "exp@example.com", "accept_terms": True, "password": "ExpPass123"},
         )
         assert resp.status_code == 400
         assert "invalid or has expired" in resp.json()["detail"].lower()
@@ -125,12 +126,12 @@ class TestRedeem:
         token, _ = await _mint(db_session)
         first = await unauthed_client.post(
             REDEEM,
-            json={"token": token, "email": "one@example.com", "password": "OnePass123"},
+            json={"token": token, "email": "one@example.com", "accept_terms": True, "password": "OnePass123"},
         )
         assert first.status_code == 201
         second = await unauthed_client.post(
             REDEEM,
-            json={"token": token, "email": "two@example.com", "password": "TwoPass123"},
+            json={"token": token, "email": "two@example.com", "accept_terms": True, "password": "TwoPass123"},
         )
         assert second.status_code == 400
 
@@ -143,7 +144,7 @@ class TestRedeem:
         await db_session.flush()
         resp = await unauthed_client.post(
             REDEEM,
-            json={"token": token, "email": "rev@example.com", "password": "RevPass123"},
+            json={"token": token, "email": "rev@example.com", "accept_terms": True, "password": "RevPass123"},
         )
         assert resp.status_code == 400
 
@@ -155,6 +156,7 @@ class TestRedeem:
             json={
                 "token": "not-a-real-token",
                 "email": "forged@example.com",
+                "accept_terms": True,
                 "password": "Forged123",
             },
         )
@@ -167,7 +169,7 @@ class TestRedeem:
         token, _ = await _mint(db_session)
         resp = await unauthed_client.post(
             REDEEM,
-            json={"token": token, "email": "weak@example.com", "password": "weak"},
+            json={"token": token, "email": "weak@example.com", "accept_terms": True, "password": "weak"},
         )
         assert resp.status_code == 422
 
@@ -182,7 +184,7 @@ class TestRedeem:
         token, _ = await _mint(db_session)
         resp = await unauthed_client.post(
             REDEEM,
-            json={"token": token, "email": "dupe@example.com", "password": "DupePass123"},
+            json={"token": token, "email": "dupe@example.com", "accept_terms": True, "password": "DupePass123"},
         )
         assert resp.status_code == 409
         # NOTE on the "invite must survive a duplicate-email attempt" invariant
