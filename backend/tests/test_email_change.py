@@ -14,6 +14,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.config import settings
 from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
 from app.core.security import get_password_hash
 from app.models.db_models import (
@@ -532,6 +533,25 @@ class TestNotices:
 
 
 class TestStripeSync:
+    """Stripe config is set on `settings`, not stubbed through
+    ``billing_configured()``.
+
+    This suite's whole subject is that ``sync_customer_email`` routes through
+    ``_require_stripe()``, which reads ``settings.stripe_secret_key`` directly —
+    stubbing the predicate would step over the exact code path under test. It
+    also stops the tests inheriting the developer's ``.env``: the first version
+    stubbed the predicate, passed locally where STRIPE_SECRET_KEY happens to be
+    set, and failed in CI where it is not.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _billing_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_dummy")
+        monkeypatch.setattr(settings, "stripe_price_id", "price_dummy")
+        # _require_stripe assigns this module-global; monkeypatch restores it so
+        # a dummy key cannot leak into another test.
+        monkeypatch.setattr(stripe_service.stripe, "api_key", None)
+
     async def test_customer_email_is_synced(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # _ensure_customer sets the Stripe email once, at creation, and nothing
         # updated it afterwards — so without this, invoices and dunning mail keep
@@ -542,9 +562,29 @@ class TestStripeSync:
             calls.append((customer_id, kwargs["email"]))
 
         monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _modify)
-        monkeypatch.setattr(stripe_service, "billing_configured", lambda: True)
         await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)
         assert calls == [("cus_123", NEW_EMAIL)]
+
+    async def test_the_api_key_is_set_before_the_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression guard for the review finding.
+
+        _require_stripe() is the ONLY place stripe.api_key is assigned. The first
+        version of sync_customer_email skipped it, so on any process that had not
+        yet served a checkout or portal request the call authenticated with no
+        key, raised, and was swallowed by the best-effort except below — a sync
+        that silently never happened. Asserting the key is live at call time
+        pins the fix; asserting the call merely happened would not.
+        """
+        seen: list[str | None] = []
+
+        def _modify(customer_id: str, **kwargs: str) -> None:
+            seen.append(stripe_service.stripe.api_key)
+
+        monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _modify)
+        await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)
+        assert seen == ["sk_test_dummy"]
 
     async def test_a_stripe_outage_does_not_raise(
         self, monkeypatch: pytest.MonkeyPatch
@@ -555,15 +595,18 @@ class TestStripeSync:
             raise RuntimeError("stripe down")
 
         monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _boom)
-        monkeypatch.setattr(stripe_service, "billing_configured", lambda: True)
         await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)
 
     async def test_skipped_when_billing_is_not_configured(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Explicitly cleared rather than relying on the ambient environment —
+        # a developer's .env has this set, so an implicit empty value would make
+        # the test pass in CI and vacuously locally.
+        monkeypatch.setattr(settings, "stripe_secret_key", "")
+
         def _fail(customer_id: str, **kwargs: str) -> None:
             raise AssertionError("must not call Stripe when unconfigured")
 
         monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _fail)
-        monkeypatch.setattr(stripe_service, "billing_configured", lambda: False)
         await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)
