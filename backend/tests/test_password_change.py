@@ -273,10 +273,13 @@ class TestPasswordResetTokensAreVoided:
         await db_session.commit()
 
         await _login(unauthed_client)
-        await unauthed_client.post(
+        # Asserted so a regression earlier in change_password fails here with
+        # "endpoint returned non-204" rather than a confusing used_at mismatch.
+        resp = await unauthed_client.post(
             "/api/auth/password",
             json={"current_password": TEST_PASSWORD, "new_password": NEW_PASSWORD},
         )
+        assert resp.status_code == 204
 
         rows = (await db_session.execute(
             select(PasswordResetToken).where(

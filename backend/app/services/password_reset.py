@@ -42,11 +42,16 @@ async def void_outstanding_tokens(
 ) -> None:
     """Mark every unused, unexpired token for this user as used. Caller commits.
 
-    Called on the MINT path only (see create_reset_token), so a resend
-    supersedes the previous link. The docstring previously also claimed "on
-    successful redemption" — it never was, and services/email_verification.py
-    inherited the same wrong claim when it was written as a near-copy of this
-    module. Corrected here too so the next copy doesn't repeat it.
+    Three call sites, none of them redemption: the MINT path (create_reset_token,
+    so a resend supersedes the previous link), and the two credential-change
+    endpoints — change_email and change_password — which void in their own
+    transaction because a live link encodes neither the address nor the password
+    and would otherwise outlive the change that was meant to shut it out.
+
+    The docstring previously claimed "on successful redemption" — it never was,
+    and services/email_verification.py inherited the same wrong claim when it was
+    written as a near-copy of this module. Corrected here too so the next copy
+    doesn't repeat it.
 
     Redemption doesn't need it: the partial unique index
     (user_id WHERE used_at IS NULL) already guarantees at most one live token
