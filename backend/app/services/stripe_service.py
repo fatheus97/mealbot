@@ -221,6 +221,39 @@ async def _ensure_customer(user: User, session: AsyncSession) -> str:
     return customer.id
 
 
+async def sync_customer_email(customer_id: str, new_email: str) -> None:
+    """Point an existing Stripe customer at the account's new address.
+
+    ``_ensure_customer`` sets ``email`` once, at creation, and nothing updated it
+    afterwards — so before this existed, changing the account email left Stripe
+    mailing invoices, receipts and dunning notices to the address the user had
+    just told us they no longer use. The billing portal showed the stale address
+    too, which is the sort of thing that reads as "you charged the wrong person".
+
+    Best-effort by construction: takes the id and address as plain arguments (no
+    session, nothing to commit) and swallows every Stripe error. The account
+    email is already changed and committed by the time this runs; a Stripe
+    outage must not undo it or surface as a failure to the user. A desynced
+    customer is repairable from the dashboard, a half-applied email change is
+    not.
+    """
+    if not billing_configured():
+        return
+    try:
+        # _require_stripe() is where stripe.api_key gets set — it is not set at
+        # import. Skipping it (as this function first did) meant the call
+        # authenticated with no key on any process that had not yet run a
+        # checkout or portal request, raised, and was swallowed by the except
+        # below: a sync that silently never happened. It also installs the
+        # request timeout and retry count, without which this would inherit the
+        # SDK's 80s default and pin an asyncio.to_thread worker.
+        _require_stripe()
+        await asyncio.to_thread(stripe.Customer.modify, customer_id, email=new_email)
+        logger.info("stripe_customer_email_synced customer_id=%s", customer_id)
+    except Exception:
+        logger.exception("stripe_customer_email_sync_failed customer_id=%s", customer_id)
+
+
 async def create_checkout_session(
     user: User, session: AsyncSession, plan: BillingPlan = "monthly"
 ) -> str:

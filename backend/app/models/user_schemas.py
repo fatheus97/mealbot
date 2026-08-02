@@ -103,6 +103,24 @@ class InviteRedeem(BaseModel):
         return validate_password_complexity(v)
 
 
+class EmailChangeRequest(BaseModel):
+    """Body for POST /auth/email.
+
+    Requires the current password for the same reason PasswordChangeRequest
+    does, and then some: whoever controls the address on file can drive a
+    password reset, so an email change is a takeover primitive if a stolen
+    access token alone is enough to perform it.
+
+    No complexity rule to share here — EmailStr is the whole validation, and the
+    128 bound matches the `email` column's practical use (RFC 5321 caps a full
+    address at 254; this is comfortably inside it and keeps a hostile body from
+    turning into a giant INSERT).
+    """
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_email: EmailStr = Field(max_length=128)
+
+
 class PasswordChangeRequest(BaseModel):
     """Body for POST /auth/password. The current password is re-verified
     server-side (a stale/hijacked access token alone must not let an attacker

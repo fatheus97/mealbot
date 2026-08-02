@@ -56,11 +56,12 @@ async def void_outstanding_tokens(
     per user, so by the time a redemption burns that one there is nothing left
     to void — the call would provably affect zero rows.
 
-    ⚠️ That reasoning depends on there being no way to change an account's
-    email address (``UserUpdate`` has no email field today). If an
-    email-change feature ever lands, a still-unredeemed link minted for the
-    OLD address would validate the NEW one, and whatever performs the change
-    must void outstanding tokens here.
+    ⚠️ Also called by the email-change path (``POST /auth/email``), and that
+    call is load-bearing rather than tidiness: a link minted for the OLD
+    address does not encode any address, so redeeming it after a change would
+    stamp the NEW address verified on the strength of an email delivered to the
+    old inbox. That is the whole gate defeated. Any future code that moves
+    ``User.email`` must call this in the same transaction.
     """
     await session.execute(
         update(EmailVerificationToken)
@@ -211,6 +212,47 @@ async def redeem(session: AsyncSession, token: str, now: datetime) -> User | Non
     return user
 
 
+def change_notice_html(new_email: str) -> str:
+    """Body of the heads-up sent to the address being moved AWAY from.
+
+    Escaped because the new address is user-supplied and lands in HTML. The
+    address is echoed on purpose: a victim needs to know *where* the account
+    went to report it usefully, and it is their own account's new address, not
+    a third party's secret.
+    """
+    safe = html.escape(new_email, quote=True)
+    return (
+        "<p>The email address on your Mealbot account was just changed to "
+        f"<strong>{safe}</strong>.</p>"
+        "<p>This address will no longer receive account email, and signing in "
+        "now uses the new address.</p>"
+        "<p><strong>If this wasn't you</strong>, your password is known to "
+        "someone else — reply to this email straight away. Changing the address "
+        "requires the account password, so a change you did not make means the "
+        "password is compromised.</p>"
+    )
+
+
+async def dispatch_change_notice(old_email: str, new_email: str) -> None:
+    """Tell the OLD address that the account moved. Runs AFTER the response.
+
+    The address is passed in, not looked up: by the time this runs the row
+    already holds the new address, so there would be nothing left to read.
+
+    Never raises — a failed notice must not surface as a stack trace after a
+    change that already committed. It is a heads-up, not a control: the change
+    is authorised by the password check, not by anything that happens here.
+    """
+    try:
+        await send_transactional(
+            old_email,
+            "Your Mealbot email address was changed",
+            change_notice_html(new_email),
+        )
+    except Exception:
+        logger.exception("email_change_notice_failed")
+
+
 async def dispatch_verification_email(user_id: int) -> None:
     """Mint a token for `user_id` and mail it. Runs AFTER the response.
 
@@ -241,6 +283,19 @@ async def dispatch_verification_email(user_id: int) -> None:
             await session.commit()
             if token is None:  # cooldown, or lost the mint race
                 return
+
+            # Re-read the address AFTER the commit rather than trusting the copy
+            # loaded at the top. POST /auth/email can commit an address change in
+            # between, and this task would then mint a token — after the change's
+            # void swept the old ones — and mail it to the address the user just
+            # abandoned: a live link, for the account, in the wrong inbox. That is
+            # the exact bypass void_outstanding_tokens exists to prevent, arriving
+            # through a race instead of through ordering. Refreshing costs one
+            # SELECT and makes the worst case "the link goes to the NEW address",
+            # which is simply correct.
+            await session.refresh(user)
+            if user.email_verified_at is not None:
+                return  # the change was confirmed by another path meanwhile
 
             await send_transactional(
                 user.email,

@@ -25,6 +25,7 @@ from fastapi import (
     status,
 )
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -49,6 +50,7 @@ from app.core.security import (
 from app.db import get_session
 from app.models.db_models import AuthSession, User
 from app.models.user_schemas import (
+    EmailChangeRequest,
     ForgotPasswordRequest,
     LoginRequest,
     PasswordChangeRequest,
@@ -57,7 +59,7 @@ from app.models.user_schemas import (
     VerifyEmailRequest,
     user_to_read,
 )
-from app.services import email_verification
+from app.services import email_verification, password_reset, stripe_service
 from app.services.demo_user import cleanup_expired_demo_users, create_ephemeral_demo_user
 from app.services.password_reset import dispatch_reset_email, find_redeemable
 
@@ -453,6 +455,171 @@ async def change_password(
     session.add(current_user)
     await session.commit()
     logger.info("password_changed user_id=%s", current_user.id)
+    return None
+
+
+@router.post("/email", status_code=status.HTTP_204_NO_CONTENT)
+# Per-user buckets, for the same reason as change_password: authenticated,
+# security-sensitive, and must not collide across a shared NAT.
+#
+# TWO limits, unlike the other auth routes. The minute bucket is the usual
+# brute-force floor; the hourly one bounds something specific to this endpoint —
+# it is the app's only way for an authenticated caller to make the server mail a
+# confirmation link to an ADDRESS OF THEIR CHOOSING (registration is the other,
+# and it is closed). 10/hour keeps a genuine fix-my-typo retry loop comfortable
+# while capping what the primitive is worth to a spammer.
+@limiter.limit("5/minute", key_func=user_id_key_func)
+@limiter.limit("10/hour", key_func=user_id_key_func)
+async def change_email(
+    request: Request,
+    response: Response,
+    background: BackgroundTasks,
+    body: EmailChangeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Move the account to a different email address.
+
+    THE BUG THIS EXISTS FOR: a typo at registration was unrecoverable. The
+    confirmation link goes to an address the user does not own, ``resend`` only
+    re-mails that same wrong address, and ``require_verified_email`` then 403s
+    every feature — permanently, with no self-service way out. Login itself is
+    not gated, which is what makes a change-while-unverified flow possible at
+    all: the user can always get in to fix it.
+
+    Change-then-reverify, not pending-address-then-swap. The address moves now
+    and ``email_verified_at`` is cleared, so the account is immediately gated
+    again until the NEW inbox is proven. A pending-address column would keep the
+    old address authoritative meanwhile — which is strictly worse for the case
+    this is built for, where the old address is the broken one. A second typo is
+    not a trap either: the user can simply change again.
+
+    Security shape, in order:
+      * demo accounts refused — the address is server-generated and the session
+        is disposable, so there is nothing to move and no inbox to prove;
+      * the current password is re-verified, because whoever controls the
+        address on file can drive a password reset. Without this, a stolen
+        access token would be a full account takeover rather than a 15-minute
+        window;
+      * outstanding verification AND password-reset tokens are voided IN THE
+        SAME TRANSACTION. Neither kind encodes an address — both are keyed on
+        user_id and redeemed by hash alone — so a live link sitting in the old
+        inbox would otherwise still work after the move. The reset token is the
+        dangerous one: redeeming it SETS A PASSWORD, revokes every session and
+        bumps token_version, so leaving it live would mean this endpoint, whose
+        whole purpose is escaping a compromised or unreachable inbox, hands that
+        inbox a working takeover primitive for the rest of the token's TTL — and
+        the change notice we mail there announces the moment to use it;
+      * every session is revoked and token_version bumped, exactly as on a
+        password change, then this device gets a fresh session. An address
+        change is a credential-grade event; other devices should die.
+
+    Uniqueness rides on the unique indexes (both ``email`` and
+    ``normalized_email``) rather than a pre-SELECT, matching register_user — a
+    check-then-insert races two concurrent claims of the same address.
+    """
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
+    if current_user.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo accounts cannot change their email address.",
+        )
+
+    current_ok = await asyncio.to_thread(
+        verify_password, body.current_password, current_user.hashed_password
+    )
+    if not current_ok:
+        logger.warning("email_change_bad_current user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+
+    new_email = str(body.new_email)
+    new_normalized = normalize_email(new_email)
+    if new_normalized == current_user.normalized_email:
+        # Compared NORMALIZED, so "Me@Gmail.com" against "me@gmail.com" is
+        # correctly a no-op rather than a change that revokes every session and
+        # un-verifies the account for nothing.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That is already the email address on your account.",
+        )
+
+    old_email = current_user.email
+    # Captured BEFORE it is cleared below: it decides whether the old address
+    # has any claim to a security notice (see the dispatch at the end).
+    old_address_was_verified = current_user.email_verified_at is not None
+    now = datetime.now(UTC)
+
+    await email_verification.void_outstanding_tokens(session, current_user.id, now)
+    await password_reset.void_outstanding_tokens(session, current_user.id, now)
+    current_user.email = new_email
+    current_user.normalized_email = new_normalized
+    current_user.email_verified_at = None
+    current_user.token_version += 1
+    session.add(current_user)
+
+    try:
+        # Flush HERE, explicitly, rather than letting the collision surface from
+        # session.commit() at the end. Two reasons, both found by the tests:
+        #
+        # 1. It would not reach the commit anyway. The next statement is an
+        #    UPDATE, which triggers autoflush — so a duplicate address raised
+        #    IntegrityError from inside _revoke_all_user_sessions, outside any
+        #    handler, and the caller got a 500.
+        # 2. Even caught at the commit, it would be too late: by then
+        #    _issue_session_and_set_cookies has already written Set-Cookie
+        #    headers onto the response for an AuthSession row the rollback then
+        #    destroys. The user would be handed cookies for a session that does
+        #    not exist and be logged out — by a change that FAILED.
+        #
+        # Failing before either step means a rejected change touches nothing.
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        # Deliberately the same wording register_user uses. This IS an
+        # enumeration oracle — an authenticated caller can probe whether an
+        # address is registered — but the alternative (claim success, mail
+        # nothing) would leave the user staring at an address that never
+        # changed. Bounded by the 5/minute per-user limit, and the caller has
+        # already proven both a session and the account password.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
+
+    await _revoke_all_user_sessions(session, current_user.id, now)
+    await _issue_session_and_set_cookies(
+        response=response,
+        session=session,
+        user=current_user,
+        user_agent=request.headers.get("user-agent"),
+    )
+    await session.commit()
+
+    logger.info("email_changed user_id=%s", current_user.id)
+    # Backgrounded: the change is committed and must not be held hostage by
+    # Resend or Stripe latency, nor failed by their outages.
+    background.add_task(email_verification.dispatch_verification_email, current_user.id)
+    if old_address_was_verified:
+        # ONLY to a proven address. The headline case for this endpoint is a typo
+        # at registration, which means the old address routinely belongs to a
+        # STRANGER — mailing them "the Mealbot account on this address just moved
+        # to <the user's real address>" would both spam someone with no account
+        # and disclose the user's real address to them. A verified old address is
+        # evidence the account holder owns that inbox, which is exactly the case
+        # where a compromise notice is worth sending and safe to send.
+        background.add_task(
+            email_verification.dispatch_change_notice, old_email, new_email
+        )
+    if current_user.stripe_customer_id:
+        background.add_task(
+            stripe_service.sync_customer_email,
+            current_user.stripe_customer_id,
+            new_email,
+        )
     return None
 
 

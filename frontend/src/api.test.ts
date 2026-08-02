@@ -3,6 +3,7 @@ import {
   authFetch,
   createInvite,
   fetchInvites,
+  changeEmail,
   fetchUserProfile,
   redeemInvite,
   revokeInvite,
@@ -252,6 +253,53 @@ describe('redeemInvite', () => {
   it('maps a 429 to a rate-limit message', async () => {
     mockFetch(429, {});
     await expect(redeemInvite('tok', 'a@b.com', 'GoodPass123')).rejects.toThrow(
+      /too many attempts/i,
+    );
+  });
+});
+
+describe('changeEmail', () => {
+  it('posts the address and password to /auth/email', async () => {
+    // The wire contract had no coverage at all: a renamed field would have
+    // 422'd in production with every test still green.
+    mockFetch(204);
+    await expect(changeEmail('Secret123', 'new@example.com')).resolves.toBeUndefined();
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(url)).toContain('/auth/email');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({
+      current_password: 'Secret123',
+      new_email: 'new@example.com',
+    });
+  });
+
+  it('maps a 401 to the backend detail', async () => {
+    mockFetch(401, { detail: 'Current password is incorrect' });
+    await expect(changeEmail('wrong', 'new@example.com')).rejects.toThrow(
+      /current password is incorrect/i,
+    );
+  });
+
+  it('maps a 409 to an email-taken message', async () => {
+    mockFetch(409, { detail: 'Email already registered' });
+    await expect(changeEmail('Secret123', 'taken@example.com')).rejects.toThrow(
+      /already registered/i,
+    );
+  });
+
+  it('maps a 422 Pydantic list to a readable message, not a bare status', async () => {
+    // EmailStr rejection is a LIST detail, which extractErrorDetail refuses to
+    // render — so without the explicit branch the user saw "(422)".
+    mockFetch(422, { detail: [{ msg: 'value is not a valid email address' }] });
+    await expect(changeEmail('Secret123', 'not-an-address')).rejects.toThrow(
+      /valid email address/i,
+    );
+  });
+
+  it('maps a 429 to a rate-limit message', async () => {
+    // slowapi's envelope has no `detail` key at all.
+    mockFetch(429, { error: 'Rate limit exceeded' });
+    await expect(changeEmail('Secret123', 'new@example.com')).rejects.toThrow(
       /too many attempts/i,
     );
   });

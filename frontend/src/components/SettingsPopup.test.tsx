@@ -333,3 +333,38 @@ describe('SettingsPopup', () => {
     expect(savedErrors).toHaveLength(1);
   });
 });
+
+describe('SettingsPopup — account email section', () => {
+  it('shows the address with a Change control', async () => {
+    // The banner escape hatch only exists for UNVERIFIED users. A verified user
+    // who loses access to their inbox has the same problem and no banner, so
+    // this is their only route out.
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    const Wrapper = createWrapper();
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: Wrapper });
+
+    expect(await screen.findByText('Email address')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^change$/i })).toBeInTheDocument();
+  });
+
+  it('hides it for a demo session', async () => {
+    // The address is server-generated and POST /auth/email refuses demo
+    // accounts with a 403 — so the control could only ever fail.
+    const AuthCtx = await import('../contexts/AuthContext');
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      email: 'demo-abc@mealbot.local',
+      isDemo: true,
+    } as unknown as ReturnType<typeof AuthCtx.useAuth>);
+
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    const Wrapper = createWrapper();
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: Wrapper });
+
+    await waitFor(() => expect(screen.getByText('Settings')).toBeInTheDocument());
+    expect(screen.queryByText('Email address')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^change$/i })).not.toBeInTheDocument();
+  });
+});
