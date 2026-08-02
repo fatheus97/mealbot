@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { useAuth } from "../../contexts/AuthContext";
+import { ChangeEmailModal } from "./ChangeEmailModal";
 
 /**
  * "Confirm your email" prompt for an unverified account.
@@ -19,8 +20,9 @@ import { useAuth } from "../../contexts/AuthContext";
  * land dark-on-dark in OS dark mode.
  */
 export function EmailVerificationBanner() {
-  const { userId, emailVerified, resendVerification } = useAuth();
+  const { userId, email, emailVerified, resendVerification } = useAuth();
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [changing, setChanging] = useState(false);
 
   if (!userId || emailVerified) return null;
 
@@ -35,10 +37,19 @@ export function EmailVerificationBanner() {
   }
 
   return (
+    // The modal is a SIBLING of the banner, not a child. role="status" is an
+    // ARIA live region: anything mounted inside it gets announced as a status
+    // update, so nesting a dialog there would make a screen reader read the
+    // whole form out as if it were a notification, and fight the dialog's own
+    // announcement.
+    <>
     <div role="status" style={wrap}>
       <span style={{ flex: "1 1 260px" }}>
+        {/* Naming the address is the whole point: a user who mistyped it at
+            sign-up cannot otherwise tell why the link never arrived, and
+            "check your inbox" reads as advice to wait longer. */}
         <strong>Confirm your email address</strong> to start generating plans. We've
-        sent you a link — check your inbox (and spam).
+        sent a link to <strong>{email}</strong> — check your inbox (and spam).
       </span>
       {state === "sent" ? (
         // Deliberately not a disabled button: once sent, the useful thing to
@@ -55,6 +66,12 @@ export function EmailVerificationBanner() {
           {state === "sending" ? "Sending…" : "Resend link"}
         </button>
       )}
+      {/* The escape hatch from the lockout: resending only ever re-mails the
+          SAME address, so a user who mistyped it can press "Resend link" all
+          day and never receive anything. */}
+      <button type="button" onClick={() => setChanging(true)} style={linkButton}>
+        Wrong address?
+      </button>
       {state === "error" && (
         // role=alert: the surrounding region is a polite role=status, so a
         // failure announced inside it can be missed entirely.
@@ -63,6 +80,8 @@ export function EmailVerificationBanner() {
         </span>
       )}
     </div>
+    {changing && <ChangeEmailModal onClose={() => setChanging(false)} />}
+    </>
   );
 }
 
@@ -79,6 +98,22 @@ const wrap: CSSProperties = {
   padding: "0.7rem 0.9rem",
   marginBottom: "1rem",
   fontSize: "0.9rem",
+};
+
+// Text-styled but a real <button>: it opens a dialog, not a navigation, and an
+// <a href="#"> would announce as a link to a screen reader. Colour is pinned to
+// the banner's own foreground, which is explicit, so it cannot go
+// dark-on-dark — the surface it sits on sets both background and colour.
+const linkButton: CSSProperties = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  color: "#78350f",
+  textDecoration: "underline",
+  cursor: "pointer",
+  fontSize: "0.85rem",
+  fontFamily: "inherit",
+  whiteSpace: "nowrap",
 };
 
 const button: CSSProperties = {

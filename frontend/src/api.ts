@@ -519,6 +519,36 @@ export async function resendVerificationEmail(): Promise<void> {
   if (!res.ok) throw new Error("Could not resend the confirmation email.");
 }
 
+/**
+ * Move the account to a different address.
+ *
+ * The server re-verifies the password, revokes every OTHER session and rotates
+ * this device's cookies on the 204 — so the caller must refresh the profile
+ * afterwards: `email` changed and `email_verified` is now false again.
+ *
+ * Errors are surfaced verbatim through extractErrorDetail because every one of
+ * them is something the user must act on differently — 401 wrong password, 409
+ * address already registered, 400 that is already your address — and a generic
+ * "couldn't change it" would leave them guessing which.
+ */
+export async function changeEmail(currentPassword: string, newEmail: string): Promise<void> {
+  const res = await authFetch("/auth/email", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_email: newEmail }),
+  });
+  if (res.ok) return;
+  // Two statuses carry no usable `detail` and would otherwise reach the user as
+  // a bare code. 422 is Pydantic's EmailStr rejection — a LIST detail, which
+  // extractErrorDetail deliberately will not render — and 429 is slowapi's own
+  // envelope, which has no `detail` key at all. Both are the user's to act on,
+  // so they get the same treatment requestPasswordReset already gives them.
+  if (res.status === 422) throw new Error("Please enter a valid email address.");
+  if (res.status === 429) {
+    throw new Error("Too many attempts. Please wait a minute and try again.");
+  }
+  throw new Error(await extractErrorDetail(res, "Could not change your email address"));
+}
+
 // --- Access requests (admin triage of the public landing form) ---
 
 export async function fetchAccessRequests(

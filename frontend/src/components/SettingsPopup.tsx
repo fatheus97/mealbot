@@ -5,6 +5,7 @@ import { PreferencesForm } from "./PreferencesForm";
 import type { PreferencesFormValues } from "./PreferencesForm";
 import { PantryStaples } from "./PantryStaples";
 import { FeedbackModal } from "./FeedbackModal";
+import { ChangeEmailModal } from "./auth/ChangeEmailModal";
 import { InfoHint } from "./InfoHint";
 
 interface SettingsPopupProps {
@@ -12,13 +13,14 @@ interface SettingsPopupProps {
 }
 
 export function SettingsPopup({ onClose }: SettingsPopupProps) {
-  const { userId } = useAuth();
+  const { userId, email, isDemo } = useAuth();
   const { data: profile, isLoading } = useUserProfile(userId);
   const mutation = useUpdateUserProfile();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [staplesDirty, setStaplesDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
 
   // Guard every close path (✕, backdrop, and a successful preferences save)
   // against silently dropping unsaved pantry-staple edits — staples have their
@@ -173,6 +175,57 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         </div>
       )}
 
+      {/* Account address. Also reachable from the confirm-your-email banner, but
+          that banner only renders for UNVERIFIED users — a verified user who
+          loses access to their inbox has exactly the same problem and nothing to
+          click, so the entry point has to exist here too.
+
+          Hidden for demo sessions: the address is server-generated, the account
+          is deleted within hours, and the endpoint refuses them with a 403 — so
+          the control could only ever fail. */}
+      {!isDemo && (
+      <div
+        style={{
+          marginTop: "1.25rem",
+          borderTop: "1px solid #e5e7eb",
+          paddingTop: "1rem",
+        }}
+      >
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: "0.4rem" }}>
+          Email address
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "0.75rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontSize: 14, color: "#111827", wordBreak: "break-all" }}>
+            {email}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowChangeEmail(true)}
+            style={{
+              padding: "0.4rem 0.75rem",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              background: "#f9fafb",
+              color: "#111827",
+              cursor: "pointer",
+              fontSize: 13,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Change
+          </button>
+        </div>
+      </div>
+      )}
+
       {/* Feedback entry point — a low-friction way for any logged-in user to report
           a bug or request a feature. Opens above this popup (higher z-index). */}
       <div
@@ -211,6 +264,9 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
     </div>
     {showFeedback && (
       <FeedbackModal page="settings" onClose={() => setShowFeedback(false)} />
+    )}
+    {showChangeEmail && (
+      <ChangeEmailModal onClose={() => setShowChangeEmail(false)} />
     )}
     </>
   );

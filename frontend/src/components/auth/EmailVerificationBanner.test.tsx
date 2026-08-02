@@ -78,3 +78,42 @@ describe("EmailVerificationBanner", () => {
     expect(banner.style.color).toBeTruthy();
   });
 });
+
+describe("EmailVerificationBanner — the wrong-address escape hatch", () => {
+  it("names the address the link was sent to", () => {
+    // Without this a user who mistyped it has no way to notice: "check your
+    // inbox" reads as advice to wait longer, not as a wrong address.
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ email: "typo@exmaple.com" }));
+    renderWithProviders(<EmailVerificationBanner />);
+    expect(screen.getByText("typo@exmaple.com")).toBeInTheDocument();
+  });
+
+  it("opens the change-address modal", async () => {
+    // Resending only ever re-mails the SAME address, so without this a typo at
+    // sign-up is unrecoverable — the whole point of the control.
+    const user = userEvent.setup();
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
+    renderWithProviders(<EmailVerificationBanner />);
+    await user.click(screen.getByRole("button", { name: /wrong address/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /change email address/i })).toBeInTheDocument(),
+    );
+  });
+});
+
+describe("EmailVerificationBanner — accessibility of the dialog mount", () => {
+  it("mounts the modal OUTSIDE the role=status live region", async () => {
+    // role="status" is an ARIA live region. A dialog nested inside it gets
+    // announced as a status update, so a screen reader reads the whole form out
+    // as a notification and fights the dialog's own announcement.
+    const user = userEvent.setup();
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
+    const { container } = renderWithProviders(<EmailVerificationBanner />);
+    await user.click(screen.getByRole("button", { name: /wrong address/i }));
+
+    const liveRegion = container.querySelector('[role="status"]');
+    expect(liveRegion).not.toBeNull();
+    const heading = screen.getByRole("heading", { name: /change email address/i });
+    expect(liveRegion!.contains(heading)).toBe(false);
+  });
+});
