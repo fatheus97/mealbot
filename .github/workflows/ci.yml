@@ -244,6 +244,51 @@ jobs:
         if: always()
         run: docker rm -f frontend-headers-test
 
+  # Consent is recorded against app.core.legal.TERMS_VERSION. If a legal page is
+  # edited and that constant is not, every consent stored afterwards is filed
+  # against text the user never saw — and nothing at runtime would notice, since
+  # the column is still populated and the flow still works. The check lives here
+  # rather than in pytest because it spans backend/ and frontend/, and the
+  # backend container mounts only ./backend: the same assertion as a pytest would
+  # silently SKIP in CI.
+  legal-version:
+    name: legal version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: TERMS_VERSION matches the published pages
+        # POSIX -E rather than -P throughout: -P is a GNU extension that also
+        # refuses to run under some locales, so the same commands would not be
+        # checkable on the dev machine.
+        run: |
+          set -uo pipefail
+          constant="$(sed -n 's/.*TERMS_VERSION *= *"\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)".*/\1/p' \
+            backend/app/core/legal.py | head -1)"
+          if [ -z "$constant" ]; then
+            echo "::error::could not read TERMS_VERSION from backend/app/core/legal.py"
+            exit 1
+          fi
+          failed=0
+          for page in frontend/terms.html frontend/privacy.html; do
+            printed="$(grep -oE 'Last updated: [0-9]{1,2} [A-Z][a-z]+ [0-9]{4}' "$page" \
+              | head -1 | sed 's/Last updated: //')"
+            # Load-bearing: `date -d ""` silently returns TODAY, so an empty
+            # capture would compare a plausible-looking date and could pass.
+            if [ -z "$printed" ]; then
+              echo "::error::${page} has no 'Last updated: D Month YYYY' line"
+              failed=1
+              continue
+            fi
+            iso="$(date -d "$printed" +%F)"
+            if [ "$iso" != "$constant" ]; then
+              echo "::error::${page} says ${printed} (${iso}) but TERMS_VERSION is ${constant}"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
   # The Claude PR Review guard decides whether a review actually happened; it has
   # silently mis-decided twice (#184 shipped it, PR #229 exposed the hole). Its
   # logic is therefore unit-tested like any other production code path.

@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { ModalShell } from "./ModalShell";
 import { useAuth } from "../contexts/AuthContext";
 import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
+import { TermsConsent } from "./auth/TermsConsent";
 
 /** Mirrors the backend rules (validate_password_complexity + the 8..128 length
  *  bounds) as an inline hint only; the server is the real gate. */
@@ -59,6 +60,7 @@ export function InviteRegisterModal() {
   const [pending, setPending] = useState(false);
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const titleId = useId();
 
   const problem = useMemo(() => passwordProblem(password), [password]);
@@ -71,11 +73,11 @@ export function InviteRegisterModal() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (problem || mismatch || !emailOk) return;
+    if (problem || mismatch || !emailOk || !acceptTerms) return;
     setPending(true);
     setError(null);
     try {
-      await registerViaInvite(token, email.trim(), password);
+      await registerViaInvite(token, email.trim(), password, acceptTerms);
       // Auto-logged-in — close; the app now renders the authenticated UI.
       setToken(null);
     } catch (err) {
@@ -140,6 +142,14 @@ export function InviteRegisterModal() {
               autoComplete="new-password"
               style={inputStyle}
             />
+            <div style={{ margin: "0 0 0.75rem 0" }}>
+              <TermsConsent
+                id="invite-accept-terms"
+                checked={acceptTerms}
+                onChange={(next) => { setAcceptTerms(next); setError(null); }}
+                disabled={pending}
+              />
+            </div>
             {password.length > 0 && problem && <p style={hintStyle}>Password needs {problem}.</p>}
             {mismatch && <p style={hintStyle}>Passwords don't match.</p>}
             {error && (
@@ -153,7 +163,7 @@ export function InviteRegisterModal() {
               </button>
               <button
                 type="submit"
-                disabled={pending || !emailOk || password.length === 0 || problem !== null || mismatch}
+                disabled={pending || !emailOk || password.length === 0 || problem !== null || mismatch || !acceptTerms}
                 style={{ ...primaryBtn, opacity: pending ? 0.7 : 1 }}
               >
                 {pending ? "Creating…" : "Create account"}

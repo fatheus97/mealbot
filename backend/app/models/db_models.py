@@ -122,6 +122,20 @@ class User(SQLModel, table=True):
     # chance to confirm. New accounts start NULL and must verify.
     email_verified_at: datetime | None = Field(default=None)
 
+    # When the user ticked the box accepting the Terms and Privacy Policy, and
+    # which published version they were shown (app.core.legal.TERMS_VERSION).
+    #
+    # ⚠️ DELIBERATELY *NOT* BACKFILLED — the opposite call to email_verified_at
+    # above, for the opposite reason. Backfilling that one restores access the
+    # user already had; backfilling this one would fabricate a legal record,
+    # asserting that a specific person agreed to a specific text on a specific
+    # date when no such thing happened. NULL is the truthful value for accounts
+    # created before the checkbox existed, and for the operator-created paths
+    # (POST /admin/users, the create_user CLI) where the user is not present to
+    # consent at all. It means "no explicit record", not "refused".
+    terms_accepted_at: datetime | None = Field(default=None)
+    terms_version: str | None = Field(default=None, max_length=32)
+
     # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
     # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
     # source of truth. ---

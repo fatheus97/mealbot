@@ -22,6 +22,7 @@ from app.models.db_models import (
     SaleRecord,
     User,
 )
+from tests.conftest import TEST_PASSWORD
 
 
 async def _make_admin(db_session: AsyncSession, test_user: User) -> int:
@@ -359,7 +360,8 @@ class TestSignupAttributionCapture:
                 "/api/users/register",
                 json={
                     "email": "new@x.com",
-                    "password": "Password123",
+                    "password": TEST_PASSWORD,
+                    "accept_terms": True,
                     "utm_source": "google",
                     "utm_medium": "cpc",
                     "utm_campaign": "launch",
@@ -381,7 +383,7 @@ class TestSignupAttributionCapture:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "direct@x.com", "password": "Password123"},
+                json={"email": "direct@x.com", "accept_terms": True, "password": TEST_PASSWORD},
             )
         assert resp.status_code == 201
         user = (
@@ -398,7 +400,7 @@ class TestAttributionCleaning:
         from app.models.user_schemas import UserCreate
 
         u = UserCreate.model_validate(
-            {"email": "a@b.com", "password": "Password123",
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
              "utm_source": "   ", "utm_medium": ""}
         )
         assert u.utm_source is None
@@ -408,7 +410,7 @@ class TestAttributionCleaning:
         from app.models.user_schemas import UserCreate
 
         u = UserCreate.model_validate(
-            {"email": "a@b.com", "password": "Password123", "utm_source": "  google  "}
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True, "utm_source": "  google  "}
         )
         assert u.utm_source == "google"
 
@@ -420,7 +422,8 @@ class TestAttributionCleaning:
         u = UserCreate.model_validate(
             {
                 "email": "a@b.com",
-                "password": "Password123",
+                "password": TEST_PASSWORD,
+                "accept_terms": True,
                 "utm_source": "Google",
                 "utm_campaign": "Summer-LAUNCH",
                 "referrer": "https://News.example.com/Article",
@@ -438,7 +441,8 @@ class TestAttributionCleaning:
         u = UserCreate.model_validate(
             {
                 "email": "a@b.com",
-                "password": "Password123",
+                "password": TEST_PASSWORD,
+                "accept_terms": True,
                 "utm_source": "s" * 500,       # cap 200
                 "referrer": "r" * 900,         # cap 500
             }
@@ -450,6 +454,6 @@ class TestAttributionCleaning:
         from app.models.user_schemas import UserCreate
 
         u = UserCreate.model_validate(
-            {"email": "a@b.com", "password": "Password123", "utm_source": ["array"]}
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True, "utm_source": ["array"]}
         )
         assert u.utm_source is None

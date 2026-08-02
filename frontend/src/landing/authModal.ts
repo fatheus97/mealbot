@@ -29,6 +29,9 @@ export interface AuthModalElements {
   closeButton: HTMLElement;
   switchButton: HTMLElement;
   switchPrompt: HTMLElement;
+  /** Consent row, revealed only in register mode. */
+  consent: HTMLElement;
+  acceptTermsInput: HTMLInputElement;
 }
 
 const COPY: Record<AuthMode, { title: string; submit: string; prompt: string; switchTo: string }> = {
@@ -61,10 +64,22 @@ export function postAuthTarget(search: string): string {
  * lock out any account whose password predates the current rule: they'd be
  * unable to submit the very credentials that still work.
  */
-export function validate(mode: AuthMode, email: string, password: string): string | null {
+export function validate(
+  mode: AuthMode,
+  email: string,
+  password: string,
+  acceptTerms = false,
+): string | null {
   if (!email.trim()) return "Enter your email address.";
   if (!password) return "Enter your password.";
-  if (mode === "register") return passwordComplaint(password);
+  if (mode !== "register") return null;
+  const weak = passwordComplaint(password);
+  if (weak) return weak;
+  // Checked last so a user fixing their password is not also told about the
+  // checkbox on every keystroke.
+  if (!acceptTerms) {
+    return "Please accept the Terms of Service and Privacy Policy to create an account.";
+  }
   return null;
 }
 
@@ -96,6 +111,10 @@ export function createAuthModal(
       "autocomplete",
       next === "register" ? "new-password" : "current-password",
     );
+    els.consent.hidden = next !== "register";
+    // Cleared on the way out so switching register -> login -> register can
+    // never present an already-ticked box the user did not tick this time.
+    if (next !== "register") els.acceptTermsInput.checked = false;
     setError(null);
   }
 
@@ -115,6 +134,7 @@ export function createAuthModal(
     if (busy) return; // don't abandon an in-flight request mid-submit
     els.root.hidden = true;
     els.passwordInput.value = "";
+    els.acceptTermsInput.checked = false;
     setError(null);
     document.body.style.overflow = previousBodyOverflow;
     lastFocused?.focus();
@@ -135,8 +155,9 @@ export function createAuthModal(
     if (busy) return;
     const email = els.emailInput.value;
     const password = els.passwordInput.value;
+    const acceptTerms = els.acceptTermsInput.checked;
 
-    const invalid = validate(mode, email, password);
+    const invalid = validate(mode, email, password, acceptTerms);
     if (invalid) {
       setError(invalid);
       return;
@@ -146,7 +167,7 @@ export function createAuthModal(
     setError(null);
     try {
       if (mode === "register") {
-        await landingRegister(email, password);
+        await landingRegister(email, password, acceptTerms);
       } else {
         await landingLogin(email, password);
       }

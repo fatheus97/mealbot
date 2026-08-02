@@ -16,7 +16,7 @@ from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import async_session_factory
 from app.models.db_models import User
-from app.models.user_schemas import UserCreate
+from app.models.user_schemas import Credentials
 
 
 async def create_user(
@@ -24,7 +24,10 @@ async def create_user(
 ) -> None:
     # Validate email + password rules via the existing schema
     try:
-        UserCreate(email=email, password=password)
+        # Credentials, not UserCreate: an operator cannot accept the Terms on
+        # the user's behalf, so this path validates the email/password rules only
+        # and deliberately leaves terms_accepted_at NULL on the created row.
+        Credentials(email=email, password=password)
     except ValidationError as exc:
         print(f"Validation error:\n{exc}", file=sys.stderr)
         sys.exit(1)

@@ -225,7 +225,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyProfile(profile, Boolean(profile.is_demo));
   }, [applyProfile]);
 
-  const register = useCallback(async (newEmail: string, password: string): Promise<void> => {
+  const register = useCallback(async (
+    newEmail: string,
+    password: string,
+    // The user's actual checkbox state, not a constant — see redeemInvite.
+    acceptTerms: boolean,
+  ): Promise<void> => {
     // POST /users/register returns 201 with a plain message, not a token, so
     // we auto-login immediately after so the UI lands on an authenticated
     // session without a second user interaction.
@@ -233,7 +238,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       // Replay the first-touch attribution captured on landing so the signup is
       // traceable to its campaign. Absent keys are simply omitted (→ NULL).
-      body: JSON.stringify({ email: newEmail, password, ...getStoredAttribution() }),
+      body: JSON.stringify({
+        email: newEmail,
+        password,
+        accept_terms: acceptTerms,
+        ...getStoredAttribution(),
+      }),
     });
     if (!resp.ok) {
       // 403 when registration_enabled flipped server-side between /config
@@ -253,12 +263,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [login]);
 
   const registerViaInvite = useCallback(
-    async (token: string, newEmail: string, password: string): Promise<void> => {
+    async (
+      token: string,
+      newEmail: string,
+      password: string,
+      acceptTerms: boolean,
+    ): Promise<void> => {
       // Redeem the invite (201, message-only) then auto-login so the invitee
       // lands in an authenticated session — frictionless beta onboarding, unlike
       // password-reset which deliberately does NOT log in. A login-phase failure
       // is wrapped so the caller can say "account created, just sign in".
-      await redeemInvite(token, newEmail, password);
+      await redeemInvite(token, newEmail, password, acceptTerms);
       try {
         await login(newEmail, password);
       } catch (err) {

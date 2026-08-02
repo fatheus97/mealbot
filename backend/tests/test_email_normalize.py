@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.email_normalize import normalize_email
 from app.models.db_models import User
+from tests.conftest import TEST_PASSWORD
 
 
 # --------------------------------------------------------------------------- #
@@ -140,12 +141,12 @@ async def test_registration_rejects_gmail_dot_variant(
     monkeypatch.setattr(settings, "registration_enabled", True)
     r1 = await unauthed_client.post(
         "/api/users/register",
-        json={"email": "johndoe@gmail.com", "password": "TestPassword123"},
+        json={"email": "johndoe@gmail.com", "accept_terms": True, "password": TEST_PASSWORD},
     )
     assert r1.status_code == 201
     r2 = await unauthed_client.post(
         "/api/users/register",
-        json={"email": "john.doe@gmail.com", "password": "TestPassword123"},
+        json={"email": "john.doe@gmail.com", "accept_terms": True, "password": TEST_PASSWORD},
     )
     assert r2.status_code == 409  # same inbox → normalized_email collision
 
@@ -158,12 +159,12 @@ async def test_registration_allows_distinct_non_subaddressing_plus(
     monkeypatch.setattr(settings, "registration_enabled", True)
     r1 = await unauthed_client.post(
         "/api/users/register",
-        json={"email": "user@yahoo.com", "password": "TestPassword123"},
+        json={"email": "user@yahoo.com", "accept_terms": True, "password": TEST_PASSWORD},
     )
     assert r1.status_code == 201
     r2 = await unauthed_client.post(
         "/api/users/register",
-        json={"email": "user+promo@yahoo.com", "password": "TestPassword123"},
+        json={"email": "user+promo@yahoo.com", "accept_terms": True, "password": TEST_PASSWORD},
     )
     assert r2.status_code == 201
 
@@ -174,13 +175,13 @@ async def test_login_succeeds_with_gmail_dot_variant(
     monkeypatch.setattr(settings, "registration_enabled", True)
     reg = await unauthed_client.post(
         "/api/users/register",
-        json={"email": "John.Doe@gmail.com", "password": "TestPassword123"},
+        json={"email": "John.Doe@gmail.com", "accept_terms": True, "password": TEST_PASSWORD},
     )
     assert reg.status_code == 201
     # Log in with a different dot/case variant of the SAME inbox.
     login = await unauthed_client.post(
         "/api/auth/login",
-        json={"email": "johndoe@gmail.com", "password": "TestPassword123"},
+        json={"email": "johndoe@gmail.com", "password": TEST_PASSWORD},
     )
     assert login.status_code == 200
 
@@ -191,7 +192,7 @@ async def test_login_wrong_password_still_401(
     monkeypatch.setattr(settings, "registration_enabled", True)
     reg = await unauthed_client.post(
         "/api/users/register",
-        json={"email": "someone@gmail.com", "password": "TestPassword123"},
+        json={"email": "someone@gmail.com", "accept_terms": True, "password": TEST_PASSWORD},
     )
     assert reg.status_code == 201
     bad = await unauthed_client.post(

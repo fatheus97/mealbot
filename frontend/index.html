@@ -409,6 +409,29 @@
         /* 16px avoids iOS zooming the page on focus. */
         font-size: 16px;
       }
+      /* Uses the same matched-pair theme variables as everything else on this
+         page, so it follows dark/light rather than pinning one scheme's colour
+         onto the other's background. */
+      .auth-consent {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin: 0 0 0.85rem;
+        font-size: 0.82rem;
+        line-height: 1.4;
+        color: var(--fg);
+        cursor: pointer;
+      }
+      .auth-consent[hidden] {
+        display: none;
+      }
+      .auth-consent input {
+        margin-top: 0.15rem;
+        flex-shrink: 0;
+      }
+      .auth-consent a {
+        color: var(--accent);
+      }
       #auth-submit {
         width: 100%;
         margin-top: 0.35rem;
@@ -858,6 +881,19 @@
               autocomplete="current-password"
               required
             />
+          </label>
+          <!-- Shown only in register mode (authModal.ts toggles `hidden`): the
+               affirmative consent the server records. Unticked by default — a
+               pre-ticked box is not consent — and both links open in a new tab
+               so reading them cannot cost a half-filled form. -->
+          <label class="auth-consent" id="auth-consent" for="auth-accept-terms" hidden>
+            <input type="checkbox" id="auth-accept-terms" name="accept_terms" />
+            <span>
+              I accept the
+              <a href="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+              and
+              <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+            </span>
           </label>
           <button type="submit" id="auth-submit" class="btn btn-primary">Log in</button>
         </form>

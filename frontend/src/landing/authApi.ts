@@ -141,12 +141,19 @@ export async function landingLogin(email: string, password: string): Promise<Ses
  * on landing load (see main.ts); without that, a visitor who never reaches
  * /app before registering would lose their UTM data completely.
  */
-export async function landingRegister(email: string, password: string): Promise<SessionProfile> {
+export async function landingRegister(
+  email: string,
+  password: string,
+  /** The real checkbox state, not a constant — the server's 422 is the backstop
+   *  if the form ever lets a submit through without it. */
+  acceptTerms: boolean,
+): Promise<SessionProfile> {
   let resp: Response;
   try {
     resp = await postJson("/users/register", {
       email,
       password,
+      accept_terms: acceptTerms,
       ...getStoredAttribution(),
     });
   } catch {

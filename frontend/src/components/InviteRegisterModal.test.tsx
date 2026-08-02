@@ -65,10 +65,12 @@ describe("InviteRegisterModal", () => {
     await user.type(screen.getByPlaceholderText("Email"), "beta@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "BetaPass123");
     await user.type(screen.getByPlaceholderText("Confirm password"), "BetaPass123");
+    // Consent gates the submit button, so tick it first.
+    await user.click(screen.getByRole("checkbox", { name: /i accept the/i }));
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() =>
-      expect(api.redeemInvite).toHaveBeenCalledWith("tok-xyz", "beta@example.com", "BetaPass123"),
+      expect(api.redeemInvite).toHaveBeenCalledWith("tok-xyz", "beta@example.com", "BetaPass123", true),
     );
     // Auto-logged-in → the modal closes.
     await waitFor(() =>
@@ -110,6 +112,8 @@ describe("InviteRegisterModal", () => {
     await user.type(screen.getByPlaceholderText("Email"), "x@y.com");
     await user.type(screen.getByPlaceholderText("Password"), "ValidPass123");
     await user.type(screen.getByPlaceholderText("Confirm password"), "ValidPass123");
+    // Consent gates the submit button, so tick it first.
+    await user.click(screen.getByRole("checkbox", { name: /i accept the/i }));
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/invalid or has expired/i);
@@ -127,6 +131,8 @@ describe("InviteRegisterModal", () => {
     await user.type(screen.getByPlaceholderText("Email"), "beta@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "BetaPass123");
     await user.type(screen.getByPlaceholderText("Confirm password"), "BetaPass123");
+    // Consent gates the submit button, so tick it first.
+    await user.click(screen.getByRole("checkbox", { name: /i accept the/i }));
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     // The distinct "account created, just sign in" panel — NOT a red error — so the
@@ -134,6 +140,6 @@ describe("InviteRegisterModal", () => {
     expect(await screen.findByText(/couldn't sign you in automatically/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(api.redeemInvite).toHaveBeenCalledWith("tok-si", "beta@example.com", "BetaPass123");
+    expect(api.redeemInvite).toHaveBeenCalledWith("tok-si", "beta@example.com", "BetaPass123", true);
   });
 });
