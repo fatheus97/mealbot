@@ -15,11 +15,13 @@
 # accidental DELETE, a botched admin action, a corrupted table. It does NOT
 # cover losing the box or the disk.
 #
-# ponytail: local-only. Off-box copy is the obvious upgrade and needs a
-# destination decision + credentials (Hetzner Storage Box over rsync/sftp is the
-# cheap fit). Until then, check that VM snapshots are enabled in the Hetzner
-# console — a snapshot is crash-consistent rather than a clean dump, but it is
-# the difference between "lost a day" and "lost the company".
+# The off-box copy is scripts/offsite-backup.sh (encrypted, to Backblaze B2),
+# run by mealbot-offsite-backup.timer half an hour after this one. It SHIPS
+# PARKED — see deploy/systemd/README.md §6 — so until it is switched on, this
+# local dump is still the only copy. Meanwhile, check that VM snapshots are
+# enabled in the Hetzner console: a snapshot is crash-consistent rather than a
+# clean dump, but it is the difference between "lost a day" and "lost the
+# company".
 #
 # The `SaleRecord` VAT/OSS ledger is the reason this is not optional: it is
 # deliberately `ondelete=SET NULL` so it survives user deletion, it is legally

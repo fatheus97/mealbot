@@ -1,0 +1,26 @@
+# Schedules mealbot-offsite-backup.service once a day.
+#
+# This is the unit you enable:
+#   systemctl enable --now mealbot-offsite-backup.timer
+#
+# Safe to enable while PARKED — the script exits 0 immediately when
+# OFFSITE_BACKUP_ENABLED is unset. See README §6.
+
+[Unit]
+Description=Schedule the mealbot off-site encrypted backup copy
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# 03:00 — half an hour after the 02:30 dump, which is ample for a ~170 KB
+# archive and leaves room for the dump to grow a long way before the two could
+# overlap. Deliberately NOT chained with OnSuccess/After on the backup unit: if
+# db-backup fails, this must still run and fail LOUDLY on the stale-dump guard,
+# rather than being skipped and reporting nothing at all.
+OnCalendar=*-*-* 03:00:00
+# If the box was off at 03:00, run once it is back. A skipped night is a night
+# whose only copy of the data sits on the disk most likely to have died.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

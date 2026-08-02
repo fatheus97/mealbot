@@ -366,7 +366,7 @@ jobs:
           for s in scripts/*.sh; do
             bash -n "$s" || { echo "::error::${s} is not valid bash"; failed=1; }
           done
-          shellcheck scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh || failed=1
+          shellcheck scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh \n            scripts/offsite-backup.sh || failed=1
           exit "$failed"
 
       - name: Backup scripts are executable
@@ -375,7 +375,7 @@ jobs:
         run: |
           set -uo pipefail
           failed=0
-          for s in scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh; do
+          for s in scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh scripts/offsite-backup.sh; do
             if [ ! -x "$s" ]; then
               echo "::error::${s} is not executable (git update-index --chmod=+x ${s})"
               failed=1
@@ -407,6 +407,76 @@ jobs:
             echo "::error::below-threshold run must clear the state file, or a later crossing stays silent"
             failed=1
           fi
+          exit "$failed"
+
+      - name: The off-site backup is inert when parked and loud when broken
+        # It ships disabled and is meant to be installed BEFORE a destination
+        # exists, so "does nothing, exits 0" is a behaviour with real weight —
+        # if it ever started failing while parked, the alert mail would train
+        # the operator to ignore this unit before it does anything useful.
+        #
+        # The opposite failure matters more: once enabled, every problem must
+        # exit non-zero. A backup job that quietly does nothing is discovered at
+        # the moment you need it.
+        #
+        # Each case asserts the REASON, not just a non-zero exit. An earlier
+        # draft checked only the exit code, and three of these passed on an
+        # unrelated prerequisite error — they would have passed with the guards
+        # under test deleted. Container-free throughout.
+        run: |
+          set -uo pipefail
+          failed=0
+          empty="$(mktemp -d)"
+
+          want_fail() {
+            expect="$1"; desc="$2"; shift 2
+            if out="$(env "$@" ./scripts/offsite-backup.sh 2>&1)"; then
+              echo "::error::${desc}: expected a non-zero exit, got 0"
+              failed=1
+            elif ! printf '%s' "$out" | grep -q "$expect"; then
+              echo "::error::${desc}: exited non-zero but for the wrong reason"
+              echo "::error::  wanted to see: ${expect}"
+              printf '%s\n' "$out" | sed 's/^/          /'
+              failed=1
+            fi
+          }
+
+          if ! ./scripts/offsite-backup.sh | grep -q "not enabled"; then
+            echo "::error::parked run must exit 0 and say so"
+            failed=1
+          fi
+
+          want_fail "enabled but unconfigured" "enabled with no destination" \
+            OFFSITE_BACKUP_ENABLED=true
+
+          want_fail "no completed dump" "nothing to upload" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com BACKUP_DIR="$empty"
+
+          # A .partial is a FAILED dump. Shipping one would put a file at the
+          # destination that looks like a backup and is not.
+          touch "$empty/mealbot-2026-01-01T000000Z.dump.partial"
+          want_fail "no completed dump" "a .partial is not a dump" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com BACKUP_DIR="$empty"
+
+          # A stale dump means db-backup is broken. Re-uploading yesterday's and
+          # reporting success would mask that indefinitely.
+          touch -d '3 days ago' "$empty/mealbot-2026-01-01T000000Z.dump"
+          want_fail "more than 1 day old" "a stale dump means db-backup is broken" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com BACKUP_DIR="$empty"
+
+          # A FRESH dump must get PAST every guard above and reach the tooling
+          # check. Without this the suite only ever proves the script can
+          # refuse — a guard accidentally rejecting good input would look
+          # identical to a guard working.
+          touch "$empty/mealbot-2026-01-02T000000Z.dump"
+          want_fail "is not installed" "a fresh dump reaches the tooling check" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com BACKUP_DIR="$empty" \
+            PATH=/usr/bin:/bin
+
           exit "$failed"
 
       - name: The backup job never prunes Docker volumes

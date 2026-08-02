@@ -15,6 +15,7 @@ the daemon's build cache / images, so it has no reason to enter a container).
 |---|---|---|---|
 | `mealbot-disk-alert` | `scripts/disk-alert.sh` — warn by email before the disk fills | **hourly** | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-db-backup` | `scripts/db-backup.sh` — nightly `pg_dump` of the live database | daily 02:30 | No (`ALERT_*` only for failure mail) |
+| `mealbot-offsite-backup` | `scripts/offsite-backup.sh` — encrypt the newest dump and copy it to Backblaze B2 | daily 03:00 | **PARKED** — inert until `OFFSITE_BACKUP_ENABLED=true` (§6) |
 | `mealbot-billing-alerts` | `app.scripts.billing_alerts` — VAT-threshold + monthly filing-reminder emails (#202) | daily 08:00 | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-authsession-cleanup` | `app.scripts.authsession_cleanup` — delete long-expired `authsession` rows so the table doesn't grow unbounded | daily 03:30 | No |
 | `mealbot-docker-cleanup` | `docker builder prune -af` + `docker image prune -af` — cap the ever-growing BuildKit build cache / unused images so the disk doesn't fill | **weekly** Sun 04:30 | No |
@@ -376,6 +377,122 @@ cd /opt/mealbot && sudo -u deploy DISK_ALERT_FAKE_PCT=91 ./scripts/disk-alert.sh
 
 That sends a real alert. Delete `/opt/mealbot/.disk-alert-state` afterwards so
 the day's genuine alert is not suppressed.
+
+---
+
+## 6. Off-site backup copy (`mealbot-offsite-backup`) — **PARKED**
+
+`db-backup` writes to `/opt/mealbot/backups`, on the **same disk as the database
+it protects**. That covers the losses that happen weekly (a bad migration, an
+accidental DELETE, a botched admin action) and covers nothing about losing the
+box: a dead disk takes the database and every backup of it together, which is
+the exact scenario backups exist for.
+
+This unit encrypts the newest dump and copies it to Backblaze B2.
+
+**It ships inert.** With `OFFSITE_BACKUP_ENABLED` unset the script logs one line
+and exits 0, so the unit is safe to install and enable today with no bucket, no
+credentials and no bill. Activation is §6.2 and takes about fifteen minutes.
+
+### 6.1 The design decision worth knowing
+
+Encryption is **gpg public key**, not a passphrase and not rclone's `crypt`
+remote. Both of those put the decryption secret on the box — so whoever owns the
+box owns every historical backup too, including the attacker whose ransomware is
+the reason you wanted off-site copies in the first place. Here the box holds
+only the *public* half: it can write backups it cannot read.
+
+> ⚠️ **The private key is the only way back.** Lose it and the off-site copies
+> are cryptographically unrecoverable — B2 cannot help, and neither can I. Keep
+> it in your password manager AND on something physical that is not this laptop.
+> Test the restore (§6.4) before you rely on it.
+
+### 6.2 Activation
+
+**a) Generate the keypair — on your LAPTOP, never on the server.**
+
+```bash
+gpg --quick-generate-key "mealbot-backup <info@trymealbot.com>" default default never
+gpg --armor --export mealbot-backup > mealbot-backup.pub
+gpg --armor --export-secret-keys mealbot-backup > mealbot-backup.key   # into the password manager, then shred
+```
+
+**b) Import ONLY the public key on the box.**
+
+```bash
+scp mealbot-backup.pub root@178.104.64.139:/tmp/
+ssh root@178.104.64.139 'sudo -u deploy gpg --import /tmp/mealbot-backup.pub && rm /tmp/mealbot-backup.pub'
+```
+
+**c) Create the B2 bucket and an application key.** In the Backblaze console:
+a **private** bucket (e.g. `mealbot-backups`), then an application key scoped to
+that bucket alone with `listFiles`, `readFiles`, `writeFiles`, `deleteFiles`.
+Do not use the master key.
+
+Turn on **Object Lock** if offered. Encryption stops an attacker *reading* the
+backups; object lock is what stops them *deleting* them.
+
+**d) Install rclone and configure the remote as `deploy`.**
+
+```bash
+ssh root@178.104.64.139 'curl -fsSL https://rclone.org/install.sh | bash'
+ssh root@178.104.64.139 'sudo -u deploy rclone config'   # n) new → name: b2 → storage: b2 → key id + app key
+```
+
+**e) Write the credentials file.** Deliberately *not* `/opt/mealbot/.env` — that
+file is read by the container stack and by anyone who can `exec` into a
+container. The B2 key only needs to be visible to this one unit.
+
+```bash
+ssh root@178.104.64.139 'mkdir -p /etc/mealbot && cat > /etc/mealbot/offsite-backup.env <<EOF
+OFFSITE_BACKUP_ENABLED=true
+OFFSITE_RCLONE_REMOTE=b2:mealbot-backups/prod
+OFFSITE_GPG_RECIPIENT=mealbot-backup
+OFFSITE_RETENTION_DAYS=90
+EOF
+chown root:deploy /etc/mealbot/offsite-backup.env && chmod 640 /etc/mealbot/offsite-backup.env'
+```
+
+**f) Install the units and run it once by hand.**
+
+```bash
+sudo cp /opt/mealbot/deploy/systemd/mealbot-*.service /etc/systemd/system/
+sudo cp /opt/mealbot/deploy/systemd/mealbot-*.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mealbot-offsite-backup.timer
+sudo systemctl start mealbot-offsite-backup.service
+journalctl -u mealbot-offsite-backup.service -n 20 --no-pager
+```
+
+**g) Update the privacy policy — this is not optional.** Backblaze becomes a
+processor holding (encrypted) personal data, and `frontend/privacy.html` names
+its recipients explicitly. Add Backblaze to that list, with the storage region,
+in the same change that flips this on. Shipping the backup without the
+disclosure makes a published page inaccurate.
+
+### 6.3 Verify
+
+```bash
+systemctl list-timers mealbot-offsite-backup.timer
+sudo -u deploy rclone ls b2:mealbot-backups/prod
+```
+
+Expected while parked: `offsite-backup: not enabled (OFFSITE_BACKUP_ENABLED !=
+true) — nothing to do`. Expected once live: an `...dump.gpg` per day.
+
+### 6.4 Restore — rehearse this, don't assume it
+
+On your laptop, where the private key lives:
+
+```bash
+rclone copy b2:mealbot-backups/prod/mealbot-2026-08-02T023007Z.dump.gpg .
+gpg --output restored.dump --decrypt mealbot-2026-08-02T023007Z.dump.gpg
+# then feed restored.dump to scripts/db-restore.sh (it defaults to a scratch DB)
+```
+
+A backup you have never restored is a hypothesis. `scripts/db-restore.sh`
+restores into a throwaway database and counts rows precisely so this can be
+rehearsed without touching production.
 
 ---
 
