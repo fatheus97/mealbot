@@ -330,7 +330,14 @@ threshold clears the state, so a later crossing warns again.
 
 The measurement happens on the HOST (a container sees its own overlay
 filesystem, not the host's); the email is sent from the backend container, where
-the Resend credentials already are.
+the Resend credentials already are. `scripts/disk-alert.sh` is deliberately thin
+— `df`, the state file, and the below-threshold exit. The band/throttle decision
+lives in `app/scripts/disk_alert.py` because this repo has no shell test harness
+and that is the logic worth testing.
+
+**A disk it cannot read is a failure, not a quiet 0.** If `df` breaks, the unit
+exits non-zero and `OnFailure=` mails you — rather than reporting an empty
+percentage, which is what it did before #351 review.
 
 ### Tuning
 

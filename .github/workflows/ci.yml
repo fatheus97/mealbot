@@ -338,6 +338,32 @@ jobs:
           done
           exit "$failed"
 
+      - name: A broken disk reading fails loudly
+        # The bug this guards: `used_pct="$(df ...)"` is an ASSIGNMENT, and
+        # `set -e` does not abort on a failing command substitution used as one.
+        # A broken `df` therefore left used_pct empty, sailed through the
+        # comparisons (a `[ "" -lt 85 ]` error reads as false) and mailed
+        # "[mealbot] disk % full" while exiting 0 — so OnFailure= never fired.
+        # Both paths below are container-free, so this stays a seconds-long step.
+        run: |
+          set -uo pipefail
+          failed=0
+          if DISK_ALERT_MOUNT=/no/such/mount ./scripts/disk-alert.sh 2>/dev/null; then
+            echo "::error::disk-alert.sh exited 0 despite being unable to read the disk"
+            failed=1
+          fi
+          state="$(mktemp)"
+          printf '2000-01-01 90\n' > "$state"
+          if ! DISK_ALERT_FAKE_PCT=10 DISK_ALERT_STATE="$state" ./scripts/disk-alert.sh; then
+            echo "::error::disk-alert.sh failed on an ordinary below-threshold run"
+            failed=1
+          fi
+          if [ -f "$state" ]; then
+            echo "::error::below-threshold run must clear the state file, or a later crossing stays silent"
+            failed=1
+          fi
+          exit "$failed"
+
       - name: The backup job never prunes Docker volumes
         # A volume prune anywhere in the deploy tooling would delete the Postgres
         # data this whole PR exists to protect.
