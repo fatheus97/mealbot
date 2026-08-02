@@ -177,6 +177,36 @@ class TestConsentIsServerAuthored:
         assert user.terms_accepted_at.year != 1999
 
 
+    async def test_the_invite_path_ignores_a_forged_version_too(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # Same guarantee, second entry point. InviteRedeem does not declare
+        # these fields either, so the risk is structural rather than incidental
+        # — but "the other endpoint happens to use the same pattern" is exactly
+        # the kind of thing that stops being true during a refactor, and this is
+        # the cheaper half of finding that out.
+        token, _row = await _mint(db_session)
+        await db_session.commit()
+
+        with patch.object(settings, "registration_enabled", False):
+            resp = await unauthed_client.post(
+                "/api/users/register-invite",
+                json={
+                    "token": token,
+                    "email": "invite-forger@example.com",
+                    "password": TEST_PASSWORD,
+                    "accept_terms": True,
+                    "terms_version": "1999-01-01",
+                    "terms_accepted_at": "1999-01-01T00:00:00",
+                },
+            )
+        assert resp.status_code == 201
+        user = await _user(db_session, "invite-forger@example.com")
+        assert user.terms_version == TERMS_VERSION
+        assert user.terms_accepted_at is not None
+        assert user.terms_accepted_at.year != 1999
+
+
 class TestOperatorPathsRecordNothing:
     async def test_the_cli_leaves_consent_null(
         self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
