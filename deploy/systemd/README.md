@@ -420,8 +420,8 @@ gpg --armor --export-secret-keys mealbot-backup > mealbot-backup.key   # into th
 **b) Import ONLY the public key on the box.**
 
 ```bash
-scp mealbot-backup.pub root@178.104.64.139:/tmp/
-ssh root@178.104.64.139 'sudo -u deploy gpg --import /tmp/mealbot-backup.pub && rm /tmp/mealbot-backup.pub'
+scp mealbot-backup.pub root@<your-server>:/tmp/
+ssh root@<your-server> 'sudo -u deploy gpg --import /tmp/mealbot-backup.pub && rm /tmp/mealbot-backup.pub'
 ```
 
 **c) Create the B2 bucket and an application key.** In the Backblaze console:
@@ -435,8 +435,8 @@ backups; object lock is what stops them *deleting* them.
 **d) Install rclone and configure the remote as `deploy`.**
 
 ```bash
-ssh root@178.104.64.139 'curl -fsSL https://rclone.org/install.sh | bash'
-ssh root@178.104.64.139 'sudo -u deploy rclone config'   # n) new → name: b2 → storage: b2 → key id + app key
+ssh root@<your-server> 'curl -fsSL https://rclone.org/install.sh | bash'
+ssh root@<your-server> 'sudo -u deploy rclone config'   # n) new → name: b2 → storage: b2 → key id + app key
 ```
 
 **e) Write the credentials file.** Deliberately *not* `/opt/mealbot/.env` — that
@@ -444,7 +444,7 @@ file is read by the container stack and by anyone who can `exec` into a
 container. The B2 key only needs to be visible to this one unit.
 
 ```bash
-ssh root@178.104.64.139 'mkdir -p /etc/mealbot && cat > /etc/mealbot/offsite-backup.env <<EOF
+ssh root@<your-server> 'mkdir -p /etc/mealbot && cat > /etc/mealbot/offsite-backup.env <<EOF
 OFFSITE_BACKUP_ENABLED=true
 OFFSITE_RCLONE_REMOTE=b2:mealbot-backups/prod
 OFFSITE_GPG_RECIPIENT=mealbot-backup
