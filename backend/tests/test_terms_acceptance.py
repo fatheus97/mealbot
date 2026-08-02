@@ -20,13 +20,14 @@ from app.core.security import get_password_hash
 from app.models.db_models import InviteToken, User
 from app.models.user_schemas import Credentials, UserCreate
 from app.services.invite import create_invite
+from tests.conftest import TEST_PASSWORD
 
 
 async def _mint(db_session: AsyncSession) -> tuple[str, InviteToken]:
     """Mint an invite straight through the service, mirroring test_invite_redeem."""
     admin = User(
         email="invite-admin@example.com",
-        hashed_password=get_password_hash("Admin12345"),
+        hashed_password=get_password_hash(TEST_PASSWORD),
         is_admin=True,
     )
     db_session.add(admin)
@@ -59,7 +60,7 @@ class TestRegistrationRecordsConsent:
                 "/api/users/register",
                 json={
                     "email": "consent@example.com",
-                    "password": "ConsentPass123",
+                    "password": TEST_PASSWORD,
                     "accept_terms": True,
                 },
             )
@@ -86,7 +87,7 @@ class TestRegistrationRecordsConsent:
                 json={
                     "token": token,
                     "email": "invitee@example.com",
-                    "password": "InvitePass123",
+                    "password": TEST_PASSWORD,
                     "accept_terms": True,
                 },
             )
@@ -111,7 +112,7 @@ class TestConsentCannotBeSkipped:
         # Omission must be a 422, not a silent False and certainly not a silent
         # True — a defaulted field would let a client register and still get a
         # stamped row, which is exactly what makes such a record worthless.
-        payload = {"email": "nope@example.com", "password": "NopePass123", **body}
+        payload = {"email": "nope@example.com", "password": TEST_PASSWORD, **body}
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post("/api/users/register", json=payload)
         assert resp.status_code == 422
@@ -137,7 +138,7 @@ class TestConsentCannotBeSkipped:
                 json={
                     "token": token,
                     "email": "declined@example.com",
-                    "password": "DeclinedPass123",
+                    "password": TEST_PASSWORD,
                     "accept_terms": False,
                 },
             )
@@ -163,7 +164,7 @@ class TestConsentIsServerAuthored:
                 "/api/users/register",
                 json={
                     "email": "forger@example.com",
-                    "password": "ForgerPass123",
+                    "password": TEST_PASSWORD,
                     "accept_terms": True,
                     "terms_version": "1999-01-01",
                     "terms_accepted_at": "1999-01-01T00:00:00",
@@ -189,7 +190,7 @@ class TestOperatorPathsRecordNothing:
         import app.scripts.create_user as cli
 
         monkeypatch.setattr(cli, "async_session_factory", lambda: _Ctx(db_session))
-        await cli.create_user("operator-made@example.com", "OperatorPass123")
+        await cli.create_user("operator-made@example.com", TEST_PASSWORD)
 
         user = await _user(db_session, "operator-made@example.com")
         assert user.terms_accepted_at is None
@@ -199,17 +200,17 @@ class TestOperatorPathsRecordNothing:
         # Dropping accept_terms from the CLI's schema must not drop the rest of
         # the rules with it.
         with pytest.raises(Exception):
-            Credentials(email="not-an-address", password="ValidPass123")
+            Credentials(email="not-an-address", password=TEST_PASSWORD)
         with pytest.raises(Exception):
-            Credentials(email="a@b.com", password="weak")
+            Credentials(email="a@b.com", password="short")
 
     def test_credentials_does_not_demand_consent(self) -> None:
         # The whole point of the split: no accept_terms on the operator path.
-        Credentials(email="a@b.com", password="ValidPass123")
+        Credentials(email="a@b.com", password=TEST_PASSWORD)
 
     def test_user_create_still_does(self) -> None:
         with pytest.raises(Exception):
-            UserCreate(email="a@b.com", password="ValidPass123")  # type: ignore[call-arg]
+            UserCreate(email="a@b.com", password=TEST_PASSWORD)  # type: ignore[call-arg]
 
 
 class _Ctx:
