@@ -145,3 +145,42 @@ async def get_budget_status(session: AsyncSession, user: User) -> BudgetStatus:
 def is_over_budget(status: BudgetStatus) -> bool:
     """True once spend has reached the cap (unlimited tiers are never over)."""
     return status.cap_eur is not None and status.used_eur >= status.cap_eur
+
+
+def cap_reached_message(status: BudgetStatus) -> str:
+    """The sentence a capped user actually reads.
+
+    Lives here, not in the API layer, because the honest wording depends on tier
+    semantics only this module knows: for TIER_PAID ``reset_at`` is the start of
+    next month and the allowance genuinely resets, but for TIER_TRIAL it is
+    ``trial_end`` and nothing resets — the window simply stops being the trial
+    window. Telling a trial user their allowance "resets" on that date would be a
+    small lie, and they are exactly the users deciding whether to pay.
+
+    Deliberately promises nothing about what the post-trial allowance will be.
+    Both caps are configurable, so "you'll get more room" is only true under the
+    current settings, and a message that stops being true after an env change is
+    worse than one that never claimed it.
+    """
+    # Callers reach this only via is_over_budget, which is False for a null cap.
+    cap = status.cap_eur if status.cap_eur is not None else status.used_eur
+    when = f"{status.reset_at.day} {status.reset_at:%B %Y}"
+    if status.tier == TIER_TRIAL:
+        limit = (
+            f"You have used the €{cap:.2f} of AI generation included in your free "
+            f"trial, which runs until {when}."
+        )
+    else:
+        limit = (
+            f"You have used your €{cap:.2f} of AI generation for this month. "
+            f"Your allowance resets on {when}."
+        )
+    # Retrying is the natural instinct and the one thing that cannot work — say so,
+    # and say what still does, or this reads as an outage. The list is every route
+    # that depends on require_generation_budget: plan create, plan regenerate,
+    # single recipe, and receipt scan. Naming only two of the four would send a
+    # user to the scanner to find it dead as well.
+    return (
+        f"{limit} New plans, recipes and receipt scanning are paused until then; "
+        "everything you have already saved is unaffected."
+    )

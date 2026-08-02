@@ -38,6 +38,7 @@ import type {
   UsageStatsResponse,
   UserProfile,
 } from "./types";
+import { extractErrorDetail } from "./utils/httpError";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -157,20 +158,6 @@ export async function createPortalSession(): Promise<string> {
   return data.url;
 }
 
-// Surface the backend's human-readable `detail` string when the server sends
-// one (friendly errors like the fail-closed allergen message, billing 503/400,
-// "plan generation failed"). Pydantic *validation* 422s carry a LIST detail,
-// not a string — those fall through to the fallback (with status) so we never
-// dump raw FastAPI JSON into the UI.
-async function extractErrorDetail(res: Response, fallback: string): Promise<string> {
-  try {
-    const parsed = await res.json();
-    if (typeof parsed?.detail === "string") return parsed.detail;
-  } catch {
-    // non-JSON body — use the fallback
-  }
-  return `${fallback} (${res.status})`;
-}
 
 // --- Password reset (both endpoints are unauthenticated) ---
 

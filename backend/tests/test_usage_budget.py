@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_generation_budget
 from app.core.config import settings
 from app.models.db_models import LlmUsage, User
+from app.models.usage_schemas import BudgetStatus
 from app.services import llm_cost, usage_budget
 
 
@@ -221,6 +222,11 @@ async def test_require_generation_budget_blocks_over_cap(
     assert exc.value.detail["code"] == "usage_cap_reached"
     assert exc.value.headers is not None
     assert exc.value.headers["Retry-After"].isdigit()
+    # The dict was ALL there was until #352, and the frontend only understood a
+    # string detail — so the one error where retrying can never work was the one
+    # rendered as "Plan generation failed. Please try again.", for up to a month.
+    assert isinstance(exc.value.detail["user_detail"], str)
+    assert "€2.00" in exc.value.detail["user_detail"]
 
 
 async def test_require_generation_budget_allows_under_cap(
@@ -263,3 +269,99 @@ async def test_usage_me_exposes_budget_block(
     assert budget["tier"] in {"paid", "trial", "unlimited"}
     assert "reset_at" in budget
     assert "used_eur" in budget
+
+
+class TestCapReachedMessage:
+    """The sentence a capped user reads. Wording is load-bearing: this error is
+    the only one where the app's usual advice — try again — is guaranteed wrong.
+    """
+
+    def _status(self, **kwargs: object) -> BudgetStatus:
+        base: dict[str, object] = dict(
+            tier="paid",
+            cap_eur=2.0,
+            used_eur=2.0,
+            remaining_eur=0.0,
+            reset_at=datetime(2026, 9, 1),
+            soft_warn=True,
+        )
+        base.update(kwargs)
+        return BudgetStatus(**base)  # type: ignore[arg-type]
+
+    def test_paid_names_the_amount_and_the_reset_date(self) -> None:
+        msg = usage_budget.cap_reached_message(self._status())
+        assert "€2.00" in msg
+        assert "1 September 2026" in msg
+        assert "resets" in msg
+
+    def test_trial_does_not_claim_a_reset(self) -> None:
+        # For TIER_TRIAL, reset_at is trial_end — nothing resets on that date.
+        # Trial users are precisely the ones deciding whether to pay, so a
+        # convenient half-truth here is the most expensive place to put one.
+        msg = usage_budget.cap_reached_message(
+            self._status(tier="trial", cap_eur=0.75, used_eur=0.75)
+        )
+        assert "resets" not in msg
+        assert "free trial" in msg
+        assert "€0.75" in msg
+
+    def test_promises_nothing_about_the_post_trial_allowance(self) -> None:
+        # Both caps are env-configurable, so "you'll get more room after the
+        # trial" is only true under today's settings.
+        msg = usage_budget.cap_reached_message(self._status(tier="trial", cap_eur=0.75))
+        assert "more" not in msg.lower()
+
+    def test_says_retrying_will_not_help(self) -> None:
+        # Without this the user retries for a month. "Paused until then" is the
+        # whole point of the message.
+        assert "paused until then" in usage_budget.cap_reached_message(self._status())
+
+    def test_names_every_gated_surface(self) -> None:
+        # require_generation_budget gates plan create, plan regenerate, single
+        # recipe AND receipt scan. Naming only some of them sends the user off to
+        # the one it did not mention, to find that dead too.
+        msg = usage_budget.cap_reached_message(self._status())
+        assert "plans" in msg and "recipes" in msg and "receipt scanning" in msg
+
+    def test_says_saved_work_is_safe(self) -> None:
+        # A hard stop on generation reads as a total outage otherwise.
+        assert "unaffected" in usage_budget.cap_reached_message(self._status())
+
+    def test_survives_a_null_cap(self) -> None:
+        # Unreachable via is_over_budget (null cap is never over), but the
+        # function must not raise if a caller ever gets that wrong.
+        msg = usage_budget.cap_reached_message(
+            self._status(tier="unlimited", cap_eur=None, remaining_eur=None)
+        )
+        assert "€" in msg
+
+
+async def test_capped_generation_returns_a_readable_detail(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    test_user: User,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End to end over HTTP: the JSON the browser actually receives.
+
+    The dependency-level test above asserts the dict; this asserts it survives
+    FastAPI serialization, because that JSON is what extractErrorDetail reads.
+    """
+    monkeypatch.setattr(settings, "usage_cap_enabled", True)
+    monkeypatch.setattr(settings, "usage_cap_paid_eur", 2.0)
+    assert test_user.id is not None
+    rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
+    await _seed(db_session, test_user.id, int(2.5 / rate.output_eur_per_token))
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/plan?days=1",
+        headers=auth_headers,
+        json={"days": 1, "meals_per_day": 1},
+    )
+    assert resp.status_code == 429
+    detail = resp.json()["detail"]
+    assert detail["code"] == "usage_cap_reached"
+    assert "€2.00" in detail["user_detail"]
+    assert "paused until then" in detail["user_detail"]
