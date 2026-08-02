@@ -151,8 +151,15 @@ fi
 # a night the upload fails would delete history while adding nothing. (The local
 # db-backup.sh prunes first for the opposite reason — there, a failed dump must
 # not let old files accumulate forever. Different risk, different order.)
+#
+# --include is not decoration. Without it this deletes ANYTHING at the
+# destination older than the retention window, and the only thing standing
+# between that and someone else's data is the README saying "use a dedicated
+# bucket". A prune that can only ever remove files this script wrote does not
+# depend on that assumption holding a year from now.
 echo "offsite-backup: pruning remote copies older than ${OFFSITE_RETENTION_DAYS}d"
-rclone delete --min-age "${OFFSITE_RETENTION_DAYS}d" "${OFFSITE_RCLONE_REMOTE%/}/"
+rclone delete --min-age "${OFFSITE_RETENTION_DAYS}d" \
+  --include '/mealbot-*.dump.gpg' "${OFFSITE_RCLONE_REMOTE%/}/"
 
 remaining="$(rclone lsf "${OFFSITE_RCLONE_REMOTE%/}/" 2>/dev/null | grep -c '\.dump\.gpg$' || true)"
 echo "offsite-backup: ${remaining:-0} encrypted dump(s) retained off-site"
