@@ -1,5 +1,24 @@
+# Container log rotation. Docker's default json-file driver has NO size limit,
+# so every container log grows without bound until the disk fills — the same
+# class of failure as the BuildKit cache that took prod offline on 2026-07-21,
+# just slower. The frontend is the noisy one (an nginx access line per request).
+#
+# It also makes a retention claim possible at all: the privacy policy has to say
+# what happens to server logs containing IP addresses, and "they grow forever"
+# is not an answer. Rotation is by SIZE, not age, so the policy states the cap
+# and the discard behaviour rather than inventing a number of days.
+#
+# 10MB x 3 files = 30MB ceiling per container. Applies on container RECREATION,
+# not reload — deploy.sh runs `up -d --build`, so it lands on the next deploy.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
+    logging: *default-logging
     image: pgvector/pgvector:0.8.2-pg15@sha256:7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742
     # statement_timeout caps any single query at 30s. A runaway ORM join or a
     # pgvector scan that picked the wrong plan can otherwise hold a connection
@@ -27,6 +46,7 @@ services:
       retries: 10
 
   test-db:
+    logging: *default-logging
     image: pgvector/pgvector:0.8.2-pg15@sha256:7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742
     environment:
       POSTGRES_USER: testuser
@@ -52,6 +72,7 @@ services:
   #   docker compose up -d --no-deps backend
   # Prefer fixing the migration and re-running a normal `up -d --build`.
   migrate:
+    logging: *default-logging
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -85,6 +106,7 @@ services:
     restart: "no"
 
   backend:
+    logging: *default-logging
     build:
       context: ./backend  # This tells Docker to look INSIDE the backend folder
       dockerfile: Dockerfile
@@ -111,6 +133,7 @@ services:
       start_period: 10s
 
   frontend:
+    logging: *default-logging
     build: ./frontend
     ports:
       - "5173:80"  # Map host 5173 to container 80

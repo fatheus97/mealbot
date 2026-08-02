@@ -30,6 +30,13 @@ services:
     restart: unless-stopped
 
   caddy:
+    # Anchors do not cross compose files, so this repeats the base file's
+    # x-logging block rather than referencing it. Keep the two in step.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Pinned to 2.8.4 + digest. `caddy:2-alpine` let the major tag float
     # and could roll to a new minor without a review. Digest pin makes
     # rebuilds reproducible across the Hetzner box and local/CI.
