@@ -1,0 +1,25 @@
+# Schedules mealbot-disk-alert.service once an hour.
+#
+# This is the unit you enable:
+#   systemctl enable --now mealbot-disk-alert.timer
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=Schedule the mealbot hourly disk-usage alert
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# Hourly, not daily. A disk can go from comfortable to full inside a day — a
+# large upload, a log storm, a runaway backup — and a daily check can easily
+# report the problem after the outage it was meant to prevent. The run is cheap:
+# below the threshold it is one `df` and an exit, with no container started.
+OnCalendar=hourly
+# If the box was off at the top of the hour, check as soon as it is back — the
+# disk state is exactly what you want to know after an unexpected reboot.
+Persistent=true
+# Spread it off the exact minute so it never lands with the other timers.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

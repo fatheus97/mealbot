@@ -321,7 +321,7 @@ jobs:
           for s in scripts/*.sh; do
             bash -n "$s" || { echo "::error::${s} is not valid bash"; failed=1; }
           done
-          shellcheck scripts/db-backup.sh scripts/db-restore.sh || failed=1
+          shellcheck scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh || failed=1
           exit "$failed"
 
       - name: Backup scripts are executable
@@ -330,7 +330,7 @@ jobs:
         run: |
           set -uo pipefail
           failed=0
-          for s in scripts/db-backup.sh scripts/db-restore.sh; do
+          for s in scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh; do
             if [ ! -x "$s" ]; then
               echo "::error::${s} is not executable (git update-index --chmod=+x ${s})"
               failed=1
