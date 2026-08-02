@@ -36,7 +36,7 @@ from app.models.plan_models import (
     SingleDayResponse,
     StockItemDTO,
 )
-from app.services.allergen_screen import AllergenScreenError
+from app.services.allergen_screen import ScreenError
 from app.services.fridge_service import (
     allocate_fifo,
     flatten_fridge_batches,
@@ -665,7 +665,7 @@ async def generate_plan_days(
                         day_req, session, user.id, mock=user.is_demo,
                         slot_layout=slot_layout, slot_portions=slot_portions,
                     )
-                except AllergenScreenError:
+                except ScreenError:
                     # RAG couldn't clear the allergen screen — fall back to a
                     # fresh standard generation (no RAG examples to suggest the
                     # allergen), which is itself screened. Only if THAT also
@@ -685,7 +685,7 @@ async def generate_plan_days(
                 )
         except HTTPException:
             raise
-        except AllergenScreenError:
+        except ScreenError:
             # Fail CLOSED, but as a DISTINCT error the boundary maps to a
             # friendly, allergen-naming 422 — not the generic "generation
             # failed, try again" 502 (retrying the same restrictive request

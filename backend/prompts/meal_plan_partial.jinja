@@ -132,7 +132,7 @@ Other rules:
 — Mark an ingredient as "is_spice": true if it is a PANTRY FLAVORING — something a home cook
   typically has on hand, uses in small/imprecise amounts, and does not need to buy or weigh per recipe.
   Examples of is_spice=true: salt, pepper, cumin, paprika, dried herbs, chili flakes, spice blends,
-  soy sauce, fish sauce, sesame oil, vinegar, mustard, honey (as flavoring), garlic, ginger, lemon juice.
+  {% if "baby_food" in diet_types %}sesame oil, garlic, ginger, lemon juice, mild herbs. (Soy sauce, fish sauce, mustard and honey are NOT options here — see INFANT FOOD MODE above.){% else %}soy sauce, fish sauce, sesame oil, vinegar, mustard, honey (as flavoring), garlic, ginger, lemon juice.{% endif %}
   Examples of is_spice=false: chicken breast, rice, pasta, onion, bell pepper, canned tomatoes,
   olive oil (as cooking fat in quantity), butter (as main fat), cream, cheese, tofu.
   Rule of thumb: if you'd measure it in teaspoons/splashes rather than grams, it's is_spice=true.

@@ -43,7 +43,7 @@ from app.models.plan_models import (
 )
 from app.services.allergen_screen import (
     UNSCREENABLE_TERM,
-    AllergenScreenError,
+    ScreenError,
     screen_meals_for_allergens,
 )
 from app.services.fridge_service import (
@@ -446,7 +446,7 @@ async def plan_meals_for_user(
         meal_plan, shopping_items, _initial_fridge = await generate_plan_days(
             session, current_user, payload, days,
         )
-    except AllergenScreenError as exc:
+    except ScreenError as exc:
         # Fail-closed with a specific, honest message that names the allergen we
         # couldn't avoid. 422 not 502: the request is well-formed but can't be
         # satisfied as stated — a transient-retry 502 would send the user in
@@ -663,7 +663,7 @@ async def regenerate_plan(
             )
         except HTTPException:
             raise
-        except AllergenScreenError as exc:
+        except ScreenError as exc:
             # Same fail-closed 422 as plan creation — name the allergen we
             # couldn't avoid rather than the generic "regeneration failed".
             raise HTTPException(status_code=422, detail=exc.user_detail) from exc
