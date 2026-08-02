@@ -342,6 +342,20 @@ async def generate_single_day_with_rag(
                 [meal], req.allergens, language=None,
             ):
                 continue
+            # Same rationale for infant safety, and it is load-bearing here.
+            # retrieve_rated_meals pulls highly-rated meals from ALL users with
+            # no diet filter, so for a baby_food request nearly every example is
+            # an ordinary adult recipe (salt, cheese, oil). Priming the model
+            # with those makes it copy them, the post-generation infant screen
+            # then rejects — and this path passes 0 retries, so it would fall
+            # straight through to the standard pipeline. That is an extra LLM
+            # call on essentially EVERY RAG-eligible infant generation, not an
+            # occasional one. The 0-retry budget is only justified while the
+            # example pool is pre-screened for the same things the output is.
+            if DietType.BABY_FOOD in req.diet_types and screen_meals_for_infant(
+                [meal], language=None,
+            ):
+                continue
             retrieved_meals.append({
                 "name": meal.name,
                 "ingredients": [ing.name for ing in meal.ingredients],

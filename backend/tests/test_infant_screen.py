@@ -206,3 +206,51 @@ class TestIndependentOfAllergens:
         # on allergens it would be inert for the common case — which is exactly
         # how the wiring nearly shipped.
         assert screen_meals_for_infant([_meal("honey")], language="en") != []
+
+
+class TestRagPreFilterParity:
+    """The RAG example pool must be pre-screened for the SAME things the output
+    is, or the 0-retry budget on that path stops being justified.
+
+    `retrieve_rated_meals` pulls highly-rated meals from ALL users with no diet
+    filter, so for a baby_food request nearly every candidate is an ordinary
+    adult recipe. Priming the model with those makes it copy them, the
+    post-generation screen rejects, and with 0 retries the whole RAG attempt is
+    wasted — an extra LLM call on essentially every infant generation.
+    """
+
+    def test_an_adult_example_is_rejected_by_the_infant_screen(self) -> None:
+        adult = PlannedMeal(
+            name="Salty Pasta",
+            meal_type=MealType.MAIN_COURSE,
+            ingredients=[
+                IngredientAmount(name="pasta", quantity_grams=100),
+                IngredientAmount(name="salt", quantity_grams=2),
+            ],
+            steps=["Boil the pasta."],
+        )
+        assert screen_meals_for_infant([adult], language=None) != []
+
+    def test_an_infant_appropriate_example_survives(self) -> None:
+        # ...and the filter must not empty the pool outright, or RAG is dead for
+        # baby_food the way it briefly was for non-English users.
+        baby = PlannedMeal(
+            name="Carrot Puree",
+            meal_type=MealType.MAIN_COURSE,
+            ingredients=[IngredientAmount(name="carrot", quantity_grams=100)],
+            steps=["Steam until soft, then mash."],
+        )
+        assert screen_meals_for_infant([baby], language=None) == []
+
+    def test_stored_examples_screen_in_english_mode(self) -> None:
+        # Stored meals come from other users at unknown times in unknown
+        # languages, and English-authored ones never carry name_en by design.
+        # language=None must therefore never mark them UNSCREENABLE, or the pool
+        # empties permanently.
+        stored = PlannedMeal(
+            name="Kase",
+            meal_type=MealType.MAIN_COURSE,
+            ingredients=[IngredientAmount(name="mrkev", quantity_grams=100)],
+            steps=["varit"],
+        )
+        assert screen_meals_for_infant([stored], language=None) == []
