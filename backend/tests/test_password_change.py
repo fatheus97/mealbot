@@ -15,7 +15,8 @@ from app.core.cookies import (
     REFRESH_COOKIE_NAME,
 )
 from app.core.security import verify_password
-from app.models.db_models import AuthSession, User
+from app.models.db_models import AuthSession, PasswordResetToken, User
+from app.services import password_reset
 from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 NEW_PASSWORD = "NewPassword456"
@@ -218,6 +219,72 @@ class TestChangePasswordRevokesOtherDevices:
             assert after.status_code == 200, (
                 "password-changer was logged out by another device's refresh"
             )
+
+
+class TestPasswordResetTokensAreVoided:
+    async def test_a_live_reset_link_stops_working(
+        self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ):
+        """The sibling of the change_email finding, on the endpoint where it is
+        just as bad.
+
+        A PasswordResetToken encodes no password and no address — it is keyed on
+        user_id and redeemed by hash alone — so a link already sitting in the
+        inbox survives a password change for the rest of its TTL, and redeeming
+        it sets a password of the holder's choosing, revoking every session and
+        bumping token_version. That silently undoes the change the user just
+        made: request a reset, think better of it, change from Settings instead,
+        and the link in the exposed inbox is still a takeover primitive.
+        """
+        from datetime import UTC, datetime
+
+        assert test_user.id is not None
+        reset_token = await password_reset.create_reset_token(
+            db_session, test_user.id, datetime.now(UTC)
+        )
+        assert reset_token is not None
+        await db_session.commit()
+
+        await _login(unauthed_client)
+        resp = await unauthed_client.post(
+            "/api/auth/password",
+            json={"current_password": TEST_PASSWORD, "new_password": NEW_PASSWORD},
+        )
+        assert resp.status_code == 204
+
+        hijack = await unauthed_client.post(
+            "/api/auth/reset-password",
+            json={"token": reset_token, "new_password": "AttackerPass123"},
+        )
+        assert hijack.status_code == 400
+        # And the password the user actually chose is the one that stands.
+        await db_session.refresh(test_user)
+        assert verify_password(NEW_PASSWORD, test_user.hashed_password)
+
+    async def test_every_pre_existing_reset_token_is_marked_used(
+        self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ):
+        from datetime import UTC, datetime
+
+        assert test_user.id is not None
+        await password_reset.create_reset_token(
+            db_session, test_user.id, datetime.now(UTC)
+        )
+        await db_session.commit()
+
+        await _login(unauthed_client)
+        await unauthed_client.post(
+            "/api/auth/password",
+            json={"current_password": TEST_PASSWORD, "new_password": NEW_PASSWORD},
+        )
+
+        rows = (await db_session.execute(
+            select(PasswordResetToken).where(
+                PasswordResetToken.user_id == test_user.id
+            )
+        )).scalars().all()
+        assert rows, "fixture must leave a reset token to void"
+        assert all(r.used_at is not None for r in rows)
 
 
 class TestChangePasswordCsrf:
