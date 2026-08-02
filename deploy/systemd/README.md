@@ -13,6 +13,7 @@ the daemon's build cache / images, so it has no reason to enter a container).
 
 | Timer | Runs | Schedule | Needs env vars? |
 |---|---|---|---|
+| `mealbot-disk-alert` | `scripts/disk-alert.sh` — warn by email before the disk fills | **hourly** | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-db-backup` | `scripts/db-backup.sh` — nightly `pg_dump` of the live database | daily 02:30 | No (`ALERT_*` only for failure mail) |
 | `mealbot-billing-alerts` | `app.scripts.billing_alerts` — VAT-threshold + monthly filing-reminder emails (#202) | daily 08:00 | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-authsession-cleanup` | `app.scripts.authsession_cleanup` — delete long-expired `authsession` rows so the table doesn't grow unbounded | daily 03:30 | No |
@@ -309,6 +310,72 @@ non-zero if the restored database has no users.
 `BACKUP_DIR` and `BACKUP_RETENTION_DAYS` (default 14) are read from the
 environment. Retention is what stops this job from becoming the thing that
 fills the disk.
+
+---
+
+## 5. Disk-usage alert (`mealbot-disk-alert`)
+
+The weekly `mealbot-docker-cleanup` timer PREVENTS one known cause of a full
+disk — BuildKit cache, the 2026-07-21 outage. This DETECTS every other cause
+(backups, logs, a runaway upload) while there is still room to act. A full disk
+stops Postgres accepting writes and stops Caddy renewing certificates.
+
+Runs hourly, not daily: a disk can go from comfortable to full inside a day, and
+a daily check can report the problem after the outage it was meant to prevent.
+Below the threshold the run is one `df` and an exit — no container is started.
+
+**It does not spam.** Escalation bands mean 86% warns once, then stays quiet
+until it crosses 90%, then 95%. A new day re-arms it. Dropping back below the
+threshold clears the state, so a later crossing warns again.
+
+The measurement happens on the HOST (a container sees its own overlay
+filesystem, not the host's); the email is sent from the backend container, where
+the Resend credentials already are. `scripts/disk-alert.sh` is deliberately thin
+— `df`, the state file, and the below-threshold exit. The band/throttle decision
+lives in `app/scripts/disk_alert.py` because this repo has no shell test harness
+and that is the logic worth testing.
+
+**A disk it cannot read is a failure, not a quiet 0.** If `df` breaks, the unit
+exits non-zero and `OnFailure=` mails you — rather than reporting an empty
+percentage, which is what it did before #351 review.
+
+### Tuning
+
+Read from the environment, all optional:
+
+```
+DISK_ALERT_THRESHOLD=85          # percent
+DISK_ALERT_MOUNT=/
+DISK_ALERT_STATE=/opt/mealbot/.disk-alert-state
+```
+
+### Install (one-time, on the VPS)
+
+```bash
+sudo cp /opt/mealbot/deploy/systemd/mealbot-*.service /etc/systemd/system/
+sudo cp /opt/mealbot/deploy/systemd/mealbot-*.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mealbot-disk-alert.timer
+```
+
+### Verify
+
+```bash
+systemctl list-timers mealbot-disk-alert.timer
+sudo systemctl start mealbot-disk-alert.service
+journalctl -u mealbot-disk-alert.service -n 20 --no-pager
+```
+
+Expected on a healthy box: `disk-alert: 34% used, below 85% — nothing to do`.
+
+To prove the mail path end to end without filling the disk, force a reading:
+
+```bash
+cd /opt/mealbot && sudo -u deploy DISK_ALERT_FAKE_PCT=91 ./scripts/disk-alert.sh
+```
+
+That sends a real alert. Delete `/opt/mealbot/.disk-alert-state` afterwards so
+the day's genuine alert is not suppressed.
 
 ---
 

@@ -321,7 +321,7 @@ jobs:
           for s in scripts/*.sh; do
             bash -n "$s" || { echo "::error::${s} is not valid bash"; failed=1; }
           done
-          shellcheck scripts/db-backup.sh scripts/db-restore.sh || failed=1
+          shellcheck scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh || failed=1
           exit "$failed"
 
       - name: Backup scripts are executable
@@ -330,12 +330,38 @@ jobs:
         run: |
           set -uo pipefail
           failed=0
-          for s in scripts/db-backup.sh scripts/db-restore.sh; do
+          for s in scripts/db-backup.sh scripts/db-restore.sh scripts/disk-alert.sh; do
             if [ ! -x "$s" ]; then
               echo "::error::${s} is not executable (git update-index --chmod=+x ${s})"
               failed=1
             fi
           done
+          exit "$failed"
+
+      - name: A broken disk reading fails loudly
+        # The bug this guards: `used_pct="$(df ...)"` is an ASSIGNMENT, and
+        # `set -e` does not abort on a failing command substitution used as one.
+        # A broken `df` therefore left used_pct empty, sailed through the
+        # comparisons (a `[ "" -lt 85 ]` error reads as false) and mailed
+        # "[mealbot] disk % full" while exiting 0 — so OnFailure= never fired.
+        # Both paths below are container-free, so this stays a seconds-long step.
+        run: |
+          set -uo pipefail
+          failed=0
+          if DISK_ALERT_MOUNT=/no/such/mount ./scripts/disk-alert.sh 2>/dev/null; then
+            echo "::error::disk-alert.sh exited 0 despite being unable to read the disk"
+            failed=1
+          fi
+          state="$(mktemp)"
+          printf '2000-01-01 90\n' > "$state"
+          if ! DISK_ALERT_FAKE_PCT=10 DISK_ALERT_STATE="$state" ./scripts/disk-alert.sh; then
+            echo "::error::disk-alert.sh failed on an ordinary below-threshold run"
+            failed=1
+          fi
+          if [ -f "$state" ]; then
+            echo "::error::below-threshold run must clear the state file, or a later crossing stays silent"
+            failed=1
+          fi
           exit "$failed"
 
       - name: The backup job never prunes Docker volumes

@@ -1,0 +1,38 @@
+# mealbot — hourly disk-usage check, mails the operator before the disk fills.
+#
+# Runs scripts/disk-alert.sh once, then exits (Type=oneshot). Scheduled by
+# mealbot-disk-alert.timer; installable/testable on its own via
+# `systemctl start mealbot-disk-alert.service`.
+#
+# The sibling docker-cleanup timer PREVENTS one known cause of a full disk
+# (BuildKit cache, the 2026-07-21 outage). This DETECTS every other cause —
+# backups, logs, a runaway upload — while there is still room to act.
+#
+# Deliberately has NO [Install] section: it must run ONLY when the timer (or an
+# operator) triggers it, never at boot. Enable the .timer, not this unit.
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=mealbot hourly disk-usage alert
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# Needs Docker to reach the backend container for the send, and the network for
+# Resend. The df check itself is local, but the alert is worthless undelivered.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+# A disk warning that fails silently is the same defect as a backup that fails
+# silently — you find out at 100%.
+OnFailure=mealbot-alert@%n.service
+
+[Service]
+Type=oneshot
+# Same non-root, docker-group user as every other mealbot unit. Needs write
+# access to the state file (see DISK_ALERT_STATE in the script).
+User=deploy
+WorkingDirectory=/opt/mealbot
+ExecStart=/opt/mealbot/scripts/disk-alert.sh
+# Short: one df plus, at most, one container run and an HTTP call. If this is
+# still going after two minutes something is wrong and the timer will retry
+# within the hour anyway.
+TimeoutStartSec=120
