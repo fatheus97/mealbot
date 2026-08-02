@@ -404,10 +404,11 @@ async def change_password(
 
     Re-verifies the current password (a valid access token alone must not be
     enough — that's the whole point of asking for it), then rotates security
-    state: revoke every existing session and bump token_version so all *other*
-    devices and any in-flight access tokens die immediately, and mint a fresh
-    session for THIS device so the caller isn't logged out of the browser they
-    just changed it in.
+    state: void any outstanding password-reset token (see below), revoke every
+    existing session and bump token_version so all *other* devices and any
+    in-flight access tokens die immediately, and mint a fresh session for THIS
+    device so the caller isn't logged out of the browser they just changed it
+    in.
 
     NOT CSRF-exempt (the caller already holds the CSRF cookie) — a password
     change is exactly the state change double-submit protects. The bcrypt
@@ -441,6 +442,21 @@ async def change_password(
     current_user.hashed_password = await asyncio.to_thread(
         get_password_hash, body.new_password
     )
+    # Void outstanding reset tokens IN THIS TRANSACTION. A PasswordResetToken is
+    # keyed on user_id and redeemed by hash alone — it encodes neither a password
+    # nor an address — so a link already sitting in the inbox stays live for the
+    # rest of its TTL and redeeming it SETS A PASSWORD, revokes every session and
+    # bumps token_version, silently undoing the change just made. Real sequence:
+    # user suspects their inbox is exposed, requests a reset, then thinks better
+    # of it and changes the password from Settings instead; the unredeemed link in
+    # the exposed inbox still works. change_email does the same (see there).
+    #
+    # NOT routed through a shared "rotate credential tokens" helper on purpose:
+    # change_email voids verification tokens too because the ADDRESS moved, while
+    # here it has not — a pending verify link is still legitimately the user's and
+    # killing it would break "asked for a verify mail, then changed my password".
+    # Different sets, so one helper would need a flag to say which.
+    await password_reset.void_outstanding_tokens(session, current_user.id, now)
     # Bump token_version BEFORE issuing so the freshly-minted access token
     # carries the new version; the revoke sweep runs before the new INSERT so
     # this device's new session survives it.
