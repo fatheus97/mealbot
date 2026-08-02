@@ -1,0 +1,38 @@
+# mealbot — copy the newest nightly dump off the box, encrypted.
+#
+# Runs scripts/offsite-backup.sh once, then exits (Type=oneshot). Scheduled by
+# mealbot-offsite-backup.timer.
+#
+# SHIPS PARKED. With OFFSITE_BACKUP_ENABLED unset the script logs one line and
+# exits 0, so this unit is safe to install and enable before a destination
+# exists — no credentials, no bucket, no bill. See README §6 to activate.
+#
+# Deliberately has NO [Install] section: it must run ONLY when the timer (or an
+# operator) triggers it, never at boot. Enable the .timer, not this unit.
+
+[Unit]
+Description=mealbot off-site encrypted backup copy
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# No Requires=docker.service: this reads a file off the disk and talks to B2. It
+# does not touch Postgres or the container stack at all, so it can succeed on a
+# box where Docker is down — which is exactly a box you want backups leaving.
+After=network-online.target
+Wants=network-online.target
+# A backup that fails silently is the worst unit here: you find out it was
+# broken at the moment you need it.
+OnFailure=mealbot-alert@%n.service
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/opt/mealbot
+# Credentials live in a root-readable... no: this runs as `deploy`, so the file
+# must be readable by `deploy` and by nobody else (chmod 640, chown root:deploy).
+# Kept OUT of /opt/mealbot/.env because that file is read by the container stack
+# and by anyone who can exec into a container; the B2 key only ever needs to be
+# visible to this one unit.
+EnvironmentFile=-/etc/mealbot/offsite-backup.env
+ExecStart=/opt/mealbot/scripts/offsite-backup.sh
+# Generous but finite: a stalled upload on a bad network must fail and alert
+# rather than hang until the next run laps it.
+TimeoutStartSec=1800
