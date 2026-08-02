@@ -40,7 +40,7 @@ from app.models.plan_models import (
     SingleRecipeResponse,
     StockItemDTO,
 )
-from app.services.allergen_screen import AllergenScreenError
+from app.services.allergen_screen import ScreenError
 from app.services.fridge_service import (
     allocate_fifo,
     flatten_fridge_batches,
@@ -199,7 +199,7 @@ async def generate_recipe(
             mock=current_user.is_demo,
             slot_layout=[payload.meal_type.value],
         )
-    except AllergenScreenError as exc:
+    except ScreenError as exc:
         # Fail-closed with a specific, honest 422 that names the allergen we
         # couldn't avoid — not the generic transient-retry 502 below (retrying
         # the same restrictive request won't help).

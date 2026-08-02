@@ -8,7 +8,7 @@ from jinja2 import FileSystemLoader
 from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.config import settings
-from app.core.dietary import Allergen
+from app.core.dietary import Allergen, DietType
 from app.core.dietary_reference import resolve_dietary_context
 from app.llm.client import llm_client
 from app.models.plan_models import (
@@ -22,6 +22,11 @@ from app.services.allergen_screen import (
     AllergenViolation,
     is_english_language,
     screen_meals_for_allergens,
+)
+from app.services.infant_screen import (
+    InfantScreenError,
+    InfantViolation,
+    screen_meals_for_infant,
 )
 from app.services.recipe_retriever import MealHit, retrieve_rated_meals
 
@@ -61,6 +66,7 @@ async def _generate_and_screen(
     template_name: str,
     user_prompt: str,
     allergens: list[Allergen],
+    diet_types: list[DietType],
     mock: bool,
     language: str | None,
     mock_context: dict[str, object] | None = None,
@@ -86,6 +92,7 @@ async def _generate_and_screen(
     attribution.
     """
     last: list[AllergenViolation] = []
+    last_infant: list[InfantViolation] = []
     for attempt in range(max_retries + 1):
         raw = await llm_client.chat_json(
             system_prompt=SYSTEM_PROMPT,
@@ -110,19 +117,33 @@ async def _generate_and_screen(
         # of TestAllergenScreenWiring. The dev-only symptom is also pre-existing
         # and orthogonal: a fixture containing a declared allergen already
         # fail-closes the same way, name_en or not.
-        if mock or not allergens:
+        # baby_food must reach the screen even with NO declared allergen —
+        # that is the COMMON case for an infant plan, and gating on `allergens`
+        # alone would have shipped the infant screen inert.
+        baby = DietType.BABY_FOOD in diet_types
+        if mock or (not allergens and not baby):
             return response
+
         last = screen_meals_for_allergens(response.meals, allergens, language=language)
-        if not last:
+        last_infant = (
+            screen_meals_for_infant(response.meals, language=language) if baby else []
+        )
+        if not last and not last_infant:
             return response
         logger.warning(
-            "Allergen screen rejected %s attempt %d/%d: %s",
+            "Screen rejected %s attempt %d/%d: allergens=%s infant=%s",
             template_name,
             attempt + 1,
             max_retries + 1,
             [f"{v.ingredient}->{v.allergen.value}({v.matched_term})" for v in last],
+            [f"{v.ingredient}->{v.rule.value}({v.matched_term})" for v in last_infant],
         )
-    raise AllergenScreenError(last)
+
+    # Allergen first when both tripped: the user explicitly declared those, so
+    # naming them is the more actionable message.
+    if last:
+        raise AllergenScreenError(last)
+    raise InfantScreenError(last_infant)
 
 
 async def generate_single_day(
@@ -177,6 +198,7 @@ async def generate_single_day(
         template_name="meal_plan.jinja",
         user_prompt=user_prompt,
         allergens=req.allergens,
+        diet_types=req.diet_types,
         mock=mock,
         language=req.language,
         mock_context=mock_context,
@@ -229,6 +251,7 @@ async def generate_partial_day(
         template_name="meal_plan_partial.jinja",
         user_prompt=user_prompt,
         allergens=req.allergens,
+        diet_types=req.diet_types,
         mock=mock,
         language=req.language,
     )
@@ -319,6 +342,20 @@ async def generate_single_day_with_rag(
                 [meal], req.allergens, language=None,
             ):
                 continue
+            # Same rationale for infant safety, and it is load-bearing here.
+            # retrieve_rated_meals pulls highly-rated meals from ALL users with
+            # no diet filter, so for a baby_food request nearly every example is
+            # an ordinary adult recipe (salt, cheese, oil). Priming the model
+            # with those makes it copy them, the post-generation infant screen
+            # then rejects — and this path passes 0 retries, so it would fall
+            # straight through to the standard pipeline. That is an extra LLM
+            # call on essentially EVERY RAG-eligible infant generation, not an
+            # occasional one. The 0-retry budget is only justified while the
+            # example pool is pre-screened for the same things the output is.
+            if DietType.BABY_FOOD in req.diet_types and screen_meals_for_infant(
+                [meal], language=None,
+            ):
+                continue
             retrieved_meals.append({
                 "name": meal.name,
                 "ingredients": [ing.name for ing in meal.ingredients],
@@ -360,6 +397,7 @@ async def generate_single_day_with_rag(
         template_name="meal_plan.jinja (RAG)",
         user_prompt=user_prompt,
         allergens=req.allergens,
+        diet_types=req.diet_types,
         mock=mock,
         language=req.language,
         # One shot on the RAG path — a screen hit falls back to the standard

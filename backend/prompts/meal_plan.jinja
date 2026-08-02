@@ -47,16 +47,7 @@ User context:
 — Ingredients to avoid: <user_content type="avoid_ingredients">{{ avoid_ingredients | join(", ") or "none specified" }}</user_content>
 {% include "_dietary_constraints.jinja" %}
 — Previously eaten meals (avoid similar ones): <user_content type="past_meals">{{ past_meals | join(" | ") or "none" }}</user_content>
-{% if "baby_food" in diet_types %}
-
-INFANT FOOD MODE (for ~6–12 month old baby):
-— Every meal MUST be safe and age-appropriate for a roughly 7-month-old baby.
-— Textures: soft, mashable, puréed, or small well-cooked pieces. NO hard, crunchy, or chewy foods.
-— NO honey. NO added salt. NO added sugar. NO whole nuts or nut pieces. NO raw egg. NO cow's milk as a drink (small amounts in cooking are OK). NO unpasteurised dairy. NO choking hazards (whole grapes, raw apple/carrot chunks, hot-dog coins, popcorn).
-— Prefer: cooked-soft vegetables, iron-rich foods (lentils, well-cooked beans, soft meats, iron-fortified cereals), well-cooked grains, soft fruit.
-— Keep preparations simple: 1–3 main ingredients per meal is ideal. Single-ingredient purees are fine.
-— Portion sizes should be small and baby-appropriate, not adult portions.
-{% endif %}
+{% include "_infant_food.jinja" %}
 {% if retrieved_meals %}
 
 Highly-rated retrieved meals (use as inspiration):
@@ -123,7 +114,7 @@ Other rules:
 — Mark an ingredient as "is_spice": true if it is a PANTRY FLAVORING — something a home cook
   typically has on hand, uses in small/imprecise amounts, and does not need to buy or weigh per recipe.
   Examples of is_spice=true: salt, pepper, cumin, paprika, dried herbs, chili flakes, spice blends,
-  soy sauce, fish sauce, sesame oil, vinegar, mustard, honey (as flavoring), garlic, ginger, lemon juice.
+  {% if "baby_food" in diet_types %}sesame oil, garlic, ginger, lemon juice, mild herbs. (Soy sauce, fish sauce, mustard and honey are NOT options here — see INFANT FOOD MODE above.){% else %}soy sauce, fish sauce, sesame oil, vinegar, mustard, honey (as flavoring), garlic, ginger, lemon juice.{% endif %}
   Examples of is_spice=false: chicken breast, rice, pasta, onion, bell pepper, canned tomatoes,
   olive oil (as cooking fat in quantity), butter (as main fat), cream, cheese, tofu.
   Rule of thumb: if you'd measure it in teaspoons/splashes rather than grams, it's is_spice=true.

@@ -60,10 +60,13 @@ describe.skipIf(!built)("terms of service (built dist/terms.html)", () => {
       expect(html).toMatch(/reads English ingredient names/i);
     });
 
-    it("warns that baby food has no automatic safety check", () => {
-      // Prompt-only guidance with no deterministic backstop — the highest-risk
-      // surface in the product.
-      expect(html).toMatch(/no automatic safety check behind it/i);
+    it("states what the baby-food check does AND cannot do", () => {
+      // It now HAS a deterministic backstop, so the old "no automatic safety
+      // check" line would understate it — but the limits are what keep the
+      // claim honest, so both halves are pinned.
+      expect(html).toMatch(/an automatic check behind it/i);
+      expect(html).toMatch(/cannot tell whether a food was cut to a safe size/i);
+      expect(html).toMatch(/stricter than UK guidance/i);
     });
 
     it("keeps the helper-not-a-guarantee framing", () => {

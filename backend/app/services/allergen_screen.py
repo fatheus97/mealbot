@@ -43,7 +43,7 @@ from dataclasses import dataclass
 
 from app.core.dietary import Allergen
 from app.core.dietary_reference import ALLERGEN_INFO, resolve_dietary_context
-from app.models.plan_models import PlannedMeal
+from app.models.plan_models import IngredientAmount, PlannedMeal
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,30 @@ class AllergenViolation:
     source: str = "ingredient"
 
 
-class AllergenScreenError(Exception):
+class ScreenError(Exception):
+    """Base for every fail-closed safety screen.
+
+    Exists so the API layer can catch ONE type. The three generation entry
+    points each map a screen failure to a 422 with `err.user_detail`; without a
+    shared base, adding the infant screen would have meant either a second
+    `except` at every call site (easy to miss one — and a missed one is a 500
+    instead of a friendly refusal) or making InfantScreenError a subclass of
+    AllergenScreenError, which would inherit `offending_allergens()` and its
+    `Allergen`-typed return for violations that have no allergen at all.
+    """
+
+    @property
+    def user_detail(self) -> str:
+        """Friendly, honest message for the HTTP boundary.
+
+        A read-only property, not a `user_detail: str` attribute: both
+        subclasses compute it, and mypy strict rejects overriding a writeable
+        attribute with a read-only property.
+        """
+        raise NotImplementedError
+
+
+class AllergenScreenError(ScreenError):
     """Raised when generation cannot produce a plan free of the declared
     allergens after the bounded retries — fail CLOSED. Carries the last round's
     violations for logging / a user-facing message."""
@@ -233,10 +256,19 @@ def _term_pattern(term: str) -> str:
 def _safe_spans(lname: str, safe_compounds: frozenset[str]) -> list[tuple[int, int]]:
     """Character spans of every safe compound present in `lname`, matched on
     WORD BOUNDARIES — a raw substring search would let "oat milk" match inside
-    "goat milk" and wrongly suppress the real dairy."""
+    "goat milk" and wrongly suppress the real dairy.
+
+    Plural-tolerant on the same `(?:e?s)?` tail as `_term_pattern`. Without it
+    the two halves disagreed: a TERM matched plurals but a safe COMPOUND did
+    not, so "oat milks" and "almond butters" were flagged as MILK while their
+    singulars were correctly suppressed. That is only a wasted regeneration for
+    allergens — but the infant screen reuses this matcher, and there the same
+    gap rejects "ground nuts", a food current guidance actively recommends
+    introducing early. Write every safe compound SINGULAR.
+    """
     spans: list[tuple[int, int]] = []
     for compound in safe_compounds:
-        for m in re.finditer(rf"(?<!\w){re.escape(compound)}(?!\w)", lname):
+        for m in re.finditer(rf"(?<!\w){re.escape(compound)}(?:e?s)?(?!\w)", lname):
             spans.append(m.span())
     return spans
 
@@ -305,6 +337,35 @@ def is_english_language(language: str | None) -> bool:
     return normalized in {"en", "eng", "english", "en-us", "en-gb"}
 
 
+def screenable_names(
+    ingredient: IngredientAmount, *, english: bool, include_localized: bool
+) -> list[str] | None:
+    """The names to screen for one ingredient, or None when it is UNSCREENABLE.
+
+    Shared by both screens so the language rule cannot drift between them —
+    getting it wrong here silently disables a whole safety check for every
+    non-English user, which has already happened once (#341).
+
+    `include_localized` is NOT cosmetic:
+
+    * The ALLERGEN screen passes True. Screening the localized name as well
+      catches loanwords ("mozzarella", "tofu") and an extra English match there
+      can only over-flag, which is its safe direction.
+    * The INFANT screen passes False. That rationale does not transfer: its deny
+      list contains short, common tokens (`ham`, `msg`, `caper`, `nut`) that
+      collide with ordinary words in other languages, and an infant over-flag
+      is not free — it can reject a food guidance recommends. On a non-English
+      plan `name_en` is required and absent means fail-closed, so the localized
+      name adds nothing but collisions.
+    """
+    name_en = (ingredient.name_en or "").strip()
+    if not english and not name_en:
+        return None
+    if english:
+        return [ingredient.name]
+    return ([ingredient.name] if include_localized else []) + [name_en]
+
+
 def screen_meals_for_allergens(
     meals: Sequence[PlannedMeal],
     allergens: Sequence[Allergen],
@@ -358,8 +419,10 @@ def screen_meals_for_allergens(
     violations: list[AllergenViolation] = []
     for meal in meals:
         for ing in meal.ingredients:
-            name_en = (ing.name_en or "").strip()
-            if not english and not name_en:
+            candidates = screenable_names(
+                ing, english=english, include_localized=True
+            )
+            if candidates is None:
                 # Cannot verify this ingredient at all. Report it against the
                 # first declared allergen so the existing reject→regenerate →
                 # fail-closed path handles it. The allergen is therefore
@@ -376,10 +439,8 @@ def screen_meals_for_allergens(
                 )
                 continue
 
-            # Screen every name we have. Qualifier suppression is evaluated per
-            # name: "vegan" in the localized name says nothing about the English
-            # one, and vice versa.
-            candidates = [ing.name] + ([name_en] if name_en else [])
+            # Qualifier suppression is evaluated per name: "vegan" in the
+            # localized name says nothing about the English one, and vice versa.
             for allergen, terms in terms_by_allergen.items():
                 safe = _SAFE_COMPOUNDS.get(allergen, frozenset())
                 for candidate in candidates:
