@@ -583,10 +583,18 @@ export async function redeemInvite(
   token: string,
   email: string,
   password: string,
+  /**
+   * Passed through as the user actually left it, NOT hardcoded true. The form
+   * already blocks submission when it is unticked, so sending a constant would
+   * work — right up until a bug enables the button without the box, at which
+   * point it would silently fabricate consent. Sending the real value means the
+   * server's 422 is the backstop.
+   */
+  acceptTerms: boolean,
 ): Promise<void> {
   const res = await authFetch("/users/register-invite", {
     method: "POST",
-    body: JSON.stringify({ token, email, password }),
+    body: JSON.stringify({ token, email, password, accept_terms: acceptTerms }),
   });
   if (res.ok) return;
   // 400 = invalid/expired/used/revoked link (opaque), 409 = email taken,

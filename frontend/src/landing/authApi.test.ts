@@ -111,7 +111,7 @@ describe("landing authApi", () => {
         .mockResolvedValueOnce(jsonResponse({ message: "created" })) // register
         .mockResolvedValueOnce(jsonResponse(PROFILE)); // auto-login
 
-      await landingRegister("u@example.com", "longenough");
+      await landingRegister("u@example.com", "longenough", true);
 
       const registerBody = JSON.parse(
         vi.mocked(fetch).mock.calls[0][1]!.body as string,
@@ -129,7 +129,7 @@ describe("landing authApi", () => {
     it("uses neutral copy on a 409 so it never discloses that an email is taken", async () => {
       const resp = { ok: false, status: 409, json: () => Promise.resolve({ detail: "exists" }) };
       vi.mocked(fetch).mockResolvedValue(resp as unknown as Response);
-      await expect(landingRegister("taken@example.com", "Longenough1")).rejects.toThrow(
+      await expect(landingRegister("taken@example.com", "Longenough1", true)).rejects.toThrow(
         /registration failed/i,
       );
     });
@@ -144,7 +144,7 @@ describe("landing authApi", () => {
           }),
       };
       vi.mocked(fetch).mockResolvedValue(resp as unknown as Response);
-      await expect(landingRegister("u@example.com", "NoDigitsHere")).rejects.toThrow(
+      await expect(landingRegister("u@example.com", "NoDigitsHere", true)).rejects.toThrow(
         /must contain at least one digit/i,
       );
     });
@@ -155,7 +155,7 @@ describe("landing authApi", () => {
         .mockResolvedValueOnce(jsonResponse({ message: "created" }))
         .mockResolvedValueOnce(jsonResponse({ detail: "nope" }, false));
 
-      await expect(landingRegister("u@example.com", "longenough")).rejects.toThrow(
+      await expect(landingRegister("u@example.com", "longenough", true)).rejects.toThrow(
         /account created/i,
       );
     });

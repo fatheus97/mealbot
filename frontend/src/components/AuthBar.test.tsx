@@ -279,6 +279,8 @@ describe('AuthBar', () => {
     render(<AuthBar />, { wrapper: createWrapper() });
 
     const registerBtn = await screen.findByRole('button', { name: /^register$/i });
+    // The consent checkbox gates registration, so tick it first.
+    await user.click(screen.getByRole('checkbox', { name: /i accept the/i }));
 
     await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
     await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
@@ -334,6 +336,8 @@ describe('AuthBar', () => {
     const user = userEvent.setup();
     render(<AuthBar />, { wrapper: createWrapper() });
     const registerBtn = await screen.findByRole('button', { name: /^register$/i });
+    // The consent checkbox gates registration, so tick it first.
+    await user.click(screen.getByRole('checkbox', { name: /i accept the/i }));
     await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
     await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
     await user.click(registerBtn);
@@ -385,6 +389,8 @@ describe('AuthBar', () => {
 
     await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
     await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    // The consent checkbox gates registration, so tick it first.
+    await user.click(screen.getByRole('checkbox', { name: /i accept the/i }));
     await user.click(await screen.findByRole('button', { name: /^register$/i }));
 
     const banner = await screen.findByRole('alert');
@@ -476,6 +482,8 @@ describe('AuthBar', () => {
 
     await user.type(screen.getByPlaceholderText('Email'), 'dup@x.com');
     await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    // The consent checkbox gates registration, so tick it first.
+    await user.click(screen.getByRole('checkbox', { name: /i accept the/i }));
     await user.click(await screen.findByRole('button', { name: /^register$/i }));
 
     const banner = await screen.findByRole('alert');
@@ -501,6 +509,8 @@ describe('AuthBar', () => {
 
     await user.type(screen.getByPlaceholderText('Email'), 'new@x.com');
     await user.type(screen.getByPlaceholderText('Password'), 'short');
+    // The consent checkbox gates registration, so tick it first.
+    await user.click(screen.getByRole('checkbox', { name: /i accept the/i }));
     await user.click(await screen.findByRole('button', { name: /^register$/i }));
 
     const banner = await screen.findByRole('alert');

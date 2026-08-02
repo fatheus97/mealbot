@@ -10,6 +10,7 @@ from httpx import AsyncClient
 
 from app.core.config import settings
 from app.core.cookies import CSRF_COOKIE_NAME
+from tests.conftest import TEST_PASSWORD
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +41,7 @@ class TestCsrfAllowList:
         with _patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "csrf-exempt@test.com", "password": "ValidPass123"},
+                json={"email": "csrf-exempt@test.com", "accept_terms": True, "password": TEST_PASSWORD},
             )
         # No 403 from CSRF middleware (would short-circuit before the route).
         assert resp.status_code != 403

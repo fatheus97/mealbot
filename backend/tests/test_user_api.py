@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.db_models import User
-from tests.conftest import TEST_EMAIL
+from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 
 class TestRegister:
@@ -15,7 +15,7 @@ class TestRegister:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "new@example.com", "password": "NewPassword123"},
+                json={"email": "new@example.com", "accept_terms": True, "password": TEST_PASSWORD},
             )
         assert resp.status_code == 201
 
@@ -25,7 +25,7 @@ class TestRegister:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": TEST_EMAIL, "password": "AnotherPass123"},
+                json={"email": TEST_EMAIL, "accept_terms": True, "password": TEST_PASSWORD},
             )
         assert resp.status_code == 409
         assert "already registered" in resp.json()["detail"].lower()
@@ -34,7 +34,7 @@ class TestRegister:
         with patch.object(settings, "registration_enabled", False):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "blocked@example.com", "password": "ValidPass123"},
+                json={"email": "blocked@example.com", "accept_terms": True, "password": TEST_PASSWORD},
             )
         assert resp.status_code == 403
         assert "closed" in resp.json()["detail"].lower()
@@ -44,7 +44,7 @@ class TestRegister:
         with patch.object(settings, "registration_enabled", False):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "bad", "password": "x"},
+                json={"email": "bad", "accept_terms": True, "password": "x"},
             )
         assert resp.status_code == 403
 
@@ -60,7 +60,7 @@ class TestRegister:
         #  forbids concurrent ops on a single session. Production uses a
         #  session-per-request pool where real races resolve at the DB.)
         email = "race@example.com"
-        payload = {"email": email, "password": "RacePass123"}
+        payload = {"email": email, "password": TEST_PASSWORD, "accept_terms": True}
         with patch.object(settings, "registration_enabled", True):
             first = await unauthed_client.post("/api/users/register", json=payload)
             second = await unauthed_client.post("/api/users/register", json=payload)
@@ -73,7 +73,7 @@ class TestPasswordComplexity:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "pw1@example.com", "password": "alllowercase1"},
+                json={"email": "pw1@example.com", "accept_terms": True, "password": "alllowercase1"},
             )
         assert resp.status_code == 422
 
@@ -81,7 +81,7 @@ class TestPasswordComplexity:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "pw2@example.com", "password": "ALLUPPERCASE1"},
+                json={"email": "pw2@example.com", "accept_terms": True, "password": "ALLUPPERCASE1"},
             )
         assert resp.status_code == 422
 
@@ -89,7 +89,7 @@ class TestPasswordComplexity:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": "pw3@example.com", "password": "NoDigitsHere"},
+                json={"email": "pw3@example.com", "accept_terms": True, "password": "NoDigitsHere"},
             )
         assert resp.status_code == 422
 
@@ -427,7 +427,7 @@ class TestRegisterEventLogging:
         ):
             resp = await unauthed_client.post(
                 "/api/users/register",
-                json={"email": email, "password": "ValidPass123"},
+                json={"email": email, "accept_terms": True, "password": TEST_PASSWORD},
             )
         assert resp.status_code == 201
         register_records = [r for r in caplog.records if "user_registered" in r.getMessage()]

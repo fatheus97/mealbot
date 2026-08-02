@@ -63,6 +63,8 @@ if (forwardTarget) {
             closeButton: document.getElementById("auth-close") as HTMLElement,
             switchButton: document.getElementById("auth-switch") as HTMLElement,
             switchPrompt: document.getElementById("auth-switch-prompt") as HTMLElement,
+            consent: document.getElementById("auth-consent") as HTMLElement,
+            acceptTermsInput: document.getElementById("auth-accept-terms") as HTMLInputElement,
           } satisfies AuthModalElements,
           { navigate: (url) => window.location.assign(url), getSearch: () => search },
         )

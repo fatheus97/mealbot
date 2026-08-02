@@ -343,10 +343,10 @@ export interface AuthState {
   logout: () => Promise<void>;
   setOnboardingCompleted: (value: boolean) => void;
   loginDemo: () => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, acceptTerms: boolean) => Promise<void>;
   // Redeem an admin invite token: create the account (bypassing the closed
   // registration gate) then auto-login, so the invitee lands signed in.
-  registerViaInvite: (token: string, email: string, password: string) => Promise<void>;
+  registerViaInvite: (token: string, email: string, password: string, acceptTerms: boolean) => Promise<void>;
   // Re-fetch /users to re-sync subscription state (used after returning from
   // Stripe Checkout, where the webhook may land a beat after the redirect).
   refreshProfile: () => Promise<void>;

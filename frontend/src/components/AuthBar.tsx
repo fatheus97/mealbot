@@ -4,6 +4,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
 import { SettingsPopup } from "./SettingsPopup";
 import { ForgotPasswordModal } from "./ForgotPasswordModal";
+import { TermsConsent } from "./auth/TermsConsent";
 
 export function AuthBar() {
   const { userId, email, login, logout, loginDemo, demoEnabled, register, registrationEnabled } = useAuth();
@@ -14,6 +15,7 @@ export function AuthBar() {
   const [showSettings, setShowSettings] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -36,10 +38,17 @@ export function AuthBar() {
       setAuthError("Password must be at least 8 characters.");
       return;
     }
+    // Checked here rather than by disabling Register: the same two fields also
+    // drive Sign In, and disabling the button would leave a user who has not
+    // ticked the box guessing which of the three controls they broke.
+    if (!acceptTerms) {
+      setAuthError("Please accept the Terms of Service and Privacy Policy to create an account.");
+      return;
+    }
     setLoading(true);
     setAuthError(null);
     try {
-      await register(inputEmail, inputPassword);
+      await register(inputEmail, inputPassword, acceptTerms);
       setInputPassword("");
     } catch (error) {
       console.error(error);
@@ -137,6 +146,18 @@ export function AuthBar() {
           </div>
         )}
       </div>
+      {/* Only where an account can actually be created — the Register button is
+          gated on the same flag, and a consent checkbox with nothing to consent
+          to would just be clutter on a login form. */}
+      {!userId && registrationEnabled && (
+        <div style={{ marginTop: "0.75rem" }}>
+          <TermsConsent
+            checked={acceptTerms}
+            onChange={(next) => { setAcceptTerms(next); setAuthError(null); }}
+            disabled={loading}
+          />
+        </div>
+      )}
       {!userId && authError && (
         <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.85rem" }}>
           {authError}
