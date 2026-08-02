@@ -168,3 +168,58 @@ class TestStepsMayNotIntroduceIngredients:
         for t in TEMPLATES:
             out = _render(t, language="en", needs_name_en=False)
             assert "the allergen check reads the ingredient list" in out, t
+
+
+class TestInfantFoodBlock:
+    """Both generators must give an infant the SAME rules.
+
+    The block used to be duplicated prose, and the copies had drifted: the
+    partial (single-meal regeneration) template had quietly lost unpasteurised
+    dairy, hot-dog coins, iron-fortified cereals and the portion-size line. So
+    regenerating one meal of a baby-food plan applied weaker safety rules than
+    generating the day did — invisibly, and on the highest-consequence surface
+    in the product. Now one shared include; these tests keep it that way.
+    """
+
+    def _infant_block(self, rendered: str) -> str:
+        start = rendered.index("INFANT FOOD MODE (for")
+        return rendered[start : rendered.index("Portion sizes")]
+
+    def _render_baby(self, template: str) -> str:
+        return _env.get_template(template).render(
+            language="en",
+            needs_name_en=False,
+            **{**_BASE, "diet_types": ["baby_food"]},
+        )
+
+    def test_both_templates_render_an_identical_block(self) -> None:
+        blocks = [self._infant_block(self._render_baby(t)) for t in TEMPLATES]
+        assert blocks[0] == blocks[1]
+
+    def test_the_rules_the_partial_template_had_lost(self) -> None:
+        for t in TEMPLATES:
+            out = self._render_baby(t)
+            for rule in ("unpasteurised", "hot-dog", "iron-fortified", "Portion sizes"):
+                assert rule in out, (t, rule)
+
+    def test_honey_ban_covers_cooked_honey(self) -> None:
+        # The obvious wrong assumption is that baking makes honey safe. It does
+        # not — C. botulinum spores survive normal cooking temperatures.
+        for t in TEMPLATES:
+            assert "botulism risk survives cooking" in self._render_baby(t), t
+
+    def test_nut_butter_is_encouraged_not_banned(self) -> None:
+        # "NO whole nuts" must not read as "no nuts": early, repeated exposure
+        # to common allergens is protective, and smooth nut butter is the
+        # standard way to give it. Telling the model otherwise would make the
+        # product actively worse for the infant.
+        for t in TEMPLATES:
+            out = self._render_baby(t)
+            assert "nut BUTTER and finely ground nuts are encouraged" in out, t
+
+    def test_absent_without_baby_food(self) -> None:
+        for t in TEMPLATES:
+            out = _env.get_template(t).render(
+                language="en", needs_name_en=False, **_BASE
+            )
+            assert "NO honey" not in out, t
