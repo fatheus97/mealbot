@@ -219,6 +219,43 @@ describe('useGeneratePlan', () => {
     // Not the raw-body format.
     expect(result.current.error?.message).not.toMatch(/^Plan generation failed: 422/);
   });
+
+  it('surfaces the usage-cap 429 user_detail instead of "Please try again"', async () => {
+    // This hook had its OWN copy of extractErrorDetail, which understood only a
+    // string `detail`. So a capped user was told to retry — the one piece of
+    // advice that cannot work here, for up to a month. The copy is gone; this
+    // pins that the shared helper is what this path uses.
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({
+        detail: {
+          user_detail:
+            'You have used your €2.00 of AI generation for this month. Your ' +
+            'allowance resets on 1 September 2026. New plans, recipes and ' +
+            'receipt scanning are paused until then; everything you have ' +
+            'already saved is unaffected.',
+          code: 'usage_cap_reached',
+          tier: 'paid',
+          cap_eur: 2.0,
+          reset_at: '2026-09-01T00:00:00',
+        },
+      }),
+    });
+    const request = {
+      ingredients: [], taste_preferences: [], avoid_ingredients: [],
+      ingredients_to_use: [], diet_type: null, meals_per_day: 1,
+      people_count: 2, past_meals: [],
+    };
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useGeneratePlan(), { wrapper });
+    result.current.mutate({ userId: 1, days: 1, request });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toMatch(/allowance resets on 1 September 2026/);
+    expect(result.current.error?.message).not.toMatch(/Please try again/);
+    expect(result.current.error?.message).not.toMatch(/usage_cap_reached|cap_eur/);
+  });
 });
 
 describe('useConfirmPlan', () => {

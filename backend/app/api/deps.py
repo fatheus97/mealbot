@@ -189,6 +189,13 @@ async def require_generation_budget(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
+                # `user_detail` is the only key any UI is allowed to render. The
+                # rest are machine-readable and were ALL there was until #352:
+                # the frontend's extractErrorDetail only understood a string
+                # `detail`, so a capped user got the generic "Plan generation
+                # failed. Please try again." — advice that cannot work, on the
+                # one error where retrying never helps, for as long as a month.
+                "user_detail": usage_budget.cap_reached_message(budget),
                 "code": "usage_cap_reached",
                 "tier": budget.tier,
                 "cap_eur": budget.cap_eur,

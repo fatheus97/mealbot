@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus } from '../types';
 import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, scanReceipt, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
+import { extractErrorDetail } from '../utils/httpError';
 
 // --- Queries (Data Fetching) ---
 
@@ -380,19 +381,6 @@ export function useRemoveFromCookbook() {
       queryClient.invalidateQueries({ queryKey: ['mealEntries'] });
     },
   });
-}
-
-// Reads the FastAPI `detail` field on non-OK responses so 409s surface
-// useful messages (e.g. "Not enough chicken in fridge to reopen...") instead
-// of a bare status code. Falls back to the status if the body isn't JSON.
-async function extractErrorDetail(res: Response, fallback: string): Promise<string> {
-  try {
-    const body = await res.json();
-    if (body && typeof body.detail === "string") return body.detail;
-  } catch {
-    // body wasn't JSON — fall through
-  }
-  return `${fallback}: ${res.status}`;
 }
 
 export function useUnconfirmPlan() {

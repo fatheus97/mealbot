@@ -68,6 +68,60 @@ describe("generateRecipe error surfacing", () => {
   });
 });
 
+describe("structured error details (the usage-cap 429)", () => {
+  const capDetail = {
+    user_detail:
+      "You have used your €2.00 of AI generation for this month. Your allowance " +
+      "resets on 1 September 2026. New plans, recipes and receipt scanning are " +
+      "paused until then; everything you have already saved is unaffected.",
+    code: "usage_cap_reached",
+    tier: "paid",
+    cap_eur: 2.0,
+    used_eur: 2.03,
+    remaining_eur: 0.0,
+    reset_at: "2026-09-01T00:00:00",
+  };
+
+  it("shows user_detail instead of 'Please try again'", async () => {
+    // The bug: an OBJECT detail failed the `typeof === "string"` test and fell
+    // through to the generic fallback, so the one error where retrying can
+    // never work was the one that told the user to retry — for up to a month.
+    mockFetch({ ok: false, status: 429, json: () => Promise.resolve({ detail: capDetail }) });
+    await expect(generateRecipe(recipeReq)).rejects.toThrow(/allowance resets on 1 September 2026/);
+  });
+
+  it("never leaks the machine-readable siblings into the message", async () => {
+    mockFetch({ ok: false, status: 429, json: () => Promise.resolve({ detail: capDetail }) });
+    const err = await generateRecipe(recipeReq).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toMatch(/usage_cap_reached|cap_eur|reset_at|\{/);
+  });
+
+  it("falls back when an object detail carries no user_detail", async () => {
+    // Any future structured detail that forgets the human string must degrade to
+    // the generic message, never to "[object Object]".
+    mockFetch({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ detail: { code: "something_new" } }),
+    });
+    await expect(generateRecipe(recipeReq)).rejects.toThrow(
+      "Recipe generation failed. Please try again. (429)",
+    );
+  });
+
+  it("ignores a non-string user_detail", async () => {
+    mockFetch({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ detail: { user_detail: { nested: "no" } } }),
+    });
+    await expect(generateRecipe(recipeReq)).rejects.toThrow(
+      "Recipe generation failed. Please try again. (429)",
+    );
+  });
+});
+
 describe("createCheckoutSession", () => {
   it("returns the Stripe url on success", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.resolve({ url: "https://checkout.stripe/x" }) });
