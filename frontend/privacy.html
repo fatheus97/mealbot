@@ -213,6 +213,13 @@
         requested, and your user-agent. We do not put IP addresses in our database and we do not
         use them for analytics.
       </p>
+      <p>
+        These logs are <strong>capped in size and rotate automatically</strong> — once the cap is
+        reached, the oldest entries are deleted. They are not kept forever. We cap by size rather
+        than by age, so we cannot honestly quote a fixed number of days: at low traffic a line may
+        survive longer, at high traffic much less. The logs never contain the contents of your
+        meal plans, and they never contain sign-in links or password-reset links.
+      </p>
 
       <h2>Your dietary data goes to Google</h2>
       <div class="note">

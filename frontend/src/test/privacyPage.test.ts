@@ -122,6 +122,26 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
     });
   });
 
+  describe("server logs", () => {
+    it("states that access logs rotate rather than growing forever", () => {
+      // Before container log rotation existed there was no truthful retention
+      // statement to make — "they grow until the disk fills" is not an answer.
+      expect(html).toMatch(/capped in size and rotate automatically/i);
+      expect(html).toMatch(/oldest entries are deleted/i);
+    });
+
+    it("does not invent a retention period it cannot honour", () => {
+      // Rotation is by SIZE, not age, so any "N days" claim would be fiction.
+      expect(html).toMatch(/cannot honestly quote a fixed number of days/i);
+    });
+
+    it("states that logs carry no reset or sign-in links", () => {
+      // True only because nginx now logs $uri instead of $request — the fix
+      // that stopped single-use secrets landing in the log next to the IP.
+      expect(html).toMatch(/never contain sign-in links or password-reset links/i);
+    });
+  });
+
   describe("reachability", () => {
     it("is linked from the landing page footer", () => {
       // An unlinked policy is not a published policy.
