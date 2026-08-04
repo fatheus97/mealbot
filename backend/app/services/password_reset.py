@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_copy import COPY, expiry_phrase, render
 from app.core.email_normalize import normalize_email
+from app.core.i18n import DEFAULT_LOCALE, Locale, locale_for_language
 from app.core.security import create_refresh_token, hash_refresh_token
 from app.db import async_session_factory
 from app.models.db_models import PasswordResetToken, User
@@ -172,10 +174,11 @@ async def dispatch_reset_email(email: str) -> None:
             if token is None:  # cooldown, or lost the mint race
                 return
 
+            locale = locale_for_language(user.language)
             await send_transactional(
                 user.email,
-                "Reset your Mealbot password",
-                reset_email_html(reset_link(token)),
+                COPY[locale]["reset_subject"],
+                reset_email_html(reset_link(token), locale),
             )
             logger.info("password_reset_sent user_id=%s", user.id)
     except Exception:
@@ -241,19 +244,18 @@ def reset_link(token: str) -> str:
     return f"{settings.frontend_base_url}/app?reset_token={token}"
 
 
-def reset_email_html(link: str) -> str:
+def reset_email_html(link: str, locale: Locale = DEFAULT_LOCALE) -> str:
     """Body of the reset email. `link` is escaped even though the token is
     URL-safe base64 — the base URL is operator config, and escaping on the way
     into HTML shouldn't depend on reasoning about what's upstream."""
     safe = html.escape(link, quote=True)
     minutes = settings.password_reset_token_expire_minutes
-    return (
-        "<p>Hi,</p>"
-        "<p>Someone asked to reset the password for your Mealbot account. "
-        f'Click below within {minutes} minutes to choose a new one:</p>'
-        f'<p><a href="{safe}">Reset your password</a></p>'
-        f"<p>If the link doesn't work, paste this into your browser:<br>{safe}</p>"
-        "<p>If you didn't ask for this, you can ignore this email — your "
-        "password won't change until the link above is used.</p>"
-        "<p>— Mealbot</p>"
+    # The expiry is a plural phrase, not a number with a noun stuck after it.
+    # Czech puts it in the genitive here ("během 30 minut") and picks a
+    # different form for 1 and for 2-4, so the count and the noun have to be
+    # chosen together — see email_copy.expiry_phrase.
+    return render(
+        COPY[locale]["reset_body"],
+        link=safe,
+        expiry=expiry_phrase(locale, minutes),
     )

@@ -12,28 +12,21 @@ problem can never touch the credit or the accept. A no-op when Resend isn't conf
 import logging
 
 from app.core.config import settings
+from app.core.email_copy import COPY, render
+from app.core.i18n import DEFAULT_LOCALE, Locale, locale_for_language
 from app.models.db_models import User
 from app.services import email_service
 
 logger = logging.getLogger(__name__)
 
 
-def _credit_email_html(credit_eur: str, max_eur: str) -> str:
+def _credit_email_html(
+    credit_eur: str, max_eur: str, locale: Locale = DEFAULT_LOCALE
+) -> str:
     """The credit thank-you email body. Frames it as an ongoing incentive (up to the
     monthly max) so it reads as 'keep reporting', not a one-off."""
-    return (
-        '<div style="font-family: sans-serif; max-width: 480px; color: #111827; '
-        'line-height: 1.5;">'
-        "<p>Hi,</p>"
-        "<p>Thanks for taking the time to send us feedback — it genuinely helps shape "
-        "Mealbot.</p>"
-        f"<p>As a thank-you, we've added a <strong>&euro;{credit_eur} &lsquo;Feedback "
-        "reward&rsquo; credit</strong> to your next invoice — you'll see it as a line on "
-        "your next bill, and there's nothing you need to do.</p>"
-        "<p>Spotted something else? Keep it coming — you can earn up to "
-        f"<strong>&euro;{max_eur} off per month</strong> for accepted reports.</p>"
-        "<p>&mdash; The Mealbot team</p>"
-        "</div>"
+    return render(
+        COPY[locale]["credit_body"], credit_eur=credit_eur, max_eur=max_eur
     )
 
 
@@ -54,11 +47,12 @@ async def notify_credit_granted(reporter: User, credit_cents: int) -> None:
     never raises. A no-op (logged) when transactional email isn't configured."""
     credit_eur = f"{credit_cents / 100:.2f}"
     max_eur = f"{_advertised_monthly_max_eur():.2f}"
+    locale = locale_for_language(reporter.language)
     try:
         await email_service.send_transactional(
             reporter.email,
-            "Thanks for your feedback — a credit's on the way \U0001f389",
-            _credit_email_html(credit_eur, max_eur),
+            COPY[locale]["credit_subject"],
+            _credit_email_html(credit_eur, max_eur, locale),
         )
     except Exception:
         # send_transactional already swallows its own errors; this is belt-and-braces

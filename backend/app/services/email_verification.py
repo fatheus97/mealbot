@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_copy import COPY, render
+from app.core.i18n import DEFAULT_LOCALE, Locale, locale_for_language
 from app.core.security import create_refresh_token, hash_refresh_token
 from app.db import async_session_factory
 from app.models.db_models import EmailVerificationToken, User
@@ -131,20 +133,12 @@ def verification_link(token: str) -> str:
     return f"{settings.frontend_base_url}/app?verify_token={token}"
 
 
-def verification_email_html(link: str) -> str:
+def verification_email_html(link: str, locale: Locale = DEFAULT_LOCALE) -> str:
     """Body of the confirmation email. ``link`` is escaped on the way into HTML
     for the same reason as the reset mail — the base URL is operator config and
     escaping shouldn't depend on reasoning about what's upstream."""
     safe = html.escape(link, quote=True)
-    return (
-        "<p>Welcome to Mealbot! Please confirm this email address so we can "
-        "reach you about your account.</p>"
-        f'<p><a href="{safe}">Confirm my email address</a></p>'
-        "<p>If the link doesn't work, paste this into your browser:<br>"
-        f"{safe}</p>"
-        "<p>The link is valid for 48 hours. If you didn't create a Mealbot "
-        "account, you can ignore this email.</p>"
-    )
+    return render(COPY[locale]["verify_body"], link=safe)
 
 
 async def find_redeemable(
@@ -212,7 +206,7 @@ async def redeem(session: AsyncSession, token: str, now: datetime) -> User | Non
     return user
 
 
-def change_notice_html(new_email: str) -> str:
+def change_notice_html(new_email: str, locale: Locale = DEFAULT_LOCALE) -> str:
     """Body of the heads-up sent to the address being moved AWAY from.
 
     Escaped because the new address is user-supplied and lands in HTML. The
@@ -221,23 +215,20 @@ def change_notice_html(new_email: str) -> str:
     a third party's secret.
     """
     safe = html.escape(new_email, quote=True)
-    return (
-        "<p>The email address on your Mealbot account was just changed to "
-        f"<strong>{safe}</strong>.</p>"
-        "<p>This address will no longer receive account email, and signing in "
-        "now uses the new address.</p>"
-        "<p><strong>If this wasn't you</strong>, your password is known to "
-        "someone else — reply to this email straight away. Changing the address "
-        "requires the account password, so a change you did not make means the "
-        "password is compromised.</p>"
-    )
+    return render(COPY[locale]["change_notice_body"], new_email=safe)
 
 
-async def dispatch_change_notice(old_email: str, new_email: str) -> None:
+async def dispatch_change_notice(
+    old_email: str, new_email: str, locale: Locale = DEFAULT_LOCALE
+) -> None:
     """Tell the OLD address that the account moved. Runs AFTER the response.
 
     The address is passed in, not looked up: by the time this runs the row
-    already holds the new address, so there would be nothing left to read.
+    already holds the new address, so there would be nothing left to read. The
+    LOCALE is passed for the same reason and not for convenience — re-reading
+    the user would give the right language, but the address this is going to no
+    longer exists on that row, so the lookup that would supply one is exactly
+    the lookup that cannot be done.
 
     Never raises — a failed notice must not surface as a stack trace after a
     change that already committed. It is a heads-up, not a control: the change
@@ -246,8 +237,8 @@ async def dispatch_change_notice(old_email: str, new_email: str) -> None:
     try:
         await send_transactional(
             old_email,
-            "Your Mealbot email address was changed",
-            change_notice_html(new_email),
+            COPY[locale]["change_notice_subject"],
+            change_notice_html(new_email, locale),
         )
     except Exception:
         logger.exception("email_change_notice_failed")
@@ -297,10 +288,13 @@ async def dispatch_verification_email(user_id: int) -> None:
             if user.email_verified_at is not None:
                 return  # the change was confirmed by another path meanwhile
 
+            # Read AFTER the refresh above, so a language change committed
+            # between the two also lands in the right locale.
+            locale = locale_for_language(user.language)
             await send_transactional(
                 user.email,
-                "Confirm your Mealbot email address",
-                verification_email_html(verification_link(token)),
+                COPY[locale]["verify_subject"],
+                verification_email_html(verification_link(token), locale),
             )
             logger.info("email_verification_sent user_id=%s", user_id)
     except Exception:
