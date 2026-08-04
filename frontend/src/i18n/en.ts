@@ -302,6 +302,7 @@ export const en = {
   "meal.markCooked": "Mark as cooked",
   "meal.markNotCooked": "Mark as not cooked",
   "meal.cookFailed": "Couldn't mark as cooked — check your connection and try again.",
+  "meal.edit": "Edit",
   "meal.editTitle": "Edit this recipe",
   "meal.startCooking": "Start cooking",
   "meal.startCookingTitle": "Cook this recipe step by step",
@@ -342,7 +343,6 @@ export const en = {
 
   // ─── Cook mode ────────────────────────────────────────────────────────────
   "cook.done": "Done cooking",
-  "cook.close": "Close",
   "cook.closeTitle": "Close cooking mode",
   "cook.ingredients": "Ingredients",
   "cook.hideIngredients": "Hide ingredients",

@@ -112,7 +112,7 @@ export function MealCard({
   // the most recent fact about the meal), then frozen (an active user choice),
   // then leftover (a static property).
   const accent = isCooked
-    ? { border: "#16a34a", bg: "#f0fdf4" }
+    ? { border: "#15803d", bg: "#f0fdf4" }
     : isFrozen
       ? { border: "#4a90d9", bg: "#eef4fb" }
       : isLeftover
@@ -146,7 +146,7 @@ export function MealCard({
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: isFrozen ? "#4a90d9" : "#888",
+              color: isFrozen ? "#2563eb" : "#6b7280",
             }}
           >
             {isFrozen ? t("meal.frozen") : t("meal.freeze")}
@@ -159,12 +159,12 @@ export function MealCard({
             title={isCooked ? t("meal.markNotCooked") : t("meal.markCooked")}
             style={{
               background: "none",
-              border: `1px solid ${isCooked ? "#16a34a" : "#ccc"}`,
+              border: `1px solid ${isCooked ? "#15803d" : "#ccc"}`,
               borderRadius: "4px",
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: isCooked ? "#16a34a" : "#888",
+              color: isCooked ? "#15803d" : "#6b7280",
             }}
           >
             {isCooked ? t("meal.cooked") : t("meal.cook")}
@@ -173,7 +173,7 @@ export function MealCard({
         {isFinished && entry && (
           <span style={{
             fontSize: "0.85rem",
-            color: isCooked ? "#16a34a" : "#888",
+            color: isCooked ? "#15803d" : "#6b7280",
             fontStyle: "italic",
           }}>
             {isCooked ? t("meal.cooked") : t("meal.notCooked")}
@@ -193,7 +193,7 @@ export function MealCard({
               color: "#555",
             }}
           >
-            Edit
+            {t("meal.edit")}
           </button>
         )}
         {/* Gated on isLeftover EXPLICITLY, not on steps.length. A leftover has
@@ -207,12 +207,12 @@ export function MealCard({
             title={t("meal.startCookingTitle")}
             style={{
               background: "none",
-              border: "1px solid #16a34a",
+              border: "1px solid #15803d",
               borderRadius: "4px",
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: "#16a34a",
+              color: "#15803d",
             }}
           >
             {t("meal.startCooking")}

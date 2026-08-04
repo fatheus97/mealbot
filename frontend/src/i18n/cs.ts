@@ -279,6 +279,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "meal.markCooked": "Označit jako uvařené",
   "meal.markNotCooked": "Označit jako neuvařené",
   "meal.cookFailed": "Nepodařilo se označit jako uvařené — zkontrolujte připojení a zkuste to znovu.",
+  "meal.edit": "Upravit",
   "meal.editTitle": "Upravit tento recept",
   "meal.startCooking": "Začít vařit",
   "meal.startCookingTitle": "Vařit tento recept krok za krokem",
@@ -316,7 +317,6 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
 
   // ─── Cook mode ────────────────────────────────────────────────────────────
   "cook.done": "Dovařeno",
-  "cook.close": "Zavřít",
   "cook.closeTitle": "Zavřít režim vaření",
   "cook.ingredients": "Suroviny",
   "cook.hideIngredients": "Skrýt suroviny",

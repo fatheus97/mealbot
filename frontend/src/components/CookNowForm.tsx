@@ -340,7 +340,7 @@ export function CookNowForm() {
               </div>
             </div>
             {editing || cooking ? null : cookedEntry ? (
-              <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Cooked</span>
+              <span style={{ color: "#15803d", fontWeight: 600 }}>✓ {t("meal.cooked")}</span>
             ) : (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
                 {!savedEntry && (
@@ -356,7 +356,7 @@ export function CookNowForm() {
                       cursor: "pointer",
                     }}
                   >
-                    Edit
+                    {t("meal.edit")}
                   </button>
                 )}
                 {recipe.steps.length > 0 && (
@@ -415,7 +415,7 @@ export function CookNowForm() {
           ) : (
             <>
               <div style={{ marginTop: "0.75rem" }}>
-                <em>Ingredients:</em>{" "}
+                <em>{t("meal.ingredients")}</em>{" "}
                 <IngredientsList ingredients={recipe.ingredients} />
               </div>
 
