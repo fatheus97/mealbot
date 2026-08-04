@@ -67,9 +67,17 @@ button:focus-visible {
 
 /* Phone breakpoint. Component layouts are inline-styled and go responsive via
    the useIsMobile() hook (inline styles beat stylesheets, so @media can't reach
-   them); this block only tunes base ELEMENT styles, which have no inline
-   override — so it still lands even on tightly-padded buttons/inputs. Keep the
-   px breakpoint in sync with BREAKPOINTS.mobile in hooks/useIsMobile.ts. */
+   them); this block tunes base ELEMENT styles instead. Keep the px breakpoint
+   in sync with BREAKPOINTS.mobile in hooks/useIsMobile.ts.
+
+   ⚠️ THIS BLOCK IS ONLY AS GOOD AS THE COMPONENTS' RESTRAINT. An earlier
+   version of this comment claimed these rules "have no inline override — so it
+   still lands"; that is not a guarantee, it was an observation, and it has
+   already gone stale (DayLayoutEditor's <select> sets an inline font-size and
+   loses the iOS rule below). Setting an inline `font-size` on an input, select
+   or textarea silently defeats the anti-zoom rule for that one control. If you
+   need a smaller font on desktop, branch on useIsMobile() instead of pinning
+   a flat value. */
 @media (max-width: 640px) {
   h1 {
     font-size: 2em;

@@ -5,16 +5,27 @@ import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
 import { SettingsPopup } from "./SettingsPopup";
 import { ForgotPasswordModal } from "./ForgotPasswordModal";
 import { TermsConsent } from "./auth/TermsConsent";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useI18n, type TranslationKey } from "../i18n";
+import { Trans } from "../i18n/Trans";
+
+const SUPPORT_EMAIL = "info@trymealbot.com";
 
 export function AuthBar() {
   const { userId, email, login, logout, loginDemo, demoEnabled, register, registrationEnabled } = useAuth();
   const isMobile = useIsMobile();
+  const { t } = useI18n();
   const [inputEmail, setInputEmail] = useState(email);
   const [inputPassword, setInputPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  // The KEY, not the sentence. Storing `t(...)` output would freeze the message
+  // in whatever language it was raised in: switching to Czech re-renders every
+  // other label here but cannot reach a string that was already translated, and
+  // this one persists until a keystroke clears it. Translate at render instead —
+  // the same store-intent-not-output shape EmailVerificationBanner uses.
+  const [authError, setAuthError] = useState<TranslationKey | null>(null);
   const [acceptTerms, setAcceptTerms] = useState(false);
 
   const handleLogin = async () => {
@@ -25,7 +36,7 @@ export function AuthBar() {
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      setAuthError("Login failed. Check your credentials.");
+      setAuthError("auth.error.login");
     } finally {
       setLoading(false);
     }
@@ -35,14 +46,14 @@ export function AuthBar() {
     // Surface a client-side guard before hitting the backend so the user
     // doesn't have to wait for a 422 to see "password too short".
     if (inputPassword.length < 8) {
-      setAuthError("Password must be at least 8 characters.");
+      setAuthError("auth.error.passwordTooShort");
       return;
     }
     // Checked here rather than by disabling Register: the same two fields also
     // drive Sign In, and disabling the button would leave a user who has not
     // ticked the box guessing which of the three controls they broke.
     if (!acceptTerms) {
-      setAuthError("Please accept the Terms of Service and Privacy Policy to create an account.");
+      setAuthError("auth.error.acceptTerms");
       return;
     }
     setLoading(true);
@@ -56,11 +67,11 @@ export function AuthBar() {
         // Crucial distinction: the account was created. Telling the user
         // "registration failed" here would get them to submit again and
         // hit a 409 on the duplicate email.
-        setAuthError("Account created — please sign in to continue.");
+        setAuthError("auth.error.accountCreated");
       } else {
         // Neutral copy covers 403 (flag flipped), 409 (duplicate), 422
         // (weak password that passed the client guard), 5xx, etc.
-        setAuthError("Registration failed. Please try again or contact info@trymealbot.com.");
+        setAuthError("auth.error.register");
       }
     } finally {
       setLoading(false);
@@ -69,8 +80,13 @@ export function AuthBar() {
 
   return (
     <section style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#f0f8ff", color: "#111", borderRadius: "8px" }}>
-      <h2>{userId ? "Welcome" : "Login"}</h2>
-      <div style={{ display: "flex", gap: "0.5rem", alignItems: isMobile ? "stretch" : "center", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap" }}>
+      {/* The switcher rides on the heading's own row rather than adding one, so
+          it costs no vertical space and cannot shift the form below it. */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+        <h2 style={{ margin: 0 }}>{userId ? t("auth.welcome") : t("auth.login")}</h2>
+        <LanguageSwitcher />
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: isMobile ? "stretch" : "center", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", marginTop: "0.75rem" }}>
         {!userId && (
           // A real <form> so pressing Enter in either field submits (implicit
           // submission only works inside a form). display:contents keeps the
@@ -84,18 +100,18 @@ export function AuthBar() {
             <input
               value={inputEmail}
               onChange={e => { setInputEmail(e.target.value); setAuthError(null); }}
-              placeholder="Email"
+              placeholder={t("auth.email")}
               style={{ padding: "0.5rem" }}
             />
             <input
               type="password"
               value={inputPassword}
               onChange={e => { setInputPassword(e.target.value); setAuthError(null); }}
-              placeholder="Password"
+              placeholder={t("auth.password")}
               style={{ padding: "0.5rem" }}
             />
             <button type="submit" disabled={loading} style={{ padding: "0.5rem 1rem" }}>
-              {loading ? "..." : "Sign In"}
+              {loading ? t("auth.busy") : t("auth.signIn")}
             </button>
             {registrationEnabled && (
               <button
@@ -104,7 +120,7 @@ export function AuthBar() {
                 disabled={loading}
                 style={{ padding: "0.5rem 1rem", backgroundColor: "#4a90d9", color: "white", border: "none", borderRadius: "4px" }}
               >
-                {loading ? "..." : "Register"}
+                {loading ? t("auth.busy") : t("auth.register")}
               </button>
             )}
             {demoEnabled && (
@@ -116,16 +132,16 @@ export function AuthBar() {
                   try {
                     await loginDemo();
                   } catch {
-                    setAuthError("Demo unavailable. Please try again.");
+                    setAuthError("auth.error.demo");
                   } finally {
                     setLoading(false);
                   }
                 }}
                 disabled={loading}
-                title="No signup needed — explore with mocked data."
+                title={t("auth.demoTitle")}
                 style={{ padding: "0.5rem 1rem", backgroundColor: "#2e7d32", color: "white", border: "none", borderRadius: "4px" }}
               >
-                {loading ? "..." : "Try Demo"}
+                {loading ? t("auth.busy") : t("auth.tryDemo")}
               </button>
             )}
           </form>
@@ -136,12 +152,12 @@ export function AuthBar() {
              <button
                onClick={() => setShowSettings(!showSettings)}
                style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", padding: "0.25rem" }}
-               aria-label="Settings"
-               title="Settings"
+               aria-label={t("auth.settings")}
+               title={t("auth.settings")}
              >
                ⚙️
              </button>
-             <button onClick={logout} style={{ padding: "0.5rem 1rem", backgroundColor: "#ff4d4d", color: "white", border: "none", borderRadius: "4px" }}>Logout</button>
+             <button onClick={logout} style={{ padding: "0.5rem 1rem", backgroundColor: "#ff4d4d", color: "white", border: "none", borderRadius: "4px" }}>{t("auth.logout")}</button>
              {showSettings && <SettingsPopup onClose={() => setShowSettings(false)} />}
           </div>
         )}
@@ -160,7 +176,9 @@ export function AuthBar() {
       )}
       {!userId && authError && (
         <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.85rem" }}>
-          {authError}
+          {/* supportEmail passed unconditionally — interpolate() leaves the
+              messages that have no such placeholder untouched. */}
+          {t(authError, { supportEmail: SUPPORT_EMAIL })}
         </p>
       )}
       {!userId && (
@@ -178,7 +196,7 @@ export function AuthBar() {
               textDecoration: "underline",
             }}
           >
-            Forgot your password?
+            {t("auth.forgotPassword")}
           </button>
         </p>
       )}
@@ -190,8 +208,16 @@ export function AuthBar() {
       )}
       {!userId && registrationEnabled === false && (
         <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "#555" }}>
-          This is a closed alpha. For access, contact{" "}
-          <a href="mailto:info@trymealbot.com" style={{ color: "#007bff" }}>info@trymealbot.com</a>.
+          <Trans
+            k="auth.closedAlpha"
+            nodes={{
+              supportEmail: (
+                <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "#007bff" }}>
+                  {SUPPORT_EMAIL}
+                </a>
+              ),
+            }}
+          />
         </p>
       )}
     </section>
