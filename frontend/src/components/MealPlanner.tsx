@@ -3,6 +3,8 @@ import type { AllergenWarning } from "../types";
 import { AllergenEditWarning } from "./AllergenEditWarning";
 import { useAuth, useShowPieces } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { usePrefersDark } from "../hooks/usePrefersDark";
+import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import { formatAmount } from "../utils/pieces";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
@@ -74,6 +76,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   const { userId } = useAuth();
   const showPieces = useShowPieces();
   const isMobile = useIsMobile();
+  // The tab bar and the inline error sit on the adaptive page background, which
+  // index.css swaps between #ffffff and #242424 — inline styles can't follow
+  // that with `@media`, so the theme has to be read in JS. See constants/theme.
+  const scheme = usePrefersDark() ? "dark" : "light";
   const generatePlanMutation = useGeneratePlan();
   const regenerateMutation = useRegeneratePlan();
   const confirmMutation = useConfirmPlan();
@@ -490,9 +496,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             cursor: "pointer",
             fontSize: "1rem",
             fontWeight: effectiveMode === "cook_now" ? 600 : 400,
-            borderBottom: effectiveMode === "cook_now" ? "2px solid #2563eb" : "2px solid transparent",
+            borderBottom:
+              effectiveMode === "cook_now"
+                ? `2px solid ${PAGE_TEXT.tabActive[scheme]}`
+                : "2px solid transparent",
             marginBottom: "-2px",
-            color: effectiveMode === "cook_now" ? "#2563eb" : "#4b5563",
+            color:
+              effectiveMode === "cook_now"
+                ? PAGE_TEXT.tabActive[scheme]
+                : PAGE_TEXT.tabInactive[scheme],
           }}
         >
           Cook Now
@@ -512,9 +524,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             cursor: "pointer",
             fontSize: "1rem",
             fontWeight: effectiveMode === "plan_ahead" ? 600 : 400,
-            borderBottom: effectiveMode === "plan_ahead" ? "2px solid #2563eb" : "2px solid transparent",
+            borderBottom:
+              effectiveMode === "plan_ahead"
+                ? `2px solid ${PAGE_TEXT.tabActive[scheme]}`
+                : "2px solid transparent",
             marginBottom: "-2px",
-            color: effectiveMode === "plan_ahead" ? "#2563eb" : "#4b5563",
+            color:
+              effectiveMode === "plan_ahead"
+                ? PAGE_TEXT.tabActive[scheme]
+                : PAGE_TEXT.tabInactive[scheme],
           }}
         >
           Plan Ahead
@@ -590,7 +608,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             onChange={(e) => setCustomizeDays(e.target.checked)}
           />
           Customize meal types per day
-          <span style={{ fontSize: "0.8rem", color: "#666", marginLeft: "auto" }}>
+          <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.8rem", marginLeft: "auto" }}>
             Off: uses "Meals per day" count · On: overrides per day
           </span>
         </label>
@@ -607,7 +625,13 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                     border: "1px solid #ddd",
                     borderRadius: "6px",
                     padding: "0.5rem 0.75rem",
+                    // Explicit light SURFACE, so the fixed #666 labels below (and
+                    // DayLayoutEditor's) are measured against #fcfcfc in both
+                    // themes. `color` is not optional here: without it "Day N"
+                    // and the ▼ caret inherit the adaptive default and go
+                    // white-on-white in dark mode.
                     backgroundColor: "#fcfcfc",
+                    color: "#111",
                   }}
                 >
                   <button
@@ -623,6 +647,12 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                       cursor: "pointer",
                       padding: 0,
                       fontSize: "0.95rem",
+                      // A <button> does NOT inherit `color` — with none set it
+                      // uses the UA `buttontext`, and `color-scheme: light dark`
+                      // in index.css makes that WHITE under an OS dark theme.
+                      // So "Day N" and the caret rendered white on the #fcfcfc
+                      // card above (1.03:1) even though the card pins #111.
+                      color: "inherit",
                     }}
                   >
                     <span style={{ marginRight: "0.4rem" }}>{expanded ? "▼" : "▶"}</span>
@@ -672,8 +702,17 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         {generatePlanMutation.isPending ? "Generating Plan (This takes a moment)..." : "Generate Plan"}
       </button>
 
+      {/* Same adaptive-background problem as the tabs, and worse: plain `red`
+          is 4.00:1 on white and 3.88:1 on #242424 — below AA in BOTH themes. */}
       {(generatePlanMutation.isError || regenerateMutation.isError) && (
-        <div style={{ color: "red", marginTop: "1rem", padding: "1rem", border: "1px solid red" }}>
+        <div
+          style={{
+            color: PAGE_TEXT.error[scheme],
+            marginTop: "1rem",
+            padding: "1rem",
+            border: `1px solid ${PAGE_TEXT.error[scheme]}`,
+          }}
+        >
           <strong>Error:</strong> {(generatePlanMutation.error ?? regenerateMutation.error)?.message}
         </div>
       )}

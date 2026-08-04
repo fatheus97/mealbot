@@ -1,5 +1,6 @@
 import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
+import { MUTED_PAGE_TEXT } from "../constants/theme";
 
 interface Props {
   children: ReactNode;
@@ -29,7 +30,10 @@ export class ErrorBoundary extends Component<Props, State> {
       return this.props.fallback ?? (
         <div style={{ padding: "2rem", textAlign: "center", fontFamily: "sans-serif" }}>
           <h2>Something went wrong</h2>
-          <p style={{ color: "#666" }}>Please refresh the page and try again.</p>
+          {/* This fallback is painted straight onto the adaptive page
+              background, so a fixed grey inverts with the OS theme (#666 is
+              2.70:1 on the #242424 index.css paints in dark mode). */}
+          <p style={MUTED_PAGE_TEXT}>Please refresh the page and try again.</p>
           <button
             onClick={() => window.location.reload()}
             style={{
