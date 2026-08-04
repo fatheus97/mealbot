@@ -59,6 +59,39 @@ worth knowing, rarely a per-change item:
   event loop" spirit as the backend. react-query already runs fetches asynchronously,
   so data loading doesn't stall interactions; the risk is your own sync work.
 
+## iOS zoom on form fields — the one `!important` in the project (#365)
+iOS zooms the whole viewport when a focused `input`/`select`/`textarea` renders
+**below 16px**, and does **not** zoom back out on blur. `frontend/src/index.css`
+pins the floor under `@media (max-width: 640px)`:
+
+```css
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  font-size: 16px !important;
+  min-height: 40px !important;
+}
+```
+
+- **That `!important` is deliberate and load-bearing — don't remove it.** Inline
+  styles outrank author stylesheets, so without it *every* component that pinned
+  its own `font-size` silently opted its field out of the guard. Twelve had, over
+  two years, and the CSS comment asking them not to had already gone stale. In a
+  100%-inline-`style={}` app this can only be enforced mechanically.
+- **It is the ONLY `!important` in the project. Keep it that way** — a specificity
+  fight anywhere else is a design problem to fix in the component. `mobileFieldGuard.test.ts`
+  fails if a second one appears, or if the floor or the `!important` is dropped.
+- **You may still set an inline `font-size` on a field** — it applies on desktop
+  and is simply overridden below 640px. That's the point: no `isMobile ? 16 : x`
+  ternary needed, and module-level `CSSProperties` consts (which can't call a hook)
+  stay valid.
+- **Exception to know:** the rule also clamps fields that legitimately want *more*
+  than 16px on mobile. None exist today; if one does, narrow the selector rather
+  than fighting it inline.
+- Checkboxes and radios are excluded — no text to zoom, and a 40px floor would
+  balloon them.
+- jsdom evaluates neither `@media` nor the inline-vs-author cascade, so **no render
+  test can observe this.** Proof is a `getComputedStyle` measurement at 375px in the
+  browser preview (see the mandatory two-theme check above).
+
 ## Other conventions
 - Responsiveness is JS-driven via `useIsMobile()` (the app is 100% inline
   `style={}`, so CSS `@media` can't reach it). Test mobile with
