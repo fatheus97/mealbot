@@ -23,7 +23,7 @@ from sqlmodel import select
 
 from app.core.config import settings
 from app.core.email_copy import COPY, render
-from app.core.i18n import DEFAULT_LOCALE, Locale, locale_for_language
+from app.core.i18n import Locale, locale_for_language
 from app.core.security import create_refresh_token, hash_refresh_token
 from app.db import async_session_factory
 from app.models.db_models import EmailVerificationToken, User
@@ -133,7 +133,7 @@ def verification_link(token: str) -> str:
     return f"{settings.frontend_base_url}/app?verify_token={token}"
 
 
-def verification_email_html(link: str, locale: Locale = DEFAULT_LOCALE) -> str:
+def verification_email_html(link: str, locale: Locale) -> str:
     """Body of the confirmation email. ``link`` is escaped on the way into HTML
     for the same reason as the reset mail — the base URL is operator config and
     escaping shouldn't depend on reasoning about what's upstream."""
@@ -206,7 +206,7 @@ async def redeem(session: AsyncSession, token: str, now: datetime) -> User | Non
     return user
 
 
-def change_notice_html(new_email: str, locale: Locale = DEFAULT_LOCALE) -> str:
+def change_notice_html(new_email: str, locale: Locale) -> str:
     """Body of the heads-up sent to the address being moved AWAY from.
 
     Escaped because the new address is user-supplied and lands in HTML. The
@@ -219,7 +219,7 @@ def change_notice_html(new_email: str, locale: Locale = DEFAULT_LOCALE) -> str:
 
 
 async def dispatch_change_notice(
-    old_email: str, new_email: str, locale: Locale = DEFAULT_LOCALE
+    old_email: str, new_email: str, locale: Locale
 ) -> None:
     """Tell the OLD address that the account moved. Runs AFTER the response.
 

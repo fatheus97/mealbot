@@ -19,7 +19,7 @@ from sqlmodel import select
 from app.core.config import settings
 from app.core.email_copy import COPY, expiry_phrase, render
 from app.core.email_normalize import normalize_email
-from app.core.i18n import DEFAULT_LOCALE, Locale, locale_for_language
+from app.core.i18n import Locale, locale_for_language
 from app.core.security import create_refresh_token, hash_refresh_token
 from app.db import async_session_factory
 from app.models.db_models import PasswordResetToken, User
@@ -244,7 +244,7 @@ def reset_link(token: str) -> str:
     return f"{settings.frontend_base_url}/app?reset_token={token}"
 
 
-def reset_email_html(link: str, locale: Locale = DEFAULT_LOCALE) -> str:
+def reset_email_html(link: str, locale: Locale) -> str:
     """Body of the reset email. `link` is escaped even though the token is
     URL-safe base64 — the base URL is operator config, and escaping on the way
     into HTML shouldn't depend on reasoning about what's upstream."""

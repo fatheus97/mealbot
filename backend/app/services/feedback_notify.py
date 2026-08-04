@@ -13,16 +13,14 @@ import logging
 
 from app.core.config import settings
 from app.core.email_copy import COPY, render
-from app.core.i18n import DEFAULT_LOCALE, Locale, locale_for_language
+from app.core.i18n import Locale, locale_for_language
 from app.models.db_models import User
 from app.services import email_service
 
 logger = logging.getLogger(__name__)
 
 
-def _credit_email_html(
-    credit_eur: str, max_eur: str, locale: Locale = DEFAULT_LOCALE
-) -> str:
+def _credit_email_html(credit_eur: str, max_eur: str, locale: Locale) -> str:
     """The credit thank-you email body. Frames it as an ongoing incentive (up to the
     monthly max) so it reads as 'keep reporting', not a one-off."""
     return render(

@@ -1,9 +1,13 @@
 """Server-side translation: locale resolution, plural forms, and the four emails."""
 
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from string import Template
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import i18n
 from app.core.email_copy import (
@@ -20,6 +24,8 @@ from app.core.i18n import (
     plural_category,
 )
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
+from app.models.db_models import User
+from app.services import email_verification, feedback_notify, password_reset
 from app.services.email_verification import TOKEN_TTL, change_notice_html, verification_email_html
 from app.services.password_reset import reset_email_html
 
@@ -174,10 +180,8 @@ class TestExpiryPhrase:
 
 
 class TestEmailBodies:
-    def test_verification_body_is_english_by_default(self) -> None:
-        # Callers that predate the locale argument must not silently change
-        # language — the default is what keeps this a pure addition.
-        assert "Welcome to Mealbot" in verification_email_html("https://x/y")
+    def test_verification_body_renders_english(self) -> None:
+        assert "Welcome to Mealbot" in verification_email_html("https://x/y", "en")
 
     def test_verification_body_translates(self) -> None:
         body = verification_email_html("https://x/y", "cs")
@@ -200,7 +204,7 @@ class TestEmailBodies:
 
     def test_reset_body_translates_and_carries_the_expiry(self) -> None:
         assert "Klikněte během" in reset_email_html("https://x/y", "cs")
-        assert "Someone asked to reset" in reset_email_html("https://x/y")
+        assert "Someone asked to reset" in reset_email_html("https://x/y", "en")
 
     def test_verification_ttl_matches_the_copy(self) -> None:
         # The copy states the validity window as a literal in both languages
@@ -210,3 +214,146 @@ class TestEmailBodies:
         assert TOKEN_TTL.total_seconds() == VERIFY_TTL_HOURS * 3600
         for locale in UI_LOCALES:
             assert str(VERIFY_TTL_HOURS) in COPY[locale]["verify_body"]
+
+
+async def _capture_into(sent: list[tuple[str, str, str]]):
+    async def _send(to: str, subject: str, html: str) -> bool:
+        sent.append((to, subject, html))
+        return True
+
+    return _send
+
+
+class TestTheLocaleActuallyReachesTheSendCall:
+    """The gap every test above leaves open.
+
+    They all hand a locale in directly, which proves the copy, the plurals and
+    the escaping — and proves nothing about whether the real call sites read
+    ``User.language`` at all. The locale argument is REQUIRED (no default) so a
+    dropped one is a type error rather than a silent English fallback, but the
+    compiler only sees the html builders. That a Czech SUBJECT is chosen, and
+    chosen from the recipient's own row, is behaviour only an end-to-end
+    assertion can pin.
+    """
+
+    @staticmethod
+    def _czech_user(email: str) -> User:
+        return User(
+            email=email,
+            normalized_email=email,
+            hashed_password="x",
+            language="Czech",
+        )
+
+    async def test_verification_email_uses_the_users_language(
+        self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        user = self._czech_user("cz-verify@example.com")
+        db_session.add(user)
+        await db_session.flush()
+
+        sent: list[tuple[str, str, str]] = []
+
+        @asynccontextmanager
+        async def _factory() -> AsyncIterator[AsyncSession]:
+            yield db_session
+
+        monkeypatch.setattr(
+            email_verification, "send_transactional", await _capture_into(sent)
+        )
+        monkeypatch.setattr(email_verification, "session_factory", _factory)
+
+        await email_verification.dispatch_verification_email(user.id)  # type: ignore[arg-type]
+
+        assert len(sent) == 1
+        assert sent[0][1] == COPY["cs"]["verify_subject"]
+        assert "Vítejte v Mealbotu" in sent[0][2]
+
+    async def test_reset_email_uses_the_users_language(
+        self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        user = self._czech_user("cz-reset@example.com")
+        db_session.add(user)
+        await db_session.flush()
+
+        sent: list[tuple[str, str, str]] = []
+
+        @asynccontextmanager
+        async def _factory() -> AsyncIterator[AsyncSession]:
+            yield db_session
+
+        monkeypatch.setattr(
+            password_reset, "send_transactional", await _capture_into(sent)
+        )
+        monkeypatch.setattr(password_reset, "session_factory", _factory)
+
+        await password_reset.dispatch_reset_email("cz-reset@example.com")
+
+        assert len(sent) == 1
+        assert sent[0][1] == COPY["cs"]["reset_subject"]
+        assert "Klikněte během" in sent[0][2]
+
+    async def test_credit_email_uses_the_reporters_language(self) -> None:
+        reporter = self._czech_user("cz-credit@example.com")
+        reporter.id = 1
+        send = AsyncMock(return_value=True)
+        with patch(
+            "app.services.feedback_notify.email_service.send_transactional", send
+        ):
+            await feedback_notify.notify_credit_granted(reporter, 100)
+
+        assert send.await_args is not None
+        _, subject, html = send.await_args.args
+        assert subject == COPY["cs"]["credit_subject"]
+        assert "Díky, že jste si našli čas" in html
+
+    async def test_change_notice_uses_the_language_it_is_handed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # This one takes the locale as an argument rather than looking it up:
+        # by the time it runs the row holds the NEW address, so there is no
+        # user row left to read the old language from.
+        sent: list[tuple[str, str, str]] = []
+        monkeypatch.setattr(
+            email_verification, "send_transactional", await _capture_into(sent)
+        )
+
+        await email_verification.dispatch_change_notice("old@x.com", "new@x.com", "cs")
+
+        assert len(sent) == 1
+        assert sent[0][1] == COPY["cs"]["change_notice_subject"]
+        assert "byla právě změněna" in sent[0][2]
+
+    @pytest.mark.parametrize("language", ["Japanese", "English"])
+    async def test_an_untranslated_language_still_gets_english(
+        self,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        language: str,
+    ) -> None:
+        # The fallback has to hold at the CALL SITE, not just inside
+        # locale_for_language — 31 of the 33 whitelisted languages land here.
+        user = User(
+            email=f"other-{language}@example.com",
+            normalized_email=f"other-{language}@example.com",
+            hashed_password="x",
+            language=language,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        sent: list[tuple[str, str, str]] = []
+
+        @asynccontextmanager
+        async def _factory() -> AsyncIterator[AsyncSession]:
+            yield db_session
+
+        monkeypatch.setattr(
+            email_verification, "send_transactional", await _capture_into(sent)
+        )
+        monkeypatch.setattr(email_verification, "session_factory", _factory)
+
+        await email_verification.dispatch_verification_email(user.id)  # type: ignore[arg-type]
+
+        assert len(sent) == 1
+        assert sent[0][1] == COPY["en"]["verify_subject"]
