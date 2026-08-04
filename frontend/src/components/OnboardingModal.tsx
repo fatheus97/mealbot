@@ -2,12 +2,16 @@ import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useUpdateUserProfile } from "../hooks/useServerState";
 import { PreferencesForm } from "./PreferencesForm";
+import { useI18n, type TranslationKey } from "../i18n";
 import type { PreferencesFormValues } from "./PreferencesForm";
 
 export function OnboardingModal() {
   const { setOnboardingCompleted } = useAuth();
+  const { t } = useI18n();
   const mutation = useUpdateUserProfile();
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // The KEY, not the sentence: an error already translated cannot follow a
+  // later language switch. See AuthBar for the same shape.
+  const [saveError, setSaveError] = useState<TranslationKey | null>(null);
 
   const handleSubmit = async (values: PreferencesFormValues) => {
     setSaveError(null);
@@ -25,7 +29,7 @@ export function OnboardingModal() {
       });
       setOnboardingCompleted(true);
     } catch {
-      setSaveError("Failed to save preferences. Please try again.");
+      setSaveError("settings.saveFailed");
     }
   };
 
@@ -54,7 +58,7 @@ export function OnboardingModal() {
           boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
         }}
       >
-        <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>Welcome! Set up your preferences</h2>
+        <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>{t("onboarding.title")}</h2>
         <p style={{ color: "#666", marginTop: 0, marginBottom: "1.5rem" }}>
           These help us generate meal plans tailored to you.
         </p>
@@ -70,12 +74,12 @@ export function OnboardingModal() {
             default_day_layout: [],
           }}
           onSubmit={handleSubmit}
-          submitLabel="Get Started"
+          submitLabel={t("onboarding.submit")}
           loading={mutation.isPending}
         />
         {saveError && (
           <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.9rem" }}>
-            {saveError}
+            {t(saveError)}
           </p>
         )}
       </div>

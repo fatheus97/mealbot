@@ -1,10 +1,26 @@
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useStaples, useUpdateStaples } from "../hooks/useServerState";
+import { useI18n, type PluralKey, type TranslationKey } from "../i18n";
+import { Trans } from "../i18n/Trans";
 
 // Keep in step with MAX_STAPLES in app/api/pantry.py — a client-side guard so we
 // give a friendly message instead of letting the PUT 422.
 const MAX_STAPLES = 200;
+
+/**
+ * The save result, which has two genuinely different sources: our own copy
+ * (translatable) and whatever the API sent back (English until the backend
+ * `detail` strings are translated). The union keeps that distinction visible
+ * rather than storing a server string where a dictionary key is expected — the
+ * shape that would quietly render `staples.saved` to a user if the two were
+ * ever confused.
+ */
+type Notice = { ok: boolean } & (
+  | { key: TranslationKey }
+  | { pluralKey: PluralKey; count: number }
+  | { raw: string }
+);
 
 // This editor lives inside the Settings modal (SettingsPopup), which pins an
 // explicit light surface (white background, color:#111). So text here inherits
@@ -85,13 +101,18 @@ export function PantryStaples({
   onDirtyChange?: (dirty: boolean) => void;
 } = {}) {
   const { userId } = useAuth();
+  const { t, tn } = useI18n();
   const { data: serverStaples, isLoading, error: fetchError } = useStaples(userId);
   const updateStaples = useUpdateStaples();
+
+  // Resolve at RENDER, so a language switch reaches a notice already on screen.
+  const noticeText = (n: Notice) =>
+    "raw" in n ? n.raw : "pluralKey" in n ? tn(n.pluralKey, n.count) : t(n.key);
 
   const [items, setItems] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const lastServerSig = useRef<string | null>(null);
 
   useEffect(() => {
@@ -121,7 +142,7 @@ export function PantryStaples({
       return;
     }
     if (items.length >= MAX_STAPLES) {
-      setNotice({ text: `You can have at most ${MAX_STAPLES} staples.`, ok: false });
+      setNotice({ pluralKey: "staples.max", count: MAX_STAPLES, ok: false });
       return;
     }
     setItems([...items, name]);
@@ -143,10 +164,14 @@ export function PantryStaples({
       {
         onSuccess: () => {
           setDirty(false);
-          setNotice({ text: "Saved", ok: true });
+          setNotice({ key: "staples.saved", ok: true });
         },
         onError: (e) =>
-          setNotice({ text: e instanceof Error ? e.message : "Save failed", ok: false }),
+          setNotice(
+            e instanceof Error
+              ? { raw: e.message, ok: false }
+              : { key: "staples.saveFailed", ok: false },
+          ),
       },
     );
   };
@@ -156,20 +181,22 @@ export function PantryStaples({
   return (
     <section style={{ borderTop: "1px solid #e0e0e0", paddingTop: "1rem" }}>
       <h4 style={{ margin: "0 0 0.25rem", color: "#111" }}>
-        Pantry staples{items.length > 0 ? ` (${items.length})` : ""}
+        {t("staples.title")}{items.length > 0 ? ` (${items.length})` : ""}
       </h4>
       <p style={{ ...mutedStyle, margin: "0 0 0.75rem" }}>
-        Groceries you always keep in — oil, flour, rice, sugar — left off your
-        generated shopping lists so you don't re-buy them. Seasonings (salt,
-        pepper, herbs) are handled by the <strong>Include spices</strong> setting
-        above.
+        {/* One sentence with a bold run, not three fragments — the setting it
+            names is a noun phrase that Czech inflects with the sentence. */}
+        <Trans
+          k="staples.hint"
+          nodes={{ includeSpices: <strong>{t("staples.hintIncludeSpices")}</strong> }}
+        />
       </p>
 
-      {isLoading && <p style={mutedStyle}>Loading staples…</p>}
+      {isLoading && <p style={mutedStyle}>{t("staples.loading")}</p>}
       {fetchError && (
         <p style={{ fontSize: "0.85rem", color: fetchError instanceof TypeError ? "#666" : "#b91c1c" }}>
           {fetchError instanceof TypeError
-            ? "Connecting to server…"
+            ? t("staples.connecting")
             : `Error: ${fetchError.message}`}
         </p>
       )}
@@ -209,13 +236,13 @@ export function PantryStaples({
               addStaple();
             }
           }}
-          placeholder="Add a staple (e.g. olive oil)"
+          placeholder={t("staples.placeholder")}
           maxLength={100}
-          aria-label="New staple name"
+          aria-label={t("staples.newStapleLabel")}
           style={inputStyle}
         />
         <button type="button" onClick={addStaple} style={addBtn}>
-          Add
+          {t("staples.add")}
         </button>
       </div>
 
@@ -237,14 +264,14 @@ export function PantryStaples({
             cursor: saveDisabled ? "default" : "pointer",
           }}
         >
-          {updateStaples.isPending ? "Saving…" : "Save staples"}
+          {updateStaples.isPending ? t("staples.saving") : t("staples.save")}
         </button>
         {notice && !notice.ok ? (
-          <span style={{ fontSize: "0.85rem", color: "#b91c1c" }}>{notice.text}</span>
+          <span style={{ fontSize: "0.85rem", color: "#b91c1c" }}>{noticeText(notice)}</span>
         ) : dirty ? (
-          <span style={mutedStyle}>Unsaved changes</span>
+          <span style={mutedStyle}>{t("staples.unsaved")}</span>
         ) : notice && notice.ok ? (
-          <span style={{ fontSize: "0.85rem", color: "#16a34a" }}>{notice.text}</span>
+          <span style={{ fontSize: "0.85rem", color: "#16a34a" }}>{noticeText(notice)}</span>
         ) : null}
       </div>
     </section>

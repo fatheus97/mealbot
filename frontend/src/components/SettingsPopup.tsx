@@ -7,6 +7,7 @@ import { PantryStaples } from "./PantryStaples";
 import { FeedbackModal } from "./FeedbackModal";
 import { ChangeEmailModal } from "./auth/ChangeEmailModal";
 import { InfoHint } from "./InfoHint";
+import { useI18n, type TranslationKey } from "../i18n";
 
 interface SettingsPopupProps {
   onClose: () => void;
@@ -14,9 +15,12 @@ interface SettingsPopupProps {
 
 export function SettingsPopup({ onClose }: SettingsPopupProps) {
   const { userId, email, isDemo } = useAuth();
+  const { t } = useI18n();
   const { data: profile, isLoading } = useUserProfile(userId);
   const mutation = useUpdateUserProfile();
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // The KEY, not the sentence: an error already translated cannot follow a
+  // later language switch. See AuthBar for the same shape.
+  const [saveError, setSaveError] = useState<TranslationKey | null>(null);
   const [staplesDirty, setStaplesDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -47,7 +51,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
       });
       requestClose();
     } catch {
-      setSaveError("Failed to save preferences. Please try again.");
+      setSaveError("settings.saveFailed");
     }
   };
 
@@ -81,7 +85,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-        <h3 style={{ margin: 0 }}>Settings</h3>
+        <h3 style={{ margin: 0 }}>{t("settings.title")}</h3>
         <button
           onClick={requestClose}
           style={{
@@ -92,7 +96,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             color: "#666",
             padding: "0.25rem",
           }}
-          aria-label="Close settings"
+          aria-label={t("settings.close")}
         >
           ✕
         </button>
@@ -101,7 +105,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
       {confirmDiscard && (
         <div
           role="alertdialog"
-          aria-label="Discard unsaved pantry staples"
+          aria-label={t("settings.discardTitle")}
           style={{
             border: "1px solid #f59e0b",
             background: "#fffbeb",
@@ -113,7 +117,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
           }}
         >
           <p style={{ margin: "0 0 0.5rem" }}>
-            You have unsaved pantry staples. Discard them?
+            {t("settings.discardBody")}
           </p>
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
@@ -124,20 +128,20 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
               }}
               style={{ padding: "0.35rem 0.75rem", border: "none", borderRadius: 6, background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: "0.85rem" }}
             >
-              Discard &amp; close
+              {t("settings.discardConfirm")}
             </button>
             <button
               type="button"
               onClick={() => setConfirmDiscard(false)}
               style={{ padding: "0.35rem 0.75rem", border: "1px solid #94a3b8", borderRadius: 6, background: "#fff", color: "#111", cursor: "pointer", fontSize: "0.85rem" }}
             >
-              Keep editing
+              {t("settings.discardCancel")}
             </button>
           </div>
         </div>
       )}
 
-      {isLoading && <p>Loading...</p>}
+      {isLoading && <p>{t("settings.loading")}</p>}
 
       {profile && (
         <PreferencesForm
@@ -154,13 +158,13 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             default_day_layout: profile.default_day_layout ?? [],
           }}
           onSubmit={handleSubmit}
-          submitLabel="Save preferences"
+          submitLabel={t("settings.save")}
           loading={mutation.isPending}
         />
       )}
       {saveError && (
         <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.9rem" }}>
-          {saveError}
+          {t(saveError)}
         </p>
       )}
 
@@ -192,7 +196,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         }}
       >
         <div style={{ fontSize: 13, color: "#6b7280", marginBottom: "0.4rem" }}>
-          Email address
+          {t("settings.emailAddress")}
         </div>
         <div
           style={{
@@ -220,7 +224,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
               whiteSpace: "nowrap",
             }}
           >
-            Change
+            {t("settings.changeEmail")}
           </button>
         </div>
       </div>
@@ -253,11 +257,11 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             fontWeight: 600,
           }}
         >
-          💬 Send feedback
+          {t("settings.sendFeedback")}
         </button>
         <InfoHint
-          label="How feedback credit works"
-          text="Earn €1 off for every accepted bug report or feature request — up to €3/month. It shows up as a “Feedback reward” credit on your next invoice, so you'll need to be on the monthly plan (subscribed or on a free trial) to receive it — annual plans are already discounted."
+          label={t("settings.feedbackHintLabel")}
+          text={t("settings.feedbackHintText")}
         />
       </div>
     </div>
