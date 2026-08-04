@@ -327,6 +327,6 @@ class TestEmailBody:
         assert ev.verification_link("tok") == f"{settings.frontend_base_url}/app?verify_token=tok"
 
     def test_html_escapes_the_link(self) -> None:
-        html = ev.verification_email_html('https://x/?t=a"><script>')
+        html = ev.verification_email_html('https://x/?t=a"><script>', "en")
         assert "<script>" not in html
         assert "&lt;script&gt;" in html or "&quot;" in html

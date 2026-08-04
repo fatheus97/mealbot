@@ -70,29 +70,34 @@ button:focus-visible {
    them); this block tunes base ELEMENT styles instead. Keep the px breakpoint
    in sync with BREAKPOINTS.mobile in hooks/useIsMobile.ts.
 
-   ⚠️ THIS BLOCK IS ONLY AS GOOD AS THE COMPONENTS' RESTRAINT. An earlier
-   version of this comment claimed these rules "have no inline override — so it
-   still lands"; that is not a guarantee, it was an observation, and it has
-   already gone stale (DayLayoutEditor's <select> sets an inline font-size and
-   loses the iOS rule below). Setting an inline `font-size` on an input, select
-   or textarea silently defeats the anti-zoom rule for that one control. If you
-   need a smaller font on desktop, branch on useIsMobile() instead of pinning
-   a flat value. */
+   ⚠️ THE FIELD RULE BELOW IS THE ONLY `!important` IN THE PROJECT, ON PURPOSE.
+   An earlier version of this comment claimed these rules "have no inline
+   override — so it still lands"; that was an observation, not a guarantee, and
+   it went stale: a dozen inputs/selects pinned their own `font-size` and each
+   one silently opted itself out of the iOS anti-zoom rule. In a codebase that
+   is 100% inline `style={}`, "please don't set font-size on fields" is not an
+   enforceable convention, so this platform guardrail outranks the components
+   instead of asking them nicely. Components keep their own font size on
+   desktop; below 640px the phone floor wins. Don't add `!important` elsewhere
+   to win a specificity fight — this one exists because a device behaviour, not
+   a design opinion, is at stake. */
 @media (max-width: 640px) {
   h1 {
     font-size: 2em;
   }
-  /* Comfortable 40px tap targets. min-height wins because no component sets an
-     inline height on these — only padding. */
+  /* Comfortable 40px tap targets. No component sets an inline height on a
+     button today, and unlike the fields below a small button is a design call
+     rather than an OS behaviour — so this one stays overridable. */
   button {
     min-height: 40px;
   }
   input:not([type="checkbox"]):not([type="radio"]),
   select,
   textarea {
-    min-height: 40px;
-    /* iOS zooms the page when a focused field's font-size is < 16px. */
-    font-size: 16px;
+    /* iOS zooms the page when a focused field's font-size is < 16px — and does
+       not zoom back out on blur. */
+    font-size: 16px !important;
+    min-height: 40px !important;
   }
 }
 /*
