@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
-import { MEAL_TYPES, MEAL_TYPE_LABELS, type MealType } from "../constants/mealTypes";
+import { MEAL_TYPES, type MealType } from "../constants/mealTypes";
+import { useI18n } from "../i18n";
 
 // Cheap-enough stable ID. crypto.randomUUID is not always available in the
 // Node jsdom test environment without polyfills, so fall back to a random
@@ -29,9 +30,11 @@ export function DayLayoutEditor({
   onChange,
   maxSlots = 8,
   disabled = false,
-  ariaLabel = "Day layout",
+  ariaLabel,
 }: DayLayoutEditorProps) {
+  const { t } = useI18n();
   const labelId = useId();
+  const label = ariaLabel ?? t("layout.ariaLabel");
 
   // Stable per-slot ID so React can preserve DOM identity across reorder —
   // without this, focus on ↑ / ↓ buttons is dropped to the body when the user
@@ -99,11 +102,11 @@ export function DayLayoutEditor({
   return (
     <div aria-labelledby={labelId} style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
       <span id={labelId} style={{ position: "absolute", left: "-9999px" }}>
-        {ariaLabel}
+        {label}
       </span>
       {value.length === 0 && (
         <p style={{ margin: 0, fontSize: "0.85rem", color: "#666" }}>
-          No default set — plans will use the "Meals per day" count instead.
+          {t("layout.empty")}
         </p>
       )}
       <ol style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
@@ -124,7 +127,7 @@ export function DayLayoutEditor({
               {idx + 1}.
             </span>
             <select
-              aria-label={`Slot ${idx + 1}`}
+              aria-label={t("layout.slot", { n: idx + 1 })}
               value={slot}
               disabled={disabled}
               onChange={(e) => replaceAt(idx, e.target.value as MealType)}
@@ -132,13 +135,13 @@ export function DayLayoutEditor({
             >
               {MEAL_TYPES.map((mt) => (
                 <option key={mt} value={mt}>
-                  {MEAL_TYPE_LABELS[mt]}
+                  {t(`mealType.${mt}` as const)}
                 </option>
               ))}
             </select>
             <button
               type="button"
-              aria-label={`Move slot ${idx + 1} up`}
+              aria-label={t("layout.moveUp", { n: idx + 1 })}
               onClick={() => moveUp(idx)}
               disabled={disabled || idx === 0}
               style={slotButtonStyle(disabled || idx === 0)}
@@ -147,7 +150,7 @@ export function DayLayoutEditor({
             </button>
             <button
               type="button"
-              aria-label={`Move slot ${idx + 1} down`}
+              aria-label={t("layout.moveDown", { n: idx + 1 })}
               onClick={() => moveDown(idx)}
               disabled={disabled || idx === value.length - 1}
               style={slotButtonStyle(disabled || idx === value.length - 1)}
@@ -156,7 +159,7 @@ export function DayLayoutEditor({
             </button>
             <button
               type="button"
-              aria-label={`Remove slot ${idx + 1}`}
+              aria-label={t("layout.remove", { n: idx + 1 })}
               onClick={() => removeAt(idx)}
               disabled={disabled}
               style={{ ...slotButtonStyle(disabled), color: "#b91c1c" }}
@@ -181,7 +184,7 @@ export function DayLayoutEditor({
           cursor: disabled || atMax ? "not-allowed" : "pointer",
         }}
       >
-        + Add slot{atMax ? ` (max ${maxSlots})` : ""}
+        {atMax ? t("layout.addSlotMax", { max: maxSlots }) : t("layout.addSlot")}
       </button>
     </div>
   );

@@ -3,6 +3,7 @@ import type { MeasurementSystem, Variability } from "../types";
 import type { MealType } from "../constants/mealTypes";
 import { authFetch } from "../api.ts";
 import { DayLayoutEditor } from "./DayLayoutEditor";
+import { useI18n } from "../i18n";
 
 export interface PreferencesFormValues {
   country: string;
@@ -68,6 +69,7 @@ function completeOnKey(
 }
 
 export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading }: PreferencesFormProps) {
+  const { t } = useI18n();
   const [country, setCountry] = useState(initialValues.country);
   const [language, setLanguage] = useState(initialValues.language);
   const [variability, setVariability] = useState<Variability>(initialValues.variability);
@@ -114,16 +116,16 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-        <span style={{ fontWeight: 600 }}>Country</span>
+        <span style={{ fontWeight: 600 }}>{t("prefs.country")}</span>
         <span style={{ fontSize: "0.85rem", color: "#666" }}>
-          Used for local ingredient availability and regional recipes
+          {t("prefs.countryHint")}
         </span>
         <input
           list="country-list"
           value={country}
           onChange={(e) => setCountry(e.target.value)}
           onKeyDown={completeOnKey(countries, country, setCountry)}
-          placeholder="Start typing to search..."
+          placeholder={t("prefs.countryPlaceholder")}
           aria-invalid={!countryValid}
           style={{
             padding: "0.5rem",
@@ -139,22 +141,22 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
         </datalist>
         {!countryValid && (
           <span style={{ fontSize: "0.85rem", color: "#dc2626" }}>
-            Pick a country from the list.
+            {t("prefs.countryInvalid")}
           </span>
         )}
       </label>
 
       <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-        <span style={{ fontWeight: 600 }}>Language</span>
+        <span style={{ fontWeight: 600 }}>{t("prefs.language")}</span>
         <span style={{ fontSize: "0.85rem", color: "#666" }}>
-          Meal plans, recipes, and ingredient names will be generated in this language
+          {t("prefs.languageHint")}
         </span>
         <input
           list="language-list"
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
           onKeyDown={completeOnKey(languages, language, setLanguage)}
-          placeholder="e.g. English, Czech, Spanish..."
+          placeholder={t("prefs.languagePlaceholder")}
           aria-invalid={!languageValid}
           style={{
             padding: "0.5rem",
@@ -170,13 +172,13 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
         </datalist>
         {!languageValid && (
           <span style={{ fontSize: "0.85rem", color: "#dc2626" }}>
-            Pick a language from the list.
+            {t("prefs.languageInvalid")}
           </span>
         )}
       </label>
 
       <fieldset style={{ border: "1px solid #ddd", borderRadius: "6px", padding: "0.75rem 1rem" }}>
-        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>Cuisine Style</legend>
+        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>{t("prefs.cuisineStyle")}</legend>
         <div style={{ display: "flex", gap: "1.5rem", marginTop: "0.25rem" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
             <input
@@ -186,7 +188,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
               checked={variability === "traditional"}
               onChange={() => setVariability("traditional")}
             />
-            Traditional
+            {t("prefs.traditional")}
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
             <input
@@ -196,13 +198,13 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
               checked={variability === "experimental"}
               onChange={() => setVariability("experimental")}
             />
-            Experimental
+            {t("prefs.experimental")}
           </label>
         </div>
         <p style={{ fontSize: "0.85rem", color: "#666", margin: "0.5rem 0 0" }}>
           {variability === "traditional"
-            ? "Classic dishes typical for your country"
-            : "Creative combinations, fusion cuisine, and novel techniques"}
+            ? t("prefs.traditionalHint")
+            : t("prefs.experimentalHint")}
         </p>
       </fieldset>
 
@@ -211,13 +213,13 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           user sat on the "metric" default. Affects recipe STEPS only; the
           structured ingredient amounts are always grams. */}
       <fieldset style={{ border: "1px solid #ddd", borderRadius: "6px", padding: "0.75rem 1rem" }}>
-        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>Units in recipe steps</legend>
+        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>{t("prefs.units")}</legend>
         <div style={{ display: "flex", gap: "1.5rem", marginTop: "0.25rem", flexWrap: "wrap" }}>
           {([
-            ["metric", "Metric"],
-            ["imperial", "Imperial"],
-            ["none", "Match my language"],
-          ] as const).map(([value, label]) => (
+            ["metric", "prefs.unitsMetric"],
+            ["imperial", "prefs.unitsImperial"],
+            ["none", "prefs.unitsNone"],
+          ] as const).map(([value, labelKey]) => (
             <label key={value} style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
               <input
                 type="radio"
@@ -226,16 +228,16 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
                 checked={measurementSystem === value}
                 onChange={() => setMeasurementSystem(value)}
               />
-              {label}
+              {t(labelKey)}
             </label>
           ))}
         </div>
         <p style={{ fontSize: "0.85rem", color: "#666", margin: "0.5rem 0 0" }}>
           {measurementSystem === "metric"
-            ? "Grams, millilitres, °C in the cooking steps"
+            ? t("prefs.unitsMetricHint")
             : measurementSystem === "imperial"
-              ? "Cups, ounces, °F in the cooking steps"
-              : "Whatever units are normal for your language and country"}
+              ? t("prefs.unitsImperialHint")
+              : t("prefs.unitsNoneHint")}
         </p>
       </fieldset>
 
@@ -247,12 +249,10 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           style={{ width: "18px", height: "18px" }}
         />
         <span>
-          <span style={{ fontWeight: 600 }}>Include spices in shopping list</span>
+          <span style={{ fontWeight: 600 }}>{t("prefs.includeSpices")}</span>
           <br />
           <span style={{ fontSize: "0.85rem", color: "#666" }}>
-            Seasonings only (salt, pepper, herbs). If off, they won't appear in
-            stock/shopping lists (still in recipe steps). For groceries you always
-            keep — oil, flour, rice — use Pantry staples below.
+            {t("prefs.includeSpicesHint")}
           </span>
         </span>
       </label>
@@ -265,12 +265,10 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           style={{ width: "18px", height: "18px" }}
         />
         <span>
-          <span style={{ fontWeight: 600 }}>Show pieces instead of grams</span>
+          <span style={{ fontWeight: 600 }}>{t("prefs.showPieces")}</span>
           <br />
           <span style={{ fontSize: "0.85rem", color: "#666" }}>
-            For things you buy whole — "2 eggs" rather than "120g". Only where the
-            amount matches whole pieces; everything else stays in grams, and the
-            exact grams are always in the tooltip.
+            {t("prefs.showPiecesHint")}
           </span>
         </span>
       </label>
@@ -283,25 +281,24 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           style={{ width: "18px", height: "18px" }}
         />
         <span>
-          <span style={{ fontWeight: 600 }}>Track snacks from receipts</span>
+          <span style={{ fontWeight: 600 }}>{t("prefs.trackSnacks")}</span>
           <br />
           <span style={{ fontSize: "0.85rem", color: "#666" }}>
-            If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts
+            {t("prefs.trackSnacksHint")}
           </span>
         </span>
       </label>
 
       <fieldset style={{ border: "1px solid #ddd", borderRadius: "6px", padding: "0.75rem 1rem" }}>
-        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>Default day layout</legend>
+        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>{t("prefs.dayLayout")}</legend>
         <p style={{ fontSize: "0.85rem", color: "#666", margin: "0 0 0.5rem 0" }}>
-          The meals you usually want on a planned day, in order. Individual days in a plan
-          can override this.
+          {t("prefs.dayLayoutHint")}
         </p>
         <DayLayoutEditor
           value={defaultDayLayout}
           onChange={setDefaultDayLayout}
           disabled={loading}
-          ariaLabel="Default day layout"
+          ariaLabel={t("prefs.dayLayout")}
         />
       </fieldset>
 
@@ -320,7 +317,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           alignSelf: "flex-start",
         }}
       >
-        {loading ? "Saving..." : submitLabel}
+        {loading ? t("prefs.saving") : submitLabel}
       </button>
     </form>
   );

@@ -3,6 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OnboardingModal } from './OnboardingModal';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import type { ReactNode } from 'react';
 
@@ -77,6 +79,10 @@ beforeEach(() => {
 });
 
 describe('OnboardingModal', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
   it('renders welcome heading and preferences form', () => {
     loginUser();
     render(<OnboardingModal />, { wrapper: createWrapper() });
@@ -84,6 +90,29 @@ describe('OnboardingModal', () => {
     expect(screen.getByText(/welcome/i)).toBeInTheDocument();
     expect(screen.getByText(/set up your preferences/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument();
+  });
+
+  it('translates every visible string, not just the heading', () => {
+    // The subtitle sat hardcoded in English directly under a translated title,
+    // through a full browser pass — because that pass walked the SETTINGS
+    // modal and the claim was generalised to onboarding, which renders only
+    // for a user who has not completed it. Assert the whole dialog instead of
+    // spot-checking the heading.
+    loginUser();
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    const { container } = render(<OnboardingModal />, { wrapper: createWrapper() });
+
+    expect(screen.getByText('Vítejte! Nastavte si své předvolby')).toBeInTheDocument();
+    expect(
+      screen.getByText('Pomohou nám vytvářet jídelníčky na míru právě vám.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Začít' })).toBeInTheDocument();
+
+    // Exact check: is any string we have an English value for — and a
+    // DIFFERENT Czech value for — still in the DOM? A "looks English" regex
+    // cannot do this; it flags "Jednotky v postupu" and misses anything with a
+    // diacritic. See test/i18nAssertions.ts.
+    expect(untranslatedEnglishIn(container)).toEqual([]);
   });
 
   it('renders country input and variability options', () => {

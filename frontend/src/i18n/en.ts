@@ -77,6 +77,120 @@ export const en = {
   "verify.wrongAddress": "Wrong address?",
   "verify.resendFailed": "Couldn't resend just now — please try again in a minute.",
 
+  // ─── Settings modal ───────────────────────────────────────────────────────
+  "settings.title": "Settings",
+  "settings.close": "Close settings",
+  "settings.loading": "Loading...",
+  "settings.save": "Save preferences",
+  "settings.saveFailed": "Failed to save preferences. Please try again.",
+  "settings.discardTitle": "Discard unsaved pantry staples",
+  "settings.discardBody": "You have unsaved pantry staples. Discard them?",
+  "settings.discardConfirm": "Discard & close",
+  "settings.discardCancel": "Keep editing",
+  "settings.emailAddress": "Email address",
+  "settings.changeEmail": "Change",
+  "settings.sendFeedback": "💬 Send feedback",
+  "settings.feedbackHintLabel": "How feedback credit works",
+  "settings.feedbackHintText":
+    "Earn €1 off for every accepted bug report or feature request — up to €3/month. It shows up as a “Feedback reward” credit on your next invoice, so you'll need to be on the monthly plan (subscribed or on a free trial) to receive it — annual plans are already discounted.",
+
+  // ─── Onboarding ───────────────────────────────────────────────────────────
+  "onboarding.title": "Welcome! Set up your preferences",
+  "onboarding.subtitle": "These help us generate meal plans tailored to you.",
+  "onboarding.submit": "Get Started",
+
+  // ─── Preferences form ─────────────────────────────────────────────────────
+  "prefs.country": "Country",
+  "prefs.countryHint": "Used for local ingredient availability and regional recipes",
+  "prefs.countryPlaceholder": "Start typing to search...",
+  "prefs.countryInvalid": "Pick a country from the list.",
+
+  "prefs.language": "Language",
+  "prefs.languageHint":
+    "Meal plans, recipes, and ingredient names will be generated in this language",
+  // The EXAMPLES stay in English even in a Czech UI, and that is not an
+  // oversight: this field's stored value is the English exonym the backend
+  // whitelist accepts, so the datalist offers "Czech", not "Čeština". Showing a
+  // Czech reader "např. čeština" would be showing them a value the form
+  // rejects. Only the "e.g." wrapper is translated.
+  "prefs.languagePlaceholder": "e.g. English, Czech, Spanish...",
+  "prefs.languageInvalid": "Pick a language from the list.",
+
+  "prefs.cuisineStyle": "Cuisine Style",
+  "prefs.traditional": "Traditional",
+  "prefs.experimental": "Experimental",
+  "prefs.traditionalHint": "Classic dishes typical for your country",
+  "prefs.experimentalHint": "Creative combinations, fusion cuisine, and novel techniques",
+
+  "prefs.units": "Units in recipe steps",
+  "prefs.unitsMetric": "Metric",
+  "prefs.unitsImperial": "Imperial",
+  "prefs.unitsNone": "Match my language",
+  "prefs.unitsMetricHint": "Grams, millilitres, °C in the cooking steps",
+  "prefs.unitsImperialHint": "Cups, ounces, °F in the cooking steps",
+  "prefs.unitsNoneHint": "Whatever units are normal for your language and country",
+
+  "prefs.includeSpices": "Include spices in shopping list",
+  "prefs.includeSpicesHint":
+    "Seasonings only (salt, pepper, herbs). If off, they won't appear in stock/shopping lists (still in recipe steps). For groceries you always keep — oil, flour, rice — use Pantry staples below.",
+  "prefs.showPieces": "Show pieces instead of grams",
+  "prefs.showPiecesHint":
+    "For things you buy whole — \"2 eggs\" rather than \"120g\". Only where the amount matches whole pieces; everything else stays in grams, and the exact grams are always in the tooltip.",
+  "prefs.trackSnacks": "Track snacks from receipts",
+  "prefs.trackSnacksHint":
+    "If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts",
+
+  "prefs.dayLayout": "Default day layout",
+  "prefs.dayLayoutHint":
+    "The meals you usually want on a planned day, in order. Individual days in a plan can override this.",
+  "prefs.saving": "Saving...",
+
+  // ─── Pantry staples ───────────────────────────────────────────────────────
+  "staples.title": "Pantry staples",
+  "staples.hint":
+    "Groceries you always keep in — oil, flour, rice, sugar — left off your generated shopping lists so you don't re-buy them. Seasonings (salt, pepper, herbs) are handled by the {includeSpices} setting above.",
+  // The setting is referred to by its short name here, not its full label —
+  // a quoted control name inside a sentence, scoped to this sentence.
+  "staples.hintIncludeSpices": "Include spices",
+  "staples.loading": "Loading staples…",
+  "staples.connecting": "Connecting to server…",
+  "staples.placeholder": "Add a staple (e.g. olive oil)",
+  "staples.newStapleLabel": "New staple name",
+  "staples.add": "Add",
+  "staples.save": "Save staples",
+  "staples.saving": "Saving…",
+  "staples.saved": "Saved",
+  "staples.saveFailed": "Save failed",
+  "staples.empty": "No staples yet — add the things you never need to buy.",
+  "staples.unsaved": "Unsaved changes",
+  "staples.max_one": "You can have at most {count} staple.",
+  "staples.max_other": "You can have at most {count} staples.",
+
+  // ─── Day layout editor ────────────────────────────────────────────────────
+  "layout.empty": "No default set — plans will use the \"Meals per day\" count instead.",
+  "layout.addSlot": "+ Add slot",
+  "layout.addSlotMax": "+ Add slot (max {max})",
+  "layout.slot": "Slot {n}",
+  "layout.moveUp": "Move slot {n} up",
+  "layout.moveDown": "Move slot {n} down",
+  "layout.remove": "Remove slot {n}",
+  "layout.ariaLabel": "Day layout",
+
+  // Meal types. These mirror MEAL_TYPES in constants/mealTypes.ts, and
+  // i18n.test.ts asserts the two lists stay in step — a missing key here would
+  // render a raw enum value into a dropdown.
+  "mealType.sweet_breakfast": "Sweet breakfast",
+  "mealType.savory_breakfast": "Savory breakfast",
+  "mealType.brunch": "Brunch",
+  "mealType.snack": "Snack",
+  "mealType.soup": "Soup",
+  "mealType.light_lunch": "Light lunch",
+  "mealType.main_course": "Main course",
+  "mealType.side_dish": "Side dish",
+  "mealType.hot_dinner": "Hot dinner",
+  "mealType.cold_dinner": "Cold dinner",
+  "mealType.dessert": "Dessert",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // Read with tn("time.minutes", n). English has two categories; Czech has four
   // (Intl.PluralRules picks). Present here from the start so the mechanism has

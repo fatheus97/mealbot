@@ -65,6 +65,115 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "verify.wrongAddress": "Špatná adresa?",
   "verify.resendFailed": "Odeslání se teď nepovedlo — zkuste to prosím za minutu.",
 
+  // ─── Settings modal ───────────────────────────────────────────────────────
+  "settings.title": "Nastavení",
+  "settings.close": "Zavřít nastavení",
+  "settings.loading": "Načítání...",
+  "settings.save": "Uložit nastavení",
+  "settings.saveFailed": "Nastavení se nepodařilo uložit. Zkuste to prosím znovu.",
+  "settings.discardTitle": "Zahodit neuložené zásoby spíže",
+  "settings.discardBody": "Máte neuložené zásoby spíže. Chcete je zahodit?",
+  "settings.discardConfirm": "Zahodit a zavřít",
+  "settings.discardCancel": "Pokračovat v úpravách",
+  "settings.emailAddress": "E-mailová adresa",
+  "settings.changeEmail": "Změnit",
+  "settings.sendFeedback": "💬 Poslat zpětnou vazbu",
+  "settings.feedbackHintLabel": "Jak funguje kredit za zpětnou vazbu",
+  "settings.feedbackHintText":
+    "Za každé přijaté hlášení chyby nebo návrh funkce získáte €1 slevy — až €3 měsíčně. Objeví se jako kredit „Feedback reward“ na vaší příští faktuře, takže ho můžete dostat jen na měsíčním tarifu (s předplatným nebo ve zkušební době) — roční tarify už jsou zlevněné.",
+
+  // ─── Onboarding ───────────────────────────────────────────────────────────
+  "onboarding.title": "Vítejte! Nastavte si své předvolby",
+  "onboarding.subtitle": "Pomohou nám vytvářet jídelníčky na míru právě vám.",
+  "onboarding.submit": "Začít",
+
+  // ─── Preferences form ─────────────────────────────────────────────────────
+  "prefs.country": "Země",
+  "prefs.countryHint": "Používá se pro dostupnost surovin a regionální recepty",
+  "prefs.countryPlaceholder": "Začněte psát pro vyhledávání...",
+  "prefs.countryInvalid": "Vyberte zemi ze seznamu.",
+
+  "prefs.language": "Jazyk",
+  "prefs.languageHint":
+    "V tomto jazyce se budou generovat jídelníčky, recepty i názvy surovin",
+  // Příklady zůstávají anglicky schválně — pole ukládá anglický název jazyka,
+  // který přijímá seznam na serveru. Viz komentář v en.ts.
+  "prefs.languagePlaceholder": "např. English, Czech, Spanish...",
+  "prefs.languageInvalid": "Vyberte jazyk ze seznamu.",
+
+  "prefs.cuisineStyle": "Styl kuchyně",
+  "prefs.traditional": "Tradiční",
+  "prefs.experimental": "Experimentální",
+  "prefs.traditionalHint": "Klasická jídla typická pro vaši zemi",
+  "prefs.experimentalHint": "Nápadité kombinace, fusion kuchyně a nové techniky",
+
+  "prefs.units": "Jednotky v postupu",
+  "prefs.unitsMetric": "Metrické",
+  "prefs.unitsImperial": "Imperiální",
+  "prefs.unitsNone": "Podle mého jazyka",
+  "prefs.unitsMetricHint": "Gramy, mililitry a °C v postupu vaření",
+  "prefs.unitsImperialHint": "Šálky, unce a °F v postupu vaření",
+  "prefs.unitsNoneHint": "Jednotky obvyklé pro váš jazyk a zemi",
+
+  "prefs.includeSpices": "Zahrnout koření do nákupního seznamu",
+  "prefs.includeSpicesHint":
+    "Jen dochucovadla (sůl, pepř, bylinky). Když je volba vypnutá, nebudou se objevovat v zásobách ani v nákupním seznamu (v postupu zůstávají). Na potraviny, které máte doma vždy — olej, mouku, rýži — použijte Zásoby spíže níže.",
+  "prefs.showPieces": "Zobrazovat kusy místo gramů",
+  "prefs.showPiecesHint":
+    "U věcí, které kupujete celé — „2 vejce“ místo „120 g“. Jen tam, kde množství odpovídá celým kusům; jinde zůstávají gramy a přesná gramáž je vždy v popisku.",
+  "prefs.trackSnacks": "Sledovat sladkosti a snacky z účtenek",
+  "prefs.trackSnacksHint":
+    "Když je volba vypnutá, hotové výrobky (dezerty, snacky, nápoje) se při skenování účtenek přeskočí",
+
+  "prefs.dayLayout": "Výchozí rozvržení dne",
+  "prefs.dayLayoutHint":
+    "Jídla, která obvykle chcete mít v naplánovaném dni, v pořadí. Jednotlivé dny v plánu to mohou přepsat.",
+  "prefs.saving": "Ukládání...",
+
+  // ─── Pantry staples ───────────────────────────────────────────────────────
+  "staples.title": "Zásoby spíže",
+  "staples.hint":
+    "Potraviny, které máte doma vždy — olej, mouku, rýži, cukr — vynecháme z generovaných nákupních seznamů, ať je nekupujete znovu. Dochucovadla (sůl, pepř, bylinky) řeší nastavení {includeSpices} výše.",
+  "staples.hintIncludeSpices": "Zahrnout koření",
+  "staples.loading": "Načítání zásob…",
+  "staples.connecting": "Připojování k serveru…",
+  "staples.placeholder": "Přidat položku (např. olivový olej)",
+  "staples.newStapleLabel": "Název nové položky",
+  "staples.add": "Přidat",
+  "staples.save": "Uložit zásoby",
+  "staples.saving": "Ukládání…",
+  "staples.saved": "Uloženo",
+  "staples.saveFailed": "Uložení se nezdařilo",
+  "staples.empty": "Zatím žádné položky — přidejte věci, které nikdy nemusíte kupovat.",
+  "staples.unsaved": "Neuložené změny",
+  // 1 položku / 2-4 položky / 5+ položek
+  "staples.max_one": "Můžete mít nejvýše {count} položku.",
+  "staples.max_few": "Můžete mít nejvýše {count} položky.",
+  "staples.max_many": "Můžete mít nejvýše {count} položky.",
+  "staples.max_other": "Můžete mít nejvýše {count} položek.",
+
+  // ─── Day layout editor ────────────────────────────────────────────────────
+  "layout.empty": "Není nastaveno — plány místo toho použijí počet z „Jídel denně“.",
+  "layout.addSlot": "+ Přidat jídlo",
+  "layout.addSlotMax": "+ Přidat jídlo (max {max})",
+  "layout.slot": "Jídlo {n}",
+  "layout.moveUp": "Posunout jídlo {n} nahoru",
+  "layout.moveDown": "Posunout jídlo {n} dolů",
+  "layout.remove": "Odebrat jídlo {n}",
+  "layout.ariaLabel": "Rozvržení dne",
+
+  "mealType.sweet_breakfast": "Sladká snídaně",
+  "mealType.savory_breakfast": "Slaná snídaně",
+  "mealType.brunch": "Brunch",
+  "mealType.snack": "Svačina",
+  "mealType.soup": "Polévka",
+  "mealType.light_lunch": "Lehký oběd",
+  "mealType.main_course": "Hlavní chod",
+  "mealType.side_dish": "Příloha",
+  "mealType.hot_dinner": "Teplá večeře",
+  "mealType.cold_dinner": "Studená večeře",
+  "mealType.dessert": "Dezert",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // 1 minuta · 2–4 minuty · 1,5 minuty · 0 a 5+ minut.
   "time.minutes_one": "{count} minuta",
