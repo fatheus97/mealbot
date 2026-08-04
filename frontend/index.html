@@ -495,6 +495,7 @@
         background: var(--bg);
         color: var(--fg);
         font-family: inherit;
+        /* 16px, same iOS anti-zoom reason as .auth-field input above. */
         font-size: 16px;
         resize: vertical;
       }
@@ -550,6 +551,28 @@
         }
         section {
           padding: 2.25rem 0;
+        }
+        /* Phone floor for form fields, mirroring src/index.css — iOS zooms the
+           whole viewport when a focused field renders below 16px and never
+           zooms back out. The two rules above that already pin 16px
+           (.auth-field input, .access-form textarea) are CONTAINER-scoped, so
+           they cover today's four fields only by markup coincidence: the access
+           form's email input is saved by sitting in a label classed for the
+           *modal*. A <select> anywhere, a <textarea> in .auth-field, or an
+           <input> in .access-form outside that label would match nothing and
+           fall to the UA default (~13.3px) — the exact shape of the bug #365
+           fixed in the SPA. This element-level rule is the backstop.
+
+           NO `!important` here, unlike src/index.css: that one exists only
+           because the React app is 100% inline `style={}` and had to outrank
+           it. Nothing on this page carries an inline style, and this selector
+           already outranks both container rules on specificity anyway. Keeping
+           index.css's the project's only one is deliberate. */
+        input:not([type="checkbox"]):not([type="radio"]),
+        select,
+        textarea {
+          font-size: 16px;
+          min-height: 40px;
         }
       }
     </style>

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
 import { __resetAttributionForTests } from '../utils/attribution';
+import { __resetMediaForTests } from './media';
 
 // Node 22+ ships native Web Storage globals (`localStorage`/`sessionStorage`) that
 // vitest's jsdom environment leaves unconfigured, so the bare globals resolve to
@@ -41,7 +42,10 @@ afterEach(() => {
   // `localStorage.clear()` no longer resets it and a capture in one test would
   // otherwise leak into the next test's register payload within the same file.
   __resetAttributionForTests();
-  // Reset any viewport matchMedia mock (see test-utils setMobileViewport) so a
-  // mobile test can't leak into the next test's default (desktop) rendering.
+  // Reset any matchMedia mock (see test-utils setMobileViewport /
+  // setColorScheme) so a mobile or dark-mode test can't leak into the next
+  // test's defaults (desktop, light). The mock answers from module state, so
+  // dropping the global alone would leave that state dirty for the next install.
+  __resetMediaForTests();
   Reflect.deleteProperty(window, 'matchMedia');
 });
