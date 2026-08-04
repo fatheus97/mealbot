@@ -146,7 +146,7 @@ export function MealCard({
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: isFrozen ? "#2563eb" : "#6b7280",
+              color: isFrozen ? "#2563eb" : "#4b5563",
             }}
           >
             {isFrozen ? t("meal.frozen") : t("meal.freeze")}
@@ -164,7 +164,7 @@ export function MealCard({
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: isCooked ? "#15803d" : "#6b7280",
+              color: isCooked ? "#15803d" : "#4b5563",
             }}
           >
             {isCooked ? t("meal.cooked") : t("meal.cook")}
@@ -173,7 +173,7 @@ export function MealCard({
         {isFinished && entry && (
           <span style={{
             fontSize: "0.85rem",
-            color: isCooked ? "#15803d" : "#6b7280",
+            color: isCooked ? "#15803d" : "#4b5563",
             fontStyle: "italic",
           }}>
             {isCooked ? t("meal.cooked") : t("meal.notCooked")}
