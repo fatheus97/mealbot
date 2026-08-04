@@ -61,15 +61,27 @@ worth knowing, rarely a per-change item:
 
 ## iOS zoom on form fields — the one `!important` in the project (#365)
 iOS zooms the whole viewport when a focused `input`/`select`/`textarea` renders
-**below 16px**, and does **not** zoom back out on blur. `frontend/src/index.css`
-pins the floor under `@media (max-width: 640px)`:
+**below 16px**, and does **not** zoom back out on blur. The floor is pinned under
+`@media (max-width: 640px)`:
 
 ```css
 input:not([type="checkbox"]):not([type="radio"]), select, textarea {
-  font-size: 16px !important;
+  font-size: 16px !important;   /* !important ONLY in src/index.css */
   min-height: 40px !important;
 }
 ```
+
+**Two stylesheets carry this rule, because there are two builds and neither
+inherits the other's CSS** (`vite.config.ts` has four HTML entry points; only
+`app.html` loads `src/index.css`):
+
+| sheet | pages | `!important`? |
+|---|---|---|
+| `frontend/src/index.css` | `app.html` (the React SPA) | **yes** — the app is 100% inline `style={}` and had to be outranked |
+| the inline `<style>` in `frontend/index.html` | the marketing landing page | **no** — nothing there carries an inline style |
+
+`privacy.html` / `terms.html` have no form control at all, so they carry no floor.
+**Add one if you ever add a field to them** — they inherit nothing.
 
 - **That `!important` is deliberate and load-bearing — don't remove it.** Inline
   styles outrank author stylesheets, so without it *every* component that pinned
@@ -78,7 +90,14 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea {
   100%-inline-`style={}` app this can only be enforced mechanically.
 - **It is the ONLY `!important` in the project. Keep it that way** — a specificity
   fight anywhere else is a design problem to fix in the component. `mobileFieldGuard.test.ts`
-  fails if a second one appears, or if the floor or the `!important` is dropped.
+  checks both sheets and fails if a second one appears, if the landing page grows
+  one, or if either floor is dropped.
+- **Element-level, not container-scoped.** The landing page had pinned 16px via
+  `.auth-field input` and `.access-form textarea` — which covered its four fields
+  only by markup coincidence (the access form's email input is saved by sitting in
+  a label classed for the *modal*). A `<select>` anywhere, or a field added to the
+  wrong wrapper, matched nothing and fell to the UA default (~13.3px). Pin the
+  floor on the elements, not on whatever container happens to exist today.
 - **You may still set an inline `font-size` on a field** — it applies on desktop
   and is simply overridden below 640px. That's the point: no `isMobile ? 16 : x`
   ternary needed, and module-level `CSSProperties` consts (which can't call a hook)

@@ -1,8 +1,16 @@
 /// <reference types="node" />
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { contrastRatio, wcagAAFloor, checkText, blend, adaptiveText, THEME } from './contrast';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve, join, relative } from 'node:path';
+import {
+  contrastRatio,
+  wcagAAFloor,
+  checkText,
+  findInlineColorPairs,
+  blend,
+  adaptiveText,
+  THEME,
+} from './contrast';
 import {
   SURFACE,
   NOTICE_OK_COLOR,
@@ -10,6 +18,15 @@ import {
   MUTED_COLOR,
 } from '../components/PantryStaples';
 import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/theme';
+
+/** Every non-test .tsx/.ts under a directory. */
+function walkTsx(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) return walkTsx(full);
+    return /\.tsx?$/.test(entry.name) && !/\.test\./.test(entry.name) ? [full] : [];
+  });
+}
 
 describe('contrast maths', () => {
   it('agrees with the WCAG reference values', () => {
@@ -158,5 +175,36 @@ describe('colours on the adaptive page background', () => {
     // The opacity is the whole guard for `color: inherit` text — pin that a
     // slacker value would be caught.
     expect(checkText(adaptiveText('light', 0.5), THEME.light.bg, 12.8).passes).toBe(false);
+  });
+});
+
+describe('every inline background/foreground pair in the app', () => {
+  // Five failing sites were sitting in shipped code — Register, Logout,
+  // Regenerate, Confirm Plan and cook mode's Done — through THREE separate
+  // manual browser passes over those very screens. A manual sweep measures
+  // what is on screen at that moment and gets reported as coverage of the
+  // component; this reads every declaration, whether or not anything rendered.
+  const files = walkTsx(resolve(process.cwd(), 'src'));
+  const pairs = files.flatMap((f) =>
+    findInlineColorPairs(readFileSync(f, 'utf-8'), relative(process.cwd(), f)),
+  );
+
+  it('finds pairs to check at all', () => {
+    // Guards the guard: a broken walk or regex would make the assertion below
+    // pass over an empty list, which is the failure mode this whole file is
+    // about. The floor is deliberately well BELOW the real count (22 across 88
+    // files at the time of writing) — this asserts "the scan still works", not
+    // "the palette has not changed", and a tight bound would just false-alarm
+    // on any refactor that merges two styled elements.
+    expect(pairs.length).toBeGreaterThan(10);
+    expect(files.length).toBeGreaterThan(50);
+  });
+
+  it('all meet WCAG AA', () => {
+    const failing = pairs
+      .map((p) => ({ ...p, ...checkText(p.fg, p.bg, p.px, p.bold ? 700 : 400) }))
+      .filter((p) => !p.passes)
+      .map((p) => `${p.file}:${p.line} ${p.fg} on ${p.bg} = ${p.ratio}:1 (needs ${p.floor})`);
+    expect(failing).toEqual([]);
   });
 });

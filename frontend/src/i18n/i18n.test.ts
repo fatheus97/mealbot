@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { makeI18n, interpolate, DICTIONARIES, type TranslationKey } from '.';
 import { en } from './en';
 import { MEAL_TYPES } from '../constants/mealTypes';
+import { ALLERGENS, DIET_TYPES } from '../constants/dietary';
 import { cs } from './cs';
 import {
   useLocaleStore,
@@ -143,6 +144,10 @@ describe('translation parity', () => {
     const SAME_IN_BOTH: TranslationKey[] = [
       'auth.busy', // "..." — punctuation
       'mealType.brunch', // loanword; Czech uses "brunch" too
+      'diet.keto', // loanword
+      'diet.paleo', // loanword
+      'diet.dash', // acronym (Dietary Approaches to Stop Hypertension)
+      'diet.halal', // loanword; Czech uses "halal" (cf. diet.kosher → "Košer")
     ];
     const identical = enKeys.filter((k) => en[k] === cs[k]);
     expect(identical.sort()).toEqual([...SAME_IN_BOTH].sort());
@@ -186,25 +191,89 @@ describe('locale store', () => {
   });
 });
 
-describe('meal type labels', () => {
-  // MEAL_TYPES mirrors the backend enum and grows there first. A new value with
-  // no `mealType.*` key would render its RAW ENUM NAME into a dropdown —
-  // "side_dish" — which looks like a bug in the data rather than a missing
-  // translation, so nobody would think to look here.
-  it('covers exactly the meal types the app knows about', () => {
-    const keyed = Object.keys(en)
-      .filter((k) => k.startsWith('mealType.'))
-      .map((k) => k.slice('mealType.'.length))
-      .sort();
-    expect(keyed).toEqual([...MEAL_TYPES].sort());
-  });
+describe('enum-backed label sets', () => {
+  // These three lists mirror backend enums and grow THERE first. A new value
+  // with no key would render its raw enum name into the UI — "side_dish",
+  // "cereals_with_gluten" — which reads as a bug in the data rather than a
+  // missing translation, so nobody would think to look in the dictionary.
+  const SETS: [string, readonly string[]][] = [
+    ['mealType', MEAL_TYPES],
+    ['diet', DIET_TYPES],
+    ['allergen', ALLERGENS],
+  ];
 
-  it('translates every one of them', () => {
-    for (const mt of MEAL_TYPES) {
-      const key = `mealType.${mt}` as TranslationKey;
-      expect(makeI18n('cs').t(key)).not.toBe(key);
-    }
+  for (const [prefix, values] of SETS) {
+    it(`${prefix}.* covers exactly the ${prefix} values the app knows about`, () => {
+      const keyed = Object.keys(en)
+        .filter((k) => k.startsWith(`${prefix}.`))
+        .map((k) => k.slice(prefix.length + 1))
+        // `diet.*` also holds the screening disclaimer and hint copy, which are
+        // not enum values; exclude anything not in the enum's shape.
+        .filter((k) => (values as readonly string[]).includes(k))
+        .sort();
+      expect(keyed).toEqual([...values].sort());
+    });
+
+    it(`${prefix}.* is translated for every value`, () => {
+      for (const v of values) {
+        const key = `${prefix}.${v}` as TranslationKey;
+        expect(makeI18n('cs').t(key)).not.toBe(key);
+      }
+    });
+  }
+
+  it('leaves no diet.* or allergen.* key pointing at a value the enum dropped', () => {
+    // The other direction: a REMOVED enum value leaves an orphan key, which is
+    // dead weight a translator keeps maintaining.
+    const orphans = Object.keys(en)
+      .filter((k) => k.startsWith('diet.') || k.startsWith('allergen.'))
+      .map((k) => [k.split('.')[0], k.split('.').slice(1).join('.')] as const)
+      .filter(([prefix, value]) => {
+        if (prefix === 'allergen') return !(ALLERGENS as readonly string[]).includes(value);
+        // Non-enum diet.* keys are the copy block, listed explicitly.
+        const copy = [
+          'screeningDisclaimer',
+          'sulphiteHintLabel',
+          'sulphiteHintText',
+          'sectionDiets',
+          'sectionAllergies',
+        ];
+        return !(DIET_TYPES as readonly string[]).includes(value) && !copy.includes(value);
+      })
+      .map(([p, v]) => `${p}.${v}`);
+    expect(orphans).toEqual([]);
   });
+});
+
+describe('liability copy', () => {
+  // The frontend half of the transparency-not-endorsement rule
+  // (docs/dietary-reference.md Part 4). A translation is exactly where a
+  // promise of safety sneaks back in, because nobody re-reviews the Czech
+  // against a rule written in English.
+  const FORBIDDEN = [
+    /\bsafe\b/i, /allergen-free/i, /hypoallergenic/i, /guarantee[sd]?\b/i,
+    /\bbezpečn/i, /bez alergen/i, /zaručuje/i, /záruk[au]\b/i,
+  ];
+
+  for (const locale of UI_LOCALES) {
+    it(`${locale} never promises safety in the screening disclaimer`, () => {
+      const text = makeI18n(locale).t('diet.screeningDisclaimer');
+      // "not a guarantee" / "ne záruka" is the ONE allowed use — it is the
+      // disclaimer itself. Strip the negation before scanning.
+      const stripped = text
+        .replace(/not a guarantee/i, '')
+        .replace(/ne záruka/i, '');
+      const hits = FORBIDDEN.filter((re) => re.test(stripped));
+      expect({ locale, text, hits: hits.map(String) }).toMatchObject({ hits: [] });
+    });
+
+    it(`${locale} still says it is not a guarantee`, () => {
+      // The complement: stripping the claim must not be achievable by deleting
+      // it. Without this the test above passes on an empty disclaimer.
+      const text = makeI18n(locale).t('diet.screeningDisclaimer');
+      expect(text).toMatch(/not a guarantee|ne záruka/i);
+    });
+  }
 });
 
 describe('plural categories', () => {
