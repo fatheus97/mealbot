@@ -510,13 +510,13 @@ class TestNotices:
         # A victim of a session/password compromise learns about it here or not
         # at all — the new address gets the confirmation link, so without this
         # the takeover is silent from the old inbox's point of view.
-        html_body = email_verification.change_notice_html(NEW_EMAIL)
+        html_body = email_verification.change_notice_html(NEW_EMAIL, "en")
         assert NEW_EMAIL in html_body
         assert "wasn't you" in html_body
 
     def test_the_notice_escapes_the_new_address(self) -> None:
         # The address is user-supplied and lands in HTML.
-        body = email_verification.change_notice_html('a@b.com"><script>x</script>')
+        body = email_verification.change_notice_html('a@b.com"><script>x</script>', "en")
         assert "<script>" not in body
         assert "&lt;script&gt;" in body
 
@@ -529,7 +529,9 @@ class TestNotices:
             raise RuntimeError("resend down")
 
         monkeypatch.setattr(email_verification, "send_transactional", _boom)
-        await email_verification.dispatch_change_notice("old@example.com", NEW_EMAIL)
+        await email_verification.dispatch_change_notice(
+            "old@example.com", NEW_EMAIL, "en"
+        )
 
 
 class TestStripeSync:

@@ -289,6 +289,48 @@ jobs:
           done
           exit "$failed"
 
+  # The set of translated locales is declared twice — once for the UI
+  # (frontend/src/store/useLocaleStore.ts) and once for email
+  # (backend/app/core/i18n.py) — because neither side can import the other.
+  # Drift is silent and lands squarely on the user: a Czech UI whose
+  # confirmation email arrives in English, or the reverse. Neither test suite
+  # can catch it, because the backend container mounts only ./backend and the
+  # frontend one only ./frontend — the same boundary that made the
+  # TERMS_VERSION check a CI job rather than a pytest.
+  locale-parity:
+    name: locale parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The UI and email locale lists agree
+        run: |
+          set -uo pipefail
+          # One locale per line, sorted, from each declaration.
+          fe="$(sed -n "s/.*UI_LOCALES *= *\[\(.*\)\] as const.*/\1/p" \
+            frontend/src/store/useLocaleStore.ts \
+            | tr -d "' \"" | tr ',' '\n' | grep -v '^$' | sort)"
+          be="$(sed -n 's/.*UI_LOCALES: *Final\[tuple\[Locale, *\.\.\.\]\] *= *(\(.*\)).*/\1/p' \
+            backend/app/core/i18n.py \
+            | tr -d "' \"" | tr ',' '\n' | grep -v '^$' | sort)"
+          # Load-bearing: an empty capture would compare "" to "" and PASS,
+          # so a renamed constant would silently disable this check — the
+          # same trap `date -d ""` sets in the legal-version job above.
+          if [ -z "$fe" ]; then
+            echo "::error::could not read UI_LOCALES from frontend/src/store/useLocaleStore.ts"
+            exit 1
+          fi
+          if [ -z "$be" ]; then
+            echo "::error::could not read UI_LOCALES from backend/app/core/i18n.py"
+            exit 1
+          fi
+          if [ "$fe" != "$be" ]; then
+            echo "::error::locale lists differ — UI: $(echo "$fe" | tr '\n' ' ')| email: $(echo "$be" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "both declare: $(echo "$fe" | tr '\n' ' ')"
+
   # The Claude PR Review guard decides whether a review actually happened; it has
   # silently mis-decided twice (#184 shipped it, PR #229 exposed the hole). Its
   # logic is therefore unit-tested like any other production code path.

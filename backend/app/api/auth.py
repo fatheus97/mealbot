@@ -37,6 +37,7 @@ from app.core.cookies import (
     set_auth_cookies,
 )
 from app.core.email_normalize import normalize_email
+from app.core.i18n import locale_for_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
@@ -628,7 +629,10 @@ async def change_email(
         # evidence the account holder owns that inbox, which is exactly the case
         # where a compromise notice is worth sending and safe to send.
         background.add_task(
-            email_verification.dispatch_change_notice, old_email, new_email
+            email_verification.dispatch_change_notice,
+            old_email,
+            new_email,
+            locale_for_language(current_user.language),
         )
     if current_user.stripe_customer_id:
         background.add_task(
