@@ -49,6 +49,12 @@ const EXPECTED_IN_EVERY_LOCALE: readonly TranslationKey[] = ['prefs.languagePlac
  * enough that a hit would not mean anything.
  */
 export function untranslatedEnglishIn(root: HTMLElement, minLength = 4): string[] {
+  // NOTE: the result is a list of KEYS, not of distinct strings. One rendered
+  // string can match several — an untranslated "Ingredients:" reports under
+  // `meal.ingredients`, `cook.ingredients` AND `editor.ingredients`, because
+  // all three have that English value and whole-word matching finds the
+  // shorter ones inside it. Every entry is a genuine match; the LENGTH is not
+  // a count of things to fix. Read the failure, do not tally it.
   const found: string[] = [];
   const haystacks = visibleStrings(root);
 
