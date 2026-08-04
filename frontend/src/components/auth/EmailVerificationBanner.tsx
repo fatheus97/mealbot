@@ -1,6 +1,8 @@
 import { useState, type CSSProperties } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { ChangeEmailModal } from "./ChangeEmailModal";
+import { useI18n } from "../../i18n";
+import { Trans } from "../../i18n/Trans";
 
 /**
  * "Confirm your email" prompt for an unverified account.
@@ -21,6 +23,7 @@ import { ChangeEmailModal } from "./ChangeEmailModal";
  */
 export function EmailVerificationBanner() {
   const { userId, email, emailVerified, resendVerification } = useAuth();
+  const { t } = useI18n();
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [changing, setChanging] = useState(false);
 
@@ -47,15 +50,24 @@ export function EmailVerificationBanner() {
       <span style={{ flex: "1 1 260px" }}>
         {/* Naming the address is the whole point: a user who mistyped it at
             sign-up cannot otherwise tell why the link never arrived, and
-            "check your inbox" reads as advice to wait longer. */}
-        <strong>Confirm your email address</strong> to start generating plans. We've
-        sent a link to <strong>{email}</strong> — check your inbox (and spam).
+            "check your inbox" reads as advice to wait longer.
+
+            Both bold runs are holes in ONE sentence rather than separate keys:
+            Czech continues "…adresu, abyste mohli…", so the clause after the
+            first <strong> is not a standalone phrase. */}
+        <Trans
+          k="verify.body"
+          nodes={{
+            title: <strong>{t("verify.title")}</strong>,
+            email: <strong>{email}</strong>,
+          }}
+        />
       </span>
       {state === "sent" ? (
         // Deliberately not a disabled button: once sent, the useful thing to
         // say is "we sent it", and the 60s server cooldown would silently
         // swallow an immediate second press anyway.
-        <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>Sent ✓</span>
+        <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t("verify.sent")}</span>
       ) : (
         <button
           type="button"
@@ -63,20 +75,20 @@ export function EmailVerificationBanner() {
           disabled={state === "sending"}
           style={button}
         >
-          {state === "sending" ? "Sending…" : "Resend link"}
+          {state === "sending" ? t("verify.sending") : t("verify.resend")}
         </button>
       )}
       {/* The escape hatch from the lockout: resending only ever re-mails the
           SAME address, so a user who mistyped it can press "Resend link" all
           day and never receive anything. */}
       <button type="button" onClick={() => setChanging(true)} style={linkButton}>
-        Wrong address?
+        {t("verify.wrongAddress")}
       </button>
       {state === "error" && (
         // role=alert: the surrounding region is a polite role=status, so a
         // failure announced inside it can be missed entirely.
         <span role="alert" style={{ flexBasis: "100%", fontSize: "0.85rem" }}>
-          Couldn't resend just now — please try again in a minute.
+          {t("verify.resendFailed")}
         </span>
       )}
     </div>

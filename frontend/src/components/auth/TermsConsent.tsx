@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import { useI18n } from "../../i18n";
+import { Trans } from "../../i18n/Trans";
 
 /**
  * The "I accept the Terms and Privacy Policy" checkbox shown at account creation.
@@ -32,6 +34,8 @@ export function TermsConsent({
   /** Distinct id when more than one instance can be mounted at once. */
   id?: string;
 }) {
+  const { t } = useI18n();
+
   return (
     <label htmlFor={id} style={wrap}>
       <input
@@ -42,16 +46,26 @@ export function TermsConsent({
         disabled={disabled}
         style={{ marginTop: 2, flexShrink: 0 }}
       />
+      {/* One sentence, two link-shaped holes — NOT "I accept the" + link + "and"
+          + link. Fragments would pin English word order, and the Czech labels
+          are inflected to follow "Souhlasím s", so neither link text has a
+          correct translation on its own. See i18n/Trans.tsx. */}
       <span>
-        I accept the{" "}
-        <a href="/terms" target="_blank" rel="noopener noreferrer" style={link}>
-          Terms of Service
-        </a>{" "}
-        and{" "}
-        <a href="/privacy" target="_blank" rel="noopener noreferrer" style={link}>
-          Privacy Policy
-        </a>
-        .
+        <Trans
+          k="auth.acceptTerms"
+          nodes={{
+            terms: (
+              <a href="/terms" target="_blank" rel="noopener noreferrer" style={link}>
+                {t("auth.acceptTerms.termsLink")}
+              </a>
+            ),
+            privacy: (
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" style={link}>
+                {t("auth.acceptTerms.privacyLink")}
+              </a>
+            ),
+          }}
+        />
       </span>
     </label>
   );
