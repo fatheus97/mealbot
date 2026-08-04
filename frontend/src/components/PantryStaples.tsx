@@ -75,7 +75,10 @@ const saveBtn: CSSProperties = {
   padding: "0.45rem 1rem",
   border: "none",
   borderRadius: 6,
-  background: "#16a34a",
+  // 5.01:1 against #fff at 14.4px normal weight. #16a34a (the previous value)
+  // measured 3.30:1 — under the 4.5:1 AA floor. Found by the two-theme check
+  // in .claude/rules/frontend.md, not by any test.
+  background: "#15803d",
   color: "#fff",
   fontSize: "0.9rem",
 };
@@ -220,7 +223,7 @@ export function PantryStaples({
       ) : (
         !isLoading && (
           <p style={{ ...mutedStyle, margin: "0 0 0.75rem" }}>
-            No staples yet — add the things you never need to buy.
+            {t("staples.empty")}
           </p>
         )
       )}

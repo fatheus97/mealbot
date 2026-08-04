@@ -143,12 +143,35 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "staples.saving": "Ukládání…",
   "staples.saved": "Uloženo",
   "staples.saveFailed": "Uložení se nezdařilo",
+  "staples.empty": "Zatím žádné položky — přidejte věci, které nikdy nemusíte kupovat.",
   "staples.unsaved": "Neuložené změny",
   // 1 položku / 2-4 položky / 5+ položek
   "staples.max_one": "Můžete mít nejvýše {count} položku.",
   "staples.max_few": "Můžete mít nejvýše {count} položky.",
   "staples.max_many": "Můžete mít nejvýše {count} položky.",
   "staples.max_other": "Můžete mít nejvýše {count} položek.",
+
+  // ─── Day layout editor ────────────────────────────────────────────────────
+  "layout.empty": "Není nastaveno — plány místo toho použijí počet z „Jídel denně“.",
+  "layout.addSlot": "+ Přidat jídlo",
+  "layout.addSlotMax": "+ Přidat jídlo (max {max})",
+  "layout.slot": "Jídlo {n}",
+  "layout.moveUp": "Posunout jídlo {n} nahoru",
+  "layout.moveDown": "Posunout jídlo {n} dolů",
+  "layout.remove": "Odebrat jídlo {n}",
+  "layout.ariaLabel": "Rozvržení dne",
+
+  "mealType.sweet_breakfast": "Sladká snídaně",
+  "mealType.savory_breakfast": "Slaná snídaně",
+  "mealType.brunch": "Brunch",
+  "mealType.snack": "Svačina",
+  "mealType.soup": "Polévka",
+  "mealType.light_lunch": "Lehký oběd",
+  "mealType.main_course": "Hlavní chod",
+  "mealType.side_dish": "Příloha",
+  "mealType.hot_dinner": "Teplá večeře",
+  "mealType.cold_dinner": "Studená večeře",
+  "mealType.dessert": "Dezert",
 
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // 1 minuta · 2–4 minuty · 1,5 minuty · 0 a 5+ minut.

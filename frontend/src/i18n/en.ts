@@ -160,9 +160,35 @@ export const en = {
   "staples.saving": "Saving…",
   "staples.saved": "Saved",
   "staples.saveFailed": "Save failed",
+  "staples.empty": "No staples yet — add the things you never need to buy.",
   "staples.unsaved": "Unsaved changes",
   "staples.max_one": "You can have at most {count} staple.",
   "staples.max_other": "You can have at most {count} staples.",
+
+  // ─── Day layout editor ────────────────────────────────────────────────────
+  "layout.empty": "No default set — plans will use the \"Meals per day\" count instead.",
+  "layout.addSlot": "+ Add slot",
+  "layout.addSlotMax": "+ Add slot (max {max})",
+  "layout.slot": "Slot {n}",
+  "layout.moveUp": "Move slot {n} up",
+  "layout.moveDown": "Move slot {n} down",
+  "layout.remove": "Remove slot {n}",
+  "layout.ariaLabel": "Day layout",
+
+  // Meal types. These mirror MEAL_TYPES in constants/mealTypes.ts, and
+  // i18n.test.ts asserts the two lists stay in step — a missing key here would
+  // render a raw enum value into a dropdown.
+  "mealType.sweet_breakfast": "Sweet breakfast",
+  "mealType.savory_breakfast": "Savory breakfast",
+  "mealType.brunch": "Brunch",
+  "mealType.snack": "Snack",
+  "mealType.soup": "Soup",
+  "mealType.light_lunch": "Light lunch",
+  "mealType.main_course": "Main course",
+  "mealType.side_dish": "Side dish",
+  "mealType.hot_dinner": "Hot dinner",
+  "mealType.cold_dinner": "Cold dinner",
+  "mealType.dessert": "Dessert",
 
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // Read with tn("time.minutes", n). English has two categories; Czech has four

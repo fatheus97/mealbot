@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { makeI18n, interpolate, DICTIONARIES, type TranslationKey } from '.';
 import { en } from './en';
+import { MEAL_TYPES } from '../constants/mealTypes';
 import { cs } from './cs';
 import {
   useLocaleStore,
@@ -135,10 +136,16 @@ describe('translation parity', () => {
   });
 
   it('no translation is left as the untranslated English string', () => {
-    // A copy-paste that never got translated. Exempts entries where the two
-    // languages genuinely coincide.
+    // Catches a copy-paste that never got translated. The allowlist is
+    // deliberately explicit and deliberately annoying to extend: every entry is
+    // a claim that two languages genuinely coincide, which is exactly the claim
+    // a rushed translator makes about a word they simply did not translate.
+    const SAME_IN_BOTH: TranslationKey[] = [
+      'auth.busy', // "..." — punctuation
+      'mealType.brunch', // loanword; Czech uses "brunch" too
+    ];
     const identical = enKeys.filter((k) => en[k] === cs[k]);
-    expect(identical).toEqual(['auth.busy']); // "..." is the same everywhere
+    expect(identical.sort()).toEqual([...SAME_IN_BOTH].sort());
   });
 });
 
@@ -176,6 +183,27 @@ describe('locale store', () => {
 
   it('ships exactly the locales that have a dictionary', () => {
     expect([...UI_LOCALES].sort()).toEqual(['cs', 'en']);
+  });
+});
+
+describe('meal type labels', () => {
+  // MEAL_TYPES mirrors the backend enum and grows there first. A new value with
+  // no `mealType.*` key would render its RAW ENUM NAME into a dropdown —
+  // "side_dish" — which looks like a bug in the data rather than a missing
+  // translation, so nobody would think to look here.
+  it('covers exactly the meal types the app knows about', () => {
+    const keyed = Object.keys(en)
+      .filter((k) => k.startsWith('mealType.'))
+      .map((k) => k.slice('mealType.'.length))
+      .sort();
+    expect(keyed).toEqual([...MEAL_TYPES].sort());
+  });
+
+  it('translates every one of them', () => {
+    for (const mt of MEAL_TYPES) {
+      const key = `mealType.${mt}` as TranslationKey;
+      expect(makeI18n('cs').t(key)).not.toBe(key);
+    }
   });
 });
 
