@@ -3,6 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CookNowForm } from './CookNowForm';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import type { ReactNode } from 'react';
 
@@ -55,6 +57,51 @@ beforeEach(() => {
 });
 
 describe('CookNowForm', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it('leaves no untranslated English when switched to Czech', () => {
+    // Exact dictionary comparison, not a "looks English" regex. Only sees what
+    // is RENDERED — the generated-recipe branch is covered by the next case.
+    loginUser();
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
+  it('stays translated once a recipe is generated, and after cooking it', async () => {
+    // The branch the case above cannot reach. It hid TWO raw English literals
+    // ("Edit", "✓ Cooked") through a full review of this slice, and the
+    // comment that used to sit above claimed they were "covered above" — they
+    // were not; this was the file's only Czech-locale test.
+    loginUser();
+    const czechRecipe = {
+      name: 'Rajská polévka',
+      meal_type: 'soup',
+      meal_type_label: 'Polévka',
+      ingredients: [{ name: 'rajčata', quantity_grams: 300, is_spice: false }],
+      steps: ['Vařit', 'Podávat'],
+      total_time_minutes: 20,
+    };
+    mockedGenerate.mockResolvedValueOnce({ recipe: czechRecipe, generation_id: 7 });
+    mockedCook.mockResolvedValueOnce({ id: 42, name: 'Rajská polévka', is_favorite: false });
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+
+    const user = userEvent.setup();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    await user.click(screen.getByRole('button', { name: 'Vytvořit recept' }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Rajská polévka' })).toBeInTheDocument(),
+    );
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+
+    // …and the post-cook state, which swaps the button row for a "Cooked" mark.
+    await user.click(screen.getByRole('button', { name: 'Označit jako uvařené' }));
+    await waitFor(() => expect(screen.getByText(/Uvařeno/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
   it('generates a recipe and displays it', async () => {
     loginUser();
     mockedGenerate.mockResolvedValueOnce({

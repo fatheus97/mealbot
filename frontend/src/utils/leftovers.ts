@@ -38,8 +38,9 @@ export function leftoverSourceLabel(
   return `${day} · ${slot} — ${source.name}`;
 }
 
-/** Compact form for narrow screens; the full label goes in `title`. */
-export const LEFTOVER_SHORT_LABEL = "↻ Leftovers";
+// The compact narrow-screen label moved to the i18n dictionary
+// (`meal.leftoversShort`) — an exported English constant could only ever be
+// English, the same reason DIET_TYPE_LABELS was removed in #368.
 
 /**
  * Downcase only the FIRST character, so a sentence reads naturally when

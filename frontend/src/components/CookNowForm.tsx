@@ -17,11 +17,10 @@ import { MealEditor } from "./recipe/MealEditor";
 import { CookMode } from "./recipe/CookMode";
 import {
   MEAL_TYPES,
-  MEAL_TYPE_LABELS,
-  mealTypeLabel,
   type MealType,
 } from "../constants/mealTypes";
 import { DietarySelector } from "./DietarySelector";
+import { useI18n, useMealTypeLabel } from "../i18n";
 import type {
   Allergen,
   CookRecipeRequest,
@@ -39,6 +38,8 @@ const COOKNOW_COOK_KEY = "cookmode:cooknow";
 // full PlannedMeal through /recipe/cook so the server doesn't re-invoke the
 // LLM on the cook action — it just persists + debits fridge + marks cooked.
 export function CookNowForm() {
+  const { t } = useI18n();
+  const mealTypeLabel = useMealTypeLabel();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
   const { data: fridgeItems } = useFridge(userId);
@@ -184,26 +185,25 @@ export function CookNowForm() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <p style={{ margin: 0, color: "#555" }}>
-        Generate one recipe for what you're cooking right now. Mark it cooked
-        to debit the fridge — no shopping list, no multi-day planning.
+        {t("cookNow.intro")}
       </p>
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "1rem" }}>
         <label>
-          Meal type
+          {t("cookNow.mealType")}
           <select
             value={mealType}
             onChange={(e) => setMealType(e.target.value as MealType)}
             style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
           >
             {MEAL_TYPES.map((mt) => (
-              <option key={mt} value={mt}>{MEAL_TYPE_LABELS[mt]}</option>
+              <option key={mt} value={mt}>{t(`mealType.${mt}` as const)}</option>
             ))}
           </select>
         </label>
 
         <label>
-          People
+          {t("cookNow.people")}
           <input
             type="number"
             value={peopleCount}
@@ -237,47 +237,47 @@ export function CookNowForm() {
             checked={stockOnly}
             onChange={(e) => setStockOnly(e.target.checked)}
           />
-          Only use what's in the fridge
+          {t("cookNow.stockOnly")}
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Taste preferences (comma separated)
+          {t("cookNow.tastes")}
           <input
             type="text"
             value={tastePreferences}
             onChange={(e) => setTastePreferences(e.target.value)}
-            placeholder="e.g. spicy, light, Mediterranean"
+            placeholder={t("cookNow.tastesPlaceholder")}
             style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
           />
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Ingredients to avoid
+          {t("cookNow.avoid")}
           <IngredientChipInput
             values={avoidIngredients}
             onChange={setAvoidIngredients}
             suggestions={[]}
-            placeholder="Type an ingredient to avoid and press Enter"
+            placeholder={t("cookNow.avoidPlaceholder")}
           />
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Ingredients to feature
+          {t("cookNow.feature")}
           <IngredientChipInput
             values={ingredientsToUse}
             onChange={setIngredientsToUse}
             suggestions={fridgeSuggestions}
-            placeholder="Type an ingredient and press Enter"
+            placeholder={t("cookNow.featurePlaceholder")}
           />
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Note (optional)
+          {t("cookNow.note")}
           <input
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. pasta-based, quick, use up cilantro"
+            placeholder={t("cookNow.notePlaceholder")}
             maxLength={200}
             style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
           />
@@ -299,12 +299,12 @@ export function CookNowForm() {
           cursor: generateMutation.isPending ? "not-allowed" : "pointer",
         }}
       >
-        {generateMutation.isPending ? "Generating…" : "Generate recipe"}
+        {generateMutation.isPending ? t("cookNow.generating") : t("cookNow.generate")}
       </button>
 
       {generateMutation.isError && (
         <div role="alert" style={{ color: "#b91c1c", border: "1px solid #fca5a5", padding: "0.5rem", borderRadius: "4px" }}>
-          {generateMutation.error?.message ?? "Failed to generate recipe."}
+          {generateMutation.error?.message ?? t("cookNow.generateFailed")}
         </div>
       )}
 
@@ -340,7 +340,7 @@ export function CookNowForm() {
               </div>
             </div>
             {editing || cooking ? null : cookedEntry ? (
-              <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Cooked</span>
+              <span style={{ color: "#15803d", fontWeight: 600 }}>✓ {t("meal.cooked")}</span>
             ) : (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
                 {!savedEntry && (
@@ -356,7 +356,7 @@ export function CookNowForm() {
                       cursor: "pointer",
                     }}
                   >
-                    Edit
+                    {t("meal.edit")}
                   </button>
                 )}
                 {recipe.steps.length > 0 && (
@@ -370,13 +370,16 @@ export function CookNowForm() {
                     style={{
                       padding: "0.5rem 1rem",
                       backgroundColor: "#fff",
-                      color: "#16a34a",
-                      border: "1px solid #16a34a",
+                      // #16a34a measured 3.30:1 on white — under the 4.5 AA
+                      // floor. Invisible to the same-line contrast scan
+                      // because this style object spans several lines.
+                      color: "#15803d",
+                      border: "1px solid #15803d",
                       borderRadius: "6px",
                       cursor: "pointer",
                     }}
                   >
-                    Start cooking
+                    {t("meal.startCooking")}
                   </button>
                 )}
                 <button
@@ -385,14 +388,14 @@ export function CookNowForm() {
                   disabled={cookMutation.isPending}
                   style={{
                     padding: "0.5rem 1.25rem",
-                    backgroundColor: "#16a34a",
+                    backgroundColor: "#15803d",
                     color: "white",
                     border: "none",
                     borderRadius: "6px",
                     cursor: cookMutation.isPending ? "not-allowed" : "pointer",
                   }}
                 >
-                  {cookMutation.isPending ? "Saving…" : "Mark as cooked"}
+                  {cookMutation.isPending ? t("cookNow.saving") : t("meal.markCooked")}
                 </button>
               </div>
             )}
@@ -412,7 +415,7 @@ export function CookNowForm() {
           ) : (
             <>
               <div style={{ marginTop: "0.75rem" }}>
-                <em>Ingredients:</em>{" "}
+                <em>{t("meal.ingredients")}</em>{" "}
                 <IngredientsList ingredients={recipe.ingredients} />
               </div>
 
@@ -427,11 +430,11 @@ export function CookNowForm() {
               storageKey={COOKNOW_COOK_KEY}
               onDone={handleCook}
               onClose={() => setCooking(false)}
-              doneLabel="Mark as cooked"
+              doneLabel={t("meal.markCooked")}
               donePending={cookMutation.isPending}
               doneError={
                 cookMutation.isError
-                  ? "Couldn't save — check your connection and try again."
+                  ? t("cookNow.cookFailed")
                   : null
               }
             />
@@ -439,7 +442,7 @@ export function CookNowForm() {
 
           {cookMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
-              {cookMutation.error?.message ?? "Failed to save recipe."}
+              {cookMutation.error?.message ?? t("cookNow.saveFailed")}
             </div>
           )}
         </div>

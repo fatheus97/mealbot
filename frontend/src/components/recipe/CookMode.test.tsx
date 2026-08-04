@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookMode } from './CookMode';
+import { useLocaleStore, DEFAULT_LOCALE } from '../../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../../test/i18nAssertions';
 import { CookTimerProvider } from '../../contexts/CookTimerContext';
 import { parseDurationSeconds, tokenizeStepTimers, TIME_WORD_TABLES } from './cookMode.utils';
 import { setMobileViewport } from '../../test/test-utils';
@@ -36,6 +38,28 @@ function renderCookMode(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   localStorage.clear();
+  useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+});
+
+describe('CookMode translation', () => {
+  it('leaves no untranslated English when switched to Czech', () => {
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    // Czech server label on purpose — the model writes meal_type_label in the
+    // user's recipe language, and the component prefers it over the
+    // dictionary. The shared fixture's English "Soup" would fail the assertion
+    // on test data rather than on a missing translation.
+    renderCookMode({ meal: { ...sampleMeal(), name: 'Rajská polévka', meal_type_label: 'Polévka' } });
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
+  it('stays translated with the ingredients panel open', () => {
+    // A conditional branch the default render never shows — the shape that let
+    // English ship twice in earlier slices.
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    renderCookMode({ meal: { ...sampleMeal(), name: 'Rajská polévka', meal_type_label: 'Polévka' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Suroviny' }));
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
 });
 
 describe('parseDurationSeconds', () => {

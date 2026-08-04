@@ -4,8 +4,7 @@ import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
 import { CookMode } from "./recipe/CookMode";
 import { useReopenTarget } from "../contexts/CookTimerContext";
-import { mealTypeLabel } from "../constants/mealTypes";
-import { LEFTOVER_SHORT_LABEL } from "../utils/leftovers";
+import { useI18n, useMealTypeLabel } from "../i18n";
 import type { MealEntrySummary, PlannedMeal } from "../types";
 
 // One meal inside a rendered plan: the action row (freeze / cook / edit /
@@ -94,6 +93,8 @@ export function MealCard({
   onFinishCooking,
   onFavoriteToggle,
 }: MealCardProps) {
+  const { t } = useI18n();
+  const mealTypeLabel = useMealTypeLabel();
   // A leftover is identified by the LINK, never by an empty ingredient list —
   // an ordinary meal could legitimately have no ingredients.
   const isLeftover = meal.leftover_of != null;
@@ -111,7 +112,7 @@ export function MealCard({
   // the most recent fact about the meal), then frozen (an active user choice),
   // then leftover (a static property).
   const accent = isCooked
-    ? { border: "#16a34a", bg: "#f0fdf4" }
+    ? { border: "#15803d", bg: "#f0fdf4" }
     : isFrozen
       ? { border: "#4a90d9", bg: "#eef4fb" }
       : isLeftover
@@ -137,7 +138,7 @@ export function MealCard({
         {!isConfirmed && !isLeftover && (
           <button
             onClick={onToggleFreeze}
-            title={isFrozen ? "Unfreeze this meal" : "Freeze this meal"}
+            title={isFrozen ? t("meal.unfreezeTitle") : t("meal.freezeTitle")}
             style={{
               background: "none",
               border: "1px solid #ccc",
@@ -145,43 +146,43 @@ export function MealCard({
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: isFrozen ? "#4a90d9" : "#888",
+              color: isFrozen ? "#2563eb" : "#4b5563",
             }}
           >
-            {isFrozen ? "Frozen" : "Freeze"}
+            {isFrozen ? t("meal.frozen") : t("meal.freeze")}
           </button>
         )}
         {isConfirmed && !isFinished && entry && !isCooking && (
           <button
             onClick={onCookToggle}
             disabled={cookTogglePending}
-            title={isCooked ? "Mark as not cooked" : "Mark as cooked"}
+            title={isCooked ? t("meal.markNotCooked") : t("meal.markCooked")}
             style={{
               background: "none",
-              border: `1px solid ${isCooked ? "#16a34a" : "#ccc"}`,
+              border: `1px solid ${isCooked ? "#15803d" : "#ccc"}`,
               borderRadius: "4px",
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: isCooked ? "#16a34a" : "#888",
+              color: isCooked ? "#15803d" : "#4b5563",
             }}
           >
-            {isCooked ? "Cooked" : "Cook"}
+            {isCooked ? t("meal.cooked") : t("meal.cook")}
           </button>
         )}
         {isFinished && entry && (
           <span style={{
             fontSize: "0.85rem",
-            color: isCooked ? "#16a34a" : "#888",
+            color: isCooked ? "#15803d" : "#4b5563",
             fontStyle: "italic",
           }}>
-            {isCooked ? "Cooked" : "Not cooked"}
+            {isCooked ? t("meal.cooked") : t("meal.notCooked")}
           </span>
         )}
         {!isEditing && !isFinished && !isCooking && (
           <button
             onClick={onStartEdit}
-            title="Edit this recipe"
+            title={t("meal.editTitle")}
             style={{
               background: "none",
               border: "1px solid #ccc",
@@ -192,7 +193,7 @@ export function MealCard({
               color: "#555",
             }}
           >
-            Edit
+            {t("meal.edit")}
           </button>
         )}
         {/* Gated on isLeftover EXPLICITLY, not on steps.length. A leftover has
@@ -203,18 +204,18 @@ export function MealCard({
         {canStartCooking && !isEditing && !isCooking && (
           <button
             onClick={onStartCooking}
-            title="Cook this recipe step by step"
+            title={t("meal.startCookingTitle")}
             style={{
               background: "none",
-              border: "1px solid #16a34a",
+              border: "1px solid #15803d",
               borderRadius: "4px",
               padding: "0.15rem 0.4rem",
               cursor: "pointer",
               fontSize: "0.85rem",
-              color: "#16a34a",
+              color: "#15803d",
             }}
           >
-            Start cooking
+            {t("meal.startCooking")}
           </button>
         )}
         <strong>{mealTypeLabel(meal.meal_type, meal.meal_type_label).toUpperCase()}:</strong> {meal.name}
@@ -225,7 +226,7 @@ export function MealCard({
           // Short form on mobile: the full label eats a whole line at 375px
           // next to four buttons, and the header row already wraps.
           <span
-            title={leftoverSource ? `Leftovers from ${leftoverSource}` : "Leftovers"}
+            title={leftoverSource ? t("meal.leftoversFromTitle", { source: leftoverSource }) : t("meal.leftovers")}
             style={{
               marginLeft: "0.4rem",
               padding: "0.1rem 0.45rem",
@@ -238,8 +239,8 @@ export function MealCard({
             }}
           >
             {isMobile || !leftoverSource
-              ? LEFTOVER_SHORT_LABEL
-              : `↻ Leftovers from ${leftoverSource}`}
+              ? t("meal.leftoversShort")
+              : t("meal.leftoversFromBadge", { source: leftoverSource })}
           </span>
         )}
         {meal.total_time_minutes != null && (
@@ -265,7 +266,7 @@ export function MealCard({
             disabled={favoritePending || isLeftover}
             title={
               isLeftover
-                ? "Leftovers can't be saved to the cookbook — star the original meal instead"
+                ? t("meal.leftoverStarTitle")
                 : undefined
             }
           />
@@ -289,13 +290,13 @@ export function MealCard({
             <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
               <em>
                 {leftoverSource
-                  ? `Uses leftovers from ${leftoverSource} — nothing extra to buy.`
-                  : "Uses leftovers from an earlier meal — nothing extra to buy."}
+                  ? t("meal.leftoverFrom", { source: leftoverSource })
+                  : t("meal.leftoverFromUnknown")}
               </em>
             </div>
           ) : (
             <div style={{ margin: "0.25rem 0", fontSize: "0.9em", color: "#444" }}>
-              <em>Ingredients:</em>{" "}
+              <em>{t("meal.ingredients")}</em>{" "}
               <IngredientsList ingredients={meal.ingredients ?? []} />
             </div>
           )}
@@ -312,11 +313,11 @@ export function MealCard({
           storageKey={cookStorageKey}
           onDone={onFinishCooking}
           onClose={onStopCooking}
-          doneLabel="Mark as cooked"
+          doneLabel={t("meal.markCooked")}
           donePending={cookPending}
           doneError={
             cookFailed
-              ? "Couldn't mark as cooked — check your connection and try again."
+              ? t("meal.cookFailed")
               : null
           }
         />

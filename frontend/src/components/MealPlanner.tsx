@@ -14,7 +14,7 @@ import { useI18n } from "../i18n";
 import { CookNowForm } from "./CookNowForm";
 import { DietarySelector } from "./DietarySelector";
 import { usePreferencesStore } from "../store/usePreferencesStore";
-import { mealTypeLabel, type MealType } from "../constants/mealTypes";
+import { type MealType } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, PlannedMeal, IngredientAmount } from "../types";
 import { todayISO, dayDateLabel } from "../utils/planDates";
 import { leftoverSourceLabel } from "../utils/leftovers";
@@ -665,7 +665,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                       </span>
                     )}
                     <span style={{ marginLeft: "0.75rem", color: "#666", fontSize: "0.85rem" }}>
-                      {layout.map((mt) => mealTypeLabel(mt)).join(" · ")}
+                      {layout.map((mt) => t(`mealType.${mt}` as const)).join(" · ")}
                     </span>
                   </button>
                   {expanded && (

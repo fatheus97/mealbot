@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealCard } from "./MealCard";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { CookTimerProvider } from "../contexts/CookTimerContext";
 import type { MealEntrySummary, PlannedMeal } from "../types";
 
@@ -70,6 +72,27 @@ function renderCard(overrides: Partial<React.ComponentProps<typeof MealCard>> = 
 }
 
 describe("MealCard", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("leaves no untranslated English when switched to Czech", () => {
+    // Exact dictionary comparison, not a "looks English" regex — most Czech is
+    // ASCII. Only sees what is RENDERED, so the conditional branches below get
+    // their own cases (see test/i18nAssertions.ts).
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    renderCard();
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
+  it("stays translated in the cooked + frozen + leftover states too", () => {
+    // Those labels swap on a ternary, so the default render never shows them —
+    // the exact shape that let an English string ship twice in earlier slices.
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    renderCard({ isCooked: true, isFrozen: true });
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
   it("renders the meal type, name and total time", () => {
     renderCard();
     expect(screen.getByText(/HOT DINNER/)).toBeInTheDocument();

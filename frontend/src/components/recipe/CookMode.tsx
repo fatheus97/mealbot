@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlannedMeal } from "../../types";
-import { mealTypeLabel } from "../../constants/mealTypes";
 import { formatClock, tokenizeStepTimers } from "./cookMode.utils";
 import { useCookTimers, useSuppressTimerBubble } from "../../contexts/CookTimerContext";
 import { useShowPieces } from "../../contexts/AuthContext";
 import { formatAmount } from "../../utils/pieces";
+import { useI18n, useMealTypeLabel } from "../../i18n";
 import { useIsMobile } from "../../hooks/useIsMobile";
 
 interface Props {
@@ -79,11 +79,16 @@ export function CookMode({
   storageKey,
   onDone,
   onClose,
-  doneLabel = "Done cooking",
+  doneLabel,
   donePending = false,
   doneError = null,
 }: Props) {
+  const { t } = useI18n();
+  const mealTypeLabel = useMealTypeLabel();
   const isMobile = useIsMobile();
+  // Resolved at render so a caller that omits it still gets a translated
+  // label rather than a hardcoded English default.
+  const doneText = doneLabel ?? t("cook.done");
   const total = meal.steps.length;
   const [current, setCurrent] = useState<number>(() => Math.min(readStep(storageKey), Math.max(0, total - 1)));
   const [showIngredients, setShowIngredients] = useState(false);
@@ -244,8 +249,8 @@ export function CookMode({
             <div style={{ fontSize: "1.15rem", fontWeight: 700 }}>{meal.name}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span aria-label={`Step ${current + 1} of ${total}`} style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
-              Step {current + 1} of {total}
+            <span aria-label={t("cook.stepOf", { n: current + 1, total })} style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
+              {t("cook.stepOf", { n: current + 1, total })}
             </span>
             <button
               type="button"
@@ -253,9 +258,9 @@ export function CookMode({
               aria-pressed={showIngredients}
               style={{ ...chipBtn, borderColor: showIngredients ? "#22c55e" : "#334155" }}
             >
-              Ingredients
+              {t("cook.ingredients")}
             </button>
-            <button type="button" onClick={onClose} aria-label="Close cooking mode" style={{ ...chipBtn, borderColor: "#475569" }}>
+            <button type="button" onClick={onClose} aria-label={t("cook.closeTitle")} style={{ ...chipBtn, borderColor: "#475569" }}>
               ✕
             </button>
           </div>
@@ -278,7 +283,7 @@ export function CookMode({
             {stepSegments.map((seg, i) => {
               const secs = seg.seconds;
               return secs != null ? (
-                <button key={i} type="button" onClick={() => startTimer(secs)} title="Start a timer" style={inlineTimer}>
+                <button key={i} type="button" onClick={() => startTimer(secs)} title={t("cook.startTimer")} style={inlineTimer}>
                   {seg.text}
                 </button>
               ) : (
@@ -295,37 +300,37 @@ export function CookMode({
         <div style={{ minHeight: "3rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", margin: "0.5rem 0" }}>
           {/* Many timers scroll rather than squeezing the step text above. */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", maxHeight: "30vh", overflowY: "auto", width: "100%" }}>
-            {timers.map((t) => (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            {timers.map((timer) => (
+              <div key={timer.id} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap" }}>
                 <span
-                  aria-label={`Timer ${formatClock(t.remaining)} remaining`}
-                  style={{ fontSize: timers.length > 1 ? "1.3rem" : "1.9rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: t.finished ? "#f87171" : "#22c55e" }}
+                  aria-label={t("cook.timerRemaining", { clock: formatClock(timer.remaining) })}
+                  style={{ fontSize: timers.length > 1 ? "1.3rem" : "1.9rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: timer.finished ? "#f87171" : "#22c55e" }}
                 >
-                  {formatClock(t.remaining)}
+                  {formatClock(timer.remaining)}
                 </span>
                 {/* Name the timer whenever it isn't this meal's. Timers are
                     app-level and outlive the overlay, so cooking A, closing with
                     a timer running, then opening B would otherwise show A's
                     countdown here unlabelled next to a bare "Cancel". */}
-                {t.label !== meal.name && (
+                {timer.label !== meal.name && (
                   <span style={{ fontSize: "0.85rem", color: "#94a3b8", maxWidth: "12rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {t.label}
+                    {timer.label}
                   </span>
                 )}
-                {t.finished ? (
+                {timer.finished ? (
                   <>
-                    <strong style={{ color: "#f87171" }}>⏰ Time's up!</strong>
-                    <button type="button" onClick={() => dismiss(t.id)} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
-                      Dismiss
+                    <strong style={{ color: "#f87171" }}>{t("cook.timeUp")}</strong>
+                    <button type="button" onClick={() => dismiss(timer.id)} style={{ ...chipBtn, background: "#f87171", color: "#0b1220", borderColor: "#f87171" }}>
+                      {t("cook.dismiss")}
                     </button>
                   </>
                 ) : (
                   <>
-                    <button type="button" onClick={() => toggle(t.id)} style={chipBtn}>
-                      {t.running ? "Pause" : "Resume"}
+                    <button type="button" onClick={() => toggle(timer.id)} style={chipBtn}>
+                      {timer.running ? t("cook.pause") : t("cook.resume")}
                     </button>
-                    <button type="button" onClick={() => dismiss(t.id)} style={chipBtn}>
-                      Cancel
+                    <button type="button" onClick={() => dismiss(timer.id)} style={chipBtn}>
+                      {t("cook.cancel")}
                     </button>
                   </>
                 )}
@@ -334,15 +339,15 @@ export function CookMode({
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-              {timers.length > 0 ? "Add another:" : "Tap a time in the step, or set one:"}
+              {timers.length > 0 ? t("cook.addAnotherTimer") : t("cook.firstTimerHint")}
             </span>
             <input
               type="number"
               min={1}
               value={manualMin}
               onChange={(e) => setManualMin(e.target.value)}
-              placeholder="min"
-              aria-label="Custom timer minutes"
+              placeholder={t("cook.minutesAbbrev")}
+              aria-label={t("cook.customTimerLabel")}
               style={{ width: "4.5rem", padding: "0.35rem", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#e2e8f0", userSelect: "text", WebkitUserSelect: "text" }}
             />
             <button
@@ -351,7 +356,7 @@ export function CookMode({
               disabled={!manualOk}
               style={{ ...chipBtn, opacity: manualOk ? 1 : 0.5 }}
             >
-              Set timer
+              {t("cook.setTimer")}
             </button>
           </div>
         </div>
@@ -379,7 +384,7 @@ export function CookMode({
               disabled={donePending}
               style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#15803d", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: donePending ? "not-allowed" : "pointer" }}
             >
-              {donePending ? "Saving…" : doneLabel}
+              {donePending ? t("cook.saving") : doneText}
             </button>
           ) : (
             <button
@@ -405,8 +410,8 @@ export function CookMode({
           }
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-            <strong>Ingredients</strong>
-            <button type="button" onClick={() => setShowIngredients(false)} aria-label="Hide ingredients" style={chipBtn}>
+            <strong>{t("cook.ingredients")}</strong>
+            <button type="button" onClick={() => setShowIngredients(false)} aria-label={t("cook.hideIngredients")} style={chipBtn}>
               ✕
             </button>
           </div>

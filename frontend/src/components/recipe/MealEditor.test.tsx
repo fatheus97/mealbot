@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MealEditor } from './MealEditor';
+import { useLocaleStore, DEFAULT_LOCALE } from '../../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../../test/i18nAssertions';
 import type { PlannedMeal } from '../../types';
 
 function sampleMeal(): PlannedMeal {
@@ -32,6 +34,26 @@ function renderEditor(overrides: Partial<PlannedMeal> = {}) {
 }
 
 describe('MealEditor', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it('leaves no untranslated English when switched to Czech', () => {
+    // Asks the exact question against the dictionaries rather than regexing for
+    // text that "looks English" — most Czech is ASCII, so a character class
+    // cannot tell them apart. Only sees what is RENDERED; conditional branches
+    // need driving open first (see test/i18nAssertions.ts).
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    // The overrides matter: the default fixture carries an ENGLISH
+    // meal_type_label ("Soup"), and the component correctly prefers the
+    // server's label over the dictionary — the model writes it in the user's
+    // recipe language, so in production a Czech user's label is Czech. Passing
+    // an English one here would make the assertion fail on test data rather
+    // than on a missing translation.
+    renderEditor({ name: 'Rajská polévka', meal_type_label: 'Polévka' });
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
   it('prefills the fields from the meal', () => {
     renderEditor();
     expect((screen.getByLabelText('Meal name') as HTMLInputElement).value).toBe('Tomato Soup');
