@@ -8,6 +8,7 @@ import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, u
 import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { DayLayoutEditor } from "./DayLayoutEditor";
+import { useI18n } from "../i18n";
 import { CookNowForm } from "./CookNowForm";
 import { DietarySelector } from "./DietarySelector";
 import { usePreferencesStore } from "../store/usePreferencesStore";
@@ -72,6 +73,7 @@ interface MealPlannerProps {
 
 export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
   const { userId } = useAuth();
+  const { t } = useI18n();
   const showPieces = useShowPieces();
   const isMobile = useIsMobile();
   const generatePlanMutation = useGeneratePlan();
@@ -328,7 +330,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     if (!text) return;
     // Only reachable from a button rendered when navigator.share exists.
     // Swallow rejections, including the user dismissing the share sheet.
-    void navigator.share({ title: "Shopping List", text }).catch(() => undefined);
+    void navigator.share({ title: t("planner.shoppingList"), text }).catch(() => undefined);
   };
 
   const handleConfirm = () => {
@@ -495,7 +497,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             color: effectiveMode === "cook_now" ? "#2563eb" : "#4b5563",
           }}
         >
-          Cook Now
+          {t("planner.cookNow")}
         </button>
         <button
           type="button"
@@ -517,7 +519,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             color: effectiveMode === "plan_ahead" ? "#2563eb" : "#4b5563",
           }}
         >
-          Plan Ahead
+          {t("planner.planAhead")}
         </button>
       </div>
 
@@ -526,17 +528,17 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       {effectiveMode === "plan_ahead" && (<>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
         <label>
-          Days to plan:
+          {t("planner.days")}
           <input type="number" value={days} onChange={(e) => setDays(Number(e.target.value) || 1)} min={1} max={7} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
 
         <label>
-          Meals per day:
+          {t("planner.mealsPerDay")}
           <input type="number" value={mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value) || 1)} min={1} max={5} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
 
         <label>
-          People count:
+          {t("planner.people")}
           <input type="number" value={peopleCount} onChange={(e) => setPeopleCount(Number(e.target.value) || 1)} min={1} max={10} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
 
@@ -555,31 +557,31 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             checked={stockOnly}
             onChange={(e) => setStockOnly(e.target.checked)}
           />
-          Use only stock ingredients (no shopping)
+          {t("planner.stockOnly")}
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Taste Preferences (comma separated):
-          <input type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder="e.g. spicy, savory, Asian" style={{ width: "100%", marginTop: "0.25rem" }} />
+          {t("planner.tastes")}
+          <input type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder={t("planner.tastesPlaceholder")} style={{ width: "100%", marginTop: "0.25rem" }} />
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Ingredients to Avoid:
+          {t("planner.avoid")}
           <IngredientChipInput
             values={parseList(avoidIngredients)}
             onChange={(next) => setAvoidIngredients(next.join(", "))}
             suggestions={[]}
-            placeholder="Type an ingredient to avoid and press Enter"
+            placeholder={t("planner.avoidPlaceholder")}
           />
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          Ingredients to use up (this run only):
+          {t("planner.useUp")}
           <IngredientChipInput
             values={ingredientsToUse}
             onChange={setIngredientsToUse}
             suggestions={fridgeSuggestions}
-            placeholder="Type an ingredient and press Enter (fridge items auto-suggest)"
+            placeholder={t("planner.useUpPlaceholder")}
           />
         </label>
 
@@ -589,9 +591,9 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             checked={customizeDays}
             onChange={(e) => setCustomizeDays(e.target.checked)}
           />
-          Customize meal types per day
+          {t("planner.customizeDays")}
           <span style={{ fontSize: "0.8rem", color: "#666", marginLeft: "auto" }}>
-            Off: uses "Meals per day" count · On: overrides per day
+            {t("planner.customizeDaysHint")}
           </span>
         </label>
 
@@ -626,7 +628,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                     }}
                   >
                     <span style={{ marginRight: "0.4rem" }}>{expanded ? "▼" : "▶"}</span>
-                    <strong>Day {dayIdx + 1}</strong>
+                    <strong>{t("planner.day", { n: dayIdx + 1 })}</strong>
                     {dayDateLabel(startDate, dayIdx) && (
                       <span style={{ marginLeft: "0.5rem", color: "#666", fontSize: "0.85rem", fontWeight: 400 }}>
                         {dayDateLabel(startDate, dayIdx)}
@@ -641,7 +643,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                       <DayLayoutEditor
                         value={layout}
                         onChange={(next) => setDayLayoutAt(dayIdx, next)}
-                        ariaLabel={`Day ${dayIdx + 1} layout`}
+                        ariaLabel={t("planner.dayLayoutLabel", { n: dayIdx + 1 })}
                       />
                     </div>
                   )}
@@ -657,7 +659,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           adaptive page background, not an explicit surface). */}
       <div style={{ marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
         <label htmlFor="plan-start-date" style={{ fontSize: "1rem" }}>
-          Start date
+          {t("planner.startDate")}
         </label>
         <input
           id="plan-start-date"
@@ -669,12 +671,12 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       </div>
 
       <button onClick={handleGenerate} disabled={generatePlanMutation.isPending} style={{ padding: "0.5rem 2rem", fontSize: "1.1rem" }}>
-        {generatePlanMutation.isPending ? "Generating Plan (This takes a moment)..." : "Generate Plan"}
+        {generatePlanMutation.isPending ? t("planner.generating") : t("planner.generate")}
       </button>
 
       {(generatePlanMutation.isError || regenerateMutation.isError) && (
         <div style={{ color: "red", marginTop: "1rem", padding: "1rem", border: "1px solid red" }}>
-          <strong>Error:</strong> {(generatePlanMutation.error ?? regenerateMutation.error)?.message}
+          <strong>{t("planner.errorPrefix")}</strong> {(generatePlanMutation.error ?? regenerateMutation.error)?.message}
         </div>
       )}
 
@@ -684,14 +686,18 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <h3 style={{ margin: 0 }}>
-                {isFinished ? "Finished Plan" : isConfirmed ? "Confirmed Plan" : "Your Generated Plan"}
+                {isFinished
+                  ? t("planner.titleFinished")
+                  : isConfirmed
+                    ? t("planner.titleConfirmed")
+                    : t("planner.titleGenerated")}
               </h3>
               {isFinished && (
                 <span style={{
                   padding: "0.15rem 0.6rem", borderRadius: "12px", fontSize: "0.8rem",
                   fontWeight: 600, backgroundColor: "#f3e8ff", color: "#7c3aed",
                 }}>
-                  Finished
+                  {t("planner.badgeFinished")}
                 </span>
               )}
             </div>
@@ -700,18 +706,18 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 <button
                   onClick={handleRegenerate}
                   disabled={regenerateMutation.isPending}
-                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#4a90d9", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#2563eb", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
                 >
-                  {regenerateMutation.isPending ? "Regenerating..." : "Regenerate Unfrozen"}
+                  {regenerateMutation.isPending ? t("planner.regenerating") : t("planner.regenerate")}
                 </button>
               )}
               {!isConfirmed && (
                 <button
                   onClick={handleConfirm}
                   disabled={confirmMutation.isPending}
-                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#16a34a", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#15803d", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
                 >
-                  {confirmMutation.isPending ? "Confirming..." : "Confirm Plan"}
+                  {confirmMutation.isPending ? t("planner.confirming") : t("planner.confirm")}
                 </button>
               )}
               {/*
@@ -726,10 +732,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 <button
                   onClick={handleUnconfirm}
                   disabled={unconfirmMutation.isPending}
-                  title="Restore the fridge debit and return to the editable plan view"
+                  title={t("planner.unconfirmTitle")}
                   style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#6b7280", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
                 >
-                  {unconfirmMutation.isPending ? "Un-confirming..." : "Un-confirm"}
+                  {unconfirmMutation.isPending ? t("planner.unconfirming") : t("planner.unconfirm")}
                 </button>
               )}
               {isConfirmed && !isFinished && (
@@ -738,17 +744,17 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                   disabled={finishMutation.isPending}
                   style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#7c3aed", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
                 >
-                  {finishMutation.isPending ? "Finishing..." : "Finish Plan"}
+                  {finishMutation.isPending ? t("planner.finishing") : t("planner.finish")}
                 </button>
               )}
               {isFinished && (
                 <button
                   onClick={handleReopen}
                   disabled={reopenMutation.isPending}
-                  title="Re-debit ingredients for uncooked meals and return to the active plan"
+                  title={t("planner.reopenTitle")}
                   style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#6b7280", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
                 >
-                  {reopenMutation.isPending ? "Reopening..." : "Reopen"}
+                  {reopenMutation.isPending ? t("planner.reopening") : t("planner.reopen")}
                 </button>
               )}
             </div>
@@ -811,7 +817,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                      savePending={updateMealMutation.isPending}
                      saveError={
                        updateMealMutation.isError
-                         ? (updateMealMutation.error?.message ?? "Save failed")
+                         ? (updateMealMutation.error?.message ?? t("planner.saveFailed"))
                          : null
                      }
                      cookFailed={cookMutation.isError}
@@ -836,24 +842,24 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           {currentPlan.shopping_list.length > 0 && (
             <div style={{ marginTop: "1.5rem", padding: "1rem", backgroundColor: "#fff", color: "#111", border: "1px solid #ddd", borderRadius: "6px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
-                <h4 style={{ margin: 0 }}>Shopping List</h4>
+                <h4 style={{ margin: 0 }}>{t("planner.shoppingList")}</h4>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   <button
                     type="button"
                     onClick={copyShoppingList}
-                    aria-label="Copy shopping list"
+                    aria-label={t("planner.copyLabel")}
                     style={{ ...shoppingListBtn, minWidth: "5.5rem" }}
                   >
-                    {copiedList ? "Copied ✓" : "Copy"}
+                    {copiedList ? t("planner.copied") : t("planner.copy")}
                   </button>
                   {canShareList && (
                     <button
                       type="button"
                       onClick={shareShoppingList}
-                      aria-label="Share shopping list"
+                      aria-label={t("planner.shareLabel")}
                       style={shoppingListBtn}
                     >
-                      Share
+                      {t("planner.share")}
                     </button>
                   )}
                 </div>

@@ -118,7 +118,7 @@ export function AuthBar() {
                 type="button"
                 onClick={handleRegister}
                 disabled={loading}
-                style={{ padding: "0.5rem 1rem", backgroundColor: "#4a90d9", color: "white", border: "none", borderRadius: "4px" }}
+                style={{ padding: "0.5rem 1rem", backgroundColor: "#2563eb", color: "white", border: "none", borderRadius: "4px" }}
               >
                 {loading ? t("auth.busy") : t("auth.register")}
               </button>
@@ -157,7 +157,7 @@ export function AuthBar() {
              >
                ⚙️
              </button>
-             <button onClick={logout} style={{ padding: "0.5rem 1rem", backgroundColor: "#ff4d4d", color: "white", border: "none", borderRadius: "4px" }}>{t("auth.logout")}</button>
+             <button onClick={logout} style={{ padding: "0.5rem 1rem", backgroundColor: "#dc2626", color: "white", border: "none", borderRadius: "4px" }}>{t("auth.logout")}</button>
              {showSettings && <SettingsPopup onClose={() => setShowSettings(false)} />}
           </div>
         )}
