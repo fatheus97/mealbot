@@ -191,6 +191,106 @@ export const en = {
   "mealType.cold_dinner": "Cold dinner",
   "mealType.dessert": "Dessert",
 
+  // ─── Dietary selector ─────────────────────────────────────────────────────
+  // ⚠️ LIABILITY COPY. The disclaimer below is the frontend half of the
+  // transparency-not-endorsement rule (docs/dietary-reference.md Part 4).
+  // A translation must NEVER promise safety — no "safe", "allergen-free",
+  // "guaranteed". "Helper, not a guarantee" is the claim, in every language.
+  "diet.screeningDisclaimer":
+    "Recipes are screened against your selected allergens and their common derivatives — this is a helper, not a guarantee. Always check product labels yourself.",
+  "diet.sectionDiets": "Diets (combine any)",
+  "diet.sectionAllergies": "Allergies to avoid",
+  "diet.sulphiteHintLabel": "About sulphite screening",
+  "diet.sulphiteHintText":
+    "Sulphites are handled differently. We tell the AI to avoid them, but unlike the other 13 allergens there is no automatic check afterwards — whether sulphites must be declared depends on how much is left in the finished product, which can't be worked out from a recipe. Check labels on wine, vinegar and dried fruit yourself.",
+
+  // Diets and allergens mirror constants/dietary.ts, which mirrors the backend
+  // enums. i18n.test.ts asserts all four lists stay in step.
+  "diet.vegetarian": "Vegetarian",
+  "diet.vegan": "Vegan",
+  "diet.pescatarian": "Pescatarian",
+  "diet.gluten_free": "Gluten-free",
+  "diet.dairy_free": "Dairy-free",
+  "diet.keto": "Keto",
+  "diet.paleo": "Paleo",
+  "diet.mediterranean": "Mediterranean",
+  "diet.dash": "DASH",
+  "diet.low_fodmap": "Low-FODMAP",
+  "diet.diabetic": "Diabetic / low-GI",
+  "diet.high_protein": "High protein",
+  "diet.low_carb": "Low carb",
+  "diet.halal": "Halal",
+  "diet.kosher": "Kosher",
+  "diet.balanced": "Balanced",
+  "diet.baby_food": "Baby food (6–12 mo)",
+
+  // EU-14 (Reg. 1169/2011 Annex II). Names are REGULATORY, so the Czech is the
+  // wording used in Czech food labelling, not a literal translation.
+  "allergen.cereals_with_gluten": "Gluten (cereals)",
+  "allergen.crustaceans": "Crustaceans",
+  "allergen.eggs": "Eggs",
+  "allergen.fish": "Fish",
+  "allergen.peanuts": "Peanuts",
+  "allergen.soybeans": "Soy",
+  "allergen.milk": "Milk / dairy",
+  "allergen.tree_nuts": "Tree nuts",
+  "allergen.celery": "Celery",
+  "allergen.mustard": "Mustard",
+  "allergen.sesame": "Sesame",
+  "allergen.sulphites": "Sulphites",
+  "allergen.lupin": "Lupin",
+  "allergen.molluscs": "Molluscs",
+
+  // ─── Meal planner ─────────────────────────────────────────────────────────
+  "planner.cookNow": "Cook Now",
+  "planner.planAhead": "Plan Ahead",
+  "planner.days": "Days to plan:",
+  "planner.mealsPerDay": "Meals per day:",
+  "planner.people": "People count:",
+  "planner.stockOnly": "Use only stock ingredients (no shopping)",
+  "planner.tastes": "Taste Preferences (comma separated):",
+  "planner.tastesPlaceholder": "e.g. spicy, savory, Asian",
+  "planner.avoid": "Ingredients to Avoid:",
+  "planner.avoidPlaceholder": "Type an ingredient to avoid and press Enter",
+  "planner.useUp": "Ingredients to use up (this run only):",
+  "planner.useUpPlaceholder": "Type an ingredient and press Enter (fridge items auto-suggest)",
+  "planner.customizeDays": "Customize meal types per day",
+  "planner.customizeDaysHint": "Off: uses \"Meals per day\" count · On: overrides per day",
+  "planner.day": "Day {n}",
+  "planner.dayLayoutLabel": "Day {n} layout",
+  "planner.startDate": "Start date",
+  "planner.generate": "Generate Plan",
+  "planner.generating": "Generating Plan (This takes a moment)...",
+  "planner.errorPrefix": "Error:",
+
+  "planner.titleFinished": "Finished Plan",
+  "planner.titleConfirmed": "Confirmed Plan",
+  "planner.titleGenerated": "Your Generated Plan",
+  "planner.badgeFinished": "Finished",
+
+  "planner.regenerate": "Regenerate Unfrozen",
+  "planner.regenerating": "Regenerating...",
+  "planner.confirm": "Confirm Plan",
+  "planner.confirming": "Confirming...",
+  "planner.unconfirm": "Un-confirm",
+  "planner.unconfirming": "Un-confirming...",
+  "planner.unconfirmTitle": "Restore the fridge debit and return to the editable plan view",
+  "planner.finish": "Finish Plan",
+  "planner.finishing": "Finishing...",
+  "planner.reopen": "Reopen",
+  "planner.reopening": "Reopening...",
+  "planner.reopenTitle": "Re-debit ingredients for uncooked meals and return to the active plan",
+  "planner.saveFailed": "Save failed",
+
+  "planner.shoppingList": "Shopping List",
+  "planner.copy": "Copy",
+  "planner.copied": "Copied ✓",
+  "planner.copyLabel": "Copy shopping list",
+  "planner.share": "Share",
+  "planner.shareLabel": "Share shopping list",
+
+  "chips.remove": "Remove {chip}",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // Read with tn("time.minutes", n). English has two categories; Czech has four
   // (Intl.PluralRules picks). Present here from the start so the mechanism has

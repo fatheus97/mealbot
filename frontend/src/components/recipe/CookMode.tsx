@@ -377,7 +377,7 @@ export function CookMode({
               type="button"
               onClick={handleDone}
               disabled={donePending}
-              style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: donePending ? "not-allowed" : "pointer" }}
+              style={{ padding: "0.6rem 1.6rem", borderRadius: "8px", border: "none", background: "#15803d", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: donePending ? "not-allowed" : "pointer" }}
             >
               {donePending ? "Saving…" : doneLabel}
             </button>

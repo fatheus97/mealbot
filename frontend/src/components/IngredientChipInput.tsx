@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { useI18n } from "../i18n";
 
 interface IngredientChipInputProps {
   values: string[];
@@ -25,6 +26,7 @@ export function IngredientChipInput({
   placeholder,
   id,
 }: IngredientChipInputProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -123,7 +125,7 @@ export function IngredientChipInput({
                 e.stopPropagation();
                 removeChip(idx);
               }}
-              aria-label={`Remove ${chip}`}
+              aria-label={t("chips.remove", { chip })}
               style={{
                 background: "none",
                 border: "none",

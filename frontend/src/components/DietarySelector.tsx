@@ -1,12 +1,8 @@
 import type { CSSProperties } from "react";
 import { InfoHint } from "./InfoHint";
 
-import {
-  ALLERGEN_LABELS,
-  ALLERGENS,
-  DIET_TYPE_LABELS,
-  DIET_TYPES,
-} from "../constants/dietary";
+import { ALLERGENS, DIET_TYPES } from "../constants/dietary";
+import { useI18n } from "../i18n";
 import type { Allergen, DietType } from "../constants/dietary";
 
 // Controlled multi-select for combinable diets + structured allergens (dietary
@@ -89,15 +85,16 @@ export function DietarySelector({
   onToggleAllergen,
   disabled,
 }: Props) {
+  const { t } = useI18n();
   return (
     <div style={{ display: "grid", gap: "0.75rem" }}>
       <div>
-        <div style={sectionLabel}>Diets (combine any)</div>
+        <div style={sectionLabel}>{t("diet.sectionDiets")}</div>
         <div style={chipRow}>
           {DIET_TYPES.map((d) => (
             <Chip
               key={d}
-              label={DIET_TYPE_LABELS[d]}
+              label={t(`diet.${d}` as const)}
               selected={dietTypes.includes(d)}
               accent="#2563eb"
               onClick={() => onToggleDiet(d)}
@@ -108,13 +105,13 @@ export function DietarySelector({
       </div>
 
       <div>
-        <div style={sectionLabel}>Allergies to avoid</div>
+        <div style={sectionLabel}>{t("diet.sectionAllergies")}</div>
         <div style={chipRow}>
           {ALLERGENS.map((a) => {
             const chip = (
               <Chip
                 key={a}
-                label={ALLERGEN_LABELS[a]}
+                label={t(`allergen.${a}` as const)}
                 selected={allergens.includes(a)}
                 accent="#b91c1c"
                 onClick={() => onToggleAllergen(a)}
@@ -140,14 +137,8 @@ export function DietarySelector({
               >
                 {chip}
                 <InfoHint
-                  label="About sulphite screening"
-                  text={
-                    "Sulphites are handled differently. We tell the AI to avoid them, " +
-                    "but unlike the other 13 allergens there is no automatic check " +
-                    "afterwards — whether sulphites must be declared depends on how much " +
-                    "is left in the finished product, which can't be worked out from a " +
-                    "recipe. Check labels on wine, vinegar and dried fruit yourself."
-                  }
+                  label={t("diet.sulphiteHintLabel")}
+                  text={t("diet.sulphiteHintText")}
                 />
               </span>
             );
@@ -156,9 +147,7 @@ export function DietarySelector({
         {/* Transparency, never a guarantee — mirrors the backend liability rule
             (docs/dietary-reference.md Part 4). Never say "safe". */}
         <div style={{ fontSize: "0.72rem", opacity: 0.75, marginTop: "0.35rem" }}>
-          Recipes are screened against your selected allergens and their common
-          derivatives — this is a helper, not a guarantee. Always check product
-          labels yourself.
+          {t("diet.screeningDisclaimer")}
         </div>
       </div>
     </div>

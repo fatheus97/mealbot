@@ -1,10 +1,56 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { DietarySelector } from './DietarySelector';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
 
 describe('DietarySelector', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it('translates every string, including the section headings', () => {
+    // "Diets (combine any)" and "Allergies to avoid" were missed by the
+    // string-extraction pass — they are plain <div> text, not a label or a
+    // heading element, so a selector-based sweep walked straight past them.
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    const { container } = render(
+      <DietarySelector
+        dietTypes={[]}
+        allergens={[]}
+        onToggleDiet={vi.fn()}
+        onToggleAllergen={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Diety (lze kombinovat)')).toBeInTheDocument();
+    expect(screen.getByText('Alergeny, kterým se vyhnout')).toBeInTheDocument();
+    expect(untranslatedEnglishIn(container)).toEqual([]);
+  });
+
+  it('never promises safety, in either language', () => {
+    // The frontend half of the transparency-not-endorsement rule. Asserted
+    // per-locale because a translation is exactly where a safety claim
+    // reappears — nobody re-reviews the Czech against a rule written in
+    // English.
+    for (const locale of ['en', 'cs'] as const) {
+      useLocaleStore.setState({ locale, explicit: true });
+      const { container, unmount } = render(
+        <DietarySelector
+          dietTypes={[]}
+          allergens={[]}
+          onToggleDiet={vi.fn()}
+          onToggleAllergen={vi.fn()}
+        />,
+      );
+      const text = container.textContent ?? '';
+      expect(text).not.toMatch(/\bsafe\b|allergen-free|hypoallergenic|bezpečn/i);
+      expect(text).toMatch(/not a guarantee|ne záruka/i);
+      unmount();
+    }
+  });
+
   it('renders diet + allergen chips and the not-a-guarantee disclaimer', () => {
     render(
       <DietarySelector
