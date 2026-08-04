@@ -70,11 +70,11 @@ const wrap: CSSProperties = {
 // bare <select> inherits the adaptive text colour, which goes white-on-white
 // once a background is set anywhere up the tree.
 //
-// NO inline `fontSize`. index.css forces `select { font-size: 16px }` under
-// 640px because iOS auto-zooms the whole page when a focused field is smaller,
-// and an inline value silently beats that stylesheet rule. This control is the
-// first thing a non-English speaker reaches for, so zooming the layout out from
-// under them on tap is the worst possible place for it.
+// No inline `fontSize`: index.css pins `select { font-size: 16px !important }`
+// under 640px because iOS auto-zooms the whole page when a focused field is
+// smaller. That rule now outranks inline styles, so this is no longer load-
+// bearing — but there is no desktop size worth pinning here either, and the
+// UA default is fine.
 const select: CSSProperties = {
   padding: "0.3rem 0.4rem",
   borderRadius: 6,
