@@ -6,7 +6,16 @@ import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
 import { usePreferencesStore } from '../store/usePreferencesStore';
 import { dayDateLabel } from '../utils/planDates';
+import { setColorScheme } from '../test/media';
+import { PAGE_TEXT } from '../constants/theme';
 import type { ReactNode } from 'react';
+
+/** jsdom normalises `style.color` to `rgb(r, g, b)`, so compare in that form
+ *  rather than asserting a hex that will never match. */
+function hexToRgb(hex: string): string {
+  const int = parseInt(hex.slice(1), 16);
+  return `rgb(${(int >> 16) & 255}, ${(int >> 8) & 255}, ${int & 255})`;
+}
 
 vi.mock('../api', () => ({
   authFetch: vi.fn(),
@@ -71,6 +80,52 @@ beforeEach(() => {
 afterEach(() => {
   Reflect.deleteProperty(navigator, 'share');
   Reflect.deleteProperty(navigator, 'clipboard');
+});
+
+describe('MealPlanner mode-tab colours follow the OS colour scheme', () => {
+  // The tabs sit on the adaptive page background (index.css: #ffffff light,
+  // #242424 dark) with no surface of their own, and inline styles can't reach
+  // `@media (prefers-color-scheme)`. Shipped at 2.05:1 (inactive) and 3.00:1
+  // (active) in dark mode. jsdom can't measure a ratio, so assert the branch —
+  // the ratios themselves are pinned in test/contrast.test.ts.
+  const tabColors = () => ({
+    active: screen.getByRole('tab', { name: 'Plan Ahead' }).style.color,
+    inactive: screen.getByRole('tab', { name: 'Cook Now' }).style.color,
+  });
+
+  function renderPlanAhead() {
+    loginUser();
+    usePreferencesStore.setState({ mode: 'plan_ahead' });
+    render(<MealPlanner />, { wrapper: createWrapper() });
+  }
+
+  it('uses the light-surface colours when the OS asks for light', () => {
+    setColorScheme('light');
+    renderPlanAhead();
+    expect(tabColors()).toEqual({
+      active: hexToRgb(PAGE_TEXT.tabActive.light),
+      inactive: hexToRgb(PAGE_TEXT.tabInactive.light),
+    });
+  });
+
+  it('uses the dark-surface colours when the OS asks for dark', () => {
+    setColorScheme('dark');
+    renderPlanAhead();
+    expect(tabColors()).toEqual({
+      active: hexToRgb(PAGE_TEXT.tabActive.dark),
+      inactive: hexToRgb(PAGE_TEXT.tabInactive.dark),
+    });
+  });
+
+  it('carries the theme through to the active tab underline', () => {
+    setColorScheme('dark');
+    renderPlanAhead();
+    // The underline is the same accent; leaving it on the light blue would put
+    // a 3:1 rule under a 6:1 label.
+    expect(screen.getByRole('tab', { name: 'Plan Ahead' }).style.borderBottom).toContain(
+      hexToRgb(PAGE_TEXT.tabActive.dark),
+    );
+  });
 });
 
 describe('MealPlanner', () => {
