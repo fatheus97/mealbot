@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { IngredientAmount, PlannedMeal } from "../../types";
-import { mealTypeLabel } from "../../constants/mealTypes";
 import { useIsMobile } from "../../hooks/useIsMobile";
+import { useI18n, useMealTypeLabel } from "../../i18n";
 
 interface Props {
   meal: PlannedMeal;
@@ -40,6 +40,8 @@ const smallBtn: React.CSSProperties = {
 // meal_type / meal_type_label are NOT editable — the backend edit endpoint
 // preserves the slot, so we carry them through untouched.
 export function MealEditor({ meal, onSave, onCancel, saving = false, error = null }: Props) {
+  const { t } = useI18n();
+  const mealTypeLabel = useMealTypeLabel();
   const isMobile = useIsMobile();
   const [name, setName] = useState(meal.name);
   const [time, setTime] = useState<string>(
@@ -109,23 +111,25 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
       }}
     >
       <div style={{ fontSize: "0.75rem", color: "#6b7280", marginBottom: "0.4rem" }}>
-        Editing {mealTypeLabel(meal.meal_type, meal.meal_type_label)} — meal type is fixed
+        {t("editor.header", {
+          mealType: mealTypeLabel(meal.meal_type, meal.meal_type_label),
+        })}
       </div>
 
       <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-        Name
+        {t("editor.nameLabel")}
         <input
           type="text"
           value={name}
           maxLength={200}
           onChange={(e) => setName(e.target.value)}
           style={{ ...inputStyle, marginTop: "0.2rem" }}
-          aria-label="Meal name"
+          aria-label={t("editor.name")}
         />
       </label>
 
       <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-        Total time (minutes, optional)
+        {t("editor.totalTime")}
         <input
           type="number"
           value={time}
@@ -133,13 +137,13 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
           max={600}
           onChange={(e) => setTime(e.target.value)}
           style={{ ...inputStyle, marginTop: "0.2rem", maxWidth: "10rem" }}
-          aria-label="Total time in minutes"
+          aria-label={t("editor.totalTimeLabel")}
         />
       </label>
 
       <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.5rem 0" }}>
         <legend style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.3rem" }}>
-          Ingredients
+          {t("editor.ingredients")}
         </legend>
         {ingredients.map((ing, idx) => (
           <div
@@ -150,47 +154,47 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
               type="text"
               value={ing.name}
               maxLength={100}
-              placeholder="Ingredient"
+              placeholder={t("editor.ingredient")}
               onChange={(e) => setIngredientAt(ing._key, { name: e.target.value })}
               style={{ ...inputStyle, flex: isMobile ? "1 1 100%" : 2 }}
-              aria-label={`Ingredient ${idx + 1} name`}
+              aria-label={t("editor.ingredientName", { n: idx + 1 })}
             />
             <input
               type="number"
               value={ing.quantity_grams}
               min={0}
-              placeholder="g"
+              placeholder={t("editor.grams")}
               onChange={(e) => setIngredientAt(ing._key, { quantity_grams: Number(e.target.value) })}
               style={{ ...inputStyle, flex: 1, maxWidth: "6rem" }}
-              aria-label={`Ingredient ${idx + 1} grams`}
+              aria-label={t("editor.ingredientGrams", { n: idx + 1 })}
             />
             <label style={{ fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "0.2rem" }}>
               <input
                 type="checkbox"
                 checked={ing.is_spice ?? false}
                 onChange={(e) => setIngredientAt(ing._key, { is_spice: e.target.checked })}
-                aria-label={`Ingredient ${idx + 1} is a spice`}
+                aria-label={t("editor.ingredientSpice", { n: idx + 1 })}
               />
-              spice
+              {t("editor.spice")}
             </label>
             <button
               type="button"
               onClick={() => removeIngredient(ing._key)}
               style={{ ...smallBtn, color: "#b91c1c" }}
-              aria-label={`Remove ingredient ${idx + 1}`}
+              aria-label={t("editor.removeIngredient", { n: idx + 1 })}
             >
               ✕
             </button>
           </div>
         ))}
         <button type="button" onClick={addIngredient} style={smallBtn}>
-          + Add ingredient
+          {t("editor.addIngredient")}
         </button>
       </fieldset>
 
       <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.5rem 0" }}>
         <legend style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.3rem" }}>
-          Steps
+          {t("editor.steps")}
         </legend>
         {steps.map((step, idx) => (
           <div
@@ -204,26 +208,26 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
               rows={2}
               onChange={(e) => setStepAt(step._key, e.target.value)}
               style={{ ...inputStyle, resize: "vertical" }}
-              aria-label={`Step ${idx + 1}`}
+              aria-label={t("editor.step", { n: idx + 1 })}
             />
             <button
               type="button"
               onClick={() => removeStep(step._key)}
               style={{ ...smallBtn, color: "#b91c1c" }}
-              aria-label={`Remove step ${idx + 1}`}
+              aria-label={t("editor.removeStep", { n: idx + 1 })}
             >
               ✕
             </button>
           </div>
         ))}
         <button type="button" onClick={addStep} style={smallBtn}>
-          + Add step
+          {t("editor.addStep")}
         </button>
       </fieldset>
 
       {hasBadQuantity && (
         <div role="alert" style={{ color: "#b91c1c", fontSize: "0.8rem", marginBottom: "0.4rem" }}>
-          Every ingredient needs a positive amount in grams.
+          {t("editor.needsPositiveAmount")}
         </div>
       )}
       {error && (
@@ -239,14 +243,14 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
           disabled={!canSave}
           style={{
             padding: "0.35rem 1rem",
-            backgroundColor: canSave ? "#16a34a" : "#9ca3af",
+            backgroundColor: canSave ? "#15803d" : "#6b7280",
             color: "#fff",
             border: "none",
             borderRadius: "4px",
             cursor: canSave ? "pointer" : "not-allowed",
           }}
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("editor.saving") : t("editor.save")}
         </button>
         <button
           type="button"
@@ -261,7 +265,7 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
             cursor: saving ? "not-allowed" : "pointer",
           }}
         >
-          Cancel
+          {t("editor.cancel")}
         </button>
       </div>
     </div>

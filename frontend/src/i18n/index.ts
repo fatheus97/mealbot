@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useLocaleStore, type Locale, DEFAULT_LOCALE } from "../store/useLocaleStore";
 import { en } from "./en";
 import { cs } from "./cs";
+import { mealTypeLabel } from "../constants/mealTypes";
 
 /**
  * Hand-rolled i18n. ~80 lines, zero dependencies, no provider, no build step.
@@ -172,4 +173,31 @@ export function useI18n(): I18n {
  */
 export function getI18n(): I18n {
   return makeI18n(useLocaleStore.getState().locale ?? DEFAULT_LOCALE);
+}
+
+/**
+ * Meal-type label that prefers the SERVER's localized value, then the
+ * dictionary, then a titlecased fallback for legacy rows.
+ *
+ * `constants/mealTypes.ts#mealTypeLabel` is the non-React version and its
+ * middle step is ENGLISH, because a module-level function has no locale. That
+ * is fine where a server label is always present — the model writes it in the
+ * user's recipe language — and wrong everywhere else: the meal editor's header
+ * renders `meal_type_label` when the plan has one and fell back to "Soup"
+ * inside a Czech UI when it did not. Found by `untranslatedEnglishIn`, not by
+ * reading the code.
+ */
+export function useMealTypeLabel(): (
+  mealType: string,
+  serverLabel?: string | null,
+) => string {
+  const { t } = useI18n();
+  return (mealType, serverLabel) => {
+    if (serverLabel && serverLabel.trim()) return serverLabel;
+    const key = `mealType.${mealType}`;
+    if (key in en) return t(key as TranslationKey);
+    // Legacy or unknown value — the same last-resort titlecase as the
+    // non-React helper, so behaviour there is unchanged.
+    return mealTypeLabel(mealType);
+  };
 }

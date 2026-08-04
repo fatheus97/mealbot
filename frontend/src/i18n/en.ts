@@ -291,6 +291,100 @@ export const en = {
 
   "chips.remove": "Remove {chip}",
 
+  // ─── Meal card ────────────────────────────────────────────────────────────
+  "meal.freeze": "Freeze",
+  "meal.frozen": "Frozen",
+  "meal.cook": "Cook",
+  "meal.freezeTitle": "Freeze this meal",
+  "meal.unfreezeTitle": "Unfreeze this meal",
+  "meal.cooked": "Cooked",
+  "meal.notCooked": "Not cooked",
+  "meal.markCooked": "Mark as cooked",
+  "meal.markNotCooked": "Mark as not cooked",
+  "meal.cookFailed": "Couldn't mark as cooked — check your connection and try again.",
+  "meal.editTitle": "Edit this recipe",
+  "meal.startCooking": "Start cooking",
+  "meal.startCookingTitle": "Cook this recipe step by step",
+  "meal.leftovers": "Leftovers",
+  "meal.leftoverStarTitle":
+    "Leftovers can't be saved to the cookbook — star the original meal instead",
+  // The source is an LLM-written meal NAME, so it cannot be inflected. Czech
+  // quotes it as an appositive after "z jídla" rather than trying to decline
+  // it — "z Guláš" would be wrong and "z Guláše" is unknowable from here.
+  "meal.leftoverFrom": "Uses leftovers from {source} — nothing extra to buy.",
+  "meal.leftoverFromUnknown": "Uses leftovers from an earlier meal — nothing extra to buy.",
+  "meal.ingredients": "Ingredients:",
+  // The ↻ glyph carries the meaning on narrow screens; the word is the label.
+  "meal.leftoversShort": "↻ Leftovers",
+  "meal.leftoversFromTitle": "Leftovers from {source}",
+  "meal.leftoversFromBadge": "↻ Leftovers from {source}",
+
+  // ─── Cook Now form ────────────────────────────────────────────────────────
+  "cookNow.intro":
+    "Generate one recipe for what you're cooking right now. Mark it cooked to debit your fridge.",
+  "cookNow.mealType": "Meal type",
+  "cookNow.people": "People",
+  "cookNow.stockOnly": "Only use what's in the fridge",
+  "cookNow.tastes": "Taste preferences (comma separated)",
+  "cookNow.tastesPlaceholder": "e.g. spicy, light, Mediterranean",
+  "cookNow.avoid": "Ingredients to avoid",
+  "cookNow.avoidPlaceholder": "Type an ingredient to avoid and press Enter",
+  "cookNow.feature": "Ingredients to feature",
+  "cookNow.featurePlaceholder": "Type an ingredient and press Enter",
+  "cookNow.note": "Note (optional)",
+  "cookNow.notePlaceholder": "e.g. pasta-based, quick, use up cilantro",
+  "cookNow.generate": "Generate recipe",
+  "cookNow.generating": "Generating…",
+  "cookNow.generateFailed": "Failed to generate recipe.",
+  "cookNow.saveFailed": "Failed to save recipe.",
+  "cookNow.saving": "Saving…",
+  "cookNow.cookFailed": "Couldn't save — check your connection and try again.",
+
+  // ─── Cook mode ────────────────────────────────────────────────────────────
+  "cook.done": "Done cooking",
+  "cook.close": "Close",
+  "cook.closeTitle": "Close cooking mode",
+  "cook.ingredients": "Ingredients",
+  "cook.hideIngredients": "Hide ingredients",
+  "cook.startTimer": "Start a timer",
+  "cook.cancel": "Cancel",
+  "cook.dismiss": "Dismiss",
+  "cook.pause": "Pause",
+  "cook.resume": "Resume",
+  "cook.addAnotherTimer": "Add another:",
+  "cook.firstTimerHint": "Tap a time in the step, or set one:",
+  "cook.minutesAbbrev": "min",
+  "cook.customTimerLabel": "Custom timer minutes",
+  "cook.setTimer": "Set timer",
+  "cook.stepOf": "Step {n} of {total}",
+  "cook.saving": "Saving…",
+  "cook.timeUp": "⏰ Time's up!",
+  "cook.timerRemaining": "Timer {clock} remaining",
+
+  // ─── Meal editor ──────────────────────────────────────────────────────────
+  "editor.header": "Editing {mealType} — meal type is fixed",
+  "editor.nameLabel": "Name",
+  "editor.name": "Meal name",
+  "editor.totalTime": "Total time (minutes, optional)",
+  "editor.totalTimeLabel": "Total time in minutes",
+  "editor.ingredients": "Ingredients",
+  "editor.ingredient": "Ingredient",
+  "editor.needsPositiveAmount": "Every ingredient needs a positive amount in grams.",
+  "editor.saving": "Saving…",
+  "editor.cancel": "Cancel",
+  "editor.save": "Save",
+  "editor.grams": "g",
+  "editor.spice": "spice",
+  "editor.addIngredient": "+ Add ingredient",
+  "editor.steps": "Steps",
+  "editor.addStep": "+ Add step",
+  "editor.ingredientName": "Ingredient {n} name",
+  "editor.ingredientGrams": "Ingredient {n} grams",
+  "editor.ingredientSpice": "Ingredient {n} is a spice",
+  "editor.removeIngredient": "Remove ingredient {n}",
+  "editor.step": "Step {n}",
+  "editor.removeStep": "Remove step {n}",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // Read with tn("time.minutes", n). English has two categories; Czech has four
   // (Intl.PluralRules picks). Present here from the start so the mechanism has

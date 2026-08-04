@@ -148,6 +148,8 @@ describe('translation parity', () => {
       'diet.paleo', // loanword
       'diet.dash', // acronym (Dietary Approaches to Stop Hypertension)
       'diet.halal', // loanword; Czech uses "halal" (cf. diet.kosher → "Košer")
+      'cook.minutesAbbrev', // "min" — SI-style unit abbreviation
+      'editor.grams', // "g" — SI unit symbol, identical in every language
     ];
     const identical = enKeys.filter((k) => en[k] === cs[k]);
     expect(identical.sort()).toEqual([...SAME_IN_BOTH].sort());

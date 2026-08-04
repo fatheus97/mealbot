@@ -37,24 +37,63 @@ const EXPECTED_IN_EVERY_LOCALE: readonly TranslationKey[] = ['prefs.languagePlac
  * have an English value for, and a DIFFERENT Czech value for? That has no false
  * positives on Czech text and no false negatives on English text.
  *
- * Short strings are skipped — a 4-character English value like "Add" appears
- * inside unrelated Czech words by coincidence, and the substring match would be
- * meaningless rather than wrong.
+ * Matching is WHOLE-WORD, not raw substring. The first version used a bare
+ * `includes` and needed an 8-character floor to stop coincidental hits — which
+ * silently exempted "Steps", "Frozen", "Cook", "Save", "Cancel" and most other
+ * button labels. Negative-controlling the callers is what exposed that: putting
+ * English back in two components did not fail their tests. Word boundaries let
+ * the floor drop to 4 without the collisions it was there to prevent.
+ *
+ * Values shorter than `minLength` are still skipped: a 1–3 character label ("g",
+ * "min", "OK") collides with real content — ingredient units, meal names — often
+ * enough that a hit would not mean anything.
  */
-export function untranslatedEnglishIn(root: HTMLElement, minLength = 8): string[] {
-  const text = root.textContent ?? '';
+export function untranslatedEnglishIn(root: HTMLElement, minLength = 4): string[] {
   const found: string[] = [];
+  const haystacks = visibleStrings(root);
 
   for (const [key, english] of Object.entries(en) as [TranslationKey, string][]) {
-    if (english.length < minLength) continue;
     if (EXPECTED_IN_EVERY_LOCALE.includes(key)) continue;
-    // Identical in both languages (loanwords, punctuation) — its presence
+    // Identical in both languages (loanwords, unit symbols) — its presence
     // proves nothing either way.
     if (cs[key] === english) continue;
     // Placeholders are filled at render, so compare the literal prefix only.
     const literal = english.split('{')[0].trim();
     if (literal.length < minLength) continue;
-    if (text.includes(literal)) found.push(`${key}: ${literal}`);
+    const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Anchor on "not a letter" rather than \b — a value can start or end on
+    // punctuation ("+ Add step", "Ingredients:") where \b does not apply.
+    const pattern = new RegExp(`(^|[^\\p{L}])${escaped}([^\\p{L}]|$)`, 'u');
+    if (haystacks.some((h) => pattern.test(h))) found.push(`${key}: ${literal}`);
   }
   return found;
+}
+
+/**
+ * Each text node and user-facing attribute as its own string.
+ *
+ * NOT `root.textContent`: that concatenates every node with no separator, so
+ * "…gramech" followed by a `<legend>Steps</legend>` becomes "…gramechSteps"
+ * and the word-boundary match fails. The first version of this function did
+ * exactly that, and its negative control passed — English put back in two
+ * components did not fail their tests. Per-node strings restore real
+ * boundaries.
+ *
+ * Attributes are included because `aria-label`, `placeholder` and `title` are
+ * user-facing and never appear in `textContent` at all.
+ */
+function visibleStrings(root: HTMLElement): string[] {
+  const out: string[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const value = n.nodeValue?.trim();
+    if (value) out.push(value);
+  }
+  for (const el of root.querySelectorAll('[aria-label],[placeholder],[title],[alt]')) {
+    for (const attr of ['aria-label', 'placeholder', 'title', 'alt']) {
+      const value = el.getAttribute(attr)?.trim();
+      if (value) out.push(value);
+    }
+  }
+  return out;
 }

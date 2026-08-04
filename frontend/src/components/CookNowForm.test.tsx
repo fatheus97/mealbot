@@ -3,6 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CookNowForm } from './CookNowForm';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import type { ReactNode } from 'react';
 
@@ -55,6 +57,19 @@ beforeEach(() => {
 });
 
 describe('CookNowForm', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it('leaves no untranslated English when switched to Czech', () => {
+    // Exact dictionary comparison, not a "looks English" regex. Only sees what
+    // is RENDERED — the generated-recipe branch has its own coverage above.
+    loginUser();
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
   it('generates a recipe and displays it', async () => {
     loginUser();
     mockedGenerate.mockResolvedValueOnce({
