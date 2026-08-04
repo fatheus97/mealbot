@@ -1,8 +1,11 @@
 // Mirror of backend/app/core/dietary.py — keep the two files in sync by hand.
 // The backend's DietType / Allergen StrEnums are the authority; this file exists
-// so the frontend can render the diet + allergen selectors and labels without
+// so the frontend can render the diet + allergen selectors without
 // round-tripping through the API. VALUES must match the backend exactly (they are
 // the wire contract persisted in request_json); only add, never rename.
+//
+// VALUES only — no display labels. Those live in the i18n dictionary; see the
+// note under DietType below.
 
 // Combinable dietary patterns. Order here is DISPLAY order (common choices first).
 export const DIET_TYPES = [
@@ -27,25 +30,11 @@ export const DIET_TYPES = [
 
 export type DietType = (typeof DIET_TYPES)[number];
 
-export const DIET_TYPE_LABELS: Record<DietType, string> = {
-  vegetarian: "Vegetarian",
-  vegan: "Vegan",
-  pescatarian: "Pescatarian",
-  gluten_free: "Gluten-free",
-  dairy_free: "Dairy-free",
-  keto: "Keto",
-  paleo: "Paleo",
-  mediterranean: "Mediterranean",
-  dash: "DASH",
-  low_fodmap: "Low-FODMAP",
-  diabetic: "Diabetic / low-GI",
-  high_protein: "High protein",
-  low_carb: "Low carb",
-  halal: "Halal",
-  kosher: "Kosher",
-  balanced: "Balanced",
-  baby_food: "Baby food (6–12 mo)",
-};
+// Display labels live in the i18n dictionary (`diet.*` / `allergen.*` in
+// frontend/src/i18n/en.ts), not here — a Record<Enum, string> of English can
+// only ever be English. i18n.test.ts asserts the keys and these lists stay in
+// step, in both directions. VALUES above remain the wire contract: only add,
+// never rename.
 
 // The 14 EU-14 major allergens (EU FIC Reg. 1169/2011 Annex II).
 export const ALLERGENS = [
@@ -67,19 +56,3 @@ export const ALLERGENS = [
 
 export type Allergen = (typeof ALLERGENS)[number];
 
-export const ALLERGEN_LABELS: Record<Allergen, string> = {
-  cereals_with_gluten: "Gluten (cereals)",
-  crustaceans: "Crustaceans",
-  eggs: "Eggs",
-  fish: "Fish",
-  peanuts: "Peanuts",
-  soybeans: "Soy",
-  milk: "Milk / dairy",
-  tree_nuts: "Tree nuts",
-  celery: "Celery",
-  mustard: "Mustard",
-  sesame: "Sesame",
-  sulphites: "Sulphites",
-  lupin: "Lupin",
-  molluscs: "Molluscs",
-};
