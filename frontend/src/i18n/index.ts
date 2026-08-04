@@ -145,7 +145,12 @@ export function makeI18n(locale: Locale): I18n {
       // plural form and then rendering the number with `String()` is a
       // half-localized string, which is the kind of thing that survives review
       // precisely because the visible part looks translated.
-      return interpolate(template, { count: count.toLocaleString(locale), ...vars });
+      //
+      // `count` goes LAST so it always wins. `count` is already a positional
+      // argument here, so a caller passing it in `vars` too is passing it out
+      // of habit from `t()`, not asking for the raw value — and spreading vars
+      // afterwards would let that habit silently undo the formatting above.
+      return interpolate(template, { ...vars, count: count.toLocaleString(locale) });
     },
   };
 }

@@ -94,6 +94,15 @@ describe('tn — plural selection', () => {
   it('exposes count as {count} without the caller passing it', () => {
     expect(makeI18n('en').tn('time.minutes', 7)).toBe('7 minutes');
   });
+
+  it('keeps the formatted numeral even if a caller also passes count in vars', () => {
+    // `count` is already positional, so passing it again in `vars` is habit
+    // carried over from t() — not a request for the raw value. If vars won,
+    // the plural CATEGORY would still be Czech while the numeral silently
+    // reverted to an English decimal point: the exact half-localized string
+    // the formatting above exists to prevent.
+    expect(makeI18n('cs').tn('time.minutes', 1.5, { count: 1.5 })).toBe('1,5 minuty');
+  });
 });
 
 describe('translation parity', () => {
