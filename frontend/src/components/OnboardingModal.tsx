@@ -60,7 +60,7 @@ export function OnboardingModal() {
       >
         <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>{t("onboarding.title")}</h2>
         <p style={{ color: "#666", marginTop: 0, marginBottom: "1.5rem" }}>
-          These help us generate meal plans tailored to you.
+          {t("onboarding.subtitle")}
         </p>
         <PreferencesForm
           initialValues={{

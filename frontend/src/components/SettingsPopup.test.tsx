@@ -3,6 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsPopup } from './SettingsPopup';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import type { ReactNode } from 'react';
 
@@ -94,6 +96,10 @@ beforeEach(() => {
 });
 
 describe('SettingsPopup', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
   it('renders settings heading and close button', async () => {
     loginUser();
     mockedFetchProfile.mockResolvedValueOnce(mockProfile);
@@ -260,6 +266,22 @@ describe('SettingsPopup', () => {
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled();
     });
+  });
+
+  it('leaves no English string in the modal when switched to Czech', async () => {
+    // The same check as OnboardingModal's. It is worth having on BOTH: the
+    // browser pass that missed the onboarding subtitle missed it precisely
+    // because it walked this modal and generalised.
+    loginUser();
+    mockedFetchProfile.mockResolvedValueOnce(mockProfile);
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+
+    const { container } = render(<SettingsPopup onClose={vi.fn()} />, {
+      wrapper: createWrapper(),
+    });
+    await screen.findByRole('heading', { name: /Zásoby spíže/ });
+
+    expect(untranslatedEnglishIn(container)).toEqual([]);
   });
 
   it('embeds the Pantry staples section (co-located with Include spices)', async () => {

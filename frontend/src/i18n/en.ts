@@ -96,6 +96,7 @@ export const en = {
 
   // ─── Onboarding ───────────────────────────────────────────────────────────
   "onboarding.title": "Welcome! Set up your preferences",
+  "onboarding.subtitle": "These help us generate meal plans tailored to you.",
   "onboarding.submit": "Get Started",
 
   // ─── Preferences form ─────────────────────────────────────────────────────

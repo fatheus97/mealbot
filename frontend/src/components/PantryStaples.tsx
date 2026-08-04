@@ -26,7 +26,13 @@ type Notice = { ok: boolean } & (
 // explicit light surface (white background, color:#111). So text here inherits
 // dark-on-white and is legible regardless of OS theme; styles below only need to
 // stay consistent with that light surface (muted #666 matches PreferencesForm).
-const mutedStyle: CSSProperties = { fontSize: "0.85rem", color: "#666" };
+/** Ratios against the modal's white surface — see contrast.test.ts. */
+export const SURFACE = "#ffffff";
+export const NOTICE_ERROR_COLOR = "#b91c1c"; // 6.43:1
+export const NOTICE_OK_COLOR = "#15803d"; // 5.01:1 (was #16a34a, 3.29:1)
+export const MUTED_COLOR = "#666666"; // 5.74:1
+
+const mutedStyle: CSSProperties = { fontSize: "0.85rem", color: MUTED_COLOR };
 const chipsWrap: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
@@ -78,8 +84,8 @@ const saveBtn: CSSProperties = {
   // 5.01:1 against #fff at 14.4px normal weight. #16a34a (the previous value)
   // measured 3.30:1 — under the 4.5:1 AA floor. Found by the two-theme check
   // in .claude/rules/frontend.md, not by any test.
-  background: "#15803d",
-  color: "#fff",
+  background: NOTICE_OK_COLOR,
+  color: SURFACE,
   fontSize: "0.9rem",
 };
 
@@ -197,7 +203,7 @@ export function PantryStaples({
 
       {isLoading && <p style={mutedStyle}>{t("staples.loading")}</p>}
       {fetchError && (
-        <p style={{ fontSize: "0.85rem", color: fetchError instanceof TypeError ? "#666" : "#b91c1c" }}>
+        <p style={{ fontSize: "0.85rem", color: fetchError instanceof TypeError ? MUTED_COLOR : NOTICE_ERROR_COLOR }}>
           {fetchError instanceof TypeError
             ? t("staples.connecting")
             : `Error: ${fetchError.message}`}
@@ -270,11 +276,11 @@ export function PantryStaples({
           {updateStaples.isPending ? t("staples.saving") : t("staples.save")}
         </button>
         {notice && !notice.ok ? (
-          <span style={{ fontSize: "0.85rem", color: "#b91c1c" }}>{noticeText(notice)}</span>
+          <span style={{ fontSize: "0.85rem", color: NOTICE_ERROR_COLOR }}>{noticeText(notice)}</span>
         ) : dirty ? (
           <span style={mutedStyle}>{t("staples.unsaved")}</span>
         ) : notice && notice.ok ? (
-          <span style={{ fontSize: "0.85rem", color: "#16a34a" }}>{noticeText(notice)}</span>
+          <span style={{ fontSize: "0.85rem", color: NOTICE_OK_COLOR }}>{noticeText(notice)}</span>
         ) : null}
       </div>
     </section>
