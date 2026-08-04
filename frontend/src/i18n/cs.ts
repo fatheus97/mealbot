@@ -1,9 +1,10 @@
-import type { Dictionary } from ".";
+import type { DictionaryFor } from ".";
 
 /**
- * Czech. Typed as the COMPLETE `Dictionary`, so `tsc -b` fails the moment an
- * English key is added without one here — that type annotation is the entire
- * translation-coverage mechanism (see ./en.ts).
+ * Czech. The type argument names the plural categories the language has, and
+ * the annotation then requires EVERY English key plus a form for each of those
+ * categories — so `tsc -b` fails the moment a string is added without its
+ * Czech counterpart, and names the missing key (see ./en.ts).
  *
  * Two things Czech forces that English hides:
  *
@@ -17,7 +18,7 @@ import type { Dictionary } from ".";
  *   (nominative) becomes "Podmínkami služby" after "Souhlasím s" (instrumental)
  *   — which is why link labels live inside the sentence key that uses them.
  */
-export const cs: Dictionary = {
+export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // ─── Language switcher ────────────────────────────────────────────────────
   "lang.label": "Jazyk",
 
@@ -27,7 +28,10 @@ export const cs: Dictionary = {
   "auth.email": "E-mail",
   "auth.password": "Heslo",
   "auth.signIn": "Přihlásit se",
-  "auth.register": "Registrovat",
+  // Reflexive, like "Přihlásit se" / "Odhlásit se" beside it. Bare
+  // "Registrovat" is transitive and wants an object — it labels a button that
+  // registers a device, not one that signs YOU up.
+  "auth.register": "Zaregistrovat se",
   "auth.tryDemo": "Vyzkoušet demo",
   "auth.demoTitle": "Bez registrace — prozkoumejte aplikaci s ukázkovými daty.",
   "auth.logout": "Odhlásit se",

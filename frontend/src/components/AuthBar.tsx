@@ -6,7 +6,7 @@ import { SettingsPopup } from "./SettingsPopup";
 import { ForgotPasswordModal } from "./ForgotPasswordModal";
 import { TermsConsent } from "./auth/TermsConsent";
 import { LanguageSwitcher } from "./LanguageSwitcher";
-import { useI18n } from "../i18n";
+import { useI18n, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
 
 const SUPPORT_EMAIL = "info@trymealbot.com";
@@ -20,7 +20,12 @@ export function AuthBar() {
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  // The KEY, not the sentence. Storing `t(...)` output would freeze the message
+  // in whatever language it was raised in: switching to Czech re-renders every
+  // other label here but cannot reach a string that was already translated, and
+  // this one persists until a keystroke clears it. Translate at render instead —
+  // the same store-intent-not-output shape EmailVerificationBanner uses.
+  const [authError, setAuthError] = useState<TranslationKey | null>(null);
   const [acceptTerms, setAcceptTerms] = useState(false);
 
   const handleLogin = async () => {
@@ -31,7 +36,7 @@ export function AuthBar() {
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      setAuthError(t("auth.error.login"));
+      setAuthError("auth.error.login");
     } finally {
       setLoading(false);
     }
@@ -41,14 +46,14 @@ export function AuthBar() {
     // Surface a client-side guard before hitting the backend so the user
     // doesn't have to wait for a 422 to see "password too short".
     if (inputPassword.length < 8) {
-      setAuthError(t("auth.error.passwordTooShort"));
+      setAuthError("auth.error.passwordTooShort");
       return;
     }
     // Checked here rather than by disabling Register: the same two fields also
     // drive Sign In, and disabling the button would leave a user who has not
     // ticked the box guessing which of the three controls they broke.
     if (!acceptTerms) {
-      setAuthError(t("auth.error.acceptTerms"));
+      setAuthError("auth.error.acceptTerms");
       return;
     }
     setLoading(true);
@@ -62,11 +67,11 @@ export function AuthBar() {
         // Crucial distinction: the account was created. Telling the user
         // "registration failed" here would get them to submit again and
         // hit a 409 on the duplicate email.
-        setAuthError(t("auth.error.accountCreated"));
+        setAuthError("auth.error.accountCreated");
       } else {
         // Neutral copy covers 403 (flag flipped), 409 (duplicate), 422
         // (weak password that passed the client guard), 5xx, etc.
-        setAuthError(t("auth.error.register", { supportEmail: SUPPORT_EMAIL }));
+        setAuthError("auth.error.register");
       }
     } finally {
       setLoading(false);
@@ -127,7 +132,7 @@ export function AuthBar() {
                   try {
                     await loginDemo();
                   } catch {
-                    setAuthError(t("auth.error.demo"));
+                    setAuthError("auth.error.demo");
                   } finally {
                     setLoading(false);
                   }
@@ -171,7 +176,9 @@ export function AuthBar() {
       )}
       {!userId && authError && (
         <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.85rem" }}>
-          {authError}
+          {/* supportEmail passed unconditionally — interpolate() leaves the
+              messages that have no such placeholder untouched. */}
+          {t(authError, { supportEmail: SUPPORT_EMAIL })}
         </p>
       )}
       {!userId && (

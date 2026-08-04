@@ -69,13 +69,18 @@ const wrap: CSSProperties = {
 // Explicit background AND colour together, per .claude/rules/frontend.md: a
 // bare <select> inherits the adaptive text colour, which goes white-on-white
 // once a background is set anywhere up the tree.
+//
+// NO inline `fontSize`. index.css forces `select { font-size: 16px }` under
+// 640px because iOS auto-zooms the whole page when a focused field is smaller,
+// and an inline value silently beats that stylesheet rule. This control is the
+// first thing a non-English speaker reaches for, so zooming the layout out from
+// under them on tap is the worst possible place for it.
 const select: CSSProperties = {
   padding: "0.3rem 0.4rem",
   borderRadius: 6,
   border: "1px solid #94a3b8",
   backgroundColor: "#ffffff",
   color: "#111111",
-  fontSize: "0.85rem",
   fontFamily: "inherit",
   cursor: "pointer",
 };

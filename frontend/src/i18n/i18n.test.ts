@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { makeI18n, interpolate, type TranslationKey } from '.';
+import { makeI18n, interpolate, DICTIONARIES, type TranslationKey } from '.';
 import { en } from './en';
 import { cs } from './cs';
 import {
@@ -167,6 +167,54 @@ describe('locale store', () => {
 
   it('ships exactly the locales that have a dictionary', () => {
     expect([...UI_LOCALES].sort()).toEqual(['cs', 'en']);
+  });
+});
+
+describe('plural categories', () => {
+  // The type annotation on a dictionary can only enforce what its AUTHOR
+  // claimed. Declare `DictionaryFor<"one" | "other">` for Slovak and the
+  // compiler is satisfied while the language quietly needs four forms. This
+  // asks CLDR instead, so it holds for locales nobody has added yet.
+  const PROBES = [
+    ...Array.from({ length: 25 }, (_, i) => i), // 0–24: one/two/few/other
+    100, 101, 102, 111, 1000, // large-number categories (Welsh, Arabic, Russian)
+    0.5, 1.5, 2.5, 1.1, // decimals — Czech "many"
+  ];
+
+  const pluralBases = [
+    ...new Set(
+      Object.keys(en)
+        .filter((k) => k.endsWith('_other'))
+        .map((k) => k.slice(0, -'_other'.length)),
+    ),
+  ];
+
+  it('has a plural base to check', () => {
+    // Guards the guard: if every plural key were deleted, the loop below would
+    // pass vacuously and this suite would claim a coverage it never tested.
+    expect(pluralBases.length).toBeGreaterThan(0);
+  });
+
+  for (const locale of UI_LOCALES) {
+    it(`${locale} defines every form Intl.PluralRules can actually select`, () => {
+      const rules = new Intl.PluralRules(locale);
+      const needed = [...new Set(PROBES.map((n) => rules.select(n)))].sort();
+      const dict = DICTIONARIES[locale] as Record<string, string | undefined>;
+
+      const missing = pluralBases.flatMap((base) =>
+        needed.filter((cat) => dict[`${base}_${cat}`] === undefined).map((cat) => `${base}_${cat}`),
+      );
+      expect({ locale, needed, missing }).toMatchObject({ missing: [] });
+    });
+  }
+
+  it('knows Czech needs four forms and English two', () => {
+    // Pins the premise the whole design rests on, so a change in the CLDR data
+    // shows up here rather than as a wrong noun in the UI.
+    const cats = (loc: string) =>
+      [...new Set(PROBES.map((n) => new Intl.PluralRules(loc).select(n)))].sort();
+    expect(cats('en')).toEqual(['one', 'other']);
+    expect(cats('cs')).toEqual(['few', 'many', 'one', 'other']);
   });
 });
 

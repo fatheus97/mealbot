@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthBar } from './AuthBar';
 import { AuthProvider } from '../contexts/AuthContext';
 import { usePreferencesStore, DEFAULT_PREFERENCES } from '../store/usePreferencesStore';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
 import type { ReactNode } from 'react';
 
 vi.mock('../api', () => ({
@@ -60,6 +61,7 @@ const profile = (overrides: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.stubGlobal('alert', vi.fn());
+  useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
   localStorage.clear();
   mockedAuthFetch.mockClear();
   mockedAuthFetch.mockImplementation((url: string) => {
@@ -619,5 +621,57 @@ describe('AuthBar', () => {
     expect(prefs.avoidIngredients).toBe(DEFAULT_PREFERENCES.avoidIngredients);
     expect(localStorage.getItem('mealbot-preferences')).toBeNull();
     expect(queryClient.getQueryData(['planList', 1])).toBeUndefined();
+  });
+
+  it('re-translates a standing error when the language changes', async () => {
+    // The bug this pins: the error used to be stored as already-translated
+    // TEXT, so switching language re-rendered every other label in the panel
+    // and left the red alert stranded in the previous language — for as long
+    // as the user left it on screen. It stores the KEY now.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ detail: 'bad' }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    useLocaleStore.setState({ locale: 'en', explicit: false });
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'bad@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'wrong');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Login failed. Check your credentials.',
+    );
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'cs');
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe(
+        'Přihlášení se nezdařilo. Zkontrolujte přihlašovací údaje.',
+      );
+    });
+  });
+
+  it('keeps the whole panel in one language after a switch', async () => {
+    const user = userEvent.setup();
+    useLocaleStore.setState({ locale: 'en', explicit: false });
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'cs');
+
+    expect(await screen.findByRole('heading', { name: 'Přihlášení' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Přihlásit se' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Heslo')).toBeInTheDocument();
+    // No English survivor anywhere in the panel.
+    expect(screen.queryByText(/forgot your password/i)).toBeNull();
   });
 });

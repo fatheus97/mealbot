@@ -39,17 +39,39 @@ export type PluralKey =
       : never
     : never;
 
-/**
- * The CLDR categories a non-English locale may additionally need. English uses
- * one/other; Czech also uses few (2–4) and many (decimals). Optional, so a
- * locale supplies only the categories its language actually has — but the
- * `Record<TranslationKey, string>` half is required, which is what forces every
- * English key to be translated before `tsc -b` passes.
- */
-export type Dictionary = Record<TranslationKey, string> &
-  Partial<Record<`${PluralKey}_${"zero" | "two" | "few" | "many"}`, string>>;
+/** The CLDR plural categories, i.e. what `Intl.PluralRules.select()` returns. */
+export type PluralCategory = Intl.LDMLPluralRule;
 
-const DICTIONARIES: Record<Locale, Dictionary> = { en, cs };
+/**
+ * English needs only `_one` and `_other`, and both are already required by the
+ * `Record<TranslationKey, string>` half — so a locale declares only the EXTRA
+ * categories its language uses.
+ */
+type EnglishCategories = "one" | "other";
+
+/**
+ * A complete dictionary for a language with the given plural categories.
+ *
+ * The `Record<TranslationKey, string>` half is what makes the compiler the
+ * coverage tool: adding an English string fails `tsc -b` until every locale
+ * has it. The second half closes the hole that leaves — without it only
+ * English's OWN categories were required, so a Slovak or Polish dictionary
+ * carrying just `_one`/`_other` compiled clean and shipped the wrong noun for
+ * 2–4 of anything. (Verified: it did compile.)
+ *
+ * The declared categories are themselves checked against CLDR at test time
+ * (see i18n.test.ts, "plural categories") — a type annotation can only enforce
+ * what the author claims, and the author can claim the wrong set.
+ */
+export type DictionaryFor<Categories extends PluralCategory> =
+  Record<TranslationKey, string> &
+    Record<`${PluralKey}_${Exclude<Categories, EnglishCategories>}`, string>;
+
+/** Erased shape for the lookup table, which does not care which locale it holds. */
+export type Dictionary = Record<TranslationKey, string> &
+  Partial<Record<`${PluralKey}_${PluralCategory}`, string>>;
+
+export const DICTIONARIES: Record<Locale, Dictionary> = { en, cs };
 
 export type Vars = Record<string, string | number>;
 
