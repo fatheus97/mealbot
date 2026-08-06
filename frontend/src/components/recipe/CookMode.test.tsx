@@ -286,6 +286,40 @@ describe('CookMode', () => {
     expect(localStorage.getItem(KEY)).not.toBeNull();
   });
 
+  // #5: pressing the browser/hardware Back button used to navigate the whole
+  // app away instead of closing the overlay — nothing listened for it — which
+  // unmounted everything and lost the in-memory generated recipe with it.
+  describe('hardware/browser Back button (#5)', () => {
+    it('pushes a history entry on mount, so Back has something of ours to consume first', () => {
+      renderCookMode();
+      expect(history.state).toMatchObject({ cookMode: true });
+    });
+
+    it('treats Back (popstate) as a close request instead of letting the app navigate away', () => {
+      const { onClose } = renderCookMode();
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('pops its history entry when closed via the UI (not Back), so a later Back only takes one press to leave', () => {
+      // Mocked rather than let the real navigation run: jsdom queues
+      // history.back()'s traversal asynchronously, and this file renders (and
+      // auto-cleanup-unmounts) CookMode dozens of times, so real navigations
+      // pile up unpredictably across tests. Asserting the call happened is the
+      // deterministic version of the same behavioural claim.
+      const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+      const { unmount } = render(
+        <CookTimerProvider>
+          <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={vi.fn()} />
+        </CookTimerProvider>,
+      );
+      unmount();
+      expect(backSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('toggles the ingredients panel with amounts', async () => {
     const user = userEvent.setup();
     renderCookMode();

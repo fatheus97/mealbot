@@ -101,6 +101,35 @@ export function CookMode({
   const showPieces = useShowPieces();
   useSuppressTimerBubble();
 
+  // Ref so the popstate/cleanup handlers below always call the LATEST onClose
+  // without re-running the mount/unmount effect (and re-pushing history) on
+  // every parent re-render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Guard the hardware/browser Back button (#5): there's no SPA router or
+  // popstate handling anywhere else in the app, so without this, Back doesn't
+  // close this overlay — it navigates the app itself away, unmounting
+  // everything and losing the in-memory generated recipe with it. Push a
+  // history entry while cook mode is open so Back has something of ours to
+  // consume first, and treat consuming it as "close the overlay," not a page
+  // navigation.
+  useEffect(() => {
+    history.pushState({ cookMode: true }, "");
+    const onPopState = () => onCloseRef.current();
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      // Closed via the UI (✕ / Done), not via Back — pop the entry we pushed
+      // so a later Back doesn't need an extra press to actually leave the page.
+      if (history.state?.cookMode) {
+        history.back();
+      }
+    };
+  }, []);
+
   // Keyboard: ← / → move between steps (ignored while typing in a field).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
