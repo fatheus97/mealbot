@@ -507,3 +507,34 @@ describe('fontSizePx follows React, not a guess', () => {
     expect(checkText('#ffffff', '#16a34a', 224, 700).passes).toBe(true);
   });
 });
+
+describe('block parsing is quote-aware', () => {
+  const pairs = (src: string) => findInlineColorPairs(src, 'x.tsx').map((p) => `${p.fg}|${p.bg}`);
+
+  // Which of these three actually discriminates: ONLY the closing-brace one.
+  // Removing skipString fails that test alone. An unbalanced `{` in a value
+  // self-corrects, because every `{` position is independently tried as a block
+  // start, so a later block re-syncs; a stray `}` closes a block early and there
+  // is no second chance. The other two are regression cover, not controls —
+  // saying so because a test that looks like a control but always passes is
+  // worse than no test.
+  it('does not let a closing brace inside a string end a block early', () => {
+    // The load-bearing case. A `}` in a VALUE is a character, not structure;
+    // counting it truncates the block and the pair silently vanishes — the one
+    // failure mode this file exists to prevent. Same shape as the
+    // `//`-inside-a-string hole that had to be fixed twice in stripComments.
+    const src = `const a = { content: "}", background: "#15803d", color: "#ffffff" };`;
+    expect(pairs(src)).toEqual(['#ffffff|#15803d']);
+  });
+
+  it('also tolerates an opening brace inside a string (self-correcting)', () => {
+    const src = `const a = { content: "{", background: "#15803d", color: "#ffffff" };
+const b = { background: "#dcfce7", color: "#166534" };`;
+    expect(pairs(src)).toEqual(['#ffffff|#15803d', '#166534|#dcfce7']);
+  });
+
+  it('keeps escaped quotes from ending a value early', () => {
+    const src = `const a = { title: "say \\"hi\\" {", background: "#15803d", color: "#ffffff" };`;
+    expect(pairs(src)).toEqual(['#ffffff|#15803d']);
+  });
+});

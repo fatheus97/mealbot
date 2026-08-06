@@ -188,10 +188,40 @@ export function fontSizePx(body: string): number {
   return 16;
 }
 
-/** Index of the `}` matching the `{` at `open`, or -1. */
+/**
+ * If a string literal starts at `i`, the index just past its closing quote;
+ * otherwise `i` itself.
+ *
+ * Brace counting has to skip string contents for the same reason
+ * {@link stripComments} tracks quote state: a brace inside a value —
+ * `content: "{"`, a `url(data:…)` — is a character, not structure, and counting
+ * it desyncs every block boundary after it. That desync would be SILENT, which
+ * is the one failure mode this whole file exists to prevent. Not live in the
+ * codebase today; closed by construction because the analogous `//`-inside-a-
+ * string hole in stripComments was not, and had to be fixed twice.
+ */
+function skipString(src: string, i: number): number {
+  const quote = src[i];
+  if (quote !== '"' && quote !== "'" && quote !== '`') return i;
+  for (let j = i + 1; j < src.length; j++) {
+    if (src[j] === '\\') {
+      j++;
+      continue;
+    }
+    if (src[j] === quote) return j + 1;
+  }
+  return src.length; // unterminated — treat the rest as string, not structure
+}
+
+/** Index of the `}` matching the `{` at `open`, or -1. Quote-aware. */
 function matchingBrace(src: string, open: number): number {
   let depth = 0;
   for (let i = open; i < src.length; i++) {
+    const skipped = skipString(src, i);
+    if (skipped !== i) {
+      i = skipped - 1;
+      continue;
+    }
     if (src[i] === '{') depth++;
     else if (src[i] === '}' && --depth === 0) return i;
   }
@@ -217,6 +247,15 @@ function styleBlocks(src: string): { at: number; own: string }[] {
     let own = '';
     let depth = 0;
     for (let j = i + 1; j < end; j++) {
+      // A quoted value is copied through whole — the caller reads those hexes —
+      // but its braces must not move `depth`.
+      const strEnd = skipString(src, j);
+      if (strEnd !== j) {
+        const literal = src.slice(j, Math.min(strEnd, end));
+        own += depth === 0 ? literal : literal.replace(/[^\n]/g, ' ');
+        j = Math.min(strEnd, end) - 1;
+        continue;
+      }
       const ch = src[j];
       if (ch === '{') depth++;
       // Blank nested content but keep length and newlines, so an offset inside
