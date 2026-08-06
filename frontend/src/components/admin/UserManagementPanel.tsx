@@ -12,6 +12,16 @@ import {
   useVerifyAdminUserEmail,
 } from "../../hooks/useServerState";
 import { deleteAdminUser, fetchAdminUsers, updateAdminUser } from "../../api";
+
+/**
+ * Text colour for a DISABLED button. Kept as the old `colors.textFaint` value
+ * rather than following the palette's collapse into `textMuted`: WCAG 1.4.3
+ * exempts inactive controls, and these two buttons are the only places the
+ * faint tier was doing legitimate work — signalling "you can't press this".
+ * Everywhere else it was enabled content at 2.43:1, which is why the palette
+ * entry is gone.
+ */
+const DISABLED_ADMIN_TEXT = "#9ca3af";
 import type { AdminUser, AdminUserRoleFilter, AdminUserStatusFilter } from "../../types";
 import { colors, radius } from "./theme";
 
@@ -436,7 +446,7 @@ export function UserManagementPanel() {
                     <td style={td}>
                       <div style={{ color: colors.text }}>{u.email}</div>
                       {u.country && (
-                        <div style={{ fontSize: 12, color: colors.textFaint }}>{u.country}</div>
+                        <div style={{ fontSize: 12, color: colors.textMuted }}>{u.country}</div>
                       )}
                     </td>
                     <td style={td}>
@@ -450,7 +460,7 @@ export function UserManagementPanel() {
                         {u.is_comped && <Badge label="Comped" bg="#dbeafe" fg="#1d4ed8" />}
                         {u.is_demo && <Badge label="Demo" bg="#f3f4f6" fg="#4b5563" />}
                         {u.is_active && !u.is_admin && !u.is_comped && !u.is_demo && (
-                          <span style={{ fontSize: 12, color: colors.textFaint }}>
+                          <span style={{ fontSize: 12, color: colors.textMuted }}>
                             {u.subscription_status === "none" ? "user" : u.subscription_status}
                           </span>
                         )}
@@ -461,7 +471,7 @@ export function UserManagementPanel() {
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
                       {u.is_demo ? (
-                        <span style={{ fontSize: 12, color: colors.textFaint }}>—</span>
+                        <span style={{ fontSize: 12, color: colors.textMuted }}>—</span>
                       ) : (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "flex-end" }}>
                           <RowButton onClick={() => toggleActive(u)}>
@@ -490,7 +500,7 @@ export function UserManagementPanel() {
                 ))}
                 {data.users.length === 0 && (
                   <tr>
-                    <td colSpan={5} style={{ ...td, color: colors.textFaint }}>
+                    <td colSpan={5} style={{ ...td, color: colors.textMuted }}>
                       No users match these filters.
                     </td>
                   </tr>
@@ -928,7 +938,7 @@ function dangerBtn(disabled: boolean): CSSProperties {
     border: "none",
     borderRadius: 6,
     background: disabled ? colors.border : "#dc2626",
-    color: disabled ? colors.textFaint : "#ffffff",
+    color: disabled ? DISABLED_ADMIN_TEXT : "#ffffff",
     cursor: disabled ? "not-allowed" : "pointer",
     fontSize: 14,
     fontWeight: 600,
@@ -952,7 +962,7 @@ function secondaryBtn(disabled: boolean): CSSProperties {
     border: `1px solid ${colors.borderStrong}`,
     borderRadius: 6,
     background: colors.card,
-    color: disabled ? colors.textFaint : colors.text,
+    color: disabled ? DISABLED_ADMIN_TEXT : colors.text,
     cursor: disabled ? "not-allowed" : "pointer",
     fontSize: 14,
   };
@@ -1068,7 +1078,6 @@ const toastCloseStyle: CSSProperties = {
   fontSize: 18,
   lineHeight: 1,
   padding: "0 0.35rem",
-  opacity: 0.7,
   flexShrink: 0,
   // Keep the dismiss control pinned to the top of a tall (scrolling) toast.
   position: "sticky",
