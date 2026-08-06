@@ -6,6 +6,9 @@ import { VerifyEmailHandler } from "./VerifyEmailHandler";
 import * as AuthCtx from "../../contexts/AuthContext";
 import * as api from "../../api";
 import type { AuthState } from "../../types";
+import { useLocaleStore, DEFAULT_LOCALE } from "../../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../../test/i18nAssertions";
+import { cs } from "../../i18n/cs";
 
 function mockAuth(over: Partial<AuthState> = {}) {
   vi.spyOn(AuthCtx, "useAuth").mockReturnValue({
@@ -186,5 +189,79 @@ describe("VerifyEmailHandler", () => {
     // dark-on-dark in the other colour scheme.
     expect(toast.style.backgroundColor).toBeTruthy();
     expect(toast.style.color).toBeTruthy();
+  });
+});
+
+describe("VerifyEmailHandler in Czech", () => {
+  // This component had NO `t()` call at all until now, which is why the sweep
+  // that translated the rest of auth walked past it: `untranslatedEnglishIn`
+  // compares the DOM against `en`, so a literal with no key has nothing to
+  // match and reads as clean. See test/i18nAssertions.ts, SCOPE 2.
+  //
+  // All four message branches are driven, because each one REPLACES the others
+  // — one render can only ever prove one of them.
+  beforeEach(() => useLocaleStore.setState({ locale: "cs", explicit: true }));
+  afterEach(() =>
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }),
+  );
+
+  it("translates the success toast", async () => {
+    mockAuth();
+    vi.spyOn(api, "verifyEmail").mockResolvedValue(undefined);
+    setUrl("?verify_token=abc");
+
+    renderWithProviders(<VerifyEmailHandler />);
+    const toast = await screen.findByRole("status");
+    expect(toast).toHaveTextContent("E-mail potvrzen");
+    expect(untranslatedEnglishIn(toast)).toEqual([]);
+  });
+
+  it("translates the already-used toast", async () => {
+    mockAuth({ userId: 1, emailVerified: true });
+    vi.spyOn(api, "verifyEmail").mockRejectedValue(new Error("expired"));
+    setUrl("?verify_token=stale");
+
+    renderWithProviders(<VerifyEmailHandler />);
+    const toast = await screen.findByRole("status");
+    expect(toast).toHaveTextContent("už byl použit");
+    expect(untranslatedEnglishIn(toast)).toEqual([]);
+  });
+
+  it("translates the invalid-link toast, naming the Czech Resend label", async () => {
+    mockAuth({ userId: 1, emailVerified: false });
+    vi.spyOn(api, "verifyEmail").mockRejectedValue(new Error("expired"));
+    setUrl("?verify_token=stale");
+
+    renderWithProviders(<VerifyEmailHandler />);
+    const toast = await screen.findByRole("alert");
+    // The sentence quotes a BUTTON the user has to find on screen, so it must
+    // carry that button's Czech label — quoting the English one would send
+    // them looking for a control that does not exist in this UI.
+    expect(toast).toHaveTextContent(cs["verify.resend"]);
+    expect(untranslatedEnglishIn(toast)).toEqual([]);
+  });
+
+  it("translates the logged-out invalid-link toast", async () => {
+    mockAuth({ userId: null, emailVerified: false });
+    vi.spyOn(api, "verifyEmail").mockRejectedValue(new Error("expired"));
+    setUrl("?verify_token=stale");
+
+    renderWithProviders(<VerifyEmailHandler />);
+    const toast = await screen.findByRole("alert");
+    expect(toast).toHaveTextContent("Přihlaste se");
+    expect(untranslatedEnglishIn(toast)).toEqual([]);
+  });
+
+  it("translates the dismiss control's accessible name", async () => {
+    // aria-label never appears in textContent, so the survivor check above
+    // reads it separately and a render assertion would not have caught it.
+    mockAuth();
+    vi.spyOn(api, "verifyEmail").mockResolvedValue(undefined);
+    setUrl("?verify_token=abc");
+
+    renderWithProviders(<VerifyEmailHandler />);
+    await screen.findByRole("status");
+    expect(screen.getByRole("button", { name: cs["verifyToast.dismiss"] }))
+      .toBeInTheDocument();
   });
 });

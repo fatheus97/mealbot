@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { verifyEmail } from "../../api";
+import { useI18n } from "../../i18n";
 
 type Phase = "idle" | "working" | "done" | "failed";
 
@@ -24,6 +25,7 @@ type Phase = "idle" | "working" | "done" | "failed";
  */
 export function VerifyEmailHandler() {
   const { userId, emailVerified, refreshProfile } = useAuth();
+  const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>("idle");
   const [dismissed, setDismissed] = useState(false);
   // Belt-and-braces against a double redeem of a single-use token under
@@ -82,16 +84,21 @@ export function VerifyEmailHandler() {
     >
       <span>
         {ok
-          ? "✅ Email confirmed — you're all set."
+          ? t("verifyToast.confirmed")
           : alreadyDone
-            ? "✅ That link was already used — your email is confirmed."
+            ? t("verifyToast.alreadyUsed")
             : userId
-              ? "That confirmation link is invalid or has expired. Use “Resend link” on the banner above to get a new one."
+              ? t("verifyToast.invalid")
               : // Logged out, so EmailVerificationBanner (which owns the Resend
                 // control) renders nothing — point at what IS on screen.
-                "That confirmation link is invalid or has expired. Sign in and use “Resend link” to get a new one."}
+                t("verifyToast.invalidLoggedOut")}
       </span>
-      <button type="button" onClick={() => setDismissed(true)} aria-label="Dismiss" style={close}>
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        aria-label={t("verifyToast.dismiss")}
+        style={close}
+      >
         &times;
       </button>
     </div>

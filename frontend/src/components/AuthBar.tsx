@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
+import { AutoLoginAfterRegisterError, LoginFailedError } from "../contexts/authErrors";
 import { SettingsPopup } from "./SettingsPopup";
 import { ForgotPasswordModal } from "./ForgotPasswordModal";
 import { TermsConsent } from "./auth/TermsConsent";
@@ -10,6 +10,24 @@ import { useI18n, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
 
 const SUPPORT_EMAIL = "info@trymealbot.com";
+
+/**
+ * Login failures that deserve their own sentence.
+ *
+ * An allow-list, not a catch-all: a status only earns an entry when there is
+ * something specific and useful to say. Everything else — 5xx, a 422, a
+ * network drop that never produced a status at all — falls back to the generic
+ * message. That fallback is imperfect (it guesses at credentials for what may
+ * be a dropped connection) and it stays the default anyway, because the
+ * alternative is inventing a diagnosis we do not have.
+ */
+const LOGIN_STATUS_MESSAGES: Partial<Record<number, TranslationKey>> = {
+  403: "auth.error.accountDisabled",
+  429: "auth.error.tooManyAttempts",
+};
+
+const loginStatus = (error: unknown): number =>
+  error instanceof LoginFailedError ? error.status : 0;
 
 /**
  * Link colour for the aliceblue bar below. The old #007bff was 3.71:1 on
@@ -44,7 +62,12 @@ export function AuthBar() {
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      setAuthError("auth.error.login");
+      // Both branches exist for the same reason: "Check your credentials" is
+      // wrong advice when the credentials are not the problem, and a user who
+      // follows it just repeats the request. 403 is the disabled account (401
+      // is the credential failure, so the split is unambiguous); 429 is the
+      // 10/minute rate limit, where retrying is actively counterproductive.
+      setAuthError(LOGIN_STATUS_MESSAGES[loginStatus(error)] ?? "auth.error.login");
     } finally {
       setLoading(false);
     }
