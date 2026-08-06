@@ -535,6 +535,25 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // ─── Planner heading ──────────────────────────────────────────────────────
   "planner.heading": "Plánovač jídel",
 
+  // ─── Feedback modal ───────────────────────────────────────────────────────
+  "feedback.title": "Poslat zpětnou vazbu",
+  "feedback.intro": "Našli jste chybu nebo máte nápad? Napište nám — opravdu nám to pomáhá Mealbota zlepšovat.",
+  "feedback.type": "Typ",
+  "feedback.details": "Podrobnosti",
+  "feedback.detailsPlaceholder":
+    "Co se stalo, nebo co byste si přáli? Čím víc podrobností, tím lépe.",
+  "feedback.cancel": "Zrušit",
+  "feedback.send": "Odeslat",
+  "feedback.sending": "Odesílám…",
+  "feedback.tooShort": "Napište prosím trochu více podrobností.",
+  "feedback.failed": "Zpětnou vazbu se nepodařilo odeslat.",
+  "feedback.thanksTitle": "Díky — máme to. 🙏",
+  "feedback.thanksBody": "Vaše hlášení míří k týmu. Čteme každé.",
+  "feedback.done": "Hotovo",
+  "feedbackKind.bug": "🐞 Něco nefunguje",
+  "feedbackKind.feature": "💡 Nápad / návrh funkce",
+  "feedbackKind.other": "💬 Něco jiného",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // 1 minuta · 2–4 minuty · 1,5 minuty · 0 a 5+ minut.
   "time.minutes_one": "{count} minuta",

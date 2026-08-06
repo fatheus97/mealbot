@@ -3,7 +3,7 @@ import { makeI18n, interpolate, DICTIONARIES, type TranslationKey } from '.';
 import { en } from './en';
 import { MEAL_TYPES } from '../constants/mealTypes';
 import { ALLERGENS, DIET_TYPES } from '../constants/dietary';
-import type { PlanStatus } from '../types';
+import type { FeedbackKind, PlanStatus } from '../types';
 import { cs } from './cs';
 import {
   useLocaleStore,
@@ -207,12 +207,14 @@ describe('enum-backed label sets', () => {
   // iterate — the test below pins the two together so this cannot drift into
   // a comfortable lie.
   const PLAN_STATUSES = ['planned', 'active', 'cooked', 'finished'] as const;
+  const FEEDBACK_KINDS = ['bug', 'feature', 'other'] as const;
 
   const SETS: [string, readonly string[]][] = [
     ['mealType', MEAL_TYPES],
     ['diet', DIET_TYPES],
     ['allergen', ALLERGENS],
     ['planStatus', PLAN_STATUSES],
+    ['feedbackKind', FEEDBACK_KINDS],
   ];
 
   for (const [prefix, values] of SETS) {
@@ -234,6 +236,25 @@ describe('enum-backed label sets', () => {
       }
     });
   }
+
+  it('FEEDBACK_KINDS matches the FeedbackKind type exactly', () => {
+    // Same reasoning as PLAN_STATUSES below: keyUsage treats the template
+    // prefix as blanket usage, so only this pins the mirror to the union.
+    const kinds: readonly FeedbackKind[] = FEEDBACK_KINDS;
+    expect(kinds).toHaveLength(3);
+    for (const k of kinds) {
+      switch (k) {
+        case 'bug':
+        case 'feature':
+        case 'other':
+          break;
+        default: {
+          const never: never = k;
+          throw new Error(`unhandled: ${String(never)}`);
+        }
+      }
+    }
+  });
 
   it('PLAN_STATUSES matches the PlanStatus type exactly', () => {
     // A hand-written mirror is only as good as this assertion: assigning each
