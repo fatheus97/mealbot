@@ -12,6 +12,10 @@ import {
   useVerifyAdminUserEmail,
 } from "../../hooks/useServerState";
 import { deleteAdminUser, fetchAdminUsers, updateAdminUser } from "../../api";
+import type { AdminUser, AdminUserRoleFilter, AdminUserStatusFilter } from "../../types";
+import { colors, radius } from "./theme";
+
+const PAGE_SIZE = 25;
 
 /**
  * Text colour for a DISABLED button. Kept as the old `colors.textFaint` value
@@ -22,10 +26,6 @@ import { deleteAdminUser, fetchAdminUsers, updateAdminUser } from "../../api";
  * entry is gone.
  */
 const DISABLED_ADMIN_TEXT = "#9ca3af";
-import type { AdminUser, AdminUserRoleFilter, AdminUserStatusFilter } from "../../types";
-import { colors, radius } from "./theme";
-
-const PAGE_SIZE = 25;
 
 // A destructive/consequential action awaiting confirmation. `run` fires the
 // underlying mutation with the dialog's success/error callbacks so the dialog
