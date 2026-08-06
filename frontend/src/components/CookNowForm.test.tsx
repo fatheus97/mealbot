@@ -104,6 +104,25 @@ describe('CookNowForm', () => {
     expect(untranslatedEnglishIn(document.body)).toEqual([]);
   });
 
+  it('keeps full-width fields inside their container on narrow screens (#10)', () => {
+    // These fields are `width: "100%"` plus their own padding, under the
+    // default content-box model that adds padding on top of 100% — pushing
+    // them past the container's right edge on mobile. border-box makes
+    // width:100% inclusive of padding/border instead.
+    loginUser();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+
+    const fields = [
+      screen.getByLabelText('Meal type'),
+      screen.getByLabelText('People'),
+      screen.getByLabelText('Taste preferences (comma separated)'),
+      screen.getByLabelText('Note (optional)'),
+    ];
+    for (const field of fields) {
+      expect(getComputedStyle(field).boxSizing).toBe('border-box');
+    }
+  });
+
   it('generates a recipe and displays it', async () => {
     loginUser();
     mockedGenerate.mockResolvedValueOnce({
