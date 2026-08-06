@@ -63,6 +63,22 @@ const SPOKEN: { pattern: RegExp; instead: string }[] = [
   { pattern: /(^|[^\p{L}])moc([^\p{L}]|$)/iu, instead: "příliš / velmi" },
   { pattern: /(^|[^\p{L}])dost([^\p{L}]|$)/iu, instead: "dostatečně" },
   { pattern: /(^|[^\p{L}])mrkn|koukn/iu, instead: "podívejte se / viz" },
+
+  // ─── Reported by the owner, a native speaker, reading the shipped text ───
+  // Each of these survived three machine passes and a meaning-focused review,
+  // because none of them is a MEANING error — they are the kind of thing only
+  // a native reader notices. They are listed by name so they cannot come back.
+  //
+  // `výmaz` is a registry word ("výmaz z obchodního rejstříku"). GDPR's Czech
+  // does use "právo na výmaz" as a term of art, but in running prose about
+  // deleting an account a Czech reader expects "smazání". The owner had
+  // already corrected this once; a regeneration of the page silently reverted
+  // it, which is also why these files now carry a HAND-EDITED SOURCE marker.
+  { pattern: /(^|[^\p{L}])výmaz/iu, instead: "smazání / vymazání" },
+  // A supermarket word, used here for a software feature.
+  { pattern: /samoobsluž/i, instead: "say it plainly: „…si zatím nemůžete udělat sami“" },
+  // English typographic habit; Czech uses „ “.
+  { pattern: /"[^"]{3,40}"/, instead: "Czech quotation marks „…“" },
 ];
 
 /** Non-standard by morphology — wrong in ANY written Czech, marketing included. */
@@ -112,6 +128,27 @@ describe("Czech pages are written in formal Czech", () => {
     it("guards the guard: the two lists are non-empty and the strict one is bigger", () => {
       expect(nonStandard.length).toBeGreaterThan(4);
       expect(SPOKEN.length).toBeGreaterThan(nonStandard.length);
+    });
+
+    it("does not punctuate Czech like English", () => {
+      // The owner's first complaint. English uses the em-dash constantly as a
+      // dramatic aside; the translation kept EVERY one, so both Czech pages
+      // carried exactly as many as their English twins — 39 between them.
+      // Czech reaches for a comma, a colon, parentheses, or two sentences.
+      //
+      // Zero, not "fewer": once the parenthetical-aside habit is gone there is
+      // nothing left in these two documents that wants a dash, and a threshold
+      // would just be a number to argue with later. If a genuine need ever
+      // appears, changing this test is the right way to make that case.
+      for (const page of LEGAL) {
+        const dashes = (prose(page).match(/—/g) ?? []).length;
+        expect(dashes, `${page} uses an em-dash in Czech prose`).toBe(0);
+      }
+      // Guards the guard: the English pages still use them heavily, so a
+      // stripping bug that emptied `prose()` would show up here as a zero.
+      const en = readFileSync(resolve(process.cwd(), "dist/terms.html"), "utf-8");
+      const enProse = (en.match(/<body>([\s\S]*?)<\/body>/)?.[1] ?? "").replace(/<[^>]+>/g, " ");
+      expect((enProse.match(/—/g) ?? []).length).toBeGreaterThan(10);
     });
 
     it("still addresses the reader directly, rather than as a third party", () => {
