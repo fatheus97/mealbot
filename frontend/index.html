@@ -226,6 +226,16 @@
         gap: 1rem;
         margin-top: 1rem;
       }
+      /* Hero: headline beside the brand mark. These three used to live in a
+         `style=""` attribute on the div, which meant the phone breakpoint below
+         could not reach them at any specificity — inline always wins. Same trap
+         .claude/rules/frontend.md documents for the SPA's inline styles. They
+         are here so the @media rule can override them. */
+      #hero .steps {
+        align-items: center;
+        grid-auto-flow: column;
+        grid-template-columns: 1fr auto;
+      }
       .step {
         display: flex;
         gap: 1rem;
@@ -574,6 +584,23 @@
         section {
           padding: 2.25rem 0;
         }
+        /* Stack the hero on phones. Side by side, the fixed 96px mark took 29%
+           of the content box and squeezed the headline into a 223px column that
+           wrapped to four lines. Stacked with the mark above at 64px, the
+           headline gets the full 335px and wraps to three — and the primary CTA
+           lands 2px HIGHER than before, so nothing is pushed below the fold.
+           `order` moves the mark visually only; the DOM keeps heading-then-logo,
+           which is the meaningful reading sequence for a screen reader. */
+        #hero .steps {
+          grid-auto-flow: row;
+          grid-template-columns: 1fr;
+          justify-items: start;
+        }
+        #hero .steps > svg {
+          order: -1;
+          width: 64px;
+          height: 64px;
+        }
         /* Phone floor for form fields, mirroring src/index.css — iOS zooms the
            whole viewport when a focused field renders below 16px and never
            zooms back out. The two rules above that already pin 16px
@@ -603,7 +630,7 @@
     <main class="wrap">
       <!-- HERO -->
       <section id="hero">
-        <div class="steps" style="align-items: center; grid-auto-flow: column; grid-template-columns: 1fr auto;">
+        <div class="steps">
           <div>
             <h1>Meal plans that respect every diet and allergen you combine</h1>
             <p class="muted">
