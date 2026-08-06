@@ -551,6 +551,134 @@ describe('AuthBar', () => {
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
+  it('tells a DISABLED account it is disabled, not to check its credentials', async () => {
+    // /auth/login answers 403 only for a disabled account (401 is the
+    // credential failure). Before this, both collapsed into "Check your
+    // credentials" — advice a disabled user can follow forever with the
+    // correct password. The backend returns 403 rather than 401 precisely so
+    // the SPA can tell them apart.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          json: () => Promise.resolve({ detail: 'This account has been disabled.' }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'off@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toContain('This account has been disabled.');
+    // The generic advice must be GONE, not merely accompanied.
+    expect(banner.textContent).not.toContain('Check your credentials');
+    // The support address is interpolated, not left as a literal placeholder.
+    expect(banner.textContent).toContain('info@trymealbot.com');
+  });
+
+  it('tells a rate-limited user to wait, not to check their credentials', async () => {
+    // /auth/login is capped at 10/minute. "Check your credentials" sends that
+    // user straight back into the limit they just hit — the same wrong-advice
+    // failure as the disabled-account case, on a different status.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 429,
+          json: () => Promise.resolve({ detail: 'Rate limit exceeded' }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'fast@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'whatever123');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toContain('Too many sign-in attempts');
+    expect(banner.textContent).not.toContain('Check your credentials');
+  });
+
+  it('falls back to the generic message on an unmapped status (500)', async () => {
+    // The status map must stay a allow-list: a 5xx says nothing useful about
+    // what the user should do, so the honest answer is the generic one.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'boom@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'whatever123');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toBe('Login failed. Check your credentials.');
+  });
+
+  it('re-translates the disabled-account error on a language switch', async () => {
+    // Same invariant as the login-failure case below: this branch stores a KEY
+    // too. Pinned separately because it is the one branch that could plausibly
+    // have been written to render the server's (already-Czech) sentence, which
+    // would strand the alert in the old language on a switch.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          json: () => Promise.resolve({ detail: 'This account has been disabled.' }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    useLocaleStore.setState({ locale: 'en', explicit: false });
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'off@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'correct-horse');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'This account has been disabled.',
+    );
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'cs');
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain(
+        'Tento účet byl zablokován.',
+      );
+    });
+  });
+
   it('shows inline error when Try Demo fails', async () => {
     const alertSpy = vi.spyOn(window, 'alert');
 
