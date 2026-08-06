@@ -7,6 +7,8 @@ import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
 import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import type { ReactNode } from 'react';
+import { setColorScheme } from '../test/media';
+import { PAGE_TEXT, MUTED_PAGE_OPACITY } from '../constants/theme';
 
 vi.mock('../api', () => ({
   authFetch: vi.fn(),
@@ -278,5 +280,40 @@ describe('CookNowForm', () => {
     );
     // No recipe card rendered on error.
     expect(screen.queryByRole('button', { name: /mark as cooked/i })).toBeNull();
+  });
+});
+
+describe('CookNowForm colours on the adaptive page background', () => {
+  // This form pins no surface of its own until the recipe card, so the intro
+  // line and the generate-failure alert render straight onto the page
+  // background — #242424 in dark mode. #555 measured 2.08:1 there and #b91c1c
+  // 2.40:1. Ratios are pinned in test/contrast.test.ts; this asserts the branch.
+  const rgb = (hex: string) => {
+    const i = parseInt(hex.slice(1), 16);
+    return `rgb(${(i >> 16) & 255}, ${(i >> 8) & 255}, ${i & 255})`;
+  };
+
+  it('dims the intro with inherit+opacity rather than a fixed grey', () => {
+    loginUser();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const intro = screen.getByText(/generate one recipe for what/i);
+    // `inherit` cannot invert with the scheme, so it needs no per-theme branch —
+    // but the opacity is a real contrast lever, so pin it.
+    expect(intro.style.color).toBe('inherit');
+    expect(intro.style.opacity).toBe(String(MUTED_PAGE_OPACITY));
+  });
+
+  it('flips the generate-failure alert with the OS colour scheme', async () => {
+    setColorScheme('dark');
+    loginUser();
+    mockedGenerate.mockRejectedValueOnce(new Error("boom"));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    await userEvent.setup().click(screen.getByRole('button', { name: /generate recipe/i }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.style.color).toBe(rgb(PAGE_TEXT.error.dark));
+    // The border was left at a fixed #fca5a5 while the text moved — pin that
+    // they now travel together.
+    expect(alert.style.border).toContain(rgb(PAGE_TEXT.error.dark));
   });
 });

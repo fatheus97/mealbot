@@ -4,7 +4,8 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { usePlanList, useDeletePlan, useReschedulePlan } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { MUTED_PAGE_TEXT } from "../constants/theme";
+import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
+import { usePrefersDark } from "../hooks/usePrefersDark";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 import { useI18n } from "../i18n";
 
@@ -23,6 +24,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   const { t } = useI18n();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
+  const scheme = usePrefersDark() ? "dark" : "light";
   const { data: plans, isLoading } = usePlanList(userId);
   const deleteMutation = useDeletePlan();
   const rescheduleMutation = useReschedulePlan();
@@ -100,13 +102,17 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
         <div style={{ marginTop: "1rem" }}>
           {isLoading && <p style={MUTED_PAGE_TEXT}>{t("plans.loading")}</p>}
 
+          {/* Both alerts sit on the ADAPTIVE page background — the plan cards
+              below pin #f9f9f9, but these render above them. #b91c1c was
+              2.40:1 in dark mode. The #555 spans inside the cards further down
+              are correct as-is: those DO have a pinned light surface. */}
           {openError && (
-            <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: 0 }}>
+            <p role="alert" style={{ color: PAGE_TEXT.error[scheme], fontSize: "0.9rem", marginTop: 0 }}>
               {openError}
             </p>
           )}
           {rescheduleError && (
-            <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: 0 }}>
+            <p role="alert" style={{ color: PAGE_TEXT.error[scheme], fontSize: "0.9rem", marginTop: 0 }}>
               {rescheduleError}
             </p>
           )}
@@ -209,7 +215,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           flex: isMobile ? 1 : undefined,
                           padding: "0.3rem 0.8rem",
                           fontSize: "0.85rem",
-                          backgroundColor: "#4a90d9",
+                          backgroundColor: "#2563eb", // 5.17:1 with #fff (was #4a90d9, 3.34:1)
                           color: "#fff",
                           border: "none",
                           borderRadius: "4px",
@@ -226,7 +232,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           padding: "0.3rem 0.8rem",
                           fontSize: "0.85rem",
                           backgroundColor: "#fee2e2",
-                          color: "#dc2626",
+                          color: "#b91c1c", // 5.30:1 on #fee2e2 (was #dc2626, 3.95:1)
                           border: "none",
                           borderRadius: "4px",
                           cursor: "pointer",

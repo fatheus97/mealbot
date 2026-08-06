@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useReopenTarget } from "../contexts/CookTimerContext";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { usePrefersDark } from "../hooks/usePrefersDark";
+import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import {
   useFridge,
   useGenerateRecipe,
@@ -42,6 +44,9 @@ export function CookNowForm() {
   const mealTypeLabel = useMealTypeLabel();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
+  // The intro line and the generate-failure alert sit on the ADAPTIVE page
+  // background — this form pins no surface of its own until the recipe card.
+  const scheme = usePrefersDark() ? "dark" : "light";
   const { data: fridgeItems } = useFridge(userId);
   const generateMutation = useGenerateRecipe();
   const cookMutation = useCookRecipe();
@@ -184,7 +189,10 @@ export function CookNowForm() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      <p style={{ margin: 0, color: "#555" }}>
+      {/* #555 was 2.08:1 on the #242424 index.css paints in dark mode (7.46:1
+          light). `inherit` + opacity dims the adaptive default instead, so it
+          cannot invert with the scheme. */}
+      <p style={{ ...MUTED_PAGE_TEXT, margin: 0 }}>
         {t("cookNow.intro")}
       </p>
 
@@ -302,8 +310,19 @@ export function CookNowForm() {
         {generateMutation.isPending ? t("cookNow.generating") : t("cookNow.generate")}
       </button>
 
+      {/* On the adaptive background, unlike the cook-failure alert further down
+          which lives inside the recipe card's pinned #f9fafb (6.20:1).
+          #b91c1c was 2.40:1 here in dark mode. */}
       {generateMutation.isError && (
-        <div role="alert" style={{ color: "#b91c1c", border: "1px solid #fca5a5", padding: "0.5rem", borderRadius: "4px" }}>
+        <div
+          role="alert"
+          style={{
+            color: PAGE_TEXT.error[scheme],
+            border: `1px solid ${PAGE_TEXT.error[scheme]}`,
+            padding: "0.5rem",
+            borderRadius: "4px",
+          }}
+        >
           {generateMutation.error?.message ?? t("cookNow.generateFailed")}
         </div>
       )}

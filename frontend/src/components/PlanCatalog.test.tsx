@@ -7,6 +7,8 @@ import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
 import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { AuthProvider } from "../contexts/AuthContext";
 import { setMobileViewport } from "../test/test-utils";
+import { setColorScheme } from "../test/media";
+import { PAGE_TEXT } from "../constants/theme";
 import type { ReactNode } from "react";
 import type { MealPlanSummary } from "../types";
 
@@ -339,5 +341,43 @@ describe("PlanCatalog", () => {
     const banner = await screen.findByRole("alert");
     expect(banner.textContent).toBe("Couldn't open that plan. Please try again.");
     expect(onOpenPlan).not.toHaveBeenCalled();
+  });
+});
+
+describe("PlanCatalog alert colour follows the OS colour scheme", () => {
+  // These alerts render ABOVE the plan cards, so they sit on the adaptive page
+  // background rather than the cards' pinned #f9f9f9. #b91c1c was 2.40:1 there
+  // in dark mode. jsdom computes no ratios — those are pinned in
+  // test/contrast.test.ts — so this asserts the branch.
+  const rgb = (hex: string) => {
+    const i = parseInt(hex.slice(1), 16);
+    return `rgb(${(i >> 16) & 255}, ${(i >> 8) & 255}, ${i & 255})`;
+  };
+
+  async function renderOpenFailure(scheme: "light" | "dark") {
+    setColorScheme(scheme);
+    loginUser();
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([SAMPLE_PLAN]),
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText("Open")).toBeInTheDocument());
+    mockedFetchPlan.mockRejectedValueOnce(new Error("boom"));
+    await userEvent.setup().click(screen.getByText("Open"));
+    return await screen.findByRole("alert");
+  }
+
+  it("uses the light-surface red when the OS asks for light", async () => {
+    const alert = await renderOpenFailure("light");
+    expect(alert.style.color).toBe(rgb(PAGE_TEXT.error.light));
+  });
+
+  it("uses the dark-surface red when the OS asks for dark", async () => {
+    const alert = await renderOpenFailure("dark");
+    expect(alert.style.color).toBe(rgb(PAGE_TEXT.error.dark));
+    // The two must actually differ, or the test would pass on a hardcoded hex.
+    expect(PAGE_TEXT.error.dark).not.toBe(PAGE_TEXT.error.light);
   });
 });
