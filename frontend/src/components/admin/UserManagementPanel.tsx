@@ -546,6 +546,10 @@ export function UserManagementPanel() {
           title={confirm.title}
           message={confirm.message}
           confirmLabel={confirm.confirmLabel}
+          // Admin is permanently out of the i18n scope, so pin the shared
+          // dialog's now-translated Cancel back to English — otherwise this
+          // prompt reads "Zrušit" beside an English confirm label forever.
+          cancelLabel="Cancel"
           onConfirm={submitConfirm}
           onCancel={() => {
             setConfirm(null);
