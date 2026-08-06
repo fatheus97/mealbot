@@ -418,6 +418,7 @@ export const en = {
   "fridge.unknownError": "Unknown error",
   // A "batch" is a separate purchase of the same ingredient, with its own
   // expiry date.
+  "fridge.batchN": "Batch {n}",
   "fridge.batches_one": "({count} batch)",
   "fridge.batches_other": "({count} batches)",
   "fridge.removeGroupBody_one":

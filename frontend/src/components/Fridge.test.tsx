@@ -88,6 +88,14 @@ describe('Fridge', () => {
       const { container, unmount } = render(<Fridge />, { wrapper: createWrapper() });
       await waitFor(() => expect(screen.getByText('Kuřecí maso')).toBeInTheDocument());
       expect(untranslatedEnglishIn(container)).toEqual([]);
+
+      // Expand the two-batch group. `expandedGroups` starts empty, so the
+      // per-batch sub-rows never mount otherwise — and that is where "Batch 1"
+      // sat untranslated through a full review of this slice.
+      await userEvent.click(screen.getByText('Rýže'));
+      await waitFor(() => expect(screen.getByText(/Balení 1/)).toBeInTheDocument());
+      expect(untranslatedEnglishIn(container)).toEqual([]);
+
       unmount();
       localStorage.clear();
     }

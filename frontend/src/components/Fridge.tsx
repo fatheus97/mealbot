@@ -392,7 +392,7 @@ export function Fridge() {
           >
             <td style={{ paddingLeft: "2rem", color: "#94a3b8", fontSize: "0.9rem" }}>
               <span style={{ borderLeft: "2px solid #334155", paddingLeft: "0.5rem" }}>
-                Batch {batchIdx + 1}
+                {t("fridge.batchN", { n: batchIdx + 1 })}
               </span>
             </td>
             <td>{Math.round(item.quantity_grams)}</td>
@@ -488,7 +488,7 @@ export function Fridge() {
               style={{ ...cardStyle, marginTop: "0.5rem", marginBottom: 0, backgroundColor: "#0f172a" }}
             >
               <div style={cardHeaderRow}>
-                <span style={{ color: "#94a3b8" }}>Batch {batchIdx + 1}</span>
+                <span style={{ color: "#94a3b8" }}>{t("fridge.batchN", { n: batchIdx + 1 })}</span>
                 {item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
               </div>
               <div style={cardMeta}>
@@ -523,7 +523,7 @@ export function Fridge() {
         {fridge.length > 0 && (
           <span style={{ fontSize: "0.85rem", color: "#888" }}>
             {sortedGroups.length === fridge.length
-              ? tn("fridge.batches", sortedGroups.length)
+              ? `(${sortedGroups.length})`
               : t("fridge.groupSummary", { shown: sortedGroups.length, total: fridge.length })}
           </span>
         )}

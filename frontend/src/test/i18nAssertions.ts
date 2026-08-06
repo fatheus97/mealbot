@@ -14,16 +14,24 @@ const EXPECTED_IN_EVERY_LOCALE: readonly TranslationKey[] = ['prefs.languagePlac
 /**
  * Every English string still visible in `root` after switching to Czech.
  *
- * ⚠️ SCOPE: this sees only what is IN THE DOM when it runs. Anything behind a
- * `{cond && …}` — a confirm dialog, a success notice, an error branch — is
- * invisible to it, and a passing result says nothing about those. Verified by
- * negative control: replacing a string inside SettingsPopup's confirm-discard
- * block with English does NOT fail this check, while doing the same to a
- * string rendered by default does.
+ * ⚠️ SCOPE 1 — only what is IN THE DOM when it runs. Anything behind a
+ * `{cond && …}` — a confirm dialog, a success notice, an expandable row — is
+ * invisible, and a passing result says nothing about it. Verified by negative
+ * control: replacing a string inside SettingsPopup's confirm-discard block
+ * with English does NOT fail this check, while doing the same to a string
+ * rendered by default does. Drive the branch open first.
  *
- * That is the exact shape of the bug this file exists because of — a
- * getComputedStyle sweep of one modal state was reported as coverage of the
- * component. Assert conditional branches by driving them open first.
+ * ⚠️ SCOPE 2 — only strings that ALREADY HAVE A KEY. The comparison is against
+ * `en`, so a literal that was never added to the dictionary at all has nothing
+ * to match and is invisible no matter which branch is open. This catches a
+ * PARTIAL migration (key exists, one call site missed) and a REGRESSION (key
+ * exists, someone re-hardcodes it); it cannot catch a string nobody noticed.
+ * `"Batch {n}"` in Fridge.tsx was exactly that — it sat one row below
+ * `fridge.batches`, which WAS translated, and survived a full review. The
+ * extraction pass is still the weak step, and no assertion here replaces it.
+ *
+ * Both are the same shape as the bug this file exists because of: a sweep of
+ * one state reported as coverage of the whole component.
  *
  * ─── Why not "detect English" ───────────────────────────────────────────────
  * The obvious version — regex the rendered text for something that looks
