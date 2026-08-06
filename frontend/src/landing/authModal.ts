@@ -15,6 +15,7 @@ import {
   landingRegister,
   passwordComplaint,
 } from "./authApi";
+import { landingCopy } from "./copy";
 
 export type AuthMode = "login" | "register";
 
@@ -34,20 +35,26 @@ export interface AuthModalElements {
   acceptTermsInput: HTMLInputElement;
 }
 
-const COPY: Record<AuthMode, { title: string; submit: string; prompt: string; switchTo: string }> = {
-  login: {
-    title: "Log in",
-    submit: "Log in",
-    prompt: "Don't have an account?",
-    switchTo: "Create one",
-  },
-  register: {
-    title: "Create your account",
-    submit: "Create account",
-    prompt: "Already have an account?",
-    switchTo: "Log in",
-  },
-};
+// Built per call rather than at module load: `landingCopy()` reads
+// `document.documentElement.lang`, which does not exist yet when this module
+// is first evaluated in a test that has not set up a DOM.
+function modeCopy(): Record<AuthMode, { title: string; submit: string; prompt: string; switchTo: string }> {
+  const c = landingCopy();
+  return {
+    login: {
+      title: c.authLoginTitle,
+      submit: c.authLoginSubmit,
+      prompt: c.authLoginPrompt,
+      switchTo: c.authLoginSwitchTo,
+    },
+    register: {
+      title: c.authRegisterTitle,
+      submit: c.authRegisterSubmit,
+      prompt: c.authRegisterPrompt,
+      switchTo: c.authRegisterSwitchTo,
+    },
+  };
+}
 
 /** Where to send the visitor once authenticated. Preserves the query string so
  *  campaign params survive the hop (same reasoning as the CTA links). */
@@ -70,15 +77,16 @@ export function validate(
   password: string,
   acceptTerms = false,
 ): string | null {
-  if (!email.trim()) return "Enter your email address.";
-  if (!password) return "Enter your password.";
+  const copy = landingCopy();
+  if (!email.trim()) return copy.authNeedEmail;
+  if (!password) return copy.authNeedPassword;
   if (mode !== "register") return null;
   const weak = passwordComplaint(password);
   if (weak) return weak;
   // Checked last so a user fixing their password is not also told about the
   // checkbox on every keystroke.
   if (!acceptTerms) {
-    return "Please accept the Terms of Service and Privacy Policy to create an account.";
+    return copy.authNeedTerms;
   }
   return null;
 }
@@ -101,7 +109,7 @@ export function createAuthModal(
 
   function applyMode(next: AuthMode): void {
     mode = next;
-    const copy = COPY[next];
+    const copy = modeCopy()[next];
     els.title.textContent = copy.title;
     els.submit.textContent = copy.submit;
     els.switchPrompt.textContent = copy.prompt;
@@ -143,11 +151,12 @@ export function createAuthModal(
   function setBusy(next: boolean): void {
     busy = next;
     els.submit.disabled = next;
+    const copy = landingCopy();
     els.submit.textContent = next
       ? mode === "register"
-        ? "Creating…"
-        : "Logging in…"
-      : COPY[mode].submit;
+        ? copy.authBusyRegister
+        : copy.authBusyLogin
+      : modeCopy()[mode].submit;
   }
 
   async function submit(event: Event): Promise<void> {
@@ -179,7 +188,7 @@ export function createAuthModal(
       setBusy(false);
       const accountExists = err instanceof AccountCreatedNeedsLoginError;
       const message =
-        err instanceof Error ? err.message : "Something went wrong. Please try again.";
+        err instanceof Error ? err.message : landingCopy().authGenericError;
       if (accountExists) {
         // The account was created — flip the form to login so "please sign in
         // to continue" is actionable. Without this, resubmitting re-runs

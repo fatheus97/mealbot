@@ -63,6 +63,14 @@ function fieldRuleOf(css: string): RegExpMatchArray {
 const SHEETS = [
   { name: "src/index.css (React app)", css: () => read("src/index.css"), important: true },
   { name: "index.html (static landing page)", css: () => inlineStyles(read("index.html")), important: false },
+  // The Czech landing is a separate FILE with its own inline copy of the same
+  // sheet, so it needs its own row: dropping the floor from that copy alone
+  // would zoom every Czech phone visitor and fail nothing.
+  {
+    name: "cs/index.html (Czech static landing page)",
+    css: () => inlineStyles(read("cs/index.html")),
+    important: false,
+  },
 ];
 
 describe.each(SHEETS)("phone-breakpoint field guard — $name", ({ css: load, important }) => {

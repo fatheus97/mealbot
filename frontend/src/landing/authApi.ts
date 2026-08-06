@@ -14,6 +14,7 @@
 
 import { storeSessionHints, type SessionProfile } from "../auth/sessionHints";
 import { getStoredAttribution } from "../utils/attribution";
+import { landingCopy, landingLocale } from "./copy";
 
 const API_BASE = "/api";
 
@@ -31,14 +32,17 @@ export class LandingAuthError extends Error {}
  */
 export class AccountCreatedNeedsLoginError extends LandingAuthError {}
 
-const LOGIN_FAILED = "Login failed. Check your credentials.";
-const REGISTER_FAILED =
-  "Registration failed. Please try again or contact info@trymealbot.com.";
-const DEMO_FAILED = "Could not start the demo. Please try again.";
-/** The account exists but the follow-up sign-in didn't land — telling the user
- *  "registration failed" would send them back to a 409 on the duplicate email.
- *  Mirrors AuthBar's AutoLoginAfterRegisterError copy. */
-const REGISTERED_BUT_NOT_SIGNED_IN = "Account created — please sign in to continue.";
+// These four were module-level English consts. They are now looked up per
+// call from copy.ts, which both localizes them and brings them under the
+// orphan-key guard in copy.test.ts — a const living here was invisible to it.
+//
+// `REGISTERED_BUT_NOT_SIGNED_IN`: the account exists but the follow-up sign-in
+// did not land, so telling the user "registration failed" would send them back
+// to a 409 on the duplicate email. Mirrors AuthBar's AutoLoginAfterRegisterError.
+const LOGIN_FAILED = () => landingCopy().authLoginFailed;
+const REGISTER_FAILED = () => landingCopy().authRegisterFailed;
+const DEMO_FAILED = () => landingCopy().authDemoFailed;
+const REGISTERED_BUT_NOT_SIGNED_IN = () => landingCopy().authRegisteredNotSignedIn;
 
 // Mirrors backend/app/models/user_schemas.py (Field min/max +
 // validate_password_complexity). Duplicated deliberately — the server stays
@@ -50,15 +54,16 @@ export const MAX_PASSWORD_LENGTH = 128;
 
 /** Human-readable reason `password` fails the shared complexity rule, or null. */
 export function passwordComplaint(password: string): string | null {
+  const copy = landingCopy();
   if (password.length < MIN_PASSWORD_LENGTH) {
-    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+    return copy.passwordTooShort(MIN_PASSWORD_LENGTH);
   }
   if (password.length > MAX_PASSWORD_LENGTH) {
-    return `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`;
+    return copy.passwordTooLong(MAX_PASSWORD_LENGTH);
   }
-  if (!/[A-Z]/.test(password)) return "Password must contain an uppercase letter.";
-  if (!/[a-z]/.test(password)) return "Password must contain a lowercase letter.";
-  if (!/\d/.test(password)) return "Password must contain a digit.";
+  if (!/[A-Z]/.test(password)) return copy.passwordNeedsUpper;
+  if (!/[a-z]/.test(password)) return copy.passwordNeedsLower;
+  if (!/\d/.test(password)) return copy.passwordNeedsDigit;
   return null;
 }
 
@@ -70,8 +75,18 @@ export function passwordComplaint(password: string): string | null {
  * is helpful and discloses nothing. Every other failure keeps the neutral
  * copy: a 409 on a duplicate email must NOT confirm that the address is
  * already registered.
+ *
+ * ENGLISH PAGES ONLY. A Pydantic 422 carries a LIST detail, which is the one
+ * shape the backend deliberately does NOT localize (see app/core/errors.py —
+ * those are field errors, not sentences for a human), so the message here is
+ * permanently English. Echoing it onto /cs would put a raw English string in
+ * front of a Czech visitor; they get the localized generic instead, which is
+ * what every non-422 failure already shows them. `passwordComplaint()` covers
+ * all five password rules client-side, so what is actually lost is the
+ * wording of a malformed-email rejection.
  */
 export function validationMessage(body: unknown): string | null {
+  if (landingLocale() !== "en") return null;
   if (typeof body !== "object" || body === null) return null;
   const detail = (body as { detail?: unknown }).detail;
   if (!Array.isArray(detail) || detail.length === 0) return null;
@@ -125,10 +140,10 @@ export async function landingLogin(email: string, password: string): Promise<Ses
   try {
     resp = await postJson("/auth/login", { email, password });
   } catch {
-    throw new LandingAuthError(LOGIN_FAILED);
+    throw new LandingAuthError(LOGIN_FAILED());
   }
-  if (!resp.ok) throw new LandingAuthError(LOGIN_FAILED);
-  return completeSession(await readProfile(resp, LOGIN_FAILED));
+  if (!resp.ok) throw new LandingAuthError(LOGIN_FAILED());
+  return completeSession(await readProfile(resp, LOGIN_FAILED()));
 }
 
 /**
@@ -157,7 +172,7 @@ export async function landingRegister(
       ...getStoredAttribution(),
     });
   } catch {
-    throw new LandingAuthError(REGISTER_FAILED);
+    throw new LandingAuthError(REGISTER_FAILED());
   }
   if (!resp.ok) {
     // 422 = Pydantic rejected what they typed; echo the specific reason so
@@ -170,13 +185,13 @@ export async function landingRegister(
         .catch(() => null);
       if (specific) throw new LandingAuthError(specific);
     }
-    throw new LandingAuthError(REGISTER_FAILED);
+    throw new LandingAuthError(REGISTER_FAILED());
   }
 
   try {
     return await landingLogin(email, password);
   } catch {
-    throw new AccountCreatedNeedsLoginError(REGISTERED_BUT_NOT_SIGNED_IN);
+    throw new AccountCreatedNeedsLoginError(REGISTERED_BUT_NOT_SIGNED_IN());
   }
 }
 
@@ -185,8 +200,8 @@ export async function landingDemo(): Promise<SessionProfile> {
   try {
     resp = await postJson("/auth/demo");
   } catch {
-    throw new LandingAuthError(DEMO_FAILED);
+    throw new LandingAuthError(DEMO_FAILED());
   }
-  if (!resp.ok) throw new LandingAuthError(DEMO_FAILED);
-  return completeSession(await readProfile(resp, DEMO_FAILED));
+  if (!resp.ok) throw new LandingAuthError(DEMO_FAILED());
+  return completeSession(await readProfile(resp, DEMO_FAILED()));
 }
