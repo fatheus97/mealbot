@@ -26,7 +26,7 @@ one. ``$`` cannot collide with HTML or CSS, and ``Template.substitute`` (not
 
 from __future__ import annotations
 
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 Locale = Literal["en", "cs"]
 
@@ -57,6 +57,67 @@ def locale_for_language(language: str | None) -> Locale:
     if not language:
         return DEFAULT_LOCALE
     return _LANGUAGE_TO_LOCALE.get(language.strip().lower(), DEFAULT_LOCALE)
+
+
+#: Upper bounds on the Accept-Language header we are willing to parse. The header
+#: is attacker-controlled on every request, including unauthenticated ones, and
+#: the parse below is linear — but "linear in a 10 MB header" is still work we do
+#: not have to do. Both numbers are far above any real browser (Chrome sends
+#: ~4 tags, ~60 bytes).
+_ACCEPT_LANGUAGE_MAX_CHARS: Final = 512
+_ACCEPT_LANGUAGE_MAX_TAGS: Final = 20
+
+
+def locale_from_accept_language(header: str | None) -> Locale:
+    """Locale for a request with no known user, from ``Accept-Language``.
+
+    Only for the LOGGED-OUT paths — a failed login, registration, a password
+    reset. Once a request has a user, ``User.language`` wins and this is not
+    consulted: the language they picked in the app is a deliberate choice, while
+    the header is whatever their browser was installed with. A Czech-speaking
+    user browsing on a borrowed English laptop should still get Czech.
+
+    Quality values are honoured rather than taking the first tag, because
+    ``en;q=0.5, cs`` genuinely means Czech, and a "first wins" reading gets that
+    exactly backwards. Ties keep source order (``sorted`` is stable), which is
+    what q-value equality is supposed to mean.
+
+    Unparseable input never raises — a malformed header is a reason to fall back
+    to English, not to 500 a login attempt.
+    """
+    if not header:
+        return DEFAULT_LOCALE
+
+    ranked: list[tuple[float, int, str]] = []
+    for index, part in enumerate(header[:_ACCEPT_LANGUAGE_MAX_CHARS].split(",")):
+        if index >= _ACCEPT_LANGUAGE_MAX_TAGS:
+            break
+        tag, _, params = part.strip().partition(";")
+        tag = tag.strip().lower()
+        if not tag:
+            continue
+        quality = 1.0
+        for param in params.split(";"):
+            name, _, value = param.partition("=")
+            if name.strip().lower() == "q":
+                try:
+                    quality = float(value.strip())
+                except ValueError:
+                    # A junk q makes the tag unusable, not the whole header.
+                    quality = 0.0
+        # `;q=0` is the RFC 9110 way to say "explicitly not this one".
+        if quality > 0:
+            ranked.append((-quality, index, tag))
+
+    for _, _, tag in sorted(ranked):
+        # A bare `*` means "anything", so stop looking and take the default
+        # rather than letting a lower-ranked tag win a slot it did not earn.
+        if tag == "*":
+            break
+        primary = tag.split("-", 1)[0]
+        if primary in UI_LOCALES:
+            return cast(Locale, primary)
+    return DEFAULT_LOCALE
 
 
 PluralCategory = Literal["one", "few", "many", "other"]
