@@ -238,19 +238,76 @@ export interface UncoloredControl {
  * and the guard would be switched off within a week. The fix at every site is
  * `color: "inherit"` (or an explicit colour when the surface is pinned).
  */
+/**
+ * Blank out comments, keeping every other character at its original offset so
+ * line numbers stay honest.
+ *
+ * String-aware ON PURPOSE, rather than a regex. A regex cannot know whether a
+ * `//` is a comment or part of a value, and getting that wrong here fails in
+ * the worst direction: blanking from a `//` inside `url(https://…)` also eats
+ * the closing `}} />`, so the tag scan never terminates and the offending
+ * control drops out of the results ENTIRELY. A guard that exists to catch
+ * silent regressions must not have a silent hole of its own.
+ *
+ * A lookbehind for `://` was the first fix and was not enough — a
+ * protocol-relative `url(//cdn.example.com/x.png)` has no colon and would slip
+ * straight back through. Tracking quote state costs a dozen lines and closes
+ * the class instead of the instance.
+ *
+ * String CONTENTS are preserved, not blanked: the caller reads the quoted
+ * `background` / `color` values out of this same text.
+ */
+function stripComments(source: string): string {
+  const src = source.replace(/\r\n/g, '\n');
+  const blank = (s: string) => s.replace(/[^\n]/g, ' ');
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < src.length) {
+    const c = src[i];
+    if (quote) {
+      // Keep escapes intact — blanking `\"` would end the string early.
+      if (c === '\\' && i + 1 < src.length) {
+        out += c + src[i + 1];
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const stop = end === -1 ? src.length : end + 2;
+      out += blank(src.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const nl = src.indexOf('\n', i);
+      const stop = nl === -1 ? src.length : nl;
+      out += blank(src.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 export function findUncoloredControls(source: string, file: string): UncoloredControl[] {
   const out: UncoloredControl[] = [];
-  // Blank comments (keeping offsets) — prose about `<button>` is not markup.
-  //
-  // The `(?<!:)` matters: without it a `//` inside a string literal starts a
-  // "comment" and blanks the rest of the line, so `background: "url(https://…)"`
-  // would swallow a `color:` declared after it and the control would pass
-  // silently. Erring the other way — a genuine `x: // note` comment surviving —
-  // costs at most a LOUD false positive, which is the safe direction for a
-  // guard whose whole job is catching silent regressions.
-  const src = source
-    .replace(/\r\n/g, '\n')
-    .replace(/\/\*[\s\S]*?\*\/|(?<!:)\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
+  // Prose about `<button>` is not markup — see stripComments for why this is
+  // not a regex.
+  const src = stripComments(source);
 
   /** Balanced-brace slice starting at the `{` at `open`. */
   const block = (open: number) => {

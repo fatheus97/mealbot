@@ -258,6 +258,24 @@ describe('form controls that override their background', () => {
     expect(findUncoloredControls(prose, 'x.tsx')).toEqual([]);
   });
 
+  it('does not mistake a protocol-relative URL for the start of a comment', () => {
+    // `//cdn…` has no colon, so the lookbehind that fixed `https://` would let
+    // this straight back through. Same silent-miss shape, narrower trigger —
+    // which is why the stripper tracks quote state instead of pattern-matching
+    // the protocols it has been bitten by so far.
+    const withColor = `<button style={{ background: "url(//cdn.test/a.png)", color: "#111" }} />`;
+    expect(findUncoloredControls(withColor, 'x.tsx')).toEqual([]);
+    const withoutColor = `<button style={{ background: "url(//cdn.test/a.png)" }} />`;
+    expect(findUncoloredControls(withoutColor, 'x.tsx')).toHaveLength(1);
+  });
+
+  it('still strips a real comment that follows a string on the same line', () => {
+    // The other direction: quote tracking must not make the stripper give up on
+    // genuine trailing comments.
+    const src = `const x = "a"; // <button style={{ background: "none" }} />\n`;
+    expect(findUncoloredControls(src, 'x.tsx')).toEqual([]);
+  });
+
   it('does not mistake a URL inside a string for the start of a comment', () => {
     // A naive `//` stripper blanks the rest of the line from `https://`. That
     // takes the closing `}} />` with it, so the tag scan never terminates and
