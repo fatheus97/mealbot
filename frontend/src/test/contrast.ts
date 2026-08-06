@@ -160,57 +160,170 @@ export interface InlinePair {
 }
 
 /**
- * Every inline style declaring a background AND a text colour on the SAME LINE.
+ * The rendered px of a block's `fontSize`, following React's own rule.
+ *
+ * React appends `px` to a NUMERIC value, so `fontSize: 14` is 14px — but the
+ * old parser had no unit branch for that and fell through to "must be rem",
+ * scoring it 224px. Anything over 24px gets WCAG's large-text 3:1 floor
+ * instead of 4.5:1, so every numerically-sized element in the codebase was
+ * being graded on the lenient threshold. That is precisely how
+ * admin/FeedbackPanel's Accept button held 3.30:1 even after the scan was
+ * widened to see it: 14 became 224, 224 earned the 3:1 floor, and 3.30 cleared
+ * it. A guard that silently upgrades text to "large" is worse than no guard,
+ * because it reports green.
+ */
+export function fontSizePx(body: string): number {
+  const m = /fontSize:\s*(?:"([^"]+)"|([0-9.]+))/.exec(body);
+  if (!m) return 16; // the app's base size, when the element sets none
+  if (m[2] !== undefined) return parseFloat(m[2]); // numeric -> React writes px
+  const value = m[1].trim();
+  const rem = /^([0-9.]+)\s*rem$/.exec(value);
+  if (rem) return parseFloat(rem[1]) * 16;
+  const px = /^([0-9.]+)\s*px$/.exec(value);
+  if (px) return parseFloat(px[1]);
+  const bare = /^[0-9.]+$/.exec(value);
+  if (bare) return parseFloat(value); // "14" is still px, not rem
+  // em / % / calc() / a variable: unknown. Assume the STRICTER floor rather
+  // than guessing large, so an unparseable size can never buy the 3:1 bar.
+  return 16;
+}
+
+/**
+ * If a string literal starts at `i`, the index just past its closing quote;
+ * otherwise `i` itself.
+ *
+ * Brace counting has to skip string contents for the same reason
+ * {@link stripComments} tracks quote state: a brace inside a value —
+ * `content: "{"`, a `url(data:…)` — is a character, not structure, and counting
+ * it desyncs every block boundary after it. That desync would be SILENT, which
+ * is the one failure mode this whole file exists to prevent. Not live in the
+ * codebase today; closed by construction because the analogous `//`-inside-a-
+ * string hole in stripComments was not, and had to be fixed twice.
+ */
+function skipString(src: string, i: number): number {
+  const quote = src[i];
+  if (quote !== '"' && quote !== "'" && quote !== '`') return i;
+  for (let j = i + 1; j < src.length; j++) {
+    if (src[j] === '\\') {
+      j++;
+      continue;
+    }
+    if (src[j] === quote) return j + 1;
+  }
+  return src.length; // unterminated — treat the rest as string, not structure
+}
+
+/** Index of the `}` matching the `{` at `open`, or -1. Quote-aware. */
+function matchingBrace(src: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const skipped = skipString(src, i);
+    if (skipped !== i) {
+      i = skipped - 1;
+      continue;
+    }
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Every brace-balanced object literal in the file, as its OWN-LEVEL text —
+ * nested objects blanked out, offsets preserved so line numbers stay honest.
+ *
+ * Own-level matters: a palette record like
+ *   const STATUS_COLORS = { planned: { bg: "#e2e8f0", text: "#475569" }, … }
+ * must yield each inner `{ bg, text }` as its own block. Reading the record as
+ * one flat lump would pair `planned.bg` with `finished.text` and assert a
+ * combination that never renders.
+ */
+function styleBlocks(src: string): { at: number; own: string }[] {
+  const blocks: { at: number; own: string }[] = [];
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] !== '{') continue;
+    const end = matchingBrace(src, i);
+    if (end === -1) continue;
+    let own = '';
+    let depth = 0;
+    for (let j = i + 1; j < end; j++) {
+      // A quoted value is copied through whole — the caller reads those hexes —
+      // but its braces must not move `depth`.
+      const strEnd = skipString(src, j);
+      if (strEnd !== j) {
+        const literal = src.slice(j, Math.min(strEnd, end));
+        own += depth === 0 ? literal : literal.replace(/[^\n]/g, ' ');
+        j = Math.min(strEnd, end) - 1;
+        continue;
+      }
+      const ch = src[j];
+      if (ch === '{') depth++;
+      // Blank nested content but keep length and newlines, so an offset inside
+      // `own` still maps back onto the original source.
+      own += depth === 0 ? ch : ch === '\n' ? '\n' : ' ';
+      if (ch === '}') depth--;
+    }
+    blocks.push({ at: i + 1, own });
+  }
+  return blocks;
+}
+
+/**
+ * Every style object declaring a background AND a text colour TOGETHER.
  *
  * ⚠️ BLIND SPOT, and it is the important half: a foreground declared without a
  * background beside it is invisible here, because this cannot know which
  * ancestor surface it will land on. The pantry-staples "Saved" notice was
- * exactly that shape and needed the constants test instead. The two checks are
- * complementary and neither is sufficient:
+ * exactly that shape and needed the constants test instead. The checks are
+ * complementary and none is sufficient:
  *
  *   • this one  — catches a self-contained button/badge nobody has re-rendered
  *   • constants — catches a colour that only appears in one interaction state
  *   • the browser pass — the only one that knows what actually composites
  *
- * Line-based rather than AST-based on purpose: the codebase writes these as
- * single-line `style={{ … }}` objects, and a parser would be a lot of machinery
- * to check a convention that a regex reads directly.
+ * BLOCK-based, not line-based. It used to compare a background and a colour
+ * only when they sat on the same physical line, which made every multi-line
+ * `style={{ … }}` structurally invisible — and that is how admin/FeedbackPanel's
+ * Accept button shipped `#ffffff` on `#16a34a` at 3.30:1, the very colour this
+ * file keeps as a NEGATIVE CONTROL, on the control that moves real money.
  *
  * Reads the CSS names AND the shorthands palette records use — `bg` for the
  * background, `text` or `fg` for the foreground. Matching only the CSS names is
  * how PlanCalendar's `cooked` chip kept a 3.00:1 `#16a34a` through the two
- * separate sweeps that fixed that very colour in PantryStaples and PlanCatalog;
- * `fg` is the same trap one spelling further out (admin/InvitePanel and
- * admin/FeedbackPanel both use it). Each alternative is boundary-guarded so a
- * longer identifier — `helperText:`, `cardbg:` — cannot match by accident.
+ * separate sweeps that fixed that very colour in PantryStaples and PlanCatalog.
+ * Each alternative is boundary-guarded so a longer identifier — `helperText:`,
+ * `cardbg:` — cannot match by accident.
  */
 export function findInlineColorPairs(source: string, file: string): InlinePair[] {
   const pairs: InlinePair[] = [];
-  source.replace(/\r\n/g, '\n').split('\n').forEach((line, i) => {
-    const bgMatch = /(?:^|[^a-zA-Z])(?:background(?:Color)?|bg):\s*"([^"]+)"/i.exec(line);
-    if (!bgMatch) return;
+  // Comments are stripped for the same reason findUncoloredControls strips
+  // them: a hex quoted in prose ("#16a34a was 3.00:1 here") is documentation,
+  // not a declaration, and this file is full of exactly that.
+  const src = stripComments(source);
+  const lineOf = (i: number) => src.slice(0, i).split('\n').length;
+
+  for (const { at, own } of styleBlocks(src)) {
+    const bgMatch = /(?:^|[^a-zA-Z])(?:background(?:Color)?|bg):\s*"([^"]+)"/i.exec(own);
+    if (!bgMatch) continue;
     const bg = toHex(bgMatch[1]);
-    if (!bg) return;
-    const rest = line.replace(bgMatch[0], '');
+    if (!bg) continue;
+    const rest = own.replace(bgMatch[0], '');
     const fgMatch = /(?:^|[^a-zA-Z])(?:color|text|fg):\s*"([^"]+)"/i.exec(rest);
-    if (!fgMatch) return;
+    if (!fgMatch) continue;
     const fg = toHex(fgMatch[1]);
-    if (!fg) return;
-    const sizeMatch = /fontSize:\s*"?([0-9.]+)(rem|px)?"?/.exec(line);
-    const px = sizeMatch
-      ? sizeMatch[2] === 'px'
-        ? parseFloat(sizeMatch[1])
-        : parseFloat(sizeMatch[1]) * 16
-      : 16; // the app's base size, when the element does not set one
+    if (!fg) continue;
+    const px = fontSizePx(own);
     pairs.push({
       file,
-      line: i + 1,
+      // The BACKGROUND's line, not the block's opening brace — that is the line
+      // someone has to go and edit.
+      line: lineOf(at + bgMatch.index),
       fg,
       bg,
       px,
-      bold: /fontWeight:\s*"?(?:600|700|800|900|bold)/.test(line),
+      bold: /fontWeight:\s*"?(?:600|700|800|900|bold)/.test(own),
     });
-  });
+  }
   return pairs;
 }
 
@@ -319,12 +432,8 @@ export function findUncoloredControls(source: string, file: string): UncoloredCo
 
   /** Balanced-brace slice starting at the `{` at `open`. */
   const block = (open: number) => {
-    let depth = 0;
-    for (let i = open; i < src.length; i++) {
-      if (src[i] === '{') depth++;
-      else if (src[i] === '}' && --depth === 0) return src.slice(open + 1, i);
-    }
-    return '';
+    const end = matchingBrace(src, open);
+    return end === -1 ? '' : src.slice(open + 1, end);
   };
   const bgOf = (body: string) =>
     /(?:^|[^a-zA-Z])background(?:Color)?:\s*["'`]?([^,\n}"'`]+)/.exec(body)?.[1]?.trim() ?? null;

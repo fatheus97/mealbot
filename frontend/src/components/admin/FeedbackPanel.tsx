@@ -515,7 +515,7 @@ const acceptBtn: CSSProperties = {
   padding: "0.5rem 0.9rem",
   border: "none",
   borderRadius: 6,
-  background: "#16a34a",
+  background: "#15803d", // 5.02:1 with #ffffff (was #16a34a, 3.30:1)
   color: "#ffffff",
   cursor: "pointer",
   fontSize: 14,
