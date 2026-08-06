@@ -37,6 +37,7 @@ from app.core.cookies import (
     set_auth_cookies,
 )
 from app.core.email_normalize import normalize_email
+from app.core.errors import LocalizedHTTPException
 from app.core.i18n import locale_for_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import (
@@ -165,9 +166,9 @@ async def login(
     password_ok = await asyncio.to_thread(verify_password, body.password, hashed)
     if user is None or not password_ok:
         logger.warning("login_failed email_fp=%s", _email_fingerprint(body.email))
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+        raise LocalizedHTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "auth_bad_credentials",
         )
 
     # Disable gate. Checked only AFTER a correct password, so this branch is
@@ -177,10 +178,7 @@ async def login(
     # of routing it through the silent refresh-then-logout path.
     if not user.is_active:
         logger.warning("login_disabled user_id=%s", user.id)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been disabled.",
-        )
+        raise LocalizedHTTPException(status.HTTP_403_FORBIDDEN, "auth_account_disabled")
 
     await _issue_session_and_set_cookies(
         response=response,
@@ -209,7 +207,7 @@ async def refresh(
     refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
     if not refresh_token:
         clear_auth_cookies(response)
-        raise HTTPException(status_code=401, detail="Missing refresh token")
+        raise LocalizedHTTPException(401, "auth_refresh_missing")
 
     token_hash = hash_refresh_token(refresh_token)
     auth_session = (await session.execute(
@@ -220,7 +218,7 @@ async def refresh(
         # Unknown refresh — could be a stale cookie from before a logout-all,
         # could be a forgery. Either way, no chain to revoke.
         clear_auth_cookies(response)
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
+        raise LocalizedHTTPException(401, "auth_refresh_invalid")
 
     now = datetime.now(UTC)
     expires_at = _ensure_aware(auth_session.expires_at)
@@ -244,9 +242,7 @@ async def refresh(
         #    window (mint a parallel session), or theft outside it.
         if auth_session.replaced_by_id is None:
             clear_auth_cookies(response)
-            raise HTTPException(
-                status_code=401, detail="Session ended; please log in again"
-            )
+            raise LocalizedHTTPException(401, "auth_session_ended")
 
         # Two tabs with synchronised expired access tokens both call
         # /auth/refresh; one rotates first, the other arrives milliseconds later
@@ -257,12 +253,10 @@ async def refresh(
             user_for_grace = await session.get(User, auth_session.user_id)
             if user_for_grace is None:
                 clear_auth_cookies(response)
-                raise HTTPException(status_code=401, detail="User no longer exists")
+                raise LocalizedHTTPException(401, "auth_user_gone")
             if not user_for_grace.is_active:
                 clear_auth_cookies(response)
-                raise HTTPException(
-                    status_code=401, detail="Session ended; please log in again"
-                )
+                raise LocalizedHTTPException(401, "auth_session_ended")
             grace_ttl = _refresh_ttl_for_user(user_for_grace, expires_at, now)
             grace_session = await _issue_session_and_set_cookies(
                 response=response,
@@ -294,16 +288,16 @@ async def refresh(
         # NOTE: HTTPException does not carry the cookies we set on `response`,
         # so we can't clear cookies via the dep-injected Response here. Client
         # will see the 401 and clear its own state via the mealbot:logout flow.
-        raise HTTPException(status_code=401, detail="Refresh token reuse detected")
+        raise LocalizedHTTPException(401, "auth_refresh_reuse")
 
     if expires_at <= now:
         clear_auth_cookies(response)
-        raise HTTPException(status_code=401, detail="Refresh token expired")
+        raise LocalizedHTTPException(401, "auth_refresh_expired")
 
     user = await session.get(User, auth_session.user_id)
     if user is None:
         clear_auth_cookies(response)
-        raise HTTPException(status_code=401, detail="User no longer exists")
+        raise LocalizedHTTPException(401, "auth_user_gone")
 
     # Disable gate: a disabled account must not be able to rotate its way into a
     # fresh session. Deactivation already revokes sessions, so this is normally
@@ -311,9 +305,7 @@ async def refresh(
     # point means a session that somehow survives still can't be extended.
     if not user.is_active:
         clear_auth_cookies(response)
-        raise HTTPException(
-            status_code=401, detail="Session ended; please log in again"
-        )
+        raise LocalizedHTTPException(401, "auth_session_ended")
 
     refresh_ttl_seconds = _refresh_ttl_for_user(user, expires_at, now)
 
@@ -423,9 +415,9 @@ async def change_password(
     )
     if not current_ok:
         logger.warning("password_change_bad_current user_id=%s", current_user.id)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect",
+        raise LocalizedHTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "auth_current_password_wrong",
         )
 
     # Reject a no-op change (new == current, checked against the still-current
@@ -434,9 +426,9 @@ async def change_password(
     if await asyncio.to_thread(
         verify_password, body.new_password, current_user.hashed_password
     ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must be different from the current password",
+        raise LocalizedHTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "auth_new_password_same",
         )
 
     now = datetime.now(UTC)
@@ -538,9 +530,9 @@ async def change_email(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     if current_user.is_demo:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Demo accounts cannot change their email address.",
+        raise LocalizedHTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "auth_demo_cannot_change_email",
         )
 
     current_ok = await asyncio.to_thread(
@@ -548,9 +540,9 @@ async def change_email(
     )
     if not current_ok:
         logger.warning("email_change_bad_current user_id=%s", current_user.id)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect",
+        raise LocalizedHTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "auth_current_password_wrong",
         )
 
     new_email = str(body.new_email)
@@ -559,9 +551,9 @@ async def change_email(
         # Compared NORMALIZED, so "Me@Gmail.com" against "me@gmail.com" is
         # correctly a no-op rather than a change that revokes every session and
         # un-verifies the account for nothing.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="That is already the email address on your account.",
+        raise LocalizedHTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "auth_email_unchanged",
         )
 
     old_email = current_user.email
@@ -602,10 +594,7 @@ async def change_email(
         # nothing) would leave the user staring at an address that never
         # changed. Bounded by the 5/minute per-user limit, and the caller has
         # already proven both a session and the account password.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
-        ) from None
+        raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "auth_email_taken") from None
 
     await _revoke_all_user_sessions(session, current_user.id, now)
     await _issue_session_and_set_cookies(
@@ -704,17 +693,17 @@ async def reset_password(
     if token_row is None:
         # One message for expired / already-used / never-existed alike: the
         # distinction is only useful to someone probing tokens.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This reset link is invalid or has expired. Please request a new one.",
+        raise LocalizedHTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "auth_reset_link_invalid",
         )
 
     user = await session.get(User, token_row.user_id)
     if user is None or user.id is None:
         # Orphaned token (user deleted since minting) — same opaque message.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This reset link is invalid or has expired. Please request a new one.",
+        raise LocalizedHTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "auth_reset_link_invalid",
         )
 
     user.hashed_password = await asyncio.to_thread(
@@ -743,10 +732,7 @@ async def demo(
     session: AsyncSession = Depends(get_session),
 ) -> UserRead:
     if not settings.demo_mode:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Demo mode is not enabled",
-        )
+        raise LocalizedHTTPException(status.HTTP_404_NOT_FOUND, "auth_demo_disabled")
     # Sweep expired demo users before minting a new one. Lazy GC keeps the
     # demo deployment self-cleaning without a background scheduler.
     await cleanup_expired_demo_users(session, settings.demo_session_expire_minutes)
@@ -828,9 +814,9 @@ async def verify_email(
     """
     user = await email_verification.redeem(session, body.token, datetime.now(UTC))
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This confirmation link is invalid or has expired.",
+        raise LocalizedHTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "auth_confirm_link_invalid",
         )
     await session.commit()
     logger.info("email_verified user_id=%s", user.id)

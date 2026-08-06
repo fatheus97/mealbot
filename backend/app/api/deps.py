@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.cookies import ACCESS_COOKIE_NAME
+from app.core.errors import LocalizedHTTPException
+from app.core.i18n import locale_for_language
 from app.core.security import ALGORITHM
 from app.db import get_session
 from app.llm.usage import LlmCallUsage, capture_llm_usage
@@ -24,17 +26,20 @@ def get_access_token_from_cookie(request: Request) -> str:
     """
     token = request.cookies.get(ACCESS_COOKIE_NAME)
     if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
+        raise LocalizedHTTPException(
+            status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated",
         )
     return token
 
 
 async def get_current_user(
+        request: Request,
         session: AsyncSession = Depends(get_session),
         token: str = Depends(get_access_token_from_cookie),
 ) -> User:
+    # Not localized: every branch below is a credential failure, and the
+    # frontend logs the user out on any 401 without showing this sentence. It
+    # stays a fixed English string so it keeps grepping the same in logs.
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -74,6 +79,12 @@ async def get_current_user(
     if not user.is_active:
         raise credentials_exception
 
+    # Stamp the locale for the error handler. Every localized error raised from
+    # here on — in a downstream dependency or in the handler body — is written
+    # in the language this user picked, without any of them taking a parameter
+    # for it. See app/core/errors.py.
+    request.state.locale = locale_for_language(user.language)
+
     return user
 
 
@@ -87,10 +98,7 @@ async def require_admin(
     this is a pure attribute check. Logs granted access as a lightweight audit
     trail until a real audit log lands (admin epic, Phase 5)."""
     if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
+        raise LocalizedHTTPException(status.HTTP_403_FORBIDDEN, "auth_admin_required")
     logger.info("admin_access user_id=%s", current_user.id)
     return current_user
 
@@ -130,10 +138,7 @@ async def require_verified_email(
     if current_user.is_demo:
         return current_user
     if current_user.email_verified_at is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Please confirm your email address to use this feature.",
-        )
+        raise LocalizedHTTPException(status.HTTP_403_FORBIDDEN, "gate_confirm_email")
     return current_user
 
 
@@ -152,9 +157,8 @@ async def require_active_subscription(
     from app.services import stripe_service
 
     if not stripe_service.is_entitled(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="An active subscription is required for this feature.",
+        raise LocalizedHTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED, "gate_subscription_required",
         )
     return current_user
 

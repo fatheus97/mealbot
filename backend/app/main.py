@@ -25,6 +25,7 @@ from app.api.user import router as user_router
 from app.core.config import settings
 from app.core.country_whitelist import SUPPORTED_COUNTRIES
 from app.core.csrf import csrf_middleware
+from app.core.errors import register_error_handlers
 from app.core.executors import shutdown_parse_executor, start_parse_executor
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
 from app.core.rate_limit import limiter
@@ -170,6 +171,11 @@ async def list_languages() -> LanguagesResponse:
     and rationale as /api/countries."""
     return LanguagesResponse(languages=_SORTED_LANGUAGES)
 
+
+# Must run before the routers are exercised, not before they are registered —
+# but registering it here keeps the two lines that define "how errors leave this
+# app" next to each other.
+register_error_handlers(app)
 
 #routers
 app.include_router(plan_router, prefix="/api")
