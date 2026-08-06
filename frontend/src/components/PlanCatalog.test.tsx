@@ -86,6 +86,11 @@ describe("PlanCatalog", () => {
     const populated = render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
     await waitFor(() => expect(screen.getByText(/naplánováno/)).toBeInTheDocument());
     expect(untranslatedEnglishIn(populated.container)).toEqual([]);
+
+    // …and the delete dialog, whose BODY only exists once it is open.
+    await userEvent.click(screen.getByRole("button", { name: "Smazat" }));
+    await waitFor(() => expect(screen.getByText(/trvale smažete/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
   });
 
   it("returns null when logged out", () => {

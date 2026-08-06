@@ -246,7 +246,11 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       {planPendingDelete && (
         <ConfirmDialog
           title={t("plans.deleteTitle")}
-          message={`This will permanently delete the ${planPendingDelete.days}-day / ${planPendingDelete.meals_per_day}-meal plan from ${formatDate(planPendingDelete.created_at)}. This cannot be undone.`}
+          message={t("plans.deleteBody", {
+            days: planPendingDelete.days,
+            meals: planPendingDelete.meals_per_day,
+            date: formatDate(planPendingDelete.created_at),
+          })}
           confirmLabel={t("plans.delete")}
           loadingLabel={t("plans.deleting")}
           loading={deleteMutation.isPending}

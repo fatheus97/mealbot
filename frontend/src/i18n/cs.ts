@@ -484,6 +484,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "plans.delete": "Smazat",
   "plans.deleting": "Mažu…",
   "plans.deleteTitle": "Smazat tento jídelníček?",
+  "plans.deleteBody":
+    "Tímto trvale smažete jídelníček na {days} dní po {meals} jídlech z {date}. Akci nelze vrátit zpět.",
   "plans.openFailed": "Jídelníček se nepodařilo otevřít. Zkuste to prosím znovu.",
   "plans.deleteFailed": "Jídelníček se nepodařilo smazat.",
   "plans.dateFailed": "Datum jídelníčku se nepodařilo změnit. Zkuste to prosím znovu.",
@@ -519,6 +521,11 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "cookbook.ingredients": "Suroviny",
   "cookbook.steps": "Postup",
   "cookbook.removeTitle": "Odebrat z kuchařky?",
+  "confirm.cancel": "Zrušit",
+  "confirm.delete": "Smazat",
+  "confirm.deleting": "Mažu…",
+  "cookbook.removeBody":
+    "Odebrat „{name}“ z kuchařky? Později ho můžete přidat zpět z jídelníčku.",
   "cookbook.remove": "Odebrat",
   "cookbook.removing": "Odebírám…",
   "cookbook.removeFromCookbook": "Odebrat z kuchařky",

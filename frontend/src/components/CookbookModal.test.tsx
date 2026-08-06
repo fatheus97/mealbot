@@ -94,9 +94,18 @@ describe("CookbookModal", () => {
       await waitFor(() => screen.getByText("Chicken Curry"));
       expect(untranslatedEnglishIn(container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
 
+      // The remove dialog, whose BODY and shared Cancel only exist once open.
+      // Driven from the INDEX: the spread's own remove control sits behind the
+      // ink fade-in and is pointer-events:none until revealed.
+      await user.click(screen.getAllByRole("button", { name: /^Odebrat/ })[0]);
+      await waitFor(() => expect(screen.getByText(/Později ho můžete přidat zpět/)).toBeInTheDocument());
+      expect(untranslatedEnglishIn(document.body, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
+      await user.click(screen.getByRole("button", { name: "Zrušit" }));
+
       await user.click(screen.getByText("Chicken Curry"));
       await waitFor(() => expect(screen.getByText("Suroviny")).toBeInTheDocument());
       expect(untranslatedEnglishIn(container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
+
 
       unmount();
     }

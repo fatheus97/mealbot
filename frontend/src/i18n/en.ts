@@ -506,6 +506,8 @@ export const en = {
   "plans.delete": "Delete",
   "plans.deleting": "Deleting…",
   "plans.deleteTitle": "Delete this plan?",
+  "plans.deleteBody":
+    "This will permanently delete the {days}-day / {meals}-meal plan from {date}. This cannot be undone.",
   "plans.openFailed": "Couldn't open that plan. Please try again.",
   "plans.deleteFailed": "Failed to delete plan.",
   "plans.dateFailed": "Couldn't update that plan's date. Please try again.",
@@ -541,6 +543,14 @@ export const en = {
   "cookbook.ingredients": "Ingredients",
   "cookbook.steps": "Steps",
   "cookbook.removeTitle": "Remove from cookbook?",
+  // Shared ConfirmDialog defaults. Every caller passes confirmLabel and
+  // loadingLabel; NOBODY passes cancelLabel, so its default is what always
+  // renders — which is how "Cancel" stayed English behind eight call sites.
+  "confirm.cancel": "Cancel",
+  "confirm.delete": "Delete",
+  "confirm.deleting": "Deleting…",
+  "cookbook.removeBody":
+    "Remove \"{name}\" from your cookbook? You can re-add it later from a meal plan.",
   "cookbook.remove": "Remove",
   "cookbook.removing": "Removing…",
   "cookbook.removeFromCookbook": "Remove from Cookbook",

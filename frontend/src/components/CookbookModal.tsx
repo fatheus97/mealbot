@@ -215,7 +215,7 @@ export function CookbookModal({ onClose }: Props) {
       {pendingRemoval && (
         <ConfirmDialog
           title={t("cookbook.removeTitle")}
-          message={`Remove "${pendingRemoval.name}" from your cookbook? You can re-add it later from a meal plan.`}
+          message={t("cookbook.removeBody", { name: pendingRemoval.name })}
           confirmLabel={t("cookbook.remove")}
           loadingLabel={t("cookbook.removing")}
           loading={removeMutation.isPending}

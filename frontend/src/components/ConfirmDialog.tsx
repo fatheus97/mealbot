@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { useI18n } from "../i18n";
 
 interface ConfirmDialogProps {
   title: string;
@@ -16,15 +17,22 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({
   title,
   message,
-  confirmLabel = "Delete",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
   loading = false,
-  loadingLabel = "Deleting…",
+  loadingLabel,
   error = null,
   destructive = true,
 }: ConfirmDialogProps) {
+  const { t } = useI18n();
+  // Resolved at RENDER, not as parameter defaults: a default expression cannot
+  // call a hook, and an English literal there is what every caller silently
+  // inherited.
+  const confirmText = confirmLabel ?? t("confirm.delete");
+  const cancelText = cancelLabel ?? t("confirm.cancel");
+  const loadingText = loadingLabel ?? t("confirm.deleting");
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
@@ -134,7 +142,7 @@ export function ConfirmDialog({
               opacity: loading ? 0.6 : 1,
             }}
           >
-            {cancelLabel}
+            {cancelText}
           </button>
           <button
             ref={confirmRef}
@@ -152,7 +160,7 @@ export function ConfirmDialog({
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? loadingLabel : confirmLabel}
+            {loading ? loadingText : confirmText}
           </button>
         </div>
       </div>
