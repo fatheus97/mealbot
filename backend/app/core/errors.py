@@ -30,33 +30,85 @@ today's rather than to a 500 or an empty body.
    registration, password reset), which is most of what this module exists for.
 3. English.
 
-─── Not here yet, on purpose ───────────────────────────────────────────────────
-No ``**params``, no ``headers``, no machine-readable ``extra`` dict. Every key
-in this slice is a static sentence, and the alternative is shipping three
-untested parameters against a guess about what the next slice needs. The usage-
-cap 429 in ``deps.py`` is the one raise that needs all three (it interpolates
-money, sets ``Retry-After``, and returns the object-``detail`` shape
-``extractErrorDetail`` understands) — it keeps its plain ``HTTPException`` and
-its English until someone migrates it and can test what they added.
+─── Plurals are WHOLE SENTENCES, not a noun with an ending ─────────────────────
+``PluralErrorKey`` names a base; the copy holds ``{base}_{category}``, and each
+variant is a complete sentence. Czech is why: the count governs case across the
+clause, so "N cookbook recipe(s)" cannot be assembled by picking an ending —
+1 recept / 2 recepty / 5 receptů, and the verb phrase after it shifts too. This
+is the same one-key-per-sentence rule the frontend dictionaries follow.
+
+─── Still not here ─────────────────────────────────────────────────────────────
+No ``headers`` and no machine-readable ``extra`` dict. The usage-cap 429 in
+``deps.py`` is the only raise that wants either — it sets ``Retry-After`` and
+returns the object-``detail`` shape ``extractErrorDetail`` understands — and it
+keeps its plain ``HTTPException`` until someone migrates it and can test what
+they added.
 """
 
 from __future__ import annotations
 
+from typing import Final, get_args
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.core.error_copy import ERROR_COPY, ErrorKey
-from app.core.i18n import DEFAULT_LOCALE, Locale, locale_from_accept_language
+from app.core.error_copy import ERROR_COPY, ErrorKey, PluralErrorKey
+from app.core.i18n import (
+    DEFAULT_LOCALE,
+    Locale,
+    locale_from_accept_language,
+    plural_category,
+    render,
+)
+
+#: Derived, never hand-listed — a second copy of these names would be one more
+#: thing to keep in step with `PluralErrorKey`.
+PLURAL_KEYS: Final[frozenset[str]] = frozenset(get_args(PluralErrorKey))
 
 
 class LocalizedHTTPException(HTTPException):
-    """An ``HTTPException`` that names its message instead of spelling it out."""
+    """An ``HTTPException`` that names its message instead of spelling it out.
 
-    def __init__(self, status_code: int, key: ErrorKey) -> None:
+    ``count`` is required for a plural key and rejected for a static one, and
+    that pairing is checked here rather than by the type system. Overloads were
+    the obvious way to get it at compile time and do not actually work: the
+    static signature ends in ``**params: str``, which can itself absorb a
+    ``count=`` argument, so the two overloads overlap and mypy rejects any
+    implementation covering both.
+
+    Runtime is a fair place for it. The English ``detail`` is rendered during
+    ``__init__``, so a mismatched pair fails the moment the raise executes —
+    the first time its branch runs under test, not once a user reaches it.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        key: ErrorKey | PluralErrorKey,
+        *,
+        count: int | None = None,
+        **params: str,
+    ) -> None:
+        if (count is None) != (key not in PLURAL_KEYS):
+            raise ValueError(
+                f"{key!r}: `count` is required for a plural key and not "
+                f"accepted for any other (got count={count!r})"
+            )
         self.key = key
+        self.count = count
+        self.params = params
         super().__init__(
-            status_code=status_code, detail=ERROR_COPY[DEFAULT_LOCALE][key]
+            status_code=status_code,
+            detail=self.render_for(DEFAULT_LOCALE),
         )
+
+    def render_for(self, locale: Locale) -> str:
+        lookup: str = self.key
+        values = dict(self.params)
+        if self.count is not None:
+            lookup = f"{lookup}_{plural_category(locale, self.count)}"
+            values["count"] = str(self.count)
+        return render(ERROR_COPY[locale][lookup], **values)
 
 
 def resolve_locale(request: Request) -> Locale:
@@ -84,7 +136,7 @@ async def localized_exception_handler(
     if not isinstance(exc, LocalizedHTTPException):  # pragma: no cover
         raise exc
     return JSONResponse(
-        {"detail": ERROR_COPY[resolve_locale(request)][exc.key]},
+        {"detail": exc.render_for(resolve_locale(request))},
         status_code=exc.status_code,
     )
 

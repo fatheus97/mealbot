@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.country_whitelist import normalize_country
+from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
@@ -206,16 +207,10 @@ async def generate_recipe(
         raise HTTPException(status_code=422, detail=exc.user_detail) from exc
     except Exception as exc:  # noqa: BLE001 — map any LLM/network failure to 502
         logger.exception("Cook Now generation failed for user %s", current_user.id)
-        raise HTTPException(
-            status_code=502,
-            detail="Recipe generation failed. Please try again.",
-        ) from exc
+        raise LocalizedHTTPException(502, "recipe_generation_failed") from exc
 
     if not day_response.meals:
-        raise HTTPException(
-            status_code=502,
-            detail="LLM returned no meals — try again.",
-        )
+        raise LocalizedHTTPException(502, "recipe_no_meals")
 
     recipe = day_response.meals[0]
 

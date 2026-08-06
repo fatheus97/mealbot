@@ -12,6 +12,7 @@ from app.api.deps import get_current_user, require_generation_budget, usage_capt
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.dietary_reference import ALLERGEN_INFO
+from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
@@ -287,16 +288,13 @@ async def get_plan_detail(
     """Get the full plan detail (parsed from response_json)."""
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
     except ValidationError as exc:
         logger.exception("Failed to parse response_json for plan %d", plan_id)
-        raise HTTPException(
-            status_code=500,
-            detail="Stored plan data could not be loaded.",
-        ) from exc
+        raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
 
     plan_obj.plan_id = plan.id
     # Stamp the scheduling date from the column (like plan_id) — it lives on the
@@ -325,7 +323,7 @@ async def delete_plan(
     """
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     favorite_count = (
         await session.execute(
@@ -336,13 +334,8 @@ async def delete_plan(
         )
     ).scalar() or 0
     if favorite_count > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"This plan contains {favorite_count} cookbook recipe"
-                f"{'s' if favorite_count != 1 else ''}. "
-                "Un-favorite them before deleting the plan."
-            ),
+        raise LocalizedHTTPException(
+            409, "plan_favorites_block_delete", count=favorite_count
         )
 
     # Delete meal entries first (no cascade in SQLModel by default)
@@ -371,7 +364,7 @@ async def reschedule_plan(
     never)."""
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     plan.start_date = payload.start_date
     session.add(plan)
@@ -453,10 +446,7 @@ async def plan_meals_for_user(
         # circles on the same restrictive request.
         raise HTTPException(status_code=422, detail=exc.user_detail) from exc
     except PlanGenerationError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Meal plan generation failed. Please try again.",
-        ) from exc
+        raise LocalizedHTTPException(502, "plan_generation_failed") from exc
 
     response_obj = MealPlanResponse(
         plan_id=None,
@@ -529,10 +519,10 @@ async def regenerate_plan(
     # 1) Load plan & ownership check
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
-        raise HTTPException(status_code=409, detail="Cannot regenerate a confirmed plan")
+        raise LocalizedHTTPException(409, "plan_regenerate_confirmed")
 
     # 2) Deserialize stored request & response
     try:
@@ -540,9 +530,7 @@ async def regenerate_plan(
         original_resp = MealPlanResponse.model_validate_json(plan.response_json)
     except ValidationError as exc:
         logger.exception("Failed to parse stored data for plan %d", plan_id)
-        raise HTTPException(
-            status_code=500, detail="Stored plan data could not be loaded."
-        ) from exc
+        raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
 
     # Plans stored before the whitelists landed can carry arbitrary strings.
     # Normalize before templating into the system prompt, same as
@@ -669,10 +657,7 @@ async def regenerate_plan(
             raise HTTPException(status_code=422, detail=exc.user_detail) from exc
         except Exception as e:
             logger.exception("Regeneration failed at day %d", day_index)
-            raise HTTPException(
-                status_code=502,
-                detail="Meal plan regeneration failed. Please try again.",
-            ) from e
+            raise LocalizedHTTPException(502, "plan_regeneration_failed") from e
 
         # Merge: frozen meals at their original positions, new meals fill unfrozen slots
         merged_meals = list(day.meals)  # copy original order
@@ -844,7 +829,7 @@ async def confirm_plan(
     # Load plan & ownership check
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     # Idempotence guard (do not subtract twice)
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
@@ -861,10 +846,7 @@ async def confirm_plan(
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
     except ValidationError as exc:
         logger.exception("Failed to parse response_json for plan %d during confirm", plan_id)
-        raise HTTPException(
-            status_code=500,
-            detail="Stored plan data could not be loaded.",
-        ) from exc
+        raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
 
     # FIFO-debit + persist entries + mark confirmed. All staged; the single
     # commit below is the atomicity boundary (see the contract comment above).
@@ -893,16 +875,13 @@ async def unconfirm_plan(
     """
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     if not plan.confirmed_at:
-        raise HTTPException(status_code=409, detail="Plan is not confirmed.")
+        raise LocalizedHTTPException(409, "plan_not_confirmed")
 
     if plan.finished_at is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot un-confirm a finished plan; reopen it first.",
-        )
+        raise LocalizedHTTPException(409, "plan_unconfirm_finished")
 
     cooked_count_result = await session.execute(
         select(func.count()).where(
@@ -912,10 +891,7 @@ async def unconfirm_plan(
     )
     cooked_count = cooked_count_result.scalar() or 0
     if cooked_count > 0:
-        raise HTTPException(
-            status_code=409,
-            detail="Uncook all meals before un-confirming.",
-        )
+        raise LocalizedHTTPException(409, "plan_uncook_first")
 
     # Same guard as delete_plan: un-confirm bulk-DELETEs every MealEntry on
     # the plan further down (so re-confirm can rebuild from response_json).
@@ -930,13 +906,8 @@ async def unconfirm_plan(
         )
     ).scalar() or 0
     if favorite_count > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"This plan contains {favorite_count} cookbook recipe"
-                f"{'s' if favorite_count != 1 else ''}. "
-                "Un-favorite them before un-confirming the plan."
-            ),
+        raise LocalizedHTTPException(
+            409, "plan_favorites_block_unconfirm", count=favorite_count
         )
 
     # Restore each entry's snapshot debit, delete entries, clear confirmed_at
@@ -965,12 +936,12 @@ async def cook_meal(
         or entry.meal_plan_id != plan_id
         or entry.user_id != current_user.id
     ):
-        raise HTTPException(status_code=404, detail="Meal entry not found")
+        raise LocalizedHTTPException(404, "plan_meal_not_found")
 
     # Guard: cannot cook meals on a finished plan
     plan = await session.get(MealPlan, plan_id)
     if plan and plan.finished_at is not None:
-        raise HTTPException(status_code=409, detail="Plan is finished.")
+        raise LocalizedHTTPException(409, "plan_finished")
 
     # Idempotent: if already cooked, return as-is
     if entry.cooked_at is None:
@@ -1009,7 +980,7 @@ async def favorite_meal(
         or entry.meal_plan_id != plan_id
         or entry.user_id != current_user.id
     ):
-        raise HTTPException(status_code=404, detail="Meal entry not found")
+        raise LocalizedHTTPException(404, "plan_meal_not_found")
 
     # A leftover is a content-free "reheat of X" — no ingredients, one step,
     # and a pointer that means nothing outside its own plan. Favoriting one
@@ -1020,13 +991,7 @@ async def favorite_meal(
     # also vanish underneath it. Un-starring stays allowed (never trap a user
     # with an entry they can't clear).
     if body.is_favorite and entry.leftover_of_day_index is not None:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Leftovers can't be saved to the cookbook — save the original "
-                "meal instead."
-            ),
-        )
+        raise LocalizedHTTPException(422, "plan_leftovers_not_cookbookable")
 
     # Idempotent fast path
     if entry.is_favorite == body.is_favorite:
@@ -1071,12 +1036,12 @@ async def uncook_meal(
         or entry.meal_plan_id != plan_id
         or entry.user_id != current_user.id
     ):
-        raise HTTPException(status_code=404, detail="Meal entry not found")
+        raise LocalizedHTTPException(404, "plan_meal_not_found")
 
     # Guard: cannot uncook meals on a finished plan
     plan = await session.get(MealPlan, plan_id)
     if plan and plan.finished_at is not None:
-        raise HTTPException(status_code=409, detail="Plan is finished.")
+        raise LocalizedHTTPException(409, "plan_finished")
 
     # Idempotent: if already uncooked, return as-is. Cookbook membership
     # (is_favorite + embedding) is intentionally NOT cleared here — favorite
@@ -1192,22 +1157,16 @@ async def edit_meal(
     """
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     if plan.finished_at is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot edit a finished plan; reopen it first.",
-        )
+        raise LocalizedHTTPException(409, "plan_edit_finished")
 
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
     except ValidationError as exc:
         logger.exception("Failed to parse response_json for plan %d during edit", plan_id)
-        raise HTTPException(
-            status_code=500,
-            detail="Stored plan data could not be loaded.",
-        ) from exc
+        raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
 
     if not 0 <= day_index < len(plan_obj.days):
         raise HTTPException(status_code=422, detail=f"day_index {day_index} out of bounds")
@@ -1225,13 +1184,7 @@ async def edit_meal(
     # below as an uncaught 500. Reject it as the 422 it is. Name/steps edits on
     # a leftover stay allowed — a reheating note is legitimate.
     if existing.leftover_of is not None and body.ingredients:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "This meal is leftovers from an earlier meal and carries no "
-                "ingredients of its own — edit the source meal instead."
-            ),
-        )
+        raise LocalizedHTTPException(422, "plan_leftovers_no_ingredients")
 
     # Preserve slot identity; rewrite only content. This is an explicit
     # field-by-field rebuild, so every server-assigned field MUST be carried
@@ -1332,10 +1285,7 @@ async def edit_meal(
                         "on confirmed plan %d — aborting the rename fan-out",
                         d_i + 1, m_i + 1, plan_id,
                     )
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Stored plan data is inconsistent; edit aborted.",
-                    )
+                    raise LocalizedHTTPException(500, "plan_data_inconsistent")
                 dep_meal = plan_obj.days[d_i].meals[m_i]
                 dep_entry.name = dep_meal.name
                 dep_entry.leftover_source_name = updated_meal.name
@@ -1351,10 +1301,7 @@ async def edit_meal(
                 "— aborting to avoid response_json/meal_json desync",
                 plan_id, day_index + 1, meal_index + 1,
             )
-            raise HTTPException(
-                status_code=500,
-                detail="Meal entry not found for confirmed plan.",
-            )
+            raise LocalizedHTTPException(500, "plan_meal_not_found_confirmed")
 
     # Telemetry: capture the machine-output → user-edit delta. Skip genuine
     # no-ops (editor opened and saved unchanged) so the data is real edits
@@ -1394,7 +1341,7 @@ async def list_meal_entries(
     """List all meal entries for a plan (for cook/uncook UI)."""
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     result = await session.execute(
         select(MealEntry)
@@ -1418,10 +1365,10 @@ async def finish_plan(
     """Finish a plan: return ingredients for uncooked meals to fridge."""
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     if not plan.confirmed_at:
-        raise HTTPException(status_code=409, detail="Plan is not confirmed.")
+        raise LocalizedHTTPException(409, "plan_not_confirmed")
 
     # Idempotence: if already finished, return existing state
     if plan.finished_at is not None:
@@ -1470,10 +1417,10 @@ async def reopen_plan(
     """
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Plan not found")
+        raise LocalizedHTTPException(404, "plan_not_found")
 
     if plan.finished_at is None:
-        raise HTTPException(status_code=409, detail="Plan is not finished.")
+        raise LocalizedHTTPException(409, "plan_not_finished")
 
     # Re-debit uncooked meals against current stock, rewrite snapshots, clear
     # finished_at (staged; atomic). A shortage aborts before any fridge write.
@@ -1481,12 +1428,12 @@ async def reopen_plan(
     try:
         await reopen_plan_fridge(session, current_user.id, plan)
     except PlanReopenShortageError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Not enough {exc.ingredient_name} in fridge to reopen this plan: "
-                f"need {exc.needed:g}g, have {exc.have:g}g."
-            ),
+        raise LocalizedHTTPException(
+            409,
+            "plan_reopen_shortage",
+            ingredient=exc.ingredient_name,
+            needed=f"{exc.needed:g}",
+            have=f"{exc.have:g}",
         ) from exc
     await session.commit()
 

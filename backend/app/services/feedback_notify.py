@@ -12,8 +12,8 @@ problem can never touch the credit or the accept. A no-op when Resend isn't conf
 import logging
 
 from app.core.config import settings
-from app.core.email_copy import COPY, render
-from app.core.i18n import Locale, locale_for_language
+from app.core.email_copy import COPY
+from app.core.i18n import Locale, locale_for_language, render
 from app.models.db_models import User
 from app.services import email_service
 
