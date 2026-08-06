@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import { CookbookModal } from "./CookbookModal";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { setMobileViewport } from "../test/test-utils";
 
 vi.mock("../api", () => ({
@@ -59,7 +61,47 @@ beforeEach(() => {
   mockedAuthFetch.mockReset();
 });
 
+// TEST DATA that collides with a short UI word, not missed translations: the
+// shared fixture's meal_type_label is the English "Soup" (the component
+// correctly prefers the server's label), and one recipe step reads "Cook with
+// curry". Short labels like these are the cost of the 4-character floor — see
+// test/i18nAssertions.ts.
+const IGNORED_FIXTURE_KEYS = ["mealType.soup", "meal.cook"] as const;
+
 describe("CookbookModal", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("leaves no untranslated English when switched to Czech, index AND spread", async () => {
+    // BOTH viewports: the spread renders a desktop open-book layout and a
+    // separate single-column mobile one, each with its own headings. An
+    // earlier version of this test only reached one of them — reverting the
+    // desktop heading alone did not fail it.
+    for (const mobile of [false, true]) {
+      setMobileViewport(mobile);
+      mockedAuthFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(TWO_RECIPES),
+      });
+      useLocaleStore.setState({ locale: "cs", explicit: true });
+
+      const { container, unmount } = render(<CookbookModal onClose={() => {}} />, {
+        wrapper: createWrapper(),
+      });
+      const user = userEvent.setup();
+      await waitFor(() => screen.getByText("Chicken Curry"));
+      expect(untranslatedEnglishIn(container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
+
+      await user.click(screen.getByText("Chicken Curry"));
+      await waitFor(() => expect(screen.getByText("Suroviny")).toBeInTheDocument());
+      expect(untranslatedEnglishIn(container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
+
+      unmount();
+    }
+  });
+
   it("renders the index with grouped recipes", async () => {
     mockedAuthFetch.mockResolvedValue({
       ok: true,

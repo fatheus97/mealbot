@@ -152,6 +152,7 @@ describe('translation parity', () => {
       'editor.grams', // "g" — SI unit symbol, identical in every language
       'fridgeItem.ok', // "OK" — international
       'receipt.typeSnack', // "snack" — loanword; Czech uses it too
+      'plans.statusCount', // "{status} ({cooked}/{total})" — placeholders + punctuation only
     ];
     const identical = enKeys.filter((k) => en[k] === cs[k]);
     expect(identical.sort()).toEqual([...SAME_IN_BOTH].sort());

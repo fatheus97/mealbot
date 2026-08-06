@@ -489,6 +489,68 @@ export const en = {
   "receipt.demo.tomatoes": "Roma Tomatoes",
   "receipt.demo.bread": "Whole Wheat Bread",
 
+  // ─── Plan catalog ─────────────────────────────────────────────────────────
+  "plans.title": "My Plans",
+  // The status enum, mirrored from the backend's PlanStatus. Same rule as
+  // mealType/diet/allergen — a value with no key renders raw.
+  "planStatus.planned": "planned",
+  "planStatus.active": "active",
+  "planStatus.cooked": "cooked",
+  "planStatus.finished": "finished",
+  "plans.summary": "{days}d / {meals} meals / {people}p",
+  "plans.statusCount": "{status} ({cooked}/{total})",
+  "plans.loading": "Loading plans...",
+  "plans.empty": "No plans yet. Generate one below to get started.",
+  "plans.open": "Open",
+  "plans.opening": "Loading...",
+  "plans.delete": "Delete",
+  "plans.deleting": "Deleting…",
+  "plans.deleteTitle": "Delete this plan?",
+  "plans.loadFailedPrefix": "Failed to load plan:",
+  "plans.openFailed": "Couldn't open that plan. Please try again.",
+  "plans.deleteFailed": "Failed to delete plan.",
+  "plans.dateFailed": "Couldn't update that plan's date. Please try again.",
+
+  // ─── Plan calendar ────────────────────────────────────────────────────────
+  "calendar.title": "Plan calendar",
+  "calendar.previousMonth": "Previous month",
+  "calendar.nextMonth": "Next month",
+  "calendar.today": "Today",
+  "calendar.close": "Close calendar",
+  "calendar.open": "Open cookbook",
+  "calendar.plan": "Plan",
+  "calendar.scheduled": "Scheduled plans",
+  "calendar.openPlan": "Open →",
+  "calendar.openingPlan": "Opening…",
+  "calendar.rescheduleFailed": "Couldn't reschedule that plan. Please try again.",
+
+  // ─── Floating action buttons ──────────────────────────────────────────────
+  "fab.openCookbook": "Open cookbook",
+  "fab.openCalendar": "Open calendar",
+
+  // ─── Cookbook ─────────────────────────────────────────────────────────────
+  "cookbook.title": "Cookbook",
+  "cookbook.close": "Close cookbook",
+  "cookbook.search": "Search recipes…",
+  "cookbook.loadFailed": "Failed to load cookbook.",
+  "cookbook.noMatches": "No recipes match your search.",
+  "cookbook.empty": "Your cookbook is empty.",
+  "cookbook.emptyHint": "Star a recipe in the planner or Cook Now to keep it here.",
+  "cookbook.ingredients": "Ingredients",
+  "cookbook.steps": "Steps",
+  "cookbook.removeTitle": "Remove from cookbook?",
+  "cookbook.remove": "Remove",
+  "cookbook.removing": "Removing…",
+  "cookbook.removeFromCookbook": "Remove from Cookbook",
+  "cookbook.removeNamed": "Remove {name} from cookbook",
+  "cookbook.removeLabel": "Remove from cookbook",
+
+  // ─── Planner heading ──────────────────────────────────────────────────────
+  // Missed in the slice that translated the rest of this component: the
+  // checker compares against `en`, so a literal with no key is invisible to
+  // it. See test/i18nAssertions.ts.
+  "planner.heading": "Meal Planner",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // Read with tn("time.minutes", n). English has two categories; Czech has four
   // (Intl.PluralRules picks). Present here from the start so the mechanism has

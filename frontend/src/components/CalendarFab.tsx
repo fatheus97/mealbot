@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { PlanCalendar } from "./PlanCalendar";
 import type { MealPlanResponse, MealPlanSummary } from "../types";
+import { useI18n } from "../i18n";
 
 interface CalendarFabProps {
   onOpenPlan: (plan: MealPlanResponse, summary: MealPlanSummary) => void;
@@ -11,6 +12,7 @@ interface CalendarFabProps {
 // (which sits at bottom:1.5rem and is 56px tall). Blue so it reads as distinct
 // from the brown 📖 cookbook button at a glance.
 export function CalendarFab({ onOpenPlan }: CalendarFabProps) {
+  const { t } = useI18n();
   const { userId } = useAuth();
   const [open, setOpen] = useState(false);
 
@@ -20,7 +22,7 @@ export function CalendarFab({ onOpenPlan }: CalendarFabProps) {
     <>
       <button
         type="button"
-        aria-label="Open calendar"
+        aria-label={t("fab.openCalendar")}
         onClick={() => setOpen(true)}
         style={{
           position: "fixed",

@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useCookbookCount } from "../hooks/useServerState";
 import { CookbookModal } from "./CookbookModal";
+import { useI18n } from "../i18n";
 
 // Floating book icon, fixed bottom-right. Shows the favorites count as a
 // badge so the user can tell at a glance how full their cookbook is.
 export function CookbookFab() {
+  const { t } = useI18n();
   const { userId } = useAuth();
   const { data: countData } = useCookbookCount(userId);
   const [open, setOpen] = useState(false);
@@ -17,7 +19,7 @@ export function CookbookFab() {
     <>
       <button
         type="button"
-        aria-label="Open cookbook"
+        aria-label={t("fab.openCookbook")}
         onClick={() => setOpen(true)}
         style={{
           position: "fixed",

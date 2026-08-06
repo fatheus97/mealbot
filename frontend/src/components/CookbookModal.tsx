@@ -7,6 +7,7 @@ import { mealTypeLabel } from "../constants/mealTypes";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { ModalShell } from "./ModalShell";
 import type { CookbookItem } from "../types";
+import { useI18n } from "../i18n";
 
 interface Props {
   onClose: () => void;
@@ -15,6 +16,7 @@ interface Props {
 // Two-view modal: index page → per-recipe spread (ingredients left, steps
 // right). Mimics opening a real cookbook. Backdrop click closes; ESC closes.
 export function CookbookModal({ onClose }: Props) {
+  const { t } = useI18n();
   const isMobile = useIsMobile();
   const [view, setView] = useState<"index" | "spread">("index");
   const [selected, setSelected] = useState<CookbookItem | null>(null);
@@ -129,7 +131,7 @@ export function CookbookModal({ onClose }: Props) {
   return (
     <ModalShell
       onClose={onClose}
-      ariaLabel="Cookbook"
+      ariaLabel={t("cookbook.title")}
       // The cookbook keeps its own Escape handler (spread → index, then close)
       // and its own scroll-lock (both effects above), so opt out of ModalShell's
       // versions — otherwise the same keypress / overflow toggle is handled twice.
@@ -212,10 +214,10 @@ export function CookbookModal({ onClose }: Props) {
 
       {pendingRemoval && (
         <ConfirmDialog
-          title="Remove from cookbook?"
+          title={t("cookbook.removeTitle")}
           message={`Remove "${pendingRemoval.name}" from your cookbook? You can re-add it later from a meal plan.`}
-          confirmLabel="Remove"
-          loadingLabel="Removing…"
+          confirmLabel={t("cookbook.remove")}
+          loadingLabel={t("cookbook.removing")}
           loading={removeMutation.isPending}
           error={removalError}
           onConfirm={confirmRemove}
@@ -250,6 +252,7 @@ function CookbookIndex({
   onClose,
   removingId,
 }: IndexProps) {
+  const { t } = useI18n();
   // Direction-aware fade overlays. atTop=true hides the top fade (nothing
   // above to scroll back to); atBottom=true hides the bottom fade (you're
   // at the end). Both default to true so a non-overflowing list shows
@@ -299,7 +302,7 @@ function CookbookIndex({
           on the cover regardless of header content width. */}
       <button
         type="button"
-        aria-label="Close cookbook"
+        aria-label={t("cookbook.close")}
         onClick={onClose}
         style={{
           position: "absolute",
@@ -349,7 +352,7 @@ function CookbookIndex({
             filter: "drop-shadow(0 1px 0 rgba(0,0,0,0.6))",
           }}
         >
-          Cookbook
+          {t("cookbook.title")}
         </h2>
         {/* Decorative gold flourish under the title — two short rules with a
             diamond between, the visual cue you'd expect on an old book cover. */}
@@ -384,7 +387,7 @@ function CookbookIndex({
           type="text"
           value={searchInput}
           onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search recipes…"
+          placeholder={t("cookbook.search")}
           style={{
             width: "min(100%, 240px)",
             padding: "0.4rem 0.7rem",
@@ -439,17 +442,17 @@ function CookbookIndex({
         {isLoading && <p style={{ opacity: 0.8 }}>Loading…</p>}
         {isError && (
           <p role="alert" style={{ color: "#fca5a5" }}>
-            Failed to load cookbook.
+            {t("cookbook.loadFailed")}
           </p>
         )}
         {!isLoading && !isError && items.length === 0 && (
           <div style={{ textAlign: "center", padding: "2rem 0", color: "#d4b87c" }}>
             <p style={{ fontSize: "1.05rem", marginBottom: "0.25rem" }}>
-              {searchInput ? "No recipes match your search." : "Your cookbook is empty."}
+              {searchInput ? t("cookbook.noMatches") : t("cookbook.empty")}
             </p>
             {!searchInput && (
               <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
-                Star a recipe in the planner or Cook Now to keep it here.
+                {t("cookbook.emptyHint")}
               </p>
             )}
           </div>
@@ -516,10 +519,10 @@ function CookbookIndex({
                   </button>
                   <button
                     type="button"
-                    aria-label={`Remove ${item.name} from cookbook`}
+                    aria-label={t("cookbook.removeNamed", { name: item.name })}
                     onClick={() => onRemove(item)}
                     disabled={removingId === item.meal_entry_id}
-                    title="Remove from cookbook"
+                    title={t("cookbook.removeLabel")}
                     style={{
                       background: "none",
                       border: "none",
@@ -683,6 +686,7 @@ interface SpreadProps {
 // "back to index"; right: actions) so the spine runs uninterrupted from
 // top to bottom and the layout reads as a true open book.
 function CookbookSpread({ item, onBack, onClose, onRemove, removing, textRevealed }: SpreadProps) {
+  const { t } = useI18n();
   // Recipe inks fade in only after the cover is open — controls (back, ✕,
   // remove) sit on the parchment too so they fade with the rest. The
   // transition is intentionally a touch slow so it reads as text appearing
@@ -781,7 +785,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
           </button>
           <button
             type="button"
-            aria-label="Close cookbook"
+            aria-label={t("cookbook.close")}
             onClick={onClose}
             style={{ background: "none", border: "none", cursor: "pointer", color: "#7a5a2e", fontSize: "1.4rem", lineHeight: 1, padding: "0.5rem 0.6rem", minHeight: 44, minWidth: 44 }}
           >
@@ -801,10 +805,10 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
             {item.total_time_minutes != null && ` · ${item.total_time_minutes} min`}
           </div>
 
-          <h3 style={{ ...sectionHeading, marginBottom: "0.5rem" }}>Ingredients</h3>
+          <h3 style={{ ...sectionHeading, marginBottom: "0.5rem" }}>{t("cookbook.ingredients")}</h3>
           <IngredientsList ingredients={item.ingredients} block />
 
-          <h3 style={{ ...sectionHeading, fontSize: "1.1rem", margin: "1.4rem 0 0.5rem" }}>Steps</h3>
+          <h3 style={{ ...sectionHeading, fontSize: "1.1rem", margin: "1.4rem 0 0.5rem" }}>{t("cookbook.steps")}</h3>
           <RecipeSteps steps={item.steps} timerLabel={item.name} />
 
           <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "1.4rem" }}>
@@ -814,7 +818,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
               disabled={removing}
               style={{ background: "none", border: "1px solid #c8a86b", borderRadius: "4px", cursor: removing ? "default" : "pointer", color: "#7a5a2e", padding: "0.45rem 0.9rem", fontFamily: "inherit", fontSize: "0.85rem", opacity: removing ? 0.5 : 1 }}
             >
-              {removing ? "Removing…" : "Remove from Cookbook"}
+              {removing ? t("cookbook.removing") : t("cookbook.removeFromCookbook")}
             </button>
           </div>
         </div>
@@ -874,7 +878,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
         </div>
 
         <h3 style={{ ...sectionHeading, marginBottom: "0.5rem", ...inkStyle }}>
-          Ingredients
+          {t("cookbook.ingredients")}
         </h3>
         <div
           ref={ingredientsRef}
@@ -907,7 +911,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
         {/* ✕ close — top-right, on the parchment, fades with the rest. */}
         <button
           type="button"
-          aria-label="Close cookbook"
+          aria-label={t("cookbook.close")}
           onClick={onClose}
           style={{
             position: "absolute",
@@ -929,7 +933,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
             same height as the h2 within the page header block. */}
         <div style={{ ...pageHeaderStyle, justifyContent: "flex-end", ...inkStyle }}>
           <h3 style={{ ...sectionHeading, fontSize: "1.1rem", marginBottom: "0.15rem" }}>
-            Steps
+            {t("cookbook.steps")}
           </h3>
         </div>
 
@@ -966,7 +970,7 @@ function CookbookSpread({ item, onBack, onClose, onRemove, removing, textReveale
               opacity: removing ? 0.5 : 1,
             }}
           >
-            {removing ? "Removing…" : "Remove from Cookbook"}
+            {removing ? t("cookbook.removing") : t("cookbook.removeFromCookbook")}
           </button>
         </div>
       </div>

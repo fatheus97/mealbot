@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { PlanCalendar } from "./PlanCalendar";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { AuthProvider } from "../contexts/AuthContext";
 import { setMobileViewport } from "../test/test-utils";
 
@@ -165,6 +167,19 @@ beforeEach(() => {
 });
 
 describe("PlanCalendar", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("leaves no untranslated English when switched to Czech", async () => {
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    const { container } = render(<PlanCalendar onClose={vi.fn()} onOpenPlan={vi.fn()} />, {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(screen.getByText("Dnes")).toBeInTheDocument());
+    expect(untranslatedEnglishIn(container)).toEqual([]);
+  });
+
   it("lists scheduled plans with their meals", async () => {
     loginUser();
     routeDefault();

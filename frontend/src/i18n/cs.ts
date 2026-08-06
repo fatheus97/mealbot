@@ -469,6 +469,63 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.demo.tomatoes": "Rajčata Roma",
   "receipt.demo.bread": "Celozrnný chléb",
 
+  // ─── Plan catalog ─────────────────────────────────────────────────────────
+  "plans.title": "Moje jídelníčky",
+  "planStatus.planned": "naplánováno",
+  "planStatus.active": "probíhá",
+  "planStatus.cooked": "uvařeno",
+  "planStatus.finished": "dokončeno",
+  "plans.summary": "{days} d / {meals} jídel denně / {people} os.",
+  "plans.statusCount": "{status} ({cooked}/{total})",
+  "plans.loading": "Načítání jídelníčků...",
+  "plans.empty": "Zatím žádné jídelníčky. Vytvořte si níže první.",
+  "plans.open": "Otevřít",
+  "plans.opening": "Načítání...",
+  "plans.delete": "Smazat",
+  "plans.deleting": "Mažu…",
+  "plans.deleteTitle": "Smazat tento jídelníček?",
+  "plans.loadFailedPrefix": "Jídelníček se nepodařilo načíst:",
+  "plans.openFailed": "Jídelníček se nepodařilo otevřít. Zkuste to prosím znovu.",
+  "plans.deleteFailed": "Jídelníček se nepodařilo smazat.",
+  "plans.dateFailed": "Datum jídelníčku se nepodařilo změnit. Zkuste to prosím znovu.",
+
+  // ─── Plan calendar ────────────────────────────────────────────────────────
+  "calendar.title": "Kalendář jídelníčků",
+  "calendar.previousMonth": "Předchozí měsíc",
+  "calendar.nextMonth": "Další měsíc",
+  "calendar.today": "Dnes",
+  "calendar.close": "Zavřít kalendář",
+  "calendar.open": "Otevřít kuchařku",
+  "calendar.plan": "Jídelníček",
+  "calendar.scheduled": "Naplánované jídelníčky",
+  "calendar.openPlan": "Otevřít →",
+  "calendar.openingPlan": "Otevírám…",
+  "calendar.rescheduleFailed": "Jídelníček se nepodařilo přeplánovat. Zkuste to prosím znovu.",
+
+  // ─── Floating action buttons ──────────────────────────────────────────────
+  "fab.openCookbook": "Otevřít kuchařku",
+  "fab.openCalendar": "Otevřít kalendář",
+
+  // ─── Cookbook ─────────────────────────────────────────────────────────────
+  "cookbook.title": "Kuchařka",
+  "cookbook.close": "Zavřít kuchařku",
+  "cookbook.search": "Hledat recepty…",
+  "cookbook.loadFailed": "Kuchařku se nepodařilo načíst.",
+  "cookbook.noMatches": "Vašemu hledání neodpovídá žádný recept.",
+  "cookbook.empty": "Vaše kuchařka je prázdná.",
+  "cookbook.emptyHint": "Přidejte receptu hvězdičku v plánovači nebo v Uvařit hned a zůstane tady.",
+  "cookbook.ingredients": "Suroviny",
+  "cookbook.steps": "Postup",
+  "cookbook.removeTitle": "Odebrat z kuchařky?",
+  "cookbook.remove": "Odebrat",
+  "cookbook.removing": "Odebírám…",
+  "cookbook.removeFromCookbook": "Odebrat z kuchařky",
+  "cookbook.removeNamed": "Odebrat {name} z kuchařky",
+  "cookbook.removeLabel": "Odebrat z kuchařky",
+
+  // ─── Planner heading ──────────────────────────────────────────────────────
+  "planner.heading": "Plánovač jídel",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // 1 minuta · 2–4 minuty · 1,5 minuty · 0 a 5+ minut.
   "time.minutes_one": "{count} minuta",
