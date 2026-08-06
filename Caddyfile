@@ -1,13 +1,45 @@
+# Ride out a short upstream gap instead of failing the request.
+#
+# `deploy.sh` swaps containers with `up -d` on every push to main, so backend and
+# frontend are unreachable for the seconds between SIGTERM and the new process
+# accepting connections (uvicorn also loads the ~90MB embedding model on boot).
+# With no retry, Caddy answers every request in that window with a bare 502 and an
+# EMPTY body — which is what the admin panel surfaced as "Could not re-run triage
+# (502)": the app itself cannot return 502 there (feedback_triage swallows LLM
+# errors and records triage_status="failed", so the endpoint answers 200), so a 502
+# on that path only ever comes from this proxy.
+#
+# Retries here are safe on POST too: Caddy only retries when nothing was written to
+# the upstream, and a failed dial writes nothing — the request never reached the
+# backend, so it cannot have had a side effect.
+#
+# 30s covers a normal swap (stop + migrate no-op + model load). A longer outage
+# still 502s, just 30s later — the tradeoff is a slow success over a fast error.
+(ride_out_restarts) {
+	lb_try_duration 30s
+	lb_try_interval 250ms
+}
+
 {$DOMAIN:localhost} {
-    handle /api/* {
-        reverse_proxy backend:8000
-    }
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			import ride_out_restarts
+		}
+	}
 
-    handle /health {
-        reverse_proxy backend:8000
-    }
+	# NOT retried, deliberately. A health probe exists to report the truth fast;
+	# holding it open for 30s while the backend is down would turn "outage
+	# detected in under a second" into "detected in up to 30s" for any uptime
+	# monitor pointed here. Nothing polls this through Caddy today — the compose
+	# healthcheck calls backend:8000/health directly — so this is about not
+	# laying the trap for the monitor that eventually does.
+	handle /health {
+		reverse_proxy backend:8000
+	}
 
-    handle {
-        reverse_proxy frontend:80
-    }
+	handle {
+		reverse_proxy frontend:80 {
+			import ride_out_restarts
+		}
+	}
 }
