@@ -121,20 +121,18 @@ describe("FeedbackPanel", () => {
     await waitFor(() => expect(api.updateAdminFeedback).toHaveBeenCalledWith(1, "reviewing"));
   });
 
-  it("accepts a report (credit + ticket) via the confirm dialog", async () => {
+  it("accepts a report (credit + ticket) in ONE click — no confirm step", async () => {
     const user = userEvent.setup();
     renderWithProviders(<FeedbackPanel />);
     await screen.findByText("Plan crash on regenerate");
 
     await user.click(screen.getByRole("button", { name: "View" }));
     const dialog = await screen.findByRole("dialog");
-    // 6b DOES offer Accept (the money-mover) — it opens a confirm, not an instant call.
     await user.click(within(dialog).getByRole("button", { name: /^✓ Accept/ }));
-    expect(api.acceptAdminFeedback).not.toHaveBeenCalled(); // gated behind confirm
 
-    const confirm = await screen.findByRole("dialog", { name: /accept this report/i });
-    await user.click(within(confirm).getByRole("button", { name: "Accept" }));
     await waitFor(() => expect(api.acceptAdminFeedback).toHaveBeenCalledWith(1));
+    // No second dialog to dismiss: the accept fired straight from the button.
+    expect(screen.queryByRole("dialog", { name: /accept this report/i })).toBeNull();
   });
 
   it("re-runs advisory triage from the drawer", async () => {

@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -284,6 +285,87 @@ describe('CookMode', () => {
     await user.click(screen.getByRole('button', { name: /close cooking mode/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(KEY)).not.toBeNull();
+  });
+
+  // #5: pressing the browser/hardware Back button used to navigate the whole
+  // app away instead of closing the overlay — nothing listened for it — which
+  // unmounted everything and lost the in-memory generated recipe with it.
+  describe('hardware/browser Back button (#5)', () => {
+    it('pushes a history entry on mount, so Back has something of ours to consume first', () => {
+      renderCookMode();
+      expect(history.state).toMatchObject({ cookMode: true });
+    });
+
+    it('treats Back (popstate) as a close request instead of letting the app navigate away', () => {
+      const { onClose } = renderCookMode();
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('pops its history entry when closed via the UI (not Back), so a later Back only takes one press to leave', () => {
+      // Mocked rather than let the real navigation run: jsdom queues
+      // history.back()'s traversal asynchronously, and this file renders (and
+      // auto-cleanup-unmounts) CookMode dozens of times, so real navigations
+      // pile up unpredictably across tests. Asserting the call happened is the
+      // deterministic version of the same behavioural claim.
+      const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+      const { unmount } = render(
+        <CookTimerProvider>
+          <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={vi.fn()} />
+        </CookTimerProvider>,
+      );
+      unmount();
+      expect(backSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Review finding on PR #397: history.back() pops whatever is on top of
+    // the GLOBAL stack, not necessarily the entry this instance pushed. If a
+    // future call site ever swaps CookMode instances within the same commit,
+    // an old instance's queued back() could otherwise pop a NEW instance's
+    // entry instead of its own. The per-mount id in the pushed state guards
+    // against that — simulate the race by tampering with the top-of-stack
+    // entry between mount and unmount, as a swapped-in instance would.
+    it("never pops an entry it didn't push (the top-of-stack entry belongs to a different mount)", () => {
+      const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+      const { unmount } = render(
+        <CookTimerProvider>
+          <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={vi.fn()} />
+        </CookTimerProvider>,
+      );
+      expect(history.state).toMatchObject({ cookMode: true });
+      // Simulate a different instance's entry now sitting on top — same
+      // shape, different mountId.
+      history.replaceState({ cookMode: true, mountId: -1 }, '');
+      unmount();
+      expect(backSpy).not.toHaveBeenCalled();
+    });
+
+    // Review finding on PR #397: main.tsx renders the real app under
+    // <StrictMode>, which double-invokes mount effects in dev (setup→cleanup→
+    // setup, synchronously). The cleanup's history.back() call is asynchronous
+    // (spec-deferred) and can resolve AFTER the phantom re-setup has already
+    // attached a new listener — so without absorbing that stray popstate, the
+    // overlay that just (re-)opened would immediately self-close. history.back
+    // is mocked so its real (spec-deferred) traversal never actually fires;
+    // the delayed self-triggered popstate is simulated directly, exactly as it
+    // would arrive once that queued call eventually resolved.
+    it('under StrictMode, ignores its own delayed popstate instead of self-closing on open', () => {
+      vi.spyOn(window.history, 'back').mockImplementation(() => {});
+      const onClose = vi.fn();
+      render(
+        <StrictMode>
+          <CookTimerProvider>
+            <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={onClose} />
+          </CookTimerProvider>
+        </StrictMode>,
+      );
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      expect(onClose).not.toHaveBeenCalled();
+    });
   });
 
   it('toggles the ingredients panel with amounts', async () => {
