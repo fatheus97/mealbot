@@ -80,6 +80,22 @@ describe("landing authApi", () => {
   });
 
   describe("landingLogin", () => {
+    it("reports a wrong password in Czech on the Czech page", async () => {
+      // The most-read string on this page: it fires on every mistyped
+      // password. It was a module-level English const until the review caught
+      // it, so a Czech visitor who fumbled their password got English at the
+      // single most common failure in the whole funnel.
+      vi.mocked(fetch).mockResolvedValue({ ok: false, status: 401 } as unknown as Response);
+      document.documentElement.setAttribute("lang", "cs");
+      try {
+        await expect(landingLogin("u@example.com", "nope")).rejects.toThrow(
+          "Přihlášení se nezdařilo. Zkontrolujte přihlašovací údaje.",
+        );
+      } finally {
+        document.documentElement.removeAttribute("lang");
+      }
+    });
+
     it("posts credentials and stores the session hints on success", async () => {
       vi.mocked(fetch).mockResolvedValue(jsonResponse(PROFILE));
       const profile = await landingLogin("u@example.com", "pw");

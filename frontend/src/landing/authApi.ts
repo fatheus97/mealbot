@@ -32,14 +32,17 @@ export class LandingAuthError extends Error {}
  */
 export class AccountCreatedNeedsLoginError extends LandingAuthError {}
 
-const LOGIN_FAILED = "Login failed. Check your credentials.";
-const REGISTER_FAILED =
-  "Registration failed. Please try again or contact info@trymealbot.com.";
-const DEMO_FAILED = "Could not start the demo. Please try again.";
-/** The account exists but the follow-up sign-in didn't land — telling the user
- *  "registration failed" would send them back to a 409 on the duplicate email.
- *  Mirrors AuthBar's AutoLoginAfterRegisterError copy. */
-const REGISTERED_BUT_NOT_SIGNED_IN = "Account created — please sign in to continue.";
+// These four were module-level English consts. They are now looked up per
+// call from copy.ts, which both localizes them and brings them under the
+// orphan-key guard in copy.test.ts — a const living here was invisible to it.
+//
+// `REGISTERED_BUT_NOT_SIGNED_IN`: the account exists but the follow-up sign-in
+// did not land, so telling the user "registration failed" would send them back
+// to a 409 on the duplicate email. Mirrors AuthBar's AutoLoginAfterRegisterError.
+const LOGIN_FAILED = () => landingCopy().authLoginFailed;
+const REGISTER_FAILED = () => landingCopy().authRegisterFailed;
+const DEMO_FAILED = () => landingCopy().authDemoFailed;
+const REGISTERED_BUT_NOT_SIGNED_IN = () => landingCopy().authRegisteredNotSignedIn;
 
 // Mirrors backend/app/models/user_schemas.py (Field min/max +
 // validate_password_complexity). Duplicated deliberately — the server stays
@@ -137,10 +140,10 @@ export async function landingLogin(email: string, password: string): Promise<Ses
   try {
     resp = await postJson("/auth/login", { email, password });
   } catch {
-    throw new LandingAuthError(LOGIN_FAILED);
+    throw new LandingAuthError(LOGIN_FAILED());
   }
-  if (!resp.ok) throw new LandingAuthError(LOGIN_FAILED);
-  return completeSession(await readProfile(resp, LOGIN_FAILED));
+  if (!resp.ok) throw new LandingAuthError(LOGIN_FAILED());
+  return completeSession(await readProfile(resp, LOGIN_FAILED()));
 }
 
 /**
@@ -169,7 +172,7 @@ export async function landingRegister(
       ...getStoredAttribution(),
     });
   } catch {
-    throw new LandingAuthError(REGISTER_FAILED);
+    throw new LandingAuthError(REGISTER_FAILED());
   }
   if (!resp.ok) {
     // 422 = Pydantic rejected what they typed; echo the specific reason so
@@ -182,13 +185,13 @@ export async function landingRegister(
         .catch(() => null);
       if (specific) throw new LandingAuthError(specific);
     }
-    throw new LandingAuthError(REGISTER_FAILED);
+    throw new LandingAuthError(REGISTER_FAILED());
   }
 
   try {
     return await landingLogin(email, password);
   } catch {
-    throw new AccountCreatedNeedsLoginError(REGISTERED_BUT_NOT_SIGNED_IN);
+    throw new AccountCreatedNeedsLoginError(REGISTERED_BUT_NOT_SIGNED_IN());
   }
 }
 
@@ -197,8 +200,8 @@ export async function landingDemo(): Promise<SessionProfile> {
   try {
     resp = await postJson("/auth/demo");
   } catch {
-    throw new LandingAuthError(DEMO_FAILED);
+    throw new LandingAuthError(DEMO_FAILED());
   }
-  if (!resp.ok) throw new LandingAuthError(DEMO_FAILED);
-  return completeSession(await readProfile(resp, DEMO_FAILED));
+  if (!resp.ok) throw new LandingAuthError(DEMO_FAILED());
+  return completeSession(await readProfile(resp, DEMO_FAILED()));
 }

@@ -69,6 +69,21 @@ export interface LandingCopy {
   passwordNeedsLower: string;
   passwordNeedsDigit: string;
 
+  /**
+   * authApi.ts — the failures a visitor actually hits. `authLoginFailed`
+   * fires on every wrong password, which makes it the most-read string in
+   * this table.
+   *
+   * Wording is taken from the SPA dictionary (`auth.error.*`) rather than
+   * reinvented: the landing modal and the app AuthBar are two front doors to
+   * the same login, and a visitor who fails on one and retries on the other
+   * should not be told two different things.
+   */
+  authLoginFailed: string;
+  authRegisterFailed: string;
+  authDemoFailed: string;
+  authRegisteredNotSignedIn: string;
+
   /** accessRequest.ts */
   accessGenericFailure: string;
   accessRateLimited: string;
@@ -104,6 +119,12 @@ const EN: LandingCopy = {
   passwordNeedsUpper: 'Password must contain an uppercase letter.',
   passwordNeedsLower: 'Password must contain a lowercase letter.',
   passwordNeedsDigit: 'Password must contain a digit.',
+
+  authLoginFailed: 'Login failed. Check your credentials.',
+  authRegisterFailed:
+    'Registration failed. Please try again or contact info@trymealbot.com.',
+  authDemoFailed: 'Could not start the demo. Please try again.',
+  authRegisteredNotSignedIn: 'Account created — please sign in to continue.',
 
   accessGenericFailure:
     'Something went wrong. Please try again, or email info@trymealbot.com.',
@@ -143,6 +164,14 @@ const CS: LandingCopy = {
   passwordNeedsUpper: 'Heslo musí obsahovat velké písmeno.',
   passwordNeedsLower: 'Heslo musí obsahovat malé písmeno.',
   passwordNeedsDigit: 'Heslo musí obsahovat číslici.',
+
+  // Verbatim from src/i18n/cs.ts `auth.error.*`, with {supportEmail}
+  // resolved — the landing page has no interpolator and one support address.
+  authLoginFailed: 'Přihlášení se nezdařilo. Zkontrolujte přihlašovací údaje.',
+  authRegisterFailed:
+    'Registrace se nezdařila. Zkuste to prosím znovu nebo napište na info@trymealbot.com.',
+  authDemoFailed: 'Demo není dostupné. Zkuste to prosím znovu.',
+  authRegisteredNotSignedIn: 'Účet byl vytvořen — pokračujte přihlášením.',
 
   accessGenericFailure:
     'Něco se pokazilo. Zkuste to prosím znovu, nebo napište na info@trymealbot.com.',
