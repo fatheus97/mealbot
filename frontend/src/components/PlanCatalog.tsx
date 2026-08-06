@@ -215,7 +215,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           flex: isMobile ? 1 : undefined,
                           padding: "0.3rem 0.8rem",
                           fontSize: "0.85rem",
-                          backgroundColor: "#4a90d9",
+                          backgroundColor: "#2563eb", // 5.17:1 with #fff (was #4a90d9, 3.34:1)
                           color: "#fff",
                           border: "none",
                           borderRadius: "4px",
@@ -232,7 +232,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           padding: "0.3rem 0.8rem",
                           fontSize: "0.85rem",
                           backgroundColor: "#fee2e2",
-                          color: "#dc2626",
+                          color: "#b91c1c", // 5.30:1 on #fee2e2 (was #dc2626, 3.95:1)
                           border: "none",
                           borderRadius: "4px",
                           cursor: "pointer",

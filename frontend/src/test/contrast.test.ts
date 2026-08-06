@@ -8,6 +8,7 @@ import {
   checkText,
   findInlineColorPairs,
   findUncoloredControls,
+  fontSizePx,
   blend,
   adaptiveText,
   THEME,
@@ -435,5 +436,74 @@ describe('disabled layout-editor controls', () => {
     // The obvious #f3f4f6 fill is why the at-max button needed a lighter one:
     // the shared grey lands at 4.39:1 on it, just under the floor.
     expect(checkText(DISABLED_TEXT, '#f3f4f6', 14.4).passes).toBe(false);
+  });
+});
+
+describe('findInlineColorPairs sees multi-line blocks', () => {
+  const pairs = (src: string) => findInlineColorPairs(src, 'x.tsx').map((p) => `${p.fg}|${p.bg}`);
+
+  it('pairs a background and colour declared on DIFFERENT lines', () => {
+    // The whole point. Line-based scanning made every multi-line style object
+    // invisible, which is how FeedbackPanel's Accept button shipped 3.30:1.
+    const multi = `const acceptBtn: CSSProperties = {
+  padding: "0.5rem 0.9rem",
+  background: "#16a34a",
+  color: "#ffffff",
+};`;
+    expect(pairs(multi)).toEqual(['#ffffff|#16a34a']);
+  });
+
+  it('keeps each entry of a palette record separate', () => {
+    // Own-level parsing: reading the record as one lump would pair planned.bg
+    // with finished.text and assert a combination that never renders.
+    const record = `const STATUS_COLORS = {
+  planned: { bg: "#e2e8f0", text: "#475569" },
+  finished: { bg: "#f3e8ff", text: "#7c3aed" },
+};`;
+    expect(pairs(record)).toEqual(['#475569|#e2e8f0', '#7c3aed|#f3e8ff']);
+  });
+
+  it('ignores a hex quoted in a comment', () => {
+    // This file and the components are full of "#16a34a was 3.00:1" prose.
+    const prose = `// background: "#16a34a" with color: "#ffffff" was 3.30:1
+const ok = { background: "#15803d", color: "#ffffff" };`;
+    expect(pairs(prose)).toEqual(['#ffffff|#15803d']);
+  });
+
+  it('reports the background line, not the block opening', () => {
+    const multi = `const a = {\n  padding: 4,\n  background: "#15803d",\n  color: "#ffffff",\n};`;
+    expect(findInlineColorPairs(multi, 'x.tsx')[0].line).toBe(3);
+  });
+});
+
+describe('fontSizePx follows React, not a guess', () => {
+  it('treats a NUMERIC fontSize as px', () => {
+    // React appends px to numbers. The old parser had no numeric branch and
+    // fell through to "must be rem", scoring `fontSize: 14` as 224px — which
+    // bought it WCAG's large-text 3:1 floor and let 3.30:1 pass as a success.
+    expect(fontSizePx('fontSize: 14')).toBe(14);
+    expect(fontSizePx('fontSize: "14"')).toBe(14);
+    expect(fontSizePx('fontSize: "14px"')).toBe(14);
+  });
+
+  it('still converts rem', () => {
+    expect(fontSizePx('fontSize: "0.85rem"')).toBeCloseTo(13.6, 5);
+    expect(fontSizePx('fontSize: "1rem"')).toBe(16);
+  });
+
+  it('assumes the STRICT floor for a size it cannot parse', () => {
+    // em/%/calc/a variable are unknown. Guessing large would hand out the 3:1
+    // bar for free, so an unparseable size falls back to the 16px body size.
+    expect(fontSizePx('fontSize: "1.2em"')).toBe(16);
+    expect(fontSizePx('fontSize: "calc(1rem + 2px)"')).toBe(16);
+    expect(fontSizePx('fontSize: titleSize')).toBe(16);
+    expect(fontSizePx('padding: 4')).toBe(16);
+  });
+
+  it('never lets a 14px control be graded as large text', () => {
+    // The exact regression: 3.30:1 must fail at 14px bold (large text needs
+    // >=18.66px when bold), and would have passed at the mis-parsed 224px.
+    expect(checkText('#ffffff', '#16a34a', fontSizePx('fontSize: 14'), 700).passes).toBe(false);
+    expect(checkText('#ffffff', '#16a34a', 224, 700).passes).toBe(true);
   });
 });
