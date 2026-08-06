@@ -32,10 +32,21 @@ white-on-white bug has shipped more than once.
 does WCAG AA maths on **every inline background/foreground pair in the app source**,
 in **both** schemes, and carries negative controls asserting the exact colours that
 shipped each past bug still fail. It runs in CI (`npm test`, inside the `frontend
-build` job). So the mechanical trap-catching is covered; the browser pass is there
-for what static analysis structurally cannot see — multi-line style objects,
-alternate property spellings (`bg`/`text`/`fg`), and contrast killed by an
-ancestor's `opacity`.
+build` job). It is block-based and reads the `bg`/`text`/`fg` shorthands too, so
+multi-line `style={{ … }}` objects and palette records are **not** blind spots —
+both were hardened after they shipped bugs, and both have dedicated tests. Don't
+second-guess a green run on those shapes.
+
+The browser pass covers what static source analysis genuinely cannot reach:
+- **a foreground declared with no background beside it** — the suite says so
+  itself (`contrast.ts:273`, "the important half"): it can't know which ancestor
+  surface the text lands on;
+- **contrast killed by an ancestor's `opacity`**, which no per-declaration check sees;
+- **colours computed at runtime** — template literals, values from props or state;
+- **anything not an inline style** — CSS classes, `index.css` itself.
+
+As `contrast.ts` puts it, the browser pass is "the only one that knows what
+actually composites". The layers are complementary; none is sufficient alone.
 
 **Carve-out — no browser tool, no pretending.** Some agents run without a browser
 (the `/work-tickets` cloud routine's toolset is `Bash, Read, Write, Edit, Glob,
