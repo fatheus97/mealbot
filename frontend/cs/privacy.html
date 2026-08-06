@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — Mealbot</title>
+    <meta
+      name="description"
+      content="What Mealbot collects, who receives it, how long it is kept, and what you can ask us to do about it."
+    />
+    <!-- Not a page we want ranking above the product, but it must be reachable. -->
+    <meta name="robots" content="index, follow" />
+
+    <!-- Self-canonical. These pages had none, and /privacy.html + /terms.html
+         are live duplicates of the extensionless URLs (nginx's catch-all
+         `try_files $uri` serves the real file), so both were indexable
+         twice. It also disambiguates the hreflang cluster below: an
+         annotation naming a URL whose page does not claim that URL as its
+         own is self-contradictory.
+
+         Both language editions are equally authoritative (terms §13), so
+         neither canonicalises to the other — they are alternates, not
+         copies. x-default is the English one. -->
+    <link rel="canonical" href="https://trymealbot.com/cs/privacy" />
+    <link rel="alternate" hreflang="en" href="https://trymealbot.com/privacy" />
+    <link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs/privacy" />
+    <link rel="alternate" hreflang="x-default" href="https://trymealbot.com/privacy" />
+    <meta name="theme-color" content="#242424" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /* Same matched-pair theming as index.html: every custom property is
+         reassigned under the light query, so nothing pairs a hardcoded
+         background with the adaptive default text colour. */
+      :root {
+        color-scheme: light dark;
+        --bg: #242424;
+        --fg: rgba(255, 255, 255, 0.87);
+        --muted: rgba(255, 255, 255, 0.65);
+        --card-bg: #1c1c1c;
+        --card-fg: rgba(255, 255, 255, 0.92);
+        --card-border: #3a3a3a;
+        --accent: #5b8def;
+        --note-bg: #2a2415;
+        --note-fg: rgba(255, 255, 255, 0.92);
+        --note-border: #5c4f2a;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --fg: #213547;
+          --muted: #64748b;
+          --card-bg: #f8fafc;
+          --card-fg: #1e293b;
+          --card-border: #e2e8f0;
+          --accent: #2563eb;
+          --note-bg: #fffbeb;
+          --note-fg: #713f12;
+          --note-border: #fde68a;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.65;
+        font-size: 16px;
+      }
+
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+      h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 0.35rem; }
+      h2 {
+        font-size: 1.25rem;
+        margin: 2.5rem 0 0.75rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--card-border);
+      }
+      h3 { font-size: 1.02rem; margin: 1.5rem 0 0.4rem; }
+      p, li { color: var(--fg); }
+      .muted { color: var(--muted); }
+      a { color: var(--accent); }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 4px;
+        padding: 0.05em 0.35em;
+      }
+
+      /* Self-contained surface: background AND colour set together. */
+      .note {
+        background: var(--note-bg);
+        color: var(--note-fg);
+        border: 1px solid var(--note-border);
+        border-radius: 8px;
+        padding: 0.9rem 1.1rem;
+        margin: 1.25rem 0;
+      }
+      .note p:last-child { margin-bottom: 0; }
+      .note p:first-child { margin-top: 0; }
+
+      .card {
+        background: var(--card-bg);
+        color: var(--card-fg);
+        border: 1px solid var(--card-border);
+        border-radius: 8px;
+        padding: 0.9rem 1.1rem;
+        margin: 1.25rem 0;
+      }
+
+      /* Wide content scrolls inside its own box; the page never scrolls sideways. */
+      .table-scroll { overflow-x: auto; margin: 1rem 0; }
+      table { border-collapse: collapse; width: 100%; min-width: 480px; font-size: 0.92rem; }
+      th, td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.55rem 0.7rem;
+        border-bottom: 1px solid var(--card-border);
+      }
+      th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+      .back { display: inline-block; margin-bottom: 1.5rem; font-size: 0.9rem; }
+      footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--card-border); }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <a class="back" href="/cs">&larr; Zpět na Mealbot</a>
+
+      <h1>Zásady ochrany osobních údajů</h1>
+      <p class="muted">Poslední aktualizace: <time datetime="2026-08-06">6. srpna 2026</time></p>
+
+      <p>
+        Popisujeme zde, co Mealbot s vašimi údaji skutečně dělá — psáno podle kódu, ne
+        podle šablony. Kde je něco nedokonalé, říkáme to.
+      </p>
+
+      <div class="note">
+        <p>
+          <strong>Stručně.</strong> Používáme tři cookies, všechny jsou potřeba k tomu, abyste
+          zůstali přihlášeni. Neprovozujeme žádnou analytiku, žádnou reklamu ani žádné
+          sledovací nástroje třetích stran. Údaje o vaší platební kartě nikdy nevidíme. Ale vaše <strong>dietní omezení a
+          alergie posíláme společnosti Google</strong>, abychom vám vygenerovali jídelníčky — tak tento
+          produkt funguje a je to nejdůležitější věc na této stránce.
+        </p>
+      </div>
+
+      <h2>Kdo je odpovědný</h2>
+      <p>
+        Mealbot provozuje <strong>František Bláha</strong>, Jana Černého 489/2b, Věkoše,
+        503 41 Hradec Králové, Česká republika. IČO 22059946. Neplátce DPH.
+        Jsme správcem osobních údajů popsaných
+        zde.
+      </p>
+      <p>
+        Ve všem, co se týká této stránky, včetně kterékoli žádosti níže, nám napište na
+        <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>.
+      </p>
+
+      <h2>Co shromažďujeme</h2>
+
+      <h3>Váš účet</h3>
+      <p>
+        Vaši e-mailovou adresu a hash hesla (bcrypt — samotné heslo nikdy neukládáme ani
+        nelogujeme). K tomu stav, který potřebujeme k provozu vašeho účtu: kdy jste se
+        zaregistrovali, zda máte potvrzený e-mail a jaký je stav vašeho předplatného.
+      </p>
+
+      <h3>Co v aplikaci vytvoříte</h3>
+      <p>
+        Vaše předvolby vaření (země, jazyk, jednotky, zda zahrnovat koření), obsah vaší
+        lednice a zásoby ve spíži, vaše jídelníčky a recepty a to, kdy jste jídlo označili jako
+        uvařené. Textová pole, která vyplníte — chuťové preference, suroviny, kterým se chcete
+        vyhnout, poznámky — ukládáme přesně tak, jak jste je napsali.
+      </p>
+
+      <h3>Dietní omezení a alergie</h3>
+      <p>
+        Jde o údaje týkající se zdraví a v některých případech (halal, košer) mohou vypovídat o
+        náboženském vyznání. Zacházíme s nimi jako s nejcitlivější věcí, kterou máme. Níže se
+        jim věnujeme zvlášť, protože jde o to, kam putují.
+      </p>
+
+      <h3>Platba</h3>
+      <p>
+        <strong>Údaje o vaší platební kartě nikdy nedostáváme.</strong> Pokladnu hostuje Stripe a
+        data karty se nikdy nedostanou na naše servery. Vaše jméno, fakturační adresu, kartu
+        a případné DIČ shromažďuje přímo Stripe. My uchováváme jen identifikátory a stav — vaše
+        Stripe ID zákazníka a předplatného, zda je vaše předplatné aktivní a kdy končí období.
+      </p>
+      <p>
+        U každé platby uchováváme záznam o vyúčtování: částku, měnu, vaši zemi a to, zda šlo o
+        firemní nákup. Potřebujeme to kvůli DPH.
+      </p>
+      <p class="muted">
+        Ukládáme také jednosměrný klíčovaný otisk, který z vaší karty odvodí Stripe — není to
+        číslo karty a nelze jej zpětně převést. Existuje jen proto, aby jedna a tatáž karta
+        nemohla otevírat neomezeně mnoho zkušebních období.
+      </p>
+
+      <h3>Podpora a žádosti o přístup</h3>
+      <p>
+        Když nám pošlete zpětnou vazbu, uložíme vaši zprávu. Když si vyžádáte přístup z úvodní
+        stránky v době, kdy jsou registrace zavřené, uložíme e-mailovou adresu a zprávu, kterou
+        odešlete — včetně jakýchkoli údajů o stravě, které se tam rozhodnete uvést.
+      </p>
+
+      <h3>Technické údaje</h3>
+      <p>
+        Přihlašovací relace (hash tokenu relace, časová razítka a řetězec user-agent vašeho
+        prohlížeče). Počty spotřebovaných AI tokenů kvůli vymáhání limitů férového užívání —
+        zaznamenává se, kolik se spotřebovalo, nikdy co v tom bylo.
+      </p>
+      <p>
+        Uchováváme také kopii toho, co bylo odesláno AI a co AI vrátila, plus vaše případné úpravy
+        jejího výstupu, abychom poznali, kde se AI plete. Tato kopie obsahuje vaše dietní
+        omezení. V současné době se z toho nelze odhlásit; pokud je to pro vás důležité,
+        napište nám.
+      </p>
+      <p>
+        Náš webový server zapisuje standardní access logy obsahující vaši IP adresu, vyžádanou
+        stránku a váš user-agent. IP adresy neukládáme do naší databáze a nepoužíváme je
+        k analytice.
+      </p>
+      <p>
+        Tyto logy mají <strong>omezenou velikost a automaticky rotují</strong> — jakmile je limit
+        dosažen, nejstarší záznamy se mažou. Neuchovávají se navždy. Omezujeme je velikostí, ne
+        stářím, takže nemůžeme poctivě uvést pevný počet dní: při nízkém provozu může řádek
+        přežít déle, při vysokém mnohem méně. Logy nikdy neobsahují obsah vašich
+        jídelníčků a nikdy neobsahují přihlašovací odkazy ani odkazy pro obnovu hesla.
+      </p>
+
+      <h2>Vaše údaje o stravě putují do společnosti Google</h2>
+      <div class="note">
+        <p>
+          Abychom sestavili jídelníček, posíláme váš požadavek do <strong>Gemini API společnosti Google</strong>. Tento
+          požadavek obsahuje vaše <strong>deklarované alergeny, vaše typy stravy</strong> (včetně
+          halal, košer, diabetické, low-FODMAP a dětské stravy), váš volný text se surovinami,
+          kterým se chcete vyhnout, vaše chuťové preference, velikost vaší domácnosti a obsah
+          vaší lednice.
+        </p>
+        <p>
+          <strong>Neposíláme vaši e-mailovou adresu, vaše jméno ani žádný identifikátor účtu.</strong>
+          Google dostává obsah, ne to, kdo jste.
+        </p>
+      </div>
+      <p>
+        Totéž platí pro fotografii účtenky, pokud použijete skener (odesílá se obrázek), a pro
+        zpětnou vazbu, kterou odešlete (odesílá se text, aby se automaticky zařadil do kategorie).
+      </p>
+      <p>
+        Po vygenerování spouštíme vlastní deterministickou kontrolu proti vašim deklarovaným
+        alergenům a odmítneme zobrazit jídelníček, který jí neprojde. Je to záchranná síť nad
+        modelem, ne náhrada za čtení etiket.
+      </p>
+      <p class="muted">
+        Používáme standardní API společnosti Google. Pokud si nepřejete, aby se tyto údaje
+        zpracovávaly tímto způsobem, poctivá odpověď zní, že Mealbot bez nich jídelníčky
+        vygenerovat neumí.
+      </p>
+
+      <h2>Kdo další dostává vaše údaje</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Kdo</th><th>Co dostává</th><th>Proč</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Google (Gemini API)</td>
+              <td>Váš požadavek na jídelníček včetně dietních omezení, obsahu ledničky, fotek účtenek a textu zpětné vazby. Žádné údaje o totožnosti.</td>
+              <td>Generování jídelníčků a receptů</td>
+            </tr>
+            <tr>
+              <td>Stripe</td>
+              <td>Váš e-mail a interní ID uživatele; jméno, adresu, DIČ a kartu od vás sbírají samostatně</td>
+              <td>Platby a předplatné</td>
+            </tr>
+            <tr>
+              <td>Resend</td>
+              <td>Vaši e-mailovou adresu a obsah e-mailu, který vám posíláme</td>
+              <td>Odesílání e-mailů pro přihlášení, obnovu hesla a ověření</td>
+            </tr>
+            <tr>
+              <td>GitHub</td>
+              <td>Text zpětné vazby, kterou odešlete, zakládaný do soukromého repozitáře pod číselným ID</td>
+              <td>Sledování nahlášených chyb</td>
+            </tr>
+            <tr>
+              <td>Hetzner</td>
+              <td>Všechno, jako náš poskytovatel hostingu</td>
+              <td>Provoz serverů</td>
+            </tr>
+            <tr>
+              <td>Cloudflare</td>
+              <td>DNS dotazy na naši doménu</td>
+              <td>Překlad doménových jmen</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        To je úplný seznam. Vaše údaje neprodáváme, nesdílíme je pro reklamu
+        a žádná jiná společnost je nedostává.
+      </p>
+      <p class="muted">
+        Servery hostujeme u společnosti Hetzner Online GmbH v <strong>Norimberku v Německu</strong>, takže
+        vaše údaje jsou uložené v EU. Google, Stripe, Resend a GitHub mohou údaje zpracovávat
+        mimo EU podle svých vlastních podmínek.
+      </p>
+
+      <h2>Cookies</h2>
+      <p>
+        Používáme tři cookies a všechny jsou nezbytně nutné, takže tu není žádná lišta
+        se souhlasem, na kterou byste museli klikat:
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Cookie</th><th>Účel</th><th>Doba platnosti</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>mealbot_at</code></td><td>Udržuje vás přihlášené</td><td>15 minut</td></tr>
+            <tr><td><code>mealbot_rt</code></td><td>Obnovuje vaši relaci</td><td>30 dní</td></tr>
+            <tr><td><code>mealbot_csrf</code></td><td>Blokuje cross-site request forgery</td><td>30 dní</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>Pokud se nikdy nepřihlásíte, nenastavíme vůbec žádné cookies.</strong> Nikde na tomto
+        webu není žádná analytická cookie, žádná reklamní cookie ani žádný skript pro záznam relace.
+      </p>
+      <p>
+        Váš prohlížeč navíc ukládá některé věci lokálně, aby aplikace fungovala — jako kdo jste
+        přihlášeni, vaše uložené předvolby a to, kde jste v receptu, který zrovna vaříte. To
+        zůstává ve vašem zařízení a při odhlášení se to smaže.
+      </p>
+
+      <h2>Jak dlouho věci uchováváme</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Co</th><th>Jak dlouho</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Přihlašovací relace</td><td>Smazány 7 dní po vypršení platnosti</td></tr>
+            <tr><td>Jídelníčky, které jste nikdy nepotvrdili</td><td>Smazány, až příště vygenerujete jídelníček</td></tr>
+            <tr><td>Demo účty a jejich data</td><td>Přibližně 2 hodiny</td></tr>
+            <tr><td>Zálohy databáze</td><td>14 dní</td></tr>
+            <tr><td>Váš účet a všechno v něm</td><td>Dokud není účet smazán</td></tr>
+            <tr><td>Záznamy o vyúčtování (DPH)</td><td>Uchovávány i po smazání, jak vyžadují daňové předpisy</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Vaše práva — a co dnes reálně dokážeme</h2>
+      <p>
+        Můžete nás požádat o kopii svých osobních údajů, o jejich opravu, výmaz nebo omezení toho,
+        jak je používáme. Napište na <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> a my to
+        vyřídíme.
+      </p>
+      <p>
+        Řekneme vám na rovinu, jak to je teď, protože zásady, které slibují tlačítka,
+        která neexistují, nemají žádnou cenu:
+      </p>
+      <div class="card">
+        <ul>
+          <li>
+            <strong>Tlačítko "smazat můj účet" zatím neexistuje.</strong> Napište nám a my to uděláme
+            ručně.
+          </li>
+          <li>
+            <strong>Samoobslužný export dat zatím neexistuje.</strong> Požádejte nás a my vaše
+            údaje sestavíme ručně.
+          </li>
+          <li>
+            <strong>E-mailovou adresu si v aplikaci změnit nemůžete.</strong> Napište nám.
+          </li>
+          <li>
+            <strong>Výmaz není okamžitý ani absolutní.</strong> Záznamy o vyúčtování uchováváme
+            kvůli daňovým povinnostem; váš e-mail zůstává v našem interním administrátorském logu jako záznam o tom, že
+            k výmazu došlo; váš zákaznický záznam u Stripe a jakékoli již podané hlášení chyby
+            se automaticky neodstraňují; a v zálohách databáze zůstanete až 14
+            dní.
+          </li>
+        </ul>
+      </div>
+      <p>
+        Se stížností se také můžete obrátit na český dozorový úřad pro ochranu osobních údajů
+        (<a href="https://uoou.gov.cz" rel="noopener">Úřad pro ochranu osobních údajů</a>).
+      </p>
+
+      <h2>Zabezpečení</h2>
+      <p>
+        Hesla hashujeme pomocí bcrypt. Tokeny relací, tokeny pro obnovu hesla a ověřovací tokeny ukládáme pouze
+        jako SHA-256 hashe, jsou jednorázové a jejich platnost vyprší. Web běží výhradně přes HTTPS. Cookies jsou
+        HttpOnly, Secure a SameSite. Používáme přísnou Content-Security-Policy, která blokuje
+        skripty třetích stran. Údaje o platebních kartách se na naše servery nikdy nedostanou.
+      </p>
+      <p class="muted">
+        Žádný systém není dokonalý. Pokud najdete bezpečnostní problém, napište nám prosím — mnohem
+        raději se to dozvíme od vás.
+      </p>
+
+      <h2>Děti</h2>
+      <p>
+        Mealbot není určen dětem mladším 16 let. Možnost dětské stravy je určena dospělým,
+        kteří plánují jídlo pro kojence; vědomě neshromažďujeme údaje od dětí.
+      </p>
+
+      <h2>Změny</h2>
+      <p>
+        Pokud tyto zásady změníme, aktualizujeme datum nahoře. Pokud změna podstatně
+        ovlivní to, jak vaše osobní údaje používáme, dáme vám o tom vědět e-mailem.
+      </p>
+
+      <footer>
+        <p class="muted" style="font-size: 0.85rem;">
+          Máte dotazy? <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> &middot;
+          <a href="/cs/terms">Obchodní podmínky</a> &middot;
+          <a href="/cs">Zpět na Mealbot</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

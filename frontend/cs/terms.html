@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terms of Service — Mealbot</title>
+    <meta
+      name="description"
+      content="The terms you agree to when using Mealbot: price, billing, fair use, what the allergen screening does and does not do, and how either of us can end the agreement."
+    />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Self-canonical. These pages had none, and /privacy.html + /terms.html
+         are live duplicates of the extensionless URLs (nginx's catch-all
+         `try_files $uri` serves the real file), so both were indexable
+         twice. It also disambiguates the hreflang cluster below: an
+         annotation naming a URL whose page does not claim that URL as its
+         own is self-contradictory.
+
+         Both language editions are equally authoritative (terms §13), so
+         neither canonicalises to the other — they are alternates, not
+         copies. x-default is the English one. -->
+    <link rel="canonical" href="https://trymealbot.com/cs/terms" />
+    <link rel="alternate" hreflang="en" href="https://trymealbot.com/terms" />
+    <link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs/terms" />
+    <link rel="alternate" hreflang="x-default" href="https://trymealbot.com/terms" />
+    <meta name="theme-color" content="#242424" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /* Matched-pair theming, same as index.html / privacy.html: every custom
+         property is reassigned under the light query, so nothing pairs a
+         hardcoded background with the adaptive default text colour. */
+      :root {
+        color-scheme: light dark;
+        --bg: #242424;
+        --fg: rgba(255, 255, 255, 0.87);
+        --muted: rgba(255, 255, 255, 0.65);
+        --card-bg: #1c1c1c;
+        --card-fg: rgba(255, 255, 255, 0.92);
+        --card-border: #3a3a3a;
+        --accent: #5b8def;
+        --note-bg: #2a2415;
+        --note-fg: rgba(255, 255, 255, 0.92);
+        --note-border: #5c4f2a;
+        --warn-bg: #2a1f1f;
+        --warn-fg: rgba(255, 255, 255, 0.92);
+        --warn-border: #5c3a3a;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --fg: #213547;
+          --muted: #64748b;
+          --card-bg: #f8fafc;
+          --card-fg: #1e293b;
+          --card-border: #e2e8f0;
+          --accent: #2563eb;
+          --note-bg: #fffbeb;
+          --note-fg: #713f12;
+          --note-border: #fde68a;
+          --warn-bg: #fef2f2;
+          --warn-fg: #7f1d1d;
+          --warn-border: #fecaca;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.65;
+        font-size: 16px;
+      }
+
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+      h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 0.35rem; }
+      h2 {
+        font-size: 1.25rem;
+        margin: 2.5rem 0 0.75rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--card-border);
+      }
+      h3 { font-size: 1.02rem; margin: 1.5rem 0 0.4rem; }
+      .muted { color: var(--muted); }
+      a { color: var(--accent); }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 4px;
+        padding: 0.05em 0.35em;
+      }
+
+      /* Self-contained surfaces: background AND colour set together. */
+      .note, .warn, .card {
+        border-radius: 8px;
+        padding: 0.9rem 1.1rem;
+        margin: 1.25rem 0;
+        border: 1px solid;
+      }
+      .note { background: var(--note-bg); color: var(--note-fg); border-color: var(--note-border); }
+      .warn { background: var(--warn-bg); color: var(--warn-fg); border-color: var(--warn-border); }
+      .card { background: var(--card-bg); color: var(--card-fg); border-color: var(--card-border); }
+      .note p:last-child, .warn p:last-child, .card p:last-child,
+      .card ul:last-child, .warn ul:last-child { margin-bottom: 0; }
+      .note p:first-child, .warn p:first-child, .card p:first-child { margin-top: 0; }
+
+      /* Wide content scrolls inside its own box; the page never scrolls sideways. */
+      .table-scroll { overflow-x: auto; margin: 1rem 0; }
+      table { border-collapse: collapse; width: 100%; min-width: 460px; font-size: 0.92rem; }
+      th, td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.55rem 0.7rem;
+        border-bottom: 1px solid var(--card-border);
+      }
+      th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+      .back { display: inline-block; margin-bottom: 1.5rem; font-size: 0.9rem; }
+      footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--card-border); }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <a class="back" href="/cs">&larr; Zpět na Mealbot</a>
+
+      <h1>Obchodní podmínky</h1>
+      <p class="muted">Poslední aktualizace: <time datetime="2026-08-06">6. srpna 2026</time></p>
+
+      <p>
+        Toto jsou podmínky, se kterými souhlasíte tím, že Mealbot používáte. Jsou napsané tak,
+        aby odpovídaly tomu, co software skutečně dělá — včetně těch částí, které jsou omezené a
+        které uvádíme na rovinu, místo abychom je schovávali.
+      </p>
+
+      <div class="warn">
+        <p>
+          <strong>Přečtěte si část o bezpečnosti.</strong> Mealbot kontroluje recepty proti
+          alergenům, které uvedete, ale tato kontrola má reálné limity — především u receptu
+          vygenerovaného v jiném jazyce než v angličtině závisí na <strong>vlastním anglickém
+          pojmenování</strong> každé suroviny ze strany AI a postup vaření se kontroluje vždy jen
+          v angličtině. Je to pomůcka, ne záruka, a nikdy nenahrazuje přečtení skutečné etikety
+          výrobku.
+        </p>
+      </div>
+
+      <h2>1. S kým uzavíráte smlouvu</h2>
+      <p>
+        Mealbot provozuje <strong>František Bláha</strong>, Jana Černého 489/2b, Věkoše,
+        503 41 Hradec Králové, Česká republika, IČO 22059946, neplátce DPH.
+        „My“ a „nás“ znamenají tuto osobu; „vy“ znamená vás.
+      </p>
+      <p>
+        Kontakt: <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>. Jak nakládáme s vašimi
+        údaji, popisují samostatně naše <a href="/cs/privacy">Zásady ochrany osobních údajů</a>.
+      </p>
+
+      <h2>2. Co Mealbot je</h2>
+      <p>
+        Mealbot generuje jídelníčky a recepty pomocí modelu AI, přičemž bere v úvahu stravovací
+        režimy a alergeny, které uvedete, a pomáhá vám spravovat nákupní seznam, obsah ledničky
+        a kuchařku.
+      </p>
+      <p>
+        Přístup je momentálně <strong>pouze na pozvánku</strong>. Pokud jste dostali odkaz s pozvánkou,
+        funguje jednou, vyprší přibližně po 48 hodinách a po použití ho nelze převést na někoho jiného.
+      </p>
+      <p>
+        Demo účty jsou ukázka, ne služba: trvají přibližně dvě hodiny, jejich data se poté
+        smažou a <strong>vracejí pevně daný ukázkový obsah, ne jídelníčky generované
+        AI</strong>. Nic z toho, co tyto podmínky říkají o kvalitě generování nebo o kontrole,
+        se na demo účet nevztahuje.
+      </p>
+
+      <h2>3. Váš účet</h2>
+      <p>
+        Jeden účet na osobu. Heslo si nechte pro sebe — za to, co se pod vaším účtem děje,
+        odpovídáte vy. Než budete moci generovat jídelníčky nebo si zřídit předplatné, musíte
+        potvrdit svou e-mailovou adresu.
+      </p>
+      <p>
+        Pro používání Mealbotu vám musí být alespoň 16 let. Není určen dětem.
+      </p>
+
+      <h2>4. Cena a platby</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Tarif</th><th>Cena</th></tr></thead>
+          <tbody>
+            <tr><td>Měsíční</td><td>4,99 € za měsíc</td></tr>
+            <tr><td>Roční</td><td>2,99 € za měsíc, účtováno 35,88 € jednou ročně</td></tr>
+            <tr><td>Zkušební období zdarma</td><td>10 dní</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>Platební stránka Stripe vždy zobrazuje přesnou aktuální částku</strong> a je to
+        cena, která pro váš nákup platí. Pokud by cokoli zde bylo v rozporu s platební stránkou,
+        platí platební stránka.
+      </p>
+      <p>
+        <strong>Předplatné se automaticky obnovuje</strong> na konci každého období, dokud ho
+        nezrušíte. Platby zpracovává Stripe; údaje o vaší kartě nikdy nevidíme ani neukládáme.
+      </p>
+
+      <h3>Zkušební období</h3>
+      <p>
+        Zkušební období trvá 10 dní a vyžaduje předem zadaný platební prostředek. Pokud ho
+        nezrušíte před jeho koncem, vaše předplatné automaticky začne a bude vám účtováno.
+      </p>
+      <p>
+        <strong>Jedno zkušební období na osobu a jedno na platební kartu.</strong> Pokud jste už
+        zkušební období měli — nebo pokud karta už byla použita pro zkušební období na jiném účtu —
+        bude vám účtováno rovnou, místo abyste dostali druhé bezplatné období. Snaha získat další
+        zkušební období pomocí dalších e-mailových adres nebo karet není povolena.
+      </p>
+
+      <h3>Zrušení</h3>
+      <p>
+        Zrušit můžete kdykoli v platebním portálu, který je dostupný z vašeho účtu. Přístup vám
+        zůstane do konce období, které už máte zaplacené; uprostřed období vás neodstřihneme.
+      </p>
+
+      <h3>Vrácení peněz a vaše právo odstoupit od smlouvy</h3>
+      <div class="note">
+        <p>
+          Mealbot je digitální služba, kterou můžete začít používat okamžitě. Zahájením předplatného
+          nás žádáte, abychom ji začali poskytovat ihned, a berete na vědomí, že tím
+          <strong>ztrácíte 14denní právo na odstoupení od smlouvy</strong>, které by se jinak na
+          smlouvu uzavřenou na dálku vztahovalo.
+        </p>
+        <p>
+          <strong>10denní zkušební období je obdobím na vyzkoušení před nákupem</strong> — nikomu
+          není účtováno, aniž by měl možnost si Mealbot nejdřív vyzkoušet. Za již započatá období
+          peníze nevracíme. Tím nejsou dotčena vaše zákonná práva, pokud je služba vadná nebo
+          neodpovídá popisu.
+        </p>
+      </div>
+      <p>
+        Pokud se opravdu něco pokazilo — chyba ve vyúčtování nebo nefungující služba —
+        napište nám e-mail. Raději to opravíme, než abychom se o tom hádali.
+      </p>
+
+      <h2>5. Spravedlivé užívání a limity služby</h2>
+      <p>
+        Generování pomocí AI nás stojí peníze za každý požadavek, takže platí strop spravedlivého
+        užívání toho, kolik toho jeden účet vygeneruje:
+      </p>
+      <div class="card">
+        <ul>
+          <li>
+            <strong>Předplatitelé:</strong> zhruba 2 € využití modelu za kalendářní měsíc, s obnovením
+            k 1. dni.
+          </li>
+          <li>
+            <strong>Během zkušebního období:</strong> zhruba 0,75 € za celé zkušební období. Tento limit se
+            neobnovuje — pokud ho vyčerpáte dřív, generování se zastaví, dokud si nesjednáte předplatné.
+          </li>
+        </ul>
+      </div>
+      <p>
+        Jde o přibližné provozní limity, ne o měřený objem, který si kupujete, a můžeme je upravit.
+        Generování, která selžou nebo jsou odmítnuta, se do vašeho limitu nepočítají. Čtení, úpravy
+        a správa obsahu, který už máte, nejsou tímto limitem nikdy blokovány.
+      </p>
+      <p>Platí také několik pevných limitů na to, co může jeden požadavek žádat:</p>
+      <div class="card">
+        <ul>
+          <li>1–7 dní na jídelníček, 1–6 jídel denně, 1–10 osob</li>
+          <li>Až 20 deklarovaných alergenů; až 500 položek v lednici; až 200 zásob spíže</li>
+          <li>Nahrávání účtenek: JPEG, PNG nebo PDF, až 10&nbsp;MB</li>
+          <li>Krátké volné textové vstupy — dlouhé mohou být zkráceny nebo vypuštěny</li>
+        </ul>
+      </div>
+      <p>
+        Uplatňujeme také minutové limity počtu požadavků, aby služba zůstala svižná. Pokud na některý
+        narazíte, chvíli počkejte a zkuste to znovu.
+      </p>
+      <p class="muted">
+        Poznámka: vygenerování nového jídelníčku nahradí váš předchozí <em>nepotvrzený</em> jídelníček.
+        Jídelníčky, které jste potvrdili, zůstávají zachovány.
+      </p>
+
+      <h2>6. Přijatelné užívání</h2>
+      <p>Nedělejte toto:</p>
+      <div class="card">
+        <ul>
+          <li>Sdílet svůj účet nebo používat cizí.</li>
+          <li>Zakládat další účty nebo používat další e-mailové adresy či karty, abyste obešli
+              limity zkušebního období, limity spravedlivého užívání nebo pozastavení účtu.</li>
+          <li>Přistupovat k Mealbotu automatizovanými prostředky, scrapovat jej nebo přeprodávat přístup k němu.</li>
+          <li>Pokoušet se manipulovat AI k vytváření obsahu mimo účel služby
+              nebo se pokoušet získat její instrukce.</li>
+          <li>Odesílat obsah, který je protiprávní nebo k jehož odeslání nemáte právo.</li>
+          <li>Pokoušet se službu rozbít, přetížit nebo zkoumat její zabezpečení.</li>
+        </ul>
+      </div>
+
+      <h2>7. Váš obsah a náš</h2>
+      <p>
+        <strong>Co napíšete, zůstává vaše</strong> — vaše poznámky, předvolby, obsah lednice i vaše
+        úpravy. Dáváte nám svolení to ukládat a zpracovávat, abychom pro vás mohli službu provozovat.
+      </p>
+      <p>
+        Recepty vygenerované pro vás jsou vaše — můžete je vařit, uchovávat, upravovat i sdílet.
+        Nenárokujeme si k nim žádné vlastnictví a netvrdíme, že text vytvořený AI je původní ani
+        že může být chráněn autorským právem.
+      </p>
+      <div class="note">
+        <p>
+          <strong>Recepty, které si oblíbíte, mohou pomoci zlepšit návrhy pro ostatní uživatele.</strong>
+          Když si recept oblíbíte, uložíme si jeho matematickou reprezentaci, kterou lze použít
+          k návrhu podobných nápadů jiným lidem. Není k ní připojeno nic, co by vás identifikovalo,
+          a nikdy se nezobrazuje jako „recept někoho jiného“. Jakmile recept z oblíbených odeberete,
+          tato reprezentace se smaže.
+        </p>
+      </div>
+      <p>
+        Uchováváme také záznamy o tom, co AI vytvořila, a o všech opravách, které v tom uděláte,
+        abychom mohli najít, kde chybuje, a zlepšit ji. Tomu se věnují
+        <a href="/cs/privacy">Zásady ochrany osobních údajů</a>.
+      </p>
+      <p>
+        <strong>Zpětná vazba:</strong> pokud nám pošlete hlášení chyby nebo návrh, můžeme s ním
+        volně naložit, bez povinnosti mlčenlivosti a bez jakékoli odměny nad rámec kreditu, který
+        výslovně nabídneme. Přijatá hlášení můžeme zkopírovat do našeho soukromého systému pro
+        evidenci úkolů. Neposílejte nám nic důvěrného.
+      </p>
+
+      <h2>8. Alergeny, diety a bezpečnost</h2>
+      <div class="warn">
+        <p>
+          <strong>Mealbot je pomůcka, ne záruka, a není lékařskou ani dietní radou.</strong>
+          Vždy si sami zkontrolujte skutečné etikety výrobků. U diagnostikovaného onemocnění nebo
+          alergie se poraďte s lékařem nebo registrovaným nutričním terapeutem.
+        </p>
+      </div>
+      <p>
+        Když deklarujete alergeny, děláme dvě věci: dáme AI pokyn, aby se jim vyhnula, a poté nad
+        vygenerovanými surovinami spustíme samostatnou automatickou kontrolu. Pokud tato kontrola
+        nedokáže vytvořit jídelníček, který se vašim alergenům vyhne, raději vám žádný neukážeme,
+        než abychom vám ukázali něco pochybného.
+      </p>
+      <p>
+        Naše seznamy alergenových výrazů jsou psané anglicky. Když je recept vygenerován v jiném
+        jazyce, musí AI ke každé surovině dodat i anglický název a my kontrolujeme jak tento název,
+        tak název ve vašem jazyce. Surovinu, ke které nám žádný anglický název nedá, nelze
+        zkontrolovat vůbec, takže celý jídelníček považujeme za neúspěšný a vygenerujeme nový,
+        místo abychom vám jej ukázali.
+      </p>
+      <p><strong>Co tato kontrola neumí — přečtěte si to prosím pořádně:</strong></p>
+      <div class="card">
+        <ul>
+          <li>
+            <strong>U receptu, který není v angličtině, se opírá o anglické pojmenování od samotné AI.</strong> Anglický
+            název popsaný výše je dílem samotné AI. Pokud surovinu pojmenuje anglicky
+            chybně, naše kontrola přečte to chybné slovo, nic nenajde a recept propustí
+            dál. Kontrola je jen tak dobrá jako ten překlad.
+          </li>
+          <li>
+            <strong>Siřičitany automatická kontrola nepokrývá.</strong> Zda se
+            siřičitany musí uvádět, závisí na tom, kolik jich zůstane ve výsledném výrobku, což
+            z receptu spočítat nelze. AI instruujeme, aby se jim vyhnula, ale žádná
+            deterministická pojistka za tím nestojí.
+          </li>
+          <li>
+            <strong>Kroky postupu se kontrolují jen v angličtině.</strong> Kontrolujeme jak
+            seznam surovin, tak kroky receptu a AI instruujeme, aby v kroku nikdy nepoužila nic,
+            co není v seznamu surovin. Kroky jsou ale psané ve vašem jazyce a tato kontrola čte
+            anglicky — takže u receptu, který není v angličtině, se něco, co se objeví až
+            v postupu („potřete máslem“), opírá o tuto instrukci, a ne o naši
+            kontrolu.
+          </li>
+          <li>
+            <strong>Vaše úpravy se kontrolují, ale neblokují.</strong> Pokud recept
+            změníte a výsledek obsahuje alergen, který jste pro daný jídelníček uvedli, řekneme
+            vám to — a přesto ho uložíme. Je to váš recept, takže rozhodnutí zůstává na vás. Tato
+            kontrola čte anglické názvy surovin, takže pokud surovinu napíšete v jiném jazyce,
+            nerozpoznáme ji.
+          </li>
+          <li>
+            <strong>Neví nic o křížové kontaminaci, o upozorněních „může obsahovat“ ani
+            o změněném složení výrobků.</strong> To vám řekne jen etiketa, kterou držíte v ruce.
+          </li>
+          <li>
+            <strong>Pokud neuvedete žádné alergeny, nekontroluje se vůbec nic.</strong> Vaše
+            zadání se ukládá ve vašem prohlížeči, takže vymazání dat webu nebo přechod na jiné
+            zařízení ho může vynulovat — než se na něj spolehnete, ověřte, že je stále nastavené.
+          </li>
+        </ul>
+      </div>
+      <p>
+        <strong>Halal a košer</strong> volby přiklánějí recepty k souladu s pravidly. Nejsou
+        certifikací a nezahrnují žádné ověření původu surovin ani přípravy.
+      </p>
+      <p>
+        <strong>Diety spojené se zdravotními stavy</strong> — bezlepková, low-FODMAP,
+        diabetická, keto a podobné — nabízíme jako styly receptů. Zejména low-FODMAP je běžně
+        dočasný eliminační proces pod dohledem nutričního terapeuta, ne trvalý způsob
+        stravování. Mealbot na něj nedohlíží a není klinický nástroj.
+      </p>
+      <div class="warn">
+        <p>
+          <strong>Strava pro kojence.</strong> Možnost pro kojence uplatňuje obecná doporučení pro příkrmy —
+          žádný med, žádná přidaná sůl ani cukr, žádné celé ořechy, žádné syrové vejce, žádné
+          nepasterované mléko ani mléčné výrobky, žádné ryby s vysokým obsahem rtuti a žádná zjevná rizika
+          udušení — a stejně jako u alergenů za tím nově stojí automatická kontrola: projdeme
+          suroviny i kroky a jídlo, které neprojde, odmítneme zobrazit.
+        </p>
+        <p>
+          Tato kontrola čte <strong>názvy</strong> surovin, takže je toho hodně, co nevidí.
+          Nepozná, zda byla potravina nakrájená na bezpečnou velikost, neposoudí, jestli se
+          kravské mléko používá při vaření, nebo se podává jako nápoj, nehlídá celkový denní
+          příjem soli ani cukru a neposuzuje, zda je jídlo výživově dostatečné. V jednom bodě je
+          také přísnější než britská doporučení: veškeré syrové i jen lehce tepelně upravené
+          vejce považuje za nepřípustné, protože nevidí, jestli je vejce označené British Lion.
+        </p>
+        <p>
+          Krmení kojenců nese reálná rizika včetně udušení a zavádění alergenů. Berte to
+          jen jako inspiraci a řiďte se svým dětským lékařem nebo dětskou sestrou.
+        </p>
+      </div>
+
+      <h2>9. Dostupnost</h2>
+      <p>
+        Mealbot poskytujeme tak, jak je. Neslibujeme žádnou konkrétní dostupnost a funkce
+        můžeme měnit, pozastavit nebo odebrat. Generování závisí na externím poskytovateli AI,
+        takže výpadek u něj je výpadkem i tady. Za výpadky ani za neúspěšná generování
+        neposkytujeme kredity ani náhradu.
+      </p>
+      <p>
+        Zálohy děláme, ale Mealbot byste neměli brát jako jedinou kopii čehokoli, na čem vám
+        záleží.
+      </p>
+
+      <h2>10. Odpovědnost</h2>
+      <p>
+        V rozsahu, který zákon připouští, neodpovídáme za nepřímou ani následnou škodu, za
+        ztrátu dat ani za rozhodnutí, která učiníte na základě vygenerovaného obsahu — včetně
+        volby jídla. Tam, kde odpovídáme, je naše odpovědnost omezena na to, co jste nám
+        zaplatili během 12 měsíců předcházejících uplatnění nároku.
+      </p>
+      <p>
+        Nic zde neomezuje odpovědnost, kterou ze zákona omezit nelze — včetně odpovědnosti za
+        smrt nebo újmu na zdraví způsobenou nedbalostí a za podvod. Jste-li spotřebitel, těmito
+        obchodními podmínkami nejsou dotčena vaše závazná zákonná práva podle práva země, kde máte bydliště.
+      </p>
+
+      <h2>11. Ukončení smlouvy</h2>
+      <p>
+        Používání Mealbotu můžete kdykoli ukončit a předplatné zrušit v zákaznickém portálu.
+        Napište nám a váš účet smažeme — co smazání odstraní a co ne, najdete v
+        <a href="/cs/privacy">Zásadách ochrany osobních údajů</a>.
+      </p>
+      <p>
+        Účet, který porušuje tyto obchodní podmínky, můžeme pozastavit nebo zrušit a službu
+        můžeme ukončit. Pokud váš účet zrušíme, aniž byste cokoli porušili, a máte zaplacené
+        období, které už nemůžete využít, vrátíme vám peníze za jeho nevyužitou část.
+      </p>
+
+      <h2>12. Změny těchto obchodních podmínek</h2>
+      <p>
+        Tyto obchodní podmínky můžeme aktualizovat. Když to uděláme, změní se datum nahoře.
+        Pokud se změna podstatně dotkne vašich práv, pošleme vám e-mail dřív, než nabude
+        účinnosti, a pokud budete Mealbot používat dál, znamená to, že ji přijímáte. Pokud ne,
+        zrušte předplatné — to je vaše možnost nápravy.
+      </p>
+
+      <h2>13. Jazyk, rozhodné právo a spory</h2>
+      <p>
+        Tyto obchodní podmínky vydáváme v angličtině a v češtině. Obě verze jsou stejně závazné
+        a jsou psané tak, aby říkaly totéž. Pokud by se někdy lišily, platí ten výklad, který je
+        pro vás příznivější.
+      </p>
+      <p>
+        Tyto obchodní podmínky se řídí českým právem. Jste-li spotřebitel v EU, zůstává vám
+        ochrana závazných předpisů vaší vlastní země a řízení můžete zahájit tam.
+      </p>
+      <p>
+        Napište nám nejdřív — <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> — většina
+        věcí se tak dá vyřešit. Čeští spotřebitelé se mohou obrátit také na Českou obchodní
+        inspekci (<a href="https://www.coi.cz" rel="noopener">ČOI</a>) s návrhem na mimosoudní
+        řešení sporu.
+      </p>
+
+      <footer>
+        <p class="muted" style="font-size: 0.85rem;">
+          Otázky? <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> &middot;
+          <a href="/cs/privacy">Zásady ochrany osobních údajů</a> &middot;
+          <a href="/cs">Zpět na Mealbot</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
