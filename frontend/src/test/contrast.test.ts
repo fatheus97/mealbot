@@ -9,6 +9,7 @@ import {
   findInlineColorPairs,
   findUncoloredControls,
   fontSizePx,
+  findKeywordColors,
   blend,
   adaptiveText,
   THEME,
@@ -536,5 +537,41 @@ const b = { background: "#dcfce7", color: "#166534" };`;
   it('keeps escaped quotes from ending a value early', () => {
     const src = `const a = { title: "say \\"hi\\" {", background: "#15803d", color: "#ffffff" };`;
     expect(pairs(src)).toEqual(['#ffffff|#15803d']);
+  });
+});
+
+describe('no bare CSS colour keywords', () => {
+  // The pair scan can only measure a colour that has a background beside it.
+  // A bare keyword with no background is invisible to it — and a keyword is
+  // exactly what gets typed when nobody is thinking about the surface.
+  const files = walkTsx(resolve(process.cwd(), 'src'));
+
+  it('are not used for text anywhere', () => {
+    const found = files.flatMap((f) =>
+      findKeywordColors(readFileSync(f, 'utf-8'), relative(process.cwd(), f)),
+    );
+    expect(found.map((k) => `${k.file}:${k.line} color: "${k.keyword}"`)).toEqual([]);
+  });
+
+  it('allows the unambiguous ones, rejects the rest', () => {
+    // white/black always sit beside an explicit background here, so the pair
+    // scan already measures them; inherit/transparent name no colour at all.
+    const ok = `<div style={{ background: "#2563eb", color: "white" }} />
+      <p style={{ color: "inherit", opacity: 0.75 }} />`;
+    expect(findKeywordColors(ok, 'x.tsx')).toEqual([]);
+    const bad = `<p style={{ color: "red" }} /><p style={{ color: "green" }} />`;
+    expect(findKeywordColors(bad, 'x.tsx').map((k) => k.keyword)).toEqual(['red', 'green']);
+  });
+
+  it('rejects the two that shipped', () => {
+    // #ff0000 is 3.66:1 on ReceiptScanner's #1e293b panel and 4.00:1 on white;
+    // #008000 is 2.85:1 on that panel. Neither clears the 4.5 floor.
+    expect(checkText('#ff0000', '#1e293b', 16).passes).toBe(false);
+    expect(checkText('#ff0000', '#ffffff', 13.6).passes).toBe(false);
+    expect(checkText('#008000', '#1e293b', 16).passes).toBe(false);
+  });
+
+  it('does not flag a keyword written in a comment', () => {
+    expect(findKeywordColors(`// color: "red" was 4.00:1 here\n`, 'x.tsx')).toEqual([]);
   });
 });

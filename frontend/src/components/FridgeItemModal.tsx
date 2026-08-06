@@ -83,7 +83,7 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
               placeholder={t("fridgeItem.namePlaceholder")}
               autoFocus
             />
-            {error && <span style={{ color: "red", fontSize: "0.85rem" }}>{error}</span>}
+            {error && <span style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</span>}
           </label>
 
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
@@ -102,7 +102,7 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
               style={{ width: "100px" }}
             />
             {quantityError && (
-              <span style={{ color: "red", fontSize: "0.85rem" }}>{quantityError}</span>
+              <span style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{quantityError}</span>
             )}
           </label>
 

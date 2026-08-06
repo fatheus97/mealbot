@@ -468,3 +468,38 @@ export function findUncoloredControls(source: string, file: string): UncoloredCo
   }
   return out;
 }
+
+export interface KeywordColor {
+  file: string;
+  line: number;
+  keyword: string;
+}
+
+/**
+ * Inline `color:` declarations written as a bare CSS colour keyword.
+ *
+ * `white` and `black` are allowed: they are unambiguous, and every use in this
+ * codebase sits beside an explicit background, so `findInlineColorPairs`
+ * already measures them. Every OTHER keyword is a problem — not because the
+ * keyword is wrong, but because it is what gets typed when nobody is thinking
+ * about the surface. `red` is #ff0000, which is 4.00:1 on white and 3.66:1 on
+ * the slate panel ReceiptScanner pins; `green` is #008000 at 2.85:1. Both
+ * shipped, and in ReceiptScanner's case the SAME FILE already rendered its
+ * other error in a checked #f87171 — the inconsistency is the tell.
+ *
+ * Deliberately narrow: only `color`, only bare keywords, and it says which one.
+ * A keyword paired with a background is still caught by the pair scan; this
+ * catches the ones with no background to pair against, which that scan cannot
+ * see by construction.
+ */
+export function findKeywordColors(source: string, file: string): KeywordColor[] {
+  const ALLOWED = new Set(['white', 'black', 'inherit', 'transparent', 'currentcolor']);
+  const out: KeywordColor[] = [];
+  const src = stripComments(source);
+  for (const m of src.matchAll(/(?:^|[^a-zA-Z-])color:\s*"([a-zA-Z]+)"/g)) {
+    const keyword = m[1].toLowerCase();
+    if (ALLOWED.has(keyword)) continue;
+    out.push({ file, line: src.slice(0, m.index).split('\n').length, keyword: m[1] });
+  }
+  return out;
+}

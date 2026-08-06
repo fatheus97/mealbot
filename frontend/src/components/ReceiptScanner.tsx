@@ -408,7 +408,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
       {/* Error state */}
       {state === "error" && (
-        <p style={{ color: "red", marginTop: "0.5rem" }}>{errorMessage}</p>
+        <p style={{ color: "#f87171", marginTop: "0.5rem" }}>{errorMessage}</p>
       )}
 
       {/* Review state */}
@@ -597,7 +597,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       )}
 
       {notice && (
-        <div style={{ marginTop: "0.5rem", color: "green" }}>{notice}</div>
+        <div style={{ marginTop: "0.5rem", color: "#4ade80" }}>{notice}</div>
       )}
     </div>
   );
