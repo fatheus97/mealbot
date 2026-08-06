@@ -150,6 +150,8 @@ describe('translation parity', () => {
       'diet.halal', // loanword; Czech uses "halal" (cf. diet.kosher → "Košer")
       'cook.minutesAbbrev', // "min" — SI-style unit abbreviation
       'editor.grams', // "g" — SI unit symbol, identical in every language
+      'fridgeItem.ok', // "OK" — international
+      'receipt.typeSnack', // "snack" — loanword; Czech uses it too
     ];
     const identical = enKeys.filter((k) => en[k] === cs[k]);
     expect(identical.sort()).toEqual([...SAME_IN_BOTH].sort());

@@ -5,6 +5,8 @@ import { StrictMode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ReceiptScanner } from './ReceiptScanner';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { renderWithProviders, setMobileViewport } from '../test/test-utils';
 
 vi.mock('../api', () => ({
@@ -67,6 +69,33 @@ function mockCanvas(mode: 'sync' | 'deferred') {
 }
 
 describe('ReceiptScanner', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it('leaves no untranslated English when switched to Czech, idle AND in review', async () => {
+    // The REVIEW state is where almost all of this component's copy lives —
+    // the table headers, the type badges, the per-item labels. None of it
+    // renders until a scan resolves, so an idle-only assertion proves nothing
+    // about it.
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'kuřecí prsa', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+        { name: 'sušenky', quantity_grams: 200, need_to_use: true, item_type: 'snack' as const },
+      ],
+    });
+
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+    expect(untranslatedEnglishIn(container)).toEqual([]);
+
+    await user.upload(screen.getByLabelText(/vyberte obrázek/i), createFile());
+    await waitFor(() => expect(screen.getByDisplayValue('kuřecí prsa')).toBeInTheDocument());
+    expect(untranslatedEnglishIn(container)).toEqual([]);
+  });
+
   it('renders file input (no scan button — upload auto-triggers)', () => {
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
     expect(screen.getByLabelText(/select receipt image/i)).toBeInTheDocument();
