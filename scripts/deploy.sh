@@ -37,9 +37,19 @@ $COMPOSE up -d --remove-orphans
 # `caddy reload` is a graceful in-process swap: no dropped connections, ~no cost
 # when the config is unchanged, and it exits non-zero on a bad config — so under
 # `set -e` a broken Caddyfile fails the deploy loudly instead of at 3am.
+#
+# The config is piped in on STDIN rather than read from the container's
+# /etc/caddy/Caddyfile, and that is the whole point. A Linux bind mount of a
+# single FILE pins the inode: `git reset --hard` above replaces the file (write
+# + rename), so the mount keeps pointing at the ORIGINAL inode and the container
+# still sees the pre-pull config. Reloading that path re-applies the old file and
+# reports success — which is exactly what happened on the first deploy of #391.
+# Reading it host-side sidesteps the mount entirely. (`--adapter caddyfile` is
+# required with `-`; there is no filename left to infer it from. The exec still
+# runs inside the container so $DOMAIN resolves from the compose environment.)
 # -T because this runs over SSH with no TTY.
 echo "==> Reloading Caddy (bind-mounted config; the swap above doesn't restart it)"
-$COMPOSE exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+$COMPOSE exec -T caddy caddy reload --config - --adapter caddyfile < Caddyfile
 
 echo "==> Pruning old images"
 docker image prune -f
