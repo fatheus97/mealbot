@@ -21,6 +21,12 @@ import {
 import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/theme';
 import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
 import {
+  OUT_OF_MONTH_SURFACE,
+  OUT_OF_MONTH_DAY,
+  IN_MONTH_DAY,
+  TODAY_COLOR,
+} from '../components/PlanCalendar';
+import {
   ON_DARK_SURFACE,
   ON_DARK_ROW_SURFACE,
   ON_DARK_TEXT,
@@ -333,5 +339,66 @@ describe('the fridge batch surface', () => {
   it('rejects the adaptive light-theme default that these cells were inheriting', () => {
     expect(checkText(THEME.light.fg, ON_DARK_SURFACE, 16).passes).toBe(false);
     expect(checkText(THEME.light.fg, ON_DARK_ROW_SURFACE, 16).passes).toBe(false);
+  });
+});
+
+describe('the calendar month grid', () => {
+  // Inside a modal that pins #fff, so both halves are fixed.
+  const cases: [string, string, string][] = [
+    ['in-month day number', IN_MONTH_DAY, '#ffffff'],
+    ['out-of-month day number', OUT_OF_MONTH_DAY, OUT_OF_MONTH_SURFACE],
+    ['today, in month', TODAY_COLOR, '#ffffff'],
+    // `today` lands in an adjacent-month cell as soon as you page forward a
+    // month, so it has to clear AA on the tinted surface too.
+    ['today, adjacent month', TODAY_COLOR, OUT_OF_MONTH_SURFACE],
+  ];
+  for (const [name, fg, bg] of cases) {
+    it(`${name} meets WCAG AA`, () => {
+      expect(checkText(fg, bg, 11.52)).toMatchObject({ passes: true });
+    });
+  }
+
+  it('rejects the dimmed values that shipped', () => {
+    // Adjacent-month cells used to be de-emphasised with `opacity: 0.5` on the
+    // CELL, which multiplies every descendant. These are the composited results
+    // — the day number, and the status chips, which are enabled buttons whose
+    // own colour pair the guard was still reporting at full strength.
+    expect(checkText(blend('#374151', 0.5, '#ffffff'), '#fdfdfe', 11.52).passes).toBe(false);
+    expect(checkText(blend('#1d4ed8', 0.5, '#ffffff'), '#fdfdfe', 10.88).passes).toBe(false);
+    // No opacity rescues it: even 0.85 leaves `today` short.
+    expect(checkText(blend(TODAY_COLOR, 0.85, '#ffffff'), '#fdfdfe', 11.52).passes).toBe(false);
+  });
+});
+
+describe('findInlineColorPairs spellings', () => {
+  // The scan is only as good as the property names it recognises. A palette
+  // record spelled differently is invisible to it, and an invisible record is
+  // exactly how the same #16a34a survived three separate sweeps.
+  const pair = (src: string) => findInlineColorPairs(src, 'x.tsx').map((p) => `${p.fg}|${p.bg}`);
+
+  it('reads the CSS names and both palette shorthands', () => {
+    expect(pair(`<div style={{ backgroundColor: "#fff", color: "#111" }} />`)).toEqual(['#111111|#ffffff']);
+    expect(pair(`<div style={{ background: "#fff", color: "#111" }} />`)).toEqual(['#111111|#ffffff']);
+    // PlanCalendar / PlanCatalog spell it this way…
+    expect(pair(`  cooked: { bg: "#dcfce7", text: "#166534" },`)).toEqual(['#166534|#dcfce7']);
+    // …and the two admin StatusBadge maps spell it this way.
+    expect(pair(`  open: { bg: "#dbeafe", fg: "#1d4ed8" },`)).toEqual(['#1d4ed8|#dbeafe']);
+  });
+
+  it('does not match a longer identifier that merely ends in a keyword', () => {
+    // Both sides are boundary-guarded. Without it, `cardbg`/`helperText` would
+    // be read as a colour pair and the scan would assert nonsense.
+    expect(pair(`<div style={{ cardbg: "#fff", helperText: "#111" }} />`)).toEqual([]);
+    expect(pair(`<div style={{ backgroundColor: "#fff", helperText: "#111" }} />`)).toEqual([]);
+  });
+
+  it('sees the admin palette records that the CSS-name-only regex missed', () => {
+    // Guards the widening itself: if the alternation loses `fg`, these two files
+    // go quiet again and `all meet WCAG AA` starts passing over nothing.
+    const admin = ['src/components/admin/InvitePanel.tsx', 'src/components/admin/FeedbackPanel.tsx'];
+    for (const rel of admin) {
+      const found = findInlineColorPairs(readFileSync(resolve(process.cwd(), rel), 'utf-8'), rel);
+      expect(found.length).toBeGreaterThan(0);
+    }
   });
 });

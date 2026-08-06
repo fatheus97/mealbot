@@ -175,16 +175,24 @@ export interface InlinePair {
  * Line-based rather than AST-based on purpose: the codebase writes these as
  * single-line `style={{ … }}` objects, and a parser would be a lot of machinery
  * to check a convention that a regex reads directly.
+ *
+ * Reads the CSS names AND the shorthands palette records use — `bg` for the
+ * background, `text` or `fg` for the foreground. Matching only the CSS names is
+ * how PlanCalendar's `cooked` chip kept a 3.00:1 `#16a34a` through the two
+ * separate sweeps that fixed that very colour in PantryStaples and PlanCatalog;
+ * `fg` is the same trap one spelling further out (admin/InvitePanel and
+ * admin/FeedbackPanel both use it). Each alternative is boundary-guarded so a
+ * longer identifier — `helperText:`, `cardbg:` — cannot match by accident.
  */
 export function findInlineColorPairs(source: string, file: string): InlinePair[] {
   const pairs: InlinePair[] = [];
   source.replace(/\r\n/g, '\n').split('\n').forEach((line, i) => {
-    const bgMatch = /background(?:Color)?:\s*"([^"]+)"/.exec(line);
+    const bgMatch = /(?:^|[^a-zA-Z])(?:background(?:Color)?|bg):\s*"([^"]+)"/i.exec(line);
     if (!bgMatch) return;
     const bg = toHex(bgMatch[1]);
     if (!bg) return;
     const rest = line.replace(bgMatch[0], '');
-    const fgMatch = /(?:^|[^a-zA-Z])color:\s*"([^"]+)"/i.exec(rest);
+    const fgMatch = /(?:^|[^a-zA-Z])(?:color|text|fg):\s*"([^"]+)"/i.exec(rest);
     if (!fgMatch) return;
     const fg = toHex(fgMatch[1]);
     if (!fg) return;
