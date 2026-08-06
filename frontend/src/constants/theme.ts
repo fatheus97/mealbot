@@ -26,6 +26,12 @@ export const PAGE_TEXT = {
   tabInactive: { light: "#4b5563", dark: "#9ca3af" }, // 7.56:1 / 6.11:1
   /** Inline failure text + its border. */
   error: { light: "#b91c1c", dark: "#f87171" }, // 6.47:1 / 5.61:1
+  /**
+   * Secondary metadata that still has to read as a distinct tint rather than
+   * dimmed body text — Fridge's mobile card meta, for one, where
+   * {@link MUTED_PAGE_TEXT} would lose the slate cast the cards are built on.
+   */
+  muted: { light: "#475569", dark: "#94a3b8" }, // 7.58:1 / 6.05:1
 } as const satisfies Record<string, Record<ThemeName, string>>;
 
 /**

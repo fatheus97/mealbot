@@ -28,6 +28,12 @@ const inputStyle: React.CSSProperties = {
 
 const smallBtn: React.CSSProperties = {
   background: "none",
+  // Load-bearing. A <button> does NOT inherit `color`; with none set it takes
+  // the UA `buttontext`, which `color-scheme: light dark` (index.css) turns
+  // WHITE under a dark OS theme. Overriding the background to `none` exposes
+  // the card's pinned #fff, so "+ Add ingredient" / "+ Add step" were rendering
+  // white-on-white at 1:1.
+  color: "inherit",
   border: "1px solid #ccc",
   borderRadius: "4px",
   padding: "0.15rem 0.5rem",
@@ -106,7 +112,12 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
         border: "1px solid #cbd5e1",
         borderRadius: "6px",
         padding: "0.75rem",
+        // Pinning a background without a colour is the bug this card shipped:
+        // every <label> and <legend> below sets no colour of its own, so they
+        // inherited the adaptive default and rendered WHITE ON WHITE under a
+        // dark OS theme. Set both, always (.claude/rules/frontend.md).
         backgroundColor: "#fff",
+        color: "#111",
         marginTop: "0.5rem",
       }}
     >

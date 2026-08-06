@@ -11,6 +11,14 @@ import { Trans } from "../i18n/Trans";
 
 const SUPPORT_EMAIL = "info@trymealbot.com";
 
+/**
+ * Link colour for the aliceblue bar below. The old #007bff was 3.71:1 on
+ * #f0f8ff — under AA in BOTH themes, since the surface is pinned. Checked in
+ * contrast.test.ts alongside the surface it sits on.
+ */
+export const AUTHBAR_SURFACE = "#f0f8ff";
+export const LINK_ON_AUTHBAR = "#1d4ed8"; // 6.25:1
+
 export function AuthBar() {
   const { userId, email, login, logout, loginDemo, demoEnabled, register, registrationEnabled } = useAuth();
   const isMobile = useIsMobile();
@@ -79,7 +87,7 @@ export function AuthBar() {
   };
 
   return (
-    <section style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#f0f8ff", color: "#111", borderRadius: "8px" }}>
+    <section style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: AUTHBAR_SURFACE, color: "#111", borderRadius: "8px" }}>
       {/* The switcher rides on the heading's own row rather than adding one, so
           it costs no vertical space and cannot shift the form below it. */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
@@ -151,7 +159,13 @@ export function AuthBar() {
              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>✅ {email}</span>
              <button
                onClick={() => setShowSettings(!showSettings)}
-               style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", padding: "0.25rem" }}
+               // `color: inherit` is load-bearing, not tidiness: a <button>
+               // does NOT inherit `color`, so with none set it takes the UA
+               // `buttontext` keyword — and `color-scheme: light dark` in
+               // index.css makes that WHITE under a dark OS theme. Overriding
+               // the background to `none` exposes this section's pinned #f0f8ff,
+               // so the glyph was rendering at 1.07:1.
+               style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", padding: "0.25rem", color: "inherit" }}
                aria-label={t("auth.settings")}
                title={t("auth.settings")}
              >
@@ -190,7 +204,7 @@ export function AuthBar() {
               background: "none",
               border: "none",
               padding: 0,
-              color: "#007bff",
+              color: LINK_ON_AUTHBAR,
               cursor: "pointer",
               fontSize: "0.85rem",
               textDecoration: "underline",
@@ -212,7 +226,7 @@ export function AuthBar() {
             k="auth.closedAlpha"
             nodes={{
               supportEmail: (
-                <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "#007bff" }}>
+                <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: LINK_ON_AUTHBAR }}>
                   {SUPPORT_EMAIL}
                 </a>
               ),
