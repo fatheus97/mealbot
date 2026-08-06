@@ -3,6 +3,8 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/test-utils";
 import { FeedbackModal } from "./FeedbackModal";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import * as api from "../api";
 
 vi.mock("../api", () => ({
@@ -17,6 +19,32 @@ beforeEach(() => {
 });
 
 describe("FeedbackModal", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("leaves no untranslated English when switched to Czech, form AND thanks", async () => {
+    // The thank-you state REPLACES the form, so one render can only ever prove
+    // one of them. This whole modal shipped untranslated behind an already-
+    // translated "Poslat zpětnou vazbu" button — the button was migrated with
+    // SettingsPopup and the modal it opens never was.
+    vi.spyOn(api, "submitFeedback").mockResolvedValue({ id: 1 } as never);
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+
+    const { container } = renderWithProviders(<FeedbackModal onClose={vi.fn()} />);
+    expect(screen.getByText("Poslat zpětnou vazbu")).toBeInTheDocument();
+    expect(untranslatedEnglishIn(container)).toEqual([]);
+
+    const user = userEvent.setup();
+    await user.type(
+      screen.getByPlaceholderText(/Co se stalo/),
+      "Tohle je dost dlouhá zpráva na odeslání.",
+    );
+    await user.click(screen.getByRole("button", { name: "Odeslat" }));
+    await waitFor(() => expect(screen.getByText(/máme to/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(container)).toEqual([]);
+  });
+
   it("keeps Send disabled until the message is long enough", async () => {
     const user = userEvent.setup();
     renderWithProviders(<FeedbackModal onClose={() => {}} />);

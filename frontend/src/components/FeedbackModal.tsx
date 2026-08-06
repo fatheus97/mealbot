@@ -2,17 +2,14 @@ import { type CSSProperties, useState } from "react";
 import { ModalShell } from "./ModalShell";
 import { useSubmitFeedback } from "../hooks/useServerState";
 import type { FeedbackKind } from "../types";
+import { useI18n } from "../i18n";
 
 // Mirror the backend bounds (core.feedback_gate): the client gates the MIN so the
 // user isn't bounced by a server 422, and caps the textarea at the MAX.
 const MESSAGE_MIN_LEN = 10;
 const MESSAGE_MAX_LEN = 4000;
 
-const KIND_OPTIONS: { value: FeedbackKind; label: string }[] = [
-  { value: "bug", label: "🐞 Something's broken" },
-  { value: "feature", label: "💡 Idea / feature request" },
-  { value: "other", label: "💬 Something else" },
-];
+const KIND_OPTIONS: FeedbackKind[] = ["bug", "feature", "other"];
 
 /**
  * "Send feedback" modal — a logged-in user reports a bug or requests a feature.
@@ -29,6 +26,7 @@ export function FeedbackModal({
   /** Optional coarse context (e.g. "settings") stored with the report. */
   page?: string;
 }) {
+  const { t } = useI18n();
   const submit = useSubmitFeedback();
   const [kind, setKind] = useState<FeedbackKind>("bug");
   const [message, setMessage] = useState("");
@@ -46,57 +44,57 @@ export function FeedbackModal({
       {
         onSuccess: () => setDone(true),
         onError: (err) =>
-          setError(err instanceof Error ? err.message : "Could not send your feedback."),
+          setError(err instanceof Error ? err.message : t("feedback.failed")),
       },
     );
   }
 
   return (
-    <ModalShell onClose={onClose} ariaLabel="Send feedback" zIndex={1200}>
+    <ModalShell onClose={onClose} ariaLabel={t("feedback.title")} zIndex={1200}>
       <div style={card}>
         {done ? (
           <>
-            <h3 style={heading}>Thanks — we got it. 🙏</h3>
+            <h3 style={heading}>{t("feedback.thanksTitle")}</h3>
             <p style={{ margin: "0 0 1.25rem", fontSize: 14, color: bodyColor }}>
-              Your report is on its way to the team. We read every one.
+              {t("feedback.thanksBody")}
             </p>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button type="button" onClick={onClose} style={primaryBtn}>
-                Done
+                {t("feedback.done")}
               </button>
             </div>
           </>
         ) : (
           <form onSubmit={onSubmit}>
-            <h3 style={heading}>Send feedback</h3>
+            <h3 style={heading}>{t("feedback.title")}</h3>
             <p style={{ margin: "0 0 1rem", fontSize: 13, color: mutedColor }}>
-              Found a bug or have an idea? Tell us — it genuinely helps shape Mealbot.
+              {t("feedback.intro")}
             </p>
 
             <label style={labelStyle}>
-              Type
+              {t("feedback.type")}
               <select
                 value={kind}
                 onChange={(e) => setKind(e.target.value as FeedbackKind)}
                 style={inputStyle}
               >
-                {KIND_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
+                {KIND_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {t(`feedbackKind.${value}` as const)}
                   </option>
                 ))}
               </select>
             </label>
 
             <label style={labelStyle}>
-              Details
+              {t("feedback.details")}
               <textarea
                 value={message}
                 onChange={(e) => {
                   setMessage(e.target.value);
                   setError(null);
                 }}
-                placeholder="What happened, or what would you like to see? The more detail, the better."
+                placeholder={t("feedback.detailsPlaceholder")}
                 rows={6}
                 maxLength={MESSAGE_MAX_LEN}
                 style={{ ...inputStyle, resize: "vertical", minHeight: 120 }}
@@ -115,15 +113,15 @@ export function FeedbackModal({
               }}
             >
               <button type="button" onClick={onClose} style={secondaryBtn}>
-                Cancel
+                {t("feedback.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={submit.isPending || tooShort}
-                title={tooShort ? "Please add a bit more detail." : undefined}
+                title={tooShort ? t("feedback.tooShort") : undefined}
                 style={{ ...primaryBtn, opacity: submit.isPending || tooShort ? 0.6 : 1 }}
               >
-                {submit.isPending ? "Sending…" : "Send"}
+                {submit.isPending ? t("feedback.sending") : t("feedback.send")}
               </button>
             </div>
 
