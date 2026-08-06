@@ -75,8 +75,19 @@ def test_no_orphan_error_keys() -> None:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call):
                 continue
+            # Both `LocalizedHTTPException(...)` and `errors.LocalizedHTTPException(...)`.
+            # Every call site imports the symbol directly today, so the second
+            # form matches nothing — but a key reached only through a qualified
+            # import would otherwise pass this test for the WRONG reason: not
+            # found, therefore not reported, and `assert len(raised) > 10` is
+            # far too coarse to notice one missing.
             func = node.func
-            if isinstance(func, ast.Name) and func.id == "LocalizedHTTPException":
+            name = (
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute) else None
+            )
+            if name == "LocalizedHTTPException":
                 for arg in node.args:
                     if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                         raised.add(arg.value)
