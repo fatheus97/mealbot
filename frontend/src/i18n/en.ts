@@ -45,6 +45,12 @@ export const en = {
   "auth.forgotPassword": "Forgot your password?",
 
   "auth.error.login": "Login failed. Check your credentials.",
+  // The 403 branch. Separate from the line above because that advice is
+  // actively wrong here — the credentials ARE correct, and a disabled user
+  // following it retries the same password indefinitely.
+  "auth.error.accountDisabled":
+    "This account has been disabled. Contact {supportEmail} if you think " +
+    "that's a mistake.",
   "auth.error.passwordTooShort": "Password must be at least 8 characters.",
   "auth.error.acceptTerms":
     "Please accept the Terms of Service and Privacy Policy to create an account.",
@@ -76,6 +82,25 @@ export const en = {
   "verify.resend": "Resend link",
   "verify.wrongAddress": "Wrong address?",
   "verify.resendFailed": "Couldn't resend just now — please try again in a minute.",
+
+  // ─── Confirmation-link toast (VerifyEmailHandler) ─────────────────────────
+  // Missed entirely by the sweep that translated the rest of auth: the
+  // component had no `t()` at all, so `untranslatedEnglishIn` had nothing to
+  // compare against and reported it clean. See test/i18nAssertions.ts, SCOPE 2.
+  //
+  // These stay CLIENT-side copy rather than rendering the server's
+  // `auth_confirm_link_invalid`, which is deliberate: the sentences below name
+  // the control the user should reach for next and branch on whether they are
+  // signed in, and the server knows neither of those things.
+  "verifyToast.confirmed": "✅ Email confirmed — you're all set.",
+  "verifyToast.alreadyUsed": "✅ That link was already used — your email is confirmed.",
+  "verifyToast.invalid":
+    "That confirmation link is invalid or has expired. Use “Resend link” on " +
+    "the banner above to get a new one.",
+  "verifyToast.invalidLoggedOut":
+    "That confirmation link is invalid or has expired. Sign in and use " +
+    "“Resend link” to get a new one.",
+  "verifyToast.dismiss": "Dismiss",
 
   // ─── Settings modal ───────────────────────────────────────────────────────
   "settings.title": "Settings",

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { AuthLoginResponse, AuthState } from "../types";
 import { authFetch, redeemInvite, resendVerificationEmail } from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
-import { AutoLoginAfterRegisterError } from "./authErrors";
+import { AutoLoginAfterRegisterError, LoginFailedError } from "./authErrors";
 import { captureAttribution, getStoredAttribution } from "../utils/attribution";
 import { clearSessionHints, storeSessionHints } from "../auth/sessionHints";
 
@@ -216,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify({ email: newEmail, password }),
     });
-    if (!resp.ok) throw new Error(`Login failed: ${resp.status}`);
+    if (!resp.ok) throw new LoginFailedError(resp.status);
     const profile = (await resp.json()) as AuthLoginResponse;
     // Trust the server's is_demo (same call shape as bootstrap above) so all
     // three entry paths — bootstrap, login, loginDemo — use the same source

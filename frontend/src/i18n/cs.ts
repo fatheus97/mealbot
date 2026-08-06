@@ -40,6 +40,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.forgotPassword": "Zapomněli jste heslo?",
 
   "auth.error.login": "Přihlášení se nezdařilo. Zkontrolujte přihlašovací údaje.",
+  "auth.error.accountDisabled":
+    "Tento účet byl zablokován. Pokud si myslíte, že jde o omyl, napište na " +
+    "{supportEmail}.",
   "auth.error.passwordTooShort": "Heslo musí mít alespoň 8 znaků.",
   "auth.error.acceptTerms":
     "Pro vytvoření účtu prosím potvrďte souhlas s Podmínkami služby a Zásadami ochrany osobních údajů.",
@@ -64,6 +67,19 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "verify.resend": "Poslat odkaz znovu",
   "verify.wrongAddress": "Špatná adresa?",
   "verify.resendFailed": "Odeslání se teď nepovedlo — zkuste to prosím za minutu.",
+
+  // ─── Confirmation-link toast (VerifyEmailHandler) ─────────────────────────
+  "verifyToast.confirmed": "✅ E-mail potvrzen — máte hotovo.",
+  "verifyToast.alreadyUsed": "✅ Tento odkaz už byl použit — váš e-mail je potvrzený.",
+  // "Resend link" is quoted because it names a button the user must find on
+  // screen, so it carries the Czech label from `verify.resend`, not the English.
+  "verifyToast.invalid":
+    "Tento potvrzovací odkaz je neplatný nebo mu vypršela platnost. Použijte " +
+    "„Poslat odkaz znovu“ v pruhu nahoře a nechte si poslat nový.",
+  "verifyToast.invalidLoggedOut":
+    "Tento potvrzovací odkaz je neplatný nebo mu vypršela platnost. Přihlaste " +
+    "se a nechte si poslat nový přes „Poslat odkaz znovu“.",
+  "verifyToast.dismiss": "Zavřít",
 
   // ─── Settings modal ───────────────────────────────────────────────────────
   "settings.title": "Nastavení",

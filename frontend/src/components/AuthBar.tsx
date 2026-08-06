@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
+import { AutoLoginAfterRegisterError, LoginFailedError } from "../contexts/authErrors";
 import { SettingsPopup } from "./SettingsPopup";
 import { ForgotPasswordModal } from "./ForgotPasswordModal";
 import { TermsConsent } from "./auth/TermsConsent";
@@ -44,7 +44,15 @@ export function AuthBar() {
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      setAuthError("auth.error.login");
+      // 403 is the disabled-account case and nothing else on this endpoint —
+      // the credential failure is 401. Telling a disabled user to "check your
+      // credentials" sends them round the same correct password forever, which
+      // is why the backend answers 403 here at all rather than 401.
+      setAuthError(
+        error instanceof LoginFailedError && error.status === 403
+          ? "auth.error.accountDisabled"
+          : "auth.error.login",
+      );
     } finally {
       setLoading(false);
     }
