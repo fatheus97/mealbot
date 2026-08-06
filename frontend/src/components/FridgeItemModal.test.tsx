@@ -1,11 +1,30 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FridgeItemModal } from "./FridgeItemModal";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
 
 const defaultValues = { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false };
 
 describe("FridgeItemModal", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("leaves no untranslated English when switched to Czech, in both modes", () => {
+    // BOTH modes: the title is a ternary, so one render only ever proves one
+    // branch — the shape that shipped English twice in earlier slices.
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    for (const mode of ["add", "edit"] as const) {
+      const { container, unmount } = render(
+        <FridgeItemModal mode={mode} initialValues={defaultValues} onOk={vi.fn()} onCancel={vi.fn()} />,
+      );
+      expect(untranslatedEnglishIn(container)).toEqual([]);
+      unmount();
+    }
+  });
+
   it('renders "Add Ingredient" title in add mode', () => {
     render(
       <FridgeItemModal mode="add" initialValues={defaultValues} onOk={vi.fn()} onCancel={vi.fn()} />,

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../i18n";
 
 export interface FridgeItemValues {
   name: string;
@@ -15,6 +16,7 @@ interface FridgeItemModalProps {
 }
 
 export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeItemModalProps) {
+  const { t } = useI18n();
   const [name, setName] = useState(initialValues.name);
   const [quantity, setQuantity] = useState(String(initialValues.quantity_grams));
   const [expiration, setExpiration] = useState(initialValues.expiration_date ?? "");
@@ -24,12 +26,12 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
 
   const handleOk = () => {
     if (!name.trim()) {
-      setError("Name is required");
+      setError(t("fridgeItem.nameRequired"));
       return;
     }
     const parsedQuantity = Number(quantity);
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
-      setQuantityError("Enter a quantity greater than 0");
+      setQuantityError(t("fridgeItem.quantityPositive"));
       return;
     }
     onOk({
@@ -68,24 +70,24 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
         }}
       >
         <h3 style={{ margin: "0 0 1rem 0" }}>
-          {mode === "add" ? "Add Ingredient" : "Edit Ingredient"}
+          {mode === "add" ? t("fridgeItem.addTitle") : t("fridgeItem.editTitle")}
         </h3>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            Name
+            {t("fridgeItem.name")}
             <input
               type="text"
               value={name}
               onChange={(e) => { setName(e.target.value); setError(""); }}
-              placeholder="e.g. Chicken breast"
+              placeholder={t("fridgeItem.namePlaceholder")}
               autoFocus
             />
             {error && <span style={{ color: "red", fontSize: "0.85rem" }}>{error}</span>}
           </label>
 
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            Quantity (g)
+            {t("fridgeItem.quantity")}
             <input
               type="text"
               inputMode="decimal"
@@ -105,7 +107,7 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
           </label>
 
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            Expiration date
+            {t("fridgeItem.expiration")}
             <input
               type="date"
               value={expiration}
@@ -120,12 +122,12 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
               checked={needToUse}
               onChange={(e) => setNeedToUse(e.target.checked)}
             />
-            Need to use
+            {t("fridgeItem.needToUse")}
           </label>
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1.25rem" }}>
-          <button onClick={onCancel}>Cancel</button>
+          <button onClick={onCancel}>{t("fridgeItem.cancel")}</button>
           <button
             onClick={handleOk}
             style={{
@@ -137,7 +139,7 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
               cursor: "pointer",
             }}
           >
-            OK
+            {t("fridgeItem.ok")}
           </button>
         </div>
       </div>

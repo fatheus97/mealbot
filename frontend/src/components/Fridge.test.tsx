@@ -3,6 +3,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Fridge } from './Fridge';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import { setMobileViewport } from '../test/test-utils';
 import type { ReactNode } from 'react';
@@ -52,6 +54,45 @@ beforeEach(() => {
 });
 
 describe('Fridge', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it('leaves no untranslated English when switched to Czech (logged out)', () => {
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    const { container } = render(<Fridge />, { wrapper: createWrapper() });
+    expect(untranslatedEnglishIn(container)).toEqual([]);
+  });
+
+  it('leaves no untranslated English with items, on desktop AND mobile', async () => {
+    // The logged-out case above renders two strings. Everything else — the
+    // table headers, the sort chips, the cards, the batch counts, the
+    // use-soon badge — needs a populated fridge, and the desktop table and
+    // the mobile cards are entirely separate JSX branches.
+    for (const mobile of [false, true]) {
+      loginUser();
+      setMobileViewport(mobile);
+      useLocaleStore.setState({ locale: 'cs', explicit: true });
+      mockedAuthFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { name: 'Kuřecí maso', quantity_grams: 500, need_to_use: false },
+            // Two batches of the same name exercise the group row + plural.
+            { name: 'Rýže', quantity_grams: 1000, need_to_use: true, expiration_date: '2026-09-01' },
+            { name: 'Rýže', quantity_grams: 400, need_to_use: false, expiration_date: '2026-10-01' },
+          ]),
+      });
+
+      const { container, unmount } = render(<Fridge />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getByText('Kuřecí maso')).toBeInTheDocument());
+      expect(untranslatedEnglishIn(container)).toEqual([]);
+      unmount();
+      localStorage.clear();
+    }
+  });
+
   it('shows "Please log in" when no userId', () => {
     render(<Fridge />, { wrapper: createWrapper() });
     expect(screen.getByText(/please log in/i)).toBeInTheDocument();

@@ -7,6 +7,7 @@ import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { useI18n } from "../i18n";
 
 type PendingRemoval =
   | { kind: "item"; index: number; name: string; quantity: number }
@@ -46,6 +47,7 @@ function formatDate(iso: string | null | undefined, fallback = "\u2014"): string
 }
 
 export function Fridge() {
+  const { t, tn } = useI18n();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
 
@@ -197,8 +199,8 @@ export function Fridge() {
       { userId, items: cleaned },
       {
         onError: (err) => {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          setNotice(`Failed to save: ${msg}`);
+          const msg = err instanceof Error ? err.message : t("fridge.unknownError");
+          setNotice(t("fridge.saveFailed", { message: msg }));
           setTimeout(() => setNotice(""), 5000);
         },
       },
@@ -301,8 +303,8 @@ export function Fridge() {
   if (!userId) {
     return (
       <section style={{ marginBottom: "2rem" }}>
-        <h2>Fridge</h2>
-        <p>Please log in to view and edit your fridge.</p>
+        <h2>{t("fridge.title")}</h2>
+        <p>{t("fridge.loginPrompt")}</p>
       </section>
     );
   }
@@ -328,10 +330,10 @@ export function Fridge() {
         <td>{item.name}</td>
         <td>{Math.round(item.quantity_grams)}</td>
         <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}</td>
-        <td>{item.need_to_use ? "Yes" : "No"}</td>
+        <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>
         <td style={{ display: "flex", gap: "0.25rem" }}>
-          <button onClick={() => openEditModal(idx)}>Edit</button>
-          <button onClick={() => requestRemoveItem(idx)}>Remove</button>
+          <button onClick={() => openEditModal(idx)}>{t("meal.edit")}</button>
+          <button onClick={() => requestRemoveItem(idx)}>{t("fridge.remove")}</button>
         </td>
       </tr>
     );
@@ -358,17 +360,17 @@ export function Fridge() {
           </span>
           <span>{group.displayName}</span>
           <span style={{ fontSize: "0.8rem", color: "#64748b", whiteSpace: "nowrap" }}>
-            ({group.batchCount} batches)
+            {tn("fridge.batches", group.batchCount)}
           </span>
         </td>
         <td style={{ color: "#94a3b8" }}>{Math.round(group.totalQuantity)}</td>
         <td style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
           {formatDate(group.earliestExpiration)}
         </td>
-        <td>{group.needToUse ? "Yes" : "No"}</td>
+        <td>{group.needToUse ? t("fridge.yes") : t("fridge.no")}</td>
         <td>
           <button onClick={(e) => { e.stopPropagation(); requestRemoveGroup(group); }}>
-            Remove all
+            {t("fridge.removeAll")}
           </button>
         </td>
       </tr>
@@ -395,10 +397,10 @@ export function Fridge() {
             </td>
             <td>{Math.round(item.quantity_grams)}</td>
             <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}</td>
-            <td>{item.need_to_use ? "Yes" : "No"}</td>
+            <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>
             <td style={{ display: "flex", gap: "0.25rem" }}>
-              <button onClick={() => openEditModal(flatIdx)}>Edit</button>
-              <button onClick={() => requestRemoveItem(flatIdx)}>Remove</button>
+              <button onClick={() => openEditModal(flatIdx)}>{t("meal.edit")}</button>
+              <button onClick={() => requestRemoveItem(flatIdx)}>{t("fridge.remove")}</button>
             </td>
           </tr>
         );
@@ -446,15 +448,15 @@ export function Fridge() {
       <div key={item._editId} style={cardStyle}>
         <div style={cardHeaderRow}>
           <strong>{item.name || "—"}</strong>
-          {item.need_to_use && <span style={useSoonBadge}>use soon</span>}
+          {item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
           <span>{Math.round(item.quantity_grams)} g</span>
-          <span>exp {formatDate(item.expiration_date)}</span>
+          <span>{t("fridge.expires", { date: formatDate(item.expiration_date) })}</span>
         </div>
         <div style={cardActions}>
-          <button style={cardActionBtn} onClick={() => openEditModal(idx)}>Edit</button>
-          <button style={cardActionBtn} onClick={() => requestRemoveItem(idx)}>Remove</button>
+          <button style={cardActionBtn} onClick={() => openEditModal(idx)}>{t("meal.edit")}</button>
+          <button style={cardActionBtn} onClick={() => requestRemoveItem(idx)}>{t("fridge.remove")}</button>
         </div>
       </div>
     );
@@ -468,15 +470,15 @@ export function Fridge() {
         <div style={{ ...cardHeaderRow, cursor: "pointer" }} onClick={() => toggleGroup(group.key)}>
           <span style={{ fontSize: "0.8rem", color: "#888" }}>{isExpanded ? "▼" : "▶"}</span>
           <strong>{group.displayName}</strong>
-          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>({group.batchCount} batches)</span>
-          {group.needToUse && <span style={useSoonBadge}>use soon</span>}
+          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>{tn("fridge.batches", group.batchCount)}</span>
+          {group.needToUse && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
-          <span>{Math.round(group.totalQuantity)} g total</span>
-          <span>earliest {formatDate(group.earliestExpiration)}</span>
+          <span>{t("fridge.gramsTotal", { grams: Math.round(group.totalQuantity) })}</span>
+          <span>{t("fridge.earliest", { date: formatDate(group.earliestExpiration) })}</span>
         </div>
         <div style={cardActions}>
-          <button style={cardActionBtn} onClick={() => requestRemoveGroup(group)}>Remove all</button>
+          <button style={cardActionBtn} onClick={() => requestRemoveGroup(group)}>{t("fridge.removeAll")}</button>
         </div>
         {isExpanded && sortedIndices.map((flatIdx, batchIdx) => {
           const item = fridge[flatIdx];
@@ -487,15 +489,15 @@ export function Fridge() {
             >
               <div style={cardHeaderRow}>
                 <span style={{ color: "#94a3b8" }}>Batch {batchIdx + 1}</span>
-                {item.need_to_use && <span style={useSoonBadge}>use soon</span>}
+                {item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
               </div>
               <div style={cardMeta}>
                 <span>{Math.round(item.quantity_grams)} g</span>
-                <span>exp {formatDate(item.expiration_date)}</span>
+                <span>{t("fridge.expires", { date: formatDate(item.expiration_date) })}</span>
               </div>
               <div style={cardActions}>
-                <button style={cardActionBtn} onClick={() => openEditModal(flatIdx)}>Edit</button>
-                <button style={cardActionBtn} onClick={() => requestRemoveItem(flatIdx)}>Remove</button>
+                <button style={cardActionBtn} onClick={() => openEditModal(flatIdx)}>{t("meal.edit")}</button>
+                <button style={cardActionBtn} onClick={() => requestRemoveItem(flatIdx)}>{t("fridge.remove")}</button>
               </div>
             </div>
           );
@@ -505,9 +507,9 @@ export function Fridge() {
   };
 
   const mobileSortLabels: Record<SortKey, string> = {
-    name: "Name",
-    quantity: "Qty",
-    expires: "Expires",
+    name: t("fridge.sortName"),
+    quantity: t("fridge.sortQty"),
+    expires: t("fridge.sortExpires"),
   };
 
   return (
@@ -517,10 +519,12 @@ export function Fridge() {
         onClick={() => setExpanded(!expanded)}
       >
         <span style={{ fontSize: "0.9rem", color: "#888" }}>{expanded ? "\u25BC" : "\u25B6"}</span>
-        <h2 style={{ margin: 0 }}>Fridge</h2>
+        <h2 style={{ margin: 0 }}>{t("fridge.title")}</h2>
         {fridge.length > 0 && (
           <span style={{ fontSize: "0.85rem", color: "#888" }}>
-            ({sortedGroups.length}{sortedGroups.length !== fridge.length ? ` / ${fridge.length} batches` : ""})
+            {sortedGroups.length === fridge.length
+              ? tn("fridge.batches", sortedGroups.length)
+              : t("fridge.groupSummary", { shown: sortedGroups.length, total: fridge.length })}
           </span>
         )}
       </div>
@@ -529,10 +533,12 @@ export function Fridge() {
         <div style={{ marginTop: "1rem" }}>
           <ReceiptScanner currentFridge={fridge} />
 
-          {isLoading && <p>Loading inventory...</p>}
+          {isLoading && <p>{t("fridge.loading")}</p>}
           {fetchError && (
             <p style={{ color: fetchError instanceof TypeError ? "#888" : "red" }}>
-              {fetchError instanceof TypeError ? "Connecting to server…" : `Error: ${fetchError.message}`}
+              {fetchError instanceof TypeError
+                ? t("fridge.connecting")
+                : t("planner.errorPrefix") + " " + fetchError.message}
             </p>
           )}
 
@@ -548,7 +554,7 @@ export function Fridge() {
                   fontSize: "0.85rem",
                 }}
               >
-                <span style={{ color: "#888" }}>Sort:</span>
+                <span style={{ color: "#888" }}>{t("fridge.sort")}</span>
                 {(["name", "quantity", "expires"] as SortKey[]).map((k) => (
                   <button
                     key={k}
@@ -570,23 +576,23 @@ export function Fridge() {
                   ? renderSingleCard(group)
                   : renderMultiBatchCard(group)
               )}
-              {fridge.length === 0 && !isLoading && <p>Fridge is empty.</p>}
+              {fridge.length === 0 && !isLoading && <p>{t("fridge.empty")}</p>}
             </div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
                   <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("name")}>
-                    Ingredient{sortKey === "name" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
+                    {t("fridge.colIngredient")}{sortKey === "name" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
                   </th>
                   <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("quantity")}>
-                    Qty (g){sortKey === "quantity" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
+                    {t("fridge.colQty")}{sortKey === "quantity" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
                   </th>
                   <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("expires")}>
-                    Expires{sortKey === "expires" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
+                    {t("fridge.colExpires")}{sortKey === "expires" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
                   </th>
-                  <th>Need to use?</th>
-                  <th>Action</th>
+                  <th>{t("fridge.colNeedToUse")}</th>
+                  <th>{t("fridge.colAction")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -597,7 +603,7 @@ export function Fridge() {
                 )}
                 {fridge.length === 0 && !isLoading && (
                   <tr>
-                    <td colSpan={5}>Fridge is empty.</td>
+                    <td colSpan={5}>{t("fridge.empty")}</td>
                   </tr>
                 )}
               </tbody>
@@ -605,7 +611,7 @@ export function Fridge() {
           )}
 
           <div style={{ marginTop: "0.5rem" }}>
-            <button onClick={openAddModal}>Add ingredient</button>
+            <button onClick={openAddModal}>{t("fridge.addIngredient")}</button>
             {notice && (
               <div style={{ marginTop: "0.5rem", color: "red" }}>
                 {notice}
@@ -635,14 +641,17 @@ export function Fridge() {
 
       {pendingRemoval && (
         <ConfirmDialog
-          title={pendingRemoval.kind === "group" ? "Remove all batches?" : "Remove ingredient?"}
+          title={pendingRemoval.kind === "group" ? t("fridge.removeGroupTitle") : t("fridge.removeItemTitle")}
           message={
             pendingRemoval.kind === "group"
-              ? `Remove all ${pendingRemoval.batchCount} batches of "${pendingRemoval.name}" from your fridge?`
-              : `Remove "${pendingRemoval.name}" (${Math.round(pendingRemoval.quantity)} g) from your fridge?`
+              ? tn("fridge.removeGroupBody", pendingRemoval.batchCount, { name: pendingRemoval.name })
+              : t("fridge.removeItemBody", {
+                  name: pendingRemoval.name,
+                  grams: Math.round(pendingRemoval.quantity),
+                })
           }
-          confirmLabel="Remove"
-          loadingLabel="Removing…"
+          confirmLabel={t("fridge.remove")}
+          loadingLabel={t("fridge.removing")}
           onConfirm={confirmRemoval}
           onCancel={cancelRemoval}
         />
