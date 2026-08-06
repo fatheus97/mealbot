@@ -32,12 +32,28 @@ function shortDayLabel(iso: string): string {
 // Status → chip colours (same palette as PlanCatalog). The whole calendar is an
 // explicit light surface (#fff / dark text), so these fixed colours stay legible
 // in both themes — the ModalShell backdrop handles the dark/light dimming.
+// Not exported: the `findInlineColorPairs` source scan reads these pairs
+// straight out of the file, so a re-export purely for the test would trip
+// react-refresh/only-export-components for nothing.
 const STATUS_COLORS: Record<PlanStatus, { bg: string; text: string }> = {
-  planned: { bg: "#e2e8f0", text: "#475569" },
-  active: { bg: "#dbeafe", text: "#1d4ed8" },
-  cooked: { bg: "#dcfce7", text: "#16a34a" },
-  finished: { bg: "#f3e8ff", text: "#7c3aed" },
+  planned: { bg: "#e2e8f0", text: "#475569" }, // 6.15:1
+  active: { bg: "#dbeafe", text: "#1d4ed8" }, // 5.49:1
+  // #16a34a was 3.00:1 here. The same colour was fixed twice already —
+  // PantryStaples (3.29:1) and PlanCatalog — but this copy survived both
+  // sweeps because the pair guard looks for `background`/`color` and this
+  // record uses the `bg`/`text` shorthand. The guard now reads both.
+  cooked: { bg: "#dcfce7", text: "#166534" }, // 6.49:1
+  finished: { bg: "#f3e8ff", text: "#7c3aed" }, // 4.83:1
 };
+
+/**
+ * The month grid is inside a modal that pins a light surface, so these are
+ * fixed rather than theme-following. Ratios asserted in contrast.test.ts.
+ */
+export const OUT_OF_MONTH_SURFACE = "#f1f5f9";
+export const OUT_OF_MONTH_DAY = "#475569"; // 6.92:1 on the tinted cell
+export const IN_MONTH_DAY = "#374151"; // 10.31:1 on #fff
+export const TODAY_COLOR = "#2563eb"; // 5.17:1 on #fff, 4.72:1 tinted
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -206,15 +222,33 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                       border: "1px solid #eef2f7",
                       borderRadius: 6,
                       padding: 3,
-                      backgroundColor: inMonth ? "#fff" : "#fafbfc",
-                      opacity: inMonth ? 1 : 0.5,
+                      // Adjacent-month cells are de-emphasised by SURFACE, not
+                      // by dimming. `opacity: 0.5` on the cell multiplies every
+                      // descendant: the day number measured 2.58:1, and it also
+                      // dragged the status chips — which are enabled BUTTONS
+                      // with their own AA-checked colour pair — down to 2.33:1.
+                      // An ancestor's opacity is invisible to findInlineColorPairs,
+                      // so the guard kept reporting the chips' undimmed ratios.
+                      // No opacity value works either: at 0.85 the chips still
+                      // fail, and `today` (which lands in an adjacent-month cell
+                      // whenever you page forward a month) never clears 4.5.
+                      backgroundColor: inMonth ? "#fff" : OUT_OF_MONTH_SURFACE,
                       display: "flex",
                       flexDirection: "column",
                       gap: 2,
                       overflow: "hidden",
                     }}
                   >
-                    <span style={{ fontSize: "0.72rem", fontWeight: isToday ? 700 : 500, color: isToday ? "#2563eb" : "#374151", alignSelf: "flex-end" }}>
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: isToday ? 700 : 500,
+                        // The remaining half of the de-emphasis: a muted (but
+                        // still AA) number rather than a dimmed one.
+                        color: isToday ? TODAY_COLOR : inMonth ? IN_MONTH_DAY : OUT_OF_MONTH_DAY,
+                        alignSelf: "flex-end",
+                      }}
+                    >
                       {dayOfMonth(date)}
                     </span>
                     {chips.map((c, i) => (
