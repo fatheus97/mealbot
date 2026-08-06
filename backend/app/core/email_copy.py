@@ -28,10 +28,9 @@ whoever knows what the value is.
 
 from __future__ import annotations
 
-from string import Template
 from typing import Final, TypedDict
 
-from app.core.i18n import Locale, PluralCategory, plural_category
+from app.core.i18n import Locale, PluralCategory, plural_category, render
 
 
 class EmailCopy(TypedDict):
@@ -169,17 +168,6 @@ _CS: Final[EmailCopy] = {
 COPY: Final[dict[Locale, EmailCopy]] = {"en": _EN, "cs": _CS}
 
 
-def render(template: str, /, **values: str) -> str:
-    """Substitute ``$name`` placeholders, raising if one has no value.
-
-    ``substitute``, never ``safe_substitute``: an unfilled placeholder would
-    mail a user a literal "$link". The send path already swallows and logs
-    exceptions, so raising degrades to "no email plus a logged error" — which is
-    both recoverable and visible, unlike a broken email that looks delivered.
-    """
-    return Template(template).substitute(**values)
-
-
 def expiry_phrase(locale: Locale, minutes: int) -> str:
     """The "30 minutes" fragment for the reset email, in the right plural form."""
     forms = COPY[locale]["reset_expiry"]
@@ -189,4 +177,4 @@ def expiry_phrase(locale: Locale, minutes: int) -> str:
     # best-effort mail path. `test_every_locale_covers_its_plural_categories`
     # is what actually keeps the fallback unused.
     template = forms.get(category) or forms["other"]
-    return Template(template).substitute(count=minutes)
+    return render(template, count=str(minutes))

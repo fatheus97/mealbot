@@ -26,6 +26,7 @@ one. ``$`` cannot collide with HTML or CSS, and ``Template.substitute`` (not
 
 from __future__ import annotations
 
+from string import Template
 from typing import Final, Literal, cast
 
 Locale = Literal["en", "cs"]
@@ -144,3 +145,14 @@ def plural_category(locale: Locale, count: int) -> PluralCategory:
             return "few"
         return "other"
     return "one" if count == 1 else "other"
+
+
+def render(template: str, /, **values: str) -> str:
+    """Substitute ``$name`` placeholders, raising if one has no value.
+
+    ``substitute``, never ``safe_substitute``: an unfilled placeholder would
+    mail a user a literal "$link". The send path already swallows and logs
+    exceptions, so raising degrades to "no email plus a logged error" — which is
+    both recoverable and visible, unlike a broken email that looks delivered.
+    """
+    return Template(template).substitute(**values)

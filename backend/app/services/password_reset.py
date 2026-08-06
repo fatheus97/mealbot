@@ -17,9 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
-from app.core.email_copy import COPY, expiry_phrase, render
+from app.core.email_copy import COPY, expiry_phrase
 from app.core.email_normalize import normalize_email
-from app.core.i18n import Locale, locale_for_language
+from app.core.i18n import Locale, locale_for_language, render
 from app.core.security import create_refresh_token, hash_refresh_token
 from app.db import async_session_factory
 from app.models.db_models import PasswordResetToken, User

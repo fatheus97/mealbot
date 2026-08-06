@@ -74,9 +74,39 @@ ErrorKey = Literal[
     # ── Account gates (app/api/deps.py) ────────────────────────────────────
     "gate_confirm_email",
     "gate_subscription_required",
+    # ── Meal plans (app/api/plan.py) ───────────────────────────────────────
+    "plan_not_found",
+    "plan_data_unreadable",
+    "plan_data_inconsistent",
+    "plan_generation_failed",
+    "plan_regeneration_failed",
+    "plan_regenerate_confirmed",
+    "plan_not_confirmed",
+    "plan_not_finished",
+    "plan_finished",
+    "plan_edit_finished",
+    "plan_unconfirm_finished",
+    "plan_uncook_first",
+    "plan_meal_not_found",
+    "plan_meal_not_found_confirmed",
+    "plan_leftovers_not_cookbookable",
+    "plan_leftovers_no_ingredients",
+    "plan_reopen_shortage",  # $ingredient, $needed, $have
+    # ── Recipes (app/api/recipe.py) ────────────────────────────────────────
+    "recipe_generation_failed",
+    "recipe_no_meals",
 ]
 
-_EN: Final[dict[ErrorKey, str]] = {
+#: Keys whose sentence changes with a count. The copy holds
+#: ``{base}_{category}`` for every category ``plural_category`` can return in
+#: that locale, and each variant is a WHOLE sentence — see the note in
+#: ``errors.py`` for why Czech leaves no other option.
+PluralErrorKey = Literal[
+    "plan_favorites_block_delete",  # $count
+    "plan_favorites_block_unconfirm",  # $count
+]
+
+_EN: Final[dict[str, str]] = {
     "auth_not_authenticated": "Not authenticated",
     "auth_bad_credentials": "Incorrect email or password",
     "auth_account_disabled": "This account has been disabled.",
@@ -105,9 +135,55 @@ _EN: Final[dict[ErrorKey, str]] = {
     "gate_subscription_required": (
         "An active subscription is required for this feature."
     ),
+    "plan_not_found": "Plan not found",
+    "plan_data_unreadable": "Stored plan data could not be loaded.",
+    "plan_data_inconsistent": "Stored plan data is inconsistent; edit aborted.",
+    "plan_generation_failed": "Meal plan generation failed. Please try again.",
+    "plan_regeneration_failed": "Meal plan regeneration failed. Please try again.",
+    "plan_regenerate_confirmed": "Cannot regenerate a confirmed plan",
+    "plan_not_confirmed": "Plan is not confirmed.",
+    "plan_not_finished": "Plan is not finished.",
+    "plan_finished": "Plan is finished.",
+    "plan_edit_finished": "Cannot edit a finished plan; reopen it first.",
+    "plan_unconfirm_finished": (
+        "Cannot un-confirm a finished plan; reopen it first."
+    ),
+    "plan_uncook_first": "Uncook all meals before un-confirming.",
+    "plan_meal_not_found": "Meal entry not found",
+    "plan_meal_not_found_confirmed": "Meal entry not found for confirmed plan.",
+    "plan_leftovers_not_cookbookable": (
+        "Leftovers can't be saved to the cookbook — save the original meal instead."
+    ),
+    "plan_leftovers_no_ingredients": (
+        "This meal is leftovers from an earlier meal and carries no ingredients "
+        "of its own — edit the source meal instead."
+    ),
+    "plan_reopen_shortage": (
+        "Not enough $ingredient in fridge to reopen this plan: need ${needed}g, "
+        "have ${have}g."
+    ),
+    "recipe_generation_failed": "Recipe generation failed. Please try again.",
+    "recipe_no_meals": "LLM returned no meals — try again.",
+    # English needs only one/other; Czech's third form is what these exist for.
+    "plan_favorites_block_delete_one": (
+        "This plan contains $count cookbook recipe. Un-favorite it before "
+        "deleting the plan."
+    ),
+    "plan_favorites_block_delete_other": (
+        "This plan contains $count cookbook recipes. Un-favorite them before "
+        "deleting the plan."
+    ),
+    "plan_favorites_block_unconfirm_one": (
+        "This plan contains $count cookbook recipe. Un-favorite it before "
+        "un-confirming the plan."
+    ),
+    "plan_favorites_block_unconfirm_other": (
+        "This plan contains $count cookbook recipes. Un-favorite them before "
+        "un-confirming the plan."
+    ),
 }
 
-_CS: Final[dict[ErrorKey, str]] = {
+_CS: Final[dict[str, str]] = {
     "auth_not_authenticated": "Nejste přihlášeni",
     # Deliberately does not say WHICH of the two is wrong — neither does the
     # English, and an error that distinguishes them turns the login form into an
@@ -138,6 +214,76 @@ _CS: Final[dict[ErrorKey, str]] = {
         "Pro použití této funkce prosím potvrďte svou e-mailovou adresu."
     ),
     "gate_subscription_required": "Tato funkce vyžaduje aktivní předplatné.",
+    "plan_not_found": "Jídelníček nenalezen",
+    "plan_data_unreadable": "Uložená data jídelníčku se nepodařilo načíst.",
+    "plan_data_inconsistent": (
+        "Uložená data jídelníčku nejsou konzistentní, úprava byla zrušena."
+    ),
+    "plan_generation_failed": (
+        "Vytvoření jídelníčku se nezdařilo. Zkuste to prosím znovu."
+    ),
+    "plan_regeneration_failed": (
+        "Přegenerování jídelníčku se nezdařilo. Zkuste to prosím znovu."
+    ),
+    "plan_regenerate_confirmed": "Potvrzený jídelníček nelze přegenerovat",
+    "plan_not_confirmed": "Jídelníček není potvrzený.",
+    "plan_not_finished": "Jídelníček není dokončený.",
+    "plan_finished": "Jídelníček je dokončený.",
+    "plan_edit_finished": (
+        "Dokončený jídelníček nelze upravit, nejprve ho znovu otevřete."
+    ),
+    "plan_unconfirm_finished": (
+        "U dokončeného jídelníčku nelze zrušit potvrzení, nejprve ho znovu "
+        "otevřete."
+    ),
+    "plan_uncook_first": "Před zrušením potvrzení odznačte všechna uvařená jídla.",
+    "plan_meal_not_found": "Jídlo nenalezeno",
+    "plan_meal_not_found_confirmed": "Jídlo v potvrzeném jídelníčku nenalezeno.",
+    "plan_leftovers_not_cookbookable": (
+        "Zbytky nelze uložit do kuchařky — uložte místo nich původní jídlo."
+    ),
+    "plan_leftovers_no_ingredients": (
+        "Toto jídlo jsou zbytky z dřívějšího jídla a nemá vlastní suroviny — "
+        "upravte původní jídlo."
+    ),
+    # "$ingredient" arrives from the LLM in the user's recipe language, so it
+    # is left in the nominative and the sentence is built around it rather than
+    # inflecting it — there is no way to decline a word we do not know.
+    "plan_reopen_shortage": (
+        "V lednici není dost potřebné suroviny ($ingredient) na znovuotevření "
+        "tohoto jídelníčku: potřeba ${needed} g, k dispozici ${have} g."
+    ),
+    "recipe_generation_failed": "Vytvoření receptu se nezdařilo. Zkuste to prosím znovu.",
+    "recipe_no_meals": "Model nevrátil žádná jídla — zkuste to prosím znovu.",
+    # The count governs the case of "recept" AND of the pronoun after it, so
+    # these are three whole sentences, not one sentence with a swapped ending:
+    #   1  → recept   / ho odeberte
+    #   2-4→ recepty  / je odeberte
+    #   5+ → receptů  / je odeberte
+    "plan_favorites_block_delete_one": (
+        "Tento jídelníček obsahuje $count recept v kuchařce. Před smazáním "
+        "jídelníčku ho odeberte z oblíbených."
+    ),
+    "plan_favorites_block_delete_few": (
+        "Tento jídelníček obsahuje $count recepty v kuchařce. Před smazáním "
+        "jídelníčku je odeberte z oblíbených."
+    ),
+    "plan_favorites_block_delete_other": (
+        "Tento jídelníček obsahuje $count receptů v kuchařce. Před smazáním "
+        "jídelníčku je odeberte z oblíbených."
+    ),
+    "plan_favorites_block_unconfirm_one": (
+        "Tento jídelníček obsahuje $count recept v kuchařce. Před zrušením "
+        "potvrzení ho odeberte z oblíbených."
+    ),
+    "plan_favorites_block_unconfirm_few": (
+        "Tento jídelníček obsahuje $count recepty v kuchařce. Před zrušením "
+        "potvrzení je odeberte z oblíbených."
+    ),
+    "plan_favorites_block_unconfirm_other": (
+        "Tento jídelníček obsahuje $count receptů v kuchařce. Před zrušením "
+        "potvrzení je odeberte z oblíbených."
+    ),
 }
 
-ERROR_COPY: Final[dict[Locale, dict[ErrorKey, str]]] = {"en": _EN, "cs": _CS}
+ERROR_COPY: Final[dict[Locale, dict[str, str]]] = {"en": _EN, "cs": _CS}
