@@ -320,6 +320,14 @@
         font-weight: 600;
         text-decoration: none;
         font-size: 0.95rem;
+        /* Declared, not inherited: .btn is used on both <a> and <button>, and a
+           <button> gets the UA's `font: -webkit-small-control`, whose font
+           shorthand resets line-height to `normal`. A UA declaration beats
+           inheritance, so without this the same class rendered 3.6px shorter on
+           the buttons (42.8 vs 46.3px) — and the two shortest were the submit
+           buttons. Same UA-reset trap #auth-submit / #access-submit already
+           patch with `font-family: inherit`; this is the line-height half. */
+        line-height: 1.55;
         border: 1px solid transparent;
       }
       .btn-primary {
@@ -460,10 +468,17 @@
         color: var(--muted);
         text-align: center;
       }
+      /* The modal's only login <-> register switch. `font: inherit` pulls in the
+         parent <p>'s 0.85rem and body's 1.55 line-height, and with no padding
+         that was the whole box: a 21px-tall thumb target for the registration
+         entry point. The padding grows the hit box to ~40px; the equal negative
+         margin keeps the margin box its original height, so the sentence it sits
+         in does not reflow. */
       .auth-linkbtn {
         background: none;
         border: none;
-        padding: 0;
+        padding: 0.6rem 0.3rem;
+        margin: -0.6rem -0.3rem;
         color: var(--accent);
         font: inherit;
         font-weight: 600;
@@ -529,6 +544,11 @@
         border: 1px solid var(--success-border);
       }
 
+      /* Sized in px rather than by padding around the glyph. This is the only
+         button on the page that never pins a font-family (its siblings all set
+         `font-family: inherit`), so its width was the advance of U+00D7 in
+         whatever font the UA picked — 25.9px on Arial, i.e. 1.9px over the WCAG
+         2.2 minimum, decided by a metric the page does not control. */
       #auth-close {
         position: absolute;
         top: 0.5rem;
@@ -536,9 +556,11 @@
         background: none;
         border: none;
         color: var(--muted);
+        font-family: inherit;
         font-size: 1.4rem;
-        line-height: 1;
-        padding: 0.2rem 0.4rem;
+        width: 40px;
+        height: 40px;
+        padding: 0;
         cursor: pointer;
       }
 
