@@ -1,4 +1,7 @@
+/// <reference types="node" />
 import { describe, it, expect, afterEach } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { landingLocale, landingCopy, type LandingCopy } from "./copy";
 
 const EN_KEYS = Object.keys(landingCopy("en")) as (keyof LandingCopy)[];
@@ -77,6 +80,29 @@ describe("the two copy tables", () => {
     expect(landingCopy("en").passwordTooShort(8)).toContain("8");
     expect(landingCopy("cs").passwordTooShort(8)).toBe("Heslo musí mít alespoň 8 znaků.");
     expect(landingCopy("cs").passwordTooLong(72)).toBe("Heslo musí mít nejvýše 72 znaků.");
+  });
+
+  it("has no orphan key — every entry is referenced by the bundle", () => {
+    // This test exists because three keys shipped unused. `authBusyRegister`,
+    // `authBusyLogin` and `authGenericError` were defined here and the call
+    // sites still hardcoded their English — so the Czech page said "Creating…"
+    // mid-signup, and every check in this file passed, because a key that is
+    // present and translated looks perfect from inside the table.
+    //
+    // The backend's error catalogue has exactly this guard
+    // (test_no_orphan_error_keys) and the SPA dictionary has it too
+    // (i18n/keyUsage.test.ts). This table had neither.
+    const sources = readdirSync(__dirname)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\./.test(f) && f !== "copy.ts")
+      .map((f) => readFileSync(join(__dirname, f), "utf-8"))
+      .join("\n");
+
+    // Guards the guard: a broken read would make the filter below pass over an
+    // empty set, which is the exact failure this test is about.
+    expect(sources).toContain("landingCopy");
+
+    const orphans = EN_KEYS.filter((key) => !sources.includes(key));
+    expect(orphans).toEqual([]);
   });
 
   it("keeps the consent sentence as ONE Czech string", () => {

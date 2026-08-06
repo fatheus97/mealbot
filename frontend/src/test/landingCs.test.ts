@@ -113,8 +113,17 @@ describe("Czech landing page", () => {
       expect(body).toContain('href="/terms" hreflang="en"');
       expect(body).not.toContain("/cs/privacy");
       expect(body).not.toContain("/cs/terms");
-      // Twice in the footer, once on the register consent row.
-      expect((body.match(/\(v angličtině\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+
+      // EVERY link to an English legal page carries the label, checked one
+      // link at a time. A bare count passed at ">= 3" while the consent row's
+      // TERMS link had none — on the one row where the visitor is actively
+      // agreeing to something, which is the worst place to leave it off.
+      const links = [...body.matchAll(/<a href="\/(privacy|terms)"[^>]*>([\s\S]*?)<\/a>\s*(<span class="muted">\(v angličtině\)<\/span>)?/g)];
+      expect(links.length).toBe(4); // footer ×2, consent row ×2
+      for (const m of links) {
+        const labelled = m[2].includes("v angličtině") || Boolean(m[3]);
+        expect(labelled, `unlabelled /${m[1]} link: ${m[0].slice(0, 80)}`).toBe(true);
+      }
     });
 
     it("formats prices the Czech way", () => {

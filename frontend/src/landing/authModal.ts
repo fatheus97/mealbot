@@ -151,10 +151,11 @@ export function createAuthModal(
   function setBusy(next: boolean): void {
     busy = next;
     els.submit.disabled = next;
+    const copy = landingCopy();
     els.submit.textContent = next
       ? mode === "register"
-        ? "Creating…"
-        : "Logging in…"
+        ? copy.authBusyRegister
+        : copy.authBusyLogin
       : modeCopy()[mode].submit;
   }
 
@@ -187,7 +188,7 @@ export function createAuthModal(
       setBusy(false);
       const accountExists = err instanceof AccountCreatedNeedsLoginError;
       const message =
-        err instanceof Error ? err.message : "Something went wrong. Please try again.";
+        err instanceof Error ? err.message : landingCopy().authGenericError;
       if (accountExists) {
         // The account was created — flip the form to login so "please sign in
         // to continue" is actionable. Without this, resubmitting re-runs
