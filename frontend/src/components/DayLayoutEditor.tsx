@@ -10,6 +10,22 @@ const newId = (): string =>
     ? globalThis.crypto.randomUUID()
     : `slot-${Math.random().toString(36).slice(2)}-${Date.now()}`);
 
+/**
+ * Disabled-control text, and the fill the at-max button sits on.
+ *
+ * WCAG 1.4.3 EXEMPTS inactive controls, so the old #9ca3af (2.43:1) was not a
+ * violation — this is a deliberate house standard above the floor, because the
+ * ↑/↓ arrows are disabled at the ends of every list and the at-max button
+ * carries real information ("8 slots max"). Kept at one grey for both: it still
+ * reads clearly dimmer than the active #374151 (4.63:1 vs 9.88:1).
+ *
+ * Ratios on every surface this editor renders on — its own #fafafa row, the
+ * #fcfcfc day card in MealPlanner, and the white Settings modal via
+ * PreferencesForm — are asserted in contrast.test.ts.
+ */
+export const DISABLED_TEXT = "#6b7280";
+export const DISABLED_SURFACE = "#f9fafb";
+
 interface DayLayoutEditorProps {
   value: MealType[];
   onChange: (next: MealType[]) => void;
@@ -55,6 +71,9 @@ export function DayLayoutEditor({
   }
 
   const atMax = value.length >= maxSlots;
+  // What the "+ Add slot" button's STYLING keys off — deliberately the same
+  // condition as its `disabled` attribute, so the two cannot drift apart.
+  const inactive = disabled || atMax;
 
   const replaceAt = (idx: number, next: MealType) => {
     const arr = [...value];
@@ -162,7 +181,10 @@ export function DayLayoutEditor({
               aria-label={t("layout.remove", { n: idx + 1 })}
               onClick={() => removeAt(idx)}
               disabled={disabled}
-              style={{ ...slotButtonStyle(disabled), color: "#b91c1c" }}
+              // The red has to lose to the disabled grey, not override it —
+              // spreading slotButtonStyle and then unconditionally re-setting
+              // `color` painted a disabled ✕ in full active red.
+              style={{ ...slotButtonStyle(disabled), color: disabled ? DISABLED_TEXT : "#b91c1c" }}
             >
               ✕
             </button>
@@ -172,18 +194,25 @@ export function DayLayoutEditor({
       <button
         type="button"
         onClick={addSlot}
-        disabled={disabled || atMax}
+        disabled={inactive}
         style={{
           alignSelf: "flex-start",
           padding: "0.35rem 0.8rem",
           fontSize: "0.9rem",
-          backgroundColor: atMax ? "#f3f4f6" : "#eff6ff",
-          color: atMax ? "#9ca3af" : "#1d4ed8",
-          border: `1px solid ${atMax ? "#e5e7eb" : "#bfdbfe"}`,
+          // Follows the `disabled` ATTRIBUTE above, not just `atMax`. Branching
+          // the styling on the narrower condition rendered a full active blue
+          // button that could not be clicked while the parent form was saving.
+          // The at-max fill is a shade lighter than the obvious #f3f4f6 so the
+          // one DISABLED_TEXT grey clears AA here too (4.63:1 rather than 4.39).
+          backgroundColor: inactive ? DISABLED_SURFACE : "#eff6ff",
+          color: inactive ? DISABLED_TEXT : "#1d4ed8",
+          border: `1px solid ${inactive ? "#e5e7eb" : "#bfdbfe"}`,
           borderRadius: "4px",
-          cursor: disabled || atMax ? "not-allowed" : "pointer",
+          cursor: inactive ? "not-allowed" : "pointer",
         }}
       >
+        {/* The LABEL still keys off atMax alone — "max 8" is only true at the
+            cap, and would be a lie while merely saving. */}
         {atMax ? t("layout.addSlotMax", { max: maxSlots }) : t("layout.addSlot")}
       </button>
     </div>
@@ -198,6 +227,9 @@ function slotButtonStyle(inactive: boolean): React.CSSProperties {
     padding: "0.1rem 0.45rem",
     fontSize: "0.9rem",
     cursor: inactive ? "not-allowed" : "pointer",
-    color: inactive ? "#9ca3af" : "#374151",
+    // `background: "none"` exposes the ancestor surface, so this needs an
+    // explicit colour or the UA `buttontext` takes over (white under a dark OS
+    // theme). See .claude/rules/frontend.md.
+    color: inactive ? DISABLED_TEXT : "#374151",
   };
 }
