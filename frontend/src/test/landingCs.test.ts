@@ -103,13 +103,18 @@ describe("Czech landing page", () => {
       expect(normalized).not.toContain("Regulation (EU) No 1169/2011");
     });
 
-    it("points its legal links at the Czech pages", () => {
-      // A Czech visitor sent to the English terms is the gap this whole page
-      // exists to close.
-      expect(body).toContain('href="/cs/privacy"');
-      expect(body).toContain('href="/cs/terms"');
-      expect(body).not.toContain('href="/privacy"');
-      expect(body).not.toContain('href="/terms"');
+    it("labels the legal links as English rather than pretending or 404ing", () => {
+      // There are no Czech legal pages yet, and inventing /cs/privacy would
+      // have shipped two dead links. Linking the real English documents is the
+      // honest interim — but only if the page SAYS they are in English, so the
+      // visitor knows before clicking, and `hreflang="en"` tells a screen
+      // reader and a crawler the same thing.
+      expect(body).toContain('href="/privacy" hreflang="en"');
+      expect(body).toContain('href="/terms" hreflang="en"');
+      expect(body).not.toContain("/cs/privacy");
+      expect(body).not.toContain("/cs/terms");
+      // Twice in the footer, once on the register consent row.
+      expect((body.match(/\(v angličtině\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
     });
 
     it("formats prices the Czech way", () => {
