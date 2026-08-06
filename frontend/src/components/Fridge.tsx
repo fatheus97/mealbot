@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { usePrefersDark } from "../hooks/usePrefersDark";
 import { useFridge, useUpdateFridge } from "../hooks/useServerState";
 import type { StockItem } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 
 type PendingRemoval =
   | { kind: "item"; index: number; name: string; quantity: number }
@@ -29,6 +31,16 @@ interface GroupedItem {
 
 type SortKey = "name" | "quantity" | "expires";
 
+/**
+ * Batch rows/cards pin a dark slate surface (#0f172a) in BOTH themes, so their
+ * foregrounds are fixed rather than theme-following. Ratios on #0f172a:
+ * body 14.48:1, muted 6.96:1, badge 5.61:1 — see contrast.test.ts.
+ */
+export const ON_DARK_SURFACE = "#0f172a";
+export const ON_DARK_TEXT = "#e2e8f0";
+export const ON_DARK_MUTED = "#94a3b8";
+export const ON_DARK_ERROR = "#f87171";
+
 /** Format ISO date string (YYYY-MM-DD) using the OS/browser locale, or return fallback. */
 const localeDateFormatter = new Intl.DateTimeFormat(navigator.language, {
   year: "numeric",
@@ -48,6 +60,7 @@ function formatDate(iso: string | null | undefined, fallback = "\u2014"): string
 export function Fridge() {
   const { userId } = useAuth();
   const isMobile = useIsMobile();
+  const scheme = usePrefersDark() ? "dark" : "light";
 
   const { data: serverFridge, isLoading, error: fetchError } = useFridge(userId);
   const updateFridgeMutation = useUpdateFridge();
@@ -342,27 +355,38 @@ export function Fridge() {
     const rows: React.ReactNode[] = [];
 
     // Summary row
+    const rowMuted = isExpanded ? ON_DARK_MUTED : PAGE_TEXT.muted[scheme];
     rows.push(
       <tr
         key={group.key}
         style={{
           borderBottom: isExpanded ? "none" : "1px solid #eee",
+          // Expanded pins a dark slate surface, so it must pin a light colour
+          // too — otherwise the row's text inherits the ADAPTIVE default and
+          // goes dark-on-dark (#213547 on #1e293b = 1.6:1) in light mode.
+          // Collapsed is transparent, so the adaptive default is right there.
           backgroundColor: isExpanded ? "#1e293b" : "transparent",
+          color: isExpanded ? ON_DARK_TEXT : undefined,
           cursor: "pointer",
         }}
         onClick={() => toggleGroup(group.key)}
       >
+        {/* This row is two-surfaced: expanded it pins #1e293b, collapsed it is
+            transparent over the adaptive page background. A single fixed grey
+            cannot clear AA on both (#94a3b8 is 5.71:1 on #1e293b but 2.56:1 on
+            white), so the muted colour follows the surface the row is actually
+            on. */}
         <td style={{ userSelect: "none", display: "flex", alignItems: "center", gap: "0.3rem" }}>
-          <span style={{ fontSize: "0.8rem", color: "#888" }}>
+          <span style={{ fontSize: "0.8rem", color: rowMuted }}>
             {isExpanded ? "\u25BC" : "\u25B6"}
           </span>
           <span>{group.displayName}</span>
-          <span style={{ fontSize: "0.8rem", color: "#64748b", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: "0.8rem", color: rowMuted, whiteSpace: "nowrap" }}>
             ({group.batchCount} batches)
           </span>
         </td>
-        <td style={{ color: "#94a3b8" }}>{Math.round(group.totalQuantity)}</td>
-        <td style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
+        <td style={{ color: rowMuted }}>{Math.round(group.totalQuantity)}</td>
+        <td style={{ fontSize: "0.85rem", color: rowMuted }}>
           {formatDate(group.earliestExpiration)}
         </td>
         <td>{group.needToUse ? "Yes" : "No"}</td>
@@ -384,11 +408,15 @@ export function Fridge() {
             key={`${group.key}_batch_${batchIdx}`}
             style={{
               borderBottom: batchIdx === sortedIndices.length - 1 ? "1px solid #eee" : "1px solid #334155",
-              backgroundColor: "#0f172a",
+              // Same as the summary row: a pinned dark surface needs a pinned
+              // light colour, or the batch cells read #213547 on #0f172a
+              // (1.42:1) in light mode. 14.48:1 both ways.
+              backgroundColor: ON_DARK_SURFACE,
+              color: ON_DARK_TEXT,
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <td style={{ paddingLeft: "2rem", color: "#94a3b8", fontSize: "0.9rem" }}>
+            <td style={{ paddingLeft: "2rem", color: ON_DARK_MUTED, fontSize: "0.9rem" }}>
               <span style={{ borderLeft: "2px solid #334155", paddingLeft: "0.5rem" }}>
                 Batch {batchIdx + 1}
               </span>
@@ -421,23 +449,30 @@ export function Fridge() {
     gap: "0.4rem",
     flexWrap: "wrap",
   };
+  // These cards carry NO background of their own, so they sit on the adaptive
+  // page background — but their palette was picked for a dark surface only.
+  // Measured at 375px in light mode: the meta text was 2.56:1 and the badge
+  // 1.9:1. Both now take the per-theme pair.
   const cardMeta: React.CSSProperties = {
     display: "flex",
     gap: "0.75rem",
     flexWrap: "wrap",
     fontSize: "0.85rem",
-    color: "#94a3b8",
+    color: PAGE_TEXT.muted[scheme],
     margin: "0.35rem 0",
   };
   const cardActions: React.CSSProperties = { display: "flex", gap: "0.4rem" };
   const cardActionBtn: React.CSSProperties = { flex: 1, padding: "0.4rem" };
   const useSoonBadge: React.CSSProperties = {
     fontSize: "0.7rem",
-    color: "#fca5a5",
-    border: "1px solid #7f1d1d",
+    color: PAGE_TEXT.error[scheme],
+    border: `1px solid ${PAGE_TEXT.error[scheme]}`,
     borderRadius: 4,
     padding: "0.05rem 0.4rem",
   };
+  // Batch cards pin #0f172a in BOTH themes, so anything inside them keeps a
+  // fixed light foreground rather than following the OS scheme.
+  const onDarkBadge: React.CSSProperties = { ...useSoonBadge, color: ON_DARK_ERROR, border: `1px solid ${ON_DARK_ERROR}` };
 
   const renderSingleCard = (group: GroupedItem) => {
     const idx = group.flatIndices[0];
@@ -466,9 +501,11 @@ export function Fridge() {
     return (
       <div key={group.key} style={cardStyle}>
         <div style={{ ...cardHeaderRow, cursor: "pointer" }} onClick={() => toggleGroup(group.key)}>
-          <span style={{ fontSize: "0.8rem", color: "#888" }}>{isExpanded ? "▼" : "▶"}</span>
+          {/* The multi-batch CARD carries no background, so it is on the
+              adaptive page background — #888 was 4.38:1 dark / 3.54:1 light. */}
+          <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.8rem" }}>{isExpanded ? "▼" : "▶"}</span>
           <strong>{group.displayName}</strong>
-          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>({group.batchCount} batches)</span>
+          <span style={{ fontSize: "0.8rem", color: PAGE_TEXT.muted[scheme] }}>({group.batchCount} batches)</span>
           {group.needToUse && <span style={useSoonBadge}>use soon</span>}
         </div>
         <div style={cardMeta}>
@@ -483,13 +520,16 @@ export function Fridge() {
           return (
             <div
               key={`${group.key}_batch_${batchIdx}`}
-              style={{ ...cardStyle, marginTop: "0.5rem", marginBottom: 0, backgroundColor: "#0f172a" }}
+              style={{ ...cardStyle, marginTop: "0.5rem", marginBottom: 0, backgroundColor: ON_DARK_SURFACE, color: ON_DARK_TEXT }}
             >
               <div style={cardHeaderRow}>
-                <span style={{ color: "#94a3b8" }}>Batch {batchIdx + 1}</span>
-                {item.need_to_use && <span style={useSoonBadge}>use soon</span>}
+                <span style={{ color: ON_DARK_MUTED }}>Batch {batchIdx + 1}</span>
+                {item.need_to_use && <span style={onDarkBadge}>use soon</span>}
               </div>
-              <div style={cardMeta}>
+              {/* This card pins #0f172a in BOTH themes, so it must NOT take the
+                  theme-following `cardMeta` colour — #475569 on #0f172a is
+                  1.7:1. Fixed surface, fixed foreground. */}
+              <div style={{ ...cardMeta, color: ON_DARK_MUTED }}>
                 <span>{Math.round(item.quantity_grams)} g</span>
                 <span>exp {formatDate(item.expiration_date)}</span>
               </div>
@@ -516,10 +556,14 @@ export function Fridge() {
         style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", userSelect: "none" }}
         onClick={() => setExpanded(!expanded)}
       >
-        <span style={{ fontSize: "0.9rem", color: "#888" }}>{expanded ? "\u25BC" : "\u25B6"}</span>
+        {/* This header sits on the ADAPTIVE page background, so a fixed grey
+            inverts with the theme: #888 measured 4.38:1 in dark and 3.54:1 in
+            light \u2014 under AA in both. `inherit` + opacity dims whatever the
+            adaptive default is instead. */}
+        <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.9rem" }}>{expanded ? "\u25BC" : "\u25B6"}</span>
         <h2 style={{ margin: 0 }}>Fridge</h2>
         {fridge.length > 0 && (
-          <span style={{ fontSize: "0.85rem", color: "#888" }}>
+          <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.85rem" }}>
             ({sortedGroups.length}{sortedGroups.length !== fridge.length ? ` / ${fridge.length} batches` : ""})
           </span>
         )}
@@ -530,8 +574,17 @@ export function Fridge() {
           <ReceiptScanner currentFridge={fridge} />
 
           {isLoading && <p>Loading inventory...</p>}
+          {/* Both branches sit on the adaptive page background. `red` is below
+              AA in BOTH themes (4.00:1 light / 3.88:1 dark), so the error
+              branch takes the per-theme pair from constants/theme. */}
           {fetchError && (
-            <p style={{ color: fetchError instanceof TypeError ? "#888" : "red" }}>
+            <p
+              style={
+                fetchError instanceof TypeError
+                  ? MUTED_PAGE_TEXT
+                  : { color: PAGE_TEXT.error[scheme] }
+              }
+            >
               {fetchError instanceof TypeError ? "Connecting to server…" : `Error: ${fetchError.message}`}
             </p>
           )}
@@ -548,7 +601,7 @@ export function Fridge() {
                   fontSize: "0.85rem",
                 }}
               >
-                <span style={{ color: "#888" }}>Sort:</span>
+                <span style={MUTED_PAGE_TEXT}>Sort:</span>
                 {(["name", "quantity", "expires"] as SortKey[]).map((k) => (
                   <button
                     key={k}

@@ -7,6 +7,7 @@ import {
   wcagAAFloor,
   checkText,
   findInlineColorPairs,
+  findUncoloredControls,
   blend,
   adaptiveText,
   THEME,
@@ -18,6 +19,13 @@ import {
   MUTED_COLOR,
 } from '../components/PantryStaples';
 import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/theme';
+import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
+import {
+  ON_DARK_SURFACE,
+  ON_DARK_TEXT,
+  ON_DARK_MUTED,
+  ON_DARK_ERROR,
+} from '../components/Fridge';
 
 /** Every non-test .tsx/.ts under a directory. */
 function walkTsx(dir: string): string[] {
@@ -206,5 +214,81 @@ describe('every inline background/foreground pair in the app', () => {
       .filter((p) => !p.passes)
       .map((p) => `${p.file}:${p.line} ${p.fg} on ${p.bg} = ${p.ratio}:1 (needs ${p.floor})`);
     expect(failing).toEqual([]);
+  });
+});
+
+describe('form controls that override their background', () => {
+  // The buttontext trap: a <button> takes the UA keyword rather than
+  // inheriting, and `color-scheme: light dark` flips that keyword white under a
+  // dark OS theme. Nothing in the source names the failing colour, so neither
+  // the pair scan nor a constants check can see it — only this shape can.
+  const files = walkTsx(resolve(process.cwd(), 'src'));
+  const offenders = files.flatMap((f) =>
+    findUncoloredControls(readFileSync(f, 'utf-8'), relative(process.cwd(), f)),
+  );
+
+  it('always declare a color', () => {
+    expect(
+      offenders.map((o) => `${o.file}:${o.line} background=${o.background} with no color`),
+    ).toEqual([]);
+  });
+
+  it('detects the shape that shipped three times', () => {
+    // Negative control. Without this, a broken regex would report an empty
+    // offender list and the assertion above would pass for the wrong reason.
+    const bad = `
+      const smallBtn = { background: "none", border: "1px solid #ccc" };
+      export function X() {
+        return <div style={{ backgroundColor: "#fff" }}>
+          <button type="button" style={smallBtn}>+ Add step</button>
+          <button type="button" style={{ ...smallBtn, color: "#b91c1c" }}>x</button>
+          <button type="button" style={{ padding: 4 }}>inherits the UA pairing</button>
+          <input type="checkbox" style={{ background: "none" }} />
+        </div>;
+      }`;
+    // Only the first button: the second declares a colour, the third keeps the
+    // UA's own background (so it stays self-consistent), and a checkbox paints
+    // no text.
+    expect(findUncoloredControls(bad, 'x.tsx').map((o) => o.background)).toEqual(['none']);
+  });
+
+  it('does not count a <button> written inside a comment', () => {
+    const prose = `// a <button style={{ background: "none" }}> does not inherit color\n`;
+    expect(findUncoloredControls(prose, 'x.tsx')).toEqual([]);
+  });
+});
+
+describe('the AuthBar surface', () => {
+  // Pinned #f0f8ff, so both halves are fixed and the check is exact. The old
+  // #007bff link was 3.71:1 — under AA in BOTH themes, and invisible to the
+  // pair scan because the background is declared 110 lines above the colour.
+  it('keeps its link above AA', () => {
+    expect(checkText(LINK_ON_AUTHBAR, AUTHBAR_SURFACE, 13.6)).toMatchObject({ passes: true });
+  });
+
+  it('rejects the blue that shipped', () => {
+    expect(checkText('#007bff', AUTHBAR_SURFACE, 13.6).passes).toBe(false);
+  });
+});
+
+describe('the fridge batch surface', () => {
+  // Batch rows/cards pin #0f172a in BOTH themes, so — unlike PAGE_TEXT — their
+  // foregrounds must NOT follow the scheme. They shipped with no `color` at
+  // all, which meant the cells inherited the adaptive default and read #213547
+  // on #0f172a (1.42:1) under a LIGHT OS theme: the mirror image of the dark
+  // bug, and the reason a one-theme check keeps missing half of these.
+  const cases: [string, string, number][] = [
+    ['body', ON_DARK_TEXT, 16],
+    ['muted', ON_DARK_MUTED, 13.6],
+    ['use-soon badge', ON_DARK_ERROR, 11.2],
+  ];
+  for (const [name, color, px] of cases) {
+    it(`${name} meets WCAG AA on the pinned dark surface`, () => {
+      expect(checkText(color, ON_DARK_SURFACE, px)).toMatchObject({ passes: true });
+    });
+  }
+
+  it('rejects the adaptive light-theme default that these cells were inheriting', () => {
+    expect(checkText(THEME.light.fg, ON_DARK_SURFACE, 16).passes).toBe(false);
   });
 });
