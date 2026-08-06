@@ -46,3 +46,23 @@ describe("FavoriteStar", () => {
     expect(screen.getByRole("switch")).toHaveAccessibleName("Remove from cookbook");
   });
 });
+
+describe("FavoriteStar conveys state by shape, not colour alone", () => {
+  // The two colours are 1.04:1 against EACH OTHER — near-identical luminance,
+  // differing only in hue. If the glyph were the same in both states, "saved"
+  // would be carried by colour alone (WCAG 1.4.1). Ratios against the surfaces
+  // are pinned in test/contrast.test.ts; this pins the shape.
+  it("uses an outline star when not saved and a filled one when saved", () => {
+    const { rerender } = render(<FavoriteStar isFavorite={false} onToggle={() => {}} />);
+    expect(screen.getByRole("switch").textContent).toBe("☆");
+    rerender(<FavoriteStar isFavorite={true} onToggle={() => {}} />);
+    expect(screen.getByRole("switch").textContent).toBe("★");
+  });
+
+  it("still changes colour as well, so the cue is doubled not swapped", () => {
+    const { rerender } = render(<FavoriteStar isFavorite={false} onToggle={() => {}} />);
+    const unsaved = screen.getByRole("switch").style.color;
+    rerender(<FavoriteStar isFavorite={true} onToggle={() => {}} />);
+    expect(screen.getByRole("switch").style.color).not.toBe(unsaved);
+  });
+});
