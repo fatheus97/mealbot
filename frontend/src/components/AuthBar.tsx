@@ -12,9 +12,14 @@ import { Trans } from "../i18n/Trans";
 const SUPPORT_EMAIL = "info@trymealbot.com";
 
 /**
- * Login failures that deserve their own sentence. Anything absent — 5xx, a
- * network drop, a 422 — falls back to the generic message, which is honest
- * about not knowing.
+ * Login failures that deserve their own sentence.
+ *
+ * An allow-list, not a catch-all: a status only earns an entry when there is
+ * something specific and useful to say. Everything else — 5xx, a 422, a
+ * network drop that never produced a status at all — falls back to the generic
+ * message. That fallback is imperfect (it guesses at credentials for what may
+ * be a dropped connection) and it stays the default anyway, because the
+ * alternative is inventing a diagnosis we do not have.
  */
 const LOGIN_STATUS_MESSAGES: Partial<Record<number, TranslationKey>> = {
   403: "auth.error.accountDisabled",
