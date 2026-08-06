@@ -496,6 +496,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "calendar.close": "Zavřít kalendář",
   "calendar.plan": "Jídelníček",
   "calendar.planNumbered": "Jídelníček č. {id}",
+  "calendar.emptyMonth": "V měsíci {month} nejsou naplánované žádné jídelníčky. Přiřaďte jídelníčku datum začátku a objeví se tady.",
   "calendar.loading": "Načítání…",
   "calendar.scheduled": "Naplánované jídelníčky",
   "calendar.openPlan": "Otevřít →",

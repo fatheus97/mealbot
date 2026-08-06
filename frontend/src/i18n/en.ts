@@ -518,6 +518,7 @@ export const en = {
   "calendar.close": "Close calendar",
   "calendar.plan": "Plan",
   "calendar.planNumbered": "Plan #{id}",
+  "calendar.emptyMonth": "No scheduled plans in {month}. Give a plan a start date to see it here.",
   "calendar.loading": "Loading…",
   "calendar.scheduled": "Scheduled plans",
   "calendar.openPlan": "Open →",

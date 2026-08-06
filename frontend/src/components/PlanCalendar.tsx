@@ -309,7 +309,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
             )}
             {!isLoading && plans.length === 0 && (
               <p style={{ color: "#6b7280", fontSize: "0.9rem", margin: 0 }}>
-                No scheduled plans in {monthLabelOf(monthCursor)}. Give a plan a start date to see it here.
+                {t("calendar.emptyMonth", { month: monthLabelOf(monthCursor) })}
               </p>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
@@ -328,7 +328,9 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                 >
                   {/* Header row: status · reschedule · open */}
                   <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ ...chipStyle(p.status), cursor: "default" }}>{p.status}</span>
+                    <span style={{ ...chipStyle(p.status), cursor: "default" }}>
+                      {t(`planStatus.${p.status}` as const)}
+                    </span>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem", color: "#374151" }}>
                       <span aria-hidden>📅</span>
                       {/* Uncontrolled + keyed on the server value: picking a new

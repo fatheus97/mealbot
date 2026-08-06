@@ -51,11 +51,6 @@ const dynamicPrefixes = [
   ...haystack.matchAll(/[`"']([a-z][a-zA-Z]*\.)\$\{/g),
 ].map((m) => m[1]);
 
-/** Plural bases are referenced without their `_one` / `_other` suffix. */
-const pluralBases = new Set(
-  [...literalKeys].filter((k) => haystack.includes(`"${k}"`) || haystack.includes(`'${k}'`)),
-);
-
 describe('dictionary key usage', () => {
   it('found source files and key references to check', () => {
     // Guards the guard: a broken walk or regex would make the assertion below
@@ -69,7 +64,8 @@ describe('dictionary key usage', () => {
       if (literalKeys.has(key)) return false;
       // `time.minutes_one` is reached via tn("time.minutes", n).
       const base = key.replace(/_(zero|one|two|few|many|other)$/, '');
-      if (base !== key && (literalKeys.has(base) || pluralBases.has(base))) return false;
+      // A plural base is referenced without its suffix: tn("time.minutes", n).
+      if (base !== key && literalKeys.has(base)) return false;
       return !dynamicPrefixes.some((prefix) => key.startsWith(prefix));
     });
     expect(orphans).toEqual([]);
