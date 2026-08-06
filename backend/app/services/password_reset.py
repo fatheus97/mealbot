@@ -73,7 +73,7 @@ async def _minted_recently(
     """True when a live token was minted for this user inside the cooldown."""
     result = await session.execute(
         select(PasswordResetToken)
-        .where(PasswordResetToken.user_id == user_id)  # type: ignore[arg-type]
+        .where(PasswordResetToken.user_id == user_id)
         .where(PasswordResetToken.used_at.is_(None))  # type: ignore[union-attr]
         .where(PasswordResetToken.created_at > now - _RESEND_COOLDOWN)
         .limit(1)
@@ -151,7 +151,7 @@ async def dispatch_reset_email(email: str) -> None:
         async with session_factory() as session:
             now = datetime.now(UTC)
             result = await session.execute(
-                select(User).where(  # type: ignore[arg-type]
+                select(User).where(
                     User.normalized_email == normalize_email(email)
                 )
             )
@@ -212,7 +212,7 @@ async def find_redeemable(
     result = await session.execute(
         select(PasswordResetToken)
         .where(
-            PasswordResetToken.token_hash == hash_refresh_token(token)  # type: ignore[arg-type]
+            PasswordResetToken.token_hash == hash_refresh_token(token)
         )
         .with_for_update()
     )

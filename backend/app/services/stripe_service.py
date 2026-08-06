@@ -322,9 +322,14 @@ def construct_event(payload: bytes, sig_header: str) -> stripe.Event:
     """
     if not settings.stripe_webhook_secret:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET not configured")
-    return stripe.Webhook.construct_event(
+    # stripe ships no annotation for Webhook.construct_event, so it comes back
+    # as Any. Bind it to a declared local instead of returning Any straight out
+    # of a function promising stripe.Event. Re-check on every stripe bump — if
+    # they annotate it, this ignore becomes an unused-ignore error.
+    event: stripe.Event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
         payload, sig_header, settings.stripe_webhook_secret
     )
+    return event
 
 
 # --- Trial-abuse guard (Gate B) Stripe helpers -----------------------------------
