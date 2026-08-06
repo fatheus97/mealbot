@@ -154,7 +154,11 @@ def test_no_orphan_error_keys() -> None:
     # Guards the guard: a broken walk would make the assertion below pass over
     # an empty set, which is the exact failure this test is about.
     assert len(raised) > 10
-    assert sorted(ALL_KEYS - raised) == []
+    # PLURAL_BASES as well as ALL_KEYS. A plural key is raised by its BASE
+    # (`count=` picks the suffix at render time), so the base is what appears
+    # in the source — and leaving it out meant an unused plural key was
+    # invisible to the one test whose whole job is finding unused keys.
+    assert sorted((ALL_KEYS | PLURAL_BASES) - raised) == []
 
 
 # ─── Rendering: parameters and plurals ──────────────────────────────────────
