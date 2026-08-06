@@ -183,7 +183,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1rem 1.25rem" }}>
-          {isLoading && <p style={{ color: "#6b7280" }}>Loading…</p>}
+          {isLoading && <p style={{ color: "#6b7280" }}>{t("calendar.loading")}</p>}
 
           {/* Desktop: month grid (chips click-to-open). Mobile falls back to the
               agenda list below — a 7-col grid is unusable at 375px. */}
@@ -235,7 +235,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                                   )})`
                                 : m.name,
                             )
-                            .join(", ") || `Plan #${c.plan_id}`
+                            .join(", ") || t("calendar.planNumbered", { id: c.plan_id })
                         }
                         style={{
                           backgroundColor: STATUS_COLORS[c.status].bg,
@@ -277,7 +277,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                             </span>
                           ))
                         ) : (
-                          <span>Plan</span>
+                          <span>{t("calendar.plan")}</span>
                         )}
                       </button>
                     ))}
@@ -365,7 +365,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                       disabled={openingId === p.plan_id}
                       style={{ background: "none", border: "none", color: "#1d4ed8", cursor: "pointer", fontWeight: 600, padding: 0, fontSize: "0.85rem" }}
                     >
-                      {openingId === p.plan_id ? "Opening…" : "Open →"}
+                      {openingId === p.plan_id ? t("calendar.openingPlan") : t("calendar.openPlan")}
                     </button>
                   </div>
                   {/* Every day's meals, in day-layout order (breakfast → dinner). */}

@@ -439,7 +439,7 @@ function CookbookIndex({
             overscrollBehavior: "contain" as const,
           }}
         >
-        {isLoading && <p style={{ opacity: 0.8 }}>Loading…</p>}
+        {isLoading && <p style={{ opacity: 0.8 }}>{t("cookbook.loading")}</p>}
         {isError && (
           <p role="alert" style={{ color: "#fca5a5" }}>
             {t("cookbook.loadFailed")}

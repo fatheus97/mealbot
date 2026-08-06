@@ -484,7 +484,6 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "plans.delete": "Smazat",
   "plans.deleting": "Mažu…",
   "plans.deleteTitle": "Smazat tento jídelníček?",
-  "plans.loadFailedPrefix": "Jídelníček se nepodařilo načíst:",
   "plans.openFailed": "Jídelníček se nepodařilo otevřít. Zkuste to prosím znovu.",
   "plans.deleteFailed": "Jídelníček se nepodařilo smazat.",
   "plans.dateFailed": "Datum jídelníčku se nepodařilo změnit. Zkuste to prosím znovu.",
@@ -495,8 +494,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "calendar.nextMonth": "Další měsíc",
   "calendar.today": "Dnes",
   "calendar.close": "Zavřít kalendář",
-  "calendar.open": "Otevřít kuchařku",
   "calendar.plan": "Jídelníček",
+  "calendar.planNumbered": "Jídelníček č. {id}",
+  "calendar.loading": "Načítání…",
   "calendar.scheduled": "Naplánované jídelníčky",
   "calendar.openPlan": "Otevřít →",
   "calendar.openingPlan": "Otevírám…",
@@ -508,6 +508,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
 
   // ─── Cookbook ─────────────────────────────────────────────────────────────
   "cookbook.title": "Kuchařka",
+  "cookbook.loading": "Načítání…",
   "cookbook.close": "Zavřít kuchařku",
   "cookbook.search": "Hledat recepty…",
   "cookbook.loadFailed": "Kuchařku se nepodařilo načíst.",

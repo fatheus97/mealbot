@@ -43,7 +43,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       const data: MealPlanResponse = await fetchPlan(summary.id);
       onOpenPlan(data, summary);
     } catch (err) {
-      console.error(t("plans.loadFailedPrefix"), err);
+      console.error("Failed to load plan:", err);
       setOpenError(t("plans.openFailed"));
     } finally {
       setLoadingPlanId(null);

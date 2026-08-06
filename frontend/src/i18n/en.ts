@@ -506,7 +506,6 @@ export const en = {
   "plans.delete": "Delete",
   "plans.deleting": "Deleting…",
   "plans.deleteTitle": "Delete this plan?",
-  "plans.loadFailedPrefix": "Failed to load plan:",
   "plans.openFailed": "Couldn't open that plan. Please try again.",
   "plans.deleteFailed": "Failed to delete plan.",
   "plans.dateFailed": "Couldn't update that plan's date. Please try again.",
@@ -517,8 +516,9 @@ export const en = {
   "calendar.nextMonth": "Next month",
   "calendar.today": "Today",
   "calendar.close": "Close calendar",
-  "calendar.open": "Open cookbook",
   "calendar.plan": "Plan",
+  "calendar.planNumbered": "Plan #{id}",
+  "calendar.loading": "Loading…",
   "calendar.scheduled": "Scheduled plans",
   "calendar.openPlan": "Open →",
   "calendar.openingPlan": "Opening…",
@@ -530,6 +530,7 @@ export const en = {
 
   // ─── Cookbook ─────────────────────────────────────────────────────────────
   "cookbook.title": "Cookbook",
+  "cookbook.loading": "Loading…",
   "cookbook.close": "Close cookbook",
   "cookbook.search": "Search recipes…",
   "cookbook.loadFailed": "Failed to load cookbook.",
