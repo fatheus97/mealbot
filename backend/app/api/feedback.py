@@ -9,11 +9,13 @@ live on the admin side; this endpoint never does either.
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.core.error_copy import ErrorKey
+from app.core.errors import LocalizedHTTPException
 from app.core.feedback_gate import (
     MESSAGE_MIN_LEN,
     FeedbackRejectReason,
@@ -32,14 +34,14 @@ router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 # Friendly, specific 422 copy per cheap-gate reject reason (the raw enum value never
 # reaches the user).
-_REJECT_MESSAGES: dict[FeedbackRejectReason, str] = {
-    FeedbackRejectReason.TOO_SHORT: (
-        f"Please add a little more detail (at least {MESSAGE_MIN_LEN} characters)."
-    ),
-    FeedbackRejectReason.NO_LETTERS: "Please describe the issue in words.",
-    FeedbackRejectReason.LOW_VARIETY: (
-        "That doesn't look like a real report — please describe the issue."
-    ),
+#: The gate's reason, mapped to copy rather than carrying the sentence itself.
+#: `min_len` is passed for every one of them and used by only one — `substitute`
+#: ignores values a template does not name, which keeps the raise site from
+#: having to know which reason it is about to report.
+_REJECT_KEYS: dict[FeedbackRejectReason, ErrorKey] = {
+    FeedbackRejectReason.TOO_SHORT: "feedback_too_short",
+    FeedbackRejectReason.NO_LETTERS: "feedback_no_letters",
+    FeedbackRejectReason.LOW_VARIETY: "feedback_low_variety",
 }
 
 
@@ -60,23 +62,21 @@ async def submit_feedback(
     the softer queue-flood / double-submit guards on top of it.
     """
     if not settings.feedback_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Feedback is not being accepted right now.",
+        raise LocalizedHTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "feedback_disabled",
         )
     if current_user.is_demo:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Demo accounts can't submit feedback. Please create an account.",
-        )
+        raise LocalizedHTTPException(status.HTTP_403_FORBIDDEN, "feedback_demo_blocked")
     assert current_user.id is not None  # get_current_user only returns persisted users
 
     gate = evaluate_feedback(body.message)
     if not gate.ok:
         assert gate.reason is not None  # ok=False always carries a reason
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=_REJECT_MESSAGES[gate.reason],
+        raise LocalizedHTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            _REJECT_KEYS[gate.reason],
+            min_len=str(MESSAGE_MIN_LEN),
         )
 
     abuse = await feedback_intake.check_abuse(
@@ -84,14 +84,9 @@ async def submit_feedback(
     )
     if not abuse.ok:
         if abuse.reason is FeedbackAbuse.DUPLICATE:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="You've already sent this — thanks, we have it.",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="You have several open reports already. Please wait for those "
-            "to be reviewed before sending more.",
+            raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "feedback_duplicate")
+        raise LocalizedHTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, "feedback_too_many_open"
         )
 
     schedule_triage = settings.feedback_llm_triage_enabled

@@ -118,47 +118,46 @@ def test_plural_sentences_actually_differ() -> None:
 
 
 def test_no_orphan_error_keys() -> None:
-    """Every key must be raised somewhere.
+    """Every key must be REFERENCED somewhere in `app/`.
 
-    The mirror of "every raise has a key": a key nothing raises is copy a
-    translator maintains forever for a sentence no user can reach. The frontend
-    learned this one the expensive way — `calendar.plan` sat in both
-    dictionaries for a call site that was never wired up, so the dictionary
-    looked complete while the component still rendered English.
+    A key nothing references is copy a translator maintains forever for a
+    sentence no user can reach. The frontend learned this the expensive way —
+    `calendar.plan` sat in both dictionaries for a call site that was never
+    wired up, so the dictionary looked complete while the component still
+    rendered English.
+
+    ─── Reference, not raise ───────────────────────────────────────────────
+    An earlier version walked for string constants passed positionally to
+    `LocalizedHTTPException(...)`, which is a strictly stronger claim and the
+    wrong shape for real code: `feedback.py` maps its gate's reason to a key
+    through a `dict[FeedbackRejectReason, ErrorKey]` and raises
+    `_REJECT_KEYS[gate.reason]`, so three perfectly live keys appeared dead.
+    Indirection like that is normal, and a test that forbids it is a test that
+    dictates structure.
+
+    So this matches any string literal in `app/` equal to a key, the same thing
+    the frontend's `i18n/keyUsage.test.ts` does. The weaker claim it now makes:
+    a key sitting in a lookup table that nothing ever indexes would pass. mypy
+    covers the other half — a key that is not a member of `ErrorKey` cannot be
+    written at a raise site or stored in an `ErrorKey`-typed mapping.
     """
     app_dir = pathlib.Path(__file__).resolve().parent.parent / "app"
-    raised: set[str] = set()
+    referenced: set[str] = set()
     for path in app_dir.rglob("*.py"):
         if path.name == "error_copy.py":
             continue  # defining a key is not using it
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.Call):
-                continue
-            # Both `LocalizedHTTPException(...)` and `errors.LocalizedHTTPException(...)`.
-            # Every call site imports the symbol directly today, so the second
-            # form matches nothing — but a key reached only through a qualified
-            # import would otherwise pass this test for the WRONG reason: not
-            # found, therefore not reported, and `assert len(raised) > 10` is
-            # far too coarse to notice one missing.
-            func = node.func
-            name = (
-                func.id
-                if isinstance(func, ast.Name)
-                else func.attr if isinstance(func, ast.Attribute) else None
-            )
-            if name == "LocalizedHTTPException":
-                for arg in node.args:
-                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                        raised.add(arg.value)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                referenced.add(node.value)
 
     # Guards the guard: a broken walk would make the assertion below pass over
     # an empty set, which is the exact failure this test is about.
-    assert len(raised) > 10
-    # PLURAL_BASES as well as ALL_KEYS. A plural key is raised by its BASE
+    assert len(referenced & (ALL_KEYS | PLURAL_BASES)) > 10
+    # PLURAL_BASES as well as ALL_KEYS. A plural key is named by its BASE
     # (`count=` picks the suffix at render time), so the base is what appears
     # in the source — and leaving it out meant an unused plural key was
     # invisible to the one test whose whole job is finding unused keys.
-    assert sorted((ALL_KEYS | PLURAL_BASES) - raised) == []
+    assert sorted((ALL_KEYS | PLURAL_BASES) - referenced) == []
 
 
 # ─── Rendering: parameters and plurals ──────────────────────────────────────

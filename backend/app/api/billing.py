@@ -15,6 +15,7 @@ from sqlmodel import col, select
 
 from app.api.deps import get_current_user, require_verified_email
 from app.core.config import settings
+from app.core.errors import LocalizedHTTPException
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.billing_schemas import (
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 def _require_billing_available() -> None:
     if not settings.billing_enabled or not stripe_service.billing_configured():
-        raise HTTPException(status_code=503, detail="Billing is not available.")
+        raise LocalizedHTTPException(503, "billing_unavailable")
 
 
 @router.post("/checkout", response_model=BillingUrlResponse)
@@ -50,17 +51,17 @@ async def create_checkout(
     """Start a subscription Checkout (10-day trial) for the chosen plan."""
     _require_billing_available()
     if current_user.is_demo:
-        raise HTTPException(status_code=403, detail="Demo accounts cannot subscribe.")
+        raise LocalizedHTTPException(403, "billing_demo_cannot_subscribe")
     # Reject an annual request when annual isn't configured — a client-side error
     # (400), distinct from a Stripe outage (502 below). Never silently fall back to
     # monthly and charge the wrong plan.
     if body.plan == "annual" and not stripe_service.annual_available():
-        raise HTTPException(status_code=400, detail="Annual billing is not available.")
+        raise LocalizedHTTPException(400, "billing_annual_unavailable")
     try:
         url = await stripe_service.create_checkout_session(current_user, session, body.plan)
     except Exception:
         logger.exception("Checkout creation failed for user %s", current_user.id)
-        raise HTTPException(status_code=502, detail="Could not start checkout.") from None
+        raise LocalizedHTTPException(502, "billing_checkout_failed") from None
     return BillingUrlResponse(url=url)
 
 
@@ -73,12 +74,12 @@ async def create_portal(
     """Open the Stripe Customer Portal (update card, cancel, invoices)."""
     _require_billing_available()
     if not current_user.stripe_customer_id:
-        raise HTTPException(status_code=400, detail="No billing account yet — subscribe first.")
+        raise LocalizedHTTPException(400, "billing_no_account")
     try:
         url = await stripe_service.create_portal_session(current_user)
     except Exception:
         logger.exception("Portal creation failed for user %s", current_user.id)
-        raise HTTPException(status_code=502, detail="Could not open the billing portal.") from None
+        raise LocalizedHTTPException(502, "billing_portal_failed") from None
     return BillingUrlResponse(url=url)
 
 

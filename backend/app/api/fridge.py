@@ -8,6 +8,7 @@ from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_generation_budget, usage_capture
+from app.core.errors import LocalizedHTTPException
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
@@ -92,9 +93,11 @@ async def put_fridge(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     if len(payload) > MAX_FRIDGE_ITEMS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Too many items ({len(payload)}); maximum is {MAX_FRIDGE_ITEMS}.",
+        raise LocalizedHTTPException(
+            422,
+            "fridge_too_many_items",
+            count_given=str(len(payload)),
+            maximum=str(MAX_FRIDGE_ITEMS),
         )
     return await replace_fridge_items(session, current_user.id, payload)
 
@@ -116,29 +119,29 @@ async def scan_receipt(
     """
     # Validate content type
     if file.content_type is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Missing Content-Type header. Accepted: JPEG, PNG, PDF.",
-        )
+        raise LocalizedHTTPException(422, "upload_missing_content_type")
     if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid file type '{file.content_type}'. Accepted: JPEG, PNG, PDF.",
+        raise LocalizedHTTPException(
+            422, "upload_bad_file_type", content_type=str(file.content_type)
         )
 
     # Early reject based on Content-Length header (avoids reading entire file into RAM)
     if file.size is not None and file.size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large ({file.size} bytes). Maximum is {MAX_FILE_SIZE} bytes.",
+        raise LocalizedHTTPException(
+            413,
+            "upload_file_too_large",
+            size=str(file.size),
+            maximum=str(MAX_FILE_SIZE),
         )
 
     # Read and validate actual size (Content-Length can be spoofed)
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large ({len(file_bytes)} bytes). Maximum is {MAX_FILE_SIZE} bytes.",
+        raise LocalizedHTTPException(
+            413,
+            "upload_file_too_large",
+            size=str(len(file_bytes)),
+            maximum=str(MAX_FILE_SIZE),
         )
 
     is_pdf = file.content_type == "application/pdf"

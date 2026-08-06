@@ -12,6 +12,7 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.email_normalize import normalize_email
+from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
 from app.core.legal import TERMS_VERSION
 from app.core.meal_types import MealType
@@ -49,6 +50,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+#: Was an inline `50` in both the length check and its message. Named now that
+#: the message interpolates it — two copies of a bound, one of them a sentence
+#: in two languages, is exactly how "must be 1-50" outlives a change to 80.
+MAX_LANGUAGE_LEN = 50
+
 _ALLOWED_MEASUREMENT = {"none", "metric", "imperial"}
 _ALLOWED_VARIABILITY = {"traditional", "experimental"}
 
@@ -67,9 +73,9 @@ async def register_user(
 ) -> MessageResponse:
     # Guard runs before body parsing so callers get 403, not a 422 validation error
     if not settings.registration_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Registration is closed. This is a private alpha — contact the admin for access.",
+        raise LocalizedHTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "user_registration_closed",
         )
 
     # Parse and validate the body now that we know registration is open
@@ -105,10 +111,7 @@ async def register_user(
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
-        ) from None
+        raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "auth_email_taken") from None
 
     logger.info("user_registered user_id=%s", db_user.id)
     if db_user.id is not None:
@@ -151,10 +154,7 @@ async def register_via_invite(
     # invalid/used/revoked/expired so a probe can't distinguish the states.
     invite = await find_redeemable_invite(session, body.token, now)
     if invite is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This invite link is invalid or has expired.",
-        )
+        raise LocalizedHTTPException(status.HTTP_400_BAD_REQUEST, "user_invite_invalid")
 
     # Offload bcrypt (~50-100ms CPU) so it doesn't block the event loop.
     hashed_pw = await asyncio.to_thread(get_password_hash, body.password)
@@ -178,10 +178,7 @@ async def register_via_invite(
         await session.flush()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
-        ) from None
+        raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "auth_email_taken") from None
 
     # Burn the invite + record the redeemer in the SAME transaction as the user
     # insert: either an account exists AND the invite is spent, or neither does.
@@ -228,24 +225,20 @@ async def update_user(
             # frontend fetches the same canonical list from /api/countries.
             canonical = normalize_country(raw)
             if canonical is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Unsupported country. Pick one from the list.",
-                )
+                raise LocalizedHTTPException(400, "user_country_unsupported")
             current_user.country = canonical
 
     if patch.language is not None:
         lang = patch.language.strip()
-        if not lang or len(lang) > 50:
-            raise HTTPException(status_code=400, detail="Invalid language: must be 1-50 characters")
+        if not lang or len(lang) > MAX_LANGUAGE_LEN:
+            raise LocalizedHTTPException(
+                400, "user_language_length", max=str(MAX_LANGUAGE_LEN)
+            )
         # Whitelist gate: `language` is templated into the LLM system prompt,
         # so unbounded free text here is a prompt-injection vector.
         canonical = normalize_language(lang)
         if canonical is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Unsupported language. Pick one of the supported options.",
-            )
+            raise LocalizedHTTPException(400, "user_language_unsupported")
         current_user.language = canonical
 
     if patch.measurement_system is not None:

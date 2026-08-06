@@ -3,13 +3,13 @@ import io
 import logging
 from pathlib import Path
 
-from fastapi import HTTPException
 from jinja2 import FileSystemLoader
 from jinja2.sandbox import SandboxedEnvironment
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 from app.core.config import settings
+from app.core.errors import LocalizedHTTPException
 from app.core.executors import run_in_parse_executor
 from app.llm.client import llm_client
 from app.models.plan_models import (
@@ -65,15 +65,14 @@ def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
         reader = PdfReader(io.BytesIO(pdf_bytes))
     except PdfReadError as exc:
         logger.warning("PDF parsing failed: %s", exc)
-        raise HTTPException(
-            status_code=422,
-            detail="Could not read PDF. The file may be corrupted or password-protected.",
-        ) from exc
+        raise LocalizedHTTPException(422, "receipt_pdf_unreadable") from exc
 
     if len(reader.pages) > max_pages:
-        raise HTTPException(
-            status_code=422,
-            detail=f"PDF has {len(reader.pages)} pages — maximum is {max_pages}.",
+        raise LocalizedHTTPException(
+            422,
+            "receipt_pdf_too_many_pages",
+            count=len(reader.pages),
+            maximum=str(max_pages),
         )
 
     text_parts: list[str] = []
@@ -85,13 +84,7 @@ def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
     full_text = "\n".join(text_parts).strip()
 
     if len(full_text) < MIN_EXTRACTABLE_CHARS:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "This PDF has no extractable text (likely a scanned image). "
-                "Please take a photo of the receipt and upload the image instead."
-            ),
-        )
+        raise LocalizedHTTPException(422, "receipt_pdf_no_text")
 
     return full_text
 
@@ -112,10 +105,7 @@ async def extract_items_from_pdf(pdf_bytes: bytes, language: str = "English", mo
         )
     except TimeoutError as exc:
         logger.warning("PDF text extraction exceeded %ss", PDF_PARSE_TIMEOUT_S)
-        raise HTTPException(
-            status_code=504,
-            detail="Receipt PDF took too long to process. Try a smaller/simpler file.",
-        ) from exc
+        raise LocalizedHTTPException(504, "receipt_pdf_timeout") from exc
 
     template = _prompts_env.get_template("receipt_scan_text.jinja")
     # Neutralize the fence delimiter before rendering: unlike the name fields
