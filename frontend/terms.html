@@ -116,7 +116,7 @@
       <a class="back" href="/">&larr; Back to Mealbot</a>
 
       <h1>Terms of Service</h1>
-      <p class="muted">Last updated: 30 July 2026</p>
+      <p class="muted">Last updated: 6 August 2026</p>
 
       <p>
         These are the terms you agree to by using Mealbot. They are written to match what the
@@ -127,10 +127,10 @@
       <div class="warn">
         <p>
           <strong>Read the safety section.</strong> Mealbot screens recipes against allergens you
-          declare, but that screening has real limits — most importantly, it currently only
-          recognises <strong>English</strong> ingredient names, while recipes can be generated in
-          many other languages. It is a helper, never a guarantee, and never a substitute for
-          reading the actual product label.
+          declare, but that screening has real limits — most importantly, on a recipe generated in
+          any language other than English it depends on <strong>the AI's own English naming</strong>
+          of each ingredient, and the cooking steps are only ever checked in English. It is a
+          helper, never a guarantee, and never a substitute for reading the actual product label.
         </p>
       </div>
 
@@ -331,14 +331,21 @@
         produce a plan that avoids your allergens, we refuse to show you one rather than showing
         you something doubtful.
       </p>
+      <p>
+        Our allergen term lists are written in English. When a recipe is generated in another
+        language, the AI must also supply an English name for each ingredient, and we check both
+        that name and the one in your language. An ingredient it gives us no English name for
+        cannot be checked at all, so we treat the whole plan as failed and generate a new one
+        rather than showing it to you.
+      </p>
       <p><strong>What that check cannot do — please read this properly:</strong></p>
       <div class="card">
         <ul>
           <li>
-            <strong>It currently recognises English ingredient names only.</strong> Mealbot can
-            generate recipes in many languages, and when it does, the automatic check will not
-            match the translated ingredient names. In that case you are relying on the AI's own
-            care and on your own label-reading, not on our screening.
+            <strong>On a non-English recipe it leans on the AI's own English naming.</strong> The
+            English name described above is the AI's own work. If it names an ingredient
+            incorrectly in English, our check reads that incorrect word, finds nothing, and lets
+            the recipe through. The check is only as good as that translation.
           </li>
           <li>
             <strong>Sulphites are not covered by the automatic check.</strong> Whether sulphites
