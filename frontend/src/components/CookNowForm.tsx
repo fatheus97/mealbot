@@ -202,7 +202,7 @@ export function CookNowForm() {
           <select
             value={mealType}
             onChange={(e) => setMealType(e.target.value as MealType)}
-            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
+            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem", boxSizing: "border-box" }}
           >
             {MEAL_TYPES.map((mt) => (
               <option key={mt} value={mt}>{t(`mealType.${mt}` as const)}</option>
@@ -218,7 +218,7 @@ export function CookNowForm() {
             onChange={(e) => setPeopleCount(Number(e.target.value) || 1)}
             min={1}
             max={10}
-            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
+            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem", boxSizing: "border-box" }}
           />
         </label>
 
@@ -255,7 +255,7 @@ export function CookNowForm() {
             value={tastePreferences}
             onChange={(e) => setTastePreferences(e.target.value)}
             placeholder={t("cookNow.tastesPlaceholder")}
-            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
+            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem", boxSizing: "border-box" }}
           />
         </label>
 
@@ -287,7 +287,7 @@ export function CookNowForm() {
             onChange={(e) => setNote(e.target.value)}
             placeholder={t("cookNow.notePlaceholder")}
             maxLength={200}
-            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
+            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem", boxSizing: "border-box" }}
           />
         </label>
       </div>

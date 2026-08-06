@@ -547,17 +547,17 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
         <label>
           {t("planner.days")}
-          <input type="number" value={days} onChange={(e) => setDays(Number(e.target.value) || 1)} min={1} max={7} style={{ width: "100%", marginTop: "0.25rem" }} />
+          <input type="number" value={days} onChange={(e) => setDays(Number(e.target.value) || 1)} min={1} max={7} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
         </label>
 
         <label>
           {t("planner.mealsPerDay")}
-          <input type="number" value={mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value) || 1)} min={1} max={5} style={{ width: "100%", marginTop: "0.25rem" }} />
+          <input type="number" value={mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value) || 1)} min={1} max={5} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
         </label>
 
         <label>
           {t("planner.people")}
-          <input type="number" value={peopleCount} onChange={(e) => setPeopleCount(Number(e.target.value) || 1)} min={1} max={10} style={{ width: "100%", marginTop: "0.25rem" }} />
+          <input type="number" value={peopleCount} onChange={(e) => setPeopleCount(Number(e.target.value) || 1)} min={1} max={10} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
         </label>
 
         <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
@@ -580,7 +580,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           {t("planner.tastes")}
-          <input type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder={t("planner.tastesPlaceholder")} style={{ width: "100%", marginTop: "0.25rem" }} />
+          <input type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder={t("planner.tastesPlaceholder")} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
