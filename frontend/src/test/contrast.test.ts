@@ -22,6 +22,7 @@ import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/them
 import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
 import {
   ON_DARK_SURFACE,
+  ON_DARK_ROW_SURFACE,
   ON_DARK_TEXT,
   ON_DARK_MUTED,
   ON_DARK_ERROR,
@@ -256,6 +257,19 @@ describe('form controls that override their background', () => {
     const prose = `// a <button style={{ background: "none" }}> does not inherit color\n`;
     expect(findUncoloredControls(prose, 'x.tsx')).toEqual([]);
   });
+
+  it('does not mistake a URL inside a string for the start of a comment', () => {
+    // A naive `//` stripper blanks the rest of the line from `https://`. That
+    // takes the closing `}} />` with it, so the tag scan never terminates and
+    // the control drops out of the results entirely — the offender is missed
+    // SILENTLY, which is the one failure mode this guard exists to prevent.
+    // The second assertion is therefore the discriminating one: under the naive
+    // regex BOTH return [], so only "an offender is still found" catches it.
+    const withColor = `<button style={{ background: "url(https://x.test/a.png)", color: "#111" }} />`;
+    expect(findUncoloredControls(withColor, 'x.tsx')).toEqual([]);
+    const withoutColor = `<button style={{ background: "url(https://x.test/a.png)" }} />`;
+    expect(findUncoloredControls(withoutColor, 'x.tsx')).toHaveLength(1);
+  });
 });
 
 describe('the AuthBar surface', () => {
@@ -282,13 +296,24 @@ describe('the fridge batch surface', () => {
     ['muted', ON_DARK_MUTED, 13.6],
     ['use-soon badge', ON_DARK_ERROR, 11.2],
   ];
-  for (const [name, color, px] of cases) {
-    it(`${name} meets WCAG AA on the pinned dark surface`, () => {
-      expect(checkText(color, ON_DARK_SURFACE, px)).toMatchObject({ passes: true });
-    });
+  // BOTH pinned slates: batch rows/cards use #0f172a, and the expanded summary
+  // row sits one step lighter at #1e293b while sharing these same foregrounds.
+  // Asserting only the darker one left the lighter pairing resting on a
+  // hand-computed number in a code comment.
+  const surfaces: [string, string][] = [
+    ['batch', ON_DARK_SURFACE],
+    ['expanded summary row', ON_DARK_ROW_SURFACE],
+  ];
+  for (const [surfaceName, surface] of surfaces) {
+    for (const [name, color, px] of cases) {
+      it(`${name} meets WCAG AA on the pinned ${surfaceName} surface`, () => {
+        expect(checkText(color, surface, px)).toMatchObject({ passes: true });
+      });
+    }
   }
 
   it('rejects the adaptive light-theme default that these cells were inheriting', () => {
     expect(checkText(THEME.light.fg, ON_DARK_SURFACE, 16).passes).toBe(false);
+    expect(checkText(THEME.light.fg, ON_DARK_ROW_SURFACE, 16).passes).toBe(false);
   });
 });

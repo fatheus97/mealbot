@@ -241,9 +241,16 @@ export interface UncoloredControl {
 export function findUncoloredControls(source: string, file: string): UncoloredControl[] {
   const out: UncoloredControl[] = [];
   // Blank comments (keeping offsets) — prose about `<button>` is not markup.
+  //
+  // The `(?<!:)` matters: without it a `//` inside a string literal starts a
+  // "comment" and blanks the rest of the line, so `background: "url(https://…)"`
+  // would swallow a `color:` declared after it and the control would pass
+  // silently. Erring the other way — a genuine `x: // note` comment surviving —
+  // costs at most a LOUD false positive, which is the safe direction for a
+  // guard whose whole job is catching silent regressions.
   const src = source
     .replace(/\r\n/g, '\n')
-    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
+    .replace(/\/\*[\s\S]*?\*\/|(?<!:)\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
 
   /** Balanced-brace slice starting at the `{` at `open`. */
   const block = (open: number) => {

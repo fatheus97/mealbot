@@ -37,6 +37,8 @@ type SortKey = "name" | "quantity" | "expires";
  * body 14.48:1, muted 6.96:1, badge 5.61:1 — see contrast.test.ts.
  */
 export const ON_DARK_SURFACE = "#0f172a";
+/** The expanded summary row sits one step lighter than its batch rows. */
+export const ON_DARK_ROW_SURFACE = "#1e293b";
 export const ON_DARK_TEXT = "#e2e8f0";
 export const ON_DARK_MUTED = "#94a3b8";
 export const ON_DARK_ERROR = "#f87171";
@@ -365,7 +367,7 @@ export function Fridge() {
           // too — otherwise the row's text inherits the ADAPTIVE default and
           // goes dark-on-dark (#213547 on #1e293b = 1.6:1) in light mode.
           // Collapsed is transparent, so the adaptive default is right there.
-          backgroundColor: isExpanded ? "#1e293b" : "transparent",
+          backgroundColor: isExpanded ? ON_DARK_ROW_SURFACE : "transparent",
           color: isExpanded ? ON_DARK_TEXT : undefined,
           cursor: "pointer",
         }}
