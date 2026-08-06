@@ -18,4 +18,4 @@ user could have accepted one and not the other, which is not what the UI offers.
 
 #: Keep in sync with the "Last updated" line in frontend/terms.html and
 #: frontend/privacy.html — pinned by tests/test_legal_version.py.
-TERMS_VERSION = "2026-07-30"
+TERMS_VERSION = "2026-08-06"

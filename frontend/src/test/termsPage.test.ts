@@ -28,11 +28,35 @@ describe.skipIf(!built)("terms of service (built dist/terms.html)", () => {
   const html = built ? readFileSync(DIST, "utf8") : "";
 
   describe("safety limits that must never be quietly dropped", () => {
-    it("discloses that the allergen screen is English-only", () => {
-      // The sharpest gap: dietary_reference.py terms are all English and the
-      // prompt generates ingredient names in the user's language, so for a
-      // non-English user the deterministic screen matches nothing.
-      expect(html).toMatch(/English ingredient names only/i);
+    it("describes how a non-English recipe is actually screened", () => {
+      // This test used to assert /English ingredient names only/ — the claim
+      // the page made before #341, when the term lists were English and the
+      // prompt wrote ingredient names in the user's language, so the screen
+      // genuinely matched nothing for a non-English user.
+      //
+      // That stopped being true and the page did not follow. Since #341
+      // `screenable_names` (allergen_screen.py:361-366) screens the
+      // model-supplied `name_en` ALONGSIDE the localized name, and an
+      // ingredient without one is reported UNSCREENABLE, which the caller
+      // turns into reject-and-regenerate — fail-closed. The old wording
+      // understated the protection, which is the safe direction, but it was
+      // wrong in a live contract.
+      //
+      // So this now pins the two halves of the real behaviour and, below, the
+      // limit that genuinely remains. Keeping the old assertion would have
+      // made the test block its own correction.
+      expect(html).toMatch(/the AI must also supply an English name for each ingredient/i);
+      expect(html).toMatch(/cannot be checked at all[\s\S]{0,120}rather than showing it to you/i);
+    });
+
+    it("discloses that the screen is only as good as the AI's English naming", () => {
+      // The limit that survives #341: `name_en` is the model's own output, so
+      // a mistranslation there is a word our English term lists will never
+      // match, and the recipe passes.
+      expect(html).toMatch(/leans on the AI's own English naming/i);
+      expect(html).toMatch(/only as good as that translation/i);
+      // Also in the top warning box, which is the part a reader actually sees.
+      expect(html).toMatch(/depends on <strong>the AI's own English naming<\/strong>/i);
     });
 
     it("discloses that sulphites have no deterministic screen", () => {
