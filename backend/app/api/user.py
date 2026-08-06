@@ -241,6 +241,12 @@ async def update_user(
             raise LocalizedHTTPException(400, "user_language_unsupported")
         current_user.language = canonical
 
+    # These two stay English, unlike `country` and `language` above, and the
+    # difference is where the value comes from: those two are free-text
+    # typeaheads a user can miss, while these are native <select>s whose only
+    # options are the allowed values. Reaching this branch means a hand-crafted
+    # request, which puts it in the same client-contract category as
+    # `day_index out of bounds` — debugging output, not copy.
     if patch.measurement_system is not None:
         ms = patch.measurement_system.strip().lower()
         if ms not in _ALLOWED_MEASUREMENT:

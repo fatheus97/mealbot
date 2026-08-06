@@ -237,6 +237,64 @@ def test_eager_english_detail_matches_the_rendered_english() -> None:
         assert exc.detail == exc.render_for("en")
 
 
+def test_every_shared_cap_message_is_localized() -> None:
+    """No endpoint may enforce a cap that a SIBLING endpoint localizes.
+
+    `/fridge` and `/fridge/merge` enforce the same `MAX_FRIDGE_ITEMS` with the
+    same sentence. The first got migrated and the second did not, so a Czech
+    user hitting the cap through the receipt-scan flow — the likelier of the two
+    ways to send a large payload — still read English.
+
+    Nothing caught it. `test_no_orphan_error_keys` only reports keys nothing
+    references, and this key was referenced, once. So this asserts the
+    complement: any of the migrated sentences still present as a raw string
+    literal in `app/` is a raise that was left behind.
+    """
+    app_dir = pathlib.Path(__file__).resolve().parent.parent / "app"
+
+    # An f-string in source and a `$name` template say the same sentence with
+    # the holes punched differently, so both sides get their holes removed and
+    # the RESIDUE is compared exactly.
+    #
+    # The first version of this test compared the literal PREFIX instead, with a
+    # 25-character floor to stop short ones colliding with ordinary code. That
+    # floor excluded `"Too many items ("` — sixteen characters — which is the
+    # exact key this test was written to catch. It passed against the bug.
+    # Exact comparison of the residue needs no floor and cannot be tuned wrong.
+    wanted = {_holes_removed(text): key for key, text in ERROR_COPY["en"].items()}
+    assert len(wanted) > 40  # guards the guard
+
+    leftovers: list[str] = []
+    for path in app_dir.rglob("*.py"):
+        if path.name in {"error_copy.py", "admin.py"}:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.JoinedStr):
+                text = "".join(
+                    x.value
+                    for x in node.values
+                    if isinstance(x, ast.Constant) and isinstance(x.value, str)
+                )
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                text = node.value
+            else:
+                continue
+            key = wanted.get(_holes_removed(text))
+            if key is not None:
+                leftovers.append(f"{path}:{node.lineno} still spells out {key}")
+    assert leftovers == []
+
+
+def _holes_removed(text: str) -> str:
+    """The sentence with its placeholders taken out, whitespace collapsed.
+
+    `"Too many items ($count_given); maximum is $maximum."` and the f-string
+    `f"Too many items ({len(payload)}); maximum is {MAX_FRIDGE_ITEMS}."` both
+    reduce to `"Too many items (); maximum is ."`.
+    """
+    return " ".join(re.sub(r"\$\{?[a-z_]+\}?", "", text).split())
+
+
 # ─── Accept-Language parsing ────────────────────────────────────────────────
 
 

@@ -245,9 +245,11 @@ async def merge_fridge_items(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     if len(payload) > MAX_FRIDGE_ITEMS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Too many items ({len(payload)}); maximum is {MAX_FRIDGE_ITEMS}.",
+        raise LocalizedHTTPException(
+            422,
+            "fridge_too_many_items",
+            count_given=str(len(payload)),
+            maximum=str(MAX_FRIDGE_ITEMS),
         )
     existing = await get_fridge_items(session, current_user.id)
 
