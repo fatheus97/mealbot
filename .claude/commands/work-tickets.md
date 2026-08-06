@@ -1,6 +1,6 @@
 Work through accepted user-feedback tickets and ship the fixes autonomously.
 
-Tickets live in the **private** repo `fatheus97/mealbot-tickets` — each one was created by an admin **Accept** in the dashboard, so every open ticket is already human-vetted as worth doing (that Accept is the cost gate; don't second-guess whether a ticket deserves effort, only *how much*). Code and PRs go to `fatheus97/mealbot`. `gh` is authed for both repos.
+Tickets live in the **private** repo `fatheus97/mealbot-tickets` — each one was created by an admin **Accept** in the dashboard, so every open ticket is already human-vetted as worth doing (that Accept is the cost gate; don't second-guess whether a ticket deserves effort, only *how much*). Code and PRs go to `fatheus97/mealbot`. On the maintainer's host `gh` is authed for both repos; in a cloud session `gh` may be missing or unauthenticated — use the GitHub MCP tools for ticket operations instead, and stick to whichever path works for the whole run.
 
 Optional argument: a specific ticket number (do just that one), or a cap N. Default: process up to **3** actionable tickets, then stop and report.
 
