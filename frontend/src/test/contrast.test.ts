@@ -21,6 +21,12 @@ import {
 import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/theme';
 import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
 import {
+  OUT_OF_MONTH_SURFACE,
+  OUT_OF_MONTH_DAY,
+  IN_MONTH_DAY,
+  TODAY_COLOR,
+} from '../components/PlanCalendar';
+import {
   ON_DARK_SURFACE,
   ON_DARK_ROW_SURFACE,
   ON_DARK_TEXT,
@@ -333,5 +339,33 @@ describe('the fridge batch surface', () => {
   it('rejects the adaptive light-theme default that these cells were inheriting', () => {
     expect(checkText(THEME.light.fg, ON_DARK_SURFACE, 16).passes).toBe(false);
     expect(checkText(THEME.light.fg, ON_DARK_ROW_SURFACE, 16).passes).toBe(false);
+  });
+});
+
+describe('the calendar month grid', () => {
+  // Inside a modal that pins #fff, so both halves are fixed.
+  const cases: [string, string, string][] = [
+    ['in-month day number', IN_MONTH_DAY, '#ffffff'],
+    ['out-of-month day number', OUT_OF_MONTH_DAY, OUT_OF_MONTH_SURFACE],
+    ['today, in month', TODAY_COLOR, '#ffffff'],
+    // `today` lands in an adjacent-month cell as soon as you page forward a
+    // month, so it has to clear AA on the tinted surface too.
+    ['today, adjacent month', TODAY_COLOR, OUT_OF_MONTH_SURFACE],
+  ];
+  for (const [name, fg, bg] of cases) {
+    it(`${name} meets WCAG AA`, () => {
+      expect(checkText(fg, bg, 11.52)).toMatchObject({ passes: true });
+    });
+  }
+
+  it('rejects the dimmed values that shipped', () => {
+    // Adjacent-month cells used to be de-emphasised with `opacity: 0.5` on the
+    // CELL, which multiplies every descendant. These are the composited results
+    // — the day number, and the status chips, which are enabled buttons whose
+    // own colour pair the guard was still reporting at full strength.
+    expect(checkText(blend('#374151', 0.5, '#ffffff'), '#fdfdfe', 11.52).passes).toBe(false);
+    expect(checkText(blend('#1d4ed8', 0.5, '#ffffff'), '#fdfdfe', 10.88).passes).toBe(false);
+    // No opacity rescues it: even 0.85 leaves `today` short.
+    expect(checkText(blend(TODAY_COLOR, 0.85, '#ffffff'), '#fdfdfe', 11.52).passes).toBe(false);
   });
 });

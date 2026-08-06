@@ -175,16 +175,21 @@ export interface InlinePair {
  * Line-based rather than AST-based on purpose: the codebase writes these as
  * single-line `style={{ … }}` objects, and a parser would be a lot of machinery
  * to check a convention that a regex reads directly.
+ *
+ * Both the CSS names and the `{ bg, text }` shorthand are read. Palette records
+ * spell the pair that second way, and matching only the CSS names is how
+ * PlanCalendar's `cooked` chip kept a 3.00:1 `#16a34a` through the two separate
+ * sweeps that fixed the very same colour in PantryStaples and PlanCatalog.
  */
 export function findInlineColorPairs(source: string, file: string): InlinePair[] {
   const pairs: InlinePair[] = [];
   source.replace(/\r\n/g, '\n').split('\n').forEach((line, i) => {
-    const bgMatch = /background(?:Color)?:\s*"([^"]+)"/.exec(line);
+    const bgMatch = /(?:background(?:Color)?|bg):\s*"([^"]+)"/.exec(line);
     if (!bgMatch) return;
     const bg = toHex(bgMatch[1]);
     if (!bg) return;
     const rest = line.replace(bgMatch[0], '');
-    const fgMatch = /(?:^|[^a-zA-Z])color:\s*"([^"]+)"/i.exec(rest);
+    const fgMatch = /(?:^|[^a-zA-Z])(?:color|text):\s*"([^"]+)"/i.exec(rest);
     if (!fgMatch) return;
     const fg = toHex(fgMatch[1]);
     if (!fg) return;
