@@ -43,6 +43,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.error.accountDisabled":
     "Tento účet byl zablokován. Pokud si myslíte, že jde o omyl, napište na " +
     "{supportEmail}.",
+  "auth.error.tooManyAttempts":
+    "Příliš mnoho pokusů o přihlášení. Počkejte prosím minutu a zkuste to znovu.",
   "auth.error.passwordTooShort": "Heslo musí mít alespoň 8 znaků.",
   "auth.error.acceptTerms":
     "Pro vytvoření účtu prosím potvrďte souhlas s Podmínkami služby a Zásadami ochrany osobních údajů.",

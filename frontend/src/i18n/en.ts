@@ -51,6 +51,10 @@ export const en = {
   "auth.error.accountDisabled":
     "This account has been disabled. Contact {supportEmail} if you think " +
     "that's a mistake.",
+  // The 429 branch. Same reasoning as above: the generic message would send
+  // someone straight back into the rate limit they just hit.
+  "auth.error.tooManyAttempts":
+    "Too many sign-in attempts. Please wait a minute and try again.",
   "auth.error.passwordTooShort": "Password must be at least 8 characters.",
   "auth.error.acceptTerms":
     "Please accept the Terms of Service and Privacy Policy to create an account.",

@@ -12,6 +12,19 @@ import { Trans } from "../i18n/Trans";
 const SUPPORT_EMAIL = "info@trymealbot.com";
 
 /**
+ * Login failures that deserve their own sentence. Anything absent — 5xx, a
+ * network drop, a 422 — falls back to the generic message, which is honest
+ * about not knowing.
+ */
+const LOGIN_STATUS_MESSAGES: Partial<Record<number, TranslationKey>> = {
+  403: "auth.error.accountDisabled",
+  429: "auth.error.tooManyAttempts",
+};
+
+const loginStatus = (error: unknown): number =>
+  error instanceof LoginFailedError ? error.status : 0;
+
+/**
  * Link colour for the aliceblue bar below. The old #007bff was 3.71:1 on
  * #f0f8ff — under AA in BOTH themes, since the surface is pinned. Checked in
  * contrast.test.ts alongside the surface it sits on.
@@ -44,15 +57,12 @@ export function AuthBar() {
       setInputPassword("");
     } catch (error) {
       console.error(error);
-      // 403 is the disabled-account case and nothing else on this endpoint —
-      // the credential failure is 401. Telling a disabled user to "check your
-      // credentials" sends them round the same correct password forever, which
-      // is why the backend answers 403 here at all rather than 401.
-      setAuthError(
-        error instanceof LoginFailedError && error.status === 403
-          ? "auth.error.accountDisabled"
-          : "auth.error.login",
-      );
+      // Both branches exist for the same reason: "Check your credentials" is
+      // wrong advice when the credentials are not the problem, and a user who
+      // follows it just repeats the request. 403 is the disabled account (401
+      // is the credential failure, so the split is unambiguous); 429 is the
+      // 10/minute rate limit, where retrying is actively counterproductive.
+      setAuthError(LOGIN_STATUS_MESSAGES[loginStatus(error)] ?? "auth.error.login");
     } finally {
       setLoading(false);
     }

@@ -585,6 +585,62 @@ describe('AuthBar', () => {
     expect(banner.textContent).toContain('info@trymealbot.com');
   });
 
+  it('tells a rate-limited user to wait, not to check their credentials', async () => {
+    // /auth/login is capped at 10/minute. "Check your credentials" sends that
+    // user straight back into the limit they just hit — the same wrong-advice
+    // failure as the disabled-account case, on a different status.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 429,
+          json: () => Promise.resolve({ detail: 'Rate limit exceeded' }),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'fast@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'whatever123');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toContain('Too many sign-in attempts');
+    expect(banner.textContent).not.toContain('Check your credentials');
+  });
+
+  it('falls back to the generic message on an unmapped status (500)', async () => {
+    // The status map must stay a allow-list: a 5xx says nothing useful about
+    // what the user should do, so the honest answer is the generic one.
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/users') return Promise.resolve(okEmpty());
+      if (url === '/auth/login') {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected authFetch: ${url}`));
+    });
+
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByPlaceholderText('Email'), 'boom@x.com');
+    await user.type(screen.getByPlaceholderText('Password'), 'whatever123');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toBe('Login failed. Check your credentials.');
+  });
+
   it('re-translates the disabled-account error on a language switch', async () => {
     // Same invariant as the login-failure case below: this branch stores a KEY
     // too. Pinned separately because it is the one branch that could plausibly
