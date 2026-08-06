@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -317,6 +318,53 @@ describe('CookMode', () => {
       );
       unmount();
       expect(backSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Review finding on PR #397: history.back() pops whatever is on top of
+    // the GLOBAL stack, not necessarily the entry this instance pushed. If a
+    // future call site ever swaps CookMode instances within the same commit,
+    // an old instance's queued back() could otherwise pop a NEW instance's
+    // entry instead of its own. The per-mount id in the pushed state guards
+    // against that — simulate the race by tampering with the top-of-stack
+    // entry between mount and unmount, as a swapped-in instance would.
+    it("never pops an entry it didn't push (the top-of-stack entry belongs to a different mount)", () => {
+      const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+      const { unmount } = render(
+        <CookTimerProvider>
+          <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={vi.fn()} />
+        </CookTimerProvider>,
+      );
+      expect(history.state).toMatchObject({ cookMode: true });
+      // Simulate a different instance's entry now sitting on top — same
+      // shape, different mountId.
+      history.replaceState({ cookMode: true, mountId: -1 }, '');
+      unmount();
+      expect(backSpy).not.toHaveBeenCalled();
+    });
+
+    // Review finding on PR #397: main.tsx renders the real app under
+    // <StrictMode>, which double-invokes mount effects in dev (setup→cleanup→
+    // setup, synchronously). The cleanup's history.back() call is asynchronous
+    // (spec-deferred) and can resolve AFTER the phantom re-setup has already
+    // attached a new listener — so without absorbing that stray popstate, the
+    // overlay that just (re-)opened would immediately self-close. history.back
+    // is mocked so its real (spec-deferred) traversal never actually fires;
+    // the delayed self-triggered popstate is simulated directly, exactly as it
+    // would arrive once that queued call eventually resolved.
+    it('under StrictMode, ignores its own delayed popstate instead of self-closing on open', () => {
+      vi.spyOn(window.history, 'back').mockImplementation(() => {});
+      const onClose = vi.fn();
+      render(
+        <StrictMode>
+          <CookTimerProvider>
+            <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={onClose} />
+          </CookTimerProvider>
+        </StrictMode>,
+      );
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 

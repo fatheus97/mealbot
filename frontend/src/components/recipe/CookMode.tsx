@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlannedMeal } from "../../types";
 import { formatClock, tokenizeStepTimers } from "./cookMode.utils";
@@ -19,6 +19,13 @@ interface Props {
   donePending?: boolean;
   doneError?: string | null; // shown inside the overlay when a cook attempt fails
 }
+
+// Tags each mount's pushed history entry so its cleanup only ever pops the
+// entry IT pushed (see the popstate effect below) — guards against a future
+// call site that swaps CookMode instances (e.g. via `key`) within the same
+// commit, where an old instance's queued history.back() could otherwise pop
+// a new instance's entry instead of its own.
+let cookModeMountCounter = 0;
 
 function readStep(key: string): number {
   try {
@@ -109,6 +116,18 @@ export function CookMode({
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  const mountIdRef = useRef<number | null>(null);
+  if (mountIdRef.current === null) mountIdRef.current = ++cookModeMountCounter;
+  // Set immediately before OUR cleanup calls history.back(), so the popstate
+  // handler can tell "the user pressed Back" apart from "my own queued
+  // history.back() finally firing." Needed because React StrictMode's dev-only
+  // setup→cleanup→setup double-invoke re-attaches a NEW popstate listener
+  // before that queued (async) back() resolves — without this flag, the
+  // delayed self-triggered popstate reaches the new listener and closes the
+  // overlay that just (re-)opened. A ref, not a plain variable, because it
+  // must survive the phantom cleanup/re-setup cycle intact.
+  const consumingOwnPopRef = useRef(false);
+
   // Guard the hardware/browser Back button (#5): there's no SPA router or
   // popstate handling anywhere else in the app, so without this, Back doesn't
   // close this overlay — it navigates the app itself away, unmounting
@@ -116,15 +135,31 @@ export function CookMode({
   // history entry while cook mode is open so Back has something of ours to
   // consume first, and treat consuming it as "close the overlay," not a page
   // navigation.
-  useEffect(() => {
-    history.pushState({ cookMode: true }, "");
-    const onPopState = () => onCloseRef.current();
+  //
+  // useLayoutEffect (not useEffect): the fix is entirely about winning a race
+  // against how fast the user can press Back, so the entry needs to land
+  // synchronously with the commit rather than after the next paint.
+  useLayoutEffect(() => {
+    const mountId = mountIdRef.current;
+    history.pushState({ cookMode: true, mountId }, "");
+    const onPopState = () => {
+      if (consumingOwnPopRef.current) {
+        consumingOwnPopRef.current = false;
+        return;
+      }
+      onCloseRef.current();
+    };
     window.addEventListener("popstate", onPopState);
     return () => {
       window.removeEventListener("popstate", onPopState);
       // Closed via the UI (✕ / Done), not via Back — pop the entry we pushed
-      // so a later Back doesn't need an extra press to actually leave the page.
-      if (history.state?.cookMode) {
+      // so a later Back doesn't need an extra press to actually leave the
+      // page. Checking mountId (not just the cookMode flag) means we only
+      // ever pop OUR OWN entry, never one a differently-keyed instance pushed
+      // on top of it in the same commit.
+      const state = history.state as { cookMode?: boolean; mountId?: number } | null;
+      if (state?.cookMode && state.mountId === mountId) {
+        consumingOwnPopRef.current = true;
         history.back();
       }
     };
