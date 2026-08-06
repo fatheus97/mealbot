@@ -116,6 +116,7 @@ describe('CookNowForm', () => {
       screen.getByLabelText('Meal type'),
       screen.getByLabelText('People'),
       screen.getByLabelText('Taste preferences (comma separated)'),
+      screen.getByLabelText('Note (optional)'),
     ];
     for (const field of fields) {
       expect(getComputedStyle(field).boxSizing).toBe('border-box');

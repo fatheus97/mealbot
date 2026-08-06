@@ -287,7 +287,7 @@ export function CookNowForm() {
             onChange={(e) => setNote(e.target.value)}
             placeholder={t("cookNow.notePlaceholder")}
             maxLength={200}
-            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem" }}
+            style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem", boxSizing: "border-box" }}
           />
         </label>
       </div>
