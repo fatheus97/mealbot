@@ -71,6 +71,9 @@ export function DayLayoutEditor({
   }
 
   const atMax = value.length >= maxSlots;
+  // What the "+ Add slot" button's STYLING keys off — deliberately the same
+  // condition as its `disabled` attribute, so the two cannot drift apart.
+  const inactive = disabled || atMax;
 
   const replaceAt = (idx: number, next: MealType) => {
     const arr = [...value];
@@ -178,7 +181,10 @@ export function DayLayoutEditor({
               aria-label={t("layout.remove", { n: idx + 1 })}
               onClick={() => removeAt(idx)}
               disabled={disabled}
-              style={{ ...slotButtonStyle(disabled), color: "#b91c1c" }}
+              // The red has to lose to the disabled grey, not override it —
+              // spreading slotButtonStyle and then unconditionally re-setting
+              // `color` painted a disabled ✕ in full active red.
+              style={{ ...slotButtonStyle(disabled), color: disabled ? DISABLED_TEXT : "#b91c1c" }}
             >
               ✕
             </button>
@@ -188,20 +194,25 @@ export function DayLayoutEditor({
       <button
         type="button"
         onClick={addSlot}
-        disabled={disabled || atMax}
+        disabled={inactive}
         style={{
           alignSelf: "flex-start",
           padding: "0.35rem 0.8rem",
           fontSize: "0.9rem",
+          // Follows the `disabled` ATTRIBUTE above, not just `atMax`. Branching
+          // the styling on the narrower condition rendered a full active blue
+          // button that could not be clicked while the parent form was saving.
           // The at-max fill is a shade lighter than the obvious #f3f4f6 so the
           // one DISABLED_TEXT grey clears AA here too (4.63:1 rather than 4.39).
-          backgroundColor: atMax ? DISABLED_SURFACE : "#eff6ff",
-          color: atMax ? DISABLED_TEXT : "#1d4ed8",
-          border: `1px solid ${atMax ? "#e5e7eb" : "#bfdbfe"}`,
+          backgroundColor: inactive ? DISABLED_SURFACE : "#eff6ff",
+          color: inactive ? DISABLED_TEXT : "#1d4ed8",
+          border: `1px solid ${inactive ? "#e5e7eb" : "#bfdbfe"}`,
           borderRadius: "4px",
-          cursor: disabled || atMax ? "not-allowed" : "pointer",
+          cursor: inactive ? "not-allowed" : "pointer",
         }}
       >
+        {/* The LABEL still keys off atMax alone — "max 8" is only true at the
+            cap, and would be a lie while merely saving. */}
         {atMax ? t("layout.addSlotMax", { max: maxSlots }) : t("layout.addSlot")}
       </button>
     </div>

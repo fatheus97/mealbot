@@ -75,3 +75,50 @@ describe('DayLayoutEditor', () => {
     expect(onChange).toHaveBeenCalledWith(['soup']);
   });
 });
+
+describe('DayLayoutEditor disabled styling follows the disabled attribute', () => {
+  // jsdom computes no ratios, so these assert the BRANCH; the ratios themselves
+  // are pinned in test/contrast.test.ts. What is checked here is that a control
+  // which cannot be clicked never renders in its active colour — the two used
+  // to be able to drift because the styling keyed off a narrower condition than
+  // the `disabled` attribute did.
+  const ACTIVE_BLUE = 'rgb(29, 78, 216)';
+  const ACTIVE_RED = 'rgb(185, 28, 28)';
+  const DISABLED = 'rgb(107, 114, 128)';
+
+  it('greys "+ Add slot" while the parent form is saving, below the cap', () => {
+    // Two slots, cap of 8: not at max, so only `disabled` can grey it.
+    renderEditor(['main_course', 'soup'], vi.fn(), { disabled: true });
+    const add = screen.getByRole('button', { name: /add slot/i });
+    expect(add).toBeDisabled();
+    expect(add.style.color).toBe(DISABLED);
+  });
+
+  it('keeps "+ Add slot" active-blue when it is genuinely clickable', () => {
+    renderEditor(['main_course'], vi.fn());
+    const add = screen.getByRole('button', { name: /add slot/i });
+    expect(add).toBeEnabled();
+    expect(add.style.color).toBe(ACTIVE_BLUE);
+  });
+
+  it('still labels the cap by slot count, not by the saving flag', () => {
+    // "max 8" would be a lie mid-save, so the LABEL keeps keying off atMax.
+    renderEditor(['main_course', 'soup'], vi.fn(), { disabled: true });
+    expect(screen.getByRole('button', { name: /add slot/i }).textContent).not.toMatch(/max/i);
+  });
+
+  it('greys the ✕ remove button instead of leaving it active red', () => {
+    // The red was spread on AFTER slotButtonStyle, so it always won.
+    renderEditor(['main_course', 'soup'], vi.fn(), { disabled: true });
+    const remove = screen.getAllByRole('button', { name: /remove slot/i })[0];
+    expect(remove).toBeDisabled();
+    expect(remove.style.color).toBe(DISABLED);
+  });
+
+  it('keeps ✕ red when it can actually be used', () => {
+    renderEditor(['main_course', 'soup'], vi.fn());
+    const remove = screen.getAllByRole('button', { name: /remove slot/i })[0];
+    expect(remove).toBeEnabled();
+    expect(remove.style.color).toBe(ACTIVE_RED);
+  });
+});
