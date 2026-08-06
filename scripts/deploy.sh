@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# Live-server deploy script.
+# Live-server deploy script — the part that changes.
 #
-# Invoked over SSH by .github/workflows/deploy.yml on every push to main.
-# Installed on the VPS at /opt/mealbot/deploy.sh and pinned as the forced
-# command in ~deploy/.ssh/authorized_keys so the deploy key can only run this.
+# NOT the entry point. `.github/workflows/deploy.yml` SSHes to the box, which
+# runs the forced command `/opt/mealbot/deploy.sh` — an installed copy of
+# `scripts/deploy-shim.sh`. That shim pulls origin/main and `exec`s THIS file,
+# so what you edit here is what runs on the next deploy, no reinstall needed.
+# See deploy-shim.sh for why the split exists (short version: the installed copy
+# silently drifted for months and a step added in #391 never executed once).
+#
+# The fetch below therefore repeats the shim's. Deliberate — it keeps this
+# script correct when run by hand, and re-fetching costs about a second.
 #
 # Ordering is migrate-before-swap: if `alembic upgrade head` fails, the old
 # containers keep serving traffic and this script exits non-zero, which shows
