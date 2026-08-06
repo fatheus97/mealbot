@@ -9,6 +9,7 @@ import {
   revokeInvite,
   updateUserProfile,
 } from './api';
+import { DEFAULT_LOCALE, useLocaleStore } from './store/useLocaleStore';
 
 // Mirror api.ts's resolution so this test passes whether VITE_API_BASE is
 // unset (CI: resolves to "/api") or set by docker-compose.override.yml.
@@ -21,6 +22,9 @@ beforeEach(() => {
 
 afterEach(() => {
   document.cookie = 'mealbot_csrf=; Path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  // The store is module-level state shared by every test in the run; leaving it
+  // on 'cs' would leak into whatever file vitest picks up next.
+  useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
 });
 
 function mockFetch(status: number, body: unknown = {}) {
@@ -46,6 +50,27 @@ describe('authFetch', () => {
     await authFetch('/test');
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(call[1].headers['Authorization']).toBeUndefined();
+  });
+
+  it('sends the picked UI locale as Accept-Language', async () => {
+    // Not the browser's Accept-Language: the backend uses this to write error
+    // `detail` sentences on the LOGGED-OUT paths (forgot/reset password), where
+    // there is no User.language to read. A Czech UI on an English machine is
+    // exactly the case the browser default gets wrong.
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    mockFetch(200);
+    await authFetch('/test');
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].headers['Accept-Language']).toBe('cs');
+  });
+
+  it('lets an explicit per-call Accept-Language win', async () => {
+    // The spread order puts caller-supplied headers last on purpose.
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    mockFetch(200);
+    await authFetch('/test', { headers: { 'Accept-Language': 'en' } });
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].headers['Accept-Language']).toBe('en');
   });
 
   it('attaches X-CSRF-Token from cookie on POST', async () => {

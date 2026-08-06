@@ -39,6 +39,7 @@ import type {
   UserProfile,
 } from "./types";
 import { extractErrorDetail } from "./utils/httpError";
+import { DEFAULT_LOCALE, useLocaleStore } from "./store/useLocaleStore";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -100,6 +101,13 @@ export async function authFetch(
   const method = (options.method ?? "GET").toUpperCase();
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    // The picked UI locale, so server-rendered error sentences match the rest
+    // of the screen. Without it the backend falls back to the BROWSER's
+    // Accept-Language, which is wrong for exactly the person this feature is
+    // for: someone running a Czech UI on an English-language machine. It is
+    // sent on every request rather than only the logged-out ones because the
+    // server ignores it once a request has a user — User.language wins there.
+    "Accept-Language": useLocaleStore.getState().locale ?? DEFAULT_LOCALE,
     ...(options.headers as Record<string, string>) || {},
   };
 
