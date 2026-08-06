@@ -1,3 +1,5 @@
+import { landingCopy } from "./copy";
+
 // Registration-aware CTA enhancement for the static marketing landing (`/`).
 // Progressively enhances a safe static baseline — never the other way around:
 // the HTML already renders a working "Request access" (an in-page #access
@@ -82,7 +84,7 @@ export function applyConfig(
 ): void {
   if (config === null) return;
   if (config.registration_enabled === true && els.primary) {
-    els.primary.textContent = "Get started";
+    els.primary.textContent = landingCopy().ctaGetStarted;
     els.primary.href = `/app${search}`;
   }
   if (config.demo_mode === true && els.demo) {
@@ -120,7 +122,7 @@ export function createDemoHandler(
     if (pending) return;
     pending = true;
     const original = button.textContent;
-    button.textContent = "Starting…";
+    button.textContent = landingCopy().ctaDemoStarting;
     void deps
       .startDemo()
       .then(() => deps.navigate(`/app${deps.search}`))

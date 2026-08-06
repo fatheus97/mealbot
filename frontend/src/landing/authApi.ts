@@ -14,6 +14,7 @@
 
 import { storeSessionHints, type SessionProfile } from "../auth/sessionHints";
 import { getStoredAttribution } from "../utils/attribution";
+import { landingCopy } from "./copy";
 
 const API_BASE = "/api";
 
@@ -50,15 +51,16 @@ export const MAX_PASSWORD_LENGTH = 128;
 
 /** Human-readable reason `password` fails the shared complexity rule, or null. */
 export function passwordComplaint(password: string): string | null {
+  const copy = landingCopy();
   if (password.length < MIN_PASSWORD_LENGTH) {
-    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+    return copy.passwordTooShort(MIN_PASSWORD_LENGTH);
   }
   if (password.length > MAX_PASSWORD_LENGTH) {
-    return `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`;
+    return copy.passwordTooLong(MAX_PASSWORD_LENGTH);
   }
-  if (!/[A-Z]/.test(password)) return "Password must contain an uppercase letter.";
-  if (!/[a-z]/.test(password)) return "Password must contain a lowercase letter.";
-  if (!/\d/.test(password)) return "Password must contain a digit.";
+  if (!/[A-Z]/.test(password)) return copy.passwordNeedsUpper;
+  if (!/[a-z]/.test(password)) return copy.passwordNeedsLower;
+  if (!/\d/.test(password)) return copy.passwordNeedsDigit;
   return null;
 }
 

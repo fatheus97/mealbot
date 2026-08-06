@@ -1,3 +1,4 @@
+import { landingCopy } from "./copy";
 // The landing page's "Request access" form.
 //
 // Replaces the old mailto: link so requests land in a queue the admin can act
@@ -16,16 +17,16 @@ export interface AccessFormElements {
   status: HTMLElement;
 }
 
-const GENERIC_FAILURE = "Something went wrong. Please try again, or email info@trymealbot.com.";
-const RATE_LIMITED = "Too many requests just now. Please try again in a minute.";
-const BAD_EMAIL = "That doesn't look like a valid email address — please check it.";
+// Read per call, not once at module load: `landingCopy()` needs
+// `document.documentElement.lang`, which is not there when this module is
+// first evaluated.
 
 /** Client-side guard so an empty submit doesn't cost a round-trip. Email
  *  *format* is left to the browser's native type=email validation (the form is
  *  no longer `novalidate`) and to the server — a homegrown regex would reject
  *  valid addresses. */
 export function validateAccessRequest(email: string): string | null {
-  return email.trim() ? null : "Enter your email address.";
+  return email.trim() ? null : landingCopy().accessNeedEmail;
 }
 
 /**
@@ -45,19 +46,19 @@ export async function submitAccessRequest(email: string, message: string): Promi
       body: JSON.stringify({ email, message }),
     });
   } catch {
-    throw new Error(GENERIC_FAILURE);
+    throw new Error(landingCopy().accessGenericFailure);
   }
 
-  if (resp.status === 429) throw new Error(RATE_LIMITED);
+  if (resp.status === 429) throw new Error(landingCopy().accessRateLimited);
   // 422 is Pydantic rejecting what they typed — almost always a mistyped
   // address, which is the single most likely failure on this form. Saying so
   // discloses nothing (it's about their own input, not about our data), and
   // "Something went wrong" would leave them nothing to correct.
-  if (resp.status === 422) throw new Error(BAD_EMAIL);
-  if (!resp.ok) throw new Error(GENERIC_FAILURE);
+  if (resp.status === 422) throw new Error(landingCopy().accessBadEmail);
+  if (!resp.ok) throw new Error(landingCopy().accessGenericFailure);
 
   const body = (await resp.json().catch(() => null)) as { message?: string } | null;
-  return body?.message ?? "Thanks — we've got your request.";
+  return body?.message ?? landingCopy().accessThanks;
 }
 
 export function createAccessForm(
@@ -89,7 +90,7 @@ export function createAccessForm(
 
     busy = true;
     els.submit.disabled = true;
-    els.submit.textContent = "Sending…";
+    els.submit.textContent = landingCopy().accessBusy;
     setError("");
     try {
       const message = await send(email, els.message.value);
@@ -104,9 +105,9 @@ export function createAccessForm(
       // with no idea the request succeeded.
       els.status.focus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : GENERIC_FAILURE);
+      setError(err instanceof Error ? err.message : landingCopy().accessGenericFailure);
       els.submit.disabled = false;
-      els.submit.textContent = "Send request";
+      els.submit.textContent = landingCopy().accessSubmit;
       busy = false;
       els.email.focus();
     }
