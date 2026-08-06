@@ -138,16 +138,16 @@
 
       <p>
         Popisujeme zde, co Mealbot s vašimi údaji skutečně dělá — psáno podle kódu, ne
-        podle šablony. Kde je něco nedokonalé, říkáme to.
+        podle šablony. Kde je něco nedokonalé, uvádíme to.
       </p>
 
       <div class="note">
         <p>
-          <strong>Stručně.</strong> Používáme tři cookies, všechny jsou potřeba k tomu, abyste
+          <strong>Stručně.</strong> Používáme tři cookies a všechny jsou nezbytné k tomu, abyste
           zůstali přihlášeni. Neprovozujeme žádnou analytiku, žádnou reklamu ani žádné
-          sledovací nástroje třetích stran. Údaje o vaší platební kartě nikdy nevidíme. Ale vaše <strong>dietní omezení a
-          alergie posíláme společnosti Google</strong>, abychom vám vygenerovali jídelníčky — tak tento
-          produkt funguje a je to nejdůležitější věc na této stránce.
+          sledovací nástroje třetích stran. Údaje o vaší platební kartě nikdy nevidíme. Vaše <strong>dietní omezení a
+          alergie však předáváme společnosti Google</strong>, abychom vám vygenerovali jídelníčky — tak tento
+          produkt funguje a je to nejdůležitější informace na této stránce.
         </p>
       </div>
 
@@ -155,8 +155,8 @@
       <p>
         Mealbot provozuje <strong>František Bláha</strong>, Jana Černého 489/2b, Věkoše,
         503 41 Hradec Králové, Česká republika. IČO 22059946. Neplátce DPH.
-        Jsme správcem osobních údajů popsaných
-        zde.
+        Jsme správcem zde popsaných osobních
+        údajů.
       </p>
       <p>
         Ve všem, co se týká této stránky, včetně kterékoli žádosti níže, nám napište na
@@ -168,7 +168,7 @@
       <h3>Váš účet</h3>
       <p>
         Vaši e-mailovou adresu a hash hesla (bcrypt — samotné heslo nikdy neukládáme ani
-        nelogujeme). K tomu stav, který potřebujeme k provozu vašeho účtu: kdy jste se
+        nezaznamenáváme). Dále stav, který potřebujeme k provozu vašeho účtu: kdy jste se
         zaregistrovali, zda máte potvrzený e-mail a jaký je stav vašeho předplatného.
       </p>
 
@@ -183,15 +183,15 @@
       <h3>Dietní omezení a alergie</h3>
       <p>
         Jde o údaje týkající se zdraví a v některých případech (halal, košer) mohou vypovídat o
-        náboženském vyznání. Zacházíme s nimi jako s nejcitlivější věcí, kterou máme. Níže se
-        jim věnujeme zvlášť, protože jde o to, kam putují.
+        náboženském vyznání. Zacházíme s nimi jako s nejcitlivějšími údaji, které uchováváme. Níže se
+        jim věnujeme zvlášť, a to kvůli tomu, kam se předávají.
       </p>
 
       <h3>Platba</h3>
       <p>
         <strong>Údaje o vaší platební kartě nikdy nedostáváme.</strong> Pokladnu hostuje Stripe a
-        data karty se nikdy nedostanou na naše servery. Vaše jméno, fakturační adresu, kartu
-        a případné DIČ shromažďuje přímo Stripe. My uchováváme jen identifikátory a stav — vaše
+        údaje o kartě nikdy neprocházejí našimi servery. Vaše jméno, fakturační adresu, kartu
+        a případné DIČ shromažďuje přímo Stripe. My uchováváme pouze identifikátory a stav — vaše
         Stripe ID zákazníka a předplatného, zda je vaše předplatné aktivní a kdy končí období.
       </p>
       <p>
@@ -206,7 +206,7 @@
 
       <h3>Podpora a žádosti o přístup</h3>
       <p>
-        Když nám pošlete zpětnou vazbu, uložíme vaši zprávu. Když si vyžádáte přístup z úvodní
+        Pokud nám zašlete zpětnou vazbu, uložíme vaši zprávu. Pokud si vyžádáte přístup z úvodní
         stránky v době, kdy jsou registrace zavřené, uložíme e-mailovou adresu a zprávu, kterou
         odešlete — včetně jakýchkoli údajů o stravě, které se tam rozhodnete uvést.
       </p>
@@ -215,11 +215,11 @@
       <p>
         Přihlašovací relace (hash tokenu relace, časová razítka a řetězec user-agent vašeho
         prohlížeče). Počty spotřebovaných AI tokenů kvůli vymáhání limitů férového užívání —
-        zaznamenává se, kolik se spotřebovalo, nikdy co v tom bylo.
+        zaznamenává se, kolik jich bylo spotřebováno, nikoli jejich obsah.
       </p>
       <p>
-        Uchováváme také kopii toho, co bylo odesláno AI a co AI vrátila, plus vaše případné úpravy
-        jejího výstupu, abychom poznali, kde se AI plete. Tato kopie obsahuje vaše dietní
+        Uchováváme také kopii toho, co bylo odesláno AI a co AI vrátila, spolu s vašimi případnými úpravami
+        jejího výstupu, abychom zjistili, kde AI chybuje. Tato kopie obsahuje vaše dietní
         omezení. V současné době se z toho nelze odhlásit; pokud je to pro vás důležité,
         napište nám.
       </p>
@@ -229,25 +229,25 @@
         k analytice.
       </p>
       <p>
-        Tyto logy mají <strong>omezenou velikost a automaticky rotují</strong> — jakmile je limit
-        dosažen, nejstarší záznamy se mažou. Neuchovávají se navždy. Omezujeme je velikostí, ne
-        stářím, takže nemůžeme poctivě uvést pevný počet dní: při nízkém provozu může řádek
-        přežít déle, při vysokém mnohem méně. Logy nikdy neobsahují obsah vašich
+        Tyto logy mají <strong>omezenou velikost a automaticky rotují</strong> — jakmile je limitu
+        dosaženo, nejstarší záznamy se mažou. Neuchovávají se navždy. Omezujeme je velikostí, nikoli
+        stářím, takže nemůžeme poctivě uvést pevný počet dní: při nízkém provozu se záznam může
+        uchovat déle, při vysokém provozu podstatně kratší dobu. Logy nikdy neobsahují obsah vašich
         jídelníčků a nikdy neobsahují přihlašovací odkazy ani odkazy pro obnovu hesla.
       </p>
 
-      <h2>Vaše údaje o stravě putují do společnosti Google</h2>
+      <h2>Vaše údaje o stravě předáváme společnosti Google</h2>
       <div class="note">
         <p>
-          Abychom sestavili jídelníček, posíláme váš požadavek do <strong>Gemini API společnosti Google</strong>. Tento
+          Abychom sestavili jídelníček, odesíláme váš požadavek do <strong>Gemini API společnosti Google</strong>. Tento
           požadavek obsahuje vaše <strong>deklarované alergeny, vaše typy stravy</strong> (včetně
           halal, košer, diabetické, low-FODMAP a dětské stravy), váš volný text se surovinami,
           kterým se chcete vyhnout, vaše chuťové preference, velikost vaší domácnosti a obsah
           vaší lednice.
         </p>
         <p>
-          <strong>Neposíláme vaši e-mailovou adresu, vaše jméno ani žádný identifikátor účtu.</strong>
-          Google dostává obsah, ne to, kdo jste.
+          <strong>Nepředáváme vaši e-mailovou adresu, vaše jméno ani žádný identifikátor účtu.</strong>
+          Google dostává obsah, nikoli vaši totožnost.
         </p>
       </div>
       <p>
@@ -256,13 +256,13 @@
       </p>
       <p>
         Po vygenerování spouštíme vlastní deterministickou kontrolu proti vašim deklarovaným
-        alergenům a odmítneme zobrazit jídelníček, který jí neprojde. Je to záchranná síť nad
-        modelem, ne náhrada za čtení etiket.
+        alergenům a odmítneme zobrazit jídelníček, který jí neprojde. Jde o záchrannou síť nad
+        modelem, nikoli o náhradu čtení etiket.
       </p>
       <p class="muted">
         Používáme standardní API společnosti Google. Pokud si nepřejete, aby se tyto údaje
         zpracovávaly tímto způsobem, poctivá odpověď zní, že Mealbot bez nich jídelníčky
-        vygenerovat neumí.
+        vygenerovat nedokáže.
       </p>
 
       <h2>Kdo další dostává vaše údaje</h2>
@@ -274,12 +274,12 @@
           <tbody>
             <tr>
               <td>Google (Gemini API)</td>
-              <td>Váš požadavek na jídelníček včetně dietních omezení, obsahu ledničky, fotek účtenek a textu zpětné vazby. Žádné údaje o totožnosti.</td>
+              <td>Váš požadavek na jídelníček včetně dietních omezení, obsahu lednice, fotografií účtenek a textu zpětné vazby. Žádné údaje o totožnosti.</td>
               <td>Generování jídelníčků a receptů</td>
             </tr>
             <tr>
               <td>Stripe</td>
-              <td>Váš e-mail a interní ID uživatele; jméno, adresu, DIČ a kartu od vás sbírají samostatně</td>
+              <td>Váš e-mail a interní ID uživatele; jméno, adresu, DIČ a platební kartu od vás shromažďují samostatně</td>
               <td>Platby a předplatné</td>
             </tr>
             <tr>
@@ -294,7 +294,7 @@
             </tr>
             <tr>
               <td>Hetzner</td>
-              <td>Všechno, jako náš poskytovatel hostingu</td>
+              <td>Vše, jako náš poskytovatel hostingu</td>
               <td>Provoz serverů</td>
             </tr>
             <tr>
@@ -317,7 +317,7 @@
 
       <h2>Cookies</h2>
       <p>
-        Používáme tři cookies a všechny jsou nezbytně nutné, takže tu není žádná lišta
+        Používáme tři cookies a všechny jsou nezbytně nutné, takže zde není žádná lišta
         se souhlasem, na kterou byste museli klikat:
       </p>
       <div class="table-scroll">
@@ -337,12 +337,12 @@
         webu není žádná analytická cookie, žádná reklamní cookie ani žádný skript pro záznam relace.
       </p>
       <p>
-        Váš prohlížeč navíc ukládá některé věci lokálně, aby aplikace fungovala — jako kdo jste
-        přihlášeni, vaše uložené předvolby a to, kde jste v receptu, který zrovna vaříte. To
-        zůstává ve vašem zařízení a při odhlášení se to smaže.
+        Váš prohlížeč navíc ukládá některé údaje lokálně, aby aplikace fungovala — pod jakým
+        účtem jste přihlášeni, vaše uložené předvolby a to, kde jste v receptu, který právě
+        vaříte. Tyto údaje zůstávají ve vašem zařízení a při odhlášení se smažou.
       </p>
 
-      <h2>Jak dlouho věci uchováváme</h2>
+      <h2>Jak dlouho údaje uchováváme</h2>
       <div class="table-scroll">
         <table>
           <thead>
@@ -353,26 +353,26 @@
             <tr><td>Jídelníčky, které jste nikdy nepotvrdili</td><td>Smazány, až příště vygenerujete jídelníček</td></tr>
             <tr><td>Demo účty a jejich data</td><td>Přibližně 2 hodiny</td></tr>
             <tr><td>Zálohy databáze</td><td>14 dní</td></tr>
-            <tr><td>Váš účet a všechno v něm</td><td>Dokud není účet smazán</td></tr>
+            <tr><td>Váš účet a vše v něm</td><td>Dokud není účet smazán</td></tr>
             <tr><td>Záznamy o vyúčtování (DPH)</td><td>Uchovávány i po smazání, jak vyžadují daňové předpisy</td></tr>
           </tbody>
         </table>
       </div>
 
-      <h2>Vaše práva — a co dnes reálně dokážeme</h2>
+      <h2>Vaše práva — a co v současnosti skutečně dokážeme</h2>
       <p>
-        Můžete nás požádat o kopii svých osobních údajů, o jejich opravu, výmaz nebo omezení toho,
-        jak je používáme. Napište na <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> a my to
+        Můžete nás požádat o kopii svých osobních údajů, o jejich opravu, výmaz nebo omezení
+        jejich zpracování. Napište na <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> a žádost
         vyřídíme.
       </p>
       <p>
-        Řekneme vám na rovinu, jak to je teď, protože zásady, které slibují tlačítka,
-        která neexistují, nemají žádnou cenu:
+        Otevřeně popisujeme současný stav, protože zásady slibující tlačítka,
+        která neexistují, jsou bezcenné:
       </p>
       <div class="card">
         <ul>
           <li>
-            <strong>Tlačítko "smazat můj účet" zatím neexistuje.</strong> Napište nám a my to uděláme
+            <strong>Tlačítko "smazat můj účet" zatím neexistuje.</strong> Napište nám a výmaz provedeme
             ručně.
           </li>
           <li>
@@ -380,7 +380,7 @@
             údaje sestavíme ručně.
           </li>
           <li>
-            <strong>E-mailovou adresu si v aplikaci změnit nemůžete.</strong> Napište nám.
+            <strong>E-mailovou adresu si v aplikaci změnit nemůžete.</strong> Obraťte se na nás.
           </li>
           <li>
             <strong>Výmaz není okamžitý ani absolutní.</strong> Záznamy o vyúčtování uchováváme
@@ -404,8 +404,8 @@
         skripty třetích stran. Údaje o platebních kartách se na naše servery nikdy nedostanou.
       </p>
       <p class="muted">
-        Žádný systém není dokonalý. Pokud najdete bezpečnostní problém, napište nám prosím — mnohem
-        raději se to dozvíme od vás.
+        Žádný systém není dokonalý. Pokud najdete bezpečnostní problém, kontaktujte nás prosím — mnohem
+        raději se o něm dozvíme od vás.
       </p>
 
       <h2>Děti</h2>
