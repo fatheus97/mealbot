@@ -391,6 +391,10 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
                 title="Accept this report?"
                 message="Grants the reporter a €1 credit (if eligible — monthly plan, under the cap) and opens a ticket in the private repo. Idempotent: re-accepting never double-credits."
                 confirmLabel="Accept"
+                // Admin is permanently out of the i18n scope, so pin the shared
+                // dialog's now-translated Cancel back to English — otherwise this
+                // prompt reads "Zrušit" beside an English confirm label forever.
+                cancelLabel="Cancel"
                 onConfirm={doAccept}
                 onCancel={() => setConfirmAccept(false)}
                 loading={accept.isPending}

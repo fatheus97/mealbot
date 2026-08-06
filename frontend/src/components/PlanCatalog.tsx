@@ -6,11 +6,12 @@ import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { MUTED_PAGE_TEXT } from "../constants/theme";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
+import { useI18n } from "../i18n";
 
 const STATUS_COLORS: Record<PlanStatus, { bg: string; text: string }> = {
   planned: { bg: "#e2e8f0", text: "#475569" },
   active: { bg: "#dbeafe", text: "#1d4ed8" },
-  cooked: { bg: "#dcfce7", text: "#16a34a" },
+  cooked: { bg: "#dcfce7", text: "#166534" }, // 6.49:1 (was #16a34a, 3.00:1)
   finished: { bg: "#f3e8ff", text: "#7c3aed" },
 };
 
@@ -19,6 +20,7 @@ interface PlanCatalogProps {
 }
 
 export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
+  const { t } = useI18n();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
   const { data: plans, isLoading } = usePlanList(userId);
@@ -43,7 +45,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       onOpenPlan(data, summary);
     } catch (err) {
       console.error("Failed to load plan:", err);
-      setOpenError("Couldn't open that plan. Please try again.");
+      setOpenError(t("plans.openFailed"));
     } finally {
       setLoadingPlanId(null);
     }
@@ -67,7 +69,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
     deleteMutation.isError && deleteMutation.variables === confirmDeleteId
       ? deleteMutation.error instanceof Error
         ? deleteMutation.error.message
-        : "Failed to delete plan."
+        : t("plans.deleteFailed")
       : null;
 
   const formatDate = (dateStr: string) => {
@@ -88,7 +90,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
         {/* Adaptive page background \u2014 see the same fix in Fridge's header.
             #888 was 4.38:1 dark / 3.54:1 light, under AA in both. */}
         <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.9rem" }}>{expanded ? "\u25BC" : "\u25B6"}</span>
-        <h2 style={{ margin: 0 }}>My Plans</h2>
+        <h2 style={{ margin: 0 }}>{t("plans.title")}</h2>
         {plans && plans.length > 0 && (
           <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.85rem" }}>({plans.length})</span>
         )}
@@ -96,7 +98,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
 
       {expanded && (
         <div style={{ marginTop: "1rem" }}>
-          {isLoading && <p style={{ color: "#888" }}>Loading plans...</p>}
+          {isLoading && <p style={MUTED_PAGE_TEXT}>{t("plans.loading")}</p>}
 
           {openError && (
             <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: 0 }}>
@@ -111,7 +113,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
 
           {plans && plans.length === 0 && (
             <p style={{ ...MUTED_PAGE_TEXT, fontSize: "0.9rem" }}>
-              No plans yet. Generate one below to get started.
+              {t("plans.empty")}
             </p>
           )}
 
@@ -145,7 +147,11 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           (#f9f9f9), so inheriting the scheme's text color would
                           render white-on-light in dark mode. */}
                       <span style={{ color: "#333" }}>
-                        {plan.days}d / {plan.meals_per_day} meals / {plan.people_count}p
+                        {t("plans.summary", {
+                          days: plan.days,
+                          meals: plan.meals_per_day,
+                          people: plan.people_count,
+                        })}
                       </span>
                       {/* Editable schedule date — reschedule (or clear) any plan
                           right here, not only inside the calendar. Uncontrolled
@@ -167,7 +173,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                                 onSuccess: () => setRescheduleError(null),
                                 onError: () => {
                                   setRescheduleError(
-                                    "Couldn't update that plan's date. Please try again.",
+                                    t("plans.dateFailed"),
                                   );
                                   setRescheduleNonce((n) => n + 1);
                                 },
@@ -187,7 +193,11 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           color: colors.text,
                         }}
                       >
-                        {plan.status} ({plan.cooked_meals}/{plan.total_meals})
+                        {t("plans.statusCount", {
+                          status: t(`planStatus.${plan.status}` as const),
+                          cooked: plan.cooked_meals,
+                          total: plan.total_meals,
+                        })}
                       </span>
                     </div>
 
@@ -206,7 +216,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           cursor: "pointer",
                         }}
                       >
-                        {loadingPlanId === plan.id ? "Loading..." : "Open"}
+                        {loadingPlanId === plan.id ? t("plans.opening") : t("plans.open")}
                       </button>
 
                       <button
@@ -222,7 +232,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           cursor: "pointer",
                         }}
                       >
-                        Delete
+                        {t("plans.delete")}
                       </button>
                     </div>
                   </div>
@@ -235,10 +245,14 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
 
       {planPendingDelete && (
         <ConfirmDialog
-          title="Delete this plan?"
-          message={`This will permanently delete the ${planPendingDelete.days}-day / ${planPendingDelete.meals_per_day}-meal plan from ${formatDate(planPendingDelete.created_at)}. This cannot be undone.`}
-          confirmLabel="Delete"
-          loadingLabel="Deleting…"
+          title={t("plans.deleteTitle")}
+          message={t("plans.deleteBody", {
+            days: planPendingDelete.days,
+            meals: planPendingDelete.meals_per_day,
+            date: formatDate(planPendingDelete.created_at),
+          })}
+          confirmLabel={t("plans.delete")}
+          loadingLabel={t("plans.deleting")}
           loading={deleteMutation.isPending}
           error={deleteError}
           onConfirm={() => handleDelete(planPendingDelete.id)}

@@ -18,6 +18,7 @@ import {
 } from "../utils/planDates";
 import { calendarLeftoverTitle, lowerFirst } from "../utils/leftovers";
 import type { CalendarMeal, MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
+import { useI18n } from "../i18n";
 
 /** "Sat Aug 1" — a short weekday+date label for the agenda/list rows. */
 function shortDayLabel(iso: string): string {
@@ -86,6 +87,7 @@ interface DayChip {
 }
 
 export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
+  const { t } = useI18n();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
   const [monthCursor, setMonthCursor] = useState<string>(() => startOfMonthISO(todayISO()));
@@ -121,7 +123,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
   const handleOpen = async (planId: number) => {
     const summary = planList?.find((s) => s.id === planId);
     if (!summary) {
-      setOpenError("Couldn't open that plan. Please try again.");
+      setOpenError(t("plans.openFailed"));
       return;
     }
     setOpeningId(planId);
@@ -131,14 +133,14 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
       onOpenPlan(plan, summary);
       onClose();
     } catch {
-      setOpenError("Couldn't open that plan. Please try again.");
+      setOpenError(t("plans.openFailed"));
     } finally {
       setOpeningId(null);
     }
   };
 
   return (
-    <ModalShell onClose={onClose} ariaLabel="Plan calendar">
+    <ModalShell onClose={onClose} ariaLabel={t("calendar.title")}>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -165,23 +167,23 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-            <button aria-label="Previous month" onClick={() => setMonthCursor(addMonthsISO(monthCursor, -1))} style={navBtn}>‹</button>
+            <button aria-label={t("calendar.previousMonth")} onClick={() => setMonthCursor(addMonthsISO(monthCursor, -1))} style={navBtn}>‹</button>
             <strong style={{ minWidth: isMobile ? 116 : 150, textAlign: "center" }}>
               {monthLabelOf(monthCursor)}
             </strong>
-            <button aria-label="Next month" onClick={() => setMonthCursor(addMonthsISO(monthCursor, 1))} style={navBtn}>›</button>
+            <button aria-label={t("calendar.nextMonth")} onClick={() => setMonthCursor(addMonthsISO(monthCursor, 1))} style={navBtn}>›</button>
             <button
               onClick={() => setMonthCursor(startOfMonthISO(todayISO()))}
               style={{ ...navBtn, minWidth: "auto", padding: "0 0.6rem", fontSize: "0.78rem" }}
             >
-              Today
+              {t("calendar.today")}
             </button>
           </div>
-          <button aria-label="Close calendar" onClick={onClose} style={{ ...navBtn, fontSize: "1.15rem" }}>✕</button>
+          <button aria-label={t("calendar.close")} onClick={onClose} style={{ ...navBtn, fontSize: "1.15rem" }}>✕</button>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1rem 1.25rem" }}>
-          {isLoading && <p style={{ color: "#6b7280" }}>Loading…</p>}
+          {isLoading && <p style={{ color: "#6b7280" }}>{t("calendar.loading")}</p>}
 
           {/* Desktop: month grid (chips click-to-open). Mobile falls back to the
               agenda list below — a 7-col grid is unusable at 375px. */}
@@ -233,7 +235,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                                   )})`
                                 : m.name,
                             )
-                            .join(", ") || `Plan #${c.plan_id}`
+                            .join(", ") || t("calendar.planNumbered", { id: c.plan_id })
                         }
                         style={{
                           backgroundColor: STATUS_COLORS[c.status].bg,
@@ -275,7 +277,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                             </span>
                           ))
                         ) : (
-                          <span>Plan</span>
+                          <span>{t("calendar.plan")}</span>
                         )}
                       </button>
                     ))}
@@ -302,12 +304,12 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
           <div>
             {!isMobile && (
               <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.88rem", color: "#374151" }}>
-                Scheduled plans
+                {t("calendar.scheduled")}
               </h4>
             )}
             {!isLoading && plans.length === 0 && (
               <p style={{ color: "#6b7280", fontSize: "0.9rem", margin: 0 }}>
-                No scheduled plans in {monthLabelOf(monthCursor)}. Give a plan a start date to see it here.
+                {t("calendar.emptyMonth", { month: monthLabelOf(monthCursor) })}
               </p>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
@@ -326,7 +328,9 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                 >
                   {/* Header row: status · reschedule · open */}
                   <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ ...chipStyle(p.status), cursor: "default" }}>{p.status}</span>
+                    <span style={{ ...chipStyle(p.status), cursor: "default" }}>
+                      {t(`planStatus.${p.status}` as const)}
+                    </span>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem", color: "#374151" }}>
                       <span aria-hidden>📅</span>
                       {/* Uncontrolled + keyed on the server value: picking a new
@@ -345,7 +349,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                               onSuccess: () => setRescheduleError(null),
                               onError: () => {
                                 setRescheduleError(
-                                  "Couldn't reschedule that plan. Please try again.",
+                                  t("calendar.rescheduleFailed"),
                                 );
                                 // Remount the inputs so the failed one snaps back
                                 // to the server date instead of an unsaved value.
@@ -363,7 +367,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                       disabled={openingId === p.plan_id}
                       style={{ background: "none", border: "none", color: "#1d4ed8", cursor: "pointer", fontWeight: 600, padding: 0, fontSize: "0.85rem" }}
                     >
-                      {openingId === p.plan_id ? "Opening…" : "Open →"}
+                      {openingId === p.plan_id ? t("calendar.openingPlan") : t("calendar.openPlan")}
                     </button>
                   </div>
                   {/* Every day's meals, in day-layout order (breakfast → dinner). */}

@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { PlanCalendar } from "./PlanCalendar";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { AuthProvider } from "../contexts/AuthContext";
 import { setMobileViewport } from "../test/test-utils";
 
@@ -164,7 +166,45 @@ beforeEach(() => {
   mockedFetchPlan.mockReset();
 });
 
+// TEST DATA colliding with UI words, not missed translations: the fixture's
+// meals are named "Tomato Soup" and "Leftovers: Tomato Soup", and its
+// meal_type_label is the English "Soup" (the component correctly prefers the
+// server's label). See test/i18nAssertions.ts on why short values collide.
+const IGNORED_FIXTURE_KEYS = [
+  "mealType.soup",
+  "meal.leftovers",
+  "meal.leftoversShort",
+  "meal.leftoversFromTitle",
+] as const;
+
 describe("PlanCalendar", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("leaves no untranslated English when switched to Czech, populated AND empty", async () => {
+    // WITH plans: the status chip and the open button only exist in that
+    // branch, and both shipped untranslated because this test used to render
+    // the logged-out shell where `plans` stays [].
+    loginUser();
+    routeDefault();
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    const populated = render(<PlanCalendar onClose={vi.fn()} onOpenPlan={vi.fn()} />, {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(screen.getByText(/Chicken Curry/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(populated.container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
+    populated.unmount();
+
+    // …and the empty-month sentence, which the populated render hides.
+    routeDefault({ plans: [] });
+    const empty = render(<PlanCalendar onClose={vi.fn()} onOpenPlan={vi.fn()} />, {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(screen.getByText(/nejsou naplánované/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(empty.container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
+  });
+
   it("lists scheduled plans with their meals", async () => {
     loginUser();
     routeDefault();

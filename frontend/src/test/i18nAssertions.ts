@@ -56,7 +56,25 @@ const EXPECTED_IN_EVERY_LOCALE: readonly TranslationKey[] = ['prefs.languagePlac
  * "min", "OK") collides with real content — ingredient units, meal names — often
  * enough that a hit would not mean anything.
  */
-export function untranslatedEnglishIn(root: HTMLElement, minLength = 4): string[] {
+export function untranslatedEnglishIn(
+  root: HTMLElement,
+  minLength = 4,
+  /**
+   * Keys to skip for THIS call, because the component is rendering test DATA
+   * that happens to equal an English UI string.
+   *
+   * The usual case is a fixture whose `meal_type_label` is "Soup": the
+   * component correctly prefers the server's label over the dictionary — the
+   * model writes it in the user's recipe language — so the match is real but
+   * says nothing about translation. Prefer giving the fixture a realistic
+   * Czech value; use this only when the fixture is shared with tests that
+   * assert on its English form.
+   *
+   * Deliberately per-call rather than a module-level allowlist: a global
+   * exemption would silently cover every future test too.
+   */
+  ignore: readonly TranslationKey[] = [],
+): string[] {
   // NOTE: the result is a list of KEYS, not of distinct strings. One rendered
   // string can match several — an untranslated "Ingredients:" reports under
   // `meal.ingredients`, `cook.ingredients` AND `editor.ingredients`, because
@@ -68,6 +86,7 @@ export function untranslatedEnglishIn(root: HTMLElement, minLength = 4): string[
 
   for (const [key, english] of Object.entries(en) as [TranslationKey, string][]) {
     if (EXPECTED_IN_EVERY_LOCALE.includes(key)) continue;
+    if (ignore.includes(key)) continue;
     // Identical in both languages (loanwords, unit symbols) — its presence
     // proves nothing either way.
     if (cs[key] === english) continue;

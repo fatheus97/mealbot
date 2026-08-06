@@ -3,6 +3,8 @@ import { render, screen, waitFor, within, fireEvent } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlanCatalog } from "./PlanCatalog";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { AuthProvider } from "../contexts/AuthContext";
 import { setMobileViewport } from "../test/test-utils";
 import type { ReactNode } from "react";
@@ -64,6 +66,33 @@ beforeEach(() => {
 });
 
 describe("PlanCatalog", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("leaves no untranslated English when switched to Czech, empty AND populated", async () => {
+    // Two states: the empty prompt, and a plan row — where the summary line
+    // and the status badge live. Neither renders in the other.
+    loginUser();
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+
+    mockedAuthFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+    const empty = render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText(/Zatím žádné/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(empty.container)).toEqual([]);
+    empty.unmount();
+
+    mockedAuthFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([SAMPLE_PLAN]) });
+    const populated = render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText(/naplánováno/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(populated.container)).toEqual([]);
+
+    // …and the delete dialog, whose BODY only exists once it is open.
+    await userEvent.click(screen.getByRole("button", { name: "Smazat" }));
+    await waitFor(() => expect(screen.getByText(/trvale smažete/)).toBeInTheDocument());
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
   it("returns null when logged out", () => {
     const { container } = render(
       <PlanCatalog onOpenPlan={vi.fn()} />,

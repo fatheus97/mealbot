@@ -480,7 +480,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         warnings={allergenWarnings}
         onDismiss={() => setAllergenWarnings([])}
       />
-      <h2>Meal Planner</h2>
+      <h2>{t("planner.heading")}</h2>
 
       <div role="tablist" style={{ display: "flex", gap: "0.25rem", marginBottom: "1rem", borderBottom: "2px solid #e5e7eb" }}>
         <button

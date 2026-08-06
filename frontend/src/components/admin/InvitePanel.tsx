@@ -194,6 +194,10 @@ export function InvitePanel() {
             revokeTarget.note ? ` "${revokeTarget.note}"` : ""
           }. Anyone who still has the link won't be able to use it.`}
           confirmLabel="Revoke"
+          // Admin is permanently out of the i18n scope, so pin the shared
+          // dialog's now-translated Cancel back to English — otherwise this
+          // prompt reads "Zrušit" beside an English confirm label forever.
+          cancelLabel="Cancel"
           onConfirm={doRevoke}
           onCancel={() => setRevokeTarget(null)}
           loading={revokeMut.isPending}
@@ -542,6 +546,10 @@ function AccessRequestsSection({
           title="Delete this request?"
           message={`Permanently erases ${deleteTarget.email}'s request and message. This is the GDPR erasure path — it cannot be undone.`}
           confirmLabel="Delete"
+          // Admin is permanently out of the i18n scope, so pin the shared
+          // dialog's now-translated Cancel back to English — otherwise this
+          // prompt reads "Zrušit" beside an English confirm label forever.
+          cancelLabel="Cancel"
           onConfirm={doDelete}
           onCancel={() => setDeleteTarget(null)}
           loading={deleteMut.isPending}

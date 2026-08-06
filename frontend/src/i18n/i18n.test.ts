@@ -3,6 +3,7 @@ import { makeI18n, interpolate, DICTIONARIES, type TranslationKey } from '.';
 import { en } from './en';
 import { MEAL_TYPES } from '../constants/mealTypes';
 import { ALLERGENS, DIET_TYPES } from '../constants/dietary';
+import type { PlanStatus } from '../types';
 import { cs } from './cs';
 import {
   useLocaleStore,
@@ -152,6 +153,7 @@ describe('translation parity', () => {
       'editor.grams', // "g" — SI unit symbol, identical in every language
       'fridgeItem.ok', // "OK" — international
       'receipt.typeSnack', // "snack" — loanword; Czech uses it too
+      'plans.statusCount', // "{status} ({cooked}/{total})" — placeholders + punctuation only
     ];
     const identical = enKeys.filter((k) => en[k] === cs[k]);
     expect(identical.sort()).toEqual([...SAME_IN_BOTH].sort());
@@ -200,10 +202,17 @@ describe('enum-backed label sets', () => {
   // with no key would render its raw enum name into the UI — "side_dish",
   // "cereals_with_gluten" — which reads as a bug in the data rather than a
   // missing translation, so nobody would think to look in the dictionary.
+  // PLAN_STATUSES mirrors the PlanStatus union in types.ts, which mirrors the
+  // backend enum. Declared here because a TS union has no runtime value to
+  // iterate — the test below pins the two together so this cannot drift into
+  // a comfortable lie.
+  const PLAN_STATUSES = ['planned', 'active', 'cooked', 'finished'] as const;
+
   const SETS: [string, readonly string[]][] = [
     ['mealType', MEAL_TYPES],
     ['diet', DIET_TYPES],
     ['allergen', ALLERGENS],
+    ['planStatus', PLAN_STATUSES],
   ];
 
   for (const [prefix, values] of SETS) {
@@ -225,6 +234,30 @@ describe('enum-backed label sets', () => {
       }
     });
   }
+
+  it('PLAN_STATUSES matches the PlanStatus type exactly', () => {
+    // A hand-written mirror is only as good as this assertion: assigning each
+    // literal to the union makes tsc fail if the union loses a member, and the
+    // exhaustive switch fails if it GAINS one.
+    const statuses: readonly PlanStatus[] = PLAN_STATUSES;
+    expect(statuses).toHaveLength(4);
+    for (const s of statuses) {
+      const covered: boolean = ((): boolean => {
+        switch (s) {
+          case 'planned':
+          case 'active':
+          case 'cooked':
+          case 'finished':
+            return true;
+          default: {
+            const never: never = s;
+            return never;
+          }
+        }
+      })();
+      expect(covered).toBe(true);
+    }
+  });
 
   it('leaves no diet.* or allergen.* key pointing at a value the enum dropped', () => {
     // The other direction: a REMOVED enum value leaves an orphan key, which is
