@@ -47,6 +47,12 @@ $COMPOSE up -d --remove-orphans
 # Reading it host-side sidesteps the mount entirely. (`--adapter caddyfile` is
 # required with `-`; there is no filename left to infer it from. The exec still
 # runs inside the container so $DOMAIN resolves from the compose environment.)
+#
+# The one thing stdin costs: with no config PATH, Caddy has nothing to anchor a
+# relative path to, so a future directive that names a file (`import`, a TLS cert)
+# would resolve against the caddy process's cwd in the container instead of the
+# Caddyfile's own directory. Nothing in the Caddyfile does that today. If one
+# ever does, give it an absolute container path rather than reverting this.
 # -T because this runs over SSH with no TTY.
 echo "==> Reloading Caddy (bind-mounted config; the swap above doesn't restart it)"
 $COMPOSE exec -T caddy caddy reload --config - --adapter caddyfile < Caddyfile
