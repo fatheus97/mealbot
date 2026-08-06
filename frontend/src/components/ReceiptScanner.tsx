@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { ScannedItemType, StockItem } from "../types";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
+import { useI18n, type TranslationKey } from "../i18n";
 
 type ScannerState = "idle" | "scanning" | "review" | "error" | "camera";
 
@@ -29,18 +30,23 @@ const parseQty = (s: string): number => {
 // Expiration dates are computed from shelf-life days at click time so the
 // demo always shows dates relative to today — no stale "expired yesterday"
 // rows for recruiters who open the demo weeks after the build.
-const DEMO_SCAN_TEMPLATE: Array<Omit<ReviewItem, "expirationDate"> & { shelfLifeDays: number }> = [
-  { name: "Whole Milk",        addedQty: "1000", existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
-  { name: "Eggs",              addedQty: "360",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 21 },
-  { name: "Bananas",           addedQty: "300",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 5 },
-  { name: "Butter",            addedQty: "250",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 30 },
-  { name: "Roma Tomatoes",     addedQty: "500",  existingQty: 0, needToUse: true,  itemType: "ingredient", shelfLifeDays: 4 },
-  { name: "Whole Wheat Bread", addedQty: "500",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
+const DEMO_SCAN_TEMPLATE: Array<
+  Omit<ReviewItem, "expirationDate" | "name"> & { nameKey: TranslationKey; shelfLifeDays: number }
+> = [
+  { nameKey: "receipt.demo.milk",     addedQty: "1000", existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
+  { nameKey: "receipt.demo.eggs",     addedQty: "360",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 21 },
+  { nameKey: "receipt.demo.bananas",  addedQty: "300",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 5 },
+  { nameKey: "receipt.demo.butter",   addedQty: "250",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 30 },
+  { nameKey: "receipt.demo.tomatoes", addedQty: "500",  existingQty: 0, needToUse: true,  itemType: "ingredient", shelfLifeDays: 4 },
+  { nameKey: "receipt.demo.bread",    addedQty: "500",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
 ];
 
-const buildDemoScanItems = (): ReviewItem[] => {
+// Takes the translator rather than calling getI18n(): the names are resolved
+// at CLICK time, so a user who switches language and then scans gets the demo
+// in the language they are reading.
+const buildDemoScanItems = (t: (key: TranslationKey) => string): ReviewItem[] => {
   const today = new Date();
-  return DEMO_SCAN_TEMPLATE.map(({ shelfLifeDays, ...item }) => {
+  return DEMO_SCAN_TEMPLATE.map(({ shelfLifeDays, nameKey, ...item }) => {
     const exp = new Date(today);
     exp.setDate(exp.getDate() + shelfLifeDays);
     // YYYY-MM-DD in local time — matches the <input type="date"> format and
@@ -48,11 +54,12 @@ const buildDemoScanItems = (): ReviewItem[] => {
     const y = exp.getFullYear();
     const m = String(exp.getMonth() + 1).padStart(2, "0");
     const d = String(exp.getDate()).padStart(2, "0");
-    return { ...item, expirationDate: `${y}-${m}-${d}` };
+    return { ...item, name: t(nameKey), expirationDate: `${y}-${m}-${d}` };
   });
 };
 
 export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
+  const { t } = useI18n();
   const { isDemo } = useAuth();
   const isMobile = useIsMobile();
   const [state, setState] = useState<ScannerState>("idle");
@@ -160,10 +167,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       const name = err instanceof DOMException ? err.name : "";
       setErrorMessage(
         name === "NotAllowedError"
-          ? "Camera permission denied — you can upload a photo instead."
+          ? t("receipt.cameraDenied")
           : name === "NotFoundError"
-            ? "No camera found — you can upload a photo instead."
-            : "Couldn't open the camera — you can upload a photo instead.",
+            ? t("receipt.cameraNotFound")
+            : t("receipt.cameraFailed"),
       );
       setState("error");
     } finally {
@@ -184,7 +191,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       stopCamera(); // resets capturingRef
-      setErrorMessage("Couldn't capture the photo — try uploading instead.");
+      setErrorMessage(t("receipt.captureFailed"));
       setState("error");
       return;
     }
@@ -202,7 +209,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
         }
         stopCamera(); // resets capturingRef
         if (!blob) {
-          setErrorMessage("Couldn't capture the photo — try uploading instead.");
+          setErrorMessage(t("receipt.captureFailed"));
           setState("error");
           return;
         }
@@ -253,7 +260,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       setReviewItems(items);
       setState("review");
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Failed to scan receipt.");
+      setErrorMessage(err instanceof Error ? err.message : t("receipt.scanFailed"));
       setState("error");
     } finally {
       // Reset so selecting the same file again (e.g. after an error) re-triggers onChange.
@@ -265,7 +272,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     setState("scanning");
     setScanGenerationId(null); // demo skips the real /scan, so no generation
     setTimeout(() => {
-      setReviewItems(buildDemoScanItems());
+      setReviewItems(buildDemoScanItems(t));
       setState("review");
     }, 1200);
   };
@@ -298,10 +305,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       setReviewItems([]);
       setConfirmError("");
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setNotice("Items added to fridge!");
+      setNotice(t("receipt.added"));
       setTimeout(() => setNotice(""), 3000);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Failed to merge items.");
+      setErrorMessage(err instanceof Error ? err.message : t("receipt.mergeFailed"));
       setState("error");
     }
   };
@@ -340,11 +347,11 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             <>
               <img
                 src={demoReceiptUrl}
-                alt="Demo grocery receipt"
+                alt={t("receipt.demoAlt")}
                 style={{ height: 120, border: "1px solid #334155", borderRadius: 4 }}
               />
               <button onClick={handleDemoScan} disabled={scanMutation.isPending}>
-                Scan demo receipt
+                {t("receipt.scanDemo")}
               </button>
             </>
           ) : (
@@ -353,13 +360,13 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                 ref={fileInputRef}
                 type="file"
                 accept="image/jpeg,image/png,application/pdf,.pdf"
-                aria-label="Select receipt image or PDF"
+                aria-label={t("receipt.selectFile")}
                 onChange={handleFileChange}
                 disabled={scanMutation.isPending || cameraOpening}
               />
               {cameraSupported && (
                 <button onClick={openCamera} disabled={scanMutation.isPending || cameraOpening}>
-                  {cameraOpening ? "Opening camera…" : "📷 Take photo"}
+                  {cameraOpening ? t("receipt.openingCamera") : t("receipt.takePhoto")}
                 </button>
               )}
             </>
@@ -376,7 +383,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             autoPlay
             muted
             playsInline
-            aria-label="Camera preview"
+            aria-label={t("receipt.cameraPreview")}
             onLoadedMetadata={() => setVideoReady(true)}
             style={{ width: "100%", maxWidth: 480, borderRadius: 8, background: "#000" }}
           />
@@ -384,19 +391,19 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             <button
               onClick={capturePhoto}
               disabled={!videoReady}
-              title={videoReady ? undefined : "Waiting for the camera…"}
+              title={videoReady ? undefined : t("receipt.waitingForCamera")}
               style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: 4 }}
             >
-              {videoReady ? "Capture" : "Starting camera…"}
+              {videoReady ? t("receipt.capture") : t("receipt.startingCamera")}
             </button>
-            <button onClick={closeCamera}>Cancel</button>
+            <button onClick={closeCamera}>{t("receipt.cancel")}</button>
           </div>
         </div>
       )}
 
       {/* Scanning state */}
       {state === "scanning" && (
-        <p>Scanning receipt... This may take a few seconds.</p>
+        <p>{t("receipt.scanning")}</p>
       )}
 
       {/* Error state */}
@@ -408,10 +415,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       {state === "review" && (
         <>
           <p style={{ color: "#94a3b8", marginBottom: "0.5rem" }}>
-            Review the extracted items before adding to your fridge.
+            {t("receipt.reviewIntro")}
           </p>
           {reviewItems.length === 0 ? (
-            <p>No food items found in receipt.</p>
+            <p>{t("receipt.noItems")}</p>
           ) : (
             (() => {
               const typeBadge = (item: ReviewItem) => ({
@@ -428,7 +435,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                 const resultLabel = isInvalid
                   ? "—"
                   : isNew
-                    ? `${addedNum}g (new)`
+                    ? t("receipt.resultNew", { grams: addedNum })
                     : `+${addedNum} → ${item.existingQty + addedNum}g`;
                 return { addedNum, isInvalid, isNew, resultLabel };
               };
@@ -451,12 +458,12 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                             type="text"
                             value={item.name}
                             onChange={(e) => updateReviewItem(index, "name", e.target.value)}
-                            aria-label={`Item ${index + 1} name`}
+                            aria-label={t("receipt.itemName", { n: index + 1 })}
                             style={{ width: "100%", boxSizing: "border-box" }}
                           />
                           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", margin: "0.4rem 0" }}>
                             <span style={typeBadge(item)}>
-                              {item.itemType === "ingredient" ? "ingredient" : "snack"}
+                              {item.itemType === "ingredient" ? t("receipt.typeIngredient") : t("receipt.typeSnack")}
                             </span>
                             <span style={{ fontSize: "0.85rem", color: isNew && !isInvalid ? "#4ade80" : "#94a3b8" }}>
                               {resultLabel}
@@ -464,7 +471,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                           </div>
                           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
                             <label style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.8rem" }}>
-                              Qty (g)
+                              {t("receipt.qty")}
                               <input
                                 type="text"
                                 inputMode="decimal"
@@ -472,16 +479,16 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                                 onChange={onQtyChange(index)}
                                 style={{ width: "6rem", border: isInvalid ? "1px solid #ef4444" : undefined }}
                                 aria-invalid={isInvalid}
-                                aria-label={`Item ${index + 1} quantity`}
+                                aria-label={t("receipt.itemQty", { n: index + 1 })}
                               />
                             </label>
                             <label style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.8rem" }}>
-                              Expires
+                              {t("receipt.expires")}
                               <input
                                 type="date"
                                 value={item.expirationDate ?? ""}
                                 onChange={(e) => updateReviewItem(index, "expirationDate", e.target.value || null)}
-                                aria-label={`Item ${index + 1} expiration date`}
+                                aria-label={t("receipt.itemExpiration", { n: index + 1 })}
                               />
                             </label>
                             <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem" }}>
@@ -489,13 +496,13 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                                 type="checkbox"
                                 checked={item.needToUse}
                                 onChange={() => updateReviewItem(index, "needToUse", !item.needToUse)}
-                                aria-label={`Item ${index + 1} need to use soon`}
+                                aria-label={t("receipt.itemNeedToUse", { n: index + 1 })}
                               />
-                              use soon
+                              {t("receipt.useSoon")}
                             </label>
                           </div>
                           <button onClick={() => removeReviewItem(index)} style={{ width: "100%", marginTop: "0.5rem" }}>
-                            Remove
+                            {t("receipt.remove")}
                           </button>
                         </div>
                       );
@@ -508,13 +515,13 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                 <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "0.5rem" }}>
                   <thead>
                     <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
-                      <th>Ingredient</th>
-                      <th>Type</th>
-                      <th>Added Qty (g)</th>
-                      <th>Expires</th>
-                      <th>Result</th>
-                      <th>Need to use?</th>
-                      <th>Action</th>
+                      <th>{t("receipt.colIngredient")}</th>
+                      <th>{t("receipt.colType")}</th>
+                      <th>{t("receipt.colAddedQty")}</th>
+                      <th>{t("receipt.expires")}</th>
+                      <th>{t("receipt.colResult")}</th>
+                      <th>{t("receipt.colNeedToUse")}</th>
+                      <th>{t("receipt.colAction")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -531,7 +538,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                           </td>
                           <td>
                             <span style={typeBadge(item)}>
-                              {item.itemType === "ingredient" ? "ingredient" : "snack"}
+                              {item.itemType === "ingredient" ? t("receipt.typeIngredient") : t("receipt.typeSnack")}
                             </span>
                           </td>
                           <td>
@@ -563,7 +570,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                             />
                           </td>
                           <td>
-                            <button onClick={() => removeReviewItem(index)}>Remove</button>
+                            <button onClick={() => removeReviewItem(index)}>{t("receipt.remove")}</button>
                           </td>
                         </tr>
                       );
@@ -582,9 +589,9 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               disabled={mergeMutation.isPending || reviewItems.length === 0}
               style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: "pointer" }}
             >
-              {mergeMutation.isPending ? "Adding..." : "Add to Fridge"}
+              {mergeMutation.isPending ? t("receipt.adding") : t("receipt.add")}
             </button>
-            <button onClick={handleCancel}>Cancel</button>
+            <button onClick={handleCancel}>{t("receipt.cancel")}</button>
           </div>
         </>
       )}
