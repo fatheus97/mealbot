@@ -56,6 +56,27 @@ describe.skipIf(!hasBuild)("legal pages", () => {
     }
   });
 
+  it("each Czech edition has its OWN title and description", () => {
+    // These shipped English on the first pass. The translators were told not
+    // to touch the <head> — correct for canonical and hreflang, wrong for
+    // these two, which are prose and are the first Czech text a reader ever
+    // sees: the browser tab and the Google snippet. Nothing asserted on them,
+    // so CI was green through it.
+    const tag = (s: string, re: RegExp) => s.match(re)?.[1]?.trim() ?? "";
+    const TITLE = /<title>([^<]+)<\/title>/;
+    const DESC = /<meta\s+name="description"\s+content="([^"]+)"/s;
+
+    for (const doc of ["privacy", "terms"] as const) {
+      const en = html[`dist/${doc}.html`];
+      const cs = html[`dist/cs/${doc}.html`];
+      for (const [name, re] of [["title", TITLE], ["description", DESC]] as const) {
+        expect(tag(en, re).length, `${doc} en ${name} is empty`).toBeGreaterThan(10);
+        expect(tag(cs, re), `${doc} ${name} is still English`).not.toBe(tag(en, re));
+        expect(tag(cs, re).length, `${doc} cs ${name} is empty`).toBeGreaterThan(10);
+      }
+    }
+  });
+
   it("each is self-canonical", () => {
     // These pages had NO canonical before this change, while being
     // `index, follow` with /privacy.html and /terms.html live as duplicates of
