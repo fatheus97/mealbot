@@ -20,6 +20,7 @@ import {
 } from '../components/PantryStaples';
 import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/theme';
 import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
+import { DISABLED_TEXT, DISABLED_SURFACE } from '../components/DayLayoutEditor';
 import {
   OUT_OF_MONTH_SURFACE,
   OUT_OF_MONTH_DAY,
@@ -400,5 +401,39 @@ describe('findInlineColorPairs spellings', () => {
       const found = findInlineColorPairs(readFileSync(resolve(process.cwd(), rel), 'utf-8'), rel);
       expect(found.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('disabled layout-editor controls', () => {
+  // WCAG 1.4.3 exempts inactive controls, so none of this was a violation —
+  // it is a deliberate house standard above the floor. The ↑/↓ arrows are
+  // disabled at the ends of EVERY list (so they are always on screen), and the
+  // at-max button carries real information rather than just a dead label.
+  const surfaces: [string, string][] = [
+    ['its own row', '#fafafa'],
+    ["MealPlanner's day card", '#fcfcfc'],
+    ['the Settings modal', '#ffffff'],
+    ['the at-max fill', DISABLED_SURFACE],
+  ];
+  for (const [name, bg] of surfaces) {
+    it(`disabled text meets WCAG AA on ${name}`, () => {
+      expect(checkText(DISABLED_TEXT, bg, 14.4)).toMatchObject({ passes: true });
+    });
+  }
+
+  it('still reads as clearly dimmer than an active control', () => {
+    // A "fix" that darkens disabled text until it looks enabled trades one
+    // usability bug for another, so pin the separation, not just the floor.
+    const active = checkText('#374151', '#fafafa', 14.4).ratio;
+    const inactive = checkText(DISABLED_TEXT, '#fafafa', 14.4).ratio;
+    expect(inactive).toBeLessThan(active / 1.5);
+  });
+
+  it('rejects the greys that shipped', () => {
+    expect(checkText('#9ca3af', '#fafafa', 14.4).passes).toBe(false); // arrows, 2.43:1
+    expect(checkText('#9ca3af', '#f3f4f6', 14.4).passes).toBe(false); // at-max, 2.31:1
+    // The obvious #f3f4f6 fill is why the at-max button needed a lighter one:
+    // the shared grey lands at 4.39:1 on it, just under the floor.
+    expect(checkText(DISABLED_TEXT, '#f3f4f6', 14.4).passes).toBe(false);
   });
 });

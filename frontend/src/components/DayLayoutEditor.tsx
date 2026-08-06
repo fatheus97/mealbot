@@ -10,6 +10,22 @@ const newId = (): string =>
     ? globalThis.crypto.randomUUID()
     : `slot-${Math.random().toString(36).slice(2)}-${Date.now()}`);
 
+/**
+ * Disabled-control text, and the fill the at-max button sits on.
+ *
+ * WCAG 1.4.3 EXEMPTS inactive controls, so the old #9ca3af (2.43:1) was not a
+ * violation — this is a deliberate house standard above the floor, because the
+ * ↑/↓ arrows are disabled at the ends of every list and the at-max button
+ * carries real information ("8 slots max"). Kept at one grey for both: it still
+ * reads clearly dimmer than the active #374151 (4.63:1 vs 9.88:1).
+ *
+ * Ratios on every surface this editor renders on — its own #fafafa row, the
+ * #fcfcfc day card in MealPlanner, and the white Settings modal via
+ * PreferencesForm — are asserted in contrast.test.ts.
+ */
+export const DISABLED_TEXT = "#6b7280";
+export const DISABLED_SURFACE = "#f9fafb";
+
 interface DayLayoutEditorProps {
   value: MealType[];
   onChange: (next: MealType[]) => void;
@@ -177,8 +193,10 @@ export function DayLayoutEditor({
           alignSelf: "flex-start",
           padding: "0.35rem 0.8rem",
           fontSize: "0.9rem",
-          backgroundColor: atMax ? "#f3f4f6" : "#eff6ff",
-          color: atMax ? "#9ca3af" : "#1d4ed8",
+          // The at-max fill is a shade lighter than the obvious #f3f4f6 so the
+          // one DISABLED_TEXT grey clears AA here too (4.63:1 rather than 4.39).
+          backgroundColor: atMax ? DISABLED_SURFACE : "#eff6ff",
+          color: atMax ? DISABLED_TEXT : "#1d4ed8",
           border: `1px solid ${atMax ? "#e5e7eb" : "#bfdbfe"}`,
           borderRadius: "4px",
           cursor: disabled || atMax ? "not-allowed" : "pointer",
@@ -198,6 +216,9 @@ function slotButtonStyle(inactive: boolean): React.CSSProperties {
     padding: "0.1rem 0.45rem",
     fontSize: "0.9rem",
     cursor: inactive ? "not-allowed" : "pointer",
-    color: inactive ? "#9ca3af" : "#374151",
+    // `background: "none"` exposes the ancestor surface, so this needs an
+    // explicit colour or the UA `buttontext` takes over (white under a dark OS
+    // theme). See .claude/rules/frontend.md.
+    color: inactive ? DISABLED_TEXT : "#374151",
   };
 }
