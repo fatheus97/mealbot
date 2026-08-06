@@ -118,47 +118,46 @@ def test_plural_sentences_actually_differ() -> None:
 
 
 def test_no_orphan_error_keys() -> None:
-    """Every key must be raised somewhere.
+    """Every key must be REFERENCED somewhere in `app/`.
 
-    The mirror of "every raise has a key": a key nothing raises is copy a
-    translator maintains forever for a sentence no user can reach. The frontend
-    learned this one the expensive way — `calendar.plan` sat in both
-    dictionaries for a call site that was never wired up, so the dictionary
-    looked complete while the component still rendered English.
+    A key nothing references is copy a translator maintains forever for a
+    sentence no user can reach. The frontend learned this the expensive way —
+    `calendar.plan` sat in both dictionaries for a call site that was never
+    wired up, so the dictionary looked complete while the component still
+    rendered English.
+
+    ─── Reference, not raise ───────────────────────────────────────────────
+    An earlier version walked for string constants passed positionally to
+    `LocalizedHTTPException(...)`, which is a strictly stronger claim and the
+    wrong shape for real code: `feedback.py` maps its gate's reason to a key
+    through a `dict[FeedbackRejectReason, ErrorKey]` and raises
+    `_REJECT_KEYS[gate.reason]`, so three perfectly live keys appeared dead.
+    Indirection like that is normal, and a test that forbids it is a test that
+    dictates structure.
+
+    So this matches any string literal in `app/` equal to a key, the same thing
+    the frontend's `i18n/keyUsage.test.ts` does. The weaker claim it now makes:
+    a key sitting in a lookup table that nothing ever indexes would pass. mypy
+    covers the other half — a key that is not a member of `ErrorKey` cannot be
+    written at a raise site or stored in an `ErrorKey`-typed mapping.
     """
     app_dir = pathlib.Path(__file__).resolve().parent.parent / "app"
-    raised: set[str] = set()
+    referenced: set[str] = set()
     for path in app_dir.rglob("*.py"):
         if path.name == "error_copy.py":
             continue  # defining a key is not using it
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.Call):
-                continue
-            # Both `LocalizedHTTPException(...)` and `errors.LocalizedHTTPException(...)`.
-            # Every call site imports the symbol directly today, so the second
-            # form matches nothing — but a key reached only through a qualified
-            # import would otherwise pass this test for the WRONG reason: not
-            # found, therefore not reported, and `assert len(raised) > 10` is
-            # far too coarse to notice one missing.
-            func = node.func
-            name = (
-                func.id
-                if isinstance(func, ast.Name)
-                else func.attr if isinstance(func, ast.Attribute) else None
-            )
-            if name == "LocalizedHTTPException":
-                for arg in node.args:
-                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                        raised.add(arg.value)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                referenced.add(node.value)
 
     # Guards the guard: a broken walk would make the assertion below pass over
     # an empty set, which is the exact failure this test is about.
-    assert len(raised) > 10
-    # PLURAL_BASES as well as ALL_KEYS. A plural key is raised by its BASE
+    assert len(referenced & (ALL_KEYS | PLURAL_BASES)) > 10
+    # PLURAL_BASES as well as ALL_KEYS. A plural key is named by its BASE
     # (`count=` picks the suffix at render time), so the base is what appears
     # in the source — and leaving it out meant an unused plural key was
     # invisible to the one test whose whole job is finding unused keys.
-    assert sorted((ALL_KEYS | PLURAL_BASES) - raised) == []
+    assert sorted((ALL_KEYS | PLURAL_BASES) - referenced) == []
 
 
 # ─── Rendering: parameters and plurals ──────────────────────────────────────
@@ -236,6 +235,64 @@ def test_eager_english_detail_matches_the_rendered_english() -> None:
         ),
     ):
         assert exc.detail == exc.render_for("en")
+
+
+def test_every_shared_cap_message_is_localized() -> None:
+    """No endpoint may enforce a cap that a SIBLING endpoint localizes.
+
+    `/fridge` and `/fridge/merge` enforce the same `MAX_FRIDGE_ITEMS` with the
+    same sentence. The first got migrated and the second did not, so a Czech
+    user hitting the cap through the receipt-scan flow — the likelier of the two
+    ways to send a large payload — still read English.
+
+    Nothing caught it. `test_no_orphan_error_keys` only reports keys nothing
+    references, and this key was referenced, once. So this asserts the
+    complement: any of the migrated sentences still present as a raw string
+    literal in `app/` is a raise that was left behind.
+    """
+    app_dir = pathlib.Path(__file__).resolve().parent.parent / "app"
+
+    # An f-string in source and a `$name` template say the same sentence with
+    # the holes punched differently, so both sides get their holes removed and
+    # the RESIDUE is compared exactly.
+    #
+    # The first version of this test compared the literal PREFIX instead, with a
+    # 25-character floor to stop short ones colliding with ordinary code. That
+    # floor excluded `"Too many items ("` — sixteen characters — which is the
+    # exact key this test was written to catch. It passed against the bug.
+    # Exact comparison of the residue needs no floor and cannot be tuned wrong.
+    wanted = {_holes_removed(text): key for key, text in ERROR_COPY["en"].items()}
+    assert len(wanted) > 40  # guards the guard
+
+    leftovers: list[str] = []
+    for path in app_dir.rglob("*.py"):
+        if path.name in {"error_copy.py", "admin.py"}:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.JoinedStr):
+                text = "".join(
+                    x.value
+                    for x in node.values
+                    if isinstance(x, ast.Constant) and isinstance(x.value, str)
+                )
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                text = node.value
+            else:
+                continue
+            key = wanted.get(_holes_removed(text))
+            if key is not None:
+                leftovers.append(f"{path}:{node.lineno} still spells out {key}")
+    assert leftovers == []
+
+
+def _holes_removed(text: str) -> str:
+    """The sentence with its placeholders taken out, whitespace collapsed.
+
+    `"Too many items ($count_given); maximum is $maximum."` and the f-string
+    `f"Too many items ({len(payload)}); maximum is {MAX_FRIDGE_ITEMS}."` both
+    reduce to `"Too many items (); maximum is ."`.
+    """
+    return " ".join(re.sub(r"\$\{?[a-z_]+\}?", "", text).split())
 
 
 # ─── Accept-Language parsing ────────────────────────────────────────────────

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.errors import LocalizedHTTPException
 from app.db import get_session
 from app.models.db_models import User
 from app.models.plan_models import PantryStapleDTO
@@ -40,8 +41,10 @@ async def put_staples(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     if len(payload) > MAX_STAPLES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Too many staples ({len(payload)}); maximum is {MAX_STAPLES}.",
+        raise LocalizedHTTPException(
+            422,
+            "pantry_too_many_staples",
+            count_given=str(len(payload)),
+            maximum=str(MAX_STAPLES),
         )
     return await replace_staples(session, current_user.id, payload)

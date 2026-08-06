@@ -95,6 +95,39 @@ ErrorKey = Literal[
     # ── Recipes (app/api/recipe.py) ────────────────────────────────────────
     "recipe_generation_failed",
     "recipe_no_meals",
+    # ── Accounts (app/api/user.py) ─────────────────────────────────────────
+    "user_registration_closed",
+    "user_invite_invalid",
+    "user_country_unsupported",
+    "user_language_length",  # $max
+    "user_language_unsupported",
+    # ── Billing (app/api/billing.py) ───────────────────────────────────────
+    "billing_unavailable",
+    "billing_demo_cannot_subscribe",
+    "billing_annual_unavailable",
+    "billing_checkout_failed",
+    "billing_no_account",
+    "billing_portal_failed",
+    # ── Feedback (app/api/feedback.py) ─────────────────────────────────────
+    "feedback_disabled",
+    "feedback_demo_blocked",
+    "feedback_duplicate",
+    "feedback_too_many_open",
+    "feedback_too_short",  # $min_len
+    "feedback_no_letters",
+    "feedback_low_variety",
+    # ── Cookbook (app/api/cookbook.py) ─────────────────────────────────────
+    "cookbook_recipe_not_found",
+    # ── Fridge / pantry (app/api/fridge.py, app/api/pantry.py) ─────────────
+    "fridge_too_many_items",  # $count_given, $maximum
+    "pantry_too_many_staples",  # $count_given, $maximum
+    "upload_missing_content_type",
+    "upload_bad_file_type",  # $content_type
+    "upload_file_too_large",  # $size, $maximum
+    # ── Receipt scanning (app/services/receipt_scanner.py) ─────────────────
+    "receipt_pdf_unreadable",
+    "receipt_pdf_no_text",
+    "receipt_pdf_timeout",
 ]
 
 #: Keys whose sentence changes with a count. The copy holds
@@ -104,6 +137,12 @@ ErrorKey = Literal[
 PluralErrorKey = Literal[
     "plan_favorites_block_delete",  # $count
     "plan_favorites_block_unconfirm",  # $count
+    # Plural because `max_pages` is a PARAMETER, not the module constant: the
+    # cap is 10 in production, which would always land in Czech's 5+ form, but
+    # `_extract_pdf_text` takes it as an argument and tests pass small values.
+    # Pinning the form to whatever production happens to produce is how a
+    # message comes to read "2 stran" the first time someone lowers the cap.
+    "receipt_pdf_too_many_pages",  # $count, $maximum
 ]
 
 _EN: Final[dict[str, str]] = {
@@ -180,6 +219,66 @@ _EN: Final[dict[str, str]] = {
     "plan_favorites_block_unconfirm_other": (
         "This plan contains $count cookbook recipes. Un-favorite them before "
         "un-confirming the plan."
+    ),
+    "user_registration_closed": (
+        "Registration is closed. This is a private alpha — contact the admin "
+        "for access."
+    ),
+    "user_invite_invalid": "This invite link is invalid or has expired.",
+    "user_country_unsupported": "Unsupported country. Pick one from the list.",
+    "user_language_length": "Invalid language: must be 1-$max characters",
+    "user_language_unsupported": (
+        "Unsupported language. Pick one of the supported options."
+    ),
+    "billing_unavailable": "Billing is not available.",
+    "billing_demo_cannot_subscribe": "Demo accounts cannot subscribe.",
+    "billing_annual_unavailable": "Annual billing is not available.",
+    "billing_checkout_failed": "Could not start checkout.",
+    "billing_no_account": "No billing account yet — subscribe first.",
+    "billing_portal_failed": "Could not open the billing portal.",
+    "feedback_disabled": "Feedback is not being accepted right now.",
+    "feedback_demo_blocked": (
+        "Demo accounts can't submit feedback. Please create an account."
+    ),
+    "feedback_duplicate": "You've already sent this — thanks, we have it.",
+    "feedback_too_many_open": (
+        "You have several open reports already. Please wait for those to be "
+        "reviewed before sending more."
+    ),
+    "feedback_too_short": (
+        "Please add a little more detail (at least $min_len characters)."
+    ),
+    "feedback_no_letters": "Please describe the issue in words.",
+    "feedback_low_variety": (
+        "That doesn't look like a real report — please describe the issue."
+    ),
+    "cookbook_recipe_not_found": "Recipe not found in cookbook",
+    "fridge_too_many_items": "Too many items ($count_given); maximum is $maximum.",
+    "pantry_too_many_staples": (
+        "Too many staples ($count_given); maximum is $maximum."
+    ),
+    "upload_missing_content_type": (
+        "Missing Content-Type header. Accepted: JPEG, PNG, PDF."
+    ),
+    "upload_bad_file_type": (
+        "Invalid file type '$content_type'. Accepted: JPEG, PNG, PDF."
+    ),
+    "upload_file_too_large": (
+        "File too large ($size bytes). Maximum is $maximum bytes."
+    ),
+    "receipt_pdf_unreadable": (
+        "Could not read PDF. The file may be corrupted or password-protected."
+    ),
+    "receipt_pdf_no_text": (
+        "This PDF has no extractable text (likely a scanned image). Please take "
+        "a photo of the receipt and upload the image instead."
+    ),
+    "receipt_pdf_timeout": (
+        "Receipt PDF took too long to process. Try a smaller/simpler file."
+    ),
+    "receipt_pdf_too_many_pages_one": "PDF has $count page — maximum is $maximum.",
+    "receipt_pdf_too_many_pages_other": (
+        "PDF has $count pages — maximum is $maximum."
     ),
 }
 
@@ -284,6 +383,76 @@ _CS: Final[dict[str, str]] = {
         "Tento jídelníček obsahuje $count receptů v kuchařce. Před zrušením "
         "potvrzení je odeberte z oblíbených."
     ),
+    "user_registration_closed": (
+        "Registrace je uzavřená. Jde o soukromou alfa verzi — o přístup si "
+        "napište správci."
+    ),
+    "user_invite_invalid": "Tato pozvánka je neplatná nebo jí vypršela platnost.",
+    "user_country_unsupported": "Nepodporovaná země. Vyberte prosím ze seznamu.",
+    "user_language_length": "Neplatný jazyk: musí mít 1 až $max znaků",
+    "user_language_unsupported": (
+        "Nepodporovaný jazyk. Vyberte prosím z nabízených možností."
+    ),
+    "billing_unavailable": "Platby nejsou k dispozici.",
+    "billing_demo_cannot_subscribe": "Demo účty si nemohou pořídit předplatné.",
+    "billing_annual_unavailable": "Roční předplatné není k dispozici.",
+    "billing_checkout_failed": "Platbu se nepodařilo zahájit.",
+    "billing_no_account": (
+        "Zatím nemáte platební účet — nejprve si zřiďte předplatné."
+    ),
+    "billing_portal_failed": "Správu plateb se nepodařilo otevřít.",
+    "feedback_disabled": "Zpětnou vazbu teď nepřijímáme.",
+    "feedback_demo_blocked": (
+        "Z demo účtu nelze posílat zpětnou vazbu. Založte si prosím účet."
+    ),
+    "feedback_duplicate": "Tohle už jste nám poslali — díky, máme to.",
+    "feedback_too_many_open": (
+        "Máte už několik otevřených hlášení. Počkejte prosím, než je "
+        "zpracujeme, a teprve pak posílejte další."
+    ),
+    "feedback_too_short": (
+        "Popište to prosím trochu podrobněji (alespoň $min_len znaků)."
+    ),
+    "feedback_no_letters": "Popište prosím problém slovy.",
+    "feedback_low_variety": (
+        "Tohle nevypadá jako skutečné hlášení — popište prosím problém."
+    ),
+    "cookbook_recipe_not_found": "Recept v kuchařce nenalezen",
+    # "položek" / "surovin" / "bajtů" are genitive plurals governed by "mnoho"
+    # and by "maximum je" — they do NOT vary with the number, so these need no
+    # plural forms even though they interpolate a count. The PDF-pages message
+    # below is the opposite case: there the number governs the noun directly.
+    "fridge_too_many_items": (
+        "Příliš mnoho položek ($count_given); maximum je $maximum."
+    ),
+    "pantry_too_many_staples": (
+        "Příliš mnoho základních surovin ($count_given); maximum je $maximum."
+    ),
+    "upload_missing_content_type": (
+        "Chybí hlavička Content-Type. Přijímáme: JPEG, PNG, PDF."
+    ),
+    "upload_bad_file_type": (
+        "Neplatný typ souboru „$content_type“. Přijímáme: JPEG, PNG, PDF."
+    ),
+    "upload_file_too_large": (
+        "Soubor je příliš velký ($size bajtů). Maximum je $maximum bajtů."
+    ),
+    "receipt_pdf_unreadable": (
+        "PDF se nepodařilo přečíst. Soubor může být poškozený nebo chráněný "
+        "heslem."
+    ),
+    "receipt_pdf_no_text": (
+        "Toto PDF neobsahuje čitelný text (nejspíš jde o sken). Vyfoťte prosím "
+        "účtenku a nahrajte fotku."
+    ),
+    "receipt_pdf_timeout": (
+        "Zpracování PDF s účtenkou trvalo příliš dlouho. Zkuste menší nebo "
+        "jednodušší soubor."
+    ),
+    # Here the count DOES govern the noun: 1 strana / 2-4 strany / 5+ stran.
+    "receipt_pdf_too_many_pages_one": "PDF má $count stranu — maximum je $maximum.",
+    "receipt_pdf_too_many_pages_few": "PDF má $count strany — maximum je $maximum.",
+    "receipt_pdf_too_many_pages_other": "PDF má $count stran — maximum je $maximum.",
 }
 
 ERROR_COPY: Final[dict[Locale, dict[str, str]]] = {"en": _EN, "cs": _CS}

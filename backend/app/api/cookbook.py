@@ -10,13 +10,14 @@ from __future__ import annotations
 import logging
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.api.deps import get_current_user
+from app.core.errors import LocalizedHTTPException
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.db_models import MealEntry, User
@@ -151,7 +152,7 @@ async def remove_from_cookbook(
     """
     entry = await session.get(MealEntry, meal_entry_id)
     if not entry or entry.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Recipe not found in cookbook")
+        raise LocalizedHTTPException(404, "cookbook_recipe_not_found")
 
     if entry.is_favorite:
         entry.is_favorite = False
