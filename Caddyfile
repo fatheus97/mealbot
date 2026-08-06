@@ -27,10 +27,14 @@
 		}
 	}
 
+	# NOT retried, deliberately. A health probe exists to report the truth fast;
+	# holding it open for 30s while the backend is down would turn "outage
+	# detected in under a second" into "detected in up to 30s" for any uptime
+	# monitor pointed here. Nothing polls this through Caddy today — the compose
+	# healthcheck calls backend:8000/health directly — so this is about not
+	# laying the trap for the monitor that eventually does.
 	handle /health {
-		reverse_proxy backend:8000 {
-			import ride_out_restarts
-		}
+		reverse_proxy backend:8000
 	}
 
 	handle {
