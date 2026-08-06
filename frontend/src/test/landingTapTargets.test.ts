@@ -14,20 +14,12 @@
 // proved by getComputedStyle in the browser preview (ROADMAP U-8 tracks the
 // Playwright setup that would automate it).
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { landingCss, ruleFor as ruleIn } from "./landingCss";
 
 const WCAG_MIN_PX = 24;
 
-const html = readFileSync(resolve(process.cwd(), "index.html"), "utf-8").replace(/\/\*[\s\S]*?\*\//g, "");
-const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
-
-function ruleFor(selector: string): string {
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-  const match = rules.find((r) => r[1].split(",").some((s) => s.trim() === selector));
-  if (!match) throw new Error(`no rule for ${selector} in index.html`);
-  return match[2];
-}
+const css = landingCss();
+const ruleFor = (selector: string) => ruleIn(css, selector);
 
 const px = (decls: string, prop: string): number | null => {
   const m = decls.match(new RegExp(`(?:^|[;{\\s])${prop}:\\s*([\\d.]+)px`));

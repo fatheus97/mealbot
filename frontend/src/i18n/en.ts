@@ -563,6 +563,26 @@ export const en = {
   // it. See test/i18nAssertions.ts.
   "planner.heading": "Meal Planner",
 
+  // ─── Feedback modal ───────────────────────────────────────────────────────
+  "feedback.title": "Send feedback",
+  "feedback.intro": "Found a bug or have an idea? Tell us — it genuinely helps shape Mealbot.",
+  "feedback.type": "Type",
+  "feedback.details": "Details",
+  "feedback.detailsPlaceholder":
+    "What happened, or what would you like to see? The more detail, the better.",
+  "feedback.cancel": "Cancel",
+  "feedback.send": "Send",
+  "feedback.sending": "Sending…",
+  "feedback.tooShort": "Please add a bit more detail.",
+  "feedback.failed": "Could not send your feedback.",
+  "feedback.thanksTitle": "Thanks — we got it. 🙏",
+  "feedback.thanksBody": "Your report is on its way to the team. We read every one.",
+  "feedback.done": "Done",
+  // Mirrors the FeedbackKind union; kindParity in i18n.test.ts pins the two.
+  "feedbackKind.bug": "🐞 Something's broken",
+  "feedbackKind.feature": "💡 Idea / feature request",
+  "feedbackKind.other": "💬 Something else",
+
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // Read with tn("time.minutes", n). English has two categories; Czech has four
   // (Intl.PluralRules picks). Present here from the start so the mechanism has
