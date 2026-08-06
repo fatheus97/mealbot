@@ -147,6 +147,24 @@ describe('MealPlanner', () => {
     expect(screen.getByRole('button', { name: /generate plan/i })).toBeInTheDocument();
   });
 
+  it('keeps full-width fields inside their container on narrow screens (#10)', () => {
+    // These fields are `width: "100%"` under the default content-box model, so
+    // their own border/padding pushed them past the container's right edge on
+    // mobile. border-box makes width:100% inclusive of border/padding instead.
+    loginUser();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+
+    const fields = [
+      screen.getByLabelText('Days to plan:'),
+      screen.getByLabelText('Meals per day:'),
+      screen.getByLabelText('People count:'),
+      screen.getByLabelText('Taste Preferences (comma separated):'),
+    ];
+    for (const field of fields) {
+      expect(getComputedStyle(field).boxSizing).toBe('border-box');
+    }
+  });
+
   it('disables generate button while pending', async () => {
     loginUser();
 

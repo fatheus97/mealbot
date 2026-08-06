@@ -65,7 +65,11 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 100,
+        // Must render above DemoBanner's fixed zIndex:1000 — on short mobile
+        // viewports the centered dialog's top (where ✕ sits) can land in the
+        // banner's strip, and the banner previously painted over it, leaving
+        // demo users unable to reach the close button (#9).
+        zIndex: 1100,
       }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) requestClose();

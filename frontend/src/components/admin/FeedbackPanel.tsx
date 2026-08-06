@@ -1,6 +1,5 @@
 import { type CSSProperties, useState } from "react";
 import { ModalShell } from "../ModalShell";
-import { ConfirmDialog } from "../ConfirmDialog";
 import {
   useAcceptFeedback,
   useAdminFeedback,
@@ -224,7 +223,6 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
   const retriage = useRetriageFeedback();
   const accept = useAcceptFeedback();
   const [error, setError] = useState<string | null>(null);
-  const [confirmAccept, setConfirmAccept] = useState(false);
   const d = detailQuery.data;
 
   function doModerate(status: FeedbackModerationStatus): void {
@@ -245,11 +243,7 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
   function doAccept(): void {
     setError(null);
     accept.mutate(id, {
-      onSuccess: () => setConfirmAccept(false),
-      onError: (e) => {
-        setError(e instanceof Error ? e.message : "Could not accept the report.");
-        setConfirmAccept(false);
-      },
+      onError: (e) => setError(e instanceof Error ? e.message : "Could not accept the report."),
     });
   }
 
@@ -334,11 +328,14 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
             )}
 
             {/* Accept — the money-mover: €1 credit + private-repo ticket. Kept apart
-                from the (free) moderation actions and gated behind a confirm. */}
+                from the (free) moderation actions, but NOT behind a confirm: the
+                label already states the consequence, the server is idempotent (never
+                double-credits, never double-tickets), and a second click on every
+                accept is pure friction for the single admin who triages this queue. */}
             <div style={{ marginTop: "1.25rem" }}>
               <button
                 type="button"
-                onClick={() => setConfirmAccept(true)}
+                onClick={doAccept}
                 disabled={accept.isPending || d.status === "rejected" || d.status === "spam"}
                 title={
                   d.status === "rejected" || d.status === "spam"
@@ -386,21 +383,6 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
               </div>
             )}
 
-            {confirmAccept && (
-              <ConfirmDialog
-                title="Accept this report?"
-                message="Grants the reporter a €1 credit (if eligible — monthly plan, under the cap) and opens a ticket in the private repo. Idempotent: re-accepting never double-credits."
-                confirmLabel="Accept"
-                // Admin is permanently out of the i18n scope, so pin the shared
-                // dialog's now-translated Cancel back to English — otherwise this
-                // prompt reads "Zrušit" beside an English confirm label forever.
-                cancelLabel="Cancel"
-                onConfirm={doAccept}
-                onCancel={() => setConfirmAccept(false)}
-                loading={accept.isPending}
-                loadingLabel="Accepting…"
-              />
-            )}
           </>
         )}
       </div>
