@@ -49,6 +49,24 @@ describe("validationMessage", () => {
     expect(validationMessage({ detail: "a string" })).toBeNull();
     expect(validationMessage({ detail: [{ msg: 42 }] })).toBeNull();
   });
+
+  it("returns null on a Czech page, so no English backend string is shown", () => {
+    // A Pydantic 422 carries a LIST detail — the one shape the backend
+    // deliberately does not localize (app/core/errors.py), so this message is
+    // permanently English. Echoing it onto /cs would put raw English in front
+    // of a Czech visitor mid-signup.
+    const body = {
+      detail: [{ type: "value_error", loc: ["password"], msg: "Value error, Password too short" }],
+    };
+    document.documentElement.setAttribute("lang", "cs");
+    try {
+      expect(validationMessage(body)).toBeNull();
+      document.documentElement.setAttribute("lang", "en");
+      expect(validationMessage(body)).toBe("Password too short.");
+    } finally {
+      document.documentElement.removeAttribute("lang");
+    }
+  });
 });
 
 function jsonResponse(body: unknown, ok = true): Response {

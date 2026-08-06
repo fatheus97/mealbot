@@ -50,7 +50,7 @@ describe("validateAccessRequest", () => {
 describe("submitAccessRequest", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
 
-  it("posts the email and message and returns the server's copy", async () => {
+  it("posts the email and message and returns the LOCAL acknowledgement", async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       status: 201,
@@ -65,6 +65,26 @@ describe("submitAccessRequest", () => {
       email: "a@b.com",
       message: "let me in",
     });
+  });
+
+  it("ignores the server's English ack on a Czech page", async () => {
+    // `_NEUTRAL_ACK` in backend/app/api/access_request.py is an English-only
+    // constant, and preferring it meant a Czech visitor filled in a Czech
+    // form and got an English thank-you. Nothing is lost by dropping it: the
+    // endpoint returns one fixed sentence for EVERY outcome on purpose, so it
+    // carries no information the local copy lacks.
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () => Promise.resolve({ message: "Thanks — we've got your request." }),
+    } as unknown as Response);
+
+    document.documentElement.setAttribute("lang", "cs");
+    try {
+      await expect(submitAccessRequest("a@b.com", "")).resolves.toBe("Díky — žádost máme.");
+    } finally {
+      document.documentElement.removeAttribute("lang");
+    }
   });
 
   it("surfaces a dedicated message when rate-limited", async () => {

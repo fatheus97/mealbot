@@ -15,6 +15,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cs } from "../i18n/cs";
+import { landingCss } from "./landingCss";
 
 const distEn = resolve(process.cwd(), "dist/index.html");
 const distCs = resolve(process.cwd(), "dist/cs/index.html");
@@ -184,6 +185,27 @@ describe("hreflang cluster", () => {
         }
       }
     });
+
+    it("the sitemap lists exactly the pages the tags claim, with the same URLs", () => {
+      // Third statement of the same cluster, and the one most likely to rot:
+      // sitemap.xml is a hand-edited file in public/ that nothing else reads,
+      // so adding a locale and forgetting it here is silent. A URL that
+      // disagrees with the in-page tag by even a trailing slash is a
+      // different URL to Google and breaks the group.
+      const sitemap = readFileSync(resolve(process.cwd(), "dist/sitemap.xml"), "utf-8");
+      const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]).sort();
+      expect(locs).toEqual([EXPECTED.en, EXPECTED.cs].sort());
+
+      // Its xhtml:link alternates must name the same set as the in-page tags.
+      const alts = new Set(
+        [...sitemap.matchAll(/hreflang="([^"]+)" href="([^"]+)"/g)].map((m) => `${m[1]} ${m[2]}`),
+      );
+      expect([...alts].sort()).toEqual(
+        Object.entries(EXPECTED)
+          .map(([k, v]) => `${k} ${v}`)
+          .sort(),
+      );
+    });
   });
 });
 
@@ -201,6 +223,23 @@ describe("en/cs structural parity", () => {
       // querySelector at runtime, on that page only — invisible to every test
       // that renders the other one.
       expect(idsOf(csHtml)).toEqual(idsOf(en));
+    });
+
+    it("both pages ship byte-identical CSS", () => {
+      // The strongest guard in this file, and the cheapest. The Czech page is
+      // a transform of the English one, so its 500-line inline sheet is a
+      // copy — and the tempting fix for a Czech string that overflows is to
+      // nudge a value in that copy alone. This makes forking the stylesheet
+      // per locale structurally impossible: over-long copy has to be
+      // shortened, or the change has to land on both pages.
+      //
+      // Line endings normalized first. These are SOURCE files, and a Windows
+      // working tree checks index.html out as CRLF while the generator writes
+      // cs/index.html as LF; git stores both as LF, so a raw comparison would
+      // pass in CI and fail only on the maintainer's own machine — the worst
+      // possible split for a guard.
+      const lf = (s: string) => s.split("\r\n").join("\n");
+      expect(lf(landingCss("cs/index.html"))).toBe(lf(landingCss("index.html")));
     });
 
     it("both pages have the same number of FAQ entries", () => {

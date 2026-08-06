@@ -14,7 +14,7 @@
 
 import { storeSessionHints, type SessionProfile } from "../auth/sessionHints";
 import { getStoredAttribution } from "../utils/attribution";
-import { landingCopy } from "./copy";
+import { landingCopy, landingLocale } from "./copy";
 
 const API_BASE = "/api";
 
@@ -72,8 +72,18 @@ export function passwordComplaint(password: string): string | null {
  * is helpful and discloses nothing. Every other failure keeps the neutral
  * copy: a 409 on a duplicate email must NOT confirm that the address is
  * already registered.
+ *
+ * ENGLISH PAGES ONLY. A Pydantic 422 carries a LIST detail, which is the one
+ * shape the backend deliberately does NOT localize (see app/core/errors.py —
+ * those are field errors, not sentences for a human), so the message here is
+ * permanently English. Echoing it onto /cs would put a raw English string in
+ * front of a Czech visitor; they get the localized generic instead, which is
+ * what every non-422 failure already shows them. `passwordComplaint()` covers
+ * all five password rules client-side, so what is actually lost is the
+ * wording of a malformed-email rejection.
  */
 export function validationMessage(body: unknown): string | null {
+  if (landingLocale() !== "en") return null;
   if (typeof body !== "object" || body === null) return null;
   const detail = (body as { detail?: unknown }).detail;
   if (!Array.isArray(detail) || detail.length === 0) return null;

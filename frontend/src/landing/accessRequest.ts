@@ -57,8 +57,15 @@ export async function submitAccessRequest(email: string, message: string): Promi
   if (resp.status === 422) throw new Error(landingCopy().accessBadEmail);
   if (!resp.ok) throw new Error(landingCopy().accessGenericFailure);
 
-  const body = (await resp.json().catch(() => null)) as { message?: string } | null;
-  return body?.message ?? landingCopy().accessThanks;
+  // Deliberately IGNORES the server ack. `_NEUTRAL_ACK` in
+  // backend/app/api/access_request.py is an English-only constant, so
+  // preferring it meant a Czech visitor filled in a Czech form and got an
+  // English thank-you. Nothing is lost: the endpoint returns one fixed
+  // sentence for every outcome ON PURPOSE (it must not become an
+  // account-existence oracle), so there is no server-side information here
+  // that the local copy does not already carry.
+  await resp.json().catch(() => null);
+  return landingCopy().accessThanks;
 }
 
 export function createAccessForm(
