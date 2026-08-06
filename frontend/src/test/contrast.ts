@@ -205,3 +205,149 @@ export function findInlineColorPairs(source: string, file: string): InlinePair[]
   });
   return pairs;
 }
+
+export interface UncoloredControl {
+  file: string;
+  line: number;
+  /** The background value that made the UA keyword visible. */
+  background: string;
+}
+
+/**
+ * Form controls that override their background but declare no `color`.
+ *
+ * This is a THIRD blind spot, distinct from the two above, and the nastiest
+ * because the failing colour appears nowhere in the source. A `<button>` does
+ * not inherit `color` from its ancestors — with none set it resolves to the UA
+ * `buttontext` keyword, and `index.css` declares `color-scheme: light dark`,
+ * so under a dark OS theme that keyword is WHITE. As long as the control also
+ * keeps the UA's own background it stays self-consistent (index.css paints
+ * buttons #1a1a1a in dark, and white-on-#1a1a1a is fine). Override the
+ * background — to `none`, or to a fixed light value — and the pairing breaks:
+ * the ancestor's surface shows through while the text stays UA-white.
+ *
+ * Three sites shipped this: MealPlanner's day-card toggle (1.03:1 on #fcfcfc),
+ * AuthBar's ⚙️ (1.07:1 on #f0f8ff) and MealEditor's `smallBtn`, used by
+ * "+ Add ingredient" and "+ Add step" (1:1 on #fff — literally invisible).
+ * None of them is visible to `findInlineColorPairs`, because none declares a
+ * foreground at all.
+ *
+ * Deliberately narrow: only CONTROLS, and only when they override the
+ * background. Widening it to every element with a background and no colour
+ * would flag ~30 legitimate overlay scrims, gradient bars and progress fills,
+ * and the guard would be switched off within a week. The fix at every site is
+ * `color: "inherit"` (or an explicit colour when the surface is pinned).
+ */
+/**
+ * Blank out comments, keeping every other character at its original offset so
+ * line numbers stay honest.
+ *
+ * String-aware ON PURPOSE, rather than a regex. A regex cannot know whether a
+ * `//` is a comment or part of a value, and getting that wrong here fails in
+ * the worst direction: blanking from a `//` inside `url(https://…)` also eats
+ * the closing `}} />`, so the tag scan never terminates and the offending
+ * control drops out of the results ENTIRELY. A guard that exists to catch
+ * silent regressions must not have a silent hole of its own.
+ *
+ * A lookbehind for `://` was the first fix and was not enough — a
+ * protocol-relative `url(//cdn.example.com/x.png)` has no colon and would slip
+ * straight back through. Tracking quote state costs a dozen lines and closes
+ * the class instead of the instance.
+ *
+ * String CONTENTS are preserved, not blanked: the caller reads the quoted
+ * `background` / `color` values out of this same text.
+ */
+function stripComments(source: string): string {
+  const src = source.replace(/\r\n/g, '\n');
+  const blank = (s: string) => s.replace(/[^\n]/g, ' ');
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < src.length) {
+    const c = src[i];
+    if (quote) {
+      // Keep escapes intact — blanking `\"` would end the string early.
+      if (c === '\\' && i + 1 < src.length) {
+        out += c + src[i + 1];
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const stop = end === -1 ? src.length : end + 2;
+      out += blank(src.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const nl = src.indexOf('\n', i);
+      const stop = nl === -1 ? src.length : nl;
+      out += blank(src.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+export function findUncoloredControls(source: string, file: string): UncoloredControl[] {
+  const out: UncoloredControl[] = [];
+  // Prose about `<button>` is not markup — see stripComments for why this is
+  // not a regex.
+  const src = stripComments(source);
+
+  /** Balanced-brace slice starting at the `{` at `open`. */
+  const block = (open: number) => {
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}' && --depth === 0) return src.slice(open + 1, i);
+    }
+    return '';
+  };
+  const bgOf = (body: string) =>
+    /(?:^|[^a-zA-Z])background(?:Color)?:\s*["'`]?([^,\n}"'`]+)/.exec(body)?.[1]?.trim() ?? null;
+  const hasColor = (body: string) => /(?:^|[^a-zA-Z-])color:/.test(body);
+  const lineOf = (i: number) => src.slice(0, i).split('\n').length;
+
+  // Style consts, so `style={btn}` / `style={{ ...btn, … }}` resolve too.
+  const consts = new Map<string, string>();
+  for (const m of src.matchAll(/const\s+(\w+)(?::\s*[\w<>., ]+)?\s*=\s*\{/g)) {
+    consts.set(m[1], block(src.indexOf('{', m.index + m[0].length - 1)));
+  }
+
+  for (const m of src.matchAll(/<(button|input|select|textarea)[\s>]/g)) {
+    // The opening tag, brace-aware so an arrow function's `=>` can't end it.
+    let tag = '';
+    for (let i = m.index, depth = 0; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') depth--;
+      else if (src[i] === '>' && depth === 0) {
+        tag = src.slice(m.index, i + 1);
+        break;
+      }
+    }
+    // Checkboxes and radios paint no text, so buttontext cannot bite them.
+    if (/type=\{?["']?(checkbox|radio|hidden)/.test(tag)) continue;
+    let body = tag;
+    for (const ref of tag.matchAll(/style=\{(\w+)\}|\.\.\.(\w+)/g)) {
+      body += '\n' + (consts.get(ref[1] ?? ref[2]) ?? '');
+    }
+    const bg = bgOf(body);
+    if (bg && !hasColor(body)) out.push({ file, line: lineOf(m.index), background: bg });
+  }
+  return out;
+}

@@ -4,6 +4,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { usePlanList, useDeletePlan, useReschedulePlan } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { MUTED_PAGE_TEXT } from "../constants/theme";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 import { useI18n } from "../i18n";
 
@@ -86,16 +87,18 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
         style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", userSelect: "none" }}
         onClick={() => setExpanded(!expanded)}
       >
-        <span style={{ fontSize: "0.9rem", color: "#888" }}>{expanded ? "\u25BC" : "\u25B6"}</span>
+        {/* Adaptive page background \u2014 see the same fix in Fridge's header.
+            #888 was 4.38:1 dark / 3.54:1 light, under AA in both. */}
+        <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.9rem" }}>{expanded ? "\u25BC" : "\u25B6"}</span>
         <h2 style={{ margin: 0 }}>{t("plans.title")}</h2>
         {plans && plans.length > 0 && (
-          <span style={{ fontSize: "0.85rem", color: "#888" }}>({plans.length})</span>
+          <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.85rem" }}>({plans.length})</span>
         )}
       </div>
 
       {expanded && (
         <div style={{ marginTop: "1rem" }}>
-          {isLoading && <p style={{ color: "#888" }}>{t("plans.loading")}</p>}
+          {isLoading && <p style={MUTED_PAGE_TEXT}>{t("plans.loading")}</p>}
 
           {openError && (
             <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: 0 }}>
@@ -109,7 +112,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
           )}
 
           {plans && plans.length === 0 && (
-            <p style={{ color: "#888", fontSize: "0.9rem" }}>
+            <p style={{ ...MUTED_PAGE_TEXT, fontSize: "0.9rem" }}>
               {t("plans.empty")}
             </p>
           )}
