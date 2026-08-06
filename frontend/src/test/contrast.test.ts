@@ -575,3 +575,21 @@ describe('no bare CSS colour keywords', () => {
     expect(findKeywordColors(`// color: "red" was 4.00:1 here\n`, 'x.tsx')).toEqual([]);
   });
 });
+
+describe('the scans accept both quote styles', () => {
+  // The codebase writes double quotes today, so nothing here is live. Accepted
+  // anyway: "the guard only matches the spelling that last bit you" is how
+  // `bg`/`text`/`fg` and `https://`/`//cdn…` each needed a second round.
+  it('finds a single-quoted pair', () => {
+    const src = `const a = { background: '#15803d', color: '#ffffff' };`;
+    expect(findInlineColorPairs(src, 'x.tsx').map((p) => `${p.fg}|${p.bg}`)).toEqual([
+      '#ffffff|#15803d',
+    ]);
+  });
+
+  it('flags a single-quoted bare keyword', () => {
+    expect(findKeywordColors(`<p style={{ color: 'red' }} />`, 'x.tsx').map((k) => k.keyword)).toEqual(
+      ['red'],
+    );
+  });
+});

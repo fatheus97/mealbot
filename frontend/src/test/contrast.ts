@@ -303,12 +303,12 @@ export function findInlineColorPairs(source: string, file: string): InlinePair[]
   const lineOf = (i: number) => src.slice(0, i).split('\n').length;
 
   for (const { at, own } of styleBlocks(src)) {
-    const bgMatch = /(?:^|[^a-zA-Z])(?:background(?:Color)?|bg):\s*"([^"]+)"/i.exec(own);
+    const bgMatch = /(?:^|[^a-zA-Z])(?:background(?:Color)?|bg):\s*["']([^"']+)["']/i.exec(own);
     if (!bgMatch) continue;
     const bg = toHex(bgMatch[1]);
     if (!bg) continue;
     const rest = own.replace(bgMatch[0], '');
-    const fgMatch = /(?:^|[^a-zA-Z])(?:color|text|fg):\s*"([^"]+)"/i.exec(rest);
+    const fgMatch = /(?:^|[^a-zA-Z])(?:color|text|fg):\s*["']([^"']+)["']/i.exec(rest);
     if (!fgMatch) continue;
     const fg = toHex(fgMatch[1]);
     if (!fg) continue;
@@ -496,7 +496,10 @@ export function findKeywordColors(source: string, file: string): KeywordColor[] 
   const ALLOWED = new Set(['white', 'black', 'inherit', 'transparent', 'currentcolor']);
   const out: KeywordColor[] = [];
   const src = stripComments(source);
-  for (const m of src.matchAll(/(?:^|[^a-zA-Z-])color:\s*"([a-zA-Z]+)"/g)) {
+  // Both quote styles. The codebase writes double today, but "the guard only
+  // matches the spelling that last bit you" is how `bg`/`text`/`fg` and
+  // `https://`/`//cdn` each needed a second round. Cheaper to accept both.
+  for (const m of src.matchAll(/(?:^|[^a-zA-Z-])color:\s*["']([a-zA-Z]+)["']/g)) {
     const keyword = m[1].toLowerCase();
     if (ALLOWED.has(keyword)) continue;
     out.push({ file, line: src.slice(0, m.index).split('\n').length, keyword: m[1] });
