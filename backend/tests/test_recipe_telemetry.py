@@ -42,7 +42,8 @@ async def _generate(client: AsyncClient, auth_headers: dict) -> dict:
         json={"meal_type": "soup", "people_count": 2},
     )
     assert resp.status_code == 200
-    return resp.json()
+    payload: dict = resp.json()
+    return payload
 
 
 def _cook_body(recipe: dict, generation_id: int | None) -> dict:

@@ -10,6 +10,7 @@ Driven through `unauthed_client` (real cookies) rather than the dep-overridden
 here and the override would bypass them.
 """
 import pytest
+import stripe
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -552,7 +553,7 @@ class TestStripeSync:
         monkeypatch.setattr(settings, "stripe_price_id", "price_dummy")
         # _require_stripe assigns this module-global; monkeypatch restores it so
         # a dummy key cannot leak into another test.
-        monkeypatch.setattr(stripe_service.stripe, "api_key", None)
+        monkeypatch.setattr(stripe, "api_key", None)
 
     async def test_customer_email_is_synced(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # _ensure_customer sets the Stripe email once, at creation, and nothing
@@ -563,7 +564,7 @@ class TestStripeSync:
         def _modify(customer_id: str, **kwargs: str) -> None:
             calls.append((customer_id, kwargs["email"]))
 
-        monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _modify)
+        monkeypatch.setattr(stripe.Customer, "modify", _modify)
         await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)
         assert calls == [("cus_123", NEW_EMAIL)]
 
@@ -582,9 +583,9 @@ class TestStripeSync:
         seen: list[str | None] = []
 
         def _modify(customer_id: str, **kwargs: str) -> None:
-            seen.append(stripe_service.stripe.api_key)
+            seen.append(stripe.api_key)
 
-        monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _modify)
+        monkeypatch.setattr(stripe.Customer, "modify", _modify)
         await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)
         assert seen == ["sk_test_dummy"]
 
@@ -596,7 +597,7 @@ class TestStripeSync:
         def _boom(customer_id: str, **kwargs: str) -> None:
             raise RuntimeError("stripe down")
 
-        monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _boom)
+        monkeypatch.setattr(stripe.Customer, "modify", _boom)
         await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)
 
     async def test_skipped_when_billing_is_not_configured(
@@ -610,5 +611,5 @@ class TestStripeSync:
         def _fail(customer_id: str, **kwargs: str) -> None:
             raise AssertionError("must not call Stripe when unconfigured")
 
-        monkeypatch.setattr(stripe_service.stripe.Customer, "modify", _fail)
+        monkeypatch.setattr(stripe.Customer, "modify", _fail)
         await stripe_service.sync_customer_email("cus_123", NEW_EMAIL)

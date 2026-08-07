@@ -240,7 +240,7 @@ class TestOperatorPathsRecordNothing:
 
     def test_user_create_still_does(self) -> None:
         with pytest.raises(Exception):
-            UserCreate(email="a@b.com", password=TEST_PASSWORD)  # type: ignore[call-arg]
+            UserCreate(email="a@b.com", password=TEST_PASSWORD)
 
 
 class _Ctx:

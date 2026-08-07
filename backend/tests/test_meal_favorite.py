@@ -39,7 +39,7 @@ async def _create_confirmed_plan(
         headers=auth_headers,
         json={"meals_per_day": 1, "people_count": 2},
     )
-    plan_id = resp.json()["plan_id"]
+    plan_id: int = resp.json()["plan_id"]
     await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
     return plan_id
 
@@ -48,7 +48,8 @@ async def _get_entry_id(
     client: AsyncClient, auth_headers: dict[str, str], plan_id: int,
 ) -> int:
     resp = await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)
-    return resp.json()[0]["id"]
+    entry_id: int = resp.json()[0]["id"]
+    return entry_id
 
 
 class TestFavoriteMeal:

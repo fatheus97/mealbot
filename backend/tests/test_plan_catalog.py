@@ -55,7 +55,8 @@ async def _create_plan(
             json={"meals_per_day": meals_per_day, "people_count": 2},
         )
         assert resp.status_code == 200
-        return resp.json()
+        payload: dict = resp.json()
+        return payload
 
 
 async def _create_and_confirm_plan(
@@ -85,7 +86,8 @@ def _get_chicken_grams(fridge: list) -> float:
     """Extract chicken breast quantity from fridge list."""
     chicken = [i for i in fridge if i["name"].lower() == "chicken breast"]
     assert len(chicken) == 1
-    return chicken[0]["quantity_grams"]
+    grams: float = chicken[0]["quantity_grams"]
+    return grams
 
 
 class TestConfirmPlan:

@@ -280,7 +280,7 @@ class TestCalendar:
         resp = await _create_plan(
             client, days=days, start_date=start_date, meals_per_day=meals_per_day
         )
-        plan_id = resp.json()["plan_id"]
+        plan_id: int = resp.json()["plan_id"]
         confirm = await client.post(f"/api/plan/{plan_id}/confirm", json={})
         assert confirm.status_code == 200
         return plan_id
