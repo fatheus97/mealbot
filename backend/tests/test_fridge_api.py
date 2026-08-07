@@ -262,6 +262,44 @@ class TestNeedToUseToggle:
         assert resp.json()[0]["quantity_grams"] == 400.0
         assert resp.json()[0]["need_to_use"] is True
 
+    async def test_put_round_trip_preserves_true_across_duplicate_keys(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # (name, expiration_date) has no DB uniqueness constraint, so two rows
+        # CAN share a key — e.g. two batches of the same item with no
+        # expiration set, both addable via plain PUTs. The masked round trip
+        # must not silently drop the True on one of them.
+        put_resp = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[
+                {"name": "chicken", "quantity_grams": 200, "need_to_use": False},
+                {"name": "chicken", "quantity_grams": 300, "need_to_use": True},
+            ],
+        )
+        assert put_resp.status_code == 200
+        assert len(put_resp.json()) == 2  # both rows persisted, not merged
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        masked = (await client.get("/api/fridge", headers=auth_headers)).json()
+        assert all(item["need_to_use"] is False for item in masked)
+
+        edit_resp = await client.put("/api/fridge", headers=auth_headers, json=masked)
+        assert edit_resp.status_code == 200
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        data = resp.json()
+        assert len(data) == 2
+        assert sum(item["quantity_grams"] for item in data) == 500.0
+        # The True is not lost — both rows read True (OR-combined; the
+        # duplicate-row distinction was already invisible to a masked client).
+        assert all(item["need_to_use"] is True for item in data)
+
     async def test_merge_response_masked_when_disabled(
         self, client: AsyncClient, auth_headers: dict
     ):

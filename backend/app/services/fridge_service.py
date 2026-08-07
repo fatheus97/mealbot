@@ -131,9 +131,18 @@ async def replace_fridge_items(
         existing = (
             await session.execute(select(StockItem).where(StockItem.user_id == user_id))
         ).scalars().all()
-        stored_by_key = {
-            (r.name.strip().lower(), r.expiration_date): r.need_to_use for r in existing
-        }
+        # OR-combine rather than overwrite: (name, expiration_date) has no DB
+        # uniqueness constraint, so two rows CAN legitimately share a key (e.g.
+        # two batches of the same item with no expiration set). Preferring the
+        # last-seen row for a key would be arbitrary (no ORDER BY) and could
+        # silently drop a True on one of them. ORing means a stray True never
+        # goes missing — worst case a duplicate that was actually False also
+        # reads True once re-enabled, which is the safe direction to be wrong
+        # in (a false "use soon" hint costs nothing; losing one outright does).
+        stored_by_key: dict[tuple[str, date | None], bool] = {}
+        for r in existing:
+            key = (r.name.strip().lower(), r.expiration_date)
+            stored_by_key[key] = stored_by_key.get(key, False) or r.need_to_use
         items = [
             it.model_copy(
                 update={
