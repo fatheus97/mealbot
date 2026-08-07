@@ -22,22 +22,24 @@ dark mode. So:
   self-contained explicit surface, or a `matchMedia`-driven hook.
 
 ## Verify BOTH colour schemes before shipping ANY visible UI change (mandatory)
-Drive the browser preview and check **dark AND light**:
-`resize_window { colorScheme: "dark" }`, then `"light"`. Confirm real contrast —
-compare computed `color` vs `background` (via `javascript_tool` / `getComputedStyle`)
-or a screenshot. A two-theme check is **not optional** for visible changes; the
-white-on-white bug has shipped more than once.
+Drive the browser preview and check **dark AND light**. For EACH scheme:
+`resize_window { colorScheme: … }`, **then `navigate` to the page again so the app
+BOOTS under it** (see below — without the reload you measure the other scheme),
+then confirm real contrast — compare computed `color` vs `background` (via
+`javascript_tool` / `getComputedStyle`) or a screenshot. A two-theme check is
+**not optional** for visible changes; the white-on-white bug has shipped more
+than once.
 
-**RELOAD after switching the scheme — `resize_window` fires no `change` event.**
-It changes what `matchMedia("(prefers-color-scheme: dark)").matches` RETURNS, but
-does not dispatch `change` to listeners. Measured directly in #407: a listener
-armed before the flip stayed empty (`[]`) while `.matches` went `false → true`.
-So React never re-renders, `usePrefersDark` keeps its **mount-time** value, and
+**Why the reload: `resize_window` fires no `change` event.** It changes what
+`matchMedia("(prefers-color-scheme: dark)").matches` RETURNS, but does not
+dispatch `change` to listeners. Measured directly in #407: a listener armed
+before the flip stayed empty (`[]`) while `.matches` went `false → true`. So
+React never re-renders, `usePrefersDark` keeps its **mount-time** value, and
 every `PAGE_TEXT.x[scheme]` colour on screen belongs to the OTHER scheme. That
 reported the mode tabs at 2.54:1 "in light" — they were still painting their dark
-`#60a5fa`/`#9ca3af` on a white page. Set the scheme, then `navigate` to the page
-again so the app BOOTS under it; re-check a known theme-following value (the
-active tab is `#2563eb` light / `#60a5fa` dark) to prove the boot took.
+`#60a5fa`/`#9ca3af` on a white page. After the reload, re-check a known
+theme-following value (the active tab is `#2563eb` light / `#60a5fa` dark) to
+prove the boot took.
 
 This one lies in the **false-failure** direction, so it burns time rather than
 shipping a bug — but the same stale render would hide a real failure just as
