@@ -367,6 +367,8 @@ export const en = {
   "cookNow.generating": "Generating…",
   "cookNow.generateFailed": "Failed to generate recipe.",
   "cookNow.saveFailed": "Failed to save recipe.",
+  "cookNow.favoriteFailed": "Couldn't save to your cookbook — check your connection and try again.",
+  "cookNow.unfavoriteFailed": "Couldn't remove from your cookbook — check your connection and try again.",
   "cookNow.saving": "Saving…",
   "cookNow.cookFailed": "Couldn't save — check your connection and try again.",
 

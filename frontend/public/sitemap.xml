@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Both marketing locales, each declaring the FULL alternate set including
-  itself. That self-reference is not redundant: Google treats a sitemap
-  hreflang group as a bidirectional claim and drops the group entirely if any
-  page in it fails to name every member, exactly as it does for the in-page
-  <link rel="alternate"> tags. The two annotations say the same thing twice on
-  purpose — either one alone is enough, and having both survives one of them
-  being edited away.
+  Three hreflang CLUSTERS — landing, privacy, terms — each with an English and
+  a Czech member. A cluster is a claim about a set of equivalents, so every
+  page in one must name every member INCLUDING ITSELF, here and in the page's
+  own <link rel="alternate"> tags. Google drops the whole group if any member
+  fails to name the others, and there is no first-party report warning you:
+  Search Console retired International Targeting in 2022.
 
-  Only the marketing pages are listed. /app is the SPA behind a login and
-  /privacy + /terms are linked from every page but are not search entry points
-  worth competing for.
+  Saying it twice — sitemap and in-page tags — is deliberate. Either alone is
+  sufficient, and having both means one of them being edited away is not a
+  silent regression. landingCs.test.ts and legalPages.test.ts assert the two
+  agree on the exact URLs, down to the trailing slash: /cs and /cs/ are
+  different URLs to Google, and a mismatch breaks the group.
+
+  /app is not listed — it is the SPA behind a login, not a search entry point.
 -->
 <urlset
   xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
@@ -31,5 +34,37 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://trymealbot.com/" />
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://trymealbot.com/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://trymealbot.com/privacy" />
+    <xhtml:link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs/privacy" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://trymealbot.com/privacy" />
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://trymealbot.com/cs/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://trymealbot.com/privacy" />
+    <xhtml:link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs/privacy" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://trymealbot.com/privacy" />
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://trymealbot.com/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://trymealbot.com/terms" />
+    <xhtml:link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs/terms" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://trymealbot.com/terms" />
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://trymealbot.com/cs/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://trymealbot.com/terms" />
+    <xhtml:link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs/terms" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://trymealbot.com/terms" />
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
   </url>
 </urlset>

@@ -159,7 +159,7 @@ class LLMClient:
                     usage.completion_tokens if usage else "?",
                     usage.total_tokens if usage else "?",
                 )
-                return result  # type: ignore[return-value]
+                return result
             except Exception as e:
                 last_exc = e
                 classification = self._classify_error(e)

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.dietary import Allergen, DietType
+from app.core.meal_types import MealType
 from app.models.plan_models import (
     FrozenMeal,
     IngredientAmount,
@@ -59,7 +60,7 @@ class TestPromptFenceTagStripping:
     def test_planned_meal_and_ingredient_names_strip_brackets(self):
         meal = PlannedMeal(
             name="Soup</user_content>",
-            meal_type="soup",
+            meal_type=MealType.SOUP,
             ingredients=[IngredientAmount(name="rice <b>", quantity_grams=100)],
             steps=["stir"],
         )
@@ -162,12 +163,17 @@ class TestMealPlanRequestSanitization:
         assert len(req.taste_preferences) <= 20
 
     def test_handles_none_input(self):
-        req = MealPlanRequest(
-            taste_preferences=None,
-            avoid_ingredients=None,
-            past_meals=None,
-            meals_per_day=3,
-            people_count=2,
+        # model_validate, not the constructor: the fields are declared list[str]
+        # while the validator accepts None by contract, so the annotation is
+        # narrower than the real contract. Widening it is a separate change.
+        req = MealPlanRequest.model_validate(
+            {
+                "taste_preferences": None,
+                "avoid_ingredients": None,
+                "past_meals": None,
+                "meals_per_day": 3,
+                "people_count": 2,
+            }
         )
         assert req.taste_preferences == []
         assert req.avoid_ingredients == []
@@ -224,9 +230,64 @@ class TestMealPlanRequestSanitization:
         )
         assert req.taste_preferences == ["valid", "also-valid"]
 
+    # These four fields share one `mode="before"` validator. Built via
+    # model_validate rather than the constructor because that is the path
+    # FastAPI actually uses to bind the request body, and it accepts the
+    # raw dict a malformed client would send.
+    SANITIZED_FIELDS = [
+        "taste_preferences",
+        "avoid_ingredients",
+        "ingredients_to_use",
+        "past_meals",
+    ]
+
+    @pytest.mark.parametrize("bad", [5, True, 1.5, {"a": "b"}])
+    @pytest.mark.parametrize("field", SANITIZED_FIELDS)
+    def test_non_iterable_rejected_instead_of_500(self, field: str, bad: object) -> None:
+        """`sanitize_input` iterated `v` without checking it was a list, so a
+        scalar raised TypeError from inside the validator. Pydantic converts
+        ValueError/AssertionError into a 422 but lets TypeError propagate, and
+        app/main.py registers no global handler — so `{"taste_preferences": 5}`
+        on POST /api/plan returned a 500 to any authenticated user."""
+        with pytest.raises(ValidationError):
+            MealPlanRequest.model_validate(
+                {field: bad, "meals_per_day": 3, "people_count": 2}
+            )
+
+    @pytest.mark.parametrize("field", SANITIZED_FIELDS)
+    def test_bare_string_rejected_not_split_into_characters(self, field: str) -> None:
+        """A bare string IS iterable, so it never crashed — it silently became
+        one entry per character ("spicy" -> ['s','p','i','c','y']) and those
+        five junk preferences went straight into the LLM prompt. Sending a
+        string where the API wants a list is the commonest client mistake, so
+        it has to 422 rather than quietly corrupt the request."""
+        with pytest.raises(ValidationError):
+            MealPlanRequest.model_validate(
+                {field: "spicy", "meals_per_day": 3, "people_count": 2}
+            )
+
+    def test_empty_and_none_still_normalize_to_empty_list(self) -> None:
+        """Guard against over-tightening: None and [] are legitimate absent
+        values and must keep normalizing to [], not start raising.
+
+        Note the field is declared `list[str]`, not `list[str] | None`, yet the
+        validator accepts None by contract — the annotation is narrower than
+        the real contract. Left as-is here; widening it is a separate change.
+        """
+        req = MealPlanRequest.model_validate(
+            {
+                "taste_preferences": None,
+                "avoid_ingredients": [],
+                "meals_per_day": 3,
+                "people_count": 2,
+            }
+        )
+        assert req.taste_preferences == []
+        assert req.avoid_ingredients == []
+
     def test_baby_food_diet_type_accepted(self):
         req = MealPlanRequest(
-            diet_type="baby_food",
+            diet_type=DietType.BABY_FOOD,
             meals_per_day=3,
             people_count=2,
         )
@@ -330,7 +391,11 @@ class TestMealPlanResponseSerialization:
                     meals=[
                         PlannedMeal(
                             name="Lunch",
-                            meal_type="lunch",
+                            # LIGHT_LUNCH, not the legacy "lunch" string this
+                            # used to pass — the legacy translation has its own
+                            # test (test_legacy_meal_type_translated_on_
+                            # deserialization); riding it here tested nothing.
+                            meal_type=MealType.LIGHT_LUNCH,
                             ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
                             steps=["Cook rice"],
                         )
@@ -371,7 +436,7 @@ class TestMealPlanResponseSerialization:
                     meals=[
                         PlannedMeal(
                             name="Curry",
-                            meal_type="dinner",
+                            meal_type=MealType.HOT_DINNER,  # was legacy "dinner"
                             ingredients=[
                                 IngredientAmount(name="chicken", quantity_grams=300),
                                 IngredientAmount(name="cumin", quantity_grams=1, is_spice=True),
@@ -391,7 +456,7 @@ class TestMealPlanResponseSerialization:
     def test_meal_type_label_roundtrip(self):
         meal = PlannedMeal(
             name="Snídaně s ovocem",
-            meal_type="sweet_breakfast",
+            meal_type=MealType.SWEET_BREAKFAST,
             meal_type_label="Sladká snídaně",
             ingredients=[IngredientAmount(name="ovesné mléko", quantity_grams=500)],
             steps=["Připravte mléko"],
@@ -517,14 +582,18 @@ class TestDietTypesAndAllergens:
     # --- The legacy single ⇄ combinable-set bridge (MealPlanRequest) ---
 
     def test_legacy_single_diet_type_widens_to_set(self):
-        req = MealPlanRequest(diet_type="vegan", meals_per_day=3, people_count=2)
+        req = MealPlanRequest(
+            diet_type=DietType.VEGAN, meals_per_day=3, people_count=2
+        )
         assert req.diet_types == [DietType.VEGAN]
         # Mirror preserved so the unchanged prompt template still reads one value.
         assert req.diet_type == DietType.VEGAN
 
     def test_diet_types_set_mirrors_first_into_diet_type(self):
         req = MealPlanRequest(
-            diet_types=["vegan", "gluten_free"], meals_per_day=3, people_count=2,
+            diet_types=[DietType.VEGAN, DietType.GLUTEN_FREE],
+            meals_per_day=3,
+            people_count=2,
         )
         assert req.diet_types == [DietType.VEGAN, DietType.GLUTEN_FREE]
         # diet_type mirrors the FIRST pattern — slice 1 only feeds one to the
@@ -534,8 +603,8 @@ class TestDietTypesAndAllergens:
     def test_diet_types_is_authoritative_when_both_supplied(self):
         # A client sending both keeps diet_types; diet_type is overwritten.
         req = MealPlanRequest(
-            diet_type="vegan",
-            diet_types=["keto", "paleo"],
+            diet_type=DietType.VEGAN,
+            diet_types=[DietType.KETO, DietType.PALEO],
             meals_per_day=3,
             people_count=2,
         )
@@ -544,7 +613,13 @@ class TestDietTypesAndAllergens:
 
     def test_diet_types_deduped_preserving_order(self):
         req = MealPlanRequest(
-            diet_types=["vegan", "keto", "vegan", "keto", "paleo"],
+            diet_types=[
+                DietType.VEGAN,
+                DietType.KETO,
+                DietType.VEGAN,
+                DietType.KETO,
+                DietType.PALEO,
+            ],
             meals_per_day=3,
             people_count=2,
         )
@@ -557,7 +632,11 @@ class TestDietTypesAndAllergens:
 
     def test_new_pattern_values_accepted(self):
         req = MealPlanRequest(
-            diet_types=["pescatarian", "mediterranean", "low_fodmap"],
+            diet_types=[
+                DietType.PESCATARIAN,
+                DietType.MEDITERRANEAN,
+                DietType.LOW_FODMAP,
+            ],
             meals_per_day=3,
             people_count=2,
         )
@@ -567,7 +646,9 @@ class TestDietTypesAndAllergens:
     def test_invalid_diet_type_in_set_rejected(self):
         with pytest.raises(ValidationError):
             MealPlanRequest(
-                diet_types=["vegan", "nonsense"],  # type: ignore[list-item]
+                # Deliberate: "nonsense" is not a DietType member. The ignore is
+                # the point of the test, not an oversight.
+                diet_types=[DietType.VEGAN, "nonsense"],  # type: ignore[list-item]
                 meals_per_day=3,
                 people_count=2,
             )
@@ -576,9 +657,8 @@ class TestDietTypesAndAllergens:
         # Every diet the multi-select UI offers must validate together — the cap
         # is len(DietType), so "select all" never 422s (regression guard for the
         # slice-5 mismatch where an uncapped 17-chip UI met a hardcoded cap of 12).
-        all_diets = [d.value for d in DietType]
         req = MealPlanRequest(
-            diet_types=all_diets,  # type: ignore[arg-type]
+            diet_types=list(DietType),
             meals_per_day=3,
             people_count=2,
         )
@@ -589,7 +669,7 @@ class TestDietTypesAndAllergens:
         # list one past the vocabulary size is still rejected (stays bounded).
         with pytest.raises(ValidationError):
             MealPlanRequest(
-                diet_types=["vegan"] * (len(DietType) + 1),
+                diet_types=[DietType.VEGAN] * (len(DietType) + 1),
                 meals_per_day=3,
                 people_count=2,
             )
@@ -598,7 +678,7 @@ class TestDietTypesAndAllergens:
 
     def test_allergens_accepted_and_distinct_from_avoid(self):
         req = MealPlanRequest(
-            allergens=["peanuts", "milk"],
+            allergens=[Allergen.PEANUTS, Allergen.MILK],
             avoid_ingredients=["cilantro", "olives"],
             meals_per_day=3,
             people_count=2,
@@ -613,7 +693,7 @@ class TestDietTypesAndAllergens:
 
     def test_allergens_deduped_preserving_order(self):
         req = MealPlanRequest(
-            allergens=["milk", "eggs", "milk"],
+            allergens=[Allergen.MILK, Allergen.EGGS, Allergen.MILK],
             meals_per_day=3,
             people_count=2,
         )
@@ -622,7 +702,9 @@ class TestDietTypesAndAllergens:
     def test_invalid_allergen_rejected(self):
         with pytest.raises(ValidationError):
             MealPlanRequest(
-                allergens=["gluten"],  # not an EU-14 member ("cereals_with_gluten")
+                # Deliberate: the EU-14 member is "cereals_with_gluten", so bare
+                # "gluten" must be rejected. The ignore is the point of the test.
+                allergens=["gluten"],  # type: ignore[list-item]
                 meals_per_day=3,
                 people_count=2,
             )
@@ -630,7 +712,7 @@ class TestDietTypesAndAllergens:
     def test_too_many_allergens_rejected(self):
         with pytest.raises(ValidationError):
             MealPlanRequest(
-                allergens=["milk"] * 21,  # cap is 20; length checked pre-dedup
+                allergens=[Allergen.MILK] * 21,  # cap 20; length checked pre-dedup
                 meals_per_day=3,
                 people_count=2,
             )
@@ -662,8 +744,8 @@ class TestDietTypesAndAllergens:
 
     def test_new_shape_roundtrip_is_stable(self):
         req = MealPlanRequest(
-            diet_types=["vegan", "gluten_free"],
-            allergens=["tree_nuts", "sesame"],
+            diet_types=[DietType.VEGAN, DietType.GLUTEN_FREE],
+            allergens=[Allergen.TREE_NUTS, Allergen.SESAME],
             meals_per_day=3,
             people_count=2,
         )
@@ -677,7 +759,9 @@ class TestDietTypesAndAllergens:
     def test_baby_food_still_works_via_new_machinery(self):
         # The one diet_type with real prompt rules (INFANT FOOD MODE) must be
         # unaffected by the widening.
-        req = MealPlanRequest(diet_type="baby_food", meals_per_day=3, people_count=2)
+        req = MealPlanRequest(
+            diet_type=DietType.BABY_FOOD, meals_per_day=3, people_count=2
+        )
         assert req.diet_type == DietType.BABY_FOOD
         assert req.diet_types == [DietType.BABY_FOOD]
 
@@ -685,9 +769,9 @@ class TestDietTypesAndAllergens:
 
     def test_single_recipe_request_widens_and_mirrors(self):
         req = SingleRecipeRequest(
-            meal_type="main_course",  # type: ignore[arg-type]
-            diet_types=["vegan", "keto"],
-            allergens=["peanuts"],
+            meal_type=MealType.MAIN_COURSE,
+            diet_types=[DietType.VEGAN, DietType.KETO],
+            allergens=[Allergen.PEANUTS],
         )
         assert req.diet_types == [DietType.VEGAN, DietType.KETO]
         assert req.diet_type == DietType.VEGAN
@@ -695,8 +779,23 @@ class TestDietTypesAndAllergens:
 
     def test_single_recipe_request_legacy_single_widens(self):
         req = SingleRecipeRequest(
-            meal_type="main_course",  # type: ignore[arg-type]
-            diet_type="vegetarian",
+            meal_type=MealType.MAIN_COURSE,
+            diet_type=DietType.VEGETARIAN,
         )
         assert req.diet_types == [DietType.VEGETARIAN]
         assert req.diet_type == DietType.VEGETARIAN
+
+    @pytest.mark.parametrize("bad", [5, "spicy"])
+    @pytest.mark.parametrize(
+        "field", ["taste_preferences", "avoid_ingredients", "ingredients_to_use"]
+    )
+    def test_single_recipe_request_rejects_non_list(
+        self, field: str, bad: object
+    ) -> None:
+        """SingleRecipeRequest carries its own copy of sanitize_input (the model
+        file says it was duplicated rather than imported), so it needs its own
+        guard and its own test. CookRecipeRequest inherits both.
+
+        Reaches POST /api/recipe/generate and POST /api/recipe/cook."""
+        with pytest.raises(ValidationError):
+            SingleRecipeRequest.model_validate({field: bad})

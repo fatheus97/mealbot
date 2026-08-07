@@ -114,10 +114,28 @@ _MAX_TOKEN_COUNT = 2_000_000_000  # < int32 max (2_147_483_647)
 
 def _as_int(value: object) -> int:
     """Coerce a provider token count (may be None/garbage) to a bounded
-    non-negative int that always fits the int32 column."""
+    non-negative int that always fits the int32 column.
+
+    OverflowError is in the except clause because int(float("inf")) raises it,
+    and it was NOT caught before: nan raises ValueError and was handled, but inf
+    and -inf propagated out of here into usage_from_completion's outer `except
+    Exception`, dropping the whole usage record. Not reachable from either
+    provider shape today — google-genai types its counts int | None and OpenAI's
+    CompletionUsage types them int — but this reads them off arbitrary objects
+    via getattr, and the counts feed the per-user LLM cost cap, so the boundary
+    is worth closing rather than reasoning about upstream types.
+
+    The int() stays over `object` (annotated local, one narrow ignore) rather
+    than an isinstance gate: a gate would have to enumerate every shape int()
+    accepts — Decimal, Fraction, bytes, anything with __int__/__index__ — and
+    would silently return 0 for whatever the list missed.
+    """
     if value is None:
         return 0
     try:
-        return min(max(0, int(value)), _MAX_TOKEN_COUNT)  # type: ignore[call-overload]
-    except (TypeError, ValueError):
+        # int() over object needs the ignore; the annotation is what keeps Any
+        # from leaking out of a function declared to return int.
+        coerced: int = int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError, OverflowError):
         return 0
+    return min(max(0, coerced), _MAX_TOKEN_COUNT)

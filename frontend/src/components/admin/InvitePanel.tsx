@@ -138,7 +138,7 @@ export function InvitePanel() {
               {invites.map((inv) => (
                 <tr key={inv.id} style={{ borderBottom: `1px solid ${colors.borderSubtle}` }}>
                   <td style={td}>
-                    {inv.note || <span style={{ color: colors.textFaint }}>—</span>}
+                    {inv.note || <span style={{ color: colors.textMuted }}>—</span>}
                   </td>
                   <td style={td}>
                     <StatusBadge status={inv.status} />
@@ -151,7 +151,7 @@ export function InvitePanel() {
                     {fmt(inv.expires_at)}
                   </td>
                   <td style={td}>
-                    {inv.redeemed_by_email || <span style={{ color: colors.textFaint }}>—</span>}
+                    {inv.redeemed_by_email || <span style={{ color: colors.textMuted }}>—</span>}
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
                     {inv.status === "live" ? (
@@ -159,14 +159,14 @@ export function InvitePanel() {
                         Revoke
                       </button>
                     ) : (
-                      <span style={{ fontSize: 12, color: colors.textFaint }}>—</span>
+                      <span style={{ fontSize: 12, color: colors.textMuted }}>—</span>
                     )}
                   </td>
                 </tr>
               ))}
               {invites.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ ...td, color: colors.textFaint }}>
+                  <td colSpan={7} style={{ ...td, color: colors.textMuted }}>
                     No invites yet.
                   </td>
                 </tr>
@@ -483,7 +483,7 @@ function AccessRequestsSection({
                       overflowWrap: "anywhere",
                     }}
                   >
-                    {r.message || <span style={{ color: colors.textFaint }}>—</span>}
+                    {r.message || <span style={{ color: colors.textMuted }}>—</span>}
                   </td>
                   <td style={{ ...td, whiteSpace: "nowrap", color: colors.textBody }}>
                     {fmt(r.created_at)}
@@ -531,7 +531,7 @@ function AccessRequestsSection({
               ))}
               {requests.length === 0 && (
                 <tr>
-                  <td colSpan={4} style={{ ...td, color: colors.textFaint }}>
+                  <td colSpan={4} style={{ ...td, color: colors.textMuted }}>
                     No {filter} requests.
                   </td>
                 </tr>

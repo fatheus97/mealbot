@@ -4,6 +4,7 @@ and transport-error paths. httpx is mocked — no real network."""
 import logging
 
 import httpx
+import pytest
 
 from app.core.config import settings
 from app.services import email_service
@@ -11,25 +12,36 @@ from app.services import email_service
 _LEAKY_BODY = "Invalid `to` field: victim@example.com is not a valid address"
 
 
-def _install_fake_httpx(monkeypatch, *, status_code=200, raises=False, captured=None):
+def _install_fake_httpx(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    status_code: int = 200,
+    raises: bool = False,
+    captured: dict | None = None,
+) -> None:
     class _FakeResp:
-        def __init__(self):
+        def __init__(self) -> None:
             self.status_code = status_code
             # Model Resend echoing the offending recipient back on a validation
             # error — the exact PII the transactional path must not log.
             self.text = _LEAKY_BODY
 
     class _FakeClient:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-        async def __aenter__(self):
+        async def __aenter__(self) -> _FakeClient:
             return self
 
-        async def __aexit__(self, *args):
+        async def __aexit__(self, *args: object) -> bool:
             return False
 
-        async def post(self, url, headers=None, json=None):
+        async def post(
+            self,
+            url: str,
+            headers: dict | None = None,
+            json: object = None,
+        ) -> _FakeResp:
             if captured is not None:
                 captured["url"] = url
                 captured["headers"] = headers
@@ -38,7 +50,7 @@ def _install_fake_httpx(monkeypatch, *, status_code=200, raises=False, captured=
                 raise httpx.ConnectError("boom")
             return _FakeResp()
 
-    monkeypatch.setattr(email_service.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
 
 
 async def test_send_email_skips_when_unconfigured(monkeypatch):
@@ -51,7 +63,7 @@ async def test_send_email_skips_when_unconfigured(monkeypatch):
         def __init__(self, *a, **k):
             called["post"] = True
 
-    monkeypatch.setattr(email_service.httpx, "AsyncClient", _Boom)
+    monkeypatch.setattr(httpx, "AsyncClient", _Boom)
     assert await email_service.send_email("s", "<p>b</p>") is False
     assert called["post"] is False
 
@@ -107,7 +119,7 @@ async def test_transactional_send_skips_when_api_key_unset(monkeypatch):
         def __init__(self, *a, **k):
             called["post"] = True
 
-    monkeypatch.setattr(email_service.httpx, "AsyncClient", _Boom)
+    monkeypatch.setattr(httpx, "AsyncClient", _Boom)
     assert await email_service.send_transactional("u@e.com", "s", "<p>b</p>") is False
     assert called["post"] is False
 

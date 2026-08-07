@@ -64,7 +64,7 @@ def _sent_args(sent: AsyncMock) -> tuple:
 
 def _link_from(sent: AsyncMock) -> str:
     """Pull the reset URL out of the one captured email body."""
-    html = _sent_args(sent)[2]
+    html: str = _sent_args(sent)[2]
     start = html.index('href="') + len('href="')
     return html[start : html.index('"', start)]
 

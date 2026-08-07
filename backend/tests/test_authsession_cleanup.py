@@ -33,7 +33,7 @@ async def _add_session(
         select(func.count()).select_from(AuthSession)
     )).scalar_one()
     row = AuthSession(
-        user_id=user.id,  # type: ignore[arg-type]
+        user_id=user.id,
         refresh_token_hash=f"{seq:064x}",
         created_at=NOW - timedelta(days=60),
         last_used_at=NOW - timedelta(days=60),

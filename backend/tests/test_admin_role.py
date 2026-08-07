@@ -57,7 +57,7 @@ class TestCreateUserCli:
     @staticmethod
     def _patch_factory(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
         @asynccontextmanager
-        async def fake_factory():  # type: ignore[no-untyped-def]
+        async def fake_factory():
             yield session
 
         monkeypatch.setattr(create_user_script, "async_session_factory", fake_factory)

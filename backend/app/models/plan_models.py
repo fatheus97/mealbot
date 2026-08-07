@@ -4,8 +4,7 @@ import re
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-from pydantic.json_schema import JsonDict
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from app.core.dietary import Allergen, DietType
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
@@ -50,7 +49,7 @@ def _strip_prompt_fence_tags(v: object) -> object:
     return v
 
 
-def _hide_array_bounds(schema: JsonDict) -> None:
+def _hide_array_bounds(schema: dict[str, JsonValue]) -> None:
     """Keep ``maxItems``/``minItems`` out of the EMITTED JSON schema. Pydantic
     still enforces the bound — only what we hand the LLM changes.
 
@@ -322,11 +321,18 @@ class MealPlanRequest(BaseModel):
         mode="before",
     )
     @classmethod
-    def sanitize_input(cls, v):
-        if not v:
+    def sanitize_input(cls, v: object) -> list[str]:
+        # A mode="before" validator receives the raw request body value, so it
+        # must not assume a list. Iterating blind raised TypeError on a scalar,
+        # and pydantic converts only ValueError/AssertionError into a 422 —
+        # TypeError escaped as a 500. A bare string IS iterable, so it never
+        # crashed; it silently became one entry per character.
+        if v is None:
             return []
+        if not isinstance(v, list):
+            raise ValueError("must be a list of strings")
 
-        cleaned_list = []
+        cleaned_list: list[str] = []
         for item in v:
             if not isinstance(item, str):
                 continue
@@ -442,7 +448,7 @@ class IngredientAmount(BaseModel):
 
     @field_validator("quantity_grams")
     @classmethod
-    def validate_realistic_amount(cls, v):
+    def validate_realistic_amount(cls, v: float) -> float:
         if v <= 0:
             raise ValueError("Quantity must be positive.")
         # Raised 10kg -> 30kg for batch cooking: a leftover means its source meal
@@ -951,11 +957,15 @@ class SingleRecipeRequest(BaseModel):
         mode="before",
     )
     @classmethod
-    def sanitize_input(cls, v):
-        # Same unicode-aware whitelist as MealPlanRequest. Duplicated rather
-        # than imported to keep model-layer cross-references minimal.
-        if not v:
+    def sanitize_input(cls, v: object) -> list[str]:
+        # Same unicode-aware whitelist and the same non-list guard as
+        # MealPlanRequest (see there for why TypeError became a 500).
+        # Duplicated rather than imported to keep model-layer cross-references
+        # minimal — so a fix to one is only half a fix.
+        if v is None:
             return []
+        if not isinstance(v, list):
+            raise ValueError("must be a list of strings")
         cleaned: list[str] = []
         for item in v:
             if not isinstance(item, str):
@@ -969,7 +979,7 @@ class SingleRecipeRequest(BaseModel):
 
     @field_validator("note", mode="before")
     @classmethod
-    def sanitize_note(cls, v):
+    def sanitize_note(cls, v: object) -> str | None:
         if v is None or not isinstance(v, str):
             return None
         clean = re.sub(r"[^\w\s\-,.!?()'\"/]", "", v, flags=re.UNICODE).strip()

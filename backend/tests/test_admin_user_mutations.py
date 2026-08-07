@@ -23,7 +23,7 @@ async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
 
 
 async def _seed(db_session: AsyncSession, email: str, **kw: object) -> User:
-    u = User(email=email, hashed_password=get_password_hash("Whatever123"), **kw)  # type: ignore[arg-type]
+    u = User(email=email, hashed_password=get_password_hash("Whatever123"), **kw)
     db_session.add(u)
     await db_session.flush()
     return u
@@ -326,7 +326,7 @@ class TestVerifyEmail:
         if stamped.tzinfo is None:
             stamped = stamped.replace(tzinfo=UTC)
         assert stamped >= before
-        assert _has(await _actions_for(db_session, target.id), "user.verify_email")  # type: ignore[arg-type]
+        assert _has(await _actions_for(db_session, target.id), "user.verify_email")
 
     async def test_audit_row_names_the_actor_and_target(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession,

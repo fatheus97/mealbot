@@ -19,7 +19,7 @@ async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
 
 
 async def _seed(db_session: AsyncSession, email: str, **kw: object) -> User:
-    u = User(email=email, hashed_password=get_password_hash("Whatever123"), **kw)  # type: ignore[arg-type]
+    u = User(email=email, hashed_password=get_password_hash("Whatever123"), **kw)
     db_session.add(u)
     await db_session.flush()
     return u
