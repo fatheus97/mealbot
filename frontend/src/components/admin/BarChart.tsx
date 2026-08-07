@@ -33,7 +33,7 @@ export function BarChart({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          color: colors.textFaint,
+          color: colors.textMuted,
           fontSize: 13,
           border: `1px dashed ${colors.border}`,
           borderRadius: 6,
