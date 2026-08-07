@@ -16,11 +16,11 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     build: {
       rollupOptions: {
-        // Five-page build: index.html (the static marketing landing at `/`),
-        // cs/index.html (its Czech twin at /cs), app.html (the SPA's own
-        // namespace at /app, nginx-routed — see nginx.conf), and two static
-        // legal pages at /privacy and /terms. Keeps one image/nginx/CSP
-        // instead of a second service.
+        // Seven-page build: index.html (the static marketing landing at `/`)
+        // and cs/index.html (its Czech twin at /cs); app.html (the SPA's own
+        // namespace at /app, nginx-routed — see nginx.conf); and the legal
+        // pages in both languages at /privacy, /terms, /cs/privacy and
+        // /cs/terms. Keeps one image/nginx/CSP instead of a second service.
         //
         // The `cs` entry is NESTED on purpose: rollup preserves an input's
         // path relative to the project root, so this emits dist/cs/index.html
@@ -30,6 +30,8 @@ export default defineConfig(({ mode }) => {
           main: resolve(import.meta.dirname, 'index.html'),
           app: resolve(import.meta.dirname, 'app.html'),
           cs: resolve(import.meta.dirname, 'cs/index.html'),
+          csPrivacy: resolve(import.meta.dirname, 'cs/privacy.html'),
+          csTerms: resolve(import.meta.dirname, 'cs/terms.html'),
           privacy: resolve(import.meta.dirname, 'privacy.html'),
           terms: resolve(import.meta.dirname, 'terms.html'),
         },

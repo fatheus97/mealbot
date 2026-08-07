@@ -10,6 +10,21 @@
     />
     <!-- Not a page we want ranking above the product, but it must be reachable. -->
     <meta name="robots" content="index, follow" />
+
+    <!-- Self-canonical. These pages had none, and /privacy.html + /terms.html
+         are live duplicates of the extensionless URLs (nginx's catch-all
+         `try_files $uri` serves the real file), so both were indexable
+         twice. It also disambiguates the hreflang cluster below: an
+         annotation naming a URL whose page does not claim that URL as its
+         own is self-contradictory.
+
+         Both language editions are equally authoritative (terms §13), so
+         neither canonicalises to the other — they are alternates, not
+         copies. x-default is the English one. -->
+    <link rel="canonical" href="https://trymealbot.com/privacy" />
+    <link rel="alternate" hreflang="en" href="https://trymealbot.com/privacy" />
+    <link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs/privacy" />
+    <link rel="alternate" hreflang="x-default" href="https://trymealbot.com/privacy" />
     <meta name="theme-color" content="#242424" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -119,7 +134,7 @@
       <a class="back" href="/">&larr; Back to Mealbot</a>
 
       <h1>Privacy Policy</h1>
-      <p class="muted">Last updated: 6 August 2026</p>
+      <p class="muted">Last updated: <time datetime="2026-08-06">6 August 2026</time></p>
 
       <p>
         This describes what Mealbot actually does with your data — written from the code, not
