@@ -1,19 +1,8 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { ModalShell } from "./ModalShell";
 import { resetPassword } from "../api";
-
-/** Mirrors the backend rules — validate_password_complexity plus the Field's
- *  length bounds (min 8 / max 128) — as an inline hint only; the server is the
- *  real gate. The max check spares a >128-char paste an inaccurate "needs a
- *  digit"-style 422 (length-too-long isn't a complexity failure). */
-function passwordProblem(pw: string): string | null {
-  if (pw.length < 8) return "at least 8 characters";
-  if (pw.length > 128) return "to be 128 characters or fewer";
-  if (!/[A-Z]/.test(pw)) return "an upper-case letter";
-  if (!/[a-z]/.test(pw)) return "a lower-case letter";
-  if (!/\d/.test(pw)) return "a digit";
-  return null;
-}
+import { useI18n } from "../i18n";
+import { passwordProblem } from "../utils/passwordRules";
 
 /**
  * Reset-link landing. The emailed link is `/?reset_token=<token>` (a query
@@ -60,6 +49,7 @@ export function ResetPasswordModal() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleId = useId();
+  const { t } = useI18n();
 
   const problem = useMemo(() => passwordProblem(password), [password]);
   const mismatch = confirm.length > 0 && confirm !== password;
@@ -79,14 +69,14 @@ export function ResetPasswordModal() {
       // Every session was just revoked server-side; clear any stale UI state.
       window.dispatchEvent(new Event("mealbot:logout"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : t("auth.genericError"));
     } finally {
       setPending(false);
     }
   };
 
   return (
-    <ModalShell onClose={close} ariaLabel="Choose a new password" zIndex={1300}>
+    <ModalShell onClose={close} ariaLabel={t("auth.reset.title")} zIndex={1300}>
       <div
         style={{
           backgroundColor: "#fff",
@@ -99,18 +89,17 @@ export function ResetPasswordModal() {
         }}
       >
         <h3 id={titleId} style={{ margin: "0 0 0.75rem 0", fontSize: "1.15rem" }}>
-          Choose a new password
+          {t("auth.reset.title")}
         </h3>
 
         {done ? (
           <>
             <p style={{ margin: "0 0 1.25rem 0", color: "#374151", fontSize: "0.95rem", lineHeight: 1.5 }}>
-              Your password has been updated, and you've been signed out
-              everywhere for security. Please sign in with your new password.
+              {t("auth.reset.done")}
             </p>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button type="button" onClick={close} style={primaryBtn}>
-                Sign in
+                {t("auth.reset.signIn")}
               </button>
             </div>
           </>
@@ -120,7 +109,7 @@ export function ResetPasswordModal() {
               type="password"
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError(null); }}
-              placeholder="New password"
+              placeholder={t("auth.reset.newPassword")}
               autoFocus
               autoComplete="new-password"
               style={inputStyle}
@@ -129,15 +118,15 @@ export function ResetPasswordModal() {
               type="password"
               value={confirm}
               onChange={(e) => { setConfirm(e.target.value); setError(null); }}
-              placeholder="Confirm new password"
+              placeholder={t("auth.reset.confirmPassword")}
               autoComplete="new-password"
               style={inputStyle}
             />
-            {/* Inline guidance: show the first unmet rule, or the mismatch. */}
-            {password.length > 0 && problem && (
-              <p style={hintStyle}>Password needs {problem}.</p>
-            )}
-            {mismatch && <p style={hintStyle}>Passwords don't match.</p>}
+            {/* Inline guidance: show the first unmet rule, or the mismatch.
+                Each rule is a complete sentence of its own — see
+                utils/passwordRules for why it cannot be a fragment. */}
+            {password.length > 0 && problem && <p style={hintStyle}>{t(problem)}</p>}
+            {mismatch && <p style={hintStyle}>{t("auth.password.mismatch")}</p>}
             {error && (
               <div role="alert" style={{ color: "#b91c1c", fontSize: "0.85rem", margin: "0 0 0.75rem 0" }}>
                 {error}
@@ -145,14 +134,14 @@ export function ResetPasswordModal() {
             )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.25rem" }}>
               <button type="button" onClick={close} disabled={pending} style={secondaryBtn(pending)}>
-                Cancel
+                {t("auth.reset.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={pending || password.length === 0 || problem !== null || mismatch}
                 style={{ ...primaryBtn, opacity: pending ? 0.7 : 1 }}
               >
-                {pending ? "Saving…" : "Set new password"}
+                {pending ? t("auth.reset.saving") : t("auth.reset.submit")}
               </button>
             </div>
           </form>

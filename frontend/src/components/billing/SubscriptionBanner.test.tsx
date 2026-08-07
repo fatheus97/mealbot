@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SubscriptionBanner } from "./SubscriptionBanner";
+import { untranslatedEnglishIn } from "../../test/i18nAssertions";
+import { useLocaleStore, DEFAULT_LOCALE } from "../../store/useLocaleStore";
 
 const { startCheckout, openPortal } = vi.hoisted(() => ({
   startCheckout: vi.fn(),
@@ -126,5 +128,62 @@ describe("SubscriptionBanner", () => {
     await userEvent.click(screen.getByRole("button", { name: /subscribe/i }));
     expect(startCheckout).toHaveBeenCalledTimes(1);
     expect(openPortal).not.toHaveBeenCalled();
+  });
+
+  describe("in Czech", () => {
+    beforeEach(() => useLocaleStore.setState({ locale: "cs", explicit: true }));
+    afterEach(() =>
+      useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }),
+    );
+
+    // One case per branch of the message selector. The branches ARE the change
+    // — they replaced a stem plus a shared "— renews {date}" suffix — so a
+    // single smoke render would leave five of the six unproven.
+    it.each([
+      ["trialing", { subscriptionStatus: "trialing", isSubscribed: true }],
+      ["active", { subscriptionStatus: "active", isSubscribed: true }],
+      ["past_due", { subscriptionStatus: "past_due", isSubscribed: true }],
+      ["subscribe", { subscriptionStatus: "canceled", isSubscribed: false }],
+      [
+        "trial canceled",
+        { subscriptionStatus: "trialing", isSubscribed: true, cancelAtPeriodEnd: true },
+      ],
+      [
+        "subscription canceled",
+        { subscriptionStatus: "active", isSubscribed: true, cancelAtPeriodEnd: true },
+      ],
+    ])("renders no English in the %s state", (_label, overrides) => {
+      mockedUseAuth.mockReturnValue(
+        authState({ currentPeriodEnd: "2026-09-01T00:00:00Z", ...overrides }),
+      );
+      const { container } = render(<SubscriptionBanner />);
+      expect(untranslatedEnglishIn(container)).toEqual([]);
+    });
+
+    it("formats the renewal date in Czech, not the browser's locale", () => {
+      // jsdom reports navigator.language as en-US, so the old
+      // `toLocaleDateString(undefined, …)` rendered "Sep 1, 2026" right here.
+      // That is the bug; this asserts it is gone.
+      mockedUseAuth.mockReturnValue(
+        authState({
+          subscriptionStatus: "active",
+          isSubscribed: true,
+          currentPeriodEnd: "2026-09-01T00:00:00Z",
+        }),
+      );
+      render(<SubscriptionBanner />);
+      expect(screen.getByRole("status").textContent).not.toMatch(/Sep/);
+    });
+
+    it("uses a separate sentence when there is no date, not an empty hole", () => {
+      // Dated and undated are different keys precisely so a null period end
+      // cannot leave a dangling ", obnovuje se ." behind.
+      mockedUseAuth.mockReturnValue(
+        authState({ subscriptionStatus: "active", isSubscribed: true, currentPeriodEnd: null }),
+      );
+      render(<SubscriptionBanner />);
+      const text = screen.getByRole("status").textContent ?? "";
+      expect(text).not.toMatch(/\s\.|,\s*\.|,\s*$/);
+    });
   });
 });

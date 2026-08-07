@@ -2,6 +2,8 @@ import { type CSSProperties, type FormEvent, useState } from "react";
 import { ModalShell } from "../ModalShell";
 import { useAuth } from "../../contexts/AuthContext";
 import { changeEmail } from "../../api";
+import { useI18n } from "../../i18n";
+import { Trans } from "../../i18n/Trans";
 
 /**
  * "Change your email address" modal.
@@ -29,6 +31,7 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const { t } = useI18n();
 
   const unchanged = newEmail.trim().toLowerCase() === (email ?? "").trim().toLowerCase();
   const canSubmit = newEmail.trim().length > 0 && password.length > 0 && !unchanged;
@@ -46,42 +49,43 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
       await refreshProfile();
       setDone(target);
     } catch (err) {
-      // Surfaced verbatim: "Current password is incorrect", "Email already
-      // registered" and "That is already the email address on your account"
-      // each need a different response from the user.
-      setError(err instanceof Error ? err.message : "Could not change your email address.");
+      // Surfaced verbatim, and that stays correct now the UI is translated:
+      // all three of these ("Current password is incorrect", "Email already
+      // registered", "That is already the email address on your account")
+      // are raised as LocalizedHTTPException, so the server already sends them
+      // in the caller's language. Each needs a different response from the
+      // user, so they must not be collapsed into one generic message. Only the
+      // non-Error fallback is a client-side string.
+      setError(err instanceof Error ? err.message : t("auth.changeEmail.failed"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <ModalShell onClose={onClose} ariaLabel="Change email address" zIndex={1200}>
+    <ModalShell onClose={onClose} ariaLabel={t("auth.changeEmail.title")} zIndex={1200}>
       <div style={card}>
         {done ? (
           <>
-            <h3 style={heading}>Check your new inbox</h3>
+            <h3 style={heading}>{t("auth.changeEmail.doneTitle")}</h3>
             <p style={{ margin: "0 0 1.25rem", fontSize: 14, color: bodyColor }}>
-              Your account now uses <strong>{done}</strong>. We've sent a confirmation
-              link there — open it to finish. You'll sign in with the new address from
-              now on, and any other devices have been signed out.
+              <Trans k="auth.changeEmail.doneBody" nodes={{ email: <strong>{done}</strong> }} />
             </p>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button type="button" onClick={onClose} style={primaryBtn}>
-                Done
+                {t("auth.changeEmail.done")}
               </button>
             </div>
           </>
         ) : (
           <form onSubmit={(e) => void onSubmit(e)}>
-            <h3 style={heading}>Change email address</h3>
+            <h3 style={heading}>{t("auth.changeEmail.title")}</h3>
             <p style={{ margin: "0 0 1rem", fontSize: 13, color: mutedColor }}>
-              Mistyped it at sign-up, or moved address? Enter the correct one and we'll
-              send the confirmation link there instead.
+              {t("auth.changeEmail.body")}
             </p>
 
             <label style={labelStyle}>
-              New email address
+              {t("auth.changeEmail.newEmail")}
               <input
                 type="email"
                 autoComplete="email"
@@ -90,7 +94,7 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
                   setNewEmail(e.target.value);
                   setError(null);
                 }}
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder")}
                 maxLength={128}
                 required
                 style={inputStyle}
@@ -98,7 +102,7 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
             </label>
 
             <label style={labelStyle}>
-              Current password
+              {t("auth.changeEmail.currentPassword")}
               <input
                 type="password"
                 autoComplete="current-password"
@@ -112,7 +116,7 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
               />
             </label>
             <p style={{ margin: "-0.25rem 0 0", fontSize: 12, color: mutedColor }}>
-              We ask for your password because whoever can read your email can reset it.
+              {t("auth.changeEmail.why")}
             </p>
 
             <div
@@ -124,15 +128,15 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
               }}
             >
               <button type="button" onClick={onClose} style={secondaryBtn}>
-                Cancel
+                {t("auth.changeEmail.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={busy || !canSubmit}
-                title={unchanged && newEmail ? "That's already your address." : undefined}
+                title={unchanged && newEmail ? t("auth.changeEmail.unchanged") : undefined}
                 style={{ ...primaryBtn, opacity: busy || !canSubmit ? 0.6 : 1 }}
               >
-                {busy ? "Changing…" : "Change address"}
+                {busy ? t("auth.changeEmail.changing") : t("auth.changeEmail.submit")}
               </button>
             </div>
 

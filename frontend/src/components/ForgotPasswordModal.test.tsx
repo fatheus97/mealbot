@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ForgotPasswordModal } from './ForgotPasswordModal';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
 
 vi.mock('../api', () => ({
   requestPasswordReset: vi.fn(),
@@ -61,5 +63,32 @@ describe('ForgotPasswordModal', () => {
   it('prefills the email passed from the login form', () => {
     render(<ForgotPasswordModal onClose={vi.fn()} initialEmail="prefill@x.com" />);
     expect(screen.getByPlaceholderText(/you@example/i)).toHaveValue('prefill@x.com');
+  });
+
+  describe('in Czech', () => {
+    beforeEach(() => useLocaleStore.setState({ locale: 'cs', explicit: true }));
+    afterEach(() =>
+      useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }),
+    );
+
+    it('renders no English on the form', () => {
+      render(<ForgotPasswordModal onClose={vi.fn()} />);
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
+
+    it('renders no English on the neutral sent confirmation', async () => {
+      // A separate branch, and the one interpolating the address mid-sentence,
+      // so it needs its own render rather than riding on the form's.
+      mockedRequest.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<ForgotPasswordModal onClose={vi.fn()} />);
+      await user.type(
+        screen.getByPlaceholderText(/vas@email/i),
+        'someone@example.com',
+      );
+      await user.click(screen.getByRole('button', { name: /poslat odkaz/i }));
+      expect(await screen.findByText(/odkaz platí 30 minut/i)).toBeInTheDocument();
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
   });
 });

@@ -3,17 +3,8 @@ import { ModalShell } from "./ModalShell";
 import { useAuth } from "../contexts/AuthContext";
 import { AutoLoginAfterRegisterError } from "../contexts/authErrors";
 import { TermsConsent } from "./auth/TermsConsent";
-
-/** Mirrors the backend rules (validate_password_complexity + the 8..128 length
- *  bounds) as an inline hint only; the server is the real gate. */
-function passwordProblem(pw: string): string | null {
-  if (pw.length < 8) return "at least 8 characters";
-  if (pw.length > 128) return "to be 128 characters or fewer";
-  if (!/[A-Z]/.test(pw)) return "an upper-case letter";
-  if (!/[a-z]/.test(pw)) return "a lower-case letter";
-  if (!/\d/.test(pw)) return "a digit";
-  return null;
-}
+import { useI18n } from "../i18n";
+import { passwordProblem } from "../utils/passwordRules";
 
 /**
  * Invite-link landing. An admin-generated link is `/?invite=<token>` (a query
@@ -62,6 +53,7 @@ export function InviteRegisterModal() {
   const [error, setError] = useState<string | null>(null);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const titleId = useId();
+  const { t } = useI18n();
 
   const problem = useMemo(() => passwordProblem(password), [password]);
   const mismatch = confirm.length > 0 && confirm !== password;
@@ -86,7 +78,7 @@ export function InviteRegisterModal() {
         // rather than letting them retry and hit a 409 on a taken email.
         setNeedsSignIn(true);
       } else {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
+        setError(err instanceof Error ? err.message : t("auth.genericError"));
       }
     } finally {
       setPending(false);
@@ -94,34 +86,31 @@ export function InviteRegisterModal() {
   };
 
   return (
-    <ModalShell onClose={close} ariaLabel="Create your account" zIndex={1300}>
+    <ModalShell onClose={close} ariaLabel={t("auth.invite.title")} zIndex={1300}>
       <div style={cardStyle}>
         <h3 id={titleId} style={{ margin: "0 0 0.75rem 0", fontSize: "1.15rem" }}>
-          Create your account
+          {t("auth.invite.title")}
         </h3>
 
         {needsSignIn ? (
           <>
-            <p style={bodyText}>
-              Your account was created, but we couldn't sign you in automatically.
-              Please sign in with the email and password you just chose.
-            </p>
+            <p style={bodyText}>{t("auth.invite.needsSignIn")}</p>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button type="button" onClick={close} style={primaryBtn}>
-                Sign in
+                {t("auth.invite.signIn")}
               </button>
             </div>
           </>
         ) : (
           <form onSubmit={handleSubmit}>
             <p style={{ ...bodyText, marginBottom: "0.75rem" }}>
-              You've been invited to Mealbot. Choose your login details below.
+              {t("auth.invite.body")}
             </p>
             <input
               type="email"
               value={email}
               onChange={(e) => { setEmail(e.target.value); setError(null); }}
-              placeholder="Email"
+              placeholder={t("auth.invite.email")}
               autoFocus
               autoComplete="email"
               style={inputStyle}
@@ -130,7 +119,7 @@ export function InviteRegisterModal() {
               type="password"
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError(null); }}
-              placeholder="Password"
+              placeholder={t("auth.invite.password")}
               autoComplete="new-password"
               style={inputStyle}
             />
@@ -138,7 +127,7 @@ export function InviteRegisterModal() {
               type="password"
               value={confirm}
               onChange={(e) => { setConfirm(e.target.value); setError(null); }}
-              placeholder="Confirm password"
+              placeholder={t("auth.invite.confirmPassword")}
               autoComplete="new-password"
               style={inputStyle}
             />
@@ -150,8 +139,8 @@ export function InviteRegisterModal() {
                 disabled={pending}
               />
             </div>
-            {password.length > 0 && problem && <p style={hintStyle}>Password needs {problem}.</p>}
-            {mismatch && <p style={hintStyle}>Passwords don't match.</p>}
+            {password.length > 0 && problem && <p style={hintStyle}>{t(problem)}</p>}
+            {mismatch && <p style={hintStyle}>{t("auth.password.mismatch")}</p>}
             {error && (
               <div role="alert" style={{ color: "#b91c1c", fontSize: "0.85rem", margin: "0 0 0.75rem 0" }}>
                 {error}
@@ -159,14 +148,14 @@ export function InviteRegisterModal() {
             )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.25rem" }}>
               <button type="button" onClick={close} disabled={pending} style={secondaryBtn(pending)}>
-                Cancel
+                {t("auth.invite.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={pending || !emailOk || password.length === 0 || problem !== null || mismatch || !acceptTerms}
                 style={{ ...primaryBtn, opacity: pending ? 0.7 : 1 }}
               >
-                {pending ? "Creating…" : "Create account"}
+                {pending ? t("auth.invite.creating") : t("auth.invite.submit")}
               </button>
             </div>
           </form>
