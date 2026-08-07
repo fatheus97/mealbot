@@ -8,6 +8,7 @@ import {
   startOfMonthISO,
   addMonthsISO,
   monthLabelOf,
+  monthLabelIn,
   monthMatrix,
   isSameMonthISO,
   dayOfMonth,
@@ -179,6 +180,50 @@ describe("planDates", () => {
       const mon = monthMatrix("2026-02-01", 1);
       expect(mon[0][0]).toBe("2026-01-26");
       expect(mon.flat()).toContain("2026-02-01");
+    });
+  });
+
+  describe("monthLabelIn (the locative)", () => {
+    // Every month spelled out. A hand-written table's failure mode is ONE wrong
+    // entry, which a spot-check of August would sail past — and nothing else in
+    // the app would catch it, because Intl never produces this form.
+    it.each([
+      ["2026-01-05", "lednu"],
+      ["2026-02-05", "únoru"],
+      ["2026-03-05", "březnu"],
+      ["2026-04-05", "dubnu"],
+      ["2026-05-05", "květnu"],
+      ["2026-06-05", "červnu"],
+      ["2026-07-05", "červenci"],
+      ["2026-08-05", "srpnu"],
+      ["2026-09-05", "září"],
+      ["2026-10-05", "říjnu"],
+      ["2026-11-05", "listopadu"],
+      ["2026-12-05", "prosinci"],
+    ])("renders %s as '%s 2026' in Czech", (iso, expected) => {
+      expect(monthLabelIn(iso, "cs")).toBe(`${expected} 2026`);
+    });
+
+    it("differs from the standalone form for every month except září", () => {
+      // září is indeclinable, so nominative and locative coincide — and that is
+      // the one month where "they must differ" would be a WRONG assertion.
+      for (let m = 0; m < 12; m++) {
+        const iso = `2026-${String(m + 1).padStart(2, "0")}-05`;
+        const standalone = monthLabelOf(iso, "cs");
+        const inSentence = monthLabelIn(iso, "cs");
+        if (m === 8) expect(inSentence).toBe(standalone);
+        else expect(inSentence).not.toBe(standalone);
+      }
+    });
+
+    it("leaves English alone — it has no cases to get wrong", () => {
+      expect(monthLabelIn("2026-08-05", "en")).toBe(monthLabelOf("2026-08-05", "en"));
+      expect(monthLabelIn("2026-08-05", "en")).toMatch(/August 2026/);
+    });
+
+    it("keeps the year, and the right one across a year boundary", () => {
+      expect(monthLabelIn("2025-12-31", "cs")).toBe("prosinci 2025");
+      expect(monthLabelIn("2026-01-01", "cs")).toBe("lednu 2026");
     });
   });
 });

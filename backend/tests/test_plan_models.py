@@ -3,11 +3,13 @@
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.core.dietary import Allergen, DietType
 from app.core.meal_types import MealType
 from app.models.plan_models import (
+    _MEAL_PLAN_SANITIZED_FIELDS,
+    _SINGLE_RECIPE_SANITIZED_FIELDS,
     FrozenMeal,
     IngredientAmount,
     MealPlanRequest,
@@ -163,6 +165,58 @@ class TestMealPlanRequestSanitization:
             people_count=2,
         )
         assert len(req.taste_preferences) <= 20
+
+    def test_each_field_keeps_up_to_its_own_declared_max(self) -> None:
+        """The sanitiser used to hardcode [:20] for every field it validates,
+        while `avoid_ingredients` declares max_length=50. Because it runs
+        mode="before", that truncation happened BEFORE pydantic ever evaluated
+        max_length — so the declared 50 was unreachable and items 21-50 of a
+        user's avoid-list vanished with no error and no log, on a field
+        documented as "allergies, dislikes"."""
+        req = MealPlanRequest(
+            taste_preferences=[f"t{i}" for i in range(60)],
+            avoid_ingredients=[f"a{i}" for i in range(60)],
+            ingredients_to_use=[f"u{i}" for i in range(60)],
+            past_meals=[f"p{i}" for i in range(60)],
+            meals_per_day=3,
+            people_count=2,
+        )
+        assert len(req.avoid_ingredients) == 50  # its own declared bound
+        assert len(req.taste_preferences) == 20
+        assert len(req.ingredients_to_use) == 20
+        assert len(req.past_meals) == 20
+
+    def test_single_recipe_request_honours_its_own_maxes_too(self) -> None:
+        req = SingleRecipeRequest(
+            meal_type=MealType.MAIN_COURSE,
+            taste_preferences=[f"t{i}" for i in range(60)],
+            avoid_ingredients=[f"a{i}" for i in range(60)],
+            ingredients_to_use=[f"u{i}" for i in range(60)],
+        )
+        assert len(req.avoid_ingredients) == 50
+        assert len(req.taste_preferences) == 20
+        assert len(req.ingredients_to_use) == 20
+
+    @pytest.mark.parametrize(
+        ("model", "fields"),
+        [
+            (MealPlanRequest, _MEAL_PLAN_SANITIZED_FIELDS),
+            (SingleRecipeRequest, _SINGLE_RECIPE_SANITIZED_FIELDS),
+        ],
+    )
+    def test_every_sanitized_field_declares_its_own_max_length(
+        self, model: type[BaseModel], fields: tuple[str, ...]
+    ) -> None:
+        """The cap is READ from each field's max_length, so a sanitised field
+        that declares none would silently fall back to a default. Fail here
+        instead — this is the guard that keeps declaration and behaviour from
+        drifting apart again."""
+        for name in fields:
+            declared = [
+                m for m in model.model_fields[name].metadata
+                if getattr(m, "max_length", None) is not None
+            ]
+            assert declared, f"{model.__name__}.{name} must declare max_length"
 
     def test_handles_none_input(self) -> None:
         # model_validate, not the constructor: the fields are declared list[str]
