@@ -103,27 +103,21 @@ describe("Czech landing page", () => {
       expect(normalized).not.toContain("Regulation (EU) No 1169/2011");
     });
 
-    it("labels the legal links as English rather than pretending or 404ing", () => {
-      // There are no Czech legal pages yet, and inventing /cs/privacy would
-      // have shipped two dead links. Linking the real English documents is the
-      // honest interim — but only if the page SAYS they are in English, so the
-      // visitor knows before clicking, and `hreflang="en"` tells a screen
-      // reader and a crawler the same thing.
-      expect(body).toContain('href="/privacy" hreflang="en"');
-      expect(body).toContain('href="/terms" hreflang="en"');
-      expect(body).not.toContain("/cs/privacy");
-      expect(body).not.toContain("/cs/terms");
+    it("links the CZECH legal pages, with no English fallback left behind", () => {
+      // Until the Czech editions existed, these pointed at /privacy and /terms
+      // with a visible "(v angličtině)" label. Both editions are now equally
+      // authoritative, so a Czech reader gets the Czech ones and that label is
+      // not merely unnecessary, it would be wrong.
+      expect(body).toContain('href="/cs/privacy"');
+      expect(body).toContain('href="/cs/terms"');
+      expect(body).not.toMatch(/href="\/(privacy|terms)"/);
+      expect(body).not.toContain("v angličtině");
 
-      // EVERY link to an English legal page carries the label, checked one
-      // link at a time. A bare count passed at ">= 3" while the consent row's
-      // TERMS link had none — on the one row where the visitor is actively
-      // agreeing to something, which is the worst place to leave it off.
-      const links = [...body.matchAll(/<a href="\/(privacy|terms)"[^>]*>([\s\S]*?)<\/a>\s*(<span class="muted">\(v angličtině\)<\/span>)?/g)];
-      expect(links.length).toBe(4); // footer ×2, consent row ×2
-      for (const m of links) {
-        const labelled = m[2].includes("v angličtině") || Boolean(m[3]);
-        expect(labelled, `unlabelled /${m[1]} link: ${m[0].slice(0, 80)}`).toBe(true);
-      }
+      // Each of the four links, counted individually. A count-based assertion
+      // here previously passed while the consent row's terms link was the odd
+      // one out.
+      const links = [...body.matchAll(/<a href="\/cs\/(privacy|terms)"/g)];
+      expect(links.length).toBe(4); // footer x2, consent row x2
     });
 
     it("formats prices the Czech way", () => {
@@ -200,25 +194,29 @@ describe("hreflang cluster", () => {
       }
     });
 
-    it("the sitemap lists exactly the pages the tags claim, with the same URLs", () => {
+    it("the sitemap agrees with this cluster's in-page tags, URL for URL", () => {
       // Third statement of the same cluster, and the one most likely to rot:
       // sitemap.xml is a hand-edited file in public/ that nothing else reads,
       // so adding a locale and forgetting it here is silent. A URL that
       // disagrees with the in-page tag by even a trailing slash is a
       // different URL to Google and breaks the group.
+      //
+      // The file now carries THREE clusters — landing, privacy, terms. This
+      // suite owns the landing one; legalPages.test.ts owns the other two.
+      // So this asserts containment, not equality: neither suite has to know
+      // the whole file, and adding a fourth cluster breaks neither.
       const sitemap = readFileSync(resolve(process.cwd(), "dist/sitemap.xml"), "utf-8");
-      const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]).sort();
-      expect(locs).toEqual([EXPECTED.en, EXPECTED.cs].sort());
+      const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+      expect(locs).toContain(EXPECTED.en);
+      expect(locs).toContain(EXPECTED.cs);
+      expect(new Set(locs).size, "duplicate <loc> in sitemap").toBe(locs.length);
 
-      // Its xhtml:link alternates must name the same set as the in-page tags.
-      const alts = new Set(
-        [...sitemap.matchAll(/hreflang="([^"]+)" href="([^"]+)"/g)].map((m) => `${m[1]} ${m[2]}`),
+      const alts = [...sitemap.matchAll(/hreflang="([^"]+)" href="([^"]+)"/g)].map(
+        (m) => `${m[1]} ${m[2]}`,
       );
-      expect([...alts].sort()).toEqual(
-        Object.entries(EXPECTED)
-          .map(([k, v]) => `${k} ${v}`)
-          .sort(),
-      );
+      for (const [k, v] of Object.entries(EXPECTED)) {
+        expect(alts, `landing cluster is missing ${k}`).toContain(`${k} ${v}`);
+      }
     });
   });
 });
