@@ -51,6 +51,7 @@ fi
 
 changed=0
 new_timers=()
+edited_timers=()
 
 for src in "$SRC_DIR"/mealbot-*.service "$SRC_DIR"/mealbot-*.timer; do
   # The literal glob survives when a pattern matches nothing (no `nullglob`, on
@@ -70,8 +71,12 @@ for src in "$SRC_DIR"/mealbot-*.service "$SRC_DIR"/mealbot-*.timer; do
     install -m 0644 "$src" "$dst"
     echo "sync-systemd-units: installed ${name}"
     changed=1
-    if [ "$was_absent" -eq 1 ] && [ "${name##*.}" = "timer" ]; then
-      new_timers+=("$name")
+    if [ "${name##*.}" = "timer" ]; then
+      if [ "$was_absent" -eq 1 ]; then
+        new_timers+=("$name")
+      else
+        edited_timers+=("$name")
+      fi
     fi
   fi
 done
@@ -81,6 +86,29 @@ done
 if [ "$changed" -eq 1 ]; then
   "$SYSTEMCTL" daemon-reload
 fi
+
+# `daemon-reload` alone does NOT reschedule a running timer. It refreshes
+# systemd's cached unit definition, but the next elapse is RUNTIME state,
+# recomputed only when the timer re-enters its waiting state — on restart, or
+# after it next fires under the OLD schedule. So editing `OnCalendar=` on the
+# nightly backup would look applied here (file installed, reload done, exit 0)
+# and change nothing until the next 02:30 — the precise "looks applied, isn't"
+# failure this script exists to end, reintroduced one layer up. The manual
+# procedure in README §"Change a schedule" always said `restart` for this reason.
+#
+# Only when the timer is ACTIVE. `restart` would START a stopped one, which is
+# how an operator's deliberate `systemctl disable --now` would come back to life
+# ten minutes later — the invariant the enable branch above exists to protect.
+#
+# Timers only, never services: these are all Type=oneshot, so restarting a
+# .service would RUN the job (a backup, a prune) as a side effect of editing a
+# comment in it.
+for timer in "${edited_timers[@]+"${edited_timers[@]}"}"; do
+  if "$SYSTEMCTL" is-active --quiet "$timer"; then
+    echo "sync-systemd-units: restarting ${timer} (schedule may have changed)"
+    "$SYSTEMCTL" restart "$timer"
+  fi
+done
 
 # `enable --now` both schedules the timer and starts it, so a new job does not
 # wait for a reboot. Runs after daemon-reload, or systemd would enable a unit it

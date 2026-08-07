@@ -514,8 +514,15 @@ rehearsed without touching production.
 
 Reconciles `/etc/systemd/system/` with `deploy/systemd/` every ten minutes: any
 unit whose installed copy differs from the repo is reinstalled, `daemon-reload`
-runs if anything changed, and a timer whose file was **absent** is enabled and
-started.
+runs if anything changed, a timer whose file was **absent** is enabled and
+started, and an edited timer that is **already running** is restarted.
+
+That last one is not redundant with `daemon-reload`: the reload refreshes
+systemd's cached unit definition, but a timer's next elapse is *runtime* state,
+recomputed only when it re-enters the waiting state. Without the restart, editing
+`OnCalendar=` on the nightly backup would look applied — file installed, reload
+done — and keep firing on the old schedule until it next ran. A stopped timer is
+deliberately left stopped (a restart would start it).
 
 This is the unit that makes every other section here self-applying. It is also
 the last thing in the deployment that needs a manual install — the other two
@@ -527,10 +534,14 @@ bind-mounted Caddyfile).
 
 - **Never removes** a unit that is installed but absent from the repo. Delete
   those by hand (see Uninstall).
-- **Never re-enables** a timer you disabled. A timer is enabled only the first
-  time its file lands, so `systemctl disable mealbot-foo.timer` sticks instead of
-  coming back ten minutes later. Editing a unit reinstalls it but leaves its
-  enabled/disabled state exactly as you set it.
+- **Never re-enables or starts** a timer you disabled. A timer is enabled only
+  the first time its file lands, so `systemctl disable mealbot-foo.timer` sticks
+  instead of coming back ten minutes later. Editing a unit reinstalls it and
+  restarts it *only if it was already running*, so its enabled/disabled state
+  stays exactly as you set it.
+- **Never restarts a `.service`.** They are all `Type=oneshot`, so a restart
+  would *run* the backup or the prune as a side effect of editing a comment in
+  the unit. Only timers are restarted.
 
 ### Root, and why that is not a new grant
 
@@ -576,8 +587,9 @@ box.
 ## Change a schedule
 
 Edit `OnCalendar=` in the relevant `.timer` (systemd calendar syntax) and merge
-it. With §7 installed that is the whole procedure — the sync installs it and
-reloads within ten minutes.
+it. With §7 installed that is the whole procedure — the sync installs it,
+reloads, and restarts the timer within ten minutes, which is what actually
+reschedules it (`daemon-reload` alone would not; see §7).
 
 To apply it immediately, or on a box without §7:
 
