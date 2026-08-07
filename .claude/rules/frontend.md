@@ -107,8 +107,8 @@ Reaching the hard states:
     rows older than `demo_session_expire_minutes` (120). `WHERE is_demo = true`
     only ever touches rows alive at that instant. Revert anyway — bounded is not
     the same as clean.
-  - **Do NOT "simplify" this to logging in as `admin@mealbotdev.com` (id 17) or
-    `admin@test.com` (id 29).** Both are `is_admin` in the local dev DB and both
+  - **Do NOT "simplify" this to logging in as `admin@mealbotdev.com` or
+    `admin@test.com`.** Both are `is_admin` in the local dev DB and both
     look like the tidier option, but reaching them means typing a password into a
     login form — which an agent must not do, even with dev credentials the owner
     supplies. The demo account is used here *because* its login is passwordless.
