@@ -224,6 +224,61 @@ class TestMealPlanRequestSanitization:
         )
         assert req.taste_preferences == ["valid", "also-valid"]
 
+    # These four fields share one `mode="before"` validator. Built via
+    # model_validate rather than the constructor because that is the path
+    # FastAPI actually uses to bind the request body, and it accepts the
+    # raw dict a malformed client would send.
+    SANITIZED_FIELDS = [
+        "taste_preferences",
+        "avoid_ingredients",
+        "ingredients_to_use",
+        "past_meals",
+    ]
+
+    @pytest.mark.parametrize("bad", [5, True, 1.5, {"a": "b"}])
+    @pytest.mark.parametrize("field", SANITIZED_FIELDS)
+    def test_non_iterable_rejected_instead_of_500(self, field: str, bad: object) -> None:
+        """`sanitize_input` iterated `v` without checking it was a list, so a
+        scalar raised TypeError from inside the validator. Pydantic converts
+        ValueError/AssertionError into a 422 but lets TypeError propagate, and
+        app/main.py registers no global handler — so `{"taste_preferences": 5}`
+        on POST /api/plan returned a 500 to any authenticated user."""
+        with pytest.raises(ValidationError):
+            MealPlanRequest.model_validate(
+                {field: bad, "meals_per_day": 3, "people_count": 2}
+            )
+
+    @pytest.mark.parametrize("field", SANITIZED_FIELDS)
+    def test_bare_string_rejected_not_split_into_characters(self, field: str) -> None:
+        """A bare string IS iterable, so it never crashed — it silently became
+        one entry per character ("spicy" -> ['s','p','i','c','y']) and those
+        five junk preferences went straight into the LLM prompt. Sending a
+        string where the API wants a list is the commonest client mistake, so
+        it has to 422 rather than quietly corrupt the request."""
+        with pytest.raises(ValidationError):
+            MealPlanRequest.model_validate(
+                {field: "spicy", "meals_per_day": 3, "people_count": 2}
+            )
+
+    def test_empty_and_none_still_normalize_to_empty_list(self) -> None:
+        """Guard against over-tightening: None and [] are legitimate absent
+        values and must keep normalizing to [], not start raising.
+
+        Note the field is declared `list[str]`, not `list[str] | None`, yet the
+        validator accepts None by contract — the annotation is narrower than
+        the real contract. Left as-is here; widening it is a separate change.
+        """
+        req = MealPlanRequest.model_validate(
+            {
+                "taste_preferences": None,
+                "avoid_ingredients": [],
+                "meals_per_day": 3,
+                "people_count": 2,
+            }
+        )
+        assert req.taste_preferences == []
+        assert req.avoid_ingredients == []
+
     def test_baby_food_diet_type_accepted(self):
         req = MealPlanRequest(
             diet_type="baby_food",
@@ -700,3 +755,18 @@ class TestDietTypesAndAllergens:
         )
         assert req.diet_types == [DietType.VEGETARIAN]
         assert req.diet_type == DietType.VEGETARIAN
+
+    @pytest.mark.parametrize("bad", [5, "spicy"])
+    @pytest.mark.parametrize(
+        "field", ["taste_preferences", "avoid_ingredients", "ingredients_to_use"]
+    )
+    def test_single_recipe_request_rejects_non_list(
+        self, field: str, bad: object
+    ) -> None:
+        """SingleRecipeRequest carries its own copy of sanitize_input (the model
+        file says it was duplicated rather than imported), so it needs its own
+        guard and its own test. CookRecipeRequest inherits both.
+
+        Reaches POST /api/recipe/generate and POST /api/recipe/cook."""
+        with pytest.raises(ValidationError):
+            SingleRecipeRequest.model_validate({field: bad})

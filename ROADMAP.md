@@ -197,15 +197,27 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 **Operating the deployment** (reference):
 - **Deploys are automatic — merging to `main` IS the deploy.**
   `.github/workflows/deploy.yml` fires on `push: branches: [main]`, SSHes to the
-  box (forced `command=".../deploy.sh"`), and `deploy.sh` pulls `origin/main` and
-  rebuilds. A squash-merge is live on trymealbot.com in ~2 min, migrations
-  included — `deploy.sh` runs `alembic upgrade head` **explicitly before** the
-  container swap, so if a migration fails the old containers keep serving traffic
-  (`scripts/deploy.sh:8,27,30`). The compose `migrate` service also fires during
+  box (forced `command=".../deploy.sh"`), and that runs **two** files: the
+  installed copy is `scripts/deploy-shim.sh`, which pulls `origin/main` and
+  `exec`s `scripts/deploy.sh` — the split exists because the installed copy is a
+  COPY and drifted for months, so only the shim is ever installed and everything
+  that changes lives in the repo file. A squash-merge is live on trymealbot.com
+  in ~2 min, migrations included — `deploy.sh` runs `alembic upgrade head`
+  **explicitly before** the container swap, so if a migration fails the old
+  containers keep serving traffic (`scripts/deploy.sh:33,36`). It also reloads
+  Caddy after the swap, piping the Caddyfile in on stdin — the bind-mounted copy
+  inside the container goes stale on a pull (pinned inode), so reloading that
+  path silently re-applies the OLD config. The compose `migrate` service also fires during
   the `up -d` swap, but on this path it's a redundant no-op safety net — **don't
   "simplify away" the explicit step**, it's what buys the zero-downtime ordering.
   Check a deploy with `gh run list --workflow=deploy.yml`. *(Caveat: a Dependabot
   **bot** auto-merge does not trigger the workflow — a normal merge does.)*
+- **Installing the shim** — one time, and only if `scripts/deploy-shim.sh` itself
+  changes (it is four lines precisely so it shouldn't):
+  `cd /opt/mealbot && git pull && cp scripts/deploy-shim.sh deploy.sh`. Confirm
+  the forced command's path first with
+  `sed "s/ ssh-.*//" ~deploy/.ssh/authorized_keys`. Editing `scripts/deploy.sh`
+  needs **no** install — that is the whole point of the split.
 - Access: SSH to the server (host + credentials kept in local notes, out of the repo).
 - Manual deploy — **fallback only** (if deploy.yml failed, or an out-of-band change
   on the box): `cd /opt/mealbot && git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.

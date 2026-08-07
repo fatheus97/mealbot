@@ -27,10 +27,19 @@ export const colors = {
   text: "#111827",
   /** Body copy. */
   textBody: "#374151",
-  /** Muted labels (uppercase captions, table headers). */
+  /**
+   * Muted labels, captions, table headers, empty states and placeholder
+   * dashes — everything below body copy.
+   *
+   * There used to be a fainter fourth tier (`textFaint: #9ca3af`) below this
+   * one, used for empty-state dashes and sub-labels. It measured 2.43:1 on
+   * `surface` and 2.54:1 on `card` — enabled content, well under AA — and
+   * there is no room to keep the tier: #6b7280 at 4.63:1 is the LIGHTEST
+   * colour that still clears 4.5 on #f9fafb, so any visibly fainter shade
+   * fails by construction. Collapsed into this one rather than picking a
+   * lighter value that merely looks like it passes.
+   */
   textMuted: "#6b7280",
-  /** Faint sub-text / placeholders / empty states. */
-  textFaint: "#9ca3af",
   /** Default border (cards, table header rules). */
   border: "#e5e7eb",
   /** Slightly stronger border (buttons). */

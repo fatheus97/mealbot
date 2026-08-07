@@ -26,9 +26,94 @@ Drive the browser preview and check **dark AND light**:
 `resize_window { colorScheme: "dark" }`, then `"light"`. Confirm real contrast —
 compare computed `color` vs `background` (via `javascript_tool` / `getComputedStyle`)
 or a screenshot. A two-theme check is **not optional** for visible changes; the
-white-on-white bug has shipped more than once. (A proper automated visual-regression
-setup — Playwright snapshots in dark+light — is the long-term fix; tracked under
-ROADMAP "Frontend E2E (U-8)". Until then this manual check is the guardrail.)
+white-on-white bug has shipped more than once.
+
+**You are not the only guardrail — `frontend/src/test/contrast.ts` is.** That suite
+does WCAG AA maths on **every inline background/foreground pair in the app source**,
+in **both** schemes, and carries negative controls asserting the exact colours that
+shipped each past bug still fail. It runs in CI (`npm test`, inside the `frontend
+build` job). It is block-based and reads the `bg`/`text`/`fg` shorthands too, so
+multi-line `style={{ … }}` objects and palette records are **not** blind spots —
+both were hardened after they shipped bugs, and both have dedicated tests. Don't
+second-guess a green run on those shapes.
+
+The browser pass covers what static source analysis genuinely cannot reach:
+- **a foreground declared with no background beside it** — the suite says so
+  itself (`contrast.ts:274`, "the important half"): it can't know which ancestor
+  surface the text lands on;
+- **contrast killed by an ancestor's `opacity`**, which no per-declaration check sees;
+- **colours computed at runtime** — template literals, values from props or state;
+- **anything not an inline style** — CSS classes, `index.css` itself.
+
+As `contrast.ts` puts it, the browser pass is "the only one that knows what
+actually composites". The layers are complementary; none is sufficient alone.
+
+**Carve-out — no browser tool, no pretending.** Some agents run without a browser
+(the `/work-tickets` cloud routine's toolset is `Bash, Read, Write, Edit, Glob,
+Grep`). If you cannot drive a preview, do **not** silently skip the check and do
+**not** claim you ran it. Instead:
+- say so plainly in the PR body — "no browser available in this environment;
+  two-theme check not run, relying on the contrast suite";
+- and if the diff **introduces or changes a colour, background, or `opacity`**, ask
+  the owner to eyeball it rather than auto-merging. A diff that touches no colour at
+  all (layout, `zIndex`, `boxSizing`, event handling) has nothing for the two-theme
+  check to find — ship it.
+
+(A proper automated visual-regression setup — Playwright snapshots in dark+light —
+is the long-term fix for the residual; tracked under ROADMAP "Frontend E2E (U-8)".)
+
+### The sweep is easy to get wrong in the direction of "clean"
+Seven PRs (#370, #375, #379, #381, #385, #386, #392) were spent on this. Every
+false-clean came from the measurement, not the eye. A sweep MUST:
+- **walk the background up to and INCLUDING `document.documentElement`.** index.css
+  paints `#242424` on `:root`; stopping at `<body>` finds nothing and silently
+  compares against a white default. This produced a full clean report over a page
+  with three real failures.
+- **composite alpha AND multiply `opacity` up the ancestor chain.** A group
+  `opacity` on a container dims every descendant, and it is invisible to the
+  static pair scan — PlanCalendar's month cells dimmed enabled chip BUTTONS to
+  2.33:1 while the guard happily reported their undimmed ratios.
+- **exclude two things, or drown in false positives:** `el.disabled` /
+  `aria-disabled` (WCAG 1.4.3 and 1.4.11 EXEMPT inactive controls — a disabled
+  button at 2.43:1 is not a finding), and `background-clip: text` (gradient
+  headings compute `color: transparent`, i.e. a fake 1:1).
+
+### Coverage is the harder half — one tab is not the component
+The recurring miss was never technique, it was **which pixels were on screen**.
+Sweeps sat on the Plan Ahead tab and the healthy page for four PRs, so CookNowForm
+was never rendered once and error alerts (which need a failed request) never
+existed. #385 then fixed four sites at 2.08–2.40:1 that four prior PRs walked past.
+Reaching the hard states:
+- **error/empty states** — stub `window.fetch` to 500 the call, then measure the
+  alert as actually rendered. Do not measure a synthetic probe element and call it
+  a render.
+- **admin panels** (`is_admin` is server-set, so there is no UI path) — grant it to
+  the throwaway demo account, then use the passwordless Try Demo login:
+  ```powershell
+  'UPDATE "user" SET is_admin = true WHERE is_demo = true;' | docker compose exec -T db psql -U user -d mealbot
+  ```
+  Run from the repo root (compose needs `.env`), and set it back to `false` after.
+  This surfaced **15 live failures across 5 of 6 panels** that the static check
+  could only describe as "one constant is 2.43:1".
+- **cook mode / a plan** needs a real LLM call — say so rather than counting it.
+
+### What the static guards do and do not see (`frontend/src/test/contrast.ts`)
+`findInlineColorPairs` (background+colour in one style OBJECT — block-based and
+quote-aware, reads `background`/`backgroundColor`/`bg` × `color`/`text`/`fg`),
+`findUncoloredControls` (a control that overrides its background but sets no
+colour → UA `buttontext`), `findKeywordColors` (bare `red`/`green`/… with no
+background to pair against), and constants asserted against `THEME`.
+**Still blind to ancestor `opacity`** — only the browser pass catches that.
+That scan has been holed five times and each hole reported GREEN over a live
+failure, so: **patching the trigger that bit you is not fixing the class.**
+`https://` → lookbehind → protocol-relative `//cdn…` still slipped through →
+quote-tracking. `bg`/`text` → `fg` still hidden. Fix by construction.
+
+### Negative-control the control
+Revert the fix and confirm **which** assertion fails. Twice a test that looked
+like a control passed either way — the URL pair in #375 (both assertions returned
+`[]` under the broken regex) and the brace tests in #386 (a stray `{`
+self-corrects; only a stray `}` truncates). Label the rest as regression cover.
 
 ## Layout stability / CLS — don't shift content under the user's cursor (recurring bug)
 Conditionally rendering a block **in document flow** (`{cond && <Bar/>}` for a
