@@ -46,4 +46,42 @@ describe("extractErrorDetail", () => {
     const out = await extractErrorDetail(res(429, { detail: { user_detail: "" } }), "fb");
     expect(out).toBe("fb (429)");
   });
+
+  describe("fieldErrors (admin opt-in)", () => {
+    // The admin panel is the one caller whose reader typed the bad value, so a
+    // Pydantic field message is the actionable half. This option is what let the
+    // duplicate `adminErrorDetail` in api.ts collapse into this module.
+    it("renders the first Pydantic message when opted in", async () => {
+      const out = await extractErrorDetail(
+        res(422, { detail: [{ msg: "value is not a valid email address" }] }),
+        "Could not create the user",
+        { fieldErrors: true },
+      );
+      expect(out).toBe("value is not a valid email address");
+    });
+
+    it("stays off by default, so app users never see field errors", async () => {
+      // The pairing that matters: identical body, opposite outcome. Without this
+      // the option could default to true and every test above would still pass.
+      const body = { detail: [{ msg: "value is not a valid email address" }] };
+      expect(await extractErrorDetail(res(422, body), "fb")).toBe("fb (422)");
+      expect(await extractErrorDetail(res(422, body), "fb", { fieldErrors: false })).toBe(
+        "fb (422)",
+      );
+    });
+
+    it("falls back when the list carries no usable msg", async () => {
+      const out = await extractErrorDetail(res(422, { detail: [{ loc: ["body"] }] }), "fb", {
+        fieldErrors: true,
+      });
+      expect(out).toBe("fb (422)");
+    });
+
+    it("still prefers a string detail over the list branch", async () => {
+      const out = await extractErrorDetail(res(409, { detail: "Already accepted." }), "fb", {
+        fieldErrors: true,
+      });
+      expect(out).toBe("Already accepted.");
+    });
+  });
 });

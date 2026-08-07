@@ -15,6 +15,13 @@
 #
 # 30s covers a normal swap (stop + migrate no-op + model load). A longer outage
 # still 502s, just 30s later — the tradeoff is a slow success over a fast error.
+#
+# This number is PAIRED with `stop_grace_period: 30s` on the backend in
+# docker-compose.prod.yml, and the pairing is the point: `up -d` stops the old
+# container before starting the new one, so the drain window IS the downtime
+# window, and the grace period is its ceiling. Retry ≥ grace means a swap is
+# invisible; retry < grace means the difference is served as 502s. Change one
+# and change the other — the reasoning is written out in full over there.
 (ride_out_restarts) {
 	lb_try_duration 30s
 	lb_try_interval 250ms

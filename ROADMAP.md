@@ -212,6 +212,23 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
   "simplify away" the explicit step**, it's what buys the zero-downtime ordering.
   Check a deploy with `gh run list --workflow=deploy.yml`. *(Caveat: a Dependabot
   **bot** auto-merge does not trigger the workflow — a normal merge does.)*
+- **A deploy has a short downtime window, and it does not scale.** `up -d`
+  stops the old backend before starting the new one, so the swap is a real gap;
+  Caddy's `lb_try_duration 30s` re-dials across it, which is why nobody sees a
+  502 today. The gap lasts as long as the slowest in-flight request, capped by
+  `stop_grace_period: 30s` — and generation is awaited **inline** (the user is
+  waiting for their plan), so a generation still running at 30s is SIGKILLed and
+  that user loses it. **Do not "fix" this by raising the grace period:** the
+  drain window IS the downtime window, so a longer grace saves one generation by
+  502-ing everyone else, and under real concurrency something is always
+  generating — you would pay the maximum downtime *and* still kill the request.
+  The two numbers are a matched pair; change them together or not at all.
+  **The scale answer is to stop trading one for the other:** deploy
+  start-before-stop (a second backend replica behind Caddy, or blue/green) so
+  draining costs nobody anything, or move generation to a job + polling so no
+  request is long-lived. Both are real work. Revisit when deploy-time errors
+  stop being theoretical — with one operator and a handful of users, the current
+  pairing is the right trade.
 - **Installing the shim** — one time, and only if `scripts/deploy-shim.sh` itself
   changes (it is four lines precisely so it shouldn't):
   `cd /opt/mealbot && git pull && cp scripts/deploy-shim.sh deploy.sh`. Confirm
