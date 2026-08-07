@@ -22,11 +22,28 @@ dark mode. So:
   self-contained explicit surface, or a `matchMedia`-driven hook.
 
 ## Verify BOTH colour schemes before shipping ANY visible UI change (mandatory)
-Drive the browser preview and check **dark AND light**:
-`resize_window { colorScheme: "dark" }`, then `"light"`. Confirm real contrast —
-compare computed `color` vs `background` (via `javascript_tool` / `getComputedStyle`)
-or a screenshot. A two-theme check is **not optional** for visible changes; the
-white-on-white bug has shipped more than once.
+Drive the browser preview and check **dark AND light**. For EACH scheme:
+`resize_window { colorScheme: … }`, **then `navigate` to the page again so the app
+BOOTS under it** (see below — without the reload you measure the other scheme),
+then confirm real contrast — compare computed `color` vs `background` (via
+`javascript_tool` / `getComputedStyle`) or a screenshot. A two-theme check is
+**not optional** for visible changes; the white-on-white bug has shipped more
+than once.
+
+**Why the reload: `resize_window` fires no `change` event.** It changes what
+`matchMedia("(prefers-color-scheme: dark)").matches` RETURNS, but does not
+dispatch `change` to listeners. Measured directly in #407: a listener armed
+before the flip stayed empty (`[]`) while `.matches` went `false → true`. So
+React never re-renders, `usePrefersDark` keeps its **mount-time** value, and
+every `PAGE_TEXT.x[scheme]` colour on screen belongs to the OTHER scheme. That
+reported the mode tabs at 2.54:1 "in light" — they were still painting their dark
+`#60a5fa`/`#9ca3af` on a white page. After the reload, re-check a known
+theme-following value (the active tab is `#2563eb` light / `#60a5fa` dark) to
+prove the boot took.
+
+This one lies in the **false-failure** direction, so it burns time rather than
+shipping a bug — but the same stale render would hide a real failure just as
+easily, and an agent that "fixes" the phantom makes the live scheme worse.
 
 **You are not the only guardrail — `frontend/src/test/contrast.ts` is.** That suite
 does WCAG AA maths on **every inline background/foreground pair in the app source**,
@@ -69,6 +86,12 @@ false-clean came from the measurement, not the eye. A sweep MUST:
   paints `#242424` on `:root`; stopping at `<body>` finds nothing and silently
   compares against a white default. This produced a full clean report over a page
   with three real failures.
+- **start that walk at the ELEMENT ITSELF, not `el.parentElement`.** A `<button>`
+  paints its own `backgroundColor`; skipping straight to the parent reads white
+  text against whatever is *behind* the button and calls it 1:1. In #407 that
+  turned six passing controls ("Generate recipe", "Mark as cooked", the FAB
+  glyphs) into fake failures in one sweep. Starting at `el` is strictly safer —
+  a transparent element just falls through to the parent on the first iteration.
 - **composite alpha AND multiply `opacity` up the ancestor chain.** A group
   `opacity` on a container dims every descendant, and it is invisible to the
   static pair scan — PlanCalendar's month cells dimmed enabled chip BUTTONS to
@@ -88,13 +111,31 @@ Reaching the hard states:
   alert as actually rendered. Do not measure a synthetic probe element and call it
   a render.
 - **admin panels** (`is_admin` is server-set, so there is no UI path) — grant it to
-  the throwaway demo account, then use the passwordless Try Demo login:
+  the throwaway demo account, then use the passwordless Try Demo login. **Local dev
+  DB only.**
   ```powershell
   'UPDATE "user" SET is_admin = true WHERE is_demo = true;' | docker compose exec -T db psql -U user -d mealbot
   ```
   Run from the repo root (compose needs `.env`), and set it back to `false` after.
   This surfaced **15 live failures across 5 of 6 panels** that the static check
   could only describe as "one constant is 2.43:1".
+
+  Three things about that grant, so nobody has to re-derive them:
+  - **Never point it at prod.** `-U user` is the local role and fails there anyway
+    (prod is `-U mealbot -d mealbot`) — a lucky guardrail, not a designed one, so
+    do not "fix" the credentials to make it work against the box.
+  - **It cannot leak into a later session**, even if you forget the revert: every
+    Try Demo mints a *fresh* user with `is_admin` defaulted false
+    (`create_ephemeral_demo_user`), and `cleanup_expired_demo_users` deletes demo
+    rows older than `demo_session_expire_minutes` (120). `WHERE is_demo = true`
+    only ever touches rows alive at that instant. Revert anyway — bounded is not
+    the same as clean.
+  - **Do NOT "simplify" this to logging in as `admin@mealbotdev.com` or
+    `admin@test.com`.** Both are `is_admin` in the local dev DB and both
+    look like the tidier option, but reaching them means typing a password into a
+    login form — which an agent must not do, even with dev credentials the owner
+    supplies. The demo account is used here *because* its login is passwordless.
+    If you need a real account, ask the owner to authenticate.
 - **cook mode / a plan** needs a real LLM call — say so rather than counting it.
 
 ### What the static guards do and do not see (`frontend/src/test/contrast.ts`)
