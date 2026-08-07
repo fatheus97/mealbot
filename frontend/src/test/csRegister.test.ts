@@ -41,28 +41,28 @@ const hasBuild = [...LEGAL, ...MARKETING].every((p) => existsSync(resolve(proces
  * Word-boundary anchored on non-letters so "dost" does not fire inside
  * "dostatečně" and "moc" does not fire inside "pomocí".
  */
-const SPOKEN: { pattern: RegExp; instead: string }[] = [
+const SPOKEN: { pattern: RegExp; instead: string; anywhere?: true }[] = [
   { pattern: /na rovinu/i, instead: "otevřeně — or restructure the sentence" },
-  { pattern: /pořádně/i, instead: "pozorně / důkladně" },
+  { pattern: /pořádně/i, instead: "pozorně / důkladně", anywhere: true },
   { pattern: /(^|[^\p{L}])teď([^\p{L}]|$)/iu, instead: "nyní / v současnosti" },
-  { pattern: /dneska/i, instead: "dnes" },
+  { pattern: /dneska/i, instead: "dnes", anywhere: true },
   // `nem(á|ají)`, not `nemá(jí)?` — the singular carries an acute á while the
   // plural is a plain a plus jí, so the obvious-looking optional group can
   // never match "nemají". Caught by negative control: restoring the exact
   // phrase the owner flagged ("nemají žádnou cenu") failed nothing.
   { pattern: /nem(á|ají) (žádnou )?cenu/i, instead: "nemá smysl / je bezcenné" },
-  { pattern: /(^|[^\p{L}])tohle([^\p{L}]|$)/iu, instead: "to / toto" },
+  { pattern: /(^|[^\p{L}])tohle([^\p{L}]|$)/iu, instead: "to / toto", anywhere: true },
   { pattern: /(^|[^\p{L}])věci([^\p{L}]|$)/iu, instead: "a concrete noun: údaje, položky, informace" },
   { pattern: /(^|[^\p{L}])hádat|hádali/iu, instead: "vést spor" },
   { pattern: /odstřihn/i, instead: "ukončit přístup / přerušit" },
   { pattern: /pokazil/i, instead: "došlo k chybě / nastal problém" },
-  { pattern: /(^|[^\p{L}])prostě([^\p{L}]|$)/iu, instead: "drop it — it adds nothing" },
-  { pattern: /(^|[^\p{L}])radši([^\p{L}]|$)/iu, instead: "raději" },
-  { pattern: /(^|[^\p{L}])spíš([^\p{L}]|$)/iu, instead: "spíše" },
-  { pattern: /(^|[^\p{L}])fakt([^\p{L}]|$)/iu, instead: "skutečně / opravdu" },
+  { pattern: /(^|[^\p{L}])prostě([^\p{L}]|$)/iu, instead: "drop it — it adds nothing", anywhere: true },
+  { pattern: /(^|[^\p{L}])radši([^\p{L}]|$)/iu, instead: "raději", anywhere: true },
+  { pattern: /(^|[^\p{L}])spíš([^\p{L}]|$)/iu, instead: "spíše", anywhere: true },
+  { pattern: /(^|[^\p{L}])fakt([^\p{L}]|$)/iu, instead: "skutečně / opravdu", anywhere: true },
   { pattern: /(^|[^\p{L}])moc([^\p{L}]|$)/iu, instead: "příliš / velmi" },
   { pattern: /(^|[^\p{L}])dost([^\p{L}]|$)/iu, instead: "dostatečně" },
-  { pattern: /(^|[^\p{L}])mrkn|koukn/iu, instead: "podívejte se / viz" },
+  { pattern: /(^|[^\p{L}])mrkn|koukn/iu, instead: "podívejte se / viz", anywhere: true },
 
   // ─── Reported by the owner, a native speaker, reading the shipped text ───
   // Each of these survived three machine passes and a meaning-focused review,
@@ -81,13 +81,16 @@ const SPOKEN: { pattern: RegExp; instead: string }[] = [
   { pattern: /"[^"]{3,40}"/, instead: "Czech quotation marks „…“" },
 ];
 
-/** Non-standard by morphology — wrong in ANY written Czech, marketing included. */
-const NONSTANDARD_ANYWHERE = new Set([
-  "pořádně", "dneska", "tohle", "prostě", "radši", "spíš", "fakt", "mrkni/koukni",
-]);
-const nonStandard = SPOKEN.filter((s) =>
-  [...NONSTANDARD_ANYWHERE].some((w) => s.instead.length > 0 && s.pattern.source.includes(w.split("/")[0])),
-);
+/**
+ * Non-standard by MORPHOLOGY — wrong in any written Czech, marketing included.
+ *
+ * Flagged on the entry itself. The previous version derived this set by
+ * testing whether a word appeared in `pattern.source`, which silently missed
+ * `mrkni/koukni`: the pattern is /mrkn|koukn/, so `source.includes("mrkni")`
+ * is false and that rule was never enforced on the marketing page at all.
+ * A flag cannot drift from the pattern it sits on.
+ */
+const nonStandard = SPOKEN.filter((s) => s.anywhere);
 
 /** Visible prose only — a marker inside a class name or a URL is not read. */
 function prose(page: string): string {
