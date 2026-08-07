@@ -489,7 +489,7 @@ export function Fridge() {
       <div key={item._editId} style={cardStyle}>
         <div style={cardHeaderRow}>
           <strong>{item.name || "—"}</strong>
-          {item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
+          {needToUseEnabled && item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
           <span>{Math.round(item.quantity_grams)} g</span>
@@ -514,7 +514,7 @@ export function Fridge() {
           <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.8rem" }}>{isExpanded ? "▼" : "▶"}</span>
           <strong>{group.displayName}</strong>
           <span style={{ fontSize: "0.8rem", color: PAGE_TEXT.muted[scheme] }}>{tn("fridge.batches", group.batchCount)}</span>
-          {group.needToUse && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
+          {needToUseEnabled && group.needToUse && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
           <span>{t("fridge.gramsTotal", { grams: Math.round(group.totalQuantity) })}</span>
@@ -532,7 +532,7 @@ export function Fridge() {
             >
               <div style={cardHeaderRow}>
                 <span style={{ color: ON_DARK_MUTED }}>{t("fridge.batchN", { n: batchIdx + 1 })}</span>
-                {item.need_to_use && <span style={onDarkBadge}>{t("fridge.useSoon")}</span>}
+                {needToUseEnabled && item.need_to_use && <span style={onDarkBadge}>{t("fridge.useSoon")}</span>}
               </div>
               {/* This card pins #0f172a in BOTH themes, so it must NOT take the
                   theme-following `cardMeta` colour — #475569 on #0f172a is

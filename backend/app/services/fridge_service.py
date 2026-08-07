@@ -96,6 +96,7 @@ async def get_fridge_items(
     for r in rows:
         is_expiring = r.expiration_date is not None and r.expiration_date <= threshold
         items.append(StockItemDTO(
+            id=r.id,
             name=r.name,
             quantity_grams=float(r.quantity_grams),
             need_to_use=need_to_use_enabled and (r.need_to_use or is_expiring),
@@ -122,15 +123,25 @@ async def replace_fridge_items(
     a single row). Trusting that blind value verbatim would silently zero out
     every item's real need_to_use on the next unrelated edit. So when
     disabled, each incoming item's need_to_use is IGNORED in favor of
-    whatever is actually stored for the same (name, expiration_date) key
-    right now — a masked client can neither read nor write this field, only
-    re-enabling the preference can. A key with no existing match (a genuinely
-    new item) has no stored value to preserve, so it falls back to False.
+    whatever is actually stored right now — a masked client can neither read
+    nor write this field, only re-enabling the preference can.
+
+    Matched primarily by ``StockItem.id`` (round-tripped via ``StockItemDTO.id``
+    — see that field's docstring), so an item survives the reconciliation even
+    if its name or expiration_date was ALSO edited in the same masked PUT, not
+    just its untouched siblings. Falls back to the (name, expiration_date)
+    natural key for an item with no id (an older cached client, or one that
+    genuinely predates this field) — same OR-combine safety net as before.
+    A key with no existing match by either (a genuinely new item) has no
+    stored value to preserve, so it falls back to False.
     """
     if not need_to_use_enabled:
         existing = (
             await session.execute(select(StockItem).where(StockItem.user_id == user_id))
         ).scalars().all()
+        stored_by_id: dict[int, bool] = {
+            r.id: r.need_to_use for r in existing if r.id is not None
+        }
         # OR-combine rather than overwrite: (name, expiration_date) has no DB
         # uniqueness constraint, so two rows CAN legitimately share a key (e.g.
         # two batches of the same item with no expiration set). Preferring the
@@ -143,16 +154,13 @@ async def replace_fridge_items(
         for r in existing:
             key = (r.name.strip().lower(), r.expiration_date)
             stored_by_key[key] = stored_by_key.get(key, False) or r.need_to_use
-        items = [
-            it.model_copy(
-                update={
-                    "need_to_use": stored_by_key.get(
-                        (it.name.strip().lower(), it.expiration_date), False
-                    )
-                }
-            )
-            for it in items
-        ]
+
+        def _preserved(it: StockItemDTO) -> bool:
+            if it.id is not None and it.id in stored_by_id:
+                return stored_by_id[it.id]
+            return stored_by_key.get((it.name.strip().lower(), it.expiration_date), False)
+
+        items = [it.model_copy(update={"need_to_use": _preserved(it)}) for it in items]
 
     await session.execute(delete(StockItem).where(StockItem.user_id == user_id))  # type: ignore[arg-type]
 

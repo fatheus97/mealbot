@@ -233,6 +233,50 @@ describe('SettingsPopup', () => {
     });
   });
 
+  // Regression: need_to_use_enabled changes what GET /fridge masks, but with
+  // staleTime:5min + refetchOnWindowFocus:false (main.tsx) a cached fridge
+  // query would otherwise keep serving the PRE-toggle masking for up to 5
+  // minutes — and Fridge.tsx's persistFridge PUTs that stale array back
+  // wholesale on the next unrelated edit, writing the wrong masking as the
+  // new stored truth. Saving any preference must invalidate ['fridge'] too,
+  // not just ['userProfile'].
+  it('invalidates the fridge query cache after saving preferences', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    mockedUpdateProfile.mockResolvedValueOnce({ ...mockProfile, need_to_use_enabled: false });
+    const user = userEvent.setup();
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(['fridge', 1], [
+      { name: 'chicken', quantity_grams: 500, need_to_use: false },
+    ]);
+
+    render(<SettingsPopup onClose={vi.fn()} />, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>{children}</AuthProvider>
+        </QueryClientProvider>
+      ),
+    });
+
+    await waitFor(() => expect(screen.getByDisplayValue('Germany')).toBeInTheDocument());
+    await waitFor(() => expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
+    );
+
+    expect(queryClient.getQueryState(['fridge', 1])?.isInvalidated).toBe(false);
+
+    await user.click(screen.getByRole('checkbox', { name: /enable "need to use" tracking/i }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
+
+    await waitFor(() => {
+      expect(queryClient.getQueryState(['fridge', 1])?.isInvalidated).toBe(true);
+    });
+  });
+
   // Same class of bug as show_pieces: the payload is rebuilt field-by-field
   // here, and `Partial<Pick<…>>` type-checks an omission. Only an assertion on
   // what reaches the API catches a dropped field.

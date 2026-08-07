@@ -35,7 +35,16 @@ export function useUpdateUserProfile() {
     mutationFn: (data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "show_pieces" | "need_to_use_enabled" | "onboarding_completed" | "default_day_layout">>) =>
       updateUserProfile(data),
     onSuccess: () => {
-      return queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+      // ['fridge'] too: need_to_use_enabled changes what GET /fridge masks, and
+      // with staleTime:5min + refetchOnWindowFocus:false (main.tsx) the cached
+      // fridge would otherwise keep serving the PRE-toggle masking for up to 5
+      // minutes. That's not just cosmetic — Fridge.tsx's persistFridge PUTs
+      // its entire local array back on any edit, so an edit against that stale
+      // cache would write the wrong-masking values as the new stored truth.
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['userProfile'] }),
+        queryClient.invalidateQueries({ queryKey: ['fridge'] }),
+      ]);
     },
   });
 }

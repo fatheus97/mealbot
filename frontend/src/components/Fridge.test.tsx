@@ -186,6 +186,42 @@ describe('Fridge', () => {
     expect(screen.queryByText('Need to use?')).not.toBeInTheDocument();
   });
 
+  it('hides the mobile "use soon" badge when the preference is disabled, even if the item data says true', async () => {
+    // Regression: the backend masks need_to_use at the source, but the fridge
+    // query cache isn't always fresh relative to the preference (staleTime +
+    // no refetchOnWindowFocus — see useUpdateUserProfile's invalidation fix).
+    // The mobile badges must not depend solely on the server having masked
+    // the payload; gate on the preference client-side too. This item's
+    // need_to_use is deliberately true to model exactly that stale-cache case.
+    loginUser();
+    setMobileViewport(true);
+    mockedFetchProfile.mockResolvedValueOnce({
+      id: 1,
+      email: 'test@test.com',
+      country: null,
+      language: 'English',
+      measurement_system: 'metric',
+      variability: 'traditional',
+      include_spices: true,
+      track_snacks: true,
+      show_pieces: false,
+      need_to_use_enabled: false,
+      onboarding_completed: true,
+      is_admin: false,
+      default_day_layout: null,
+    });
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ name: 'Chicken', quantity_grams: 500, need_to_use: true }]),
+    });
+
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Chicken')).toBeInTheDocument());
+
+    expect(screen.queryByText(/use soon/i)).not.toBeInTheDocument();
+  });
+
   it('shows the need-to-use column by default (profile not yet resolved)', async () => {
     loginUser();
     // fetchUserProfile intentionally left unmocked (resolves undefined) —

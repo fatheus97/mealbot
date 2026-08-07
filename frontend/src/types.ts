@@ -237,6 +237,11 @@ export interface SingleRecipeResponse {
 export type ScannedItemType = "ingredient" | "ready_to_eat";
 
 export interface StockItem {
+  // Round-tripped GET -> edit -> PUT so the backend can match an edited item
+  // back to its row even if name/expiration_date (its only other identity)
+  // changed in the same edit — see StockItemDTO.id / fridge_service.
+  // Absent/null for a not-yet-persisted (add-mode) item.
+  id?: number | null;
   name: string;
   quantity_grams: number;
   need_to_use: boolean;

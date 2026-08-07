@@ -219,13 +219,20 @@ class TestPlanGeneration:
     ):
         # fatheus97/mealbot-tickets#6: with the preference off, the LLM must
         # not see the item as urgent even though it's stored need_to_use=True.
-        test_user.need_to_use_enabled = False
+        #
+        # Seed the fridge WHILE ENABLED, then disable — seeding it disabled
+        # would route through the masked PUT reconciliation (fridge_service.
+        # replace_fridge_items) and store False regardless of what's sent, so
+        # the assertion below would trivially pass even with the actual gate
+        # this test targets (plan_service.generate_plan_days's
+        # `and user.need_to_use_enabled`) deleted.
         put = await client.put(
             "/api/fridge",
             headers=auth_headers,
             json=[{"name": "chicken breast", "quantity_grams": 300, "need_to_use": True}],
         )
         assert put.status_code == 200
+        test_user.need_to_use_enabled = False
         mock_gen.return_value = _fake_day()
 
         resp = await client.post(
@@ -518,6 +525,66 @@ class TestPlanRegenerate:
         assert body["days"][0]["meals"][0]["name"] == "Original Lunch"
         # Unfrozen meal replaced
         assert body["days"][0]["meals"][1]["name"] == "New Dinner"
+
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_regenerate_need_to_use_disabled_masks_urgent_stock_from_prompt(
+        self,
+        mock_gen: AsyncMock,
+        mock_partial: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict,
+        test_user,
+    ):
+        # Regression: regenerate re-loads the fridge itself (api/plan.py,
+        # separately from plan_service.generate_plan_days) and had its own,
+        # unmasked construction of the LLM-facing stock list — the mask fix
+        # in generate_plan_days didn't cover this sibling call site.
+        put = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 300, "need_to_use": True}],
+        )
+        assert put.status_code == 200
+
+        mock_gen.return_value = SingleDayResponse(
+            meals=[
+                PlannedMeal(
+                    name="Original Lunch", meal_type=MealType.LIGHT_LUNCH,
+                    ingredients=[IngredientAmount(name="rice", quantity_grams=200)],
+                    steps=["Cook rice"],
+                ),
+                PlannedMeal(
+                    name="Original Dinner", meal_type=MealType.HOT_DINNER,
+                    ingredients=[IngredientAmount(name="pasta", quantity_grams=300)],
+                    steps=["Boil pasta"],
+                ),
+            ]
+        )
+        plan_resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+
+        test_user.need_to_use_enabled = False
+        mock_partial.return_value = SingleDayResponse(meals=[PlannedMeal(
+            name="New Dinner", meal_type=MealType.HOT_DINNER,
+            ingredients=[IngredientAmount(name="tofu", quantity_grams=250)],
+            steps=["Fry tofu"],
+        )])
+
+        regen_resp = await client.post(
+            f"/api/plan/{plan_id}/regenerate",
+            headers=auth_headers,
+            json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
+        )
+        assert regen_resp.status_code == 200
+
+        day_req = mock_partial.call_args.args[0]
+        stock_by_name = {item.name: item.need_to_use for item in day_req.stock_items}
+        assert stock_by_name["chicken breast"] is False
 
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
