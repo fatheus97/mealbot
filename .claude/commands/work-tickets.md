@@ -57,7 +57,7 @@ Arguments: $ARGUMENTS
 
 ## Report at the end
 
-A compact list, one line per ticket: **outcome** (shipped+merged / awaiting-your-merge (BIG) / needs-info / flagged-for-you / failed) with the ticket and PR links. Then a short "**needs you**" section pulling together: BIG PRs awaiting your glance, `needs-info` tickets, and any wontfix / not-a-bug candidates. State what's left unprocessed in the queue.
+A compact list, one line per ticket: **outcome** (shipped+merged / awaiting-your-merge (BIG) / needs-info / flagged-for-you / failed) with the ticket and PR links. Then a short "**needs you**" section pulling together: BIG PRs awaiting your glance, `needs-info` tickets, any wontfix / not-a-bug candidates, and **anything that FAILED** — red CI you couldn't fix, a blocked merge, an access error, a merge loop you ran out of room to finish. A failure is the outcome that most needs the owner, so it belongs here and not only in the per-ticket list. State what's left unprocessed in the queue.
 
 **When running unattended, PUSH A NOTIFICATION — but only if that "needs you" section is non-empty.** The owner does not read run transcripts, so anything parked in it is invisible until they happen to look; a `needs-info` question nobody sees blocks the ticket indefinitely. One or two lines naming what needs them, with links. **Stay silent when the queue was empty or everything shipped and merged cleanly** — those are the normal outcome on most days, and notifying for them trains the owner to ignore the notifications that matter.
 
