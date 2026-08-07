@@ -107,7 +107,7 @@ class TestConsentCannotBeSkipped:
         ],
     )
     async def test_register_without_consent_is_422(
-        self, unauthed_client: AsyncClient, db_session: AsyncSession, body: dict
+        self, unauthed_client: AsyncClient, db_session: AsyncSession, body: dict[str, bool | None]
     ) -> None:
         # Omission must be a 422, not a silent False and certainly not a silent
         # True — a defaulted field would let a client register and still get a

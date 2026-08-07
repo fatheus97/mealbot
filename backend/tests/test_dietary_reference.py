@@ -26,33 +26,33 @@ _APP_SPECIFIC_DIETS = {
 
 
 class TestReferenceCompleteness:
-    def test_all_eu14_allergens_encoded(self):
+    def test_all_eu14_allergens_encoded(self) -> None:
         # Every EU-14 allergen has an entry — the whole enum, nothing missing.
         assert set(ALLERGEN_INFO) == set(Allergen)
         assert len(ALLERGEN_INFO) == 14
 
-    def test_allergen_info_keys_match_records(self):
+    def test_allergen_info_keys_match_records(self) -> None:
         for key, info in ALLERGEN_INFO.items():
             assert info.allergen == key
             assert info.label
             assert info.source
             assert info.derivatives  # non-empty derivative set
 
-    def test_every_dietary_pattern_encoded_and_no_app_specific_ones(self):
+    def test_every_dietary_pattern_encoded_and_no_app_specific_ones(self) -> None:
         expected = set(DietType) - _APP_SPECIFIC_DIETS
         assert set(PATTERN_INFO) == expected
         # The app-specific diets must NOT have reference records.
         for d in _APP_SPECIFIC_DIETS:
             assert d not in PATTERN_INFO
 
-    def test_pattern_info_keys_match_records(self):
+    def test_pattern_info_keys_match_records(self) -> None:
         for key, info in PATTERN_INFO.items():
             assert info.diet_type == key
             assert info.label
             assert info.summary
             assert info.source
 
-    def test_confidence_marks_match_doc(self):
+    def test_confidence_marks_match_doc(self) -> None:
         # Spot-check the confidence marks carried over from the doc.
         assert PATTERN_INFO[DietType.VEGAN].confidence == Confidence.VERIFIED
         assert PATTERN_INFO[DietType.GLUTEN_FREE].confidence == Confidence.VERIFIED
@@ -64,56 +64,56 @@ class TestReferenceCompleteness:
         assert PATTERN_INFO[DietType.HALAL].confidence == Confidence.CURATED
         assert PATTERN_INFO[DietType.KOSHER].confidence == Confidence.CURATED
 
-    def test_sulphites_flagged_as_sourced_with_as_consumed_caveat(self):
+    def test_sulphites_flagged_as_sourced_with_as_consumed_caveat(self) -> None:
         info = ALLERGEN_INFO[Allergen.SULPHITES]
         assert info.confidence == Confidence.SOURCED
         assert "as-consumed" in info.note.lower() or "as consumed" in info.note.lower()
 
-    def test_sulphites_carry_all_named_high_sulphite_foods(self):
+    def test_sulphites_carry_all_named_high_sulphite_foods(self) -> None:
         # The doc names FIVE high-sulphite foods to flag conservatively; all must
         # be present (a prior omission dropped "juice"/"processed potato").
         derived = ALLERGEN_INFO[Allergen.SULPHITES].derivatives
         for food in ("dried fruit", "wine", "juice", "vinegar", "processed potato"):
             assert food in derived
 
-    def test_tree_nut_species_expanded(self):
+    def test_tree_nut_species_expanded(self) -> None:
         # The doc's "the 8 species above" must be expanded into concrete terms.
         derived = ALLERGEN_INFO[Allergen.TREE_NUTS].derivatives
         for species in ("almond", "hazelnut", "walnut", "cashew", "pecan",
                         "brazil nut", "pistachio", "macadamia"):
             assert species in derived
 
-    def test_evidence_tiers_are_valid(self):
+    def test_evidence_tiers_are_valid(self) -> None:
         for info in PATTERN_INFO.values():
             assert isinstance(info.tier, EvidenceTier)
 
-    def test_vegetarian_carries_lower_than_vegan_caveat(self):
+    def test_vegetarian_carries_lower_than_vegan_caveat(self) -> None:
         # The doc's comparative note ("risk is lower than vegan") is preserved.
         assert "lower" in PATTERN_INFO[DietType.VEGETARIAN].note.lower()
         assert "vegan" in PATTERN_INFO[DietType.VEGETARIAN].note.lower()
 
 
 class TestRetrieval:
-    def test_empty_request_returns_empty_context(self):
+    def test_empty_request_returns_empty_context(self) -> None:
         ctx = resolve_dietary_context([], [])
         assert ctx.is_empty()
         assert ctx.patterns == ()
         assert ctx.allergens == ()
         assert ctx.warnings == ()
 
-    def test_single_pattern_resolves(self):
+    def test_single_pattern_resolves(self) -> None:
         ctx = resolve_dietary_context([DietType.VEGAN], [])
         assert len(ctx.patterns) == 1
         assert ctx.patterns[0].diet_type == DietType.VEGAN
         assert not ctx.is_empty()
 
-    def test_app_specific_diet_is_silently_skipped(self):
+    def test_app_specific_diet_is_silently_skipped(self) -> None:
         # `balanced` has no reference record — resolve drops it rather than error.
         ctx = resolve_dietary_context([DietType.BALANCED], [])
         assert ctx.patterns == ()
         assert ctx.is_empty()
 
-    def test_declared_order_preserved(self):
+    def test_declared_order_preserved(self) -> None:
         ctx = resolve_dietary_context(
             [DietType.GLUTEN_FREE, DietType.VEGAN], [Allergen.MILK, Allergen.PEANUTS],
         )
@@ -122,7 +122,7 @@ class TestRetrieval:
         ]
         assert [a.allergen for a in ctx.allergens] == [Allergen.MILK, Allergen.PEANUTS]
 
-    def test_allergen_terms_include_base_and_derivatives(self):
+    def test_allergen_terms_include_base_and_derivatives(self) -> None:
         ctx = resolve_dietary_context([], [Allergen.MILK])
         terms = ctx.allergen_terms()[Allergen.MILK]
         assert "milk" in terms
@@ -132,7 +132,7 @@ class TestRetrieval:
         assert list(terms) == [t.lower() for t in terms]
         assert len(terms) == len(set(terms))
 
-    def test_prompt_lines_cover_patterns_allergens_and_warnings(self):
+    def test_prompt_lines_cover_patterns_allergens_and_warnings(self) -> None:
         ctx = resolve_dietary_context(
             [DietType.VEGAN, DietType.LOW_FODMAP], [Allergen.TREE_NUTS],
         )
@@ -145,7 +145,7 @@ class TestRetrieval:
 
 
 class TestCombinationRules:
-    def test_pescatarian_plus_all_seafood_allergies_is_contradiction(self):
+    def test_pescatarian_plus_all_seafood_allergies_is_contradiction(self) -> None:
         ctx = resolve_dietary_context(
             [DietType.PESCATARIAN],
             [Allergen.FISH, Allergen.CRUSTACEANS, Allergen.MOLLUSCS],
@@ -155,7 +155,7 @@ class TestCombinationRules:
         # The general stacked-escalation must NOT also fire on top of a contradiction.
         assert levels.count(WarningLevel.CONSULT_DIETITIAN) == 0
 
-    def test_pescatarian_plus_fish_only_is_warning_not_contradiction(self):
+    def test_pescatarian_plus_fish_only_is_warning_not_contradiction(self) -> None:
         # A fish allergy alone still leaves crustaceans/molluscs — restrictive,
         # not impossible.
         ctx = resolve_dietary_context([DietType.PESCATARIAN], [Allergen.FISH])
@@ -163,7 +163,7 @@ class TestCombinationRules:
         assert WarningLevel.WARNING in levels
         assert WarningLevel.CONTRADICTION not in levels
 
-    def test_vegan_pescatarian_is_contradiction(self):
+    def test_vegan_pescatarian_is_contradiction(self) -> None:
         # Vegan forbids the fish/seafood pescatarian requires — impossible combo,
         # must be caught pre-generation (Part 3's stated goal).
         ctx = resolve_dietary_context([DietType.VEGAN, DietType.PESCATARIAN], [])
@@ -172,16 +172,16 @@ class TestCombinationRules:
         # The contradiction suppresses the general stacked-escalation.
         assert levels.count(WarningLevel.CONSULT_DIETITIAN) == 0
 
-    def test_vegan_low_fodmap_suggests_dietitian(self):
+    def test_vegan_low_fodmap_suggests_dietitian(self) -> None:
         ctx = resolve_dietary_context([DietType.VEGAN, DietType.LOW_FODMAP], [])
         assert any(w.level == WarningLevel.CONSULT_DIETITIAN for w in ctx.warnings)
         assert any("low-fodmap" in w.message.lower() for w in ctx.warnings)
 
-    def test_vegan_keto_extremely_constrained(self):
+    def test_vegan_keto_extremely_constrained(self) -> None:
         ctx = resolve_dietary_context([DietType.VEGAN, DietType.KETO], [])
         assert any(w.level == WarningLevel.CONSULT_DIETITIAN for w in ctx.warnings)
 
-    def test_vegan_plus_two_protein_allergens_flags_deficiency(self):
+    def test_vegan_plus_two_protein_allergens_flags_deficiency(self) -> None:
         ctx = resolve_dietary_context(
             [DietType.VEGAN], [Allergen.SOYBEANS, Allergen.TREE_NUTS],
         )
@@ -190,23 +190,23 @@ class TestCombinationRules:
             for w in ctx.warnings
         )
 
-    def test_vegan_plus_one_protein_allergen_does_not_flag_deficiency(self):
+    def test_vegan_plus_one_protein_allergen_does_not_flag_deficiency(self) -> None:
         ctx = resolve_dietary_context([DietType.VEGAN], [Allergen.SOYBEANS])
         assert not any("plant-protein" in w.message for w in ctx.warnings)
 
-    def test_gluten_free_vegan_is_a_light_note(self):
+    def test_gluten_free_vegan_is_a_light_note(self) -> None:
         ctx = resolve_dietary_context([DietType.GLUTEN_FREE, DietType.VEGAN], [])
         assert any(w.level == WarningLevel.NOTE for w in ctx.warnings)
 
-    def test_keto_plus_dash_surfaces_tension(self):
+    def test_keto_plus_dash_surfaces_tension(self) -> None:
         ctx = resolve_dietary_context([DietType.KETO, DietType.DASH], [])
         assert any(w.level == WarningLevel.WARNING for w in ctx.warnings)
 
-    def test_keto_plus_mediterranean_surfaces_tension(self):
+    def test_keto_plus_mediterranean_surfaces_tension(self) -> None:
         ctx = resolve_dietary_context([DietType.KETO, DietType.MEDITERRANEAN], [])
         assert any(w.level == WarningLevel.WARNING for w in ctx.warnings)
 
-    def test_stacked_restrictions_escalate_to_dietitian(self):
+    def test_stacked_restrictions_escalate_to_dietitian(self) -> None:
         # Four benign restrictions with no specific rule → general escalation.
         ctx = resolve_dietary_context(
             [DietType.MEDITERRANEAN, DietType.PALEO],
@@ -214,7 +214,7 @@ class TestCombinationRules:
         )
         assert any(w.level == WarningLevel.CONSULT_DIETITIAN for w in ctx.warnings)
 
-    def test_general_escalation_not_double_counted(self):
+    def test_general_escalation_not_double_counted(self) -> None:
         # vegan + low_fodmap already escalates to a dietitian; adding a 2-item
         # stack past the threshold must not append a SECOND consult warning.
         ctx = resolve_dietary_context(
@@ -224,11 +224,11 @@ class TestCombinationRules:
         consults = [w for w in ctx.warnings if w.level == WarningLevel.CONSULT_DIETITIAN]
         assert len(consults) == 1
 
-    def test_benign_single_restriction_has_no_warnings(self):
+    def test_benign_single_restriction_has_no_warnings(self) -> None:
         ctx = resolve_dietary_context([DietType.MEDITERRANEAN], [])
         assert ctx.warnings == ()
 
-    def test_every_warning_is_cited(self):
+    def test_every_warning_is_cited(self) -> None:
         ctx = resolve_dietary_context(
             [DietType.VEGAN, DietType.LOW_FODMAP], [Allergen.SOYBEANS, Allergen.TREE_NUTS],
         )

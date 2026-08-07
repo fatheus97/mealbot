@@ -5,6 +5,7 @@ predates this feature must keep working. The migration backfills those rows,
 and `test_conftest_user_is_verified_like_a_backfilled_account` below pins the
 fixture that stands in for them.
 """
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -58,7 +59,7 @@ class TestOperatorCreatedAccountsAreVerified:
         from app.scripts import create_user as cli
 
         @asynccontextmanager
-        async def fake_factory():
+        async def fake_factory() -> AsyncIterator[AsyncSession]:
             yield db_session
 
         monkeypatch.setattr(cli, "async_session_factory", fake_factory)

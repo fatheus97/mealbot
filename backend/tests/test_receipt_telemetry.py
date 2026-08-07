@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 from datetime import date
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
@@ -41,11 +42,15 @@ def _fake_jpeg() -> io.BytesIO:
     return buf
 
 
-async def _passthrough_normalize(scanned_items, fridge_item_names, mock=False):
+async def _passthrough_normalize(
+    scanned_items: list[ScannedReceiptItem],
+    fridge_item_names: list[str],
+    mock: bool = False,
+) -> list[ScannedReceiptItem]:
     return scanned_items
 
 
-async def _scan(client: AsyncClient) -> dict:
+async def _scan(client: AsyncClient) -> dict[str, Any]:
     """POST /scan with the LLM/normalize layers mocked; return the response."""
     with patch(
         "app.api.fridge.extract_items_from_receipt",
@@ -59,11 +64,11 @@ async def _scan(client: AsyncClient) -> dict:
             files={"file": ("receipt.jpg", _fake_jpeg(), "image/jpeg")},
         )
     assert resp.status_code == 200
-    payload: dict = resp.json()
+    payload: dict[str, Any] = resp.json()
     return payload
 
 
-def _merge_payload(items: list[dict]) -> list[dict]:
+def _merge_payload(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Project scan items into the StockItemDTO merge shape (drops item_type)."""
     return [
         {
@@ -88,7 +93,7 @@ async def _corrections(db_session: AsyncSession, user: User) -> list[MachineCorr
 class TestScanGenerationCapture:
     async def test_scan_persists_receipt_generation(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         body = await _scan(client)
         assert body["generation_id"] is not None
 
@@ -112,7 +117,7 @@ class TestScanGenerationCapture:
 class TestMergeCorrectionCapture:
     async def test_merge_edited_records_correction(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         body = await _scan(client)
         gen_id = body["generation_id"]
         payload = _merge_payload(body["items"])
@@ -136,7 +141,7 @@ class TestMergeCorrectionCapture:
 
     async def test_merge_unedited_records_no_correction(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         body = await _scan(client)
         resp = await client.post(
             f"/api/fridge/merge?generation_id={body['generation_id']}",
@@ -147,7 +152,7 @@ class TestMergeCorrectionCapture:
 
     async def test_merge_need_to_use_only_change_is_not_a_correction(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """need_to_use is seeded from the fridge, not the scan — toggling it
         alone must not count as correcting the scan."""
         body = await _scan(client)
@@ -163,7 +168,7 @@ class TestMergeCorrectionCapture:
 
     async def test_merge_dropped_row_records_correction(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """Removing a scanned row before merge is an edit (the scan over-extracted)."""
         body = await _scan(client)
         payload = _merge_payload(body["items"])[:1]  # drop the second item
@@ -178,7 +183,7 @@ class TestMergeCorrectionCapture:
 
     async def test_merge_ambiguous_expiration_does_not_500(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """Regression: two rows tying on (name, quantity) but differing in
         expiration (one null) must not raise in the canonical sort — the sort
         key is total-order-safe, and the diff is guarded regardless."""
@@ -198,7 +203,7 @@ class TestMergeCorrectionCapture:
 
     async def test_merge_foreign_generation_id_not_linked(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """Security: a foreign generation_id must not link (owner check)."""
         other = User(email="other3@example.com", hashed_password=get_password_hash("x"))
         db_session.add(other)
@@ -224,7 +229,7 @@ class TestMergeCorrectionCapture:
 
     async def test_merge_cross_surface_generation_id_not_linked(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """Security (surface pin): the user's OWN generation from a different
         surface must not link — resolve_owned_generation pins receipt_scan, so
         a single_recipe id is rejected even though the owner matches."""
@@ -250,11 +255,11 @@ class TestMergeCorrectionCapture:
 
 class TestGuardedCommitDegrade:
     async def test_scan_returns_null_id_when_telemetry_commit_fails(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """A failed telemetry commit must not 500 the successful scan — the items
         are returned, generation_id=None."""
-        def _bad_record(session, **kw):
+        def _bad_record(session: AsyncSession, **kw: object) -> MachineGeneration:
             row = MachineGeneration(
                 user_id=9_999_999, surface=kw["surface"],
                 output_json=kw["output_json"], request_json=kw.get("request_json"),

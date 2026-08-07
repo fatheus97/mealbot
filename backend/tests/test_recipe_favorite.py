@@ -32,10 +32,10 @@ class TestFavoriteRecipe:
         self,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         recipe = _fake_recipe()
         resp = await client.post(
             "/api/recipe/favorite",
@@ -69,10 +69,10 @@ class TestFavoriteRecipe:
         self,
         _mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Pinning the contract: starring a not-yet-cooked recipe doesn't
         consume fridge stock. Only the explicit cook flow debits the fridge.
         """
@@ -103,10 +103,10 @@ class TestFavoriteRecipe:
         self,
         _mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """The plan row uses kind='cook_now' so it's invisible to the catalog
         listing (which filters kind='planned'), matching /recipe/cook's pattern.
         """
@@ -129,8 +129,8 @@ class TestFavoriteRecipe:
         assert plans[0].confirmed_at is not None
 
     async def test_favorite_rejects_meal_type_mismatch(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         recipe = _fake_recipe(meal_type=MealType.SOUP)
         resp = await client.post(
             "/api/recipe/favorite",
@@ -144,8 +144,8 @@ class TestFavoriteRecipe:
         assert resp.status_code == 400
 
     async def test_favorite_rejects_unknown_meal_type(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         resp = await client.post(
             "/api/recipe/favorite",
             headers=auth_headers,
@@ -162,8 +162,8 @@ class TestFavoriteRecipe:
         self,
         _mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         """End-to-end: star a recipe → it shows up in /api/cookbook → DELETE removes it."""
         resp = await client.post(
             "/api/recipe/favorite",

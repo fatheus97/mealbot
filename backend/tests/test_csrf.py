@@ -14,19 +14,19 @@ from tests.conftest import TEST_PASSWORD
 
 
 @pytest.fixture(autouse=True)
-def _enable_csrf(monkeypatch: pytest.MonkeyPatch):
+def _enable_csrf(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "csrf_enabled", True)
 
 
 class TestCsrfAllowList:
     async def test_safe_method_passes_without_csrf(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         # GET is not state-changing; CSRF must not block it.
         resp = await client.get("/api/users", headers=auth_headers)
         assert resp.status_code == 200
 
-    async def test_login_endpoint_exempt(self, unauthed_client: AsyncClient):
+    async def test_login_endpoint_exempt(self, unauthed_client: AsyncClient) -> None:
         # Login is the bootstrap path — caller has no CSRF cookie yet.
         # Wrong creds (no test_user fixture) → 401, NOT 403.
         resp = await unauthed_client.post(
@@ -35,7 +35,7 @@ class TestCsrfAllowList:
         )
         assert resp.status_code in (401, 422)
 
-    async def test_register_endpoint_exempt(self, unauthed_client: AsyncClient):
+    async def test_register_endpoint_exempt(self, unauthed_client: AsyncClient) -> None:
         from unittest.mock import patch as _patch
 
         with _patch.object(settings, "registration_enabled", True):
@@ -49,8 +49,8 @@ class TestCsrfAllowList:
 
 class TestCsrfRejection:
     async def test_post_without_header_rejected(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         # PATCH /api/users mutates state; missing X-CSRF-Token must 403.
         resp = await client.patch(
             "/api/users",
@@ -60,8 +60,8 @@ class TestCsrfRejection:
         assert resp.status_code == 403
 
     async def test_post_without_cookie_rejected(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers={**auth_headers, "X-CSRF-Token": "anything"},
@@ -70,8 +70,8 @@ class TestCsrfRejection:
         assert resp.status_code == 403
 
     async def test_post_with_mismatched_token_rejected(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         client.cookies.set(CSRF_COOKIE_NAME, "cookie-value")
         resp = await client.patch(
             "/api/users",
@@ -83,8 +83,8 @@ class TestCsrfRejection:
 
 class TestCsrfAcceptance:
     async def test_post_with_matching_token_succeeds(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         client.cookies.set(CSRF_COOKIE_NAME, "shared-token-value")
         resp = await client.patch(
             "/api/users",

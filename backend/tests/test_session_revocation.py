@@ -26,7 +26,7 @@ from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 @pytest.mark.usefixtures("test_user")
 async def test_refresh_reuse_outside_grace_revokes_all_sessions_and_bumps_tv(
     unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-):
+) -> None:
     """Replay of a rotated refresh token AFTER the grace window = theft signal."""
     # 1. Log in twice = two parallel device sessions.
     await unauthed_client.post(
@@ -91,7 +91,7 @@ async def test_refresh_reuse_outside_grace_revokes_all_sessions_and_bumps_tv(
 @pytest.mark.usefixtures("test_user")
 async def test_mass_revoke_replay_is_ended_session_not_theft(
     unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-):
+) -> None:
     """Replaying a refresh token revoked by an explicit mass-revoke (logout-all,
     and likewise password change) is a stale-session replay, NOT theft. Such a
     row was never rotated (replaced_by_id IS NULL), so refresh must return a
@@ -125,7 +125,7 @@ async def test_mass_revoke_replay_is_ended_session_not_theft(
 @pytest.mark.usefixtures("test_user")
 async def test_refresh_reuse_within_grace_mints_parallel_session(
     unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-):
+) -> None:
     """Within the grace window, a replay (e.g. two tabs racing) must succeed
     with a fresh session and MUST NOT trigger the account-wide theft revoke."""
     await unauthed_client.post(

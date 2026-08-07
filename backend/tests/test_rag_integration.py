@@ -3,7 +3,10 @@
 from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.meal_types import MealType
+from app.models.db_models import MealEntry, MealPlan
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -197,7 +200,13 @@ class TestFavoriteMealEmbedding:
     """Embedding lifecycle on the /favorite endpoint."""
 
     @staticmethod
-    async def _seed_entry(db_session, user_id: int, *, is_favorite: bool = False, embedding=None):
+    async def _seed_entry(
+        db_session: AsyncSession,
+        user_id: int,
+        *,
+        is_favorite: bool = False,
+        embedding: list[float] | None = None,
+    ) -> tuple[MealPlan, MealEntry]:
         from datetime import datetime
 
         from app.models.db_models import MealEntry, MealPlan

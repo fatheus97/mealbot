@@ -1,9 +1,11 @@
 """Tests for recipe retriever: embedding, retrieval, and user boost."""
 
+from typing import NoReturn
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
 from app.models.db_models import MealEntry, MealPlan, User
@@ -175,7 +177,7 @@ SAMPLE_MEAL_JSON_MIN = (
 )
 
 
-async def _make_user(db_session, email: str) -> tuple[User, int]:
+async def _make_user(db_session: AsyncSession, email: str) -> tuple[User, int]:
     user = User(email=email, hashed_password=get_password_hash("irrelevant"))
     db_session.add(user)
     await db_session.flush()
@@ -183,7 +185,7 @@ async def _make_user(db_session, email: str) -> tuple[User, int]:
     return user, user.id
 
 
-async def _make_plan(db_session, user_id: int) -> tuple[MealPlan, int]:
+async def _make_plan(db_session: AsyncSession, user_id: int) -> tuple[MealPlan, int]:
     plan = MealPlan(
         user_id=user_id, days=1, meals_per_day=1, people_count=1,
         request_json="{}", response_json="{}",
@@ -195,7 +197,7 @@ async def _make_plan(db_session, user_id: int) -> tuple[MealPlan, int]:
 
 
 async def _make_entry(
-    db_session, user_id: int, plan_id: int, name: str,
+    db_session: AsyncSession, user_id: int, plan_id: int, name: str,
     is_favorite: bool, embedding: list[float] | None,
 ) -> MealEntry:
     entry = MealEntry(
@@ -251,7 +253,7 @@ class TestRetrieveRatedMeals:
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
-        db_session,
+        db_session: AsyncSession,
     ) -> None:
         self._configure_settings(mock_settings)
         query_vec = [1.0] + [0.0] * 383
@@ -289,7 +291,7 @@ class TestRetrieveRatedMeals:
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
-        db_session,
+        db_session: AsyncSession,
     ) -> None:
         """Own meal at raw distance 0.4 should beat other user's at 0.3 (0.4*0.7 < 0.3)."""
         self._configure_settings(mock_settings)
@@ -337,7 +339,7 @@ class TestRetrieveRatedMeals:
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
-        db_session,
+        db_session: AsyncSession,
     ) -> None:
         """Union of own-user and global fetches is bounded by own + global."""
         own_n, global_n = 2, 3
@@ -372,7 +374,7 @@ class TestRetrieveRatedMeals:
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
-        db_session,
+        db_session: AsyncSession,
     ) -> None:
         """Regression guard for the single-global-query design: a user with a
         far meal must still see their own history represented, even when many
@@ -414,7 +416,7 @@ class TestRetrieveRatedMeals:
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
-        db_session,
+        db_session: AsyncSession,
     ) -> None:
         self._configure_settings(mock_settings)
         query_vec = [1.0] + [0.0] * 383
@@ -432,7 +434,7 @@ class TestRetrieveRatedMeals:
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
-        db_session,
+        db_session: AsyncSession,
     ) -> None:
         """User with < threshold favorites should still see other users' candidates."""
         self._configure_settings(
@@ -471,7 +473,7 @@ class TestRetrieveRatedMeals:
         self,
         mock_get_model: MagicMock,
         mock_settings: MagicMock,
-        db_session,
+        db_session: AsyncSession,
     ) -> None:
         """At/above threshold: cross-user candidates are excluded entirely."""
         self._configure_settings(
@@ -510,10 +512,10 @@ class TestRetrieveRatedMeals:
 
 
 class TestEmbedTimeout:
-    async def test_query_embed_timeout_degrades_to_empty(self):
+    async def test_query_embed_timeout_degrades_to_empty(self) -> None:
         """A stalled query embedding returns no hits (caller falls back to the
         standard pipeline) rather than raising into plan generation."""
-        async def _timeout(*args, **kwargs):
+        async def _timeout(*args: object, **kwargs: object) -> NoReturn:
             raise TimeoutError
 
         with patch(
