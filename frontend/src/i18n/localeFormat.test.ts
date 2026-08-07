@@ -61,24 +61,46 @@ describe("legalHref", () => {
     expect(legalHref("en", "privacy")).toBe("/privacy");
   });
 
+  // The guard the allowlist's docstring promises, in BOTH directions. Either
+  // mismatch is invisible to the rest of the suite — the SPA never navigates to
+  // a legal page, so no render test can follow the href — and both land on the
+  // one screen where money changes hands.
+  const viteConfig = () =>
+    readFileSync(resolve(import.meta.dirname, "../../vite.config.ts"), "utf-8");
+  const isBuilt = (config: string, entry: string) =>
+    config.includes(`'${entry}'`) || config.includes(`"${entry}"`);
+
   it("only points at pages the build actually emits", () => {
-    // The guard the allowlist's docstring promises. A locale added to
-    // UI_LOCALES without its legal pages being added to the Vite build (or
-    // vice versa) is a link to a 404 on the page where money changes hands,
-    // and nothing else in the suite would notice: the SPA never navigates
-    // there, so no render test can follow the href.
-    const viteConfig = readFileSync(
-      resolve(import.meta.dirname, "../../vite.config.ts"),
-      "utf-8",
-    );
+    // Allowlisted → the page exists. Catches a locale added to the allowlist
+    // whose pages were never added to the Vite build: a link to a 404.
+    const config = viteConfig();
     for (const locale of UI_LOCALES) {
       for (const doc of ["terms", "privacy"] as const) {
         const entry = `${legalHref(locale, doc).replace(/^\//, "")}.html`;
         expect(
-          viteConfig.includes(`'${entry}'`) || viteConfig.includes(`"${entry}"`),
+          isBuilt(config, entry),
           `legalHref("${locale}", "${doc}") points at /${entry.replace(/\.html$/, "")}, ` +
             `but vite.config.ts has no "${entry}" build input`,
         ).toBe(true);
+      }
+    }
+  });
+
+  it("links every translated page that the build emits", () => {
+    // The REVERSE direction, which the first case does not cover: a locale
+    // whose pages were built but never allowlisted still resolves to the
+    // English path, so the translation ships and nobody is ever sent to it.
+    // Silent, and strictly worse than the 404 — a wrong-language contract
+    // reads as correct.
+    const config = viteConfig();
+    for (const locale of UI_LOCALES) {
+      for (const doc of ["terms", "privacy"] as const) {
+        if (!isBuilt(config, `${locale}/${doc}.html`)) continue;
+        expect(
+          legalHref(locale, doc),
+          `vite.config.ts builds "${locale}/${doc}.html", but legalHref("${locale}", ` +
+            `"${doc}") still returns the English path — that page is unreachable`,
+        ).toBe(`/${locale}/${doc}`);
       }
     }
   });
