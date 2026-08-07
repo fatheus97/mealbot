@@ -205,9 +205,11 @@ class TestNeedToUseToggle:
         resp = await client.get("/api/fridge", headers=auth_headers)
         assert resp.json()[0]["need_to_use"] is False
 
-    async def test_put_response_masked_but_write_preserves_value(
+    async def test_put_ignores_client_need_to_use_for_new_items_when_disabled(
         self, client: AsyncClient, auth_headers: dict
     ):
+        # A masked client can't see the field, so it can't set it either —
+        # even a client-supplied True on a brand-new item is dropped.
         await client.patch(
             "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
         )
@@ -219,17 +221,67 @@ class TestNeedToUseToggle:
             "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
         )
         resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is False
+
+    async def test_put_round_trip_of_masked_get_does_not_wipe_stored_value(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        # Regression: the fridge UI PUTs its ENTIRE local array back on any
+        # edit (quantity, add, remove — not just a need_to_use change), and
+        # that local array was seeded from a masked GET. If PUT trusted the
+        # client's (masked, always-False) need_to_use verbatim, the first
+        # unrelated edit while the toggle is off would silently zero
+        # need_to_use for the whole fridge, permanently — re-enabling the
+        # preference would NOT bring it back, because the true value was
+        # never masked in the DB, only overwritten there.
+        put_resp = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500, "need_to_use": True}],
+        )
+        assert put_resp.status_code == 200
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        masked = await client.get("/api/fridge", headers=auth_headers)
+        masked_items = masked.json()
+        assert masked_items[0]["need_to_use"] is False  # confirms it's really masked
+
+        # Simulate an unrelated edit (bump quantity) and PUT the whole
+        # (masked) array back, exactly like Fridge.tsx's persistFridge does.
+        masked_items[0]["quantity_grams"] = 400
+        edit_resp = await client.put("/api/fridge", headers=auth_headers, json=masked_items)
+        assert edit_resp.status_code == 200
+        assert edit_resp.json()[0]["quantity_grams"] == 400.0
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["quantity_grams"] == 400.0
         assert resp.json()[0]["need_to_use"] is True
 
     async def test_merge_response_masked_when_disabled(
         self, client: AsyncClient, auth_headers: dict
     ):
+        # A client-supplied True is ignored while disabled, both in the
+        # response AND in what actually gets stored (same protection as
+        # PUT — /fridge/merge takes an arbitrary client payload too, not
+        # only the always-need_to_use=False shape the receipt-scan flow
+        # happens to send).
         await client.patch(
             "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
         )
         payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
         resp = await client.post("/api/fridge/merge", headers=auth_headers, json=payload)
         assert resp.status_code == 200
+        assert resp.json()[0]["need_to_use"] is False
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
         assert resp.json()[0]["need_to_use"] is False
 
 

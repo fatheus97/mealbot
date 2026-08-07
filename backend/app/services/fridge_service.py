@@ -113,10 +113,38 @@ async def replace_fridge_items(
 ) -> list[StockItemDTO]:
     """Replace fridge items for a user (delete old, insert new).
 
-    Shared by PUT /fridge and plan confirm endpoint. Always WRITES each item's
-    real need_to_use as given — ``need_to_use_enabled`` only masks the
-    returned view (via get_fridge_items), same contract as that function.
+    Shared by PUT /fridge and plan confirm endpoint.
+
+    ``need_to_use_enabled=False`` means the caller's ``items`` came from a
+    client that only ever sees a masked (always-False) need_to_use — e.g. the
+    fridge UI round-trips its last GET response wholesale on every edit, even
+    one unrelated to need_to_use (PUT /fridge replaces the whole fridge, not
+    a single row). Trusting that blind value verbatim would silently zero out
+    every item's real need_to_use on the next unrelated edit. So when
+    disabled, each incoming item's need_to_use is IGNORED in favor of
+    whatever is actually stored for the same (name, expiration_date) key
+    right now — a masked client can neither read nor write this field, only
+    re-enabling the preference can. A key with no existing match (a genuinely
+    new item) has no stored value to preserve, so it falls back to False.
     """
+    if not need_to_use_enabled:
+        existing = (
+            await session.execute(select(StockItem).where(StockItem.user_id == user_id))
+        ).scalars().all()
+        stored_by_key = {
+            (r.name.strip().lower(), r.expiration_date): r.need_to_use for r in existing
+        }
+        items = [
+            it.model_copy(
+                update={
+                    "need_to_use": stored_by_key.get(
+                        (it.name.strip().lower(), it.expiration_date), False
+                    )
+                }
+            )
+            for it in items
+        ]
+
     await session.execute(delete(StockItem).where(StockItem.user_id == user_id))  # type: ignore[arg-type]
 
     for it in items:
