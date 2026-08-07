@@ -1,3 +1,8 @@
+---
+description: Rules for frontend React/CSS code
+paths: ["frontend/**"]
+---
+
 # Frontend Rules
 
 ## Theme / colour contrast — CHECK THIS EVERY TIME (recurring bug)

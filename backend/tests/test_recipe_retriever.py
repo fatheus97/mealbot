@@ -1,5 +1,6 @@
 """Tests for recipe retriever: embedding, retrieval, and user boost."""
 
+from collections.abc import Coroutine
 from typing import NoReturn
 from unittest.mock import MagicMock, patch
 
@@ -512,10 +513,27 @@ class TestRetrieveRatedMeals:
 
 
 class TestEmbedTimeout:
+    # BOTH filters are required, don't drop either. An un-awaited coroutine is
+    # finalized by GC, so "coroutine ... was never awaited" arrives as a plain
+    # RuntimeWarning that pytest merely *reports* — the first filter escalates
+    # it to an exception. But that exception is then raised inside a finalizer,
+    # i.e. unraisable, which pytest again downgrades to a warning; only the
+    # second filter turns it into a failure. Verified by removing the
+    # coro.close() below: with just one of the two, the test still passes.
+    @pytest.mark.filterwarnings("error::RuntimeWarning")
+    @pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
     async def test_query_embed_timeout_degrades_to_empty(self) -> None:
         """A stalled query embedding returns no hits (caller falls back to the
         standard pipeline) rather than raising into plan generation."""
-        async def _timeout(*args: object, **kwargs: object) -> NoReturn:
+        async def _timeout(
+            coro: Coroutine[object, object, object],
+            *args: object,
+            **kwargs: object,
+        ) -> NoReturn:
+            # Stand in for asyncio.wait_for, which awaits its coroutine and
+            # cancels it on timeout. Nothing here awaits, so close it explicitly
+            # — the production path has no un-awaited coroutine, only this stub.
+            coro.close()
             raise TimeoutError
 
         with patch(
