@@ -385,6 +385,12 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "meal.leftoversFromTitle": "Zbytky z jídla „{source}“",
   "meal.leftoversFromBadge": "↻ Zbytky z jídla „{source}“",
 
+  // "z" + genitive for the date; a COLON, not a dash, introduces the dish —
+  // Czech does not punctuate an apposition with an em-dash.
+  "calendar.leftoverFromDateAndName": "Zbytky z {date}: {name}",
+  "calendar.leftoverFromDate": "Zbytky z {date}",
+  "calendar.leftoverFromName": "Zbytky: {name}",
+
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":
     "Vygenerujte jeden recept na to, co právě vaříte. Označte ho jako uvařený a suroviny se odečtou z lednice.",

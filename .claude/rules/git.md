@@ -13,6 +13,43 @@
   approval"; don't re-ask each time.
 - Always create feature branches for any changes
 
+## Worktrees — NEVER check out `main` (read this before the Autonomy section)
+
+**Many sessions run in parallel against this one repo**, each in its own
+`.claude/worktrees/*` (see `git worktree list`). Git allows a branch to be
+checked out in **exactly one** worktree at a time, so:
+
+- **`git checkout main` is forbidden.** It either fails outright
+  (`fatal: 'main' is already used by worktree at …`) or, worse, *succeeds* —
+  stealing `main` from whichever worktree legitimately held it and leaving that
+  session unable to return to it.
+- **This applies AFTER merging too.** Finishing a PR does not mean "go back to
+  main". There is no such place to go back to. Stay on your branch; the worktree
+  is disposable and will be removed.
+- **Never `git checkout` any branch you did not create.** Another session is
+  probably working on it, and its uncommitted changes are not yours to move.
+
+### What to do instead
+
+| you want | do this |
+|---|---|
+| latest `main` | `git fetch origin` — then read `origin/main`. Never check it out. |
+| start new work | `git checkout -b <branch> origin/main` (branch from the **remote** ref, so a stale or foreign local `main` can't leak in) |
+| update your PR branch | `gh api -X PUT repos/fatheus97/mealbot/pulls/<n>/update-branch` — a server-side merge of base into head. No local checkout, and no force push (which is banned anyway). |
+| after merging | nothing. Report and stop. |
+
+### Symptoms that this already went wrong
+
+- A tool or sub-agent reports success while naming a branch you never created.
+- Your finished work shows up as *uncommitted changes on someone else's branch*.
+- The test count drops (see the HEAD-verification habit in
+  `.claude/rules/testing.md`).
+
+Recovery: confirm the two bases are equivalent first
+(`git diff <wrong-base> <right-base> -- <path>`), then
+`git stash push -- <path>` → `git checkout <your-branch>` → `git stash pop`, and
+**re-run every check** — a green run measured on the wrong base proves nothing.
+
 ## Autonomy
 
 Default: commit, push, open PRs, iterate on review feedback, AND merge —
@@ -49,7 +86,9 @@ cycle defeats the point.
   the user has pre-approved it and pushed back on being re-asked. (The harness
   auto-mode classifier may still prompt on the tool call — that's a separate
   layer; the user's intent is documented and clear, so proceed. Never
-  `--admin`.) Then sync main and move to the next thing.
+  `--admin`.) Then **stay where you are** — do NOT check out `main`. See
+  "Worktrees" below; this is the single most common way a session corrupts
+  another session's work.
 - Still surface (don't auto-merge) when CI is red, the review has unresolved
   actionable items, or the change is genuinely high-risk/ambiguous.
 

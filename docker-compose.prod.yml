@@ -23,6 +23,33 @@ services:
     # SIGKILLed mid-work — Docker's default grace is only 10s. Queued (unstarted)
     # parses are cancelled, not drained, so this bounds on worker count, not queue
     # depth.
+    #
+    # ─── Do not raise this to "protect long generations". It backfires. ───────
+    # The tempting reasoning: plan/recipe generation is awaited INLINE in the
+    # request (no background job — the user is waiting for the output), a Gemini
+    # call has a 60s timeout with retries, so a generation still running when a
+    # deploy lands gets SIGKILLed at 30s and the user loses it. True. But a
+    # bigger grace does not fix it, because `docker compose up -d` recreates a
+    # container by STOPPING THE OLD ONE FIRST: the drain window IS the downtime
+    # window. uvicorn stops accepting connections on SIGTERM and exits once
+    # in-flight requests finish, so the backend is unreachable for exactly as
+    # long as the slowest in-flight request — bounded by this value.
+    #
+    # 30s is therefore not arbitrary: it MATCHES `lb_try_duration 30s` in the
+    # Caddyfile, which is how long Caddy keeps re-dialing before it gives up and
+    # 502s. Raise this alone and the drain outlives the retry — one user's
+    # generation is saved and everyone else gets 502s for the difference. Raise
+    # both and every request instead hangs for up to that long. Under real
+    # concurrency it degrades further: with enough traffic something is always
+    # generating, the container never drains inside the ceiling, and you pay the
+    # full downtime AND still SIGKILL a generation.
+    #
+    # The fix at that scale is to stop trading one for the other: deploy
+    # start-before-stop (a second backend replica behind Caddy, or a blue/green
+    # swap) so draining costs nobody anything and a long grace becomes free —
+    # or move generation to a job + polling so no request is long-lived. Both
+    # are real work; neither is a knob. If you change this number, change
+    # `lb_try_duration` with it and know you are picking hangs over errors.
     stop_grace_period: 30s
 
   frontend:
