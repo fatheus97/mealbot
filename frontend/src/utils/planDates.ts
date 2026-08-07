@@ -117,12 +117,60 @@ export function addMonthsISO(iso: string, n: number): string {
   return toISODate(new Date(d.getFullYear(), d.getMonth() + n, 1));
 }
 
-/** e.g. "August 2026" for any date in that month. */
+/**
+ * e.g. "August 2026" — the month as a STANDALONE label (a heading, a caption).
+ *
+ * In Czech this is the nominative, "srpen 2026": correct on its own, wrong
+ * inside a sentence. Use `monthLabelIn` there.
+ */
 export function monthLabelOf(iso: string, locale: Locale): string {
   return parseISODateLocal(iso).toLocaleDateString(localeTags(locale), {
     month: "long",
     year: "numeric",
   });
+}
+
+/**
+ * Czech month names in the LOCATIVE case, indexed by `Date.getMonth()`.
+ *
+ * `Intl` has no notion of grammatical case — it returns one form per month — so
+ * a language that inflects needs a table. Keyed on the month NUMBER rather than
+ * derived from the nominative by a suffix rule: such a rule would have to be
+ * re-verified against whatever spelling the current ICU ships, and "září" does
+ * not inflect at all, so it would need a special case regardless.
+ *
+ * ponytail: a Czech-only table in a general util. It stays that way until a
+ * second inflecting locale exists; the right shape then is a per-locale map,
+ * not a rule engine.
+ */
+const CS_MONTHS_LOCATIVE = [
+  "lednu",
+  "únoru",
+  "březnu",
+  "dubnu",
+  "květnu",
+  "červnu",
+  "červenci",
+  "srpnu",
+  "září", // indeclinable — "v září" is also the nominative
+  "říjnu",
+  "listopadu",
+  "prosinci",
+] as const;
+
+/**
+ * The month as it appears INSIDE a sentence, after "in" / "v" — e.g.
+ * "No scheduled plans in {month}" / "V {month} nejsou…".
+ *
+ * English has no cases, so this is `monthLabelOf`. Czech takes the locative:
+ * "v srpnu 2026", never "v srpen 2026". The calendar's empty state used the
+ * standalone form and dodged the mismatch with "V měsíci {month}" — grammatical,
+ * but it reads like a form letter.
+ */
+export function monthLabelIn(iso: string, locale: Locale): string {
+  if (locale !== "cs") return monthLabelOf(iso, locale);
+  const d = parseISODateLocal(iso);
+  return `${CS_MONTHS_LOCATIVE[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 /**

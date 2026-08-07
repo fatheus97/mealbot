@@ -10,6 +10,7 @@ import {
   startOfMonthISO,
   addMonthsISO,
   monthLabelOf,
+  monthLabelIn,
   monthMatrix,
   isSameMonthISO,
   dayOfMonth,
@@ -351,7 +352,10 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
             )}
             {!isLoading && plans.length === 0 && (
               <p style={{ color: "#6b7280", fontSize: "0.9rem", margin: 0 }}>
-                {t("calendar.emptyMonth", { month: monthLabelOf(monthCursor, locale) })}
+                {/* monthLabelIN, not monthLabelOf: this one sits inside a sentence, and
+                    Czech needs the locative there ("V srpnu 2026", not "V srpen
+                    2026"). The heading above keeps the standalone form. */}
+                {t("calendar.emptyMonth", { month: monthLabelIn(monthCursor, locale) })}
               </p>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
