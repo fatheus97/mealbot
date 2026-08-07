@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
+from app.core.country_whitelist import normalize_country
+from app.core.language_whitelist import normalize_language
 from app.models.db_models import PantryStaple, StockItem, User
 
 
@@ -189,3 +191,27 @@ class TestDemoSession:
         assert staples.scalars().all() == []
         result2 = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712
         assert [u.id for u in result2.scalars().all()] == [resp.json()["id"]]
+
+    async def test_seeded_preferences_pass_their_own_whitelists(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ):
+        # Regression: the seed set country="US", an ISO code. `normalize_country`
+        # only accepts names from SUPPORTED_COUNTRIES, so PATCH /api/users would
+        # have 400'd it — but the user never got that far, because
+        # PreferencesForm validates `country` against the same canonical list
+        # (GET /api/countries) and DISABLES "Save preferences" while it doesn't
+        # match. Result: a demo session could not change ANY preference at all.
+        #
+        # Asserting through the normalizers rather than against a literal string
+        # so this catches the next bad seed too, not just the one that shipped.
+        with patch("app.core.config.settings.demo_mode", True):
+            resp = await unauthed_client.post("/api/auth/demo")
+        assert resp.status_code == 200
+
+        result = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712
+        user = result.scalars().first()
+        assert user is not None
+        assert user.country is not None
+        assert normalize_country(user.country) == user.country
+        assert user.language is not None
+        assert normalize_language(user.language) == user.language
