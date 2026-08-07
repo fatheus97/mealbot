@@ -1,0 +1,29 @@
+# Schedules mealbot-unit-sync.service every ten minutes.
+#
+# This is the unit you enable — and the only one you ever have to, by hand:
+#   systemctl enable --now mealbot-unit-sync.timer
+#
+# See deploy/systemd/README.md §7.
+
+[Unit]
+Description=Schedule the mealbot systemd unit sync
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# Two minutes after boot, then every ten. A frequency, not a clock time, because
+# unlike the other timers this isn't a job with a right hour — it's reconciliation,
+# and its only deadline is "not long after a deploy". Ten minutes bounds how long
+# a merged unit change can sit unapplied; the run is a few file comparisons, so
+# the cost of asking often is nil.
+OnBootSec=2min
+OnUnitActiveSec=10min
+# No Persistent= — that catches up runs MISSED while the box was off, which is
+# meaningless for a job that simply re-checks current state and whose next run is
+# minutes away regardless. (The daily/weekly units want it; this one does not.)
+#
+# No RandomizedDelaySec= either: the siblings stagger to avoid contending for the
+# box at the same instant, but this does no real work and would only make the
+# ten-minute bound fuzzier.
+
+[Install]
+WantedBy=timers.target
