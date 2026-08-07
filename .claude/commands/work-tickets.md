@@ -20,7 +20,7 @@ Arguments: $ARGUMENTS
 
 2. **Triage each ticket for actionability BEFORE spending tokens on it.** This is a paid, health-adjacent product — never guess:
    - **Clear, reproducible bug OR a well-scoped small feature** → proceed to solve.
-   - **Vague / not reproducible from the description / underspecified** → do NOT guess. Comment on the ticket with exactly what's missing to act on it, add the `needs-info` label, and SKIP. Surface it in the final report for the owner.
+   - **Vague / not reproducible from the description / underspecified** → do NOT guess. Comment on the ticket with exactly what's missing to act on it, add the `needs-info` label, and SKIP. Surface it in the final report for the owner. **End that comment with the re-queue contract, stated exactly: "Remove the `needs-info` label once you've answered — that label is the only thing this routine looks at, so a reply alone leaves the ticket skipped."** Step 1 filters on the label and never reads comments, so telling the owner a reply is enough would strand the ticket forever.
    - **Already fixed in the current code** → verify against the code, comment with the evidence (file:line), and close the ticket.
    - **Not-a-bug / user error / wontfix** → flag in the report for the owner to decide. Do NOT close it yourself.
    - **Very large or genuinely ambiguous in scope** → STOP and confirm the scope/plan with the owner before implementing (a token-cost guard — don't build the wrong big thing).
@@ -58,6 +58,8 @@ Arguments: $ARGUMENTS
 ## Report at the end
 
 A compact list, one line per ticket: **outcome** (shipped+merged / awaiting-your-merge (BIG) / needs-info / flagged-for-you / failed) with the ticket and PR links. Then a short "**needs you**" section pulling together: BIG PRs awaiting your glance, `needs-info` tickets, and any wontfix / not-a-bug candidates. State what's left unprocessed in the queue.
+
+**When running unattended, PUSH A NOTIFICATION — but only if that "needs you" section is non-empty.** The owner does not read run transcripts, so anything parked in it is invisible until they happen to look; a `needs-info` question nobody sees blocks the ticket indefinitely. One or two lines naming what needs them, with links. **Stay silent when the queue was empty or everything shipped and merged cleanly** — those are the normal outcome on most days, and notifying for them trains the owner to ignore the notifications that matter.
 
 ## Guardrails
 
