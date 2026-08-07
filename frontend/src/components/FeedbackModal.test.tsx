@@ -283,13 +283,17 @@ describe("FeedbackModal", () => {
         this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
       };
 
-      const file = new File(["fake-png-bytes"], "bug.png", { type: "image/png" });
-      await user.upload(screen.getByLabelText(/attach screenshot/i), file);
+      try {
+        const file = new File(["fake-png-bytes"], "bug.png", { type: "image/png" });
+        await user.upload(screen.getByLabelText(/attach screenshot/i), file);
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(/could not read/i);
-      expect(screen.queryByAltText(/screenshot preview/i)).not.toBeInTheDocument();
-
-      FileReader.prototype.readAsDataURL = originalReadAsDataURL;
+        expect(await screen.findByRole("alert")).toHaveTextContent(/could not read/i);
+        expect(screen.queryByAltText(/screenshot preview/i)).not.toBeInTheDocument();
+      } finally {
+        // A global prototype patch that survives a failed assertion would
+        // otherwise leak into every test that runs after this one.
+        FileReader.prototype.readAsDataURL = originalReadAsDataURL;
+      }
     });
   });
 });
