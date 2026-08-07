@@ -428,6 +428,14 @@ export const en = {
   "meal.leftoversFromTitle": "Leftovers from {source}",
   "meal.leftoversFromBadge": "↻ Leftovers from {source}",
 
+  // The calendar chip's provenance line. Four shapes rather than one sentence
+  // glued from "Leftovers" + "from {date}" + "— {name}": the server can fail to
+  // resolve either half independently, and Czech needs "z" + a genitive date,
+  // which no shared prefix can carry. The bare case reuses `meal.leftovers`.
+  "calendar.leftoverFromDateAndName": "Leftovers from {date} — {name}",
+  "calendar.leftoverFromDate": "Leftovers from {date}",
+  "calendar.leftoverFromName": "Leftovers — {name}",
+
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":
     "Generate one recipe for what you're cooking right now. Mark it cooked to debit your fridge.",
