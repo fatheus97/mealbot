@@ -16,6 +16,7 @@ from sqlmodel import col, select
 from app.api.deps import get_current_user, require_verified_email
 from app.core.config import settings
 from app.core.errors import LocalizedHTTPException
+from app.core.i18n import Locale, locale_from_accept_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.models.billing_schemas import (
@@ -34,6 +35,22 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 def _require_billing_available() -> None:
     if not settings.billing_enabled or not stripe_service.billing_configured():
         raise LocalizedHTTPException(503, "billing_unavailable")
+
+
+def _checkout_locale(request: Request) -> Locale:
+    """The locale for Stripe's hosted Checkout and Portal pages.
+
+    Read from Accept-Language — which ``authFetch`` sets to the SPA's chosen UI
+    locale — and deliberately NOT from ``request.state.locale``.
+
+    That differs from the error-message precedence in ``core/errors.py``, which
+    prefers ``User.language``. The two are answering different questions:
+    ``User.language`` is the RECIPE language (33 options — the language the model
+    writes meal plans in), while Stripe's pages are UI chrome. Someone reading
+    Czech recipes inside an English app should get an English checkout, and they
+    already said which they wanted by picking the UI language.
+    """
+    return locale_from_accept_language(request.headers.get("accept-language"))
 
 
 @router.post("/checkout", response_model=BillingUrlResponse)
@@ -58,7 +75,9 @@ async def create_checkout(
     if body.plan == "annual" and not stripe_service.annual_available():
         raise LocalizedHTTPException(400, "billing_annual_unavailable")
     try:
-        url = await stripe_service.create_checkout_session(current_user, session, body.plan)
+        url = await stripe_service.create_checkout_session(
+            current_user, session, body.plan, _checkout_locale(request)
+        )
     except Exception:
         logger.exception("Checkout creation failed for user %s", current_user.id)
         raise LocalizedHTTPException(502, "billing_checkout_failed") from None
@@ -76,7 +95,7 @@ async def create_portal(
     if not current_user.stripe_customer_id:
         raise LocalizedHTTPException(400, "billing_no_account")
     try:
-        url = await stripe_service.create_portal_session(current_user)
+        url = await stripe_service.create_portal_session(current_user, _checkout_locale(request))
     except Exception:
         logger.exception("Portal creation failed for user %s", current_user.id)
         raise LocalizedHTTPException(502, "billing_portal_failed") from None
