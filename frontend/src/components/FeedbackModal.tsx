@@ -1,7 +1,7 @@
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useRef, useState } from "react";
 import { ModalShell } from "./ModalShell";
 import { useSubmitFeedback } from "../hooks/useServerState";
-import type { FeedbackKind } from "../types";
+import type { FeedbackKind, FeedbackScreenshotContentType } from "../types";
 import { useI18n } from "../i18n";
 
 // Mirror the backend bounds (core.feedback_gate): the client gates the MIN so the
@@ -10,6 +10,18 @@ const MESSAGE_MIN_LEN = 10;
 const MESSAGE_MAX_LEN = 4000;
 
 const KIND_OPTIONS: FeedbackKind[] = ["bug", "feature", "other"];
+
+// Mirrors the backend bounds (feedback_schemas.MAX_SCREENSHOT_BYTES / the
+// FeedbackScreenshotContentType literal) so a rejected file never leaves the
+// client to bounce off a 422 — same reasoning as MESSAGE_MIN_LEN above.
+const MAX_SCREENSHOT_BYTES = 3 * 1024 * 1024;
+const ALLOWED_SCREENSHOT_TYPES = new Set<string>(["image/png", "image/jpeg"]);
+
+interface Screenshot {
+  base64: string;
+  contentType: FeedbackScreenshotContentType;
+  previewUrl: string;
+}
 
 /**
  * "Send feedback" modal — a logged-in user reports a bug or requests a feature.
@@ -32,15 +44,61 @@ export function FeedbackModal({
   const [message, setMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [screenshot, setScreenshot] = useState<Screenshot | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const trimmedLen = message.trim().length;
   const tooShort = trimmedLen < MESSAGE_MIN_LEN;
+
+  function attachFile(file: File): void {
+    if (!ALLOWED_SCREENSHOT_TYPES.has(file.type)) {
+      setError(t("feedback.screenshotUnsupportedType"));
+      return;
+    }
+    if (file.size > MAX_SCREENSHOT_BYTES) {
+      setError(t("feedback.screenshotTooLarge"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      // readAsDataURL always yields "data:<type>;base64,<data>" for a Blob.
+      const base64 = String(reader.result).split(",")[1] ?? "";
+      setScreenshot({
+        base64,
+        contentType: file.type as FeedbackScreenshotContentType,
+        previewUrl: String(reader.result),
+      });
+      setError(null);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function onPaste(e: React.ClipboardEvent): void {
+    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+    if (!item) return;
+    const file = item.getAsFile();
+    if (!file) return;
+    // Otherwise the browser also inserts the image's filename as text.
+    e.preventDefault();
+    attachFile(file);
+  }
+
+  function removeScreenshot(): void {
+    setScreenshot(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
   function onSubmit(e: React.FormEvent): void {
     e.preventDefault();
     setError(null);
     submit.mutate(
-      { kind, message: message.trim(), page: page ?? null },
+      {
+        kind,
+        message: message.trim(),
+        page: page ?? null,
+        screenshot_base64: screenshot?.base64 ?? null,
+        screenshot_content_type: screenshot?.contentType ?? null,
+      },
       {
         onSuccess: () => setDone(true),
         onError: (err) =>
@@ -94,6 +152,7 @@ export function FeedbackModal({
                   setMessage(e.target.value);
                   setError(null);
                 }}
+                onPaste={onPaste}
                 placeholder={t("feedback.detailsPlaceholder")}
                 rows={6}
                 maxLength={MESSAGE_MAX_LEN}
@@ -102,6 +161,51 @@ export function FeedbackModal({
             </label>
             <div style={{ fontSize: 12, color: mutedColor, textAlign: "right", marginTop: -4 }}>
               {message.length}/{MESSAGE_MAX_LEN}
+            </div>
+
+            <div style={{ marginTop: "0.5rem" }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg"
+                aria-label={t("feedback.attachScreenshot")}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) attachFile(file);
+                }}
+                style={{ display: "none" }}
+              />
+              {screenshot ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                  <img
+                    src={screenshot.previewUrl}
+                    alt={t("feedback.screenshotAlt")}
+                    style={{
+                      height: 48,
+                      width: 48,
+                      objectFit: "cover",
+                      borderRadius: 6,
+                      border: `1px solid ${border}`,
+                    }}
+                  />
+                  <button type="button" onClick={removeScreenshot} style={secondaryBtn}>
+                    {t("feedback.removeScreenshot")}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={secondaryBtn}
+                  >
+                    {t("feedback.attachScreenshot")}
+                  </button>
+                  <p style={{ margin: "0.4rem 0 0", fontSize: 12, color: mutedColor }}>
+                    {t("feedback.pasteHint")}
+                  </p>
+                </>
+              )}
             </div>
 
             <div

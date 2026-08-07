@@ -14,10 +14,12 @@ re-exported through it here, so the API validation, the cheap gate, and the test
 reference one source of truth without a models→core→models import cycle.
 """
 
+import base64
+import binascii
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.feedback_gate import MESSAGE_MAX_LEN, PAGE_MAX_LEN
 
@@ -26,6 +28,15 @@ from app.core.feedback_gate import MESSAGE_MAX_LEN, PAGE_MAX_LEN
 # The reporter's self-declared category. Kept deliberately small; the LLM triage may
 # reclassify into the richer FeedbackTriage.type.
 FeedbackKind = Literal["bug", "feature", "other"]
+
+# Screenshot attachment bounds (fatheus97/mealbot-tickets#8). No SVG — an <img>
+# can't execute a script an SVG embeds, but there's no need to carry that class of
+# risk for a screenshot upload. Raw (decoded) bytes, not the base64-inflated size —
+# checked in FeedbackCreate._validate_screenshot below. Kept small: this is stored
+# directly on the row (no blob storage in this app) and reviewed by a single admin,
+# not a general-purpose upload surface.
+FeedbackScreenshotContentType = Literal["image/png", "image/jpeg"]
+MAX_SCREENSHOT_BYTES = 3 * 1024 * 1024
 
 # Moderation states an admin may SET via the 6a PATCH. "new" (reopen), "reviewing",
 # "rejected", "spam" — but NOT "accepted": that grants the €1 credit + opens a ticket,
@@ -44,11 +55,39 @@ class FeedbackCreate(BaseModel):
     kind: FeedbackKind
     message: str = Field(min_length=1, max_length=MESSAGE_MAX_LEN)
     page: str | None = Field(default=None, max_length=PAGE_MAX_LEN)
+    # Optional screenshot, sent as base64 in the same JSON body (no multipart —
+    # keeps this endpoint's request contract unchanged for existing clients).
+    # Both-or-neither; validated below.
+    screenshot_base64: str | None = Field(default=None)
+    screenshot_content_type: FeedbackScreenshotContentType | None = Field(default=None)
 
     @field_validator("message", "page")
     @classmethod
     def _strip(cls, v: str | None) -> str | None:
         return v.strip() if v is not None else v
+
+    @model_validator(mode="after")
+    def _validate_screenshot(self) -> FeedbackCreate:
+        has_data = self.screenshot_base64 is not None
+        has_type = self.screenshot_content_type is not None
+        if has_data != has_type:
+            raise ValueError(
+                "screenshot_base64 and screenshot_content_type must be set together"
+            )
+        if not has_data:
+            return self
+        assert self.screenshot_base64 is not None  # narrowed by has_data above
+        try:
+            decoded = base64.b64decode(self.screenshot_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("screenshot_base64 is not valid base64") from exc
+        if not decoded:
+            raise ValueError("screenshot_base64 decoded to empty data")
+        if len(decoded) > MAX_SCREENSHOT_BYTES:
+            raise ValueError(
+                f"screenshot exceeds the {MAX_SCREENSHOT_BYTES // (1024 * 1024)}MB limit"
+            )
+        return self
 
 
 class FeedbackSubmitResponse(BaseModel):
@@ -134,6 +173,8 @@ class AdminFeedbackDetail(BaseModel):
     kind: str
     message: str
     page: str | None
+    screenshot_base64: str | None
+    screenshot_content_type: str | None
     status: str
     created_at: datetime
     triage_status: str | None

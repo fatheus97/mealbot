@@ -289,6 +289,22 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
 
             <div style={messageBox}>{d.message}</div>
 
+            {d.screenshot_base64 && d.screenshot_content_type && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <img
+                  src={`data:${d.screenshot_content_type};base64,${d.screenshot_base64}`}
+                  alt="Attached screenshot"
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: 320,
+                    borderRadius: radius,
+                    border: `1px solid ${colors.border}`,
+                    display: "block",
+                  }}
+                />
+              </div>
+            )}
+
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "1rem 0 0.4rem" }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>AI triage (advisory)</div>
               <button

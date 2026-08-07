@@ -5,6 +5,7 @@ junk gate, the per-user abuse checks (duplicate / too-many-open), Pydantic body
 validation, and that advisory triage is scheduled (only) when enabled.
 """
 
+import base64
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,9 +15,14 @@ from sqlmodel import select
 
 from app.core.config import settings
 from app.models.db_models import FeedbackReport, User
+from app.models.feedback_schemas import MAX_SCREENSHOT_BYTES
 from app.services import feedback_triage
 
 _GOOD = {"kind": "bug", "message": "The regenerate button crashes the plan view."}
+
+# Content doesn't need to be a real PNG — the endpoint validates base64-ness,
+# content-type whitelist, and decoded size, never magic bytes / image validity.
+_SCREENSHOT_B64 = base64.b64encode(b"not a real png but that's fine").decode("ascii")
 
 
 @pytest.fixture(autouse=True)
@@ -107,6 +113,99 @@ class TestBodyValidation:
             "/api/feedback", json={"kind": "bug", "message": "x" * 5000}
         )
         assert resp.status_code == 422
+
+
+class TestScreenshotAttachment:
+    async def test_stores_valid_screenshot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": _SCREENSHOT_B64,
+                "screenshot_content_type": "image/png",
+            },
+        )
+        assert resp.status_code == 201
+        row = (await db_session.execute(select(FeedbackReport))).scalars().one()
+        assert row.screenshot_base64 == _SCREENSHOT_B64
+        assert row.screenshot_content_type == "image/png"
+
+    async def test_submit_without_screenshot_leaves_columns_null(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        resp = await client.post("/api/feedback", json=_GOOD)
+        assert resp.status_code == 201
+        row = (await db_session.execute(select(FeedbackReport))).scalars().one()
+        assert row.screenshot_base64 is None
+        assert row.screenshot_content_type is None
+
+    async def test_content_type_without_data_rejected_422(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback", json={**_GOOD, "screenshot_content_type": "image/png"}
+        )
+        assert resp.status_code == 422
+
+    async def test_data_without_content_type_rejected_422(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback", json={**_GOOD, "screenshot_base64": _SCREENSHOT_B64}
+        )
+        assert resp.status_code == 422
+
+    async def test_disallowed_content_type_rejected_422(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": _SCREENSHOT_B64,
+                "screenshot_content_type": "image/svg+xml",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_malformed_base64_rejected_422(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": "not valid base64!!!",
+                "screenshot_content_type": "image/png",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_oversized_screenshot_rejected_422(self, client: AsyncClient) -> None:
+        oversized = base64.b64encode(b"x" * (MAX_SCREENSHOT_BYTES + 1)).decode("ascii")
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": oversized,
+                "screenshot_content_type": "image/png",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_at_size_limit_accepted(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        at_limit = base64.b64encode(b"x" * MAX_SCREENSHOT_BYTES).decode("ascii")
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": at_limit,
+                "screenshot_content_type": "image/jpeg",
+            },
+        )
+        assert resp.status_code == 201
 
 
 class TestAbuseChecks:

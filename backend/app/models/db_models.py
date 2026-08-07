@@ -960,6 +960,13 @@ class FeedbackReport(SQLModel, table=True):
     # Optional client-supplied context (the app view/route the user was on when they
     # reported). Untrusted, bounded at the API layer. NULL when not supplied.
     page: str | None = Field(default=None)
+    # Optional user-attached screenshot, stored as base64 (no blob/object storage
+    # exists in this app; a low-volume, admin-reviewed-only image doesn't justify
+    # adding one). Content-type/size are validated at the API layer (FeedbackCreate),
+    # not here. Both NULL when no screenshot was attached. Deliberately NOT sent to
+    # services.feedback_ticket — see that module's PII note.
+    screenshot_base64: str | None = Field(default=None)
+    screenshot_content_type: str | None = Field(default=None)
     # Moderation lifecycle: "new" (unmoderated) | "reviewing" | "accepted" |
     # "rejected" | "spam". Loose str (not an enum column) so a new state needs no
     # migration; allowed transitions are enforced in the admin API. This tracks the
