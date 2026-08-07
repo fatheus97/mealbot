@@ -210,6 +210,39 @@ describe("PlanCalendar", () => {
     expect(untranslatedEnglishIn(empty.container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
   });
 
+  it("declines the month for the sentence but not for the heading", async () => {
+    // The same month renders in two grammatical roles on this one screen, and
+    // untranslatedEnglishIn cannot see the difference — both forms are Czech.
+    // The heading is standalone (nominative, "srpen 2026"); the empty-state
+    // sentence follows "V" and needs the locative ("v srpnu 2026"). Getting
+    // this wrong is invisible to every other guard in the suite.
+    loginUser();
+    routeDefault({ plans: [] });
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    render(<PlanCalendar onClose={vi.fn()} onOpenPlan={vi.fn()} />, {
+      wrapper: createWrapper(),
+    });
+
+    const sentence = await screen.findByText(/nejsou naplánované/);
+    const monthNow = new Date().getMonth();
+    // září is the one month whose two forms coincide, so it can never fail this
+    // — skip rather than assert something vacuous when the suite runs in Sept.
+    if (monthNow !== 8) {
+      expect(sentence.textContent).not.toMatch(
+        /\bV (leden|únor|březen|duben|květen|červen|červenec|srpen|říjen|listopad|prosinec)\b/,
+      );
+    }
+    expect(sentence.textContent).toMatch(
+      /\bV (lednu|únoru|březnu|dubnu|květnu|červnu|červenci|srpnu|září|říjnu|listopadu|prosinci) \d{4}/,
+    );
+    // And the heading keeps the standalone form.
+    expect(
+      screen.getByText(
+        /^(leden|únor|březen|duben|květen|červen|červenec|srpen|září|říjen|listopad|prosinec) \d{4}$/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("lists scheduled plans with their meals", async () => {
     loginUser();
     routeDefault();
