@@ -76,7 +76,7 @@ async def void_outstanding_tokens(
 async def _minted_recently(session: AsyncSession, user_id: int, now: datetime) -> bool:
     result = await session.execute(
         select(EmailVerificationToken)
-        .where(EmailVerificationToken.user_id == user_id)  # type: ignore[arg-type]
+        .where(EmailVerificationToken.user_id == user_id)
         .where(EmailVerificationToken.used_at.is_(None))  # type: ignore[union-attr]
         .where(EmailVerificationToken.created_at > now - _RESEND_COOLDOWN)
         .limit(1)
@@ -160,7 +160,7 @@ async def find_redeemable(
         await session.execute(
             select(EmailVerificationToken)
             .where(
-                EmailVerificationToken.token_hash == hash_refresh_token(token)  # type: ignore[arg-type]
+                EmailVerificationToken.token_hash == hash_refresh_token(token)
             )
             .with_for_update()
         )

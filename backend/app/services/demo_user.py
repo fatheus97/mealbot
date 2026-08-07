@@ -60,7 +60,7 @@ async def create_ephemeral_demo_user(session: AsyncSession) -> User:
     for name, grams, offset, need_to_use in _FRIDGE_SEED:
         expiry = today + timedelta(days=offset) if offset is not None else None
         session.add(StockItem(
-            user_id=user.id,  # type: ignore[arg-type]
+            user_id=user.id,
             name=name,
             quantity_grams=grams,
             expiration_date=expiry,

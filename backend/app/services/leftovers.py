@@ -24,6 +24,7 @@ plan_service falls back, RAG skips the hit).
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from app.core.meal_types import MealType
@@ -75,7 +76,10 @@ class LeftoverAssignment:
 
 
 def plan_leftover_links(
-    layouts: list[list[str] | None],
+    # Sequence, not list: the body only reads (len, index) and never mutates,
+    # and list is INVARIANT — declaring list[list[str] | None] rejects a plain
+    # list[list[str]] from any caller, which is what every test was tripping on.
+    layouts: Sequence[list[str] | None],
     *,
     max_links: int = DEFAULT_MAX_LEFTOVERS_PER_PLAN,
 ) -> list[LeftoverAssignment]:

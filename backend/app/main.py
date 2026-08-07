@@ -2,9 +2,10 @@ import asyncio
 import logging
 import sys
 import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
@@ -46,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
-async def lifespan(fastAPI: FastAPI):
+async def lifespan(fastAPI: FastAPI) -> AsyncIterator[None]:
     # Initialize the sentence-transformer embedding model eagerly. The model
     # weights are baked into the image at build time (see Dockerfile), so this
     # is a pure in-process load. Doing it here — rather than on first request —
@@ -79,7 +80,10 @@ app.middleware("http")(csrf_middleware)
 
 
 @app.middleware("http")
-async def log_request_latency(request: Request, call_next):
+async def log_request_latency(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     start_time = time.time()
 
     response = await call_next(request)

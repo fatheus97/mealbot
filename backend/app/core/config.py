@@ -354,7 +354,7 @@ class Settings(BaseSettings):
                 entries.append(ModelEntry(provider=LLMProvider(provider_str), model=model))
             return entries
         if isinstance(v, list):
-            return v  # type: ignore[return-value]  # already parsed (e.g. default)
+            return v  # already parsed (e.g. default)
         raise ValueError(f"llm_models must be a comma-separated string or list, got {type(v)}")
 
 

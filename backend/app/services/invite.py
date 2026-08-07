@@ -77,7 +77,7 @@ async def find_redeemable_invite(
     """
     result = await session.execute(
         select(InviteToken)
-        .where(InviteToken.token_hash == hash_refresh_token(token))  # type: ignore[arg-type]
+        .where(InviteToken.token_hash == hash_refresh_token(token))
         .with_for_update()
     )
     row = result.scalars().first()
