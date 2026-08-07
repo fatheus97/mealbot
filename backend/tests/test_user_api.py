@@ -11,7 +11,7 @@ from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 
 class TestRegister:
-    async def test_register_success(self, unauthed_client: AsyncClient):
+    async def test_register_success(self, unauthed_client: AsyncClient) -> None:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
@@ -20,8 +20,8 @@ class TestRegister:
         assert resp.status_code == 201
 
     async def test_register_duplicate_email(
-        self, unauthed_client: AsyncClient, test_user
-    ):
+        self, unauthed_client: AsyncClient, test_user: User
+    ) -> None:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
@@ -30,7 +30,7 @@ class TestRegister:
         assert resp.status_code == 409
         assert "already registered" in resp.json()["detail"].lower()
 
-    async def test_register_blocked_when_disabled(self, unauthed_client: AsyncClient):
+    async def test_register_blocked_when_disabled(self, unauthed_client: AsyncClient) -> None:
         with patch.object(settings, "registration_enabled", False):
             resp = await unauthed_client.post(
                 "/api/users/register",
@@ -39,7 +39,7 @@ class TestRegister:
         assert resp.status_code == 403
         assert "closed" in resp.json()["detail"].lower()
 
-    async def test_register_disabled_skips_body_validation(self, unauthed_client: AsyncClient):
+    async def test_register_disabled_skips_body_validation(self, unauthed_client: AsyncClient) -> None:
         """When registration is off, return 403 even if the body is invalid."""
         with patch.object(settings, "registration_enabled", False):
             resp = await unauthed_client.post(
@@ -50,7 +50,7 @@ class TestRegister:
 
     async def test_register_race_falls_back_to_409_not_500(
         self, unauthed_client: AsyncClient
-    ):
+    ) -> None:
         # Simulates the losing side of a concurrent registration race: the
         # pre-SELECT is gone, so the duplicate is only caught when the DB
         # raises IntegrityError on commit. That path must translate to 409,
@@ -69,7 +69,7 @@ class TestRegister:
 
 
 class TestPasswordComplexity:
-    async def test_register_missing_uppercase_rejected(self, unauthed_client: AsyncClient):
+    async def test_register_missing_uppercase_rejected(self, unauthed_client: AsyncClient) -> None:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
@@ -77,7 +77,7 @@ class TestPasswordComplexity:
             )
         assert resp.status_code == 422
 
-    async def test_register_missing_lowercase_rejected(self, unauthed_client: AsyncClient):
+    async def test_register_missing_lowercase_rejected(self, unauthed_client: AsyncClient) -> None:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
@@ -85,7 +85,7 @@ class TestPasswordComplexity:
             )
         assert resp.status_code == 422
 
-    async def test_register_missing_digit_rejected(self, unauthed_client: AsyncClient):
+    async def test_register_missing_digit_rejected(self, unauthed_client: AsyncClient) -> None:
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
@@ -95,19 +95,19 @@ class TestPasswordComplexity:
 
 
 class TestProfile:
-    async def test_get_profile(self, client: AsyncClient, auth_headers: dict):
+    async def test_get_profile(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.get("/api/users", headers=auth_headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["email"] == TEST_EMAIL
         assert "id" in body
 
-    async def test_get_profile_includes_language(self, client: AsyncClient, auth_headers: dict):
+    async def test_get_profile_includes_language(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.get("/api/users", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["language"] == "English"  # default
 
-    async def test_patch_profile(self, client: AsyncClient, auth_headers: dict):
+    async def test_patch_profile(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -118,8 +118,8 @@ class TestProfile:
         assert resp.json()["measurement_system"] == "metric"
 
     async def test_patch_country_empty_string_clears(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # Whitespace-only → store NULL. Matches the language "blank means
         # unset" treatment and lets users unset their country.
         resp = await client.patch(
@@ -131,8 +131,8 @@ class TestProfile:
         assert resp.json()["country"] is None
 
     async def test_patch_country_alias_canonicalizes(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -142,8 +142,8 @@ class TestProfile:
         assert resp.json()["country"] == "United Kingdom"
 
     async def test_patch_country_case_insensitive_canonical_match(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -153,8 +153,8 @@ class TestProfile:
         assert resp.json()["country"] == "Italy"
 
     async def test_patch_country_unknown_rejected(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -164,8 +164,8 @@ class TestProfile:
         assert "unsupported" in resp.json()["detail"].lower()
 
     async def test_patch_country_prompt_injection_rejected(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # `country` is templated directly into the LLM system prompt without a
         # <user_content> fence (the whitelist is the guarantee). An injection
         # string must be rejected at the boundary, not rendered raw.
@@ -176,7 +176,7 @@ class TestProfile:
         )
         assert resp.status_code == 400
 
-    async def test_patch_language(self, client: AsyncClient, auth_headers: dict):
+    async def test_patch_language(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -185,7 +185,7 @@ class TestProfile:
         assert resp.status_code == 200
         assert resp.json()["language"] == "Czech"
 
-    async def test_patch_language_empty_rejected(self, client: AsyncClient, auth_headers: dict):
+    async def test_patch_language_empty_rejected(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -193,7 +193,7 @@ class TestProfile:
         )
         assert resp.status_code == 400
 
-    async def test_patch_language_too_long_rejected(self, client: AsyncClient, auth_headers: dict):
+    async def test_patch_language_too_long_rejected(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -202,8 +202,8 @@ class TestProfile:
         assert resp.status_code == 400
 
     async def test_patch_language_prompt_injection_rejected(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # The language value is templated into the LLM system prompt. Without a
         # whitelist an attacker could set language to an instruction and
         # smuggle a prompt-injection payload into every future plan call.
@@ -216,8 +216,8 @@ class TestProfile:
         assert "unsupported" in resp.json()["detail"].lower()
 
     async def test_patch_language_case_insensitive_canonicalizes(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -228,8 +228,8 @@ class TestProfile:
         assert resp.json()["language"] == "Czech"
 
     async def test_patch_language_unknown_rejected(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -238,8 +238,8 @@ class TestProfile:
         assert resp.status_code == 400
 
     async def test_patch_onboarding_completed(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -258,8 +258,8 @@ class TestProfile:
         assert resp.json()["onboarding_completed"] is False
 
     async def test_patch_track_snacks(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -277,8 +277,8 @@ class TestProfile:
         assert resp.json()["track_snacks"] is False
 
     async def test_patch_invalid_measurement(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -288,12 +288,12 @@ class TestProfile:
 
 
 class TestDefaultDayLayout:
-    async def test_default_is_null(self, client: AsyncClient, auth_headers: dict):
+    async def test_default_is_null(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.get("/api/users", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["default_day_layout"] is None
 
-    async def test_patch_sets_layout(self, client: AsyncClient, auth_headers: dict):
+    async def test_patch_sets_layout(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         layout = ["sweet_breakfast", "snack", "main_course", "hot_dinner"]
         resp = await client.patch(
             "/api/users",
@@ -308,8 +308,8 @@ class TestDefaultDayLayout:
         assert follow.json()["default_day_layout"] == layout
 
     async def test_patch_empty_list_clears(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # First set a layout...
         await client.patch(
             "/api/users",
@@ -326,8 +326,8 @@ class TestDefaultDayLayout:
         assert resp.json()["default_day_layout"] is None
 
     async def test_patch_unknown_meal_type_rejected(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -336,8 +336,8 @@ class TestDefaultDayLayout:
         assert resp.status_code == 422
 
     async def test_patch_too_many_slots_rejected(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # _MAX_LAYOUT_SLOTS = 8 in user_schemas; 9 must 422.
         resp = await client.patch(
             "/api/users",
@@ -347,8 +347,8 @@ class TestDefaultDayLayout:
         assert resp.status_code == 422
 
     async def test_patch_duplicate_slots_roundtrip(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Repeated values (e.g. two snacks) are valid and must round-trip."""
         layout = ["snack", "snack", "main_course"]
         resp = await client.patch(
@@ -364,10 +364,10 @@ class TestDefaultDayLayout:
     async def test_read_sanitizes_unknown_stored_values(
         self,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Defence in depth: if the JSONB column picks up an unknown slot
         value (direct DB write, future migration, taxonomy churn), the
         profile endpoint must filter it out rather than 500 for the user."""
@@ -383,10 +383,10 @@ class TestDefaultDayLayout:
     async def test_read_all_unknown_degrades_to_null(
         self,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         test_user.default_day_layout = ["elevenses", "tea_time"]
         db_session.add(test_user)
         await db_session.commit()
@@ -396,8 +396,8 @@ class TestDefaultDayLayout:
         assert resp.json()["default_day_layout"] is None
 
     async def test_patch_other_fields_leaves_layout_alone(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         await client.patch(
             "/api/users",
             headers=auth_headers,
@@ -419,7 +419,7 @@ class TestDefaultDayLayout:
 class TestRegisterEventLogging:
     async def test_register_emits_event_without_email_plaintext(
         self, unauthed_client: AsyncClient, caplog: pytest.LogCaptureFixture
-    ):
+    ) -> None:
         email = "auditlog@example.com"
         with (
             patch.object(settings, "registration_enabled", True),

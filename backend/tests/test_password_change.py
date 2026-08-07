@@ -33,7 +33,7 @@ async def _login(client: AsyncClient) -> None:
 class TestChangePasswordSuccess:
     async def test_success_rehashes_bumps_tv_and_keeps_current_device(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         await _login(unauthed_client)
         old_access = unauthed_client.cookies.get(ACCESS_COOKIE_NAME)
         old_refresh = unauthed_client.cookies.get(REFRESH_COOKIE_NAME)
@@ -67,7 +67,7 @@ class TestChangePasswordSuccess:
 
     async def test_success_leaves_exactly_one_active_session(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         await _login(unauthed_client)
         await unauthed_client.post(
             "/api/auth/password",
@@ -83,7 +83,7 @@ class TestChangePasswordSuccess:
 
     async def test_new_login_works_with_new_password_only(
         self, unauthed_client: AsyncClient, test_user: User,
-    ):
+    ) -> None:
         await _login(unauthed_client)
         await unauthed_client.post(
             "/api/auth/password",
@@ -107,7 +107,7 @@ class TestChangePasswordSuccess:
 class TestChangePasswordRejection:
     async def test_wrong_current_returns_401_and_changes_nothing(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         await _login(unauthed_client)
         old_tv = test_user.token_version
 
@@ -128,7 +128,7 @@ class TestChangePasswordRejection:
 
     async def test_new_same_as_current_returns_400(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         await _login(unauthed_client)
         old_tv = test_user.token_version
         resp = await unauthed_client.post(
@@ -150,7 +150,7 @@ class TestChangePasswordRejection:
     )
     async def test_weak_new_password_returns_422(
         self, unauthed_client: AsyncClient, test_user: User, weak: str,
-    ):
+    ) -> None:
         await _login(unauthed_client)
         resp = await unauthed_client.post(
             "/api/auth/password",
@@ -158,7 +158,7 @@ class TestChangePasswordRejection:
         )
         assert resp.status_code == 422
 
-    async def test_requires_auth(self, unauthed_client: AsyncClient):
+    async def test_requires_auth(self, unauthed_client: AsyncClient) -> None:
         resp = await unauthed_client.post(
             "/api/auth/password",
             json={"current_password": TEST_PASSWORD, "new_password": NEW_PASSWORD},
@@ -169,7 +169,7 @@ class TestChangePasswordRejection:
 class TestChangePasswordRevokesOtherDevices:
     async def test_other_device_locked_out_but_changer_stays_logged_in(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         """The core promise: OTHER devices die, the changing device survives —
         even after a stale device auto-refreshes. Regression guard for the
         theft-cascade bug where the other device's /auth/refresh (revoked row,
@@ -224,7 +224,7 @@ class TestChangePasswordRevokesOtherDevices:
 class TestPasswordResetTokensAreVoided:
     async def test_a_live_reset_link_stops_working(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         """The sibling of the change_email finding, on the endpoint where it is
         just as bad.
 
@@ -263,7 +263,7 @@ class TestPasswordResetTokensAreVoided:
 
     async def test_every_pre_existing_reset_token_is_marked_used(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         from datetime import UTC, datetime
 
         assert test_user.id is not None
@@ -291,7 +291,7 @@ class TestPasswordResetTokensAreVoided:
 
 
 class TestChangePasswordCsrf:
-    def test_password_endpoint_is_not_csrf_exempt(self):
+    def test_password_endpoint_is_not_csrf_exempt(self) -> None:
         # Guard: a password change MUST be CSRF-protected. If someone ever adds
         # /api/auth/password to the exempt set, this fails loudly.
         from app.core.csrf import _CSRF_EXEMPT_PATHS

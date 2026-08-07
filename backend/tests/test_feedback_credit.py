@@ -6,7 +6,9 @@ the never-€0 outstanding floor, and never raise (a Stripe failure leaves the r
 uncredited + retryable).
 """
 
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -53,7 +55,7 @@ async def _add_report(
 
 def _mock_stripe(
     *, pending: int = 0, balance: int = 0, grant: AsyncMock | None = None
-):
+) -> tuple[AbstractContextManager[Any], AsyncMock]:
     """Patch the Stripe calls feedback_credit makes: BOTH never-€0 floor reads (pending
     feedback invoice items + customer-balance credit) and the invoice-item grant.
     ``pending``/``balance`` = minor units of each. Returns the grant mock."""
@@ -93,6 +95,7 @@ class TestGrants:
         grant.assert_awaited_once()
         # apply_feedback_invoice_credit(customer_id, amount_cents, idempotency_key=...,
         #                               description=..., metadata=...)
+        assert grant.await_args is not None
         args, kwargs = grant.await_args
         assert args[0] == "cus_1"  # customer id
         assert args[1] == 100  # amount cents

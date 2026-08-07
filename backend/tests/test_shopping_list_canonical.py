@@ -28,7 +28,7 @@ def _day(*meals: PlannedMeal) -> SingleDayResponse:
     return SingleDayResponse(meals=list(meals))
 
 
-def test_absent_by_default_so_old_plans_still_load():
+def test_absent_by_default_so_old_plans_still_load() -> None:
     ing = IngredientAmount(name="mouka", quantity_grams=200)
     assert ing.canonical_name is None
     # A stored plan written before the field existed replays without it.
@@ -37,7 +37,7 @@ def test_absent_by_default_so_old_plans_still_load():
     ).ingredients[0].canonical_name is None
 
 
-def test_normalized_to_a_stable_lookup_key():
+def test_normalized_to_a_stable_lookup_key() -> None:
     assert IngredientAmount(
         name="vejce", quantity_grams=120, canonical_name="  EGG  "
     ).canonical_name == "egg"
@@ -47,14 +47,14 @@ def test_normalized_to_a_stable_lookup_key():
     ).canonical_name is None
 
 
-def test_survives_the_json_round_trip():
+def test_survives_the_json_round_trip() -> None:
     # The shopping list is frozen into response_json and re-validated on every
     # read, so construction alone proves nothing.
     item = ShoppingListItem(name="vejce", quantity_grams=480, canonical_name="egg")
     assert ShoppingListItem.model_validate_json(item.model_dump_json()).canonical_name == "egg"
 
 
-def test_carried_through_shopping_list_aggregation():
+def test_carried_through_shopping_list_aggregation() -> None:
     days = [
         _day(_meal(IngredientAmount(name="vejce", quantity_grams=120, canonical_name="egg"))),
         _day(_meal(IngredientAmount(name="vejce", quantity_grams=360, canonical_name="egg"))),
@@ -65,7 +65,7 @@ def test_carried_through_shopping_list_aggregation():
     assert items[0].canonical_name == "egg"
 
 
-def test_dropped_when_two_meals_disagree_about_the_same_name():
+def test_dropped_when_two_meals_disagree_about_the_same_name() -> None:
     # Showing a confident WRONG piece count is worse than showing grams, so a
     # disagreement degrades rather than picking a winner.
     days = [
@@ -79,7 +79,7 @@ def test_dropped_when_two_meals_disagree_about_the_same_name():
     assert items[0].canonical_name is None
 
 
-def test_absent_on_one_side_is_also_a_disagreement():
+def test_absent_on_one_side_is_also_a_disagreement() -> None:
     days = [
         _day(
             _meal(IngredientAmount(name="onion", quantity_grams=150, canonical_name="onion")),

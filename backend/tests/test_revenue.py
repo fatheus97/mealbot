@@ -3,6 +3,7 @@ from Stripe invoices (idempotent), EU/CZ classification, the aggregation math,
 the admin endpoint gate, and the invoice.paid webhook path."""
 
 from datetime import datetime
+from typing import Any
 
 import pytest
 import stripe
@@ -21,10 +22,10 @@ def _invoice(
     amount_paid: int = 1000,
     currency: str = "eur",
     country: str | None = "DE",
-    tax_ids: list | None = None,
+    tax_ids: list[dict[str, str]] | None = None,
     paid_at: int = 1_700_000_000,
-) -> dict:
-    inv: dict = {
+) -> dict[str, Any]:
+    inv: dict[str, Any] = {
         "id": id,
         "customer": customer,
         "amount_paid": amount_paid,
@@ -68,7 +69,7 @@ def _sale(
 # --------------------------------------------------------------------------- #
 # record_sale_from_invoice
 # --------------------------------------------------------------------------- #
-async def test_record_sale_inserts_row(db_session: AsyncSession):
+async def test_record_sale_inserts_row(db_session: AsyncSession) -> None:
     ok = await revenue_service.record_sale_from_invoice(db_session, _invoice())
     assert ok is True
     row = (await db_session.execute(select(SaleRecord))).scalars().first()
@@ -80,13 +81,13 @@ async def test_record_sale_inserts_row(db_session: AsyncSession):
     assert row.occurred_at.year == 2023  # from paid_at epoch
 
 
-async def test_record_sale_uppercases_country(db_session: AsyncSession):
+async def test_record_sale_uppercases_country(db_session: AsyncSession) -> None:
     await revenue_service.record_sale_from_invoice(db_session, _invoice(country="de"))
     row = (await db_session.execute(select(SaleRecord))).scalars().first()
     assert row is not None and row.country == "DE"
 
 
-async def test_record_sale_is_idempotent(db_session: AsyncSession):
+async def test_record_sale_is_idempotent(db_session: AsyncSession) -> None:
     assert await revenue_service.record_sale_from_invoice(db_session, _invoice(id="dup")) is True
     assert await revenue_service.record_sale_from_invoice(db_session, _invoice(id="dup")) is False
     rows = (
@@ -97,18 +98,18 @@ async def test_record_sale_is_idempotent(db_session: AsyncSession):
     assert len(rows) == 1
 
 
-async def test_record_sale_skips_zero_amount(db_session: AsyncSession):
+async def test_record_sale_skips_zero_amount(db_session: AsyncSession) -> None:
     # The $0 invoice that opens a trial must not enter the revenue ledger.
     assert await revenue_service.record_sale_from_invoice(db_session, _invoice(amount_paid=0)) is False
     assert (await db_session.execute(select(SaleRecord))).scalars().first() is None
 
 
-async def test_record_sale_skips_missing_id_or_currency(db_session: AsyncSession):
+async def test_record_sale_skips_missing_id_or_currency(db_session: AsyncSession) -> None:
     assert await revenue_service.record_sale_from_invoice(db_session, {"amount_paid": 100, "currency": "eur"}) is False
     assert await revenue_service.record_sale_from_invoice(db_session, {"id": "x", "amount_paid": 100}) is False
 
 
-async def test_record_sale_marks_business_from_tax_ids(db_session: AsyncSession):
+async def test_record_sale_marks_business_from_tax_ids(db_session: AsyncSession) -> None:
     await revenue_service.record_sale_from_invoice(
         db_session, _invoice(id="biz", tax_ids=[{"type": "eu_vat", "value": "DE123"}])
     )
@@ -120,7 +121,7 @@ async def test_record_sale_marks_business_from_tax_ids(db_session: AsyncSession)
     assert row is not None and row.is_business is True
 
 
-async def test_record_sale_links_user(db_session: AsyncSession, test_user: User):
+async def test_record_sale_links_user(db_session: AsyncSession, test_user: User) -> None:
     test_user.stripe_customer_id = "cus_link"
     await db_session.flush()
     await revenue_service.record_sale_from_invoice(db_session, _invoice(customer="cus_link"))
@@ -142,14 +143,16 @@ async def test_record_sale_links_user(db_session: AsyncSession, test_user: User)
         (None, False, False),
     ],
 )
-def test_is_eu_cross_border_b2c(country, is_business, expected):
+def test_is_eu_cross_border_b2c(
+    country: str | None, is_business: bool, expected: bool
+) -> None:
     assert revenue_service._is_eu_cross_border_b2c(country, is_business) is expected
 
 
 # --------------------------------------------------------------------------- #
 # compute_revenue_stats
 # --------------------------------------------------------------------------- #
-async def test_compute_revenue_stats_aggregates(db_session: AsyncSession, monkeypatch):
+async def test_compute_revenue_stats_aggregates(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "eur_czk_rate", 25.0)
     monkeypatch.setattr(settings, "vat_eu_oss_threshold_eur", 10_000.0)
     monkeypatch.setattr(settings, "vat_cz_domestic_threshold_czk", 2_000_000.0)
@@ -186,7 +189,7 @@ async def test_compute_revenue_stats_aggregates(db_session: AsyncSession, monkey
     assert us_row.is_eu is False
 
 
-async def test_thresholds_are_time_windowed(db_session: AsyncSession, monkeypatch):
+async def test_thresholds_are_time_windowed(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     """EU OSS = current calendar year; CZ = rolling 12 months. Older sales fall
     out of the threshold windows (but still count in the all-time totals)."""
     monkeypatch.setattr(settings, "eur_czk_rate", 25.0)
@@ -209,7 +212,7 @@ async def test_thresholds_are_time_windowed(db_session: AsyncSession, monkeypatc
     assert stats.total_cents == 5000 + 1000 + 8000
 
 
-async def test_compute_revenue_stats_excludes_non_eur(db_session: AsyncSession):
+async def test_compute_revenue_stats_excludes_non_eur(db_session: AsyncSession) -> None:
     db_session.add_all([
         _sale("eur1", 1000, "DE"),
         _sale("usd1", 5000, "US", currency="usd"),
@@ -220,7 +223,7 @@ async def test_compute_revenue_stats_excludes_non_eur(db_session: AsyncSession):
     assert stats.non_eur_sales_count == 1
 
 
-async def test_compute_revenue_stats_empty(db_session: AsyncSession):
+async def test_compute_revenue_stats_empty(db_session: AsyncSession) -> None:
     stats = await revenue_service.compute_revenue_stats(db_session)
     assert stats.total_cents == 0
     assert stats.sales_count == 0
@@ -233,14 +236,16 @@ async def test_compute_revenue_stats_empty(db_session: AsyncSession):
 # --------------------------------------------------------------------------- #
 # admin endpoint
 # --------------------------------------------------------------------------- #
-async def test_revenue_endpoint_requires_admin(client: AsyncClient, auth_headers):
+async def test_revenue_endpoint_requires_admin(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
     resp = await client.get("/api/admin/stats/revenue", headers=auth_headers)
     assert resp.status_code == 403
 
 
 async def test_revenue_endpoint_returns_stats_for_admin(
     client: AsyncClient, db_session: AsyncSession, test_user: User
-):
+) -> None:
     await _make_admin(db_session, test_user)
     db_session.add(_sale("in_e", 1000, "DE"))
     await db_session.flush()
@@ -256,8 +261,8 @@ async def test_revenue_endpoint_returns_stats_for_admin(
 # webhook wiring
 # --------------------------------------------------------------------------- #
 async def test_webhook_invoice_paid_records_sale(
-    client: AsyncClient, db_session: AsyncSession, monkeypatch
-):
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Real stripe.Event (v15 StripeObject, not a plain dict) so the webhook
     # handler's event.to_dict() path is exercised against the actual SDK runtime.
     event = stripe.Event.construct_from({

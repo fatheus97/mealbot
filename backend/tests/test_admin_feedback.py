@@ -353,7 +353,9 @@ class TestAccept:
         assert test_user.id is not None
         report = await _add_report(db_session, test_user.id)
 
-        async def _grant(session, r, reporter):
+        async def _grant(
+            session: AsyncSession, r: FeedbackReport, reporter: User
+        ) -> bool:
             r.credit_cents = 100
             r.credit_granted_at = datetime.now(UTC)
             return True
@@ -430,7 +432,9 @@ class TestAccept:
         assert test_user.id is not None
         report = await _add_report(db_session, test_user.id, status="accepted")
 
-        async def _grant(session, r, reporter):
+        async def _grant(
+            session: AsyncSession, r: FeedbackReport, reporter: User
+        ) -> bool:
             r.credit_cents = 100
             r.credit_granted_at = datetime.now(UTC)
             return True
@@ -454,7 +458,9 @@ class TestAccept:
         assert test_user.id is not None
         report = await _add_report(db_session, test_user.id)
 
-        async def _grant(session, r, reporter):
+        async def _grant(
+            session: AsyncSession, r: FeedbackReport, reporter: User
+        ) -> bool:
             r.credit_cents = 100
             r.credit_granted_at = datetime.now(UTC)
             return True

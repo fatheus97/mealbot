@@ -56,7 +56,7 @@ async def _count(session: AsyncSession, user: User) -> int:
 
 async def test_deletes_rows_expired_beyond_retention(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     await _add_session(db_session, test_user, expires_at=NOW - timedelta(days=8))
     deleted = await sweep_expired_auth_sessions(db_session, NOW, retention_days=7)
     await db_session.commit()
@@ -66,7 +66,7 @@ async def test_deletes_rows_expired_beyond_retention(
 
 async def test_keeps_rows_within_retention_grace(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     # Expired, but only 3 days ago — inside the 7-day grace window, so kept.
     await _add_session(db_session, test_user, expires_at=NOW - timedelta(days=3))
     deleted = await sweep_expired_auth_sessions(db_session, NOW, retention_days=7)
@@ -75,7 +75,7 @@ async def test_keeps_rows_within_retention_grace(
     assert await _count(db_session, test_user) == 1
 
 
-async def test_keeps_active_rows(db_session: AsyncSession, test_user: User):
+async def test_keeps_active_rows(db_session: AsyncSession, test_user: User) -> None:
     await _add_session(db_session, test_user, expires_at=NOW + timedelta(days=30))
     deleted = await sweep_expired_auth_sessions(db_session, NOW, retention_days=7)
     await db_session.commit()
@@ -85,7 +85,7 @@ async def test_keeps_active_rows(db_session: AsyncSession, test_user: User):
 
 async def test_boundary_is_strict_less_than(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     # Exactly on the cutoff (expires_at == now - retention) must NOT be deleted;
     # the sweep uses a strict `<`. One microsecond older must be.
     cutoff = NOW - timedelta(days=7)
@@ -104,7 +104,7 @@ async def test_boundary_is_strict_less_than(
 
 async def test_revoked_state_is_irrelevant_only_expiry_matters(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     # A long-revoked row that is still within its (unexpired) window is KEPT;
     # an unrevoked-but-long-expired row is DELETED. Expiry is the sole criterion.
     revoked_but_unexpired = await _add_session(
@@ -128,7 +128,7 @@ async def test_revoked_state_is_irrelevant_only_expiry_matters(
 
 async def test_fk_safe_when_whole_rotation_chain_expires(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     """A rotated row A points at its successor B via replaced_by_id. When both
     cross the cutoff, deleting them in one sweep must not raise an FK error."""
     successor = await _add_session(
@@ -148,7 +148,7 @@ async def test_fk_safe_when_whole_rotation_chain_expires(
 
 async def test_fk_safe_deleting_referencing_row_while_successor_stays(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     """The older (referencing) row A can cross the cutoff while its successor B
     is still active. Deleting A must not touch or break B."""
     active_successor = await _add_session(
@@ -171,7 +171,7 @@ async def test_fk_safe_deleting_referencing_row_while_successor_stays(
 
 async def test_fk_safe_deleting_successor_while_referencing_row_survives(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     """The subtle demo-user case: the successor (referenced) row can expire
     BEFORE the predecessor (referencing) that points at it — because
     _refresh_ttl_for_user truncates a demo rotation's TTL with int(). Here the
@@ -203,7 +203,7 @@ async def test_fk_safe_deleting_successor_while_referencing_row_survives(
 
 async def test_no_matching_rows_returns_zero(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     await _add_session(db_session, test_user, expires_at=NOW + timedelta(days=1))
     deleted = await sweep_expired_auth_sessions(db_session, NOW, retention_days=7)
     await db_session.commit()
@@ -212,7 +212,7 @@ async def test_no_matching_rows_returns_zero(
 
 async def test_zero_retention_deletes_anything_already_expired(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     await _add_session(
         db_session, test_user, expires_at=NOW - timedelta(seconds=1)
     )
@@ -230,6 +230,6 @@ async def test_zero_retention_deletes_anything_already_expired(
 
 async def test_negative_retention_raises(
     db_session: AsyncSession, test_user: User,
-):
+) -> None:
     with pytest.raises(ValueError, match="non-negative"):
         await sweep_expired_auth_sessions(db_session, NOW, retention_days=-1)

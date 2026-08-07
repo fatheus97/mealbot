@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
@@ -40,9 +41,9 @@ def _fake_day(num_meals: int = 1) -> SingleDayResponse:
 
 async def _create_plan(
     client: AsyncClient,
-    auth_headers: dict,
+    auth_headers: dict[str, str],
     meals_per_day: int = 3,
-) -> dict:
+) -> dict[str, Any]:
     """Helper: generate a plan and return the response body."""
     with patch(
         "app.services.plan_service.generate_single_day",
@@ -55,15 +56,15 @@ async def _create_plan(
             json={"meals_per_day": meals_per_day, "people_count": 2},
         )
         assert resp.status_code == 200
-        payload: dict = resp.json()
+        payload: dict[str, Any] = resp.json()
         return payload
 
 
 async def _create_and_confirm_plan(
     client: AsyncClient,
-    auth_headers: dict,
+    auth_headers: dict[str, str],
     meals_per_day: int = 3,
-) -> dict:
+) -> dict[str, Any]:
     """Helper: generate + confirm a plan."""
     body = await _create_plan(client, auth_headers, meals_per_day)
     plan_id = body["plan_id"]
@@ -72,7 +73,7 @@ async def _create_and_confirm_plan(
     return body
 
 
-async def _seed_fridge(client: AsyncClient, auth_headers: dict, items: list[StockItemDTO]) -> None:
+async def _seed_fridge(client: AsyncClient, auth_headers: dict[str, str], items: list[StockItemDTO]) -> None:
     """Helper: set fridge contents."""
     resp = await client.put(
         "/api/fridge",
@@ -82,7 +83,7 @@ async def _seed_fridge(client: AsyncClient, auth_headers: dict, items: list[Stoc
     assert resp.status_code == 200
 
 
-def _get_chicken_grams(fridge: list) -> float:
+def _get_chicken_grams(fridge: list[dict[str, Any]]) -> float:
     """Extract chicken breast quantity from fridge list."""
     chicken = [i for i in fridge if i["name"].lower() == "chicken breast"]
     assert len(chicken) == 1
@@ -92,8 +93,8 @@ def _get_chicken_grams(fridge: list) -> float:
 
 class TestConfirmPlan:
     async def test_confirm_creates_entries_all_uncooked(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         body = await _create_plan(client, auth_headers, meals_per_day=3)
         plan_id = body["plan_id"]
 
@@ -111,8 +112,8 @@ class TestConfirmPlan:
         assert all(e["cooked_at"] is None for e in entries)
 
     async def test_confirm_subtracts_fridge(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # Seed fridge with 1000g chicken
         await _seed_fridge(client, auth_headers, [
             StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
@@ -128,8 +129,8 @@ class TestConfirmPlan:
         assert _get_chicken_grams(fridge_resp.json()) == 400.0
 
     async def test_confirm_idempotent(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         await _seed_fridge(client, auth_headers, [
             StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
         ])
@@ -146,8 +147,8 @@ class TestConfirmPlan:
         assert _get_chicken_grams(fridge_resp.json()) == 400.0
 
     async def test_unconfirmed_plan_not_in_list(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         await _create_plan(client, auth_headers, meals_per_day=3)
 
         resp = await client.get("/api/plan", headers=auth_headers)
@@ -156,16 +157,16 @@ class TestConfirmPlan:
 
 class TestListPlans:
     async def test_list_plans_empty(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.get("/api/plan", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json() == []
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_list_plans_returns_summary(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day(2)
 
         resp = await client.post(
@@ -201,9 +202,9 @@ class TestListPlans:
         return {p.id for p in rows.scalars().all() if p.id is not None}
 
     async def test_new_plan_deletes_prior_unconfirmed(
-        self, client: AsyncClient, auth_headers: dict,
+        self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
-    ):
+    ) -> None:
         assert test_user.id is not None
         a = await _create_plan(client, auth_headers)  # unconfirmed
         b = await _create_plan(client, auth_headers)  # its creation clears A
@@ -212,9 +213,9 @@ class TestListPlans:
         assert b["plan_id"] in ids
 
     async def test_confirmed_plan_survives_new_plan(
-        self, client: AsyncClient, auth_headers: dict,
+        self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
-    ):
+    ) -> None:
         assert test_user.id is not None
         a = await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
         b = await _create_plan(client, auth_headers)  # A is confirmed → kept
@@ -223,9 +224,9 @@ class TestListPlans:
         assert b["plan_id"] in ids
 
     async def test_clear_unconfirmed_is_per_user(
-        self, client: AsyncClient, auth_headers: dict,
+        self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
-    ):
+    ) -> None:
         # Another user's unconfirmed plan must survive test_user creating a plan.
         other = User(email="other-clear@example.com", hashed_password=get_password_hash("x"))
         db_session.add(other)
@@ -242,8 +243,8 @@ class TestListPlans:
         assert await db_session.get(MealPlan, other_plan.id) is not None
 
     async def test_list_plans_limit_offset_paginate(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         for _ in range(3):
             await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
 
@@ -266,8 +267,8 @@ class TestListPlans:
 
 class TestPlanStatus:
     async def test_plan_status_planned_after_confirm(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """After confirm, all meals are uncooked -> status = 'planned'."""
         await _create_and_confirm_plan(client, auth_headers, meals_per_day=3)
 
@@ -277,8 +278,8 @@ class TestPlanStatus:
         assert plans[0]["cooked_meals"] == 0
 
     async def test_plan_status_active_after_cook_some(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cooking 1 of 3 -> status = 'active'."""
         body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=3)
         plan_id = body["plan_id"]
@@ -298,8 +299,8 @@ class TestPlanStatus:
         assert plans[0]["cooked_meals"] == 1
 
     async def test_plan_status_cooked_after_cook_all(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cooking all meals -> status = 'cooked'."""
         body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=3)
         plan_id = body["plan_id"]
@@ -321,8 +322,8 @@ class TestPlanStatus:
 
 class TestGetPlanDetail:
     async def test_get_plan_detail(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         body = await _create_plan(client, auth_headers, meals_per_day=2)
         plan_id = body["plan_id"]
 
@@ -336,8 +337,8 @@ class TestGetPlanDetail:
         assert len(detail["days"][0]["meals"]) == 2
 
     async def test_get_plan_not_found(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.get(
             "/api/plan/99999", headers=auth_headers
         )
@@ -346,8 +347,8 @@ class TestGetPlanDetail:
 
 class TestDeletePlan:
     async def test_delete_plan(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         body = await _create_and_confirm_plan(client, auth_headers)
         plan_id = body["plan_id"]
 
@@ -361,8 +362,8 @@ class TestDeletePlan:
         assert list_resp.json() == []
 
     async def test_delete_plan_not_found(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.delete(
             "/api/plan/99999", headers=auth_headers
         )
@@ -371,10 +372,10 @@ class TestDeletePlan:
     async def test_delete_plan_with_favorites_returns_409(
         self,
         client: AsyncClient,
-        auth_headers: dict,
-        db_session,
-        test_user,
-    ):
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
         """Cookbook membership outlives the plan; delete must refuse.
 
         Without this guard, deleting a plan would silently destroy starred
@@ -424,10 +425,10 @@ class TestDeletePlan:
     async def test_unconfirm_plan_with_favorites_returns_409(
         self,
         client: AsyncClient,
-        auth_headers: dict,
-        db_session,
-        test_user,
-    ):
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
         """Un-confirm bulk-deletes MealEntry rows; cookbook entries must be
         protected the same way `delete_plan` is. Without this guard, a user
         who stars a recipe and then un-confirms the plan loses the cookbook
@@ -472,8 +473,8 @@ class TestDeletePlan:
 
 class TestCookMeal:
     async def test_cook_uncooked_meal(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """After confirm, meals start uncooked. Cook one."""
         body = await _create_and_confirm_plan(client, auth_headers)
         plan_id = body["plan_id"]
@@ -489,8 +490,8 @@ class TestCookMeal:
         assert cook_resp.json()["cooked_at"] is not None
 
     async def test_cook_then_uncook(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cook then uncook a meal."""
         body = await _create_and_confirm_plan(client, auth_headers)
         plan_id = body["plan_id"]
@@ -511,8 +512,8 @@ class TestCookMeal:
         assert uncook_resp.json()["cooked_at"] is None
 
     async def test_cook_meal_idempotent(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cooking an already-cooked meal is a no-op."""
         body = await _create_and_confirm_plan(client, auth_headers)
         plan_id = body["plan_id"]
@@ -532,8 +533,8 @@ class TestCookMeal:
         assert first.json()["cooked_at"] == second.json()["cooked_at"]
 
     async def test_cook_does_not_change_fridge(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cook/uncook are cosmetic -- fridge should not change."""
         await _seed_fridge(client, auth_headers, [
             StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
@@ -562,8 +563,8 @@ class TestCookMeal:
 
 class TestFinishPlan:
     async def test_finish_returns_uncooked_ingredients(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Confirm (reserves), cook 1 of 3, finish -> 2 meals' ingredients return to fridge."""
         await _seed_fridge(client, auth_headers, [
             StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
@@ -595,8 +596,8 @@ class TestFinishPlan:
         assert _get_chicken_grams(fridge_resp.json()) == 800.0
 
     async def test_finish_all_cooked_no_fridge_change(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cook all, finish -> no fridge change."""
         await _seed_fridge(client, auth_headers, [
             StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
@@ -624,8 +625,8 @@ class TestFinishPlan:
         assert _get_chicken_grams(fridge_resp.json()) == 400.0
 
     async def test_finish_idempotent(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Finish twice -> fridge only restored once."""
         await _seed_fridge(client, auth_headers, [
             StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
@@ -646,8 +647,8 @@ class TestFinishPlan:
         assert _get_chicken_grams(fridge_resp.json()) == 1000.0
 
     async def test_finish_unconfirmed_409(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cannot finish an unconfirmed plan."""
         body = await _create_plan(client, auth_headers, meals_per_day=3)
         plan_id = body["plan_id"]
@@ -656,8 +657,8 @@ class TestFinishPlan:
         assert resp.status_code == 409
 
     async def test_cook_after_finish_409(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cannot cook a meal after plan is finished."""
         body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
         plan_id = body["plan_id"]
@@ -673,8 +674,8 @@ class TestFinishPlan:
         assert resp.status_code == 409
 
     async def test_uncook_after_finish_409(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Cannot uncook a meal after plan is finished."""
         body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
         plan_id = body["plan_id"]
@@ -691,8 +692,8 @@ class TestFinishPlan:
         assert resp.status_code == 409
 
     async def test_finish_sets_status_finished(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """After finish, plan status in list is 'finished'."""
         body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=3)
         plan_id = body["plan_id"]
@@ -707,8 +708,8 @@ class TestFinishPlan:
 
 class TestOwnershipChecks:
     async def test_nonexistent_plan_id_returns_404(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Hitting a plan_id that doesn't exist at all returns 404 on every verb."""
         await _create_plan(client, auth_headers)
 
@@ -724,8 +725,8 @@ class TestOwnershipChecks:
         assert resp.status_code == 404
 
     async def test_non_owner_cannot_touch_another_users_plan(
-        self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession,
+    ) -> None:
         """User B must not be able to touch any verb on User A's plan or
         meal entries. Every endpoint returns 404 (not 403) on purpose — it
         masks existence so an attacker can't enumerate valid plan_ids or

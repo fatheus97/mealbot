@@ -60,7 +60,7 @@ async def _create_plan(
 
 
 class TestStartDateAtGeneration:
-    async def test_start_date_persisted_and_echoed(self, client: AsyncClient):
+    async def test_start_date_persisted_and_echoed(self, client: AsyncClient) -> None:
         resp = await _create_plan(client, start_date="2026-08-01")
         assert resp.status_code == 200
         assert resp.json()["start_date"] == "2026-08-01"
@@ -71,7 +71,7 @@ class TestStartDateAtGeneration:
         assert detail.status_code == 200
         assert detail.json()["start_date"] == "2026-08-01"
 
-    async def test_no_start_date_is_null(self, client: AsyncClient):
+    async def test_no_start_date_is_null(self, client: AsyncClient) -> None:
         resp = await _create_plan(client)
         assert resp.status_code == 200
         assert resp.json()["start_date"] is None
@@ -80,7 +80,7 @@ class TestStartDateAtGeneration:
         detail = await client.get(f"/api/plan/{plan_id}")
         assert detail.json()["start_date"] is None
 
-    async def test_bogus_year_rejected_before_generation(self, client: AsyncClient):
+    async def test_bogus_year_rejected_before_generation(self, client: AsyncClient) -> None:
         # Too far past and too far future both 422 — and fail fast (no LLM call).
         past = await _create_plan(client, start_date="1999-01-01")
         assert past.status_code == 422
@@ -89,7 +89,7 @@ class TestStartDateAtGeneration:
 
 
 class TestStartDateAtConfirm:
-    async def test_confirm_body_overrides_generation_date(self, client: AsyncClient):
+    async def test_confirm_body_overrides_generation_date(self, client: AsyncClient) -> None:
         resp = await _create_plan(client, start_date="2026-08-01")
         plan_id = resp.json()["plan_id"]
 
@@ -101,7 +101,7 @@ class TestStartDateAtConfirm:
         detail = await client.get(f"/api/plan/{plan_id}")
         assert detail.json()["start_date"] == "2026-09-15"
 
-    async def test_confirm_without_body_keeps_generation_date(self, client: AsyncClient):
+    async def test_confirm_without_body_keeps_generation_date(self, client: AsyncClient) -> None:
         # Backward-compat: the existing frontend confirms with no body.
         resp = await _create_plan(client, start_date="2026-08-01")
         plan_id = resp.json()["plan_id"]
@@ -112,7 +112,7 @@ class TestStartDateAtConfirm:
         detail = await client.get(f"/api/plan/{plan_id}")
         assert detail.json()["start_date"] == "2026-08-01"
 
-    async def test_confirm_can_set_date_on_unscheduled_plan(self, client: AsyncClient):
+    async def test_confirm_can_set_date_on_unscheduled_plan(self, client: AsyncClient) -> None:
         resp = await _create_plan(client)  # no date at generation
         plan_id = resp.json()["plan_id"]
 
@@ -121,7 +121,7 @@ class TestStartDateAtConfirm:
         detail = await client.get(f"/api/plan/{plan_id}")
         assert detail.json()["start_date"] == "2026-10-05"
 
-    async def test_confirm_bogus_date_422(self, client: AsyncClient):
+    async def test_confirm_bogus_date_422(self, client: AsyncClient) -> None:
         resp = await _create_plan(client)
         plan_id = resp.json()["plan_id"]
         confirm = await client.post(
@@ -131,7 +131,7 @@ class TestStartDateAtConfirm:
 
 
 class TestStartDateInCatalog:
-    async def test_summary_exposes_start_date(self, client: AsyncClient):
+    async def test_summary_exposes_start_date(self, client: AsyncClient) -> None:
         resp = await _create_plan(client, start_date="2026-08-01")
         plan_id = resp.json()["plan_id"]
         await client.post(f"/api/plan/{plan_id}/confirm")
@@ -144,7 +144,7 @@ class TestStartDateInCatalog:
 
     async def test_legacy_plan_row_reads_null(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         # A plan row written without start_date (mirrors every pre-migration
         # plan) must read back as null, not error.
         assert test_user.id is not None
@@ -165,7 +165,7 @@ class TestStartDateInCatalog:
 
 
 class TestReschedule:
-    async def test_reschedule_sets_then_clears(self, client: AsyncClient):
+    async def test_reschedule_sets_then_clears(self, client: AsyncClient) -> None:
         resp = await _create_plan(client, start_date="2026-08-01")
         plan_id = resp.json()["plan_id"]
 
@@ -185,19 +185,19 @@ class TestReschedule:
         detail = await client.get(f"/api/plan/{plan_id}")
         assert detail.json()["start_date"] is None
 
-    async def test_reschedule_bogus_date_422(self, client: AsyncClient):
+    async def test_reschedule_bogus_date_422(self, client: AsyncClient) -> None:
         resp = await _create_plan(client)
         plan_id = resp.json()["plan_id"]
         bad = await client.patch(f"/api/plan/{plan_id}", json={"start_date": "9999-01-01"})
         assert bad.status_code == 422
 
-    async def test_reschedule_missing_plan_404(self, client: AsyncClient):
+    async def test_reschedule_missing_plan_404(self, client: AsyncClient) -> None:
         resp = await client.patch("/api/plan/99999", json={"start_date": "2026-08-01"})
         assert resp.status_code == 404
 
     async def test_reschedule_rejects_cross_user(
         self, client: AsyncClient, db_session: AsyncSession
-    ):
+    ) -> None:
         from app.api.deps import get_current_user
         from app.core.security import get_password_hash
         from app.main import app
@@ -235,7 +235,7 @@ class TestStartDateThroughRegenerate:
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     async def test_partial_regenerate_preserves_start_date(
         self, mock_partial: AsyncMock, client: AsyncClient
-    ):
+    ) -> None:
         resp = await _create_plan(client, start_date="2026-08-01", meals_per_day=2)
         plan_id = resp.json()["plan_id"]
         assert resp.json()["start_date"] == "2026-08-01"
@@ -258,7 +258,7 @@ class TestStartDateThroughRegenerate:
         assert regen.status_code == 200
         assert regen.json()["start_date"] == "2026-08-01"
 
-    async def test_all_frozen_regenerate_preserves_start_date(self, client: AsyncClient):
+    async def test_all_frozen_regenerate_preserves_start_date(self, client: AsyncClient) -> None:
         # All meals frozen → the early-return path (no LLM call).
         resp = await _create_plan(client, start_date="2026-08-01", meals_per_day=1)
         plan_id = resp.json()["plan_id"]
@@ -285,12 +285,12 @@ class TestCalendar:
         assert confirm.status_code == 200
         return plan_id
 
-    async def test_empty_window(self, client: AsyncClient):
+    async def test_empty_window(self, client: AsyncClient) -> None:
         resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
         assert resp.status_code == 200
         assert resp.json() == {"plans": []}
 
-    async def test_scheduled_plan_expanded_with_dates_and_meals(self, client: AsyncClient):
+    async def test_scheduled_plan_expanded_with_dates_and_meals(self, client: AsyncClient) -> None:
         plan_id = await self._confirmed_scheduled(
             client, start_date="2026-08-10", days=2, meals_per_day=1
         )
@@ -307,12 +307,12 @@ class TestCalendar:
         assert len(p["days"][0]["meals"]) == 1  # populated from confirmed entries
         assert p["status"] in ("planned", "active", "cooked", "finished")
 
-    async def test_excludes_plan_outside_window(self, client: AsyncClient):
+    async def test_excludes_plan_outside_window(self, client: AsyncClient) -> None:
         await self._confirmed_scheduled(client, start_date="2026-09-15", days=1)
         resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
         assert resp.json()["plans"] == []
 
-    async def test_includes_plan_spanning_into_window(self, client: AsyncClient):
+    async def test_includes_plan_spanning_into_window(self, client: AsyncClient) -> None:
         # A 3-day plan starting Jul 30 covers Jul 30/31 + Aug 1 → overlaps August.
         plan_id = await self._confirmed_scheduled(client, start_date="2026-07-30", days=3)
         resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
@@ -320,7 +320,7 @@ class TestCalendar:
         assert len(plans) == 1
         assert plans[0]["plan_id"] == plan_id
 
-    async def test_excludes_plan_ending_before_window(self, client: AsyncClient):
+    async def test_excludes_plan_ending_before_window(self, client: AsyncClient) -> None:
         # A plan entirely in the [from-7, from-1] pre-window band: its start_date
         # passes the coarse SQL prefilter, but its span ends before `from`, so the
         # exact overlap re-check must drop it (no phantom entries in the list).
@@ -328,7 +328,7 @@ class TestCalendar:
         resp = await client.get("/api/plan/calendar?from=2026-08-08&to=2026-08-31")
         assert resp.json()["plans"] == []
 
-    async def test_excludes_unscheduled_plan(self, client: AsyncClient):
+    async def test_excludes_unscheduled_plan(self, client: AsyncClient) -> None:
         # Confirmed but no start_date → never on the calendar.
         resp = await _create_plan(client, days=1)
         plan_id = resp.json()["plan_id"]
@@ -336,12 +336,12 @@ class TestCalendar:
         cal = await client.get("/api/plan/calendar?from=2026-01-01&to=2026-03-01")
         assert cal.json()["plans"] == []
 
-    async def test_excludes_unconfirmed_plan(self, client: AsyncClient):
+    async def test_excludes_unconfirmed_plan(self, client: AsyncClient) -> None:
         await _create_plan(client, days=1, start_date="2026-08-10")  # not confirmed
         resp = await client.get("/api/plan/calendar?from=2026-08-01&to=2026-08-31")
         assert resp.json()["plans"] == []
 
-    async def test_range_validation(self, client: AsyncClient):
+    async def test_range_validation(self, client: AsyncClient) -> None:
         inverted = await client.get("/api/plan/calendar?from=2026-08-31&to=2026-08-01")
         assert inverted.status_code == 422
         too_wide = await client.get("/api/plan/calendar?from=2026-01-01&to=2026-12-31")
@@ -349,7 +349,7 @@ class TestCalendar:
 
     async def test_scoped_to_current_user(
         self, client: AsyncClient, db_session: AsyncSession
-    ):
+    ) -> None:
         from app.api.deps import get_current_user
         from app.core.security import get_password_hash
         from app.main import app
@@ -381,8 +381,8 @@ class TestCalendarMealShape:
     """
 
     async def test_ordinary_meals_are_plain_objects(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         resp = await _create_plan(client, days=1, start_date="2026-08-01")
         plan_id = resp.json()["plan_id"]
         await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
@@ -401,8 +401,8 @@ class TestCalendarMealShape:
         assert m["source_name"] is None
 
     async def test_leftover_meal_carries_resolved_provenance(
-        self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession,
+    ) -> None:
         """source_date is resolved SERVER-side from the plan's start_date and the
         1-based projection column. The client cannot derive it — the source day
         can fall outside the rendered window."""
@@ -441,8 +441,8 @@ class TestCalendarMealShape:
         assert days[0]["meals"][0]["is_leftover"] is False
 
     async def test_missing_source_name_degrades_without_failing(
-        self, client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession,
+    ) -> None:
         """A link with no stored source name must still render as a leftover
         rather than 500 the whole calendar."""
         resp = await _create_plan(client, days=2, start_date="2026-08-01")

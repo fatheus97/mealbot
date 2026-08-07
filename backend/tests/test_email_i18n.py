@@ -1,7 +1,7 @@
 """Server-side translation: locale resolution, plural forms, and the four emails."""
 
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from string import Template
 from unittest.mock import AsyncMock, patch
@@ -218,7 +218,9 @@ class TestEmailBodies:
             assert str(VERIFY_TTL_HOURS) in COPY[locale]["verify_body"]
 
 
-async def _capture_into(sent: list[tuple[str, str, str]]):
+async def _capture_into(
+    sent: list[tuple[str, str, str]],
+) -> Callable[[str, str, str], Awaitable[bool]]:
     async def _send(to: str, subject: str, html: str) -> bool:
         sent.append((to, subject, html))
         return True

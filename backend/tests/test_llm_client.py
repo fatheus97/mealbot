@@ -10,16 +10,11 @@ from google.genai.errors import ClientError as GeminiClientError
 from google.genai.errors import ServerError as GeminiServerError
 from openai import APIStatusError as OpenAIAPIStatusError
 from openai import RateLimitError as OpenAIRateLimitError
-from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry
 from app.llm.client import LLMClient, check_model_chain_keys
 from app.llm.usage import capture_llm_usage
 from app.models.plan_models import SingleDayResponse
-
-
-class FakeResponse(BaseModel):
-    meals: list
 
 
 def _quota_error_gemini() -> GeminiClientError:
@@ -89,7 +84,7 @@ def _mock_single_day() -> SingleDayResponse:
 
 def _chain(*specs: str) -> list[ModelEntry]:
     """Build a model chain from 'provider/model' strings."""
-    entries = []
+    entries: list[ModelEntry] = []
     for spec in specs:
         provider_str, model = spec.split("/", 1)
         entries.append(ModelEntry(provider=LLMProvider(provider_str), model=model))

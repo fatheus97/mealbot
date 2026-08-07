@@ -11,11 +11,12 @@ called for real.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import BackgroundTasks
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -56,7 +57,7 @@ def sent(monkeypatch: pytest.MonkeyPatch, db_session: AsyncSession) -> AsyncMock
     return mock
 
 
-def _sent_args(sent: AsyncMock) -> tuple:
+def _sent_args(sent: AsyncMock) -> tuple[Any, ...]:
     """(to, subject, html) of the captured send. Asserts one actually happened."""
     assert sent.await_args is not None, "expected a reset email to be sent"
     return sent.await_args.args
@@ -73,7 +74,7 @@ def _token_from(sent: AsyncMock) -> str:
     return _link_from(sent).split("reset_token=")[1]
 
 
-async def _request_reset(client: AsyncClient, email: str = TEST_EMAIL):
+async def _request_reset(client: AsyncClient, email: str = TEST_EMAIL) -> Response:
     return await client.post("/api/auth/forgot-password", json={"email": email})
 
 
@@ -94,7 +95,7 @@ class TestForgotPasswordDoesNotEnumerate:
 
     async def test_known_address_gets_204_and_an_email(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         resp = await _request_reset(unauthed_client)
         assert resp.status_code == 204
         sent.assert_awaited_once()
@@ -102,7 +103,7 @@ class TestForgotPasswordDoesNotEnumerate:
 
     async def test_unknown_address_gets_the_same_204_and_no_email(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         resp = await _request_reset(unauthed_client, "nobody@example.com")
         assert resp.status_code == 204
         sent.assert_not_awaited()
@@ -113,7 +114,7 @@ class TestForgotPasswordDoesNotEnumerate:
         db_session: AsyncSession,
         test_user: User,
         sent: AsyncMock,
-    ):
+    ) -> None:
         """A demo login is shared, so 'recovery' would be a takeover of every
         concurrent demo session. Refusing loudly would leak which addresses are
         demo, so it gets the same silent 204 as an unknown address."""
@@ -129,7 +130,7 @@ class TestForgotPasswordDoesNotEnumerate:
 
     async def test_malformed_address_is_422_not_204(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         """The one permitted difference: rejecting a non-email leaks that the
         string isn't an address, never whether it's a user."""
         resp = await _request_reset(unauthed_client, "not-an-email")
@@ -144,7 +145,7 @@ class TestTokenStorage:
         db_session: AsyncSession,
         test_user: User,
         sent: AsyncMock,
-    ):
+    ) -> None:
         """A DB dump of usable reset tokens would be account takeover on every
         row, so the emailed value must appear nowhere in the table."""
         await _request_reset(unauthed_client)
@@ -157,7 +158,7 @@ class TestTokenStorage:
 
     async def test_link_uses_the_query_param_the_spa_can_actually_read(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         """The SPA is state-routed with no router — a /reset-password *path*
         would have nothing to handle it. /app, not the root — the SPA's
         namespace since the landing-page split (docs/landing-page-plan.md)."""
@@ -172,7 +173,7 @@ class TestResetPassword:
         db_session: AsyncSession,
         test_user: User,
         sent: AsyncMock,
-    ):
+    ) -> None:
         # A live session that the reset must terminate.
         await unauthed_client.post(
             "/api/auth/login", json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
@@ -199,7 +200,7 @@ class TestResetPassword:
 
     async def test_reset_does_not_log_the_caller_in(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         """Auto-login would turn a leaked link into a live session in one click."""
         await _request_reset(unauthed_client)
         resp = await unauthed_client.post(
@@ -219,7 +220,7 @@ class TestResetPassword:
 
     async def test_token_is_single_use(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         await _request_reset(unauthed_client)
         token = _token_from(sent)
         first = await unauthed_client.post(
@@ -240,7 +241,7 @@ class TestResetPassword:
         db_session: AsyncSession,
         test_user: User,
         sent: AsyncMock,
-    ):
+    ) -> None:
         await _request_reset(unauthed_client)
         token = _token_from(sent)
         row = (await db_session.execute(select(PasswordResetToken))).scalars().one()
@@ -258,7 +259,7 @@ class TestResetPassword:
 
     async def test_forged_token_is_refused(
         self, unauthed_client: AsyncClient, test_user: User
-    ):
+    ) -> None:
         resp = await unauthed_client.post(
             "/api/auth/reset-password",
             json={"token": "not-a-real-token", "new_password": NEW_PASSWORD},
@@ -267,7 +268,7 @@ class TestResetPassword:
 
     async def test_weak_new_password_is_rejected(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         """Possession of the token replaces the current password as the
         credential, so the full complexity rule has to apply here."""
         await _request_reset(unauthed_client)
@@ -292,7 +293,7 @@ class TestOutstandingTokenInvalidation:
         db_session: AsyncSession,
         test_user: User,
         sent: AsyncMock,
-    ):
+    ) -> None:
         """Only the newest link works — enforced at MINT time, before any
         redemption happens. Isolates void-on-mint: nothing is redeemed here, so
         the redeem-side belt cannot mask it."""
@@ -322,7 +323,7 @@ class TestOutstandingTokenInvalidation:
         db_session: AsyncSession,
         test_user: User,
         sent: AsyncMock,
-    ):
+    ) -> None:
         """After a reset, the user must have no usable link left anywhere.
 
         This once needed an explicit sweep of sibling tokens on the redeem
@@ -355,7 +356,7 @@ class TestHandlerDoesNoInlineWork:
 
     async def test_handler_delegates_everything_to_the_background_task(
         self, unauthed_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-    ):
+    ) -> None:
         """No user fixture, no DB session, no patched factory — if the handler
         touched the database at all this would not return 204."""
         dispatched = AsyncMock()
@@ -368,7 +369,7 @@ class TestHandlerDoesNoInlineWork:
 
     async def test_the_work_is_deferred_not_awaited_inline(
         self, unauthed_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-    ):
+    ) -> None:
         """Pins the MECHANISM, because the outcome alone cannot distinguish it.
 
         Starlette runs background tasks inside the same ASGI call, so from the
@@ -402,7 +403,7 @@ class TestHandlerDoesNoInlineWork:
 
     async def test_dispatch_never_raises(
         self, monkeypatch: pytest.MonkeyPatch
-    ):
+    ) -> None:
         """It runs after the response, so an escaping exception can only show
         up as an unexplained stack trace — and a raising dispatch would make
         the failure mode differ by address, which is the leak again."""
@@ -424,7 +425,7 @@ class TestOneLiveTokenPerUserIsEnforcedByTheDatabase:
 
     async def test_two_live_tokens_for_one_user_are_rejected(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         assert test_user.id is not None
         now = datetime.now(UTC).replace(tzinfo=None)
         for plain in ("live-one", "live-two"):
@@ -442,7 +443,7 @@ class TestOneLiveTokenPerUserIsEnforcedByTheDatabase:
 
     async def test_a_used_token_does_not_block_a_new_one(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """The index is partial (WHERE used_at IS NULL) — consumed rows must
         not stop the user ever resetting again."""
         assert test_user.id is not None
@@ -471,7 +472,7 @@ class TestOneLiveTokenPerUserIsEnforcedByTheDatabase:
         db_session: AsyncSession,
         test_user: User,
         monkeypatch: pytest.MonkeyPatch,
-    ):
+    ) -> None:
         """Reproduces the interleaving: a live token exists and the supersede
         step did not remove it (the other request's UPDATE had not committed).
         The INSERT then violates the index, and the service must treat that as
@@ -505,7 +506,7 @@ class TestOneLiveTokenPerUserIsEnforcedByTheDatabase:
 class TestResendCooldown:
     async def test_second_request_inside_the_cooldown_sends_nothing(
         self, unauthed_client: AsyncClient, test_user: User, sent: AsyncMock
-    ):
+    ) -> None:
         """Without a per-account floor this endpoint is a mailbomb amplifier
         for an attacker rotating IPs past the IP rate limit."""
         first = await _request_reset(unauthed_client)
@@ -521,7 +522,7 @@ class TestResendCooldown:
         db_session: AsyncSession,
         test_user: User,
         sent: AsyncMock,
-    ):
+    ) -> None:
         await _request_reset(unauthed_client)
         row = (await db_session.execute(select(PasswordResetToken))).scalars().one()
         row.created_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)

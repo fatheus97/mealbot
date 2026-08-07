@@ -9,6 +9,7 @@ lazy-start / idempotent-lifecycle contract the app relies on.
 import asyncio
 import threading
 import time
+from collections.abc import Iterator
 
 import pytest
 
@@ -26,7 +27,7 @@ def _add(a: int, b: int) -> int:
 
 
 @pytest.fixture
-def fresh_pool():
+def fresh_pool() -> Iterator[None]:
     """Each test starts from a pristine 'never started' pool and resets to it
     after, so worker-count monkeypatching takes effect and no threads leak
     between tests.
@@ -42,15 +43,15 @@ def fresh_pool():
 
 
 class TestParseExecutor:
-    async def test_runs_func_and_returns_result(self, fresh_pool):
+    async def test_runs_func_and_returns_result(self, fresh_pool: None) -> None:
         assert await run_in_parse_executor(lambda: 6 * 7) == 42
 
-    async def test_passes_positional_args(self, fresh_pool):
+    async def test_passes_positional_args(self, fresh_pool: None) -> None:
         # receipt_scanner relies on positional passthrough: run_in_parse_executor(
         # _extract_pdf_text, pdf_bytes).
         assert await run_in_parse_executor(_add, 2, 3) == 5
 
-    async def test_runs_on_dedicated_pool_not_the_default(self, fresh_pool):
+    async def test_runs_on_dedicated_pool_not_the_default(self, fresh_pool: None) -> None:
         """The core isolation guarantee: work lands on OUR pool (threads named
         'parse…'), never the event loop's shared default executor."""
         name = await run_in_parse_executor(
@@ -58,7 +59,7 @@ class TestParseExecutor:
         )
         assert name.startswith("parse")
 
-    async def test_lazy_starts_without_explicit_start(self, fresh_pool):
+    async def test_lazy_starts_without_explicit_start(self, fresh_pool: None) -> None:
         # fresh_pool tore the pool down; a bare call must transparently recreate
         # it (unit tests exercise parsing without running the app lifespan).
         assert executors._parse_executor is None
@@ -66,8 +67,8 @@ class TestParseExecutor:
         assert executors._parse_executor is not None
 
     async def test_concurrency_is_bounded_to_worker_count(
-        self, fresh_pool, monkeypatch: pytest.MonkeyPatch
-    ):
+        self, fresh_pool: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """With 2 workers and 6 queued tasks, at most 2 run at once. If the pool
         were unbounded (or defaulted to asyncio.to_thread's large default pool),
         the peak would climb toward 6. peak == 2 proves BOTH real parallelism
@@ -91,7 +92,7 @@ class TestParseExecutor:
         )
         assert state["peak"] == 2
 
-    async def test_refuses_to_resurrect_after_shutdown(self, fresh_pool):
+    async def test_refuses_to_resurrect_after_shutdown(self, fresh_pool: None) -> None:
         """A request racing the shutdown window must not silently spin up a new,
         un-owned pool (leaked threads). After an explicit shutdown, dispatch
         raises; only an explicit restart re-enables it."""
@@ -104,7 +105,7 @@ class TestParseExecutor:
         start_parse_executor()
         assert await run_in_parse_executor(lambda: 1) == 1
 
-    async def test_inflight_task_drains_on_concurrent_shutdown(self, fresh_pool):
+    async def test_inflight_task_drains_on_concurrent_shutdown(self, fresh_pool: None) -> None:
         """A parse submitted before shutdown finishes cleanly even though
         shutdown runs concurrently on another thread (as the lifespan does).
         The lock makes the submit atomic vs. the state swap, and
@@ -132,8 +133,8 @@ class TestParseExecutor:
         assert executors._parse_executor is None
 
     async def test_queued_task_raises_clean_error_on_concurrent_shutdown(
-        self, fresh_pool, monkeypatch: pytest.MonkeyPatch
-    ):
+        self, fresh_pool: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A task still QUEUED (both workers busy) when a concurrent shutdown
         fires is cancelled — to bound shutdown to running items, not queue depth.
         But the awaiting request must get a clean RuntimeError, never a bare
@@ -178,8 +179,8 @@ class TestParseExecutor:
             await queued
 
     async def test_timeout_during_shutdown_stays_timeout_not_runtimeerror(
-        self, fresh_pool
-    ):
+        self, fresh_pool: None
+    ) -> None:
         """A genuine wait_for timeout on a RUNNING parse that fires while the
         shutdown latch is set (the 30s grace window) must still surface as
         TimeoutError — the documented 504 path — not be misclassified as the
@@ -207,13 +208,13 @@ class TestParseExecutor:
             release.set()
             executors._shutting_down = False
 
-    async def test_start_is_idempotent(self, fresh_pool):
+    async def test_start_is_idempotent(self, fresh_pool: None) -> None:
         start_parse_executor()
         first = executors._parse_executor
         start_parse_executor()
         assert executors._parse_executor is first  # not replaced
 
-    async def test_shutdown_is_idempotent(self, fresh_pool):
+    async def test_shutdown_is_idempotent(self, fresh_pool: None) -> None:
         start_parse_executor()
         shutdown_parse_executor()
         assert executors._parse_executor is None

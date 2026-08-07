@@ -61,7 +61,7 @@ def _install_fake_httpx(
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
 
 
-def _report(**over) -> FeedbackReport:
+def _report(**over: object) -> FeedbackReport:
     base = dict(user_id=7, kind="bug", message="Regenerate crashes\nsecond line")
     base.update(over)
     report = FeedbackReport(**base)
@@ -101,7 +101,7 @@ async def test_unconfigured_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_success_returns_url_and_builds_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict = {}
+    captured: dict[str, Any] = {}
     _install_fake_httpx(monkeypatch, captured=captured)
     url = await feedback_ticket.create_issue_for_report(_report(), _triage())
     assert url == "https://github.com/owner/tickets/issues/1"
@@ -119,7 +119,7 @@ async def test_success_returns_url_and_builds_payload(monkeypatch: pytest.Monkey
 async def test_title_falls_back_to_first_line_without_triage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: dict = {}
+    captured: dict[str, Any] = {}
     _install_fake_httpx(monkeypatch, captured=captured)
     await feedback_ticket.create_issue_for_report(_report(), None)
     assert captured["json"]["title"] == "[bug] Regenerate crashes"

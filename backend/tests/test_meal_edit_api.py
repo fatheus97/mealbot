@@ -45,7 +45,7 @@ _EDIT_BODY = {
 }
 
 
-async def _create_plan(client: AsyncClient, auth_headers: dict) -> int:
+async def _create_plan(client: AsyncClient, auth_headers: dict[str, str]) -> int:
     resp = await client.post(
         "/api/plan?days=1",
         headers=auth_headers,
@@ -59,8 +59,8 @@ async def _create_plan(client: AsyncClient, auth_headers: dict) -> int:
 class TestMealEdit:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_preconfirm_updates_response_json(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         plan_id = await _create_plan(client, auth_headers)
 
@@ -86,8 +86,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_postconfirm_syncs_response_and_meal_entry(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         await client.put(
             "/api/fridge",
@@ -139,8 +139,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_does_not_touch_fridge_and_restore_uses_snapshot(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """The invariant that makes post-confirm editing safe: an edit never
         re-debits, and unconfirm restores the CONFIRM-TIME amounts (from the
         snapshot), not the edited ingredients."""
@@ -197,8 +197,8 @@ class TestMealEdit:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         mock_gen.return_value = _fake_day()
         await client.put(
             "/api/fridge",
@@ -238,8 +238,8 @@ class TestMealEdit:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         mock_gen.return_value = _fake_day()
         await client.put(
             "/api/fridge",
@@ -262,8 +262,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_rejects_oversized_name(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         plan_id = await _create_plan(client, auth_headers)
 
@@ -276,8 +276,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_rejects_overlong_step(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         plan_id = await _create_plan(client, auth_headers)
 
@@ -290,8 +290,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_rejects_empty_name(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # min_length=1 closes the server-side gap the frontend guards client-side.
         mock_gen.return_value = _fake_day()
         plan_id = await _create_plan(client, auth_headers)
@@ -305,8 +305,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_finished_plan_rejected(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # A finished plan is a historical record — editing is blocked (reopen first).
         mock_gen.return_value = _fake_day()
         await client.put(
@@ -332,8 +332,8 @@ class TestMealEdit:
         assert "finished" in resp.json()["detail"].lower()
 
     async def test_edit_nonexistent_plan_404(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.patch(
             "/api/plan/99999/days/0/meals/0",
             headers=auth_headers,
@@ -343,8 +343,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_day_index_out_of_bounds(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         plan_id = await _create_plan(client, auth_headers)
 
@@ -358,8 +358,8 @@ class TestMealEdit:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_meal_index_out_of_bounds(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         plan_id = await _create_plan(client, auth_headers)
 
@@ -383,8 +383,8 @@ class TestEditAllergenWarning:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_edit_that_adds_a_declared_allergen_saves_and_warns(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         resp = await client.post(
             "/api/plan?days=1",
@@ -421,8 +421,8 @@ class TestEditAllergenWarning:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_warns_on_a_non_english_plan_too(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """The regression that already shipped once in this PR.
 
         An edit body has no `name_en` and never can — no field in the editor, no
@@ -467,8 +467,8 @@ class TestEditAllergenWarning:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_an_allergen_added_only_in_a_step_is_warned(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         resp = await client.post(
             "/api/plan?days=1",
@@ -493,8 +493,8 @@ class TestEditAllergenWarning:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_clean_edit_warns_nothing(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         resp = await client.post(
             "/api/plan?days=1",
@@ -513,8 +513,8 @@ class TestEditAllergenWarning:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_no_declared_allergens_means_no_screening(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # The plan was never built to avoid anything, so there is nothing to
         # warn against — adding cream is just cooking.
         mock_gen.return_value = _fake_day()
@@ -535,8 +535,8 @@ class TestEditAllergenWarning:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_response_still_carries_every_planned_meal_field(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # MealEditResponse SUBCLASSES PlannedMeal precisely so old clients keep
         # working. If someone ever swaps it for a {meal, warnings} wrapper, this
         # fails instead of silently breaking the editor.

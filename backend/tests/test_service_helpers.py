@@ -40,7 +40,7 @@ def _entry(meal_json: str = _MEAL_JSON, snapshot: str | None = None, id: int | N
 
 
 class TestMergeIntoFridgeBuckets:
-    def test_sums_on_key_match_preserving_existing_name(self):
+    def test_sums_on_key_match_preserving_existing_name(self) -> None:
         out = merge_into_fridge_buckets(
             [StockItemDTO(name="Rice", quantity_grams=200)],
             [StockItemDTO(name="rice", quantity_grams=300)],  # case-insensitive match
@@ -49,14 +49,14 @@ class TestMergeIntoFridgeBuckets:
         assert out[0].name == "Rice"  # existing casing kept
         assert out[0].quantity_grams == 500
 
-    def test_ors_need_to_use(self):
+    def test_ors_need_to_use(self) -> None:
         out = merge_into_fridge_buckets(
             [StockItemDTO(name="rice", quantity_grams=100, need_to_use=False)],
             [StockItemDTO(name="rice", quantity_grams=1, need_to_use=True)],
         )
         assert out[0].need_to_use is True
 
-    def test_distinct_expiration_are_separate_buckets(self):
+    def test_distinct_expiration_are_separate_buckets(self) -> None:
         out = merge_into_fridge_buckets(
             [],
             [
@@ -66,7 +66,7 @@ class TestMergeIntoFridgeBuckets:
         )
         assert len(out) == 2
 
-    def test_accepts_consumed_batch_incoming(self):
+    def test_accepts_consumed_batch_incoming(self) -> None:
         # The whole point of the shared helper: restore passes ConsumedBatch.
         out = merge_into_fridge_buckets(
             [StockItemDTO(name="rice", quantity_grams=100)],
@@ -76,7 +76,7 @@ class TestMergeIntoFridgeBuckets:
 
 
 class TestFlattenFridgeBatches:
-    def test_drops_fully_consumed_batches(self):
+    def test_drops_fully_consumed_batches(self) -> None:
         out = flatten_fridge_batches({
             "rice": [
                 StockItemDTO(name="rice", quantity_grams=100),
@@ -90,7 +90,7 @@ class TestFlattenFridgeBatches:
 
 
 class TestBatchesFromEntry:
-    def test_snapshot_decode_preserves_expiration_and_flag(self):
+    def test_snapshot_decode_preserves_expiration_and_flag(self) -> None:
         snap = json.dumps([
             {"name": "rice", "quantity_grams": 200,
              "expiration_date": "2026-01-01", "need_to_use": True},
@@ -100,21 +100,21 @@ class TestBatchesFromEntry:
         assert batches[0].expiration_date == date(2026, 1, 1)
         assert batches[0].need_to_use is True
 
-    def test_legacy_fallback_when_no_snapshot(self):
+    def test_legacy_fallback_when_no_snapshot(self) -> None:
         batches = batches_from_entry(_entry(snapshot=None))
         # From meal_json ingredients (spices excluded), lossy: no expiration.
         assert [b.name for b in batches] == ["rice"]
         assert batches[0].expiration_date is None
 
-    def test_corrupt_snapshot_falls_back_to_meal_json(self):
+    def test_corrupt_snapshot_falls_back_to_meal_json(self) -> None:
         batches = batches_from_entry(_entry(snapshot="{not valid json"))
         assert [b.name for b in batches] == ["rice"]
 
-    def test_corrupt_meal_json_and_no_snapshot_returns_empty(self):
+    def test_corrupt_meal_json_and_no_snapshot_returns_empty(self) -> None:
         batches = batches_from_entry(_entry(meal_json="{not valid json", snapshot=None))
         assert batches == []
 
-    def test_partially_corrupt_snapshot_falls_back_once_not_double(self):
+    def test_partially_corrupt_snapshot_falls_back_once_not_double(self) -> None:
         # Snapshot array with a valid prefix + an invalid element. The decode is
         # all-or-nothing: the whole snapshot is discarded and we fall back to the
         # legacy recipe EXACTLY ONCE. (The old inline .extend(generator) kept the
@@ -127,7 +127,7 @@ class TestBatchesFromEntry:
 
 
 class TestMealEntrySummaryFromEntry:
-    def test_maps_fields(self):
+    def test_maps_fields(self) -> None:
         entry = _entry(id=42)
         entry.is_favorite = True
         summary = MealEntrySummary.from_entry(entry)
@@ -135,6 +135,6 @@ class TestMealEntrySummaryFromEntry:
         assert summary.name == "Soup"
         assert summary.is_favorite is True
 
-    def test_requires_populated_id(self):
+    def test_requires_populated_id(self) -> None:
         with pytest.raises(AssertionError):
             MealEntrySummary.from_entry(_entry(id=None))

@@ -1,6 +1,7 @@
 """Tests for the admin role (Phase 2): is_admin flag, require_admin gate,
 create_user --admin, and UserRead exposure."""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import pytest
@@ -57,7 +58,7 @@ class TestCreateUserCli:
     @staticmethod
     def _patch_factory(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
         @asynccontextmanager
-        async def fake_factory():
+        async def fake_factory() -> AsyncGenerator[AsyncSession]:
             yield session
 
         monkeypatch.setattr(create_user_script, "async_session_factory", fake_factory)

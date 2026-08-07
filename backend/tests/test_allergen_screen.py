@@ -41,33 +41,33 @@ def _hit(ingredient: str, allergens: list[Allergen]) -> list[Allergen]:
 class TestTruePositives:
     """Real allergens MUST be flagged — a miss here is the unsafe direction."""
 
-    def test_milk_sources_flagged(self):
+    def test_milk_sources_flagged(self) -> None:
         for name in ("milk", "whole milk", "whey", "butter", "cream", "ghee"):
             assert Allergen.MILK in _hit(name, [Allergen.MILK]), name
 
-    def test_cheese_flagged_the_slice4_gap(self):
+    def test_cheese_flagged_the_slice4_gap(self) -> None:
         # Cheese is the obvious source the doc's hidden-source list omitted;
         # slice 4 added it. A milk-allergy plan with cheese must be rejected.
         for name in ("cheese", "grated cheese", "cheddar cheese", "parmesan",
                      "mozzarella", "feta"):
             assert Allergen.MILK in _hit(name, [Allergen.MILK]), name
 
-    def test_fish_species_flagged_the_slice4_gap(self):
+    def test_fish_species_flagged_the_slice4_gap(self) -> None:
         # Species are obvious sources the doc's hidden-source list omitted.
         for name in ("salmon", "salmon fillet", "tuna", "cod", "mackerel", "trout"):
             assert Allergen.FISH in _hit(name, [Allergen.FISH]), name
 
-    def test_egg_flagged(self):
+    def test_egg_flagged(self) -> None:
         assert Allergen.EGGS in _hit("eggs", [Allergen.EGGS])
         assert Allergen.EGGS in _hit("egg yolk", [Allergen.EGGS])
 
-    def test_gluten_sources_flagged(self):
+    def test_gluten_sources_flagged(self) -> None:
         for name in ("wheat flour", "gluten", "barley", "spelt", "rye"):
             assert Allergen.CEREALS_WITH_GLUTEN in _hit(
                 name, [Allergen.CEREALS_WITH_GLUTEN]
             ), name
 
-    def test_other_allergens_flagged(self):
+    def test_other_allergens_flagged(self) -> None:
         assert Allergen.CRUSTACEANS in _hit("shrimp", [Allergen.CRUSTACEANS])
         assert Allergen.MOLLUSCS in _hit("mussels", [Allergen.MOLLUSCS])
         assert Allergen.TREE_NUTS in _hit("almonds", [Allergen.TREE_NUTS])
@@ -76,7 +76,7 @@ class TestTruePositives:
         assert Allergen.PEANUTS in _hit("peanuts", [Allergen.PEANUTS])
         assert Allergen.SESAME in _hit("tahini", [Allergen.SESAME])
 
-    def test_plural_ingredients_flagged(self):
+    def test_plural_ingredients_flagged(self) -> None:
         # Ingredients are usually plural; the singular term must still match, or
         # a real allergen slips through (the unsafe direction).
         assert Allergen.MOLLUSCS in _hit("clams", [Allergen.MOLLUSCS])
@@ -90,27 +90,27 @@ class TestTruePositives:
 class TestFalsePositivesSuppressed:
     """Safe look-alikes must NOT be flagged, or generation loops forever."""
 
-    def test_plant_milks_not_dairy(self):
+    def test_plant_milks_not_dairy(self) -> None:
         for name in ("coconut milk", "almond milk", "oat milk", "soy milk"):
             assert Allergen.MILK not in _hit(name, [Allergen.MILK]), name
 
-    def test_non_dairy_fats_not_dairy(self):
+    def test_non_dairy_fats_not_dairy(self) -> None:
         for name in ("cocoa butter", "almond butter", "cream of tartar",
                      "coconut cream"):
             assert Allergen.MILK not in _hit(name, [Allergen.MILK]), name
 
-    def test_vegan_cheese_not_dairy(self):
+    def test_vegan_cheese_not_dairy(self) -> None:
         for name in ("vegan cheese", "dairy-free cheese", "cashew cheese"):
             assert Allergen.MILK not in _hit(name, [Allergen.MILK]), name
 
-    def test_word_boundary_suppresses_substrings(self):
+    def test_word_boundary_suppresses_substrings(self) -> None:
         assert Allergen.EGGS not in _hit("eggplant", [Allergen.EGGS])
         assert Allergen.CEREALS_WITH_GLUTEN not in _hit(
             "buckwheat", [Allergen.CEREALS_WITH_GLUTEN]
         )
         assert Allergen.TREE_NUTS not in _hit("coconut oil", [Allergen.TREE_NUTS])
 
-    def test_free_negation_not_flagged(self):
+    def test_free_negation_not_flagged(self) -> None:
         assert Allergen.CEREALS_WITH_GLUTEN not in _hit(
             "gluten-free flour", [Allergen.CEREALS_WITH_GLUTEN]
         )
@@ -118,7 +118,7 @@ class TestFalsePositivesSuppressed:
 
 
 class TestPerAllergenSafeCompounds:
-    def test_peanut_butter_safe_for_milk_but_flagged_for_peanuts(self):
+    def test_peanut_butter_safe_for_milk_but_flagged_for_peanuts(self) -> None:
         # The same phrase must resolve differently per allergen.
         matched = _hit("peanut butter", [Allergen.MILK, Allergen.PEANUTS])
         assert Allergen.MILK not in matched
@@ -126,7 +126,7 @@ class TestPerAllergenSafeCompounds:
 
 
 class TestSulphitesExcluded:
-    def test_sulphites_not_deterministically_screened(self):
+    def test_sulphites_not_deterministically_screened(self) -> None:
         # Sulphite declarability is an as-consumed threshold the app can't
         # compute, so they're prompt-only (doc Part 4) — the screen skips them.
         assert screen_meals_for_allergens(
@@ -137,17 +137,17 @@ class TestSulphitesExcluded:
 
 
 class TestNoOp:
-    def test_no_allergens_is_noop(self):
+    def test_no_allergens_is_noop(self) -> None:
         assert screen_meals_for_allergens(
             [_meal("milk", "wheat", "peanuts")], [], language="English"
         ) == []
 
-    def test_only_sulphites_is_noop(self):
+    def test_only_sulphites_is_noop(self) -> None:
         assert screen_meals_for_allergens(
             [_meal("wine")], [Allergen.SULPHITES], language="English"
         ) == []
 
-    def test_leftover_meal_with_no_ingredients_is_clean(self):
+    def test_leftover_meal_with_no_ingredients_is_clean(self) -> None:
         empty = PlannedMeal(
             name="Reheated leftovers", meal_type=MealType.MAIN_COURSE,
             ingredients=[], steps=["reheat"],
@@ -156,7 +156,7 @@ class TestNoOp:
 
 
 class TestViolationDetails:
-    def test_violation_carries_context(self):
+    def test_violation_carries_context(self) -> None:
         meal = PlannedMeal(
             name="Cheesy Pasta", meal_type=MealType.MAIN_COURSE,
             ingredients=[IngredientAmount(name="cheddar cheese", quantity_grams=100)],
@@ -170,7 +170,7 @@ class TestViolationDetails:
         assert v.ingredient == "cheddar cheese"
         assert v.matched_term  # non-empty
 
-    def test_multiple_violations_across_meals(self):
+    def test_multiple_violations_across_meals(self) -> None:
         meals = [_meal("milk"), _meal("salmon")]
         violations = screen_meals_for_allergens(
             meals, [Allergen.MILK, Allergen.FISH], language="English",
@@ -186,34 +186,34 @@ class TestSafetyReviewRegressions:
 
     # --- false negatives (were MISSED — the unsafe direction) ---
 
-    def test_y_ies_plural_anchovies(self):
+    def test_y_ies_plural_anchovies(self) -> None:
         assert Allergen.FISH in _hit("anchovies", [Allergen.FISH])
 
-    def test_named_cheeses_flagged(self):
+    def test_named_cheeses_flagged(self) -> None:
         for name in ("paneer", "halloumi", "mascarpone", "burrata", "brie",
                      "gruyere", "gorgonzola"):
             assert Allergen.MILK in _hit(name, [Allergen.MILK]), name
 
-    def test_cuttlefish_and_other_molluscs(self):
+    def test_cuttlefish_and_other_molluscs(self) -> None:
         for name in ("cuttlefish", "escargot", "abalone", "cockle"):
             assert Allergen.MOLLUSCS in _hit(name, [Allergen.MOLLUSCS]), name
 
-    def test_crustacean_forms(self):
+    def test_crustacean_forms(self) -> None:
         for name in ("crawfish", "scampi", "langoustine"):
             assert Allergen.CRUSTACEANS in _hit(name, [Allergen.CRUSTACEANS]), name
 
-    def test_bare_nuts_flagged(self):
+    def test_bare_nuts_flagged(self) -> None:
         for name in ("mixed nuts", "chopped nuts", "pine nuts", "chestnut"):
             assert Allergen.TREE_NUTS in _hit(name, [Allergen.TREE_NUTS]), name
 
-    def test_more_fish_species(self):
+    def test_more_fish_species(self) -> None:
         for name in ("monkfish", "hake", "plaice", "caviar"):
             assert Allergen.FISH in _hit(name, [Allergen.FISH]), name
 
-    def test_mayo_abbreviation(self):
+    def test_mayo_abbreviation(self) -> None:
         assert Allergen.EGGS in _hit("mayo", [Allergen.EGGS])
 
-    def test_common_gluten_products_flagged(self):
+    def test_common_gluten_products_flagged(self) -> None:
         # The CRITICAL gap: the most common gluten sources were missing.
         for name in ("white bread", "spaghetti", "all-purpose flour",
                      "breadcrumbs", "egg noodles", "pastry", "flour tortilla",
@@ -222,7 +222,7 @@ class TestSafetyReviewRegressions:
                 name, [Allergen.CEREALS_WITH_GLUTEN]
             ), name
 
-    def test_span_aware_suppression_catches_second_occurrence(self):
+    def test_span_aware_suppression_catches_second_occurrence(self) -> None:
         # "coconut cream" explains ITS "cream"; a standalone "double cream" is
         # still real dairy and must be flagged.
         v = screen_meals_for_allergens(
@@ -233,30 +233,30 @@ class TestSafetyReviewRegressions:
 
     # --- false positives (would churn a valid plan to exhaustion) ---
 
-    def test_oyster_mushroom_not_mollusc(self):
+    def test_oyster_mushroom_not_mollusc(self) -> None:
         assert Allergen.MOLLUSCS not in _hit("oyster mushrooms", [Allergen.MOLLUSCS])
 
-    def test_butter_beans_not_dairy(self):
+    def test_butter_beans_not_dairy(self) -> None:
         assert Allergen.MILK not in _hit("butter beans", [Allergen.MILK])
 
-    def test_custard_apple_not_dairy(self):
+    def test_custard_apple_not_dairy(self) -> None:
         assert Allergen.MILK not in _hit("custard apple", [Allergen.MILK])
 
-    def test_vegan_and_dairy_free_qualifiers(self):
+    def test_vegan_and_dairy_free_qualifiers(self) -> None:
         assert Allergen.MILK not in _hit("vegan parmesan", [Allergen.MILK])
         assert Allergen.EGGS not in _hit("vegan mayonnaise", [Allergen.EGGS])
         assert Allergen.MILK not in _hit("dairy-free yoghurt", [Allergen.MILK])
         # "vegan" only rules out ANIMAL allergens — not soy/gluten/nuts.
         assert Allergen.SOYBEANS in _hit("vegan tofu", [Allergen.SOYBEANS])
 
-    def test_gluten_free_versions_not_flagged(self):
+    def test_gluten_free_versions_not_flagged(self) -> None:
         for name in ("rice flour", "almond flour", "gluten-free bread",
                      "rice noodles", "corn tortilla", "chickpea pasta"):
             assert Allergen.CEREALS_WITH_GLUTEN not in _hit(
                 name, [Allergen.CEREALS_WITH_GLUTEN]
             ), name
 
-    def test_almond_flour_is_nut_but_not_gluten(self):
+    def test_almond_flour_is_nut_but_not_gluten(self) -> None:
         # Same ingredient, opposite verdicts per allergen.
         matched = _hit("almond flour", [Allergen.TREE_NUTS, Allergen.CEREALS_WITH_GLUTEN])
         assert Allergen.TREE_NUTS in matched
@@ -267,7 +267,7 @@ class TestFixReviewRegressions:
     """Defects the FIXES for the first review introduced — caught by a second
     adversarial pass on the fixes. Locked so the new matcher logic can't regress."""
 
-    def test_negated_qualifier_does_not_suppress(self):
+    def test_negated_qualifier_does_not_suppress(self) -> None:
         # A negated qualifier must NOT rule out the allergen it names.
         assert Allergen.MILK in _hit("non-vegan cheese", [Allergen.MILK])
         assert Allergen.EGGS in _hit("not vegan mayonnaise", [Allergen.EGGS])
@@ -276,7 +276,7 @@ class TestFixReviewRegressions:
         assert Allergen.MILK not in _hit("vegan cheese", [Allergen.MILK])
         assert Allergen.MILK not in _hit("plant-based cream", [Allergen.MILK])
 
-    def test_safe_compound_word_boundary(self):
+    def test_safe_compound_word_boundary(self) -> None:
         # "oat milk"/"oat cream" must not substring-match inside "goat …".
         assert Allergen.MILK in _hit("goat milk", [Allergen.MILK])
         assert Allergen.MILK in _hit("goat cream", [Allergen.MILK])
@@ -284,27 +284,27 @@ class TestFixReviewRegressions:
         # real plant milk still suppressed
         assert Allergen.MILK not in _hit("oat milk", [Allergen.MILK])
 
-    def test_chestnut_homonyms_not_tree_nuts(self):
+    def test_chestnut_homonyms_not_tree_nuts(self) -> None:
         assert Allergen.TREE_NUTS not in _hit("water chestnuts", [Allergen.TREE_NUTS])
         assert Allergen.TREE_NUTS not in _hit("chestnut mushrooms", [Allergen.TREE_NUTS])
         # a real chestnut still flagged
         assert Allergen.TREE_NUTS in _hit("roasted chestnuts", [Allergen.TREE_NUTS])
 
-    def test_more_gluten_free_flours(self):
+    def test_more_gluten_free_flours(self) -> None:
         for name in ("millet flour", "sorghum flour", "teff flour",
                      "soy flour", "maize flour"):
             assert Allergen.CEREALS_WITH_GLUTEN not in _hit(
                 name, [Allergen.CEREALS_WITH_GLUTEN]
             ), name
 
-    def test_roe_deer_not_fish(self):
+    def test_roe_deer_not_fish(self) -> None:
         assert Allergen.FISH not in _hit("roe deer", [Allergen.FISH])
         # real fish roe still flagged
         assert Allergen.FISH in _hit("salmon roe", [Allergen.FISH])
 
 
 class TestAllergenScreenError:
-    def test_error_carries_violations_and_summary(self):
+    def test_error_carries_violations_and_summary(self) -> None:
         v = [AllergenViolation(
             meal_name="X", ingredient="milk", allergen=Allergen.MILK,
             matched_term="milk",
@@ -313,7 +313,7 @@ class TestAllergenScreenError:
         assert err.violations == v
         assert "milk" in str(err)
 
-    def test_offending_allergens_distinct_first_seen_order(self):
+    def test_offending_allergens_distinct_first_seen_order(self) -> None:
         # Two ingredients trip MILK, one trips FISH — the user-facing list must
         # de-dupe (MILK once) and preserve first-seen order (MILK before FISH).
         v = [
@@ -325,7 +325,7 @@ class TestAllergenScreenError:
             Allergen.MILK, Allergen.FISH,
         ]
 
-    def test_user_detail_names_allergens_and_is_actionable(self):
+    def test_user_detail_names_allergens_and_is_actionable(self) -> None:
         # The friendly fail-closed message must NAME the allergen(s) (via the
         # curated label) and steer toward relaxing a restriction, so the user
         # isn't told to blindly "try again" on an unsatisfiable request.
@@ -338,7 +338,7 @@ class TestAllergenScreenError:
         assert "free of" not in detail.lower()
         assert "free-from" not in detail.lower()
 
-    def test_user_detail_lists_multiple_allergens(self):
+    def test_user_detail_lists_multiple_allergens(self) -> None:
         v = [
             AllergenViolation("Bowl", "cheddar", Allergen.MILK, "cheddar"),
             AllergenViolation("Bowl", "cod", Allergen.FISH, "cod"),
@@ -347,7 +347,7 @@ class TestAllergenScreenError:
         assert "Milk" in detail
         assert "Fish" in detail
 
-    def test_user_detail_survives_empty_violations(self):
+    def test_user_detail_survives_empty_violations(self) -> None:
         # Defensive: even with no violations the message is well-formed (never
         # raises, never renders a dangling "avoids .").
         detail = AllergenScreenError([]).user_detail

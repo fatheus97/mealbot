@@ -26,7 +26,7 @@ from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 class TestLogin:
     async def test_login_success_sets_three_cookies_and_returns_profile(
         self, unauthed_client: AsyncClient, test_user: User,
-    ):
+    ) -> None:
         resp = await unauthed_client.post(
             "/api/auth/login",
             json={"email": TEST_EMAIL, "password": TEST_PASSWORD},
@@ -55,7 +55,7 @@ class TestLogin:
 
     async def test_login_creates_auth_session_row(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         resp = await unauthed_client.post(
             "/api/auth/login",
             json={"email": TEST_EMAIL, "password": TEST_PASSWORD},
@@ -72,7 +72,7 @@ class TestLogin:
 
     async def test_login_wrong_password_returns_401_and_no_cookies(
         self, unauthed_client: AsyncClient, test_user: User,
-    ):
+    ) -> None:
         resp = await unauthed_client.post(
             "/api/auth/login",
             json={"email": TEST_EMAIL, "password": "WrongPassword"},
@@ -82,7 +82,7 @@ class TestLogin:
 
     async def test_login_unknown_email_returns_401_and_no_cookies(
         self, unauthed_client: AsyncClient,
-    ):
+    ) -> None:
         # Exercises the constant-time branch: no such user → login still runs one
         # bcrypt verify against DUMMY_PASSWORD_HASH and returns 401 with no cookies.
         # Guards the `hashed = ... if user is not None else DUMMY_PASSWORD_HASH`
@@ -97,7 +97,7 @@ class TestLogin:
     async def test_login_failure_logs_email_fingerprint_only(
         self, unauthed_client: AsyncClient, test_user: User,
         caplog: pytest.LogCaptureFixture,
-    ):
+    ) -> None:
         with caplog.at_level("WARNING", logger="app.api.auth"):
             await unauthed_client.post(
                 "/api/auth/login",
@@ -112,7 +112,7 @@ class TestLogin:
     async def test_login_success_logs_user_id_only(
         self, unauthed_client: AsyncClient, test_user: User,
         caplog: pytest.LogCaptureFixture,
-    ):
+    ) -> None:
         with caplog.at_level("INFO", logger="app.api.auth"):
             resp = await unauthed_client.post(
                 "/api/auth/login",
@@ -128,7 +128,7 @@ class TestLogin:
 class TestProtectedRouteWithCookie:
     async def test_get_users_with_cookie_returns_profile(
         self, unauthed_client: AsyncClient, test_user: User,
-    ):
+    ) -> None:
         # Login then read profile. Cookie auto-sent by httpx.
         login = await unauthed_client.post(
             "/api/auth/login",
@@ -139,13 +139,13 @@ class TestProtectedRouteWithCookie:
         assert resp.status_code == 200
         assert resp.json()["email"] == TEST_EMAIL
 
-    async def test_no_cookie_returns_401(self, unauthed_client: AsyncClient):
+    async def test_no_cookie_returns_401(self, unauthed_client: AsyncClient) -> None:
         resp = await unauthed_client.get("/api/users")
         assert resp.status_code == 401
 
     async def test_token_without_sid_claim_rejected(
         self, unauthed_client: AsyncClient, test_user: User,
-    ):
+    ) -> None:
         # Pre-cookie scheme tokens lack the sid claim — must be rejected so
         # clients re-login under the new scheme.
         legacy_payload = {
@@ -162,7 +162,7 @@ class TestProtectedRouteWithCookie:
 
     async def test_token_version_mismatch_rejected(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         # Mint a token under tv=0, then bump tv=1 server-side. Old token must die.
         token = create_access_token(
             subject=test_user.id,  # type: ignore[arg-type]
@@ -179,7 +179,7 @@ class TestProtectedRouteWithCookie:
 
     async def test_expired_jwt_returns_401(
         self, unauthed_client: AsyncClient, test_user: User,
-    ):
+    ) -> None:
         expired_payload = {
             "sub": str(test_user.id),
             "tv": test_user.token_version,
@@ -197,7 +197,7 @@ class TestProtectedRouteWithCookie:
 class TestLogout:
     async def test_logout_revokes_session_and_clears_cookies(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         await unauthed_client.post(
             "/api/auth/login",
             json={"email": TEST_EMAIL, "password": TEST_PASSWORD},
@@ -222,13 +222,13 @@ class TestLogout:
 
     async def test_logout_without_cookie_is_idempotent(
         self, unauthed_client: AsyncClient,
-    ):
+    ) -> None:
         resp = await unauthed_client.post("/api/auth/logout")
         assert resp.status_code == 204
 
     async def test_logout_does_not_affect_other_devices(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         # Two parallel "devices" via two HTTP sessions sharing the same DB.
         # We simulate by logging in twice on the same client (overwrites
         # cookies but creates two session rows), then assert that revoking
@@ -270,7 +270,7 @@ class TestLogout:
 class TestLogoutAll:
     async def test_logout_all_revokes_every_session_and_bumps_tv(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         # Two logins → two session rows.
         await unauthed_client.post(
             "/api/auth/login",
@@ -304,7 +304,7 @@ class TestLogoutAll:
         # Device-1 (separate id) is also revoked.
         assert any(s.id == first_id and s.revoked_at is not None for s in sessions_after)
 
-    async def test_logout_all_requires_auth(self, unauthed_client: AsyncClient):
+    async def test_logout_all_requires_auth(self, unauthed_client: AsyncClient) -> None:
         resp = await unauthed_client.post("/api/auth/logout-all")
         assert resp.status_code == 401
 
@@ -312,7 +312,7 @@ class TestLogoutAll:
 class TestRefresh:
     async def test_refresh_rotates_and_returns_204(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         await unauthed_client.post(
             "/api/auth/login",
             json={"email": TEST_EMAIL, "password": TEST_PASSWORD},
@@ -340,20 +340,20 @@ class TestRefresh:
 
     async def test_refresh_missing_cookie_returns_401(
         self, unauthed_client: AsyncClient,
-    ):
+    ) -> None:
         resp = await unauthed_client.post("/api/auth/refresh")
         assert resp.status_code == 401
 
     async def test_refresh_unknown_token_returns_401(
         self, unauthed_client: AsyncClient,
-    ):
+    ) -> None:
         unauthed_client.cookies.set(REFRESH_COOKIE_NAME, "totally-bogus-token", path="/api/auth")
         resp = await unauthed_client.post("/api/auth/refresh")
         assert resp.status_code == 401
 
     async def test_refresh_expired_session_returns_401(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         # Login then backdate the session row past expiry.
         await unauthed_client.post(
             "/api/auth/login",
@@ -374,7 +374,7 @@ class TestRefresh:
 class TestDemoSession:
     async def test_demo_endpoint_404_when_disabled(
         self, unauthed_client: AsyncClient, monkeypatch: pytest.MonkeyPatch,
-    ):
+    ) -> None:
         monkeypatch.setattr(settings, "demo_mode", False)
         resp = await unauthed_client.post("/api/auth/demo")
         assert resp.status_code == 404
@@ -382,7 +382,7 @@ class TestDemoSession:
     async def test_demo_endpoint_creates_user_and_sets_cookies(
         self, unauthed_client: AsyncClient, db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
-    ):
+    ) -> None:
         monkeypatch.setattr(settings, "demo_mode", True)
         resp = await unauthed_client.post("/api/auth/demo")
         assert resp.status_code == 200
@@ -401,7 +401,7 @@ class TestDemoSession:
     async def test_demo_session_capped_at_demo_session_expire(
         self, unauthed_client: AsyncClient, db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
-    ):
+    ) -> None:
         # Demo session row's expires_at must reflect demo TTL, not the global
         # 30-day refresh TTL. Otherwise a demo could refresh forever.
         monkeypatch.setattr(settings, "demo_mode", True)
@@ -425,7 +425,7 @@ class TestDemoSession:
 class TestRefreshTokenIsHashedNotPlaintext:
     async def test_db_stores_hash_not_plaintext(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession,
-    ):
+    ) -> None:
         await unauthed_client.post(
             "/api/auth/login",
             json={"email": TEST_EMAIL, "password": TEST_PASSWORD},

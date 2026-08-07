@@ -14,15 +14,15 @@ from app.models.plan_models import (
 
 
 class TestMealHistory:
-    async def test_empty_history(self, client: AsyncClient, auth_headers: dict):
+    async def test_empty_history(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         resp = await client.get("/api/meals", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json() == []
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_history_after_confirm(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = SingleDayResponse(
             meals=[
                 PlannedMeal(
@@ -57,10 +57,10 @@ class TestMealHistory:
     async def test_history_returns_legacy_meal_type_rows(
         self,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Pre-taxonomy MealEntry rows carry legacy meal_type strings in the DB
         column (not in meal_json — the column read bypasses PlannedMeal's
         translation validator). The history endpoint must still return those
