@@ -8,6 +8,7 @@ import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { usePrefersDark } from "../hooks/usePrefersDark";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 import { useI18n } from "../i18n";
+import { localeTags } from "../i18n/localeFormat";
 
 const STATUS_COLORS: Record<PlanStatus, { bg: string; text: string }> = {
   planned: { bg: "#e2e8f0", text: "#475569" },
@@ -21,7 +22,7 @@ interface PlanCatalogProps {
 }
 
 export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
   const scheme = usePrefersDark() ? "dark" : "light";
@@ -74,9 +75,13 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
         : t("plans.deleteFailed")
       : null;
 
+  // A fifth copy of the same `undefined`-locale bug, found by review after I
+  // claimed planDates held the last one. Unlike the admin ones this renders a
+  // plan's created-at date beside Czech copy in My Plans, on a screen every
+  // regular user sees.
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toLocaleDateString(undefined, {
+    return d.toLocaleDateString(localeTags(locale), {
       month: "short",
       day: "numeric",
       year: "numeric",

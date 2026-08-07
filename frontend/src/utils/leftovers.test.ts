@@ -3,20 +3,12 @@ import { leftoverSourceLabel, calendarLeftoverTitle, lowerFirst } from "./leftov
 import { formatISODate } from "./planDates";
 import type { MealPlanResponse } from "../types";
 
-import { en } from "../i18n/en";
-import { cs } from "../i18n/cs";
-import type { TranslationKey } from "../i18n";
+import { makeI18n } from "../i18n";
 
-/**
- * A real `t` over the English dictionary — interpolating for real, so these
- * tests still assert on rendered text rather than on key names. Using the
- * actual table also means a key deleted from en.ts fails here.
- */
-const tr = (key: TranslationKey, vars: Record<string, string | number> = {}): string =>
-  Object.entries(vars).reduce<string>(
-    (acc, [k, v]) => acc.split(`{${k}}`).join(String(v)),
-    en[key],
-  );
+// The app's REAL t, not a reimplementation. An earlier revision hand-rolled the
+// interpolation here, which review rightly flagged: a test helper that
+// duplicates the logic under test can agree with itself while both are wrong.
+const tr = makeI18n("en").t;
 
 const fmtEn = (iso: string) => formatISODate(iso, "en");
 
@@ -124,14 +116,7 @@ describe("calendarLeftoverTitle", () => {
   });
 
   describe("in Czech", () => {
-    const trCs = (
-      key: TranslationKey,
-      vars: Record<string, string | number> = {},
-    ): string =>
-      Object.entries(vars).reduce<string>(
-        (acc, [k, v]) => acc.split(`{${k}}`).join(String(v)),
-        cs[key],
-      );
+    const trCs = makeI18n("cs").t;
     const fmtCs = (iso: string) => formatISODate(iso, "cs");
 
     it("translates the unscheduled-plan day fallback", () => {
