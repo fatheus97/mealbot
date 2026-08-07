@@ -597,7 +597,10 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "calendar.close": "Zavřít kalendář",
   "calendar.plan": "Jídelníček",
   "calendar.planNumbered": "Jídelníček č. {id}",
-  "calendar.emptyMonth": "V měsíci {month} nejsou naplánované žádné jídelníčky. Přiřaďte jídelníčku datum začátku a objeví se tady.",
+  // {month} arrives in the LOCATIVE from monthLabelIn ("srpnu 2026"), so this
+  // reads "V srpnu 2026 …". It used to say "V měsíci {month}", which dodges the
+  // declension by apposition — grammatical, but it reads like a form letter.
+  "calendar.emptyMonth": "V {month} nejsou naplánované žádné jídelníčky. Přiřaďte jídelníčku datum začátku a objeví se tady.",
   "calendar.loading": "Načítání…",
   "calendar.scheduled": "Naplánované jídelníčky",
   "calendar.openPlan": "Otevřít →",

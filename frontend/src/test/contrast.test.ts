@@ -191,6 +191,27 @@ describe('colours on the adaptive page background', () => {
     expect(checkText('#ff0000', THEME.light.bg, 16).passes).toBe(false); // ...and 4.00:1
   });
 
+  it('rejects each mode-tab colour on the OPPOSITE surface', () => {
+    // The mirror of the control above, and the reason it earns its own test: a
+    // browser sweep that flips `prefers-color-scheme` WITHOUT reloading measures
+    // the previous scheme's inline colours against the new scheme's background,
+    // because `resize_window` changes what `matchMedia().matches` returns but
+    // dispatches no `change` event — so `usePrefersDark` keeps its mount-time
+    // value and React never re-renders (.claude/rules/frontend.md).
+    //
+    // Both directions of that artifact have now been reported as live bugs:
+    // light-on-dark (2.05/3.00, the block above) and dark-on-light (2.54 both,
+    // here). Neither is real — the tabs measure 5.17/7.56 in light and 6.11/6.11
+    // in dark once the app actually BOOTS under the scheme. These assertions pin
+    // the arithmetic so the next such report can be settled without a browser:
+    // if the numbers a sweep quotes are THESE, it measured a stale render.
+    const light = THEME.light.bg;
+    expect(checkText(PAGE_TEXT.tabActive.dark, light, 16).passes).toBe(false); // #60a5fa, 2.54:1
+    expect(checkText(PAGE_TEXT.tabInactive.dark, light, 16).passes).toBe(false); // #9ca3af, 2.54:1
+    // ...and the same pair the right way round is exactly what the loop above
+    // asserts passes, so this cannot be satisfied by a colour change.
+  });
+
   it('rejects a muted opacity that is too low to read', () => {
     // The opacity is the whole guard for `color: inherit` text — pin that a
     // slacker value would be caught.
