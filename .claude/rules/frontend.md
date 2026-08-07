@@ -39,7 +39,7 @@ second-guess a green run on those shapes.
 
 The browser pass covers what static source analysis genuinely cannot reach:
 - **a foreground declared with no background beside it** — the suite says so
-  itself (`contrast.ts:273`, "the important half"): it can't know which ancestor
+  itself (`contrast.ts:274`, "the important half"): it can't know which ancestor
   surface the text lands on;
 - **contrast killed by an ancestor's `opacity`**, which no per-declaration check sees;
 - **colours computed at runtime** — template literals, values from props or state;
