@@ -126,7 +126,7 @@ export function FeedbackPanel() {
                 ))}
                 {items.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ ...td, color: colors.textFaint }}>
+                    <td colSpan={7} style={{ ...td, color: colors.textMuted }}>
                       No reports {statusFilter === "all" ? "yet" : `in "${statusFilter}"`}.
                     </td>
                   </tr>
@@ -184,14 +184,14 @@ function FeedbackRow({ item, onView }: { item: AdminFeedbackItem; onView: () => 
     <tr style={{ borderBottom: `1px solid ${colors.borderSubtle}` }}>
       <td style={{ ...td, whiteSpace: "nowrap", color: colors.textBody }}>{fmt(item.created_at)}</td>
       <td style={{ ...td, maxWidth: 160, overflowWrap: "anywhere" }}>
-        {item.user_email || <span style={{ color: colors.textFaint }}>—</span>}
+        {item.user_email || <span style={{ color: colors.textMuted }}>—</span>}
       </td>
       <td style={td}>{item.kind}</td>
       <td style={td}>
         {item.triage_status === "done" ? (
           <TriageBadges type={item.triage_type} severity={item.triage_severity} actionable={item.triage_is_actionable} />
         ) : (
-          <span style={{ fontSize: 12, color: colors.textFaint }}>
+          <span style={{ fontSize: 12, color: colors.textMuted }}>
             {item.triage_status === "pending"
               ? "pending…"
               : item.triage_status === "failed"
@@ -318,7 +318,7 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
                 )}
               </div>
             ) : (
-              <div style={{ fontSize: 13, color: colors.textFaint }}>
+              <div style={{ fontSize: 13, color: colors.textMuted }}>
                 {d.triage_status === "failed"
                   ? "Triage failed — re-run to retry."
                   : d.triage_status === "pending"
