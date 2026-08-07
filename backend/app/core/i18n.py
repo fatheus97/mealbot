@@ -70,13 +70,24 @@ _ACCEPT_LANGUAGE_MAX_TAGS: Final = 20
 
 
 def locale_from_accept_language(header: str | None) -> Locale:
-    """Locale for a request with no known user, from ``Accept-Language``.
+    """Locale from ``Accept-Language``.
 
-    Only for the LOGGED-OUT paths — a failed login, registration, a password
-    reset. Once a request has a user, ``User.language`` wins and this is not
-    consulted: the language they picked in the app is a deliberate choice, while
-    the header is whatever their browser was installed with. A Czech-speaking
-    user browsing on a borrowed English laptop should still get Czech.
+    Mainly for the LOGGED-OUT paths — a failed login, registration, a password
+    reset. For ERROR MESSAGES, once a request has a user, ``User.language`` wins
+    and this is not consulted: the language they picked in the app is a
+    deliberate choice, while the header is whatever their browser was installed
+    with. A Czech-speaking user on a borrowed English laptop should still get
+    Czech errors.
+
+    ⚠️ ONE DELIBERATE EXCEPTION, on an authenticated path: ``billing``'s
+    ``_checkout_locale`` calls this to pick the language of Stripe's hosted
+    Checkout and Portal pages. That is not a contradiction — ``User.language`` is
+    the RECIPE language (33 options, what the model writes meal plans in), while
+    Stripe's pages are UI chrome, and ``authFetch`` puts the SPA's chosen UI
+    locale in this header precisely so the backend can read it. Do not "correct"
+    that call site to ``request.state.locale``: it would make the checkout follow
+    the recipe language, and before it read this header at all it followed the
+    browser's IP — the bug #423 exists to close.
 
     Quality values are honoured rather than taking the first tag, because
     ``en;q=0.5, cs`` genuinely means Czech, and a "first wins" reading gets that
