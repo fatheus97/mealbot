@@ -26,9 +26,41 @@ Drive the browser preview and check **dark AND light**:
 `resize_window { colorScheme: "dark" }`, then `"light"`. Confirm real contrast —
 compare computed `color` vs `background` (via `javascript_tool` / `getComputedStyle`)
 or a screenshot. A two-theme check is **not optional** for visible changes; the
-white-on-white bug has shipped more than once. (A proper automated visual-regression
-setup — Playwright snapshots in dark+light — is the long-term fix; tracked under
-ROADMAP "Frontend E2E (U-8)". Until then this manual check is the guardrail.)
+white-on-white bug has shipped more than once.
+
+**You are not the only guardrail — `frontend/src/test/contrast.ts` is.** That suite
+does WCAG AA maths on **every inline background/foreground pair in the app source**,
+in **both** schemes, and carries negative controls asserting the exact colours that
+shipped each past bug still fail. It runs in CI (`npm test`, inside the `frontend
+build` job). It is block-based and reads the `bg`/`text`/`fg` shorthands too, so
+multi-line `style={{ … }}` objects and palette records are **not** blind spots —
+both were hardened after they shipped bugs, and both have dedicated tests. Don't
+second-guess a green run on those shapes.
+
+The browser pass covers what static source analysis genuinely cannot reach:
+- **a foreground declared with no background beside it** — the suite says so
+  itself (`contrast.ts:274`, "the important half"): it can't know which ancestor
+  surface the text lands on;
+- **contrast killed by an ancestor's `opacity`**, which no per-declaration check sees;
+- **colours computed at runtime** — template literals, values from props or state;
+- **anything not an inline style** — CSS classes, `index.css` itself.
+
+As `contrast.ts` puts it, the browser pass is "the only one that knows what
+actually composites". The layers are complementary; none is sufficient alone.
+
+**Carve-out — no browser tool, no pretending.** Some agents run without a browser
+(the `/work-tickets` cloud routine's toolset is `Bash, Read, Write, Edit, Glob,
+Grep`). If you cannot drive a preview, do **not** silently skip the check and do
+**not** claim you ran it. Instead:
+- say so plainly in the PR body — "no browser available in this environment;
+  two-theme check not run, relying on the contrast suite";
+- and if the diff **introduces or changes a colour, background, or `opacity`**, ask
+  the owner to eyeball it rather than auto-merging. A diff that touches no colour at
+  all (layout, `zIndex`, `boxSizing`, event handling) has nothing for the two-theme
+  check to find — ship it.
+
+(A proper automated visual-regression setup — Playwright snapshots in dark+light —
+is the long-term fix for the residual; tracked under ROADMAP "Frontend E2E (U-8)".)
 
 ### The sweep is easy to get wrong in the direction of "clean"
 Seven PRs (#370, #375, #379, #381, #385, #386, #392) were spent on this. Every
