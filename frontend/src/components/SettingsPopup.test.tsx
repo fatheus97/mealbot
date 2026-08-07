@@ -110,6 +110,21 @@ describe('SettingsPopup', () => {
     expect(screen.getByLabelText(/close settings/i)).toBeInTheDocument();
   });
 
+  it('stacks above the demo banner so ✕ stays reachable on mobile (#9)', async () => {
+    // DemoBanner (DemoBanner.tsx) is a non-dismissible fixed strip at
+    // zIndex:1000. On a short mobile viewport the centered dialog's top can
+    // land inside that strip; if this overlay's stacking order were ever
+    // <= 1000 again, the banner would paint over the close button and demo
+    // users would be stuck unable to close preferences.
+    loginUser();
+    mockedFetchProfile.mockResolvedValueOnce(mockProfile);
+
+    const { container } = render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    const overlay = container.firstChild as HTMLElement;
+    expect(Number(getComputedStyle(overlay).zIndex)).toBeGreaterThan(1000);
+  });
+
   it('shows loading state before profile loads', () => {
     loginUser();
     mockedFetchProfile.mockReturnValue(new Promise(() => {})); // Never resolves
