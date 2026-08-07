@@ -60,7 +60,8 @@ async def _create_plan(client: AsyncClient, auth_headers: dict) -> int:
         json={"meals_per_day": 1, "people_count": 2},
     )
     assert resp.status_code == 200
-    return resp.json()["plan_id"]
+    plan_id: int = resp.json()["plan_id"]
+    return plan_id
 
 
 async def _rows(model, plan_id: int):

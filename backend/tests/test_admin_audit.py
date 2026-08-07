@@ -13,7 +13,7 @@ from app.services.admin_audit import record_admin_action
 
 
 async def _persist_user(db_session: AsyncSession, email: str, **kw: object) -> User:
-    u = User(email=email, hashed_password="h", **kw)  # type: ignore[arg-type]
+    u = User(email=email, hashed_password="h", **kw)
     db_session.add(u)
     await db_session.flush()
     return u

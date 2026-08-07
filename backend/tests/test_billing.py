@@ -7,6 +7,9 @@ entitled, what status codes the router returns, and that a webhook event mutates
 the mirrored state on the right user.
 """
 
+from collections.abc import Iterator
+from typing import Any
+
 import pytest
 import stripe
 from fastapi import HTTPException
@@ -821,20 +824,20 @@ async def test_apply_feedback_invoice_credit_posts_negative_item(monkeypatch):
 
 
 class _FakeItem:
-    def __init__(self, d):
+    def __init__(self, d: dict[str, Any]) -> None:
         self._d = d
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return self._d
 
 
 class _FakeItems:
     """Mimics a Stripe ListObject: iterated via ``auto_paging_iter`` (as the code does)."""
 
-    def __init__(self, data):
+    def __init__(self, data: list[dict[str, Any]]) -> None:
         self._data = data
 
-    def auto_paging_iter(self):
+    def auto_paging_iter(self) -> Iterator[_FakeItem]:
         return iter([_FakeItem(d) for d in self._data])
 
 

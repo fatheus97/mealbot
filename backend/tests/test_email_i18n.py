@@ -15,13 +15,13 @@ from app.core.email_copy import (
     VERIFY_TTL_HOURS,
     EmailCopy,
     expiry_phrase,
-    render,
 )
 from app.core.i18n import (
     DEFAULT_LOCALE,
     UI_LOCALES,
     locale_for_language,
     plural_category,
+    render,
 )
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
 from app.models.db_models import User
@@ -122,14 +122,16 @@ class TestCopyCompleteness:
             key
             for key in ("verify_subject", "reset_subject", "change_notice_subject",
                         "credit_subject")
-            if COPY["cs"][key] == english[key]  # type: ignore[literal-required]
+            if COPY["cs"][key] == english[key]
         ]
         assert identical == []
 
     def test_every_locale_uses_the_same_placeholders(self) -> None:
         # The bug: a translator drops $link and the email ships with no way to
         # act on it — for the two mails that exist purely to carry a link.
-        holes = lambda s: sorted(set(re.findall(r"\$(\w+)", s)))  # noqa: E731
+        def holes(s: str) -> list[str]:
+            return sorted(set(re.findall(r"\$(\w+)", s)))
+
         for key, en_value in COPY["en"].items():
             if not isinstance(en_value, str):
                 continue
@@ -162,7 +164,7 @@ class TestRendering:
         copy = COPY[locale]  # type: ignore[index]
         for key in ("verify_subject", "reset_subject", "change_notice_subject",
                     "credit_subject"):
-            assert not Template(copy[key]).get_identifiers()  # type: ignore[literal-required]
+            assert not Template(copy[key]).get_identifiers()
 
 
 class TestExpiryPhrase:

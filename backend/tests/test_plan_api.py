@@ -1137,7 +1137,7 @@ class TestRegenerateIsLeftoverSafe:
             json={"meals_per_day": 2, "people_count": 2},
         )
         assert resp.status_code == 200
-        body = resp.json()
+        body: dict = resp.json()
         # day1.meal1 is leftovers of day0.meal0
         assert body["days"][1]["meals"][1]["leftover_of"] == {
             "day_index": 0, "meal_index": 0,
@@ -1312,7 +1312,7 @@ class TestEditSourceFansOutToLeftovers:
             "/api/plan?days=2", headers=auth_headers,
             json={"meals_per_day": 2, "people_count": 2},
         )
-        body = resp.json()
+        body: dict = resp.json()
         confirm = await client.post(
             "/api/plan/" + str(body["plan_id"]) + "/confirm", headers=auth_headers,
         )

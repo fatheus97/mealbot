@@ -5,6 +5,8 @@ PII minimization (user_id not email), and that HTTP/transport errors return None
 without raising (a ticket failure must never break the Accept).
 """
 
+from typing import Any
+
 import httpx
 import pytest
 
@@ -15,29 +17,39 @@ from app.services import feedback_ticket
 
 
 def _install_fake_httpx(
-    monkeypatch, *, status_code=201, json_body=None, raises=False, captured=None
-):
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    status_code: int = 201,
+    json_body: dict[str, Any] | None = None,
+    raises: bool = False,
+    captured: dict[str, Any] | None = None,
+) -> None:
     class _FakeResp:
-        def __init__(self):
+        def __init__(self) -> None:
             self.status_code = status_code
             self.text = "error body that could echo request content"
 
-        def json(self):
+        def json(self) -> dict[str, Any]:
             return json_body if json_body is not None else {
                 "html_url": "https://github.com/owner/tickets/issues/1"
             }
 
     class _FakeClient:
-        def __init__(self, *a, **k):
+        def __init__(self, *a: object, **k: object) -> None:
             pass
 
-        async def __aenter__(self):
+        async def __aenter__(self) -> _FakeClient:
             return self
 
-        async def __aexit__(self, *a):
+        async def __aexit__(self, *a: object) -> bool:
             return False
 
-        async def post(self, url, headers=None, json=None):
+        async def post(
+            self,
+            url: str,
+            headers: dict[str, str] | None = None,
+            json: dict[str, Any] | None = None,
+        ) -> _FakeResp:
             if captured is not None:
                 captured["url"] = url
                 captured["headers"] = headers
@@ -46,7 +58,7 @@ def _install_fake_httpx(
                 raise httpx.ConnectError("boom")
             return _FakeResp()
 
-    monkeypatch.setattr(feedback_ticket.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
 
 
 def _report(**over) -> FeedbackReport:
@@ -80,10 +92,10 @@ async def test_unconfigured_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     called = {"post": False}
 
     class _Boom:
-        def __init__(self, *a, **k):
+        def __init__(self, *a: object, **k: object) -> None:
             called["post"] = True
 
-    monkeypatch.setattr(feedback_ticket.httpx, "AsyncClient", _Boom)
+    monkeypatch.setattr(httpx, "AsyncClient", _Boom)
     assert await feedback_ticket.create_issue_for_report(_report(), _triage()) is None
     assert called["post"] is False
 

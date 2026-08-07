@@ -8,6 +8,7 @@ account, while a +tag on a non-subaddressing provider stays distinct.
 
 import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +58,7 @@ def test_normalize_never_yields_empty_local() -> None:
 # normalize_email; if the live one changes without updating the migration, this
 # fails loudly rather than silently backfilling with stale logic.
 # --------------------------------------------------------------------------- #
-def _load_migration():
+def _load_migration() -> ModuleType:
     path = (
         Path(__file__).resolve().parents[1]
         / "alembic"

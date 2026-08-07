@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from httpx import AsyncClient
 from pypdf import PdfWriter
 
+from app.llm.client import llm_client
 from app.models.plan_models import (
     NormalizationResponse,
     NormalizedName,
@@ -625,7 +626,7 @@ class TestPdfScanEndpoint:
             captured["prompt"] = user_prompt
             return ReceiptScanResponse(items=[])
 
-        monkeypatch.setattr(receipt_scanner.llm_client, "chat_json", _fake_chat_json)
+        monkeypatch.setattr(llm_client, "chat_json", _fake_chat_json)
         await receipt_scanner.extract_items_from_pdf(b"%PDF-1.4 fake", language="English")
 
         prompt = captured["prompt"]
@@ -654,7 +655,7 @@ class TestExtractItemsFromReceiptVision:
             )
             return ReceiptScanResponse(items=[])
 
-        monkeypatch.setattr(receipt_scanner.llm_client, "chat_vision_json", _fake_vision)
+        monkeypatch.setattr(llm_client, "chat_vision_json", _fake_vision)
 
         result = await receipt_scanner.extract_items_from_receipt(
             image_base64="ZmFrZQ==", image_media_type="image/png", language="Czech",

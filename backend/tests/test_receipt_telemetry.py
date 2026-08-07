@@ -59,7 +59,8 @@ async def _scan(client: AsyncClient) -> dict:
             files={"file": ("receipt.jpg", _fake_jpeg(), "image/jpeg")},
         )
     assert resp.status_code == 200
-    return resp.json()
+    payload: dict = resp.json()
+    return payload
 
 
 def _merge_payload(items: list[dict]) -> list[dict]:
