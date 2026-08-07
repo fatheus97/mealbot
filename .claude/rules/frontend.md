@@ -111,13 +111,31 @@ Reaching the hard states:
   alert as actually rendered. Do not measure a synthetic probe element and call it
   a render.
 - **admin panels** (`is_admin` is server-set, so there is no UI path) — grant it to
-  the throwaway demo account, then use the passwordless Try Demo login:
+  the throwaway demo account, then use the passwordless Try Demo login. **Local dev
+  DB only.**
   ```powershell
   'UPDATE "user" SET is_admin = true WHERE is_demo = true;' | docker compose exec -T db psql -U user -d mealbot
   ```
   Run from the repo root (compose needs `.env`), and set it back to `false` after.
   This surfaced **15 live failures across 5 of 6 panels** that the static check
   could only describe as "one constant is 2.43:1".
+
+  Three things about that grant, so nobody has to re-derive them:
+  - **Never point it at prod.** `-U user` is the local role and fails there anyway
+    (prod is `-U mealbot -d mealbot`) — a lucky guardrail, not a designed one, so
+    do not "fix" the credentials to make it work against the box.
+  - **It cannot leak into a later session**, even if you forget the revert: every
+    Try Demo mints a *fresh* user with `is_admin` defaulted false
+    (`create_ephemeral_demo_user`), and `cleanup_expired_demo_users` deletes demo
+    rows older than `demo_session_expire_minutes` (120). `WHERE is_demo = true`
+    only ever touches rows alive at that instant. Revert anyway — bounded is not
+    the same as clean.
+  - **Do NOT "simplify" this to logging in as `admin@mealbotdev.com` or
+    `admin@test.com`.** Both are `is_admin` in the local dev DB and both
+    look like the tidier option, but reaching them means typing a password into a
+    login form — which an agent must not do, even with dev credentials the owner
+    supplies. The demo account is used here *because* its login is passwordless.
+    If you need a real account, ask the owner to authenticate.
 - **cook mode / a plan** needs a real LLM call — say so rather than counting it.
 
 ### What the static guards do and do not see (`frontend/src/test/contrast.ts`)
