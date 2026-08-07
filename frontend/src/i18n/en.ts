@@ -369,6 +369,7 @@ export const en = {
   "cookNow.saveFailed": "Failed to save recipe.",
   "cookNow.saving": "Saving…",
   "cookNow.cookFailed": "Couldn't save — check your connection and try again.",
+  "cookNow.favoriteFailed": "Couldn't update your cookbook — please try again.",
 
   // ─── Cook mode ────────────────────────────────────────────────────────────
   "cook.done": "Done cooking",

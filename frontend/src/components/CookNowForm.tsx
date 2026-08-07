@@ -126,6 +126,10 @@ export function CookNowForm() {
       // ignore — storage unavailable
     }
     setPendingRequest(req);
+    // A star failure from the PREVIOUS recipe would otherwise stay on screen
+    // over the new one (mutation error state survives until the next mutate).
+    favoriteRecipeMutation.reset();
+    removeFromCookbookMutation.reset();
     generateMutation.mutate(req, {
       onSuccess: (data) => {
         setRecipe(data.recipe);
@@ -168,10 +172,18 @@ export function CookNowForm() {
   //                 listing dedupes nothing, but the user paid for both
   //                 stars deliberately so it's their cookbook.
   const handleFavoriteToggle = (next: boolean) => {
-    if (!recipe) return;
+    if (!recipe || !pendingRequest) return;
     if (next) {
+      // Send the request that PRODUCED this recipe, not the live form state —
+      // the user may have changed the dropdown since generating, and this is
+      // what gets recorded as "what was asked for" server-side.
       favoriteRecipeMutation.mutate(
-        { meal_type: mealType, people_count: peopleCount, recipe, generation_id: generationId },
+        {
+          meal_type: pendingRequest.meal_type,
+          people_count: pendingRequest.people_count,
+          recipe,
+          generation_id: generationId,
+        },
         { onSuccess: (entry) => setSavedEntry({ id: entry.id, isFavorite: true }) },
       );
     } else if (savedEntry) {
@@ -462,6 +474,18 @@ export function CookNowForm() {
           {cookMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
               {cookMutation.error?.message ?? t("cookNow.saveFailed")}
+            </div>
+          )}
+
+          {/* The star is a fire-and-forget mutation with nothing to revert
+              (`isFavorited` only flips onSuccess), so a failure was completely
+              invisible — the glyph just never moved. Same pinned #f9fafb
+              surface as the cook error above, so #b91c1c is 6.20:1 in both
+              schemes. The raw error message is deliberately NOT shown: it
+              carries an untranslated backend `detail`. */}
+          {(favoriteRecipeMutation.isError || removeFromCookbookMutation.isError) && (
+            <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
+              {t("cookNow.favoriteFailed")}
             </div>
           )}
         </div>

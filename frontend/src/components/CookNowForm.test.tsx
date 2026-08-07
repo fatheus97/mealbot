@@ -227,6 +227,73 @@ describe('CookNowForm', () => {
     expect(payload.generation_id).toBe(7);
   });
 
+  it('surfaces a failed favourite instead of leaving the star silently dead', async () => {
+    // Regression: /recipe/favorite 400'd whenever the model returned a slot
+    // other than the requested one, and this call site had no onError — the
+    // star just never moved and the user got nothing at all.
+    loginUser();
+    mockedGenerate.mockResolvedValueOnce({
+      recipe: {
+        name: 'Quick Soup',
+        meal_type: 'light_lunch',  // model picked its own slot
+        meal_type_label: 'Light lunch',
+        ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
+        steps: ['Simmer'],
+      },
+      generation_id: 7,
+    });
+    mockedFavorite.mockRejectedValueOnce(new Error('Recipe favorite failed: 400'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    const star = await screen.findByRole('switch', { name: /add to cookbook/i });
+
+    await user.click(star);
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/couldn't update your cookbook/i),
+    );
+    // The star stays unchecked — nothing was saved — but it is no longer silent.
+    expect(star).toHaveAttribute('aria-checked', 'false');
+    expect(star).not.toBeDisabled();
+  });
+
+  it('sends the request that produced the recipe, not the live form state', async () => {
+    // The favourite payload used to read the live `mealType` select, so
+    // changing the dropdown after generating recorded a request the recipe
+    // never came from.
+    loginUser();
+    mockedGenerate.mockResolvedValueOnce({
+      recipe: {
+        name: 'Quick Soup',
+        meal_type: 'soup',
+        meal_type_label: 'Soup',
+        ingredients: [],
+        steps: ['Simmer'],
+      },
+      generation_id: 7,
+    });
+    mockedFavorite.mockResolvedValueOnce({
+      id: 99, day_index: 1, meal_index: 1, name: 'Quick Soup',
+      meal_type: 'soup', cooked_at: null, is_favorite: true,
+    });
+
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText(/meal type/i), 'soup');
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    await waitFor(() => screen.getByRole('switch', { name: /add to cookbook/i }));
+
+    // Change the form AFTER generating, then star.
+    await user.selectOptions(screen.getByLabelText(/meal type/i), 'dessert');
+    await user.click(screen.getByRole('switch', { name: /add to cookbook/i }));
+
+    await waitFor(() => expect(mockedFavorite).toHaveBeenCalledTimes(1));
+    expect(mockedFavorite.mock.calls[0][0].meal_type).toBe('soup');
+  });
+
   it('collects "ingredients to avoid" as chips and sends them in the request', async () => {
     // Ticket #2 (mealbot-tickets): the avoid field now uses the same chip input as
     // "ingredients to feature". Each committed chip must land in avoid_ingredients.

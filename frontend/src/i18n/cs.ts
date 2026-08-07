@@ -332,6 +332,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "cookNow.saveFailed": "Recept se nepodařilo uložit.",
   "cookNow.saving": "Ukládám…",
   "cookNow.cookFailed": "Nepodařilo se uložit — zkontrolujte připojení a zkuste to znovu.",
+  "cookNow.favoriteFailed": "Kuchařku se nepodařilo upravit — zkuste to prosím znovu.",
 
   // ─── Cook mode ────────────────────────────────────────────────────────────
   "cook.done": "Dovařeno",
