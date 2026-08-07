@@ -2,7 +2,7 @@ import { type CSSProperties, useRef, useState } from "react";
 import { ModalShell } from "./ModalShell";
 import { useSubmitFeedback } from "../hooks/useServerState";
 import type { FeedbackKind, FeedbackScreenshotContentType } from "../types";
-import { useI18n } from "../i18n";
+import { useI18n, type TranslationKey } from "../i18n";
 
 // Mirror the backend bounds (core.feedback_gate): the client gates the MIN so the
 // user isn't bounced by a server 422, and caps the textarea at the MAX.
@@ -50,13 +50,31 @@ export function FeedbackModal({
   const trimmedLen = message.trim().length;
   const tooShort = trimmedLen < MESSAGE_MIN_LEN;
 
+  // Clears the file input's value on every reject path — otherwise selecting
+  // the exact same (still-invalid) file again fires no onChange (the browser
+  // only fires it when the value actually changes), so a retry does nothing.
+  function rejectFile(messageKey: TranslationKey): void {
+    setError(t(messageKey));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   function attachFile(file: File): void {
     if (!ALLOWED_SCREENSHOT_TYPES.has(file.type)) {
-      setError(t("feedback.screenshotUnsupportedType"));
+      rejectFile("feedback.screenshotUnsupportedType");
+      return;
+    }
+    // A 0-byte file (truncated download, failed screenshot tool) would
+    // otherwise pass every client gate, then 422 the WHOLE submission
+    // server-side (FeedbackCreate's presence check is `is not None`, so an
+    // empty string still takes the both-present branch and only fails on
+    // `if not decoded`) — losing the user's typed report along with it.
+    // Catch it here instead, before it's ever bundled into that request.
+    if (file.size === 0) {
+      rejectFile("feedback.screenshotEmpty");
       return;
     }
     if (file.size > MAX_SCREENSHOT_BYTES) {
-      setError(t("feedback.screenshotTooLarge"));
+      rejectFile("feedback.screenshotTooLarge");
       return;
     }
     const reader = new FileReader();
@@ -70,10 +88,24 @@ export function FeedbackModal({
       });
       setError(null);
     };
+    // Without this, a failed read (permissions, corrupt file, browser quirk)
+    // leaves the user staring at the unchanged Attach button with no
+    // indication anything happened at all.
+    reader.onerror = () => rejectFile("feedback.screenshotReadFailed");
     reader.readAsDataURL(file);
   }
 
   function onPaste(e: React.ClipboardEvent): void {
+    // A source that copies both an image AND text (e.g. a rich webpage
+    // selection) would otherwise have its text silently dropped — this
+    // handler used to preventDefault() on the mere presence of an image
+    // item regardless of what else was on the clipboard. Text wins: let the
+    // default paste happen and skip auto-attaching: if the user did want
+    // the image too they can still use the Attach button explicitly.
+    const hasText = Array.from(e.clipboardData.items).some(
+      (i) => i.kind === "string" && i.type === "text/plain",
+    );
+    if (hasText) return;
     const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
     if (!item) return;
     const file = item.getAsFile();

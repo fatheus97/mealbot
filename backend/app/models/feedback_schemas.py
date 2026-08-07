@@ -37,11 +37,79 @@ FeedbackKind = Literal["bug", "feature", "other"]
 # not a general-purpose upload surface.
 FeedbackScreenshotContentType = Literal["image/png", "image/jpeg"]
 MAX_SCREENSHOT_BYTES = 3 * 1024 * 1024
+# A structurally valid but near-solid-color PNG can compress to a few hundred
+# KB while decoding to a multi-GIGABYTE bitmap (e.g. 30000x30000 8-bit
+# grayscale -> 900MB) — the decoded-BYTE cap above only bounds the ENCODED
+# form, not what a browser allocates to paint it. 25 megapixels comfortably
+# covers any real screenshot (6K is ~20MP) while blocking that class of
+# decompression bomb. Checked via _screenshot_pixel_count below.
+MAX_SCREENSHOT_PIXELS = 25_000_000
 
 # Moderation states an admin may SET via the 6a PATCH. "new" (reopen), "reviewing",
 # "rejected", "spam" — but NOT "accepted": that grants the €1 credit + opens a ticket,
 # the money-moving 6b action, so it's gated behind that slice, not this hand-toggle.
 AdminSettableStatus = Literal["new", "reviewing", "rejected", "spam"]
+
+
+def _png_dimensions(data: bytes) -> tuple[int, int] | None:
+    """(width, height) from a PNG's IHDR chunk, which the spec guarantees is
+    always the first chunk right after the 8-byte signature. None if `data`
+    doesn't look like a well-formed PNG header."""
+    if len(data) < 24 or not data.startswith(b"\x89PNG\r\n\x1a\n") or data[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
+def _jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
+    """(width, height) from a JPEG's first SOFn (Start Of Frame) marker, by
+    walking the marker segments from the start. None if `data` doesn't look
+    like a well-formed JPEG or no SOF marker is found before the data ends."""
+    if len(data) < 4 or data[0:2] != b"\xff\xd8":
+        return None
+    i = 2
+    n = len(data)
+    while i + 1 < n:
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        # Markers with no payload: fixed-size TEM/RST../SOI/EOI — skip past just the marker.
+        if marker == 0x01 or 0xD0 <= marker <= 0xD9:
+            i += 2
+            continue
+        if i + 4 > n:
+            return None
+        seg_len = int.from_bytes(data[i + 2:i + 4], "big")
+        # SOFn (Start Of Frame) markers carry the dimensions; DHT/JPG/DAC (C4/C8/CC)
+        # are same numeric range but a different segment shape, so exclude them.
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            if i + 9 > n:
+                return None
+            height = int.from_bytes(data[i + 5:i + 7], "big")
+            width = int.from_bytes(data[i + 7:i + 9], "big")
+            return width, height
+        if seg_len < 2:
+            return None
+        i += 2 + seg_len
+    return None
+
+
+def _reject_oversized_dimensions(content_type: str, decoded: bytes) -> None:
+    """Raises ValueError if `decoded` (already known to be `content_type`,
+    within MAX_SCREENSHOT_BYTES) decodes to a bitmap over MAX_SCREENSHOT_PIXELS
+    — the decoded-byte cap alone doesn't stop a highly-compressible huge-canvas
+    image from being small on disk yet enormous once a browser paints it.
+    Fails CLOSED: dimensions that can't be parsed are rejected too, since
+    "can't parse the header" is itself a way to dodge the size check.
+    """
+    dims = _png_dimensions(decoded) if content_type == "image/png" else _jpeg_dimensions(decoded)
+    if dims is None:
+        raise ValueError("could not read the image's dimensions")
+    width, height = dims
+    if width <= 0 or height <= 0 or width * height > MAX_SCREENSHOT_PIXELS:
+        raise ValueError(
+            f"screenshot dimensions exceed the {MAX_SCREENSHOT_PIXELS // 1_000_000}MP limit"
+        )
 
 
 # --- Public (user submit) ---------------------------------------------------------
@@ -93,6 +161,8 @@ class FeedbackCreate(BaseModel):
             raise ValueError(
                 f"screenshot exceeds the {MAX_SCREENSHOT_BYTES // (1024 * 1024)}MB limit"
             )
+        assert self.screenshot_content_type is not None  # narrowed by has_type above
+        _reject_oversized_dimensions(self.screenshot_content_type, decoded)
         return self
 
 

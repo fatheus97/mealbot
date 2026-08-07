@@ -209,5 +209,87 @@ describe("FeedbackModal", () => {
         expect(payload.screenshot_content_type).toBe("image/jpeg");
       });
     });
+
+    it("keeps pasted text when the clipboard also carries an image flavor", async () => {
+      // Regression: onPaste used to preventDefault() on the mere presence of
+      // an image item, dropping the text half of a copy that carried both
+      // (e.g. a rich webpage selection). Text must win — the image is still
+      // reachable via the explicit Attach button.
+      renderWithProviders(<FeedbackModal onClose={() => {}} />);
+
+      const file = new File(["fake-png-bytes"], "bug.png", { type: "image/png" });
+      const textarea = screen.getByPlaceholderText(/what happened/i);
+      fireEvent.paste(textarea, {
+        clipboardData: {
+          items: [
+            { kind: "string", type: "text/plain", getAsFile: () => null },
+            { kind: "file", type: "image/png", getAsFile: () => file },
+          ],
+        },
+      });
+
+      // Not prevented -> no image attached (the caller decides whether the
+      // browser's default text insertion actually lands; this handler's job
+      // is only to not steal the event when text is present).
+      expect(screen.queryByAltText(/screenshot preview/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /attach screenshot/i })).toBeInTheDocument();
+    });
+
+    it("rejects a 0-byte file client-side without discarding the typed message", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<FeedbackModal onClose={() => {}} />);
+      await fillValidMessage(user);
+
+      const empty = new File([], "empty.png", { type: "image/png" });
+      await user.upload(screen.getByLabelText(/attach screenshot/i), empty);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/empty/i);
+      expect(screen.queryByAltText(/screenshot preview/i)).not.toBeInTheDocument();
+      // The message survives — rejection happened before submit, not via a
+      // whole-request 422.
+      expect(screen.getByPlaceholderText(/what happened/i)).toHaveValue(
+        "The regenerate button is broken.",
+      );
+      expect(api.submitFeedback).not.toHaveBeenCalled();
+    });
+
+    it("clears the file input after a reject so re-selecting the same file retries", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<FeedbackModal onClose={() => {}} />);
+      await fillValidMessage(user);
+
+      const oversized = new File([new Uint8Array(3 * 1024 * 1024 + 1)], "big.png", {
+        type: "image/png",
+      });
+      const input = screen.getByLabelText(/attach screenshot/i) as HTMLInputElement;
+      await user.upload(input, oversized);
+      await screen.findByRole("alert");
+
+      expect(input.value).toBe("");
+    });
+
+    it("shows an error when the file can't be read", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<FeedbackModal onClose={() => {}} />);
+      await fillValidMessage(user);
+
+      // jsdom's FileReader.readAsDataURL succeeds unconditionally, so force
+      // the failure path directly to prove the handler is wired up at all —
+      // this component shipped with reader.onload set and no reader.onerror,
+      // which left a failed read completely silent (no banner, no state
+      // change, nothing telling the user the attach didn't work).
+      const originalReadAsDataURL = FileReader.prototype.readAsDataURL;
+      FileReader.prototype.readAsDataURL = function (this: FileReader) {
+        this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
+      };
+
+      const file = new File(["fake-png-bytes"], "bug.png", { type: "image/png" });
+      await user.upload(screen.getByLabelText(/attach screenshot/i), file);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/could not read/i);
+      expect(screen.queryByAltText(/screenshot preview/i)).not.toBeInTheDocument();
+
+      FileReader.prototype.readAsDataURL = originalReadAsDataURL;
+    });
   });
 });

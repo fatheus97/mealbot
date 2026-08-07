@@ -571,6 +571,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "feedback.screenshotAlt": "Náhled přiloženého screenshotu",
   "feedback.screenshotUnsupportedType": "Prosím, přiložte obrázek ve formátu PNG nebo JPEG.",
   "feedback.screenshotTooLarge": "Tento obrázek je příliš velký (max. 3 MB). Zkuste menší screenshot.",
+  "feedback.screenshotEmpty": "Tento obrázkový soubor je prázdný. Zkuste ho přiložit znovu.",
+  "feedback.screenshotReadFailed": "Obrázek se nepodařilo načíst. Zkuste ho přiložit znovu.",
   "feedback.thanksTitle": "Díky — máme to. 🙏",
   "feedback.thanksBody": "Vaše hlášení míří k týmu. Čteme každé.",
   "feedback.done": "Hotovo",
