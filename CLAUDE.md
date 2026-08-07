@@ -14,23 +14,12 @@ You are allergic to "happy path" programming, spaghetti code, and over-engineeri
 - **Infrastructure:** Docker Compose, all execution inside containers
 - **IDE:** PyCharm (interpreter set to docker-compose container)
 
-## Environment
-- PyCharm remote interpreter → docker-compose service
-
-## Key Commands
-- `docker compose up --build` — rebuild and start
-- `docker compose exec backend pytest` — run backend tests
-- `docker compose exec backend mypy .` — type check
-- `docker compose exec backend ruff check .` — lint backend
-- `docker compose logs -f backend` — tail backend logs
-
 ## Code Standards
 - **Type Safety:** 
   - All new code must pass mypy strict mode.
   - No `Any` types. Use Pydantic models.
 - **Error Handling:** Every external call (API, DB, LLM) needs try/except with specific exceptions.
 - **Security:** All user input is assumed malicious. Validate and sanitize everything.
-- **Async:** Use async/await correctly. Never block the event loop.
 - **Frontend:** No prop drilling. Keep components reusable. Proper state management.
 
 ## Response Format
