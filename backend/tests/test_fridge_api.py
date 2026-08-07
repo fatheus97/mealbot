@@ -167,6 +167,72 @@ class TestExpirationAutoTick:
         assert data[0]["need_to_use"] is False
 
 
+class TestNeedToUseToggle:
+    """User.need_to_use_enabled=False masks need_to_use to False everywhere the
+    fridge is read (fatheus97/mealbot-tickets#6), without touching the stored
+    value — re-enabling the preference must restore exactly what was there."""
+
+    async def test_get_masks_stored_true_to_false_when_disabled(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
+        await client.put("/api/fridge", headers=auth_headers, json=payload)
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is False
+
+        # Re-enabling restores the view without the item ever having been touched.
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is True
+
+    async def test_near_expiry_auto_tick_also_masked_when_disabled(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        payload = [
+            {"name": "chicken", "quantity_grams": 500, "need_to_use": False, "expiration_date": tomorrow},
+        ]
+        await client.put("/api/fridge", headers=auth_headers, json=payload)
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is False
+
+    async def test_put_response_masked_but_write_preserves_value(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
+        put_resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert put_resp.json()[0]["need_to_use"] is False
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is True
+
+    async def test_merge_response_masked_when_disabled(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
+        resp = await client.post("/api/fridge/merge", headers=auth_headers, json=payload)
+        assert resp.status_code == 200
+        assert resp.json()[0]["need_to_use"] is False
+
+
 class TestMergeWithExpiration:
     async def test_merge_same_name_same_expiration_sums(
         self, client: AsyncClient, auth_headers: dict

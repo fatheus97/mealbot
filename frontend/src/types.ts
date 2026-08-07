@@ -281,6 +281,7 @@ export interface AuthLoginResponse {
   include_spices: boolean;
   track_snacks: boolean;
   show_pieces: boolean;
+  need_to_use_enabled: boolean;
   onboarding_completed: boolean;
   is_demo: boolean;
   is_admin: boolean;
@@ -362,6 +363,7 @@ export interface UserProfile {
   include_spices: boolean;
   track_snacks: boolean;
   show_pieces: boolean;
+  need_to_use_enabled: boolean;
   onboarding_completed: boolean;
   is_admin: boolean;
   // Preferred shape of a single day's meals. null = user hasn't set one;

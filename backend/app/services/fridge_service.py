@@ -75,8 +75,17 @@ def flatten_fridge_batches(
     ]
 
 
-async def get_fridge_items(session: AsyncSession, user_id: int) -> list[StockItemDTO]:
-    """Return fridge items to the user in API schema form. Auto-ticks near-expiry items."""
+async def get_fridge_items(
+    session: AsyncSession, user_id: int, need_to_use_enabled: bool = True,
+) -> list[StockItemDTO]:
+    """Return fridge items to the user in API schema form. Auto-ticks near-expiry items.
+
+    ``need_to_use_enabled=False`` (the user's master-off preference, see
+    User.need_to_use_enabled) masks every item's need_to_use to False instead
+    of reading the stored value — callers stop seeing/prompting on it without
+    the underlying StockItem rows ever being touched, so re-enabling instantly
+    restores whatever was there before.
+    """
     result = await session.execute(select(StockItem).where(StockItem.user_id == user_id))
     rows = result.scalars().all()
 
@@ -89,18 +98,24 @@ async def get_fridge_items(session: AsyncSession, user_id: int) -> list[StockIte
         items.append(StockItemDTO(
             name=r.name,
             quantity_grams=float(r.quantity_grams),
-            need_to_use=r.need_to_use or is_expiring,
+            need_to_use=need_to_use_enabled and (r.need_to_use or is_expiring),
             expiration_date=r.expiration_date,
         ))
     return items
 
 
 async def replace_fridge_items(
-    session: AsyncSession, user_id: int, items: list[StockItemDTO], commit: bool = True,
+    session: AsyncSession,
+    user_id: int,
+    items: list[StockItemDTO],
+    commit: bool = True,
+    need_to_use_enabled: bool = True,
 ) -> list[StockItemDTO]:
     """Replace fridge items for a user (delete old, insert new).
 
-    Shared by PUT /fridge and plan confirm endpoint.
+    Shared by PUT /fridge and plan confirm endpoint. Always WRITES each item's
+    real need_to_use as given — ``need_to_use_enabled`` only masks the
+    returned view (via get_fridge_items), same contract as that function.
     """
     await session.execute(delete(StockItem).where(StockItem.user_id == user_id))  # type: ignore[arg-type]
 
@@ -121,7 +136,7 @@ async def replace_fridge_items(
 
     if commit:
         await session.commit()
-    return await get_fridge_items(session, user_id)
+    return await get_fridge_items(session, user_id, need_to_use_enabled)
 
 
 async def restore_consumed_batches(

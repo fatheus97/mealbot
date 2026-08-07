@@ -276,6 +276,28 @@ class TestProfile:
         assert resp.status_code == 200
         assert resp.json()["track_snacks"] is False
 
+    async def test_patch_need_to_use_enabled(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        resp = await client.get("/api/users", headers=auth_headers)
+        assert resp.json()["need_to_use_enabled"] is True
+
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"need_to_use_enabled": False},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["need_to_use_enabled"] is False
+
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"need_to_use_enabled": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["need_to_use_enabled"] is True
+
     async def test_patch_invalid_measurement(
         self, client: AsyncClient, auth_headers: dict
     ):

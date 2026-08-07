@@ -19,6 +19,7 @@ const defaultValues: PreferencesFormValues = {
   include_spices: true,
   show_pieces: false,
   track_snacks: true,
+  need_to_use_enabled: true,
   default_day_layout: [],
 };
 
@@ -117,6 +118,7 @@ describe('PreferencesForm', () => {
       include_spices: false,
       show_pieces: false,
       track_snacks: true,
+      need_to_use_enabled: true,
       default_day_layout: [],
     });
   });
@@ -135,6 +137,7 @@ describe('PreferencesForm', () => {
           include_spices: true,
           show_pieces: false,
           track_snacks: true,
+          need_to_use_enabled: true,
           default_day_layout: [],
         }}
         onSubmit={onSubmit}
@@ -155,8 +158,33 @@ describe('PreferencesForm', () => {
       include_spices: true,
       show_pieces: false,
       track_snacks: true,
+      need_to_use_enabled: true,
       default_day_layout: [],
     });
+  });
+
+  it('toggles need_to_use_enabled off and submits the change', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={onSubmit}
+        submitLabel="Save"
+      />,
+    );
+
+    // Same pattern as the other boolean prefs above: nested hint text inside
+    // the label makes getByLabelText unreliable, so target by checkbox order
+    // (include_spices, show_pieces, track_snacks, need_to_use_enabled).
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[3]);
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ need_to_use_enabled: false }),
+    );
   });
 
   it('shows "Saving..." when loading', () => {
@@ -265,6 +293,7 @@ describe('PreferencesForm', () => {
           include_spices: true,
           show_pieces: false,
           track_snacks: true,
+          need_to_use_enabled: true,
           default_day_layout: [],
         }}
         onSubmit={vi.fn()}

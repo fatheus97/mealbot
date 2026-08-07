@@ -213,6 +213,55 @@ class TestPlanGeneration:
         assert len(body["days"]) == 3
         assert mock_gen.await_count == 3
 
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_need_to_use_disabled_masks_urgent_stock_from_prompt(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
+    ):
+        # fatheus97/mealbot-tickets#6: with the preference off, the LLM must
+        # not see the item as urgent even though it's stored need_to_use=True.
+        test_user.need_to_use_enabled = False
+        put = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 300, "need_to_use": True}],
+        )
+        assert put.status_code == 200
+        mock_gen.return_value = _fake_day()
+
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+
+        day_req = mock_gen.call_args.args[0]
+        stock_by_name = {item.name: item.need_to_use for item in day_req.stock_items}
+        assert stock_by_name["chicken breast"] is False
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_need_to_use_enabled_keeps_urgent_stock_in_prompt(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
+    ):
+        put = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken breast", "quantity_grams": 300, "need_to_use": True}],
+        )
+        assert put.status_code == 200
+        mock_gen.return_value = _fake_day()
+
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={"meals_per_day": 1, "people_count": 2},
+        )
+        assert resp.status_code == 200
+
+        day_req = mock_gen.call_args.args[0]
+        stock_by_name = {item.name: item.need_to_use for item in day_req.stock_items}
+        assert stock_by_name["chicken breast"] is True
+
 
 class TestPlanDayLayouts:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)

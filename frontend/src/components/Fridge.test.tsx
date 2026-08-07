@@ -15,9 +15,10 @@ vi.mock('../api', () => ({
   updateUserProfile: vi.fn(),
 }));
 
-import { authFetch } from '../api';
+import { authFetch, fetchUserProfile } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
+const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -152,6 +153,53 @@ describe('Fridge', () => {
     });
 
     expect(screen.getByText('Rice')).toBeInTheDocument();
+  });
+
+  it('hides the need-to-use column when the preference is disabled', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValueOnce({
+      id: 1,
+      email: 'test@test.com',
+      country: null,
+      language: 'English',
+      measurement_system: 'metric',
+      variability: 'traditional',
+      include_spices: true,
+      track_snacks: true,
+      show_pieces: false,
+      need_to_use_enabled: false,
+      onboarding_completed: true,
+      is_admin: false,
+      default_day_layout: null,
+    });
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      // The backend already masks need_to_use to false at the source when the
+      // preference is off — this data models that server contract.
+      json: () => Promise.resolve([{ name: 'Chicken', quantity_grams: 500, need_to_use: false }]),
+    });
+
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Chicken')).toBeInTheDocument());
+
+    expect(screen.queryByText('Need to use?')).not.toBeInTheDocument();
+  });
+
+  it('shows the need-to-use column by default (profile not yet resolved)', async () => {
+    loginUser();
+    // fetchUserProfile intentionally left unmocked (resolves undefined) —
+    // the column must not flicker away while the profile is still loading.
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ name: 'Chicken', quantity_grams: 500, need_to_use: false }]),
+    });
+
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Chicken')).toBeInTheDocument());
+
+    expect(screen.getByText('Need to use?')).toBeInTheDocument();
   });
 
   it('adds a new item via modal and auto-saves', async () => {

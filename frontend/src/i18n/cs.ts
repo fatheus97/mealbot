@@ -142,6 +142,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "prefs.trackSnacks": "Sledovat sladkosti a snacky z účtenek",
   "prefs.trackSnacksHint":
     "Když je volba vypnutá, hotové výrobky (dezerty, snacky, nápoje) se při skenování účtenek přeskočí",
+  "prefs.needToUseEnabled": "Zapnout sledování „spotřebovat brzy“",
+  "prefs.needToUseEnabledHint":
+    "Když je volba vypnutá, příznak „spotřebovat brzy“ se nikde v lednici nezobrazuje a při generování jídelníčku se už nezohledňuje. Kdykoliv ji můžete znovu zapnout — nic se neztratí.",
 
   "prefs.dayLayout": "Výchozí rozvržení dne",
   "prefs.dayLayoutHint":
