@@ -55,7 +55,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
         {label}
       </div>
       <div style={{ fontSize: 26, fontWeight: 700, color: colors.text, marginTop: 4 }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: colors.textFaint, marginTop: 2 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -344,7 +344,7 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
                             ))}
                             {byUser.data.top_users.length === 0 && (
                               <tr>
-                                <td colSpan={4} style={{ padding: "12px 8px", color: colors.textFaint }}>
+                                <td colSpan={4} style={{ padding: "12px 8px", color: colors.textMuted }}>
                                   No usage recorded yet.
                                 </td>
                               </tr>
