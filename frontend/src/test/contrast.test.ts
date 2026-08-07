@@ -24,6 +24,7 @@ import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/them
 import { colors as adminColors } from '../components/admin/theme';
 import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
 import { DISABLED_TEXT, DISABLED_SURFACE } from '../components/DayLayoutEditor';
+import { FAVORITE_SAVED, FAVORITE_UNSAVED } from '../components/FavoriteStar';
 import {
   OUT_OF_MONTH_SURFACE,
   OUT_OF_MONTH_DAY,
@@ -592,6 +593,32 @@ describe('the scans accept both quote styles', () => {
     expect(findKeywordColors(`<p style={{ color: 'red' }} />`, 'x.tsx').map((k) => k.keyword)).toEqual(
       ['red'],
     );
+  });
+});
+
+describe('the favourite star', () => {
+  // An icon-only toggle: the glyph IS the control, so WCAG 1.4.11 wants 3:1.
+  // It shipped at 1.41:1 unsaved and 2.06:1 saved, on the two PINNED light
+  // surfaces it renders on. Only the unsaved state was ever on screen during a
+  // sweep — the saved one is a click away, the classic one-state blind spot.
+  const surfaces = ['#f9fafb', '#f9f9f9'];
+  for (const bg of surfaces) {
+    it(`both states clear AA on ${bg}`, () => {
+      expect(checkText(FAVORITE_SAVED, bg, 22.4)).toMatchObject({ passes: true });
+      expect(checkText(FAVORITE_UNSAVED, bg, 22.4)).toMatchObject({ passes: true });
+    });
+  }
+
+  it('rejects the pair that shipped', () => {
+    expect(checkText('#d1d5db', '#f9fafb', 22.4).passes).toBe(false); // unsaved, 1.41:1
+    expect(checkText('#f59e0b', '#f9fafb', 22.4).passes).toBe(false); // saved, 2.06:1
+  });
+
+  it('does not rely on the two states differing from each other', () => {
+    // They are 1.04:1 apart — essentially the same luminance. That is FINE only
+    // because the glyph changes shape too; if someone ever unifies the glyph,
+    // this assertion is the reminder that colour alone cannot carry the state.
+    expect(contrastRatio(FAVORITE_SAVED, FAVORITE_UNSAVED)).toBeLessThan(1.5);
   });
 });
 
