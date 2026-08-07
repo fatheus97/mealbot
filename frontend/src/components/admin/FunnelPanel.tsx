@@ -54,7 +54,7 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
         By acquisition source
       </div>
       {stats.by_source.length === 0 ? (
-        <div style={{ color: colors.textFaint, fontSize: 13 }}>No signups yet.</div>
+        <div style={{ color: colors.textMuted, fontSize: 13 }}>No signups yet.</div>
       ) : (
         // Wide table scrolls in its own container so the page body never does.
         <div style={{ overflowX: "auto" }}>
@@ -118,7 +118,7 @@ function ConversionStat({ label, value, sub }: { label: string; value: string; s
         {label}
       </div>
       <div style={{ fontSize: 24, fontWeight: 700, color: chart.funnel, marginTop: 2 }}>{value}</div>
-      <div style={{ fontSize: 12, color: colors.textFaint }}>{sub}</div>
+      <div style={{ fontSize: 12, color: colors.textMuted }}>{sub}</div>
     </div>
   );
 }
