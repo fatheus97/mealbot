@@ -1,9 +1,22 @@
 # systemd timers (production VPS)
 
 Version-controlled systemd units for mealbot's scheduled maintenance jobs, so
-the schedules survive a box rebuild. They are **not** installed automatically by
-`scripts/deploy.sh` (which only builds/migrates/swaps containers) — installing
-each timer is a one-time manual step (below).
+the schedules survive a box rebuild.
+
+**These install themselves — once `mealbot-unit-sync.timer` is on the box (§7).**
+It reconciles `/etc/systemd/system/` with this directory every ten minutes, so a
+unit merged to `main` reaches the box on its own, and an edited one actually
+takes effect. The per-timer install steps below are then only needed for a fresh
+box or a manual install of a single unit; §7 is the one you have to run by hand,
+and only ever once.
+
+> **Before §7 existed this was the bug, not the docs.** `/etc/systemd/system/`
+> holds independent copies and `scripts/deploy.sh` never touched them, so a unit
+> merged to main simply wasn't on the box — `mealbot-docker-cleanup.timer` read
+> `not-found` for nine days after #259 while the build cache it caps climbed back
+> to 5 GB. An *edited* unit failed worse: `daemon-reload` re-reads the installed
+> copy, so it looks applied and isn't. If you find yourself hand-copying a unit,
+> check §7 is alive first — that is the symptom.
 
 All jobs are **idempotent**. The two app-database jobs run as a one-off container
 (`docker compose run --rm --no-deps -T backend ...`), so they keep working even
@@ -13,6 +26,7 @@ the daemon's build cache / images, so it has no reason to enter a container).
 
 | Timer | Runs | Schedule | Needs env vars? |
 |---|---|---|---|
+| `mealbot-unit-sync` | `scripts/sync-systemd-units.sh` — install units from the git checkout, so this table's other rows can't drift (§7) | **every 10 min** | No (`ALERT_*` only for failure mail) |
 | `mealbot-disk-alert` | `scripts/disk-alert.sh` — warn by email before the disk fills | **hourly** | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-db-backup` | `scripts/db-backup.sh` — nightly `pg_dump` of the live database | daily 02:30 | No (`ALERT_*` only for failure mail) |
 | `mealbot-offsite-backup` | `scripts/offsite-backup.sh` — encrypt the newest dump and copy it to Backblaze B2 | daily 03:00 | **PARKED** — inert until `OFFSITE_BACKUP_ENABLED=true` (§6) |
@@ -496,9 +510,76 @@ rehearsed without touching production.
 
 ---
 
+## 7. Unit sync (`mealbot-unit-sync`) — install this one first
+
+Reconciles `/etc/systemd/system/` with `deploy/systemd/` every ten minutes: any
+unit whose installed copy differs from the repo is reinstalled, `daemon-reload`
+runs if anything changed, and a timer whose file was **absent** is enabled and
+started.
+
+This is the unit that makes every other section here self-applying. It is also
+the last thing in the deployment that needs a manual install — the other two
+copies that used to drift are fixed in the repo (`scripts/deploy-shim.sh` for
+the deploy script, the stdin `caddy reload` in `scripts/deploy.sh` for the
+bind-mounted Caddyfile).
+
+### What it will not do
+
+- **Never removes** a unit that is installed but absent from the repo. Delete
+  those by hand (see Uninstall).
+- **Never re-enables** a timer you disabled. A timer is enabled only the first
+  time its file lands, so `systemctl disable mealbot-foo.timer` sticks instead of
+  coming back ten minutes later. Editing a unit reinstalls it but leaves its
+  enabled/disabled state exactly as you set it.
+
+### Root, and why that is not a new grant
+
+It runs as **root** — writing `/etc/systemd/system/` and calling `daemon-reload`
+admit no lesser privilege, and it is the only unit here that isn't the `deploy`
+user. That does not widen anything: `deploy` is in the `docker` group, and the
+docker socket is root by construction, so merge access to `main` already implied
+root on this box. The trust boundary is branch protection, where it already was.
+
+### Install (one-time, on the VPS)
+
+```bash
+sudo cp deploy/systemd/mealbot-unit-sync.service /etc/systemd/system/
+sudo cp deploy/systemd/mealbot-unit-sync.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mealbot-unit-sync.timer
+```
+
+### Verify
+
+```bash
+# run it once now rather than waiting up to ten minutes:
+sudo systemctl start mealbot-unit-sync.service
+
+# what it did — one "installed <unit>" line per unit that was missing or stale,
+# and nothing at all once the box is reconciled:
+journalctl -u mealbot-unit-sync.service -n 40 --no-pager
+
+# the real proof — every timer in the table above is now listed:
+systemctl list-timers 'mealbot-*' --all --no-pager
+```
+
+A second `systemctl start` should print **nothing** beyond systemd's own
+start/finish lines: a silent run means the box matches the repo, which is the
+steady state. The first run on a box that has drifted is the noisy one.
+
+To confirm it truly closes the loop, edit a `.timer`'s `OnCalendar=` on `main`
+and watch `systemctl list-timers` change within ten minutes without touching the
+box.
+
+---
+
 ## Change a schedule
 
-Edit `OnCalendar=` in the relevant `.timer` (systemd calendar syntax), then:
+Edit `OnCalendar=` in the relevant `.timer` (systemd calendar syntax) and merge
+it. With §7 installed that is the whole procedure — the sync installs it and
+reloads within ten minutes.
+
+To apply it immediately, or on a box without §7:
 
 ```bash
 sudo cp deploy/systemd/<unit>.timer /etc/systemd/system/
@@ -506,10 +587,29 @@ sudo systemctl daemon-reload
 sudo systemctl restart <unit>.timer
 ```
 
+## Stop a job
+
+```bash
+sudo systemctl disable --now <unit>.timer
+```
+
+That is enough, and it sticks: the sync (§7) reinstalls a unit's *file* when it
+differs from the repo but never re-enables a timer that already exists, so a
+disabled timer stays disabled.
+
 ## Uninstall
+
+**Delete it from `deploy/systemd/` and merge that first.** The sync treats an
+absent installed file as a brand-new unit, so removing one on the box while it
+is still in the repo brings it back within ten minutes — enabled and running,
+because "the file wasn't there" is exactly how a new timer is recognised.
+
+With the unit gone from `main`:
 
 ```bash
 sudo systemctl disable --now <unit>.timer
 sudo rm /etc/systemd/system/<unit>.{service,timer}
 sudo systemctl daemon-reload
 ```
+
+(The sync never deletes anything, so this last part stays manual by design.)

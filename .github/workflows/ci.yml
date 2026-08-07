@@ -425,6 +425,59 @@ jobs:
           done
           exit "$failed"
 
+      - name: The unit sync installs, reloads, and enables only NEW timers
+        # Guards the two behaviours that make this safe to run every ten minutes
+        # as root: an unchanged tree must not daemon-reload, and an EDITED unit
+        # must not re-enable a timer the operator deliberately disabled. Both are
+        # invisible to shellcheck and neither can be tested on the box without
+        # waiting for real drift.
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          src="$work/src"; dst="$work/dst"; bin="$work/bin"
+          mkdir -p "$src" "$dst" "$bin"
+          # Stub systemctl: record the arguments of every call instead of running.
+          printf '#!/usr/bin/env bash\necho "$*" >> "%s/calls"\n' "$work" > "$bin/systemctl"
+          chmod +x "$bin/systemctl"
+          printf 'v1\n' > "$src/mealbot-demo.service"
+          printf 'v1\n' > "$src/mealbot-demo.timer"
+          run() { MEALBOT_UNIT_SRC="$src" MEALBOT_UNIT_DST="$dst" \
+                  MEALBOT_SYSTEMCTL="$bin/systemctl" ./scripts/sync-systemd-units.sh; }
+
+          # (1) First run: both files land, one reload, the new timer is enabled.
+          run > "$work/out1"
+          cmp -s "$src/mealbot-demo.service" "$dst/mealbot-demo.service" \
+            || { echo "::error::unit was not installed"; exit 1; }
+          grep -qx 'daemon-reload' "$work/calls" \
+            || { echo "::error::no daemon-reload after installing units"; exit 1; }
+          grep -qx 'enable --now mealbot-demo.timer' "$work/calls" \
+            || { echo "::error::a newly installed timer was not enabled"; exit 1; }
+
+          # (2) Nothing changed: no systemctl calls at all.
+          before=$(wc -l < "$work/calls")
+          run > "$work/out2"
+          [ "$(wc -l < "$work/calls")" = "$before" ] \
+            || { echo "::error::no-op run still called systemctl"; exit 1; }
+
+          # (3) Edited unit: reinstalled and reloaded, but NOT re-enabled —
+          #     otherwise every sync would resurrect a disabled timer.
+          printf 'v2\n' > "$src/mealbot-demo.timer"
+          run > "$work/out3"
+          cmp -s "$src/mealbot-demo.timer" "$dst/mealbot-demo.timer" \
+            || { echo "::error::edited unit was not reinstalled"; exit 1; }
+          [ "$(grep -cx 'daemon-reload' "$work/calls")" = 2 ] \
+            || { echo "::error::edited unit did not trigger daemon-reload"; exit 1; }
+          [ "$(grep -cx 'enable --now mealbot-demo.timer' "$work/calls")" = 1 ] \
+            || { echo "::error::an EDITED unit re-enabled its timer"; exit 1; }
+
+          # (4) A missing source tree must fail, never report a clean no-op.
+          if MEALBOT_UNIT_SRC="$work/gone" MEALBOT_UNIT_DST="$dst" \
+             MEALBOT_SYSTEMCTL="$bin/systemctl" ./scripts/sync-systemd-units.sh; then
+            echo "::error::missing source directory exited 0"
+            exit 1
+          fi
+          rm -rf "$work"
+
       - name: A broken disk reading fails loudly
         # The bug this guards: `used_pct="$(df ...)"` is an ASSIGNMENT, and
         # `set -e` does not abort on a failing command substitution used as one.
