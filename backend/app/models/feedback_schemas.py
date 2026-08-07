@@ -57,8 +57,14 @@ class FeedbackCreate(BaseModel):
     page: str | None = Field(default=None, max_length=PAGE_MAX_LEN)
     # Optional screenshot, sent as base64 in the same JSON body (no multipart —
     # keeps this endpoint's request contract unchanged for existing clients).
-    # Both-or-neither; validated below.
-    screenshot_base64: str | None = Field(default=None)
+    # Both-or-neither; validated below. max_length bounds the RAW STRING (base64
+    # inflates size ~4/3x plus up to 2 padding chars) so Pydantic rejects an
+    # oversized payload before it reaches base64.b64decode in the validator —
+    # the decode call itself allocates the full buffer, so gating on the
+    # encoded length first avoids doing that for something already too big.
+    screenshot_base64: str | None = Field(
+        default=None, max_length=(MAX_SCREENSHOT_BYTES * 4 // 3) + 4
+    )
     screenshot_content_type: FeedbackScreenshotContentType | None = Field(default=None)
 
     @field_validator("message", "page")
