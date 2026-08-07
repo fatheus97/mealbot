@@ -226,17 +226,23 @@ class TestCookRecipe:
         # LLM was NOT invoked (cook does not regenerate).
         mock_gen.assert_not_awaited()
 
-    async def test_cook_rejects_meal_type_mismatch(
-        self, client: AsyncClient, auth_headers: dict[str, str],
+    async def test_cook_accepts_model_chosen_meal_type(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
     ) -> None:
-        """Guard: payload.meal_type must match the recipe's meal_type. A
-        mismatch indicates tampering or a client bug."""
+        """Regression: the model may return a slot other than the one requested
+        (slot_layout is a prompt instruction, not a hard constraint). Cooking
+        such a recipe used to 400 with "must match"; the recipe's own meal_type
+        wins and is what gets persisted."""
         recipe = _fake_recipe(meal_type=MealType.DESSERT)
         resp = await client.post(
             "/api/recipe/cook",
             headers=auth_headers,
             json={
-                "meal_type": "soup",
+                "meal_type": "soup",  # what the user asked for
                 "people_count": 2,
                 "taste_preferences": [],
                 "avoid_ingredients": [],
@@ -245,8 +251,15 @@ class TestCookRecipe:
                 "recipe": recipe.model_dump(mode="json"),
             },
         )
-        assert resp.status_code == 400
-        assert "must match" in resp.json()["detail"].lower()
+        assert resp.status_code == 200
+        assert resp.json()["meal_type"] == "dessert"
+
+        result = await db_session.execute(
+            select(MealEntry).where(MealEntry.user_id == test_user.id),
+        )
+        entries = result.scalars().all()
+        assert len(entries) == 1
+        assert entries[0].meal_type == "dessert"
 
     async def test_cook_plans_hidden_from_catalog(
         self,
