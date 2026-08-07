@@ -33,8 +33,8 @@ def _fake_recipe(name: str = "Cook-Now Soup", meal_type: MealType = MealType.SOU
 class TestGenerateRecipe:
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_generate_returns_recipe(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
 
         resp = await client.post(
@@ -61,10 +61,10 @@ class TestGenerateRecipe:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Preview-only: no MealPlan row is written (a machine_generation
         telemetry row is — that's covered in test_recipe_telemetry — but the
         plan itself is only created on cook/favorite)."""
@@ -83,8 +83,8 @@ class TestGenerateRecipe:
         assert result.scalars().first() is None
 
     async def test_generate_rejects_unknown_meal_type(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         resp = await client.post(
             "/api/recipe/generate",
             headers=auth_headers,
@@ -94,8 +94,8 @@ class TestGenerateRecipe:
 
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_generate_502_on_llm_failure(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         mock_gen.side_effect = RuntimeError("LLM down")
         resp = await client.post(
             "/api/recipe/generate",
@@ -106,8 +106,8 @@ class TestGenerateRecipe:
 
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_generate_allergen_exhaustion_returns_friendly_422(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         # Cook Now fails CLOSED with a specific 422 naming the allergen — a
         # distinct branch from the generic LLM-failure 502 above (retrying the
         # same restrictive request won't help, so don't say "try again").
@@ -135,8 +135,8 @@ class TestGenerateRecipe:
 
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_generate_note_flows_into_taste_preferences(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         """Free-text `note` rides along with taste_preferences so the LLM
         picks it up in the taste-prefs prompt section (which is already
         <user_content>-fenced for injection hardening)."""
@@ -165,10 +165,10 @@ class TestCookRecipe:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         # Seed the fridge with chicken + carrot
         await client.put(
             "/api/fridge",
@@ -229,10 +229,10 @@ class TestCookRecipe:
     async def test_cook_accepts_model_chosen_meal_type(
         self,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Regression: the model may return a slot other than the one requested
         (slot_layout is a prompt instruction, not a hard constraint). Cooking
         such a recipe used to 400 with "must match"; the recipe's own meal_type
@@ -264,8 +264,8 @@ class TestCookRecipe:
     async def test_cook_plans_hidden_from_catalog(
         self,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         """A Cook Now plan is auto-confirmed on creation but must NOT appear
         in /api/plan (the multi-day catalog). Its UX contract doesn't match
         the 'open existing plan' flow."""
@@ -292,10 +292,10 @@ class TestCookRecipe:
     async def test_cook_succeeds_with_empty_fridge(
         self,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """No fridge match → allocate_fifo returns [], consumed_snapshot_json
         is persisted as "[]". Cook still succeeds because Cook Now treats the
         fridge as best-effort rather than a hard constraint (stock_only=False
@@ -332,10 +332,10 @@ class TestCookRecipe:
     async def test_cook_creates_meal_entry_with_consumed_snapshot(
         self,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         await client.put(
             "/api/fridge",
             headers=auth_headers,

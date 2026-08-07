@@ -63,6 +63,85 @@ export const en = {
     "Registration failed. Please try again or contact {supportEmail}.",
   "auth.error.demo": "Demo unavailable. Please try again.",
 
+  // Shared by every modal in the account flow.
+  "auth.emailPlaceholder": "you@example.com",
+  "auth.genericError": "Something went wrong.",
+
+  // ─── Forgot password ──────────────────────────────────────────────────────
+  "auth.forgot.title": "Reset your password",
+  "auth.forgot.body":
+    "Enter your email and we'll send you a link to set a new password.",
+  "auth.forgot.send": "Send reset link",
+  "auth.forgot.sending": "Sending…",
+  // The address is bolded mid-sentence, so this is one key read by <Trans>.
+  "auth.forgot.sent":
+    "If an account exists for {email}, we've sent it a link to reset the " +
+    "password. Check your inbox — and your spam folder, just in case. The " +
+    "link expires in 30 minutes.",
+  "auth.forgot.done": "Done",
+  "auth.forgot.cancel": "Cancel",
+
+  // ─── Reset password (the emailed link's landing) ──────────────────────────
+  "auth.reset.title": "Choose a new password",
+  "auth.reset.newPassword": "New password",
+  "auth.reset.confirmPassword": "Confirm new password",
+  "auth.reset.submit": "Set new password",
+  "auth.reset.saving": "Saving…",
+  "auth.reset.done":
+    "Your password has been updated, and you've been signed out everywhere " +
+    "for security. Please sign in with your new password.",
+  "auth.reset.signIn": "Sign in",
+  "auth.reset.cancel": "Cancel",
+
+  // Complete sentences, NOT fragments spliced after "Password needs ".
+  // The English original composed one — `passwordProblem()` returned "a digit"
+  // and the caller wrote `Password needs {problem}.` — which cannot survive
+  // translation: Czech puts the noun in the accusative after "obsahovat"
+  // ("obsahovat číslici"), and the required form differs per fragment, so no
+  // single translation of the carrier sentence is correct for all of them.
+  // `auth.error.passwordTooShort` above already covers the < 8 case.
+  "auth.password.tooLong": "Password must be 128 characters or fewer.",
+  "auth.password.needsUpper": "Password must contain an upper-case letter.",
+  "auth.password.needsLower": "Password must contain a lower-case letter.",
+  "auth.password.needsDigit": "Password must contain a digit.",
+  "auth.password.mismatch": "Passwords don't match.",
+
+  // ─── Invite registration (today's only way in — registration is closed) ───
+  "auth.invite.title": "Create your account",
+  "auth.invite.body": "You've been invited to Mealbot. Choose your login details below.",
+  "auth.invite.email": "Email",
+  "auth.invite.password": "Password",
+  "auth.invite.confirmPassword": "Confirm password",
+  "auth.invite.submit": "Create account",
+  "auth.invite.creating": "Creating…",
+  "auth.invite.cancel": "Cancel",
+  "auth.invite.needsSignIn":
+    "Your account was created, but we couldn't sign you in automatically. " +
+    "Please sign in with the email and password you just chose.",
+  "auth.invite.signIn": "Sign in",
+
+  // ─── Change email address ─────────────────────────────────────────────────
+  "auth.changeEmail.title": "Change email address",
+  "auth.changeEmail.body":
+    "Mistyped it at sign-up, or moved address? Enter the correct one and " +
+    "we'll send the confirmation link there instead.",
+  "auth.changeEmail.newEmail": "New email address",
+  "auth.changeEmail.currentPassword": "Current password",
+  "auth.changeEmail.why":
+    "We ask for your password because whoever can read your email can reset it.",
+  "auth.changeEmail.submit": "Change address",
+  "auth.changeEmail.changing": "Changing…",
+  "auth.changeEmail.unchanged": "That's already your address.",
+  "auth.changeEmail.cancel": "Cancel",
+  "auth.changeEmail.doneTitle": "Check your new inbox",
+  // Bolded address mid-sentence → <Trans>.
+  "auth.changeEmail.doneBody":
+    "Your account now uses {email}. We've sent a confirmation link there — " +
+    "open it to finish. You'll sign in with the new address from now on, and " +
+    "any other devices have been signed out.",
+  "auth.changeEmail.done": "Done",
+  "auth.changeEmail.failed": "Could not change your email address.",
+
   // One key, two placeholders: Czech puts both documents in the instrumental
   // case after "Souhlasím s", which a prefix/suffix split cannot express.
   //
@@ -349,6 +428,14 @@ export const en = {
   "meal.leftoversFromTitle": "Leftovers from {source}",
   "meal.leftoversFromBadge": "↻ Leftovers from {source}",
 
+  // The calendar chip's provenance line. Four shapes rather than one sentence
+  // glued from "Leftovers" + "from {date}" + "— {name}": the server can fail to
+  // resolve either half independently, and Czech needs "z" + a genitive date,
+  // which no shared prefix can carry. The bare case reuses `meal.leftovers`.
+  "calendar.leftoverFromDateAndName": "Leftovers from {date} — {name}",
+  "calendar.leftoverFromDate": "Leftovers from {date}",
+  "calendar.leftoverFromName": "Leftovers — {name}",
+
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":
     "Generate one recipe for what you're cooking right now. Mark it cooked to debit your fridge.",
@@ -367,9 +454,10 @@ export const en = {
   "cookNow.generating": "Generating…",
   "cookNow.generateFailed": "Failed to generate recipe.",
   "cookNow.saveFailed": "Failed to save recipe.",
+  "cookNow.favoriteFailed": "Couldn't save to your cookbook — check your connection and try again.",
+  "cookNow.unfavoriteFailed": "Couldn't remove from your cookbook — check your connection and try again.",
   "cookNow.saving": "Saving…",
   "cookNow.cookFailed": "Couldn't save — check your connection and try again.",
-  "cookNow.favoriteFailed": "Couldn't update your cookbook — please try again.",
 
   // ─── Cook mode ────────────────────────────────────────────────────────────
   "cook.done": "Done cooking",
@@ -614,6 +702,63 @@ export const en = {
   "feedbackKind.other": "💬 Something else",
 
   // ─── Plurals ──────────────────────────────────────────────────────────────
+  // ─── Demo banner ──────────────────────────────────────────────────────────
+  "demo.banner":
+    "Demo mode — generate plans, cook and rate meals. Your session and all " +
+    "changes are auto-deleted in 2 hours.",
+
+  // ─── Paywall modal ────────────────────────────────────────────────────────
+  "billing.paywall.title": "Subscription required",
+  "billing.paywall.body":
+    "Generating meal plans and recipes needs an active subscription. Start a " +
+    "10-day free trial — no charge until it ends, cancel anytime.",
+  "billing.paywall.planGroup": "Billing plan",
+  "billing.paywall.monthly": "Monthly",
+  // The prices are keys, not literals, because the DECIMAL SEPARATOR is part
+  // of the translation: Czech writes 4,99 € (comma, symbol after the number
+  // with a space), and a hardcoded "€4.99" reads as broken to a Czech eye.
+  // These are sticker figures for the toggle — Stripe's hosted checkout shows
+  // the authoritative amount — so they are copy, not arithmetic.
+  "billing.paywall.monthlyPrice": "€4.99",
+  "billing.paywall.monthlySub": "per month",
+  "billing.paywall.annual": "Annual",
+  "billing.paywall.annualPrice": "€2.99",
+  "billing.paywall.annualSub": "per month, billed €35.88/yr",
+  "billing.paywall.annualBadge": "Save 40%",
+  "billing.paywall.later": "Maybe later",
+  "billing.paywall.start": "Start free trial",
+  "billing.paywall.starting": "Starting…",
+  // Its own sentence, but it REUSES `auth.acceptTerms.{terms,privacy}Link` for
+  // the two labels. The warning recorded on those keys — that their Czech
+  // values are inflected to fit their carrier and so are not general-purpose —
+  // still stands; they are safe here specifically because this carrier governs
+  // the SAME case. Both are "souhlasit s" + instrumental ("Souhlasím s
+  // Podmínkami služby" / "Předplatným souhlasíte s Podmínkami služby"), so one
+  // pair of labels is correct in both. A carrier taking a different case (e.g.
+  // "přečtěte si Podmínky služby", accusative) would need its own labels.
+  "billing.paywall.legal": "By subscribing you agree to our {terms} and {privacy}.",
+
+  // ─── Subscription banner ──────────────────────────────────────────────────
+  // A WHOLE sentence per state rather than a message plus a shared
+  // "— renews {date}" suffix. Czech cannot take that suffix: "obnovuje se"
+  // and "končí" govern the date differently, and the emoji-led opening
+  // inflects with them. The English original concatenated, which is why the
+  // dated and undated forms are separate keys here rather than one with an
+  // optional hole.
+  "billing.banner.trial": "🎉 Free trial.",
+  "billing.banner.trialRenews": "🎉 Free trial — renews {date}.",
+  "billing.banner.trialCanceled": "🚫 Trial canceled.",
+  "billing.banner.trialCanceledEnds": "🚫 Trial canceled — ends {date}.",
+  "billing.banner.active": "✓ Subscribed.",
+  "billing.banner.activeRenews": "✓ Subscribed · renews {date}.",
+  "billing.banner.canceled": "🚫 Subscription canceled.",
+  "billing.banner.canceledEnds": "🚫 Subscription canceled — ends {date}.",
+  "billing.banner.pastDue": "⚠️ Payment failed — update your card to keep access.",
+  "billing.banner.subscribe": "Subscribe to keep generating meal plans & recipes.",
+  "billing.banner.manage": "Manage",
+  "billing.banner.updatePayment": "Update payment",
+  "billing.banner.subscribeAction": "Subscribe",
+
   // Read with tn("time.minutes", n). English has two categories; Czech has four
   // (Intl.PluralRules picks). Present here from the start so the mechanism has
   // a real user of it rather than being proven only by a test fixture.

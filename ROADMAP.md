@@ -197,15 +197,44 @@ code at `/opt/mealbot`, Caddy auto-HTTPS, all containers non-root, UptimeRobot o
 **Operating the deployment** (reference):
 - **Deploys are automatic — merging to `main` IS the deploy.**
   `.github/workflows/deploy.yml` fires on `push: branches: [main]`, SSHes to the
-  box (forced `command=".../deploy.sh"`), and `deploy.sh` pulls `origin/main` and
-  rebuilds. A squash-merge is live on trymealbot.com in ~2 min, migrations
-  included — `deploy.sh` runs `alembic upgrade head` **explicitly before** the
-  container swap, so if a migration fails the old containers keep serving traffic
-  (`scripts/deploy.sh:8,27,30`). The compose `migrate` service also fires during
+  box (forced `command=".../deploy.sh"`), and that runs **two** files: the
+  installed copy is `scripts/deploy-shim.sh`, which pulls `origin/main` and
+  `exec`s `scripts/deploy.sh` — the split exists because the installed copy is a
+  COPY and drifted for months, so only the shim is ever installed and everything
+  that changes lives in the repo file. A squash-merge is live on trymealbot.com
+  in ~2 min, migrations included — `deploy.sh` runs `alembic upgrade head`
+  **explicitly before** the container swap, so if a migration fails the old
+  containers keep serving traffic (`scripts/deploy.sh:33,36`). It also reloads
+  Caddy after the swap, piping the Caddyfile in on stdin — the bind-mounted copy
+  inside the container goes stale on a pull (pinned inode), so reloading that
+  path silently re-applies the OLD config. The compose `migrate` service also fires during
   the `up -d` swap, but on this path it's a redundant no-op safety net — **don't
   "simplify away" the explicit step**, it's what buys the zero-downtime ordering.
   Check a deploy with `gh run list --workflow=deploy.yml`. *(Caveat: a Dependabot
   **bot** auto-merge does not trigger the workflow — a normal merge does.)*
+- **A deploy has a short downtime window, and it does not scale.** `up -d`
+  stops the old backend before starting the new one, so the swap is a real gap;
+  Caddy's `lb_try_duration 30s` re-dials across it, which is why nobody sees a
+  502 today. The gap lasts as long as the slowest in-flight request, capped by
+  `stop_grace_period: 30s` — and generation is awaited **inline** (the user is
+  waiting for their plan), so a generation still running at 30s is SIGKILLed and
+  that user loses it. **Do not "fix" this by raising the grace period:** the
+  drain window IS the downtime window, so a longer grace saves one generation by
+  502-ing everyone else, and under real concurrency something is always
+  generating — you would pay the maximum downtime *and* still kill the request.
+  The two numbers are a matched pair; change them together or not at all.
+  **The scale answer is to stop trading one for the other:** deploy
+  start-before-stop (a second backend replica behind Caddy, or blue/green) so
+  draining costs nobody anything, or move generation to a job + polling so no
+  request is long-lived. Both are real work. Revisit when deploy-time errors
+  stop being theoretical — with one operator and a handful of users, the current
+  pairing is the right trade.
+- **Installing the shim** — one time, and only if `scripts/deploy-shim.sh` itself
+  changes (it is four lines precisely so it shouldn't):
+  `cd /opt/mealbot && git pull && cp scripts/deploy-shim.sh deploy.sh`. Confirm
+  the forced command's path first with
+  `sed "s/ ssh-.*//" ~deploy/.ssh/authorized_keys`. Editing `scripts/deploy.sh`
+  needs **no** install — that is the whole point of the split.
 - Access: SSH to the server (host + credentials kept in local notes, out of the repo).
 - Manual deploy — **fallback only** (if deploy.yml failed, or an out-of-band change
   on the box): `cd /opt/mealbot && git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.

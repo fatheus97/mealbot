@@ -112,7 +112,7 @@ async def _entries(session: AsyncSession, plan_id: int) -> list[MealEntry]:
 class TestConfirmPlanFridge:
     async def test_debits_fridge_excludes_spice_and_snapshots_each_meal(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
 
@@ -134,7 +134,7 @@ class TestConfirmPlanFridge:
 class TestUnconfirmPlanFridge:
     async def test_restores_fridge_deletes_entries_clears_confirmed(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
@@ -153,7 +153,7 @@ class TestUnconfirmPlanFridge:
 class TestFinishPlanFridge:
     async def test_returns_uncooked_count_and_restores_only_uncooked(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
@@ -178,7 +178,7 @@ class TestFinishPlanFridge:
 class TestReopenPlanFridge:
     async def test_shortage_raises_before_any_fridge_write(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """The load-bearing invariant: a mid-orchestration shortage raises
         PlanReopenShortageError *before* the fridge is rewritten, so a partial
         allocation (rice succeeds in-memory) is never persisted and the plan
@@ -219,7 +219,7 @@ class TestReopenPlanFridge:
 
     async def test_reopen_redebits_uncooked_and_clears_finished(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
@@ -239,7 +239,7 @@ class TestReopenPlanFridge:
 class TestRestoreEntriesHelper:
     async def test_noop_on_empty_iterable(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         assert test_user.id is not None
         # No entries → no fridge writes, no error (guards the shared restore path).
         await _restore_entries(db_session, test_user.id, [])
@@ -313,7 +313,7 @@ async def _seed_leftover_plan(
 class TestLeftoverFridgeAccounting:
     async def test_confirm_debits_the_source_once_not_twice(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """Asserts the actual StockItem rows, not confirm's return value:
         allocate_fifo fails SILENTLY on shortage, so a double-debit would
         return 200 with no error anywhere."""
@@ -328,7 +328,7 @@ class TestLeftoverFridgeAccounting:
 
     async def test_leftover_entry_snapshot_is_empty_list_never_null(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """NULL vs "[]" is the most dangerous distinction in this feature: NULL
         falls through batches_from_entry's fallback, which reconstructs a full
         credit from meal_json and so INVENTS food that was never debited."""
@@ -348,7 +348,7 @@ class TestLeftoverFridgeAccounting:
 
     async def test_finish_with_source_cooked_leftover_uncooked_creates_no_food(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """ASYMMETRIC CASE 1. The source was eaten, the leftover was not. If the
         leftover restored anything, finish would credit back grams that no longer
         physically exist — food materializing out of nothing."""
@@ -374,7 +374,7 @@ class TestLeftoverFridgeAccounting:
 
     async def test_finish_with_leftover_cooked_source_uncooked_restores_once(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """ASYMMETRIC CASE 2, the mirror. The uncooked source restores its full
         debit exactly once; the cooked leftover contributes nothing."""
         assert test_user.id is not None
@@ -397,7 +397,7 @@ class TestLeftoverFridgeAccounting:
 
     async def test_reopen_does_not_demand_stock_for_a_leftover(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """A leftover must not ask for a second helping from CURRENT inventory.
         If it did, a depleted fridge would 409 forever — and since editing is
         blocked on a finished plan, the user would have no escape via the UI."""
@@ -435,7 +435,7 @@ class TestLeftoverFridgeAccounting:
 
     async def test_unconfirm_restores_the_source_debit_exactly_once(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """Included for completeness, NOT as the guard: this symmetric path
         passes even with a double-debit live, because the restore mirrors
         whatever the snapshot says. The asymmetric tests above are what bite."""
@@ -468,7 +468,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
 
     async def test_confirm_does_not_debit_a_leftover_that_carries_ingredients(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         """model_construct bypasses the validator to build the forbidden state.
         Without the confirm-skip this debits rice twice — silently, since
         allocate_fifo never raises."""
@@ -519,7 +519,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
 
     def test_batches_from_entry_returns_nothing_for_a_leftover_with_null_snapshot(
         self,
-    ):
+    ) -> None:
         """The projection says leftover; meal_json says it has ingredients (the
         two can drift). A NULL snapshot would otherwise fall through to the
         legacy fallback and reconstruct a full credit — INVENTING food that was
@@ -553,7 +553,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
 
     def test_batches_from_entry_returns_nothing_for_a_leftover_with_corrupt_snapshot(
         self,
-    ):
+    ) -> None:
         """Same hazard via the other door: the corrupt-snapshot except branch
         falls through to the same inventing fallback."""
         meal_json = json.dumps(
@@ -583,7 +583,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
         )
         assert batches_from_entry(entry) == []
 
-    def test_ordinary_meal_still_uses_the_legacy_fallback(self):
+    def test_ordinary_meal_still_uses_the_legacy_fallback(self) -> None:
         """The short-circuit must be scoped to leftovers: an ordinary entry with
         a NULL snapshot still degrades to the lossy meal_json restore."""
         meal_json = json.dumps(
@@ -635,7 +635,7 @@ class TestMaterialiseLeftover:
             steps=["cook"],
         )
 
-    def test_replaces_the_slot_and_returns_the_original(self):
+    def test_replaces_the_slot_and_returns_the_original(self) -> None:
         source_day = self._day(self._dish("Sunday Roast"))
         today = self._day(self._dish("Some Lunch"))
         replaced = _materialise_leftover(
@@ -650,7 +650,7 @@ class TestMaterialiseLeftover:
         # The slot's identity is preserved — meal_type is not overwritten.
         assert today.meals[0].meal_type == MealType.HOT_DINNER
 
-    def test_refuses_to_chain_off_another_leftover(self):
+    def test_refuses_to_chain_off_another_leftover(self) -> None:
         """model_construct is required here, not incidental: a VALID leftover
         always has empty ingredients, so the empty-source guard below would mask
         this one and the test would pass with the chain check deleted (verified
@@ -674,7 +674,7 @@ class TestMaterialiseLeftover:
         assert replaced is None
         assert today.meals[0].name == "Real Dish"  # untouched
 
-    def test_refuses_a_valid_leftover_source_too(self):
+    def test_refuses_a_valid_leftover_source_too(self) -> None:
         """The realistic shape — a proper leftover (no ingredients) — must also
         be refused, whichever guard catches it."""
         source_day = self._day(
@@ -693,7 +693,7 @@ class TestMaterialiseLeftover:
         ) is None
         assert today.meals[0].name == "Real Dish"
 
-    def test_refuses_a_source_with_no_ingredients(self):
+    def test_refuses_a_source_with_no_ingredients(self) -> None:
         empty = PlannedMeal(
             name="Empty", meal_type=MealType.SOUP, ingredients=[], steps=["x"],
         )
@@ -705,7 +705,7 @@ class TestMaterialiseLeftover:
         assert replaced is None
         assert today.meals[0].name == "Real Dish"
 
-    def test_no_op_when_the_slot_is_missing_from_a_short_response(self):
+    def test_no_op_when_the_slot_is_missing_from_a_short_response(self) -> None:
         today = self._day(self._dish())
         replaced = _materialise_leftover(
             today, 5, LeftoverAssignment(1, 5, LeftoverRef(day_index=0, meal_index=0), "hot_dinner", "hot_dinner"),
@@ -714,7 +714,7 @@ class TestMaterialiseLeftover:
         assert replaced is None
         assert len(today.meals) == 1
 
-    def test_no_op_when_the_source_is_out_of_range(self):
+    def test_no_op_when_the_source_is_out_of_range(self) -> None:
         today = self._day(self._dish("Real Dish"))
         replaced = _materialise_leftover(
             today, 0, LeftoverAssignment(1, 0, LeftoverRef(day_index=9, meal_index=0), "hot_dinner", "hot_dinner"),
@@ -723,7 +723,7 @@ class TestMaterialiseLeftover:
         assert replaced is None
         assert today.meals[0].name == "Real Dish"
 
-    def test_refuses_a_source_slot_the_llm_reordered(self):
+    def test_refuses_a_source_slot_the_llm_reordered(self) -> None:
         """THE production failure this guard exists for.
 
         The link is decided from the LAYOUT before generation but applied to
@@ -756,7 +756,7 @@ class TestMaterialiseLeftover:
         assert replaced is None
         assert today.meals[0].name == "Real Lunch"  # the real dish survives
 
-    def test_refuses_a_target_slot_the_llm_reordered(self):
+    def test_refuses_a_target_slot_the_llm_reordered(self) -> None:
         """The mirror. If the TARGET day is reordered, the leftover would
         overwrite whichever dish happened to land at that position."""
         soup_where_the_lunch_should_be = PlannedMeal(
@@ -778,7 +778,7 @@ class TestMaterialiseLeftover:
         assert replaced is None
         assert today.meals[0].name == "Tomato soup"
 
-    def test_planner_records_the_slots_it_decided_about(self):
+    def test_planner_records_the_slots_it_decided_about(self) -> None:
         """The guard is only possible because the assignment carries the slots
         from the layout — pin that they're populated and correct."""
         from app.services.leftovers import plan_leftover_links
@@ -791,7 +791,7 @@ class TestMaterialiseLeftover:
         assert a.source_meal_type == "hot_dinner"
         assert a.target_meal_type == "light_lunch"
 
-    def test_long_source_name_is_truncated_not_raised(self):
+    def test_long_source_name_is_truncated_not_raised(self) -> None:
         """PlannedMeal.name caps at 200. "Leftovers: " + a 200-char source name
         would exceed it and raise OUTSIDE the guarded generation block, 500ing
         the whole request."""

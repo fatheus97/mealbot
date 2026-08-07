@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../../test/test-utils";
+import { untranslatedEnglishIn } from "../../test/i18nAssertions";
+import { useLocaleStore, DEFAULT_LOCALE } from "../../store/useLocaleStore";
 import { ChangeEmailModal } from "./ChangeEmailModal";
 import * as AuthCtx from "../../contexts/AuthContext";
 import * as api from "../../api";
@@ -142,5 +144,30 @@ describe("ChangeEmailModal", () => {
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
     renderWithProviders(<ChangeEmailModal onClose={vi.fn()} />);
     expect(screen.getByText(/whoever can read your email can reset it/i)).toBeInTheDocument();
+  });
+
+  describe("in Czech", () => {
+    beforeEach(() => useLocaleStore.setState({ locale: "cs", explicit: true }));
+    afterEach(() =>
+      useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }),
+    );
+
+    it("renders no English on the form", () => {
+      renderWithProviders(<ChangeEmailModal onClose={vi.fn()} />);
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
+
+    it("renders no English on the confirmation state", async () => {
+      vi.spyOn(api, "changeEmail").mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderWithProviders(<ChangeEmailModal onClose={vi.fn()} />);
+      await user.type(screen.getByLabelText(/nová e-mailová adresa/i), "novy@example.com");
+      await user.type(screen.getByLabelText(/současné heslo/i), "CurrentPass123");
+      await user.click(screen.getByRole("button", { name: /změnit adresu/i }));
+      await waitFor(() =>
+        expect(screen.getByText(/zkontrolujte novou schránku/i)).toBeInTheDocument(),
+      );
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
   });
 });

@@ -27,7 +27,7 @@ one. ``$`` cannot collide with HTML or CSS, and ``Template.substitute`` (not
 from __future__ import annotations
 
 from string import Template
-from typing import Final, Literal, cast
+from typing import Final, Literal
 
 Locale = Literal["en", "cs"]
 
@@ -117,7 +117,9 @@ def locale_from_accept_language(header: str | None) -> Locale:
             break
         primary = tag.split("-", 1)[0]
         if primary in UI_LOCALES:
-            return cast(Locale, primary)
+            # UI_LOCALES is a tuple of Locale literals, so this narrows on its
+            # own — no cast needed.
+            return primary
     return DEFAULT_LOCALE
 
 

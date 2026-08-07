@@ -1,0 +1,38 @@
+# mealbot — reconcile /etc/systemd/system/ with the units in git.
+#
+# The one unit that must be installed by hand; every other unit here is then
+# installed, updated and (on first appearance) enabled by this one. Before it,
+# `deploy/systemd/` and `/etc/systemd/system/` were independent copies with
+# nothing reconciling them, so a merged unit could sit unnoticed for days —
+# `mealbot-docker-cleanup.timer` read `not-found` for nine of them.
+#
+# Runs the sync once, then exits (Type=oneshot). Scheduled by
+# mealbot-unit-sync.timer; runnable on its own via
+# `systemctl start mealbot-unit-sync.service`.
+#
+# Deliberately has NO [Install] section, like its siblings: enable the .timer.
+#
+# See deploy/systemd/README.md §7 for install steps.
+
+[Unit]
+Description=mealbot systemd unit sync (installs units from the git checkout)
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# Purely local file work — no docker, no network, so no dependency on either.
+# It must survive a broken app stack: units being out of date is likeliest
+# exactly when something else is wrong.
+#
+# Without this, a failed sync is silent, and a silent sync failure restores the
+# original bug in its worst form — the box looks reconciled and isn't.
+OnFailure=mealbot-alert@%n.service
+
+[Service]
+Type=oneshot
+# ROOT, unlike every sibling unit (they run as `deploy`). Writing
+# /etc/systemd/system/ and calling daemon-reload admit no lesser privilege.
+# Not a widening of trust: `deploy` is in the `docker` group and the docker
+# socket is root-equivalent, so merge access to main already implied this. The
+# script's header carries the full argument.
+ExecStart=/opt/mealbot/scripts/sync-systemd-units.sh
+# Copying a dozen small files finishes in milliseconds; a minute is already
+# absurd headroom, and a hang here must not sit in the queue forever.
+TimeoutStartSec=60

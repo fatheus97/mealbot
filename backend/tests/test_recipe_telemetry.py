@@ -7,6 +7,7 @@ its correction at (or read the before-snapshot of) another user's generation.
 """
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
@@ -34,7 +35,7 @@ def _fake_recipe() -> PlannedMeal:
     )
 
 
-async def _generate(client: AsyncClient, auth_headers: dict) -> dict:
+async def _generate(client: AsyncClient, auth_headers: dict[str, str]) -> dict[str, Any]:
     """POST /generate and return the response body (recipe + generation_id)."""
     resp = await client.post(
         "/api/recipe/generate",
@@ -42,10 +43,11 @@ async def _generate(client: AsyncClient, auth_headers: dict) -> dict:
         json={"meal_type": "soup", "people_count": 2},
     )
     assert resp.status_code == 200
-    return resp.json()
+    payload: dict[str, Any] = resp.json()
+    return payload
 
 
-def _cook_body(recipe: dict, generation_id: int | None) -> dict:
+def _cook_body(recipe: dict[str, Any], generation_id: int | None) -> dict[str, Any]:
     return {
         "meal_type": "soup",
         "people_count": 2,
@@ -64,10 +66,10 @@ class TestGenerationCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
         body = await _generate(client, auth_headers)
 
@@ -95,10 +97,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         await client.put(
             "/api/fridge",
             headers=auth_headers,
@@ -137,10 +139,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Cooked as generated → the generation row stands alone (accept-as-is);
         no correction is written."""
         await client.put(
@@ -174,10 +176,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """A generation stored BEFORE PlannedMeal gained `leftover_of` lacks that
         key, while a fresh model_dump_json() includes it as null.
 
@@ -240,10 +242,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """The schema-tolerant compare must not go blind: a genuine edit against
         a legacy blob still records a correction."""
         await client.put(
@@ -292,10 +294,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Security: a generation_id owned by another user must not link — the
         ownership check drops it, so no correction (and no before-snapshot leak)."""
         await client.put(
@@ -343,10 +345,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
         body = await _generate(client, auth_headers)
         gen_id = body["generation_id"]
@@ -381,10 +383,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Security: a foreign generation_id on /favorite must not link — mirror
         of test_cook_foreign_generation_id_not_linked for the favorite surface."""
         other = User(email="other2@example.com", hashed_password=get_password_hash("x"))
@@ -430,10 +432,10 @@ class TestCorrectionCapture:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Starring an unmodified recipe is accept-as-is — no correction (mirror
         of the cook no-op, since favorite reuses the same guard independently)."""
         mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
@@ -465,7 +467,7 @@ class TestCorrectionCapture:
 class TestResolveOwnedGeneration:
     async def test_owner_match_and_mismatches(
         self, db_session: AsyncSession, test_user: User
-    ):
+    ) -> None:
         assert test_user.id is not None
         gen = record_generation(
             db_session,
@@ -499,13 +501,13 @@ class TestResolveOwnedGeneration:
 class TestGuardedCommitDegrade:
     @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
     async def test_generate_returns_null_id_when_telemetry_commit_fails(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """A failed telemetry commit must not 500 the already-successful (and
         already-paid-for) generation — the recipe is returned, generation_id=None."""
         mock_gen.return_value = SingleDayResponse(meals=[_fake_recipe()])
 
-        def _bad_record(session, **kw):
+        def _bad_record(session: AsyncSession, **kw: Any) -> MachineGeneration:
             # Stage a row that violates the user FK so session.commit() raises.
             row = MachineGeneration(
                 user_id=9_999_999, surface=kw["surface"],

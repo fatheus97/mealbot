@@ -47,19 +47,19 @@ class TestLeftoversAreNotDoubleCounted:
     would buy the same food twice — and the shopping list is FROZEN into
     response_json, so every later read replays the wrong number."""
 
-    def test_shopping_list_skips_leftovers(self):
+    def test_shopping_list_skips_leftovers(self) -> None:
         plan = [_day([_meal([("rice", 200)])]), _day([_leftover()])]
         result = compute_shopping_list_from_plan(plan, [])
         assert len(result) == 1
         assert result[0].name == "rice"
         assert result[0].quantity_grams == 200  # not 400
 
-    def test_shopping_list_unaffected_when_no_leftovers(self):
+    def test_shopping_list_unaffected_when_no_leftovers(self) -> None:
         plan = [_day([_meal([("rice", 200)])]), _day([_meal([("rice", 200)])])]
         result = compute_shopping_list_from_plan(plan, [])
         assert result[0].quantity_grams == 400
 
-    def test_simulated_fridge_not_drained_by_a_leftover(self):
+    def test_simulated_fridge_not_drained_by_a_leftover(self) -> None:
         # subtract_used_from_fridge drives the fridge that generation walks
         # forward day by day. Counting a leftover here would make the next
         # day's prompt see a fridge emptier than reality.
@@ -91,7 +91,7 @@ def _leftover_carrying_ingredients() -> PlannedMeal:
 
 
 class TestLeftoverSkipsAreDefenceInDepth:
-    def test_shopping_list_ignores_a_leftovers_stray_ingredients(self):
+    def test_shopping_list_ignores_a_leftovers_stray_ingredients(self) -> None:
         # model_construct on the day too — SingleDayResponse re-validates its
         # children, so a plain constructor would raise before the call.
         plan = [
@@ -102,7 +102,7 @@ class TestLeftoverSkipsAreDefenceInDepth:
         assert len(result) == 1
         assert result[0].quantity_grams == 200, "leftover's stray ingredients were bought"
 
-    def test_simulated_fridge_ignores_a_leftovers_stray_ingredients(self):
+    def test_simulated_fridge_ignores_a_leftovers_stray_ingredients(self) -> None:
         fridge = [StockItemDTO(name="rice", quantity_grams=500)]
         after = subtract_used_from_fridge(
             fridge, [_meal([("rice", 200)]), _leftover_carrying_ingredients()]
@@ -127,31 +127,31 @@ class TestShoppingListAggregateIsNotCapped:
     reconstructed from summed quantities.
     """
 
-    def test_aggregate_above_the_per_meal_cap_does_not_raise(self):
+    def test_aggregate_above_the_per_meal_cap_does_not_raise(self) -> None:
         # 4 meals x 9kg of one staple = 36kg total, each individually legal.
         plan = [_day([_meal([("rice", 9000)]) for _ in range(4)])]
         result = compute_shopping_list_from_plan(plan, [])
         assert len(result) == 1
         assert result[0].quantity_grams == 36000
 
-    def test_aggregate_across_days_above_the_cap(self):
+    def test_aggregate_across_days_above_the_cap(self) -> None:
         plan = [_day([_meal([("rice", 20000)])]), _day([_meal([("rice", 20000)])])]
         result = compute_shopping_list_from_plan(plan, [])
         assert result[0].quantity_grams == 40000
 
-    def test_fridge_stock_still_subtracted_from_a_large_aggregate(self):
+    def test_fridge_stock_still_subtracted_from_a_large_aggregate(self) -> None:
         plan = [_day([_meal([("rice", 20000)]), _meal([("rice", 20000)])])]
         result = compute_shopping_list_from_plan(
             plan, [StockItemDTO(name="rice", quantity_grams=5000)]
         )
         assert result[0].quantity_grams == 35000
 
-    def test_per_meal_cap_still_enforced_on_input(self):
+    def test_per_meal_cap_still_enforced_on_input(self) -> None:
         # Relaxing the aggregate must NOT relax the per-ingredient input bound.
         with pytest.raises(ValidationError):
             IngredientAmount(name="rice", quantity_grams=30001)
 
-    def test_large_aggregate_survives_the_json_round_trip(self):
+    def test_large_aggregate_survives_the_json_round_trip(self) -> None:
         """THE guard the earlier model_construct fix missed.
 
         Construction-time validation is only half the story: the plan is stored
@@ -171,7 +171,7 @@ class TestShoppingListAggregateIsNotCapped:
         reloaded = MealPlanResponse.model_validate_json(blob)
         assert reloaded.shopping_list[0].quantity_grams == 40000
 
-    def test_legacy_blob_with_is_spice_still_parses(self):
+    def test_legacy_blob_with_is_spice_still_parses(self) -> None:
         """Shopping-list entries written while this was an IngredientAmount
         carry an extra is_spice key. Pydantic ignores unknown fields, so old
         plans must keep loading."""
@@ -180,7 +180,7 @@ class TestShoppingListAggregateIsNotCapped:
         )
         assert item.quantity_grams == 500
 
-    def test_shopping_list_item_rejects_nan_and_nonpositive(self):
+    def test_shopping_list_item_rejects_nan_and_nonpositive(self) -> None:
         with pytest.raises(ValidationError):
             ShoppingListItem(name="rice", quantity_grams=float("nan"))
         with pytest.raises(ValidationError):
@@ -191,17 +191,17 @@ class TestShoppingListAggregateIsNotCapped:
 
 
 class TestComputeShoppingList:
-    def test_empty_plan_empty_fridge(self):
+    def test_empty_plan_empty_fridge(self) -> None:
         result = compute_shopping_list_from_plan([], [])
         assert result == []
 
-    def test_fridge_covers_everything(self):
+    def test_fridge_covers_everything(self) -> None:
         fridge = [StockItemDTO(name="rice", quantity_grams=500)]
         days = [_day([_meal([("rice", 200)])])]
         result = compute_shopping_list_from_plan(days, fridge)
         assert result == []
 
-    def test_partial_coverage(self):
+    def test_partial_coverage(self) -> None:
         fridge = [StockItemDTO(name="rice", quantity_grams=100)]
         days = [_day([_meal([("rice", 300)])])]
         result = compute_shopping_list_from_plan(days, fridge)
@@ -209,13 +209,13 @@ class TestComputeShoppingList:
         assert result[0].name == "rice"
         assert result[0].quantity_grams == pytest.approx(200.0)
 
-    def test_case_insensitive_matching(self):
+    def test_case_insensitive_matching(self) -> None:
         fridge = [StockItemDTO(name="Chicken Breast", quantity_grams=500)]
         days = [_day([_meal([("chicken breast", 300)])])]
         result = compute_shopping_list_from_plan(days, fridge)
         assert result == []
 
-    def test_multi_day_accumulation(self):
+    def test_multi_day_accumulation(self) -> None:
         days = [
             _day([_meal([("rice", 200)])]),
             _day([_meal([("rice", 300)])]),
@@ -224,7 +224,7 @@ class TestComputeShoppingList:
         assert len(result) == 1
         assert result[0].quantity_grams == pytest.approx(500.0)
 
-    def test_no_fridge_item_needed(self):
+    def test_no_fridge_item_needed(self) -> None:
         fridge = [StockItemDTO(name="butter", quantity_grams=100)]
         days = [_day([_meal([("rice", 200)])])]
         result = compute_shopping_list_from_plan(days, fridge)
@@ -236,20 +236,20 @@ class TestComputeShoppingList:
 
 
 class TestSubtractUsedFromFridge:
-    def test_depleted_items_removed(self):
+    def test_depleted_items_removed(self) -> None:
         fridge = [StockItemDTO(name="rice", quantity_grams=200)]
         meals = [_meal([("rice", 200)])]
         result = subtract_used_from_fridge(fridge, meals)
         assert result == []
 
-    def test_partial_subtraction(self):
+    def test_partial_subtraction(self) -> None:
         fridge = [StockItemDTO(name="rice", quantity_grams=500)]
         meals = [_meal([("rice", 200)])]
         result = subtract_used_from_fridge(fridge, meals)
         assert len(result) == 1
         assert result[0].quantity_grams == pytest.approx(300.0)
 
-    def test_unused_items_preserved(self):
+    def test_unused_items_preserved(self) -> None:
         fridge = [
             StockItemDTO(name="rice", quantity_grams=500),
             StockItemDTO(name="butter", quantity_grams=100),
@@ -265,7 +265,7 @@ class TestSubtractUsedFromFridge:
 
 
 class TestMergeShoppingLists:
-    def test_merge_duplicates(self):
+    def test_merge_duplicates(self) -> None:
         items = [
             IngredientAmount(name="rice", quantity_grams=200),
             IngredientAmount(name="Rice", quantity_grams=300),
@@ -274,7 +274,7 @@ class TestMergeShoppingLists:
         assert len(result) == 1
         assert result[0].quantity_grams == pytest.approx(500.0)
 
-    def test_no_duplicates(self):
+    def test_no_duplicates(self) -> None:
         items = [
             IngredientAmount(name="rice", quantity_grams=200),
             IngredientAmount(name="chicken", quantity_grams=300),
@@ -282,7 +282,7 @@ class TestMergeShoppingLists:
         result = merge_shopping_lists(items)
         assert len(result) == 2
 
-    def test_empty_list(self):
+    def test_empty_list(self) -> None:
         result = merge_shopping_lists([])
         assert result == []
 
@@ -304,7 +304,7 @@ def _spice_meal(ingredients: list[tuple[str, float, bool]]) -> PlannedMeal:
 
 
 class TestSpiceExclusion:
-    def test_shopping_list_excludes_spices_when_include_off(self):
+    def test_shopping_list_excludes_spices_when_include_off(self) -> None:
         days = [_day([_spice_meal([
             ("chicken", 300, False),
             ("cumin", 1, True),
@@ -316,7 +316,7 @@ class TestSpiceExclusion:
         assert "cumin" not in names
         assert "paprika" not in names
 
-    def test_shopping_list_keeps_spices_when_include_on(self):
+    def test_shopping_list_keeps_spices_when_include_on(self) -> None:
         # include_spices=True → seasonings stay on the list (with a real weight).
         days = [_day([_spice_meal([("chicken", 300, False), ("cumin", 5, True)])])]
         result = compute_shopping_list_from_plan(days, [], include_spices=True)
@@ -324,7 +324,7 @@ class TestSpiceExclusion:
         assert "chicken" in names
         assert "cumin" in names
 
-    def test_include_spices_on_is_deterministic_not_llm_dependent(self):
+    def test_include_spices_on_is_deterministic_not_llm_dependent(self) -> None:
         # THE guard: even if the LLM mis-tags an item is_spice=true while the user
         # wants spices ON, it must NOT be silently dropped from the list. The
         # outcome depends on the preference, never on the model's is_spice bit.
@@ -332,13 +332,13 @@ class TestSpiceExclusion:
         assert [r.name for r in compute_shopping_list_from_plan(days, [], include_spices=True)] == ["salt"]
         assert compute_shopping_list_from_plan(days, [], include_spices=False) == []
 
-    def test_default_includes_spices(self):
+    def test_default_includes_spices(self) -> None:
         # Default (no arg) is include_spices=True, matching the User default —
         # so a spice is kept unless the caller explicitly turns spices off.
         days = [_day([_spice_meal([("oregano", 2, True)])])]
         assert [r.name for r in compute_shopping_list_from_plan(days, [])] == ["oregano"]
 
-    def test_fridge_subtraction_excludes_spices(self):
+    def test_fridge_subtraction_excludes_spices(self) -> None:
         # subtract_used_from_fridge is intentionally NOT gated on include_spices —
         # it drives the internal generation simulation, not the user-facing list —
         # so it always skips is_spice items regardless of the preference.
@@ -356,7 +356,7 @@ class TestSpiceExclusion:
         # cumin should be untouched — spice flag means it's not subtracted
         assert by_name["cumin"].quantity_grams == pytest.approx(50.0)
 
-    def test_merge_shopping_lists_excludes_spices(self):
+    def test_merge_shopping_lists_excludes_spices(self) -> None:
         items = [
             IngredientAmount(name="rice", quantity_grams=200),
             IngredientAmount(name="salt", quantity_grams=1, is_spice=True),
@@ -372,14 +372,14 @@ class TestStapleExclusion:
     frozen list of an existing plan is never rewritten. The exclusion set is
     lowercased keys, matching the `ing.name.lower()` comparison inside compute."""
 
-    def test_staple_excluded_from_shopping_list(self):
+    def test_staple_excluded_from_shopping_list(self) -> None:
         days = [_day([_meal([("chicken", 300), ("salt", 5), ("oil", 20)])])]
         result = compute_shopping_list_from_plan(
             days, [], staples=frozenset({"salt", "oil"})
         )
         assert [r.name for r in result] == ["chicken"]
 
-    def test_staple_matching_is_case_insensitive(self):
+    def test_staple_matching_is_case_insensitive(self) -> None:
         # The ingredient's own casing must not let it slip back onto the list.
         days = [_day([_meal([("Salt", 5), ("Olive Oil", 20), ("rice", 200)])])]
         result = compute_shopping_list_from_plan(
@@ -387,20 +387,20 @@ class TestStapleExclusion:
         )
         assert [r.name for r in result] == ["rice"]
 
-    def test_no_staples_is_a_noop(self):
+    def test_no_staples_is_a_noop(self) -> None:
         days = [_day([_meal([("salt", 5), ("rice", 200)])])]
         # default (None) and an explicit empty set both leave the list untouched
         assert len(compute_shopping_list_from_plan(days, [])) == 2
         assert len(compute_shopping_list_from_plan(days, [], staples=frozenset())) == 2
 
-    def test_unknown_staple_has_no_effect(self):
+    def test_unknown_staple_has_no_effect(self) -> None:
         days = [_day([_meal([("rice", 200)])])]
         result = compute_shopping_list_from_plan(
             days, [], staples=frozenset({"saffron"})
         )
         assert [r.name for r in result] == ["rice"]
 
-    def test_staple_excluded_even_when_fridge_is_short(self):
+    def test_staple_excluded_even_when_fridge_is_short(self) -> None:
         # A staple is dropped entirely — a fridge shortfall on it must not let it
         # reappear on the list.
         fridge = [StockItemDTO(name="flour", quantity_grams=10)]

@@ -1,6 +1,8 @@
 import { useId, useState } from "react";
 import { ModalShell } from "./ModalShell";
 import { requestPasswordReset } from "../api";
+import { useI18n } from "../i18n";
+import { Trans } from "../i18n/Trans";
 
 /**
  * "Forgot your password?" flow. Enter an email → POST /auth/forgot-password.
@@ -27,6 +29,7 @@ export function ForgotPasswordModal({
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleId = useId();
+  const { t } = useI18n();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,14 +39,14 @@ export function ForgotPasswordModal({
       await requestPasswordReset(email);
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : t("auth.genericError"));
     } finally {
       setPending(false);
     }
   };
 
   return (
-    <ModalShell onClose={onClose} ariaLabel="Reset your password" zIndex={1200}>
+    <ModalShell onClose={onClose} ariaLabel={t("auth.forgot.title")} zIndex={1200}>
       <div
         style={{
           backgroundColor: "#fff",
@@ -56,32 +59,34 @@ export function ForgotPasswordModal({
         }}
       >
         <h3 id={titleId} style={{ margin: "0 0 0.75rem 0", fontSize: "1.15rem" }}>
-          Reset your password
+          {t("auth.forgot.title")}
         </h3>
 
         {sent ? (
           <>
             <p style={{ margin: "0 0 1.25rem 0", color: "#374151", fontSize: "0.95rem", lineHeight: 1.5 }}>
-              If an account exists for <strong>{email}</strong>, we've sent it a
-              link to reset the password. Check your inbox — and your spam
-              folder, just in case. The link expires in 30 minutes.
+              {/* One key — the address is bolded MID-sentence, and Czech puts
+                  it in a different position, so a prefix/suffix split would be
+                  untranslatable. Still neutral about whether the account
+                  exists; see the docstring. */}
+              <Trans k="auth.forgot.sent" nodes={{ email: <strong>{email}</strong> }} />
             </p>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button type="button" onClick={onClose} style={primaryBtn}>
-                Done
+                {t("auth.forgot.done")}
               </button>
             </div>
           </>
         ) : (
           <form onSubmit={handleSubmit}>
             <p style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.95rem", lineHeight: 1.5 }}>
-              Enter your email and we'll send you a link to set a new password.
+              {t("auth.forgot.body")}
             </p>
             <input
               type="email"
               value={email}
               onChange={(e) => { setEmail(e.target.value); setError(null); }}
-              placeholder="you@example.com"
+              placeholder={t("auth.emailPlaceholder")}
               autoFocus
               required
               autoComplete="email"
@@ -104,10 +109,10 @@ export function ForgotPasswordModal({
             )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
               <button type="button" onClick={onClose} disabled={pending} style={secondaryBtn(pending)}>
-                Cancel
+                {t("auth.forgot.cancel")}
               </button>
               <button type="submit" disabled={pending || email.length === 0} style={primaryBtn}>
-                {pending ? "Sending…" : "Send reset link"}
+                {pending ? t("auth.forgot.sending") : t("auth.forgot.send")}
               </button>
             </div>
           </form>

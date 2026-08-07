@@ -227,50 +227,20 @@ describe('CookNowForm', () => {
     expect(payload.generation_id).toBe(7);
   });
 
-  it('surfaces a failed favourite instead of leaving the star silently dead', async () => {
-    // Regression: /recipe/favorite 400'd whenever the model returned a slot
-    // other than the requested one, and this call site had no onError — the
-    // star just never moved and the user got nothing at all.
-    loginUser();
-    mockedGenerate.mockResolvedValueOnce({
-      recipe: {
-        name: 'Quick Soup',
-        meal_type: 'light_lunch',  // model picked its own slot
-        meal_type_label: 'Light lunch',
-        ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
-        steps: ['Simmer'],
-      },
-      generation_id: 7,
-    });
-    mockedFavorite.mockRejectedValueOnce(new Error('Recipe favorite failed: 400'));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    render(<CookNowForm />, { wrapper: createWrapper() });
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
-    const star = await screen.findByRole('switch', { name: /add to cookbook/i });
-
-    await user.click(star);
-
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(/couldn't update your cookbook/i),
-    );
-    // The star stays unchecked — nothing was saved — but it is no longer silent.
-    expect(star).toHaveAttribute('aria-checked', 'false');
-    expect(star).not.toBeDisabled();
-  });
-
-  it('sends the request that produced the recipe, not the live form state', async () => {
-    // The favourite payload used to read the live `mealType` select, so
-    // changing the dropdown after generating recorded a request the recipe
-    // never came from.
+  it('stars the recipe that is on screen, not the form as it now reads', async () => {
+    // The star used to build its payload from LIVE form state (`mealType`,
+    // `peopleCount`) while `recipe` was whatever /generate returned. Touch the
+    // meal-type select after generating and the server's
+    // `recipe.meal_type must match meal_type` guard 400s — the star just went
+    // dead. /recipe/cook never had this: it sends `pendingRequest`, the frozen
+    // request that produced the recipe. The star now does the same.
     loginUser();
     mockedGenerate.mockResolvedValueOnce({
       recipe: {
         name: 'Quick Soup',
         meal_type: 'soup',
         meal_type_label: 'Soup',
-        ingredients: [],
+        ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
         steps: ['Simmer'],
       },
       generation_id: 7,
@@ -282,16 +252,88 @@ describe('CookNowForm', () => {
 
     render(<CookNowForm />, { wrapper: createWrapper() });
     const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText(/meal type/i), 'soup');
+    await user.selectOptions(screen.getByLabelText('Meal type'), 'soup');
     await user.click(screen.getByRole('button', { name: /generate recipe/i }));
     await waitFor(() => screen.getByRole('switch', { name: /add to cookbook/i }));
 
-    // Change the form AFTER generating, then star.
-    await user.selectOptions(screen.getByLabelText(/meal type/i), 'dessert');
+    // The user reconsiders the NEXT recipe while the soup is still on screen.
+    await user.selectOptions(screen.getByLabelText('Meal type'), 'dessert');
+    const people = screen.getByLabelText('People');
+    await user.clear(people);
+    await user.type(people, '5');
+
     await user.click(screen.getByRole('switch', { name: /add to cookbook/i }));
 
     await waitFor(() => expect(mockedFavorite).toHaveBeenCalledTimes(1));
-    expect(mockedFavorite.mock.calls[0][0].meal_type).toBe('soup');
+    const payload = mockedFavorite.mock.calls[0][0];
+    // Both fields describe the recipe being starred, so both come from the
+    // frozen request. meal_type is the one the server rejects on; people_count
+    // is the silent half — it decides the servings stored on the cookbook row.
+    expect(payload.meal_type).toBe('soup');
+    expect(payload.meal_type).toBe(payload.recipe.meal_type);
+    expect(payload.people_count).toBe(2);
+  });
+
+  it('reports a failed star instead of doing nothing', async () => {
+    // useFavoriteRecipe's error was rendered nowhere, so any rejection — the
+    // 400 above, an expired session, an offline box — presented as a control
+    // that simply does not work. generate and cook both surface theirs.
+    loginUser();
+    mockedGenerate.mockResolvedValueOnce({
+      recipe: {
+        name: 'Quick Soup',
+        meal_type: 'soup',
+        meal_type_label: 'Soup',
+        ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
+        steps: ['Simmer'],
+      },
+      generation_id: 7,
+    });
+    mockedFavorite.mockRejectedValueOnce(new Error('Recipe favorite failed: 400 - nope'));
+
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    await waitFor(() => screen.getByRole('switch', { name: /add to cookbook/i }));
+
+    await user.click(screen.getByRole('switch', { name: /add to cookbook/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/couldn't save to your cookbook/i);
+    // Still unstarred — the alert explains why rather than the star lying.
+    expect(screen.getByRole('switch', { name: /add to cookbook/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('clears a stale star error when the next recipe is generated', async () => {
+    // The alert lives in the recipe card, which survives a re-generate. Without
+    // an explicit reset, a failure on recipe A would still be on screen under
+    // recipe B, blaming it for something that never happened to it.
+    loginUser();
+    const recipe = (name: string) => ({
+      name, meal_type: 'soup', meal_type_label: 'Soup',
+      ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
+      steps: ['Simmer'],
+    });
+    mockedGenerate
+      .mockResolvedValueOnce({ recipe: recipe('Quick Soup'), generation_id: 7 })
+      .mockResolvedValueOnce({ recipe: recipe('Slow Soup'), generation_id: 8 });
+    mockedFavorite.mockRejectedValueOnce(new Error('Recipe favorite failed: 400 - nope'));
+
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    await waitFor(() => screen.getByRole('switch', { name: /add to cookbook/i }));
+    await user.click(screen.getByRole('switch', { name: /add to cookbook/i }));
+    await screen.findByRole('alert');
+
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Slow Soup' })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('collects "ingredients to avoid" as chips and sends them in the request', async () => {

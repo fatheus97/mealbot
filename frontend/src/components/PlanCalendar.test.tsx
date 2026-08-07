@@ -44,13 +44,18 @@ const okJson = (body: unknown) => ({
  * in this file.
  *
  * ⚠️ THE DAY MUST BE 15 OR LATER. monthMatrix() always emits a 6x7 = 42-cell
- * grid rewound to the week's Sunday, and PlanCalendar renders a chip for EVERY
- * cell — `inMonth` only changes styling, not whether the meal name is in the
- * DOM. So the current month's grid spills into next month by
+ * grid rewound to THE LOCALE'S FIRST WEEKDAY — Sunday under `en`, Monday under
+ * `cs` — and PlanCalendar renders a chip for EVERY cell; `inMonth` only changes
+ * styling, not whether the meal name is in the DOM. So the current month's grid
+ * spills into next month by
  *
- *     42 - weekday(1st, 0=Sun) - daysInMonth
+ *     42 - offsetOfFirst - daysInMonth
  *
- * which peaks at 42 - 0 - 28 = 14 (a 28-day February beginning on a Sunday).
+ * where offsetOfFirst is how far the 1st sits after the locale's first weekday.
+ * That still peaks at 42 - 0 - 28 = 14 whichever weekday starts the week: the
+ * worst case is a 28-day February whose 1st IS the first weekday, and one
+ * exists for both conventions (Feb 2026 opens on a Sunday, Feb 2021 opened on a
+ * Monday). So the margin below survived this file gaining a `cs` case.
  * Days 1-14 of next month can therefore land in a rendered cell and make the
  * /Chicken Curry/ assertions multi-match again — the same failure this helper
  * exists to prevent, re-triggered by calendar SHAPE instead of a literal.

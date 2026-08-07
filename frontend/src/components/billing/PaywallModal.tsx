@@ -1,20 +1,37 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useBilling } from "../../hooks/useBilling";
 import { useAuth } from "../../contexts/AuthContext";
+import { useI18n, type TranslationKey } from "../../i18n";
+import { Trans } from "../../i18n/Trans";
+import { legalHref } from "../../i18n/localeFormat";
 import type { BillingPlan } from "../../types";
 
 // Marketing copy for the plan toggle. The authoritative amount is shown on Stripe's
 // hosted checkout page; these are the sticker figures the pricing was set at (EUR,
 // tax-inclusive). Annual = €35.88/yr = €2.99/mo, ~40% off monthly.
+//
+// The PRICE is a translation key like everything else, because its decimal
+// separator is language-specific: "€4.99" in English is "4,99 €" in Czech.
 const PLAN_OPTIONS: {
   plan: BillingPlan;
-  label: string;
-  price: string;
-  sub: string;
-  badge?: string;
+  label: TranslationKey;
+  price: TranslationKey;
+  sub: TranslationKey;
+  badge?: TranslationKey;
 }[] = [
-  { plan: "monthly", label: "Monthly", price: "€4.99", sub: "per month" },
-  { plan: "annual", label: "Annual", price: "€2.99", sub: "per month, billed €35.88/yr", badge: "Save 40%" },
+  {
+    plan: "monthly",
+    label: "billing.paywall.monthly",
+    price: "billing.paywall.monthlyPrice",
+    sub: "billing.paywall.monthlySub",
+  },
+  {
+    plan: "annual",
+    label: "billing.paywall.annual",
+    price: "billing.paywall.annualPrice",
+    sub: "billing.paywall.annualSub",
+    badge: "billing.paywall.annualBadge",
+  },
 ];
 
 /**
@@ -29,6 +46,7 @@ export function PaywallModal() {
   const [open, setOpen] = useState(false);
   const { startCheckout, checkoutPending, error, reset } = useBilling();
   const { annualBillingAvailable } = useAuth();
+  const { t, locale } = useI18n();
   const [plan, setPlan] = useState<BillingPlan>("monthly");
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -132,15 +150,14 @@ export function PaywallModal() {
         }}
       >
         <h3 id={titleId} style={{ margin: "0 0 0.5rem 0", fontSize: "1.15rem" }}>
-          Subscription required
+          {t("billing.paywall.title")}
         </h3>
         <p style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.95rem", lineHeight: 1.5 }}>
-          Generating meal plans and recipes needs an active subscription. Start a
-          10-day free trial — no charge until it ends, cancel anytime.
+          {t("billing.paywall.body")}
         </p>
 
         {annualBillingAvailable && (
-          <div role="group" aria-label="Billing plan" style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+          <div role="group" aria-label={t("billing.paywall.planGroup")} style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
             {PLAN_OPTIONS.map((opt) => {
               const selected = plan === opt.plan;
               return (
@@ -162,15 +179,15 @@ export function PaywallModal() {
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.25rem" }}>
-                    <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{opt.label}</span>
+                    <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{t(opt.label)}</span>
                     {opt.badge && (
                       <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "#166534", background: "#dcfce7", borderRadius: 999, padding: "0.05rem 0.4rem" }}>
-                        {opt.badge}
+                        {t(opt.badge)}
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: 2 }}>{opt.price}</div>
-                  <div style={{ fontSize: "0.72rem", color: "#6b7280" }}>{opt.sub}</div>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: 2 }}>{t(opt.price)}</div>
+                  <div style={{ fontSize: "0.72rem", color: "#6b7280" }}>{t(opt.sub)}</div>
                 </button>
               );
             })}
@@ -200,7 +217,7 @@ export function PaywallModal() {
               opacity: checkoutPending ? 0.6 : 1,
             }}
           >
-            Maybe later
+            {t("billing.paywall.later")}
           </button>
           <button
             type="button"
@@ -217,14 +234,23 @@ export function PaywallModal() {
               opacity: checkoutPending ? 0.7 : 1,
             }}
           >
-            {checkoutPending ? "Starting…" : "Start free trial"}
+            {checkoutPending ? t("billing.paywall.starting") : t("billing.paywall.start")}
           </button>
         </div>
 
         {/* The paywall is where money starts changing hands, and it linked to
             neither legal document. Both open in a new tab so reading them does
             not abandon a checkout mid-flow. Colours are pinned against this
-            card's own explicit light surface. */}
+            card's own explicit light surface.
+
+            The hrefs are locale-derived (`legalHref`), not "/terms": the Czech
+            editions are EQUALLY AUTHORITATIVE (#396), so sending a Czech user
+            one click from paying to the English contract pointed them at the
+            wrong binding document.
+
+            One key with two holes rather than a prefix/label/suffix split —
+            Czech puts both document names in the instrumental after
+            "souhlasíte s", which no concatenation can express. */}
         <p
           style={{
             margin: "1rem 0 0",
@@ -233,15 +259,31 @@ export function PaywallModal() {
             textAlign: "right",
           }}
         >
-          By subscribing you agree to our{" "}
-          <a href="/terms" target="_blank" rel="noopener noreferrer" style={legalLink}>
-            Terms of Service
-          </a>{" "}
-          and{" "}
-          <a href="/privacy" target="_blank" rel="noopener noreferrer" style={legalLink}>
-            Privacy Policy
-          </a>
-          .
+          <Trans
+            k="billing.paywall.legal"
+            nodes={{
+              terms: (
+                <a
+                  href={legalHref(locale, "terms")}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={legalLink}
+                >
+                  {t("auth.acceptTerms.termsLink")}
+                </a>
+              ),
+              privacy: (
+                <a
+                  href={legalHref(locale, "privacy")}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={legalLink}
+                >
+                  {t("auth.acceptTerms.privacyLink")}
+                </a>
+              ),
+            }}
+          />
         </p>
       </div>
     </div>

@@ -1,11 +1,13 @@
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import URL, event, make_url, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.orm import Session, SessionTransaction
 from sqlmodel import SQLModel
 
 from app.api.deps import get_current_user
@@ -85,7 +87,7 @@ async def _ensure_database(url: URL) -> None:
 
 
 @pytest.fixture(scope="session")
-async def test_engine():
+async def test_engine() -> AsyncGenerator[AsyncEngine]:
     worker = os.environ.get("PYTEST_XDIST_WORKER")
     db_url = _worker_database_url(worker)
     if worker:
@@ -107,7 +109,7 @@ async def test_engine():
 
 
 @pytest.fixture(autouse=True)
-def _disable_rate_limiting():
+def _disable_rate_limiting() -> Iterator[None]:
     """Disable rate limiting for all tests to prevent cross-test interference."""
     limiter.enabled = False
     yield
@@ -115,7 +117,7 @@ def _disable_rate_limiting():
 
 
 @pytest.fixture(autouse=True)
-def _reset_parse_executor_latch():
+def _reset_parse_executor_latch() -> Iterator[None]:
     """The parse executor (app.core.executors) is a process-global singleton with
     a _shutting_down latch. Any test that runs the app lifespan (e.g. the
     embedding-model init test does `async with lifespan(app)`) trips the latch on
@@ -130,7 +132,7 @@ def _reset_parse_executor_latch():
 
 
 @pytest.fixture(autouse=True)
-def _disable_csrf(monkeypatch: pytest.MonkeyPatch):
+def _disable_csrf(monkeypatch: pytest.MonkeyPatch) -> None:
     """Disable CSRF middleware for the default test client.
 
     The bulk of the test suite uses the dependency-overridden `client`
@@ -142,7 +144,7 @@ def _disable_csrf(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
-def _disable_cookie_secure(monkeypatch: pytest.MonkeyPatch):
+def _disable_cookie_secure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests use httpx ASGITransport over plain http://test, so cookies set
     with Secure would be silently dropped by the client and break every
     cookie-driven test. Production keeps cookie_secure=True (the default)."""
@@ -150,7 +152,7 @@ def _disable_cookie_secure(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
-def _billing_disabled_by_default(monkeypatch: pytest.MonkeyPatch):
+def _billing_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force the paygate OFF for every test by default, so the suite is
     deterministic regardless of the ambient BILLING_ENABLED (a developer's local
     .env may have it on for manual Stripe testing). Without this, every gated
@@ -161,7 +163,7 @@ def _billing_disabled_by_default(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
-def _fast_bcrypt_rounds(monkeypatch: pytest.MonkeyPatch):
+def _fast_bcrypt_rounds(monkeypatch: pytest.MonkeyPatch) -> None:
     """Hash test passwords at bcrypt's minimum work factor.
 
     The ``test_user``/``client`` fixtures plus the auth-flow tests hash a
@@ -177,7 +179,7 @@ def _fast_bcrypt_rounds(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
+async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
     """
     Each test gets a session inside a top-level transaction that is always
     rolled back. Endpoint code that calls session.commit() actually commits
@@ -193,8 +195,14 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
         # When the session calls commit(), redirect it to a nested SAVEPOINT
         # so the outer transaction stays open for rollback.
         @event.listens_for(session.sync_session, "after_transaction_end")
-        def restart_savepoint(sync_session, transaction):
-            if transaction.nested and not transaction._parent.nested:
+        def restart_savepoint(
+            sync_session: Session, transaction: SessionTransaction
+        ) -> None:
+            # ``_parent`` is typed Optional, but a nested transaction always has
+            # one. cast() is a no-op at runtime, so an impossible None still
+            # raises here rather than being silently swallowed by a guard.
+            parent = cast(SessionTransaction, transaction._parent)
+            if transaction.nested and not parent.nested:
                 sync_session.begin_nested()
 
         # Start the initial SAVEPOINT
@@ -243,10 +251,10 @@ async def client(
 ) -> AsyncGenerator[AsyncClient]:
     from app.main import app
 
-    async def override_get_session():
+    async def override_get_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
-    async def override_get_current_user():
+    async def override_get_current_user() -> User:
         return test_user
 
     app.dependency_overrides[get_session] = override_get_session
@@ -265,7 +273,7 @@ async def unauthed_client(
 ) -> AsyncGenerator[AsyncClient]:
     from app.main import app
 
-    async def override_get_session():
+    async def override_get_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session

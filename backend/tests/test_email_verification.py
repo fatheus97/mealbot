@@ -5,6 +5,7 @@ predates this feature must keep working. The migration backfills those rows,
 and `test_conftest_user_is_verified_like_a_backfilled_account` below pins the
 fixture that stands in for them.
 """
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -58,7 +59,7 @@ class TestOperatorCreatedAccountsAreVerified:
         from app.scripts import create_user as cli
 
         @asynccontextmanager
-        async def fake_factory():  # type: ignore[no-untyped-def]
+        async def fake_factory() -> AsyncIterator[AsyncSession]:
             yield db_session
 
         monkeypatch.setattr(cli, "async_session_factory", fake_factory)
@@ -66,7 +67,7 @@ class TestOperatorCreatedAccountsAreVerified:
 
         user = (
             await db_session.execute(
-                select(User).where(User.email == "cli-admin@example.com")  # type: ignore[arg-type]
+                select(User).where(User.email == "cli-admin@example.com")
             )
         ).scalars().first()
         assert user is not None
@@ -91,7 +92,7 @@ class TestOperatorCreatedAccountsAreVerified:
         assert resp.status_code == 201
         created = (
             await db_session.execute(
-                select(User).where(User.normalized_email == "admin-made@example.com")  # type: ignore[arg-type]
+                select(User).where(User.normalized_email == "admin-made@example.com")
             )
         ).scalars().first()
         assert created is not None
@@ -200,7 +201,7 @@ class TestRedeem:
         live = (
             await db_session.execute(
                 select(EmailVerificationToken)
-                .where(EmailVerificationToken.user_id == test_user.id)  # type: ignore[arg-type]
+                .where(EmailVerificationToken.user_id == test_user.id)
                 .where(EmailVerificationToken.used_at.is_(None))  # type: ignore[union-attr]
             )
         ).scalars().all()

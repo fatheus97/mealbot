@@ -258,10 +258,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: TERMS_VERSION matches the published pages
+      - name: TERMS_VERSION matches all four published pages
         # POSIX -E rather than -P throughout: -P is a GNU extension that also
         # refuses to run under some locales, so the same commands would not be
         # checkable on the dev machine.
+        #
+        # Reads <time datetime="YYYY-MM-DD">, not the printed prose date. The
+        # prose is now in two languages — "6 August 2026" and "6. srpna 2026" —
+        # and `date -d` cannot parse the Czech one under any locale CI is
+        # guaranteed to have. The machine-readable attribute is the same string
+        # in every language, which is what <time> is for.
+        #
+        # That also retires the `date -d ""` trap the previous version had to
+        # guard against by hand: there is no date PARSING left, only a string
+        # comparison against the constant.
         run: |
           set -uo pipefail
           constant="$(sed -n 's/.*TERMS_VERSION *= *"\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)".*/\1/p' \
@@ -270,23 +280,37 @@ jobs:
             echo "::error::could not read TERMS_VERSION from backend/app/core/legal.py"
             exit 1
           fi
+          pages="frontend/terms.html frontend/privacy.html frontend/cs/terms.html frontend/cs/privacy.html"
+          # Pinned COUNT, load-bearing: a renamed or deleted page would
+          # otherwise drop silently out of the loop and the job would pass
+          # having checked fewer documents than exist. Both editions of both
+          # documents are equally authoritative, so all four must agree.
+          expected=4
+          found=0
           failed=0
-          for page in frontend/terms.html frontend/privacy.html; do
-            printed="$(grep -oE 'Last updated: [0-9]{1,2} [A-Z][a-z]+ [0-9]{4}' "$page" \
-              | head -1 | sed 's/Last updated: //')"
-            # Load-bearing: `date -d ""` silently returns TODAY, so an empty
-            # capture would compare a plausible-looking date and could pass.
-            if [ -z "$printed" ]; then
-              echo "::error::${page} has no 'Last updated: D Month YYYY' line"
+          for page in $pages; do
+            if [ ! -f "$page" ]; then
+              echo "::error::${page} does not exist — the legal set is meant to be ${expected} pages"
               failed=1
               continue
             fi
-            iso="$(date -d "$printed" +%F)"
+            found=$((found + 1))
+            iso="$(grep -oE '<time datetime="[0-9]{4}-[0-9]{2}-[0-9]{2}"' "$page" \
+              | head -1 | sed 's/.*datetime="//; s/"//')"
+            if [ -z "$iso" ]; then
+              echo "::error::${page} has no <time datetime=\"YYYY-MM-DD\"> element"
+              failed=1
+              continue
+            fi
             if [ "$iso" != "$constant" ]; then
-              echo "::error::${page} says ${printed} (${iso}) but TERMS_VERSION is ${constant}"
+              echo "::error::${page} says ${iso} but TERMS_VERSION is ${constant}"
               failed=1
             fi
           done
+          if [ "$found" -ne "$expected" ]; then
+            echo "::error::checked ${found} legal pages, expected ${expected}"
+            failed=1
+          fi
           exit "$failed"
 
   # The set of translated locales is declared twice — once for the UI
@@ -424,6 +448,92 @@ jobs:
             fi
           done
           exit "$failed"
+
+      - name: The unit sync installs, reloads, restarts and enables correctly
+        # Guards the behaviours that make this safe to run every ten minutes as
+        # root, none of which shellcheck can see and none of which can be tested
+        # on the box without waiting for real drift:
+        #   - an unchanged tree must not call systemctl at all;
+        #   - an edited RUNNING timer must be restarted, or daemon-reload leaves
+        #     the old schedule live and the sync silently lies;
+        #   - an edited STOPPED timer must NOT be restarted, or a deliberate
+        #     `systemctl disable --now` comes back ten minutes later;
+        #   - a .service is never restarted (they are oneshot — that would run
+        #     the backup/prune as a side effect of editing a comment).
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          src="$work/src"; dst="$work/dst"; bin="$work/bin"
+          mkdir -p "$src" "$dst" "$bin"
+          # Stub systemctl: record every call, and answer `is-active` from a file
+          # the test controls so both timer states can be exercised.
+          cat > "$bin/systemctl" <<'STUB'
+          #!/usr/bin/env bash
+          echo "$*" >> "$CALLS"
+          if [ "$1" = "is-active" ]; then
+            grep -qx "${@: -1}" "$ACTIVE" 2>/dev/null || exit 1
+          fi
+          exit 0
+          STUB
+          sed -i 's/^          //' "$bin/systemctl"
+          chmod +x "$bin/systemctl"
+          : > "$work/active"
+          printf 'v1\n' > "$src/mealbot-demo.service"
+          printf 'v1\n' > "$src/mealbot-demo.timer"
+          run() { CALLS="$work/calls" ACTIVE="$work/active" \
+                  MEALBOT_UNIT_SRC="$src" MEALBOT_UNIT_DST="$dst" \
+                  MEALBOT_SYSTEMCTL="$bin/systemctl" ./scripts/sync-systemd-units.sh; }
+
+          # (1) First run: both files land, one reload, the new timer is enabled.
+          run > "$work/out1"
+          cmp -s "$src/mealbot-demo.service" "$dst/mealbot-demo.service" \
+            || { echo "::error::unit was not installed"; exit 1; }
+          grep -qx 'daemon-reload' "$work/calls" \
+            || { echo "::error::no daemon-reload after installing units"; exit 1; }
+          grep -qx 'enable --now mealbot-demo.timer' "$work/calls" \
+            || { echo "::error::a newly installed timer was not enabled"; exit 1; }
+
+          # (2) Nothing changed: no systemctl calls at all.
+          before=$(wc -l < "$work/calls")
+          run > "$work/out2"
+          [ "$(wc -l < "$work/calls")" = "$before" ] \
+            || { echo "::error::no-op run still called systemctl"; exit 1; }
+
+          # (3) Edited timer that is RUNNING: reinstalled, reloaded, restarted so
+          #     a changed schedule actually takes effect — but never re-enabled.
+          echo 'mealbot-demo.timer' > "$work/active"
+          printf 'v2\n' > "$src/mealbot-demo.timer"
+          run > "$work/out3"
+          cmp -s "$src/mealbot-demo.timer" "$dst/mealbot-demo.timer" \
+            || { echo "::error::edited unit was not reinstalled"; exit 1; }
+          [ "$(grep -cx 'daemon-reload' "$work/calls")" = 2 ] \
+            || { echo "::error::edited unit did not trigger daemon-reload"; exit 1; }
+          grep -qx 'restart mealbot-demo.timer' "$work/calls" \
+            || { echo "::error::an edited RUNNING timer was not restarted (its old schedule stays live)"; exit 1; }
+          [ "$(grep -cx 'enable --now mealbot-demo.timer' "$work/calls")" = 1 ] \
+            || { echo "::error::an EDITED unit re-enabled its timer"; exit 1; }
+
+          # (4) Edited timer the operator STOPPED: must stay stopped.
+          : > "$work/active"
+          printf 'v3\n' > "$src/mealbot-demo.timer"
+          run > "$work/out4"
+          [ "$(grep -cx 'restart mealbot-demo.timer' "$work/calls")" = 1 ] \
+            || { echo "::error::a STOPPED timer was restarted by the sync"; exit 1; }
+
+          # (5) An edited .service is never restarted — that would run the job.
+          echo 'mealbot-demo.timer' > "$work/active"
+          printf 'v2\n' > "$src/mealbot-demo.service"
+          run > "$work/out5"
+          grep -qx 'restart mealbot-demo.service' "$work/calls" \
+            && { echo "::error::the sync restarted a oneshot .service"; exit 1; }
+
+          # (6) A missing source tree must fail, never report a clean no-op.
+          if MEALBOT_UNIT_SRC="$work/gone" MEALBOT_UNIT_DST="$dst" \
+             MEALBOT_SYSTEMCTL="$bin/systemctl" ./scripts/sync-systemd-units.sh; then
+            echo "::error::missing source directory exited 0"
+            exit 1
+          fi
+          rm -rf "$work"
 
       - name: A broken disk reading fails loudly
         # The bug this guards: `used_pct="$(df ...)"` is an ASSIGNMENT, and

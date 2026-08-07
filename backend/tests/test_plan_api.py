@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from sqlmodel import select
 from app.core.config import settings
 from app.core.dietary import Allergen
 from app.core.meal_types import MealType
-from app.models.db_models import MealEntry
+from app.models.db_models import MealEntry, User
 from app.models.plan_models import (
     IngredientAmount,
     MealPlanResponse,
@@ -38,8 +39,8 @@ def _fake_day() -> SingleDayResponse:
 class TestPlanGeneration:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_generate_one_day(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
 
         resp = await client.post(
@@ -58,8 +59,8 @@ class TestPlanGeneration:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_allergen_screen_exhaustion_returns_friendly_422(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         # When generation can't produce an allergen-clean plan it fails CLOSED.
         # The user must get a specific, actionable 422 that NAMES the allergen —
         # not the generic 502 "try again" (retrying the same restrictive request
@@ -83,8 +84,8 @@ class TestPlanGeneration:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_pantry_staples_excluded_from_generated_shopping_list(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # The generated meal uses a staple (flour, deliberately not a spice) and
         # two non-staples. Flour is marked "always have", so it must NOT reach the
         # frozen shopping list while chicken/rice do — proving the endpoint →
@@ -122,8 +123,8 @@ class TestPlanGeneration:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_include_spices_off_drops_spice_from_generated_list(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], test_user: User
+    ) -> None:
         # Pins the generate-path wiring (plan_service → compute include_spices).
         test_user.include_spices = False
         mock_gen.return_value = SingleDayResponse(meals=[PlannedMeal(
@@ -143,8 +144,8 @@ class TestPlanGeneration:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_include_spices_on_keeps_spice_on_generated_list(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], test_user: User
+    ) -> None:
         # Deterministic guard at the API level: a mis-tagged is_spice=true item
         # still reaches the list when the user wants spices on.
         test_user.include_spices = True
@@ -166,8 +167,8 @@ class TestPlanGeneration:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_regenerate_filters_spices_by_stored_not_live_preference(
         self, mock_gen: AsyncMock, mock_partial: AsyncMock,
-        client: AsyncClient, auth_headers: dict, test_user,
-    ):
+        client: AsyncClient, auth_headers: dict[str, str], test_user: User,
+    ) -> None:
         # Regression guard: regenerate must filter spices by the value the plan's
         # meals were AUTHORED under (stored in request_json), not the live pref —
         # else flipping include_spices ON then regenerating leaks 1g spice sentinels.
@@ -199,8 +200,8 @@ class TestPlanGeneration:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_multi_day_calls_per_day(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
 
         resp = await client.post(
@@ -217,8 +218,8 @@ class TestPlanGeneration:
 class TestPlanDayLayouts:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_day_layouts_flow_into_single_day_call(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         """Per-day layout in the request must flow into each generate_single_day
         invocation verbatim — no silent reordering or dropping."""
         mock_gen.return_value = _fake_day()
@@ -251,8 +252,8 @@ class TestPlanDayLayouts:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_day_layouts_length_must_match_days_query(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         resp = await client.post(
             "/api/plan?days=3",
             headers=auth_headers,
@@ -268,8 +269,8 @@ class TestPlanDayLayouts:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_day_layouts_absent_falls_back_to_user_default(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         """When the request doesn't supply day_layouts but the user has a
         saved default_day_layout, each day uses the saved default."""
         mock_gen.return_value = _fake_day()
@@ -293,8 +294,8 @@ class TestPlanDayLayouts:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_no_layout_anywhere_sends_none(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         """Neither request day_layouts nor user default → slot_layout=None,
         legacy meals_per_day-only path takes over."""
         mock_gen.return_value = _fake_day()
@@ -310,8 +311,8 @@ class TestPlanDayLayouts:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_day_layouts_override_user_default(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         """Explicit per-day layout in the request beats the user's saved default."""
         mock_gen.return_value = _fake_day()
 
@@ -338,8 +339,8 @@ class TestPlanDayLayouts:
 class TestPlanConfirm:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_confirm_decrements_fridge(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # Stock fridge with enough chicken
         await client.put(
             "/api/fridge",
@@ -366,8 +367,8 @@ class TestPlanConfirm:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_confirm_idempotent(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         await client.put(
             "/api/fridge",
             headers=auth_headers,
@@ -395,8 +396,8 @@ class TestPlanConfirm:
         assert by_name["chicken breast"]["quantity_grams"] == 300.0
 
     async def test_confirm_nonexistent_plan(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.post(
             "/api/plan/99999/confirm", headers=auth_headers
         )
@@ -420,8 +421,8 @@ class TestPlanRegenerate:
         mock_gen: AsyncMock,
         mock_partial: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         original_meal = PlannedMeal(
             name="Original Lunch",
             meal_type=MealType.LIGHT_LUNCH,
@@ -477,8 +478,8 @@ class TestPlanRegenerate:
         mock_gen: AsyncMock,
         mock_partial: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         # Regeneration fails CLOSED with the SAME friendly 422 as creation when
         # the partial-day screen can't clear the allergen — not a bare 502.
         mock_gen.return_value = SingleDayResponse(
@@ -521,8 +522,8 @@ class TestPlanRegenerate:
         mock_gen: AsyncMock,
         mock_partial: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         """The names of the unfrozen (rejected) meals must flow into the
         partial-day call via replaced_meals AND past_meals — otherwise the
         LLM keeps returning reskinned versions of what the user just rejected.
@@ -589,8 +590,8 @@ class TestPlanRegenerate:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_regenerate_confirmed_plan_rejected(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         mock_gen.return_value = _fake_day()
         plan_resp = await client.post(
             "/api/plan?days=1",
@@ -617,8 +618,8 @@ class TestPlanRegenerate:
         mock_gen: AsyncMock,
         mock_partial: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         # Plans stored before the whitelist landed may carry arbitrary
         # language values in their request_json. Regenerating such a plan
         # must not template the raw value into the prompt — normalize back
@@ -670,8 +671,8 @@ class TestPlanRegenerate:
         mock_gen: AsyncMock,
         mock_partial: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         # Same threat model as the language case: a plan stored before the
         # country whitelist landed may carry an arbitrary string. The prompt
         # now trusts the whitelist (no <user_content> fence on country), so
@@ -731,8 +732,8 @@ def _fake_day_with_non_stock_ingredient() -> SingleDayResponse:
 class TestStockOnlyPlan:
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_stock_only_empties_shopping_list(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """stock_only=true should force an empty shopping list."""
         mock_gen.return_value = _fake_day_with_non_stock_ingredient()
 
@@ -754,8 +755,8 @@ class TestStockOnlyPlan:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_stock_only_logs_warning_on_hallucinated_ingredients(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, caplog
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], caplog: pytest.LogCaptureFixture
+    ) -> None:
         """When LLM hallucinates non-stock items in stock_only mode, a warning is logged."""
         mock_gen.return_value = _fake_day_with_non_stock_ingredient()
 
@@ -777,8 +778,8 @@ class TestStockOnlyPlan:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_stock_only_false_keeps_shopping_list(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         """Default behavior (stock_only=false) should produce a non-empty shopping list."""
         mock_gen.return_value = _fake_day_with_non_stock_ingredient()
 
@@ -826,7 +827,7 @@ def _fake_two_slot_day() -> SingleDayResponse:
 
 
 @pytest.fixture
-def leftovers_on(monkeypatch: pytest.MonkeyPatch):
+def leftovers_on(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin leftover planning ON for a test.
 
     Redundant against today's default (True) and kept deliberately: it states
@@ -841,7 +842,7 @@ def leftovers_on(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def leftovers_off(monkeypatch: pytest.MonkeyPatch):
+def leftovers_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin leftover planning OFF — the kill-switch path."""
     monkeypatch.setattr(settings, "leftovers_enabled", False)
 
@@ -853,7 +854,7 @@ class TestLeftoverPolicyEndToEnd:
     that follows from it.
     """
 
-    async def _set_layout(self, client: AsyncClient, auth_headers: dict, layout: list[str]):
+    async def _set_layout(self, client: AsyncClient, auth_headers: dict[str, str], layout: list[str]) -> None:
         resp = await client.patch(
             "/api/users", headers=auth_headers, json={"default_day_layout": layout}
         )
@@ -861,8 +862,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_enabled_by_default_creates_links(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         """The feature is ON by default now — no fixture, no request field.
         This is what a real user gets."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
@@ -881,8 +882,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_kill_switch_off_creates_no_links(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_off,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_off: None,
+    ) -> None:
         """The setting outlives the rollout as a kill switch: LEFTOVERS_ENABLED
         =false in the prod .env stops NEW links without a deploy. Behaviour must
         fall back exactly to pre-feature — no links, no batch instruction."""
@@ -902,8 +903,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_client_cannot_opt_in_when_the_switch_is_off(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_off,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_off: None,
+    ) -> None:
         """THE gate, direction 1. MealPlanRequest is bound from the public
         request body, so without a server-side overwrite anyone reading the
         auto-generated schema could switch the feature on for themselves —
@@ -926,8 +927,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_client_cannot_opt_out_when_the_switch_is_on(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """THE gate, direction 2 — the one the flip makes reachable.
 
         The overwrite is unconditional, so it governs BOTH directions: a client
@@ -954,8 +955,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_auto_policy_links_lunch_to_previous_dinner(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         await self._set_layout(client, auth_headers, ["hot_dinner", "light_lunch"])
 
@@ -980,8 +981,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_leftover_is_excluded_from_past_meals(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """past_meals is an anti-repetition signal. A leftover appearing there
         would push the model away from the very dish it was told to reuse."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
@@ -999,9 +1000,9 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_shopping_list_does_not_double_buy_the_leftover(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
-    ):
+    ) -> None:
         """The end-to-end payoff: the leftover's food is bought once, with the
         source meal, not twice.
 
@@ -1033,8 +1034,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_auto_policy_without_a_layout_creates_no_links(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """The legacy meals_per_day path has no resolved layout, so we can't
         know which slot to scale — no links, rather than a wrong one."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
@@ -1052,8 +1053,8 @@ class TestLeftoverPolicyEndToEnd:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_generated_plan_satisfies_the_graph_invariants(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """The planner and the invariant checker must agree — the contract most
         likely to drift silently as either side evolves."""
         from app.services.leftovers import validate_leftover_graph
@@ -1085,8 +1086,8 @@ class TestLeftoverCannotBeFavorited:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_favoriting_a_leftover_is_rejected(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         await client.patch(
             "/api/users", headers=auth_headers,
@@ -1127,7 +1128,7 @@ class TestRegenerateIsLeftoverSafe:
     Group expansion makes that unreachable; these tests pin it end to end.
     """
 
-    async def _plan_with_link(self, client: AsyncClient, auth_headers: dict) -> dict:
+    async def _plan_with_link(self, client: AsyncClient, auth_headers: dict[str, str]) -> dict[str, Any]:
         await client.patch(
             "/api/users", headers=auth_headers,
             json={"default_day_layout": ["hot_dinner", "light_lunch"]},
@@ -1137,7 +1138,7 @@ class TestRegenerateIsLeftoverSafe:
             json={"meals_per_day": 2, "people_count": 2},
         )
         assert resp.status_code == 200
-        body = resp.json()
+        body: dict[str, Any] = resp.json()
         # day1.meal1 is leftovers of day0.meal0
         assert body["days"][1]["meals"][1]["leftover_of"] == {
             "day_index": 0, "meal_index": 0,
@@ -1148,8 +1149,8 @@ class TestRegenerateIsLeftoverSafe:
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     async def test_freezing_the_leftover_also_freezes_its_source(
         self, mock_partial: AsyncMock, mock_gen: AsyncMock,
-        client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """Freezing only the leftover must pull its source into the frozen set,
         or the source gets regenerated and the link silently retargets."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
@@ -1184,8 +1185,8 @@ class TestRegenerateIsLeftoverSafe:
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     async def test_regenerating_the_group_drops_the_link(
         self, mock_partial: AsyncMock, mock_gen: AsyncMock,
-        client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """When nothing in the group is frozen, both slots are regenerated into
         fresh independent dishes. The link must be DROPPED: the source was not
         asked to cook a bigger batch, so the leftover's food does not exist."""
@@ -1219,8 +1220,8 @@ class TestRegenerateIsLeftoverSafe:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_all_frozen_early_return_preserves_links(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """The all-frozen path returns the stored plan untouched. Intact by
         construction — pinned so a future refactor cannot quietly break it."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
@@ -1244,8 +1245,8 @@ class TestRegenerateIsLeftoverSafe:
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     async def test_link_dropped_even_when_the_new_source_reuses_the_name(
         self, mock_partial: AsyncMock, mock_gen: AsyncMock,
-        client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """The case NEITHER the meal-replacement nor the identity check covers.
 
         Regenerating a slot normally drops the link for free, because the slot
@@ -1302,8 +1303,8 @@ class TestEditSourceFansOutToLeftovers:
     identity check that detects a silently-retargeted link."""
 
     async def _confirmed_plan_with_link(
-        self, client: AsyncClient, auth_headers: dict,
-    ) -> dict:
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> dict[str, Any]:
         await client.patch(
             "/api/users", headers=auth_headers,
             json={"default_day_layout": ["hot_dinner", "light_lunch"]},
@@ -1312,7 +1313,7 @@ class TestEditSourceFansOutToLeftovers:
             "/api/plan?days=2", headers=auth_headers,
             json={"meals_per_day": 2, "people_count": 2},
         )
-        body = resp.json()
+        body: dict[str, Any] = resp.json()
         confirm = await client.post(
             "/api/plan/" + str(body["plan_id"]) + "/confirm", headers=auth_headers,
         )
@@ -1321,8 +1322,8 @@ class TestEditSourceFansOutToLeftovers:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_renaming_the_source_updates_its_leftovers(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
         body = await self._confirmed_plan_with_link(client, auth_headers)
         plan_id = body["plan_id"]
@@ -1352,8 +1353,8 @@ class TestEditSourceFansOutToLeftovers:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_editing_only_steps_does_not_touch_dependents(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """The fan-out is keyed on the NAME changing — an unrelated content edit
         must not rewrite dependents."""
         mock_gen.side_effect = lambda *a, **kw: _fake_two_slot_day()
@@ -1377,9 +1378,9 @@ class TestEditSourceFansOutToLeftovers:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_fan_out_updates_the_projection_columns(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict,
-        db_session: AsyncSession, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+        db_session: AsyncSession, leftovers_on: None,
+    ) -> None:
         """Asserts leftover_source_name and meal_json on the MealEntry row
         DIRECTLY, because no endpoint exposes either field — MealEntrySummary
         projects only id/day/meal/name/meal_type/cooked_at/is_favorite.
@@ -1418,8 +1419,8 @@ class TestEditSourceFansOutToLeftovers:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_fan_out_does_not_clobber_a_user_edited_leftover(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, leftovers_on,
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str], leftovers_on: None,
+    ) -> None:
         """Editing a leftover's name and steps is explicitly allowed (only
         ingredients are rejected), and response_json is the ONLY copy. A later
         rename of the source must not destroy that wording.

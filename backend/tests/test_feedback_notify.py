@@ -12,7 +12,7 @@ from app.services import feedback_notify
 def _user(**over: object) -> User:
     base: dict[str, object] = dict(email="reporter@example.com", hashed_password="x")
     base.update(over)
-    user = User(**base)  # type: ignore[arg-type]
+    user = User(**base)
     user.id = 7
     return user
 

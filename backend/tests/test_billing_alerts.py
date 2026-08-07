@@ -4,6 +4,7 @@ respects its day-of-month gate and per-month dedupe."""
 
 from datetime import datetime
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -15,7 +16,7 @@ from app.services.billing_alerts import run_billing_alerts
 class _Sender:
     """Fake send-email callback recording calls; `ok` controls success."""
 
-    def __init__(self, ok: bool = True):
+    def __init__(self, ok: bool = True) -> None:
         self.calls: list[tuple[str, str]] = []
         self.ok = ok
 
@@ -42,7 +43,7 @@ async def _alert_keys(db_session: AsyncSession) -> list[str]:
     return sorted(rows)
 
 
-async def test_threshold_alert_fires_and_dedupes(db_session: AsyncSession, monkeypatch):
+async def test_threshold_alert_fires_and_dedupes(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "vat_eu_oss_threshold_eur", 10_000.0)
     monkeypatch.setattr(settings, "vat_reminder_day", 20)
     now = datetime(2026, 7, 10)  # day < 20 → no monthly reminder this run
@@ -65,7 +66,7 @@ async def test_threshold_alert_fires_and_dedupes(db_session: AsyncSession, monke
     assert sender2.calls == []
 
 
-async def test_threshold_100pct_fires_both_levels(db_session: AsyncSession, monkeypatch):
+async def test_threshold_100pct_fires_both_levels(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "vat_eu_oss_threshold_eur", 10_000.0)
     monkeypatch.setattr(settings, "vat_reminder_day", 20)
     now = datetime(2026, 7, 10)
@@ -76,7 +77,7 @@ async def test_threshold_100pct_fires_both_levels(db_session: AsyncSession, monk
     assert set(fired) == {"threshold:eu_oss:2026:80", "threshold:eu_oss:2026:100"}
 
 
-async def test_failed_send_is_not_recorded(db_session: AsyncSession, monkeypatch):
+async def test_failed_send_is_not_recorded(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "vat_eu_oss_threshold_eur", 10_000.0)
     monkeypatch.setattr(settings, "vat_reminder_day", 20)
     now = datetime(2026, 7, 10)
@@ -91,7 +92,7 @@ async def test_failed_send_is_not_recorded(db_session: AsyncSession, monkeypatch
     assert await _alert_keys(db_session) == []  # but not recorded → retries next run
 
 
-async def test_monthly_reminder_gated_by_day(db_session: AsyncSession, monkeypatch):
+async def test_monthly_reminder_gated_by_day(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "vat_reminder_day", 20)
     # Before the 20th → no reminder.
     early = _Sender(ok=True)
@@ -109,7 +110,7 @@ async def test_monthly_reminder_gated_by_day(db_session: AsyncSession, monkeypat
     assert sender2.calls == []
 
 
-async def test_cz_threshold_uses_yearless_latch_key(db_session: AsyncSession, monkeypatch):
+async def test_cz_threshold_uses_yearless_latch_key(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     """The CZ threshold is a rolling/registration window, so its dedupe key omits
     the year (a permanent latch) — otherwise a sustained breach re-alerts every
     January. The EU (calendar-year) key keeps its year."""
@@ -125,7 +126,7 @@ async def test_cz_threshold_uses_yearless_latch_key(db_session: AsyncSession, mo
     assert fired == ["threshold:cz_domestic:80"]  # no year component
 
 
-async def test_reminder_fires_on_clamped_day_in_short_month(db_session: AsyncSession, monkeypatch):
+async def test_reminder_fires_on_clamped_day_in_short_month(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     """A vat_reminder_day past the month's length (e.g. 31 in February) is clamped
     to the last day, so the reminder still fires."""
     monkeypatch.setattr(settings, "vat_reminder_day", 31)
@@ -134,7 +135,7 @@ async def test_reminder_fires_on_clamped_day_in_short_month(db_session: AsyncSes
     assert fired == ["vat_reminder:2026-02"]
 
 
-async def test_no_alerts_when_below_threshold(db_session: AsyncSession, monkeypatch):
+async def test_no_alerts_when_below_threshold(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "vat_eu_oss_threshold_eur", 10_000.0)
     monkeypatch.setattr(settings, "vat_reminder_day", 20)
     now = datetime(2026, 7, 10)

@@ -119,6 +119,12 @@ export function CookNowForm() {
     setSavedEntry(null);
     setEditing(false);
     setCooking(false);
+    // The star alert lives in the recipe card, which survives a re-generate —
+    // without this, a failure on the previous recipe would still be on screen
+    // under the new one, blaming it for something that never happened to it.
+    // (Same reasoning as the `cookMutation.reset()` on entering cook mode.)
+    favoriteRecipeMutation.reset();
+    removeFromCookbookMutation.reset();
     // Drop any half-finished checklist from a previous recipe.
     try {
       localStorage.removeItem(COOKNOW_COOK_KEY);
@@ -126,10 +132,6 @@ export function CookNowForm() {
       // ignore — storage unavailable
     }
     setPendingRequest(req);
-    // A star failure from the PREVIOUS recipe would otherwise stay on screen
-    // over the new one (mutation error state survives until the next mutate).
-    favoriteRecipeMutation.reset();
-    removeFromCookbookMutation.reset();
     generateMutation.mutate(req, {
       onSuccess: (data) => {
         setRecipe(data.recipe);
@@ -174,9 +176,14 @@ export function CookNowForm() {
   const handleFavoriteToggle = (next: boolean) => {
     if (!recipe || !pendingRequest) return;
     if (next) {
-      // Send the request that PRODUCED this recipe, not the live form state —
-      // the user may have changed the dropdown since generating, and this is
-      // what gets recorded as "what was asked for" server-side.
+      // meal_type and people_count come from `pendingRequest` — the frozen
+      // request that produced `recipe` — NOT from live form state. The form
+      // stays editable while the recipe is on screen, so reading `mealType`
+      // here meant touching the select after generating sent a meal_type the
+      // recipe disagreed with, and the server's `recipe.meal_type must match
+      // meal_type` guard 400'd. handleCook has always spread pendingRequest;
+      // this is the same rule. `people_count` is the quiet half of the same
+      // bug: no 400, just the wrong servings stored on the cookbook row.
       favoriteRecipeMutation.mutate(
         {
           meal_type: pendingRequest.meal_type,
@@ -432,6 +439,19 @@ export function CookNowForm() {
             )}
           </div>
 
+          {/* Sits BELOW the header row on purpose. The star and the action
+              buttons are both in that row, so surfacing the failure here pushes
+              only the passive ingredients/steps down — it never shifts a
+              control out from under the cursor (see the CLS rule). Colour is a
+              fixed dark red because this card pins its own light surface. */}
+          {(favoriteRecipeMutation.isError || removeFromCookbookMutation.isError) && (
+            <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
+              {favoriteRecipeMutation.isError
+                ? t("cookNow.favoriteFailed")
+                : t("cookNow.unfavoriteFailed")}
+            </div>
+          )}
+
           {editing ? (
             <div style={{ marginTop: "0.75rem" }}>
               <MealEditor
@@ -474,18 +494,6 @@ export function CookNowForm() {
           {cookMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
               {cookMutation.error?.message ?? t("cookNow.saveFailed")}
-            </div>
-          )}
-
-          {/* The star is a fire-and-forget mutation with nothing to revert
-              (`isFavorited` only flips onSuccess), so a failure was completely
-              invisible — the glyph just never moved. Same pinned #f9fafb
-              surface as the cook error above, so #b91c1c is 6.20:1 in both
-              schemes. The raw error message is deliberately NOT shown: it
-              carries an untranslated backend `detail`. */}
-          {(favoriteRecipeMutation.isError || removeFromCookbookMutation.isError) && (
-            <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
-              {t("cookNow.favoriteFailed")}
             </div>
           )}
         </div>

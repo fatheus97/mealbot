@@ -141,7 +141,7 @@ async def list_plans(
 
     return [
         MealPlanSummary(
-            id=plan.id,  # type: ignore[arg-type]
+            id=plan.id,
             created_at=plan.created_at,
             days=plan.days,
             meals_per_day=plan.meals_per_day,
