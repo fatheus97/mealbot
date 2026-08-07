@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/test-utils";
 import { InviteRegisterModal } from "./InviteRegisterModal";
 import * as api from "../api";
+import { untranslatedEnglishIn } from "../test/i18nAssertions";
+import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
 
 // InviteRegisterModal reads registerViaInvite off the real AuthContext, which
 // calls authFetch("/config") on mount and authFetch("/auth/login") during the
@@ -141,5 +143,35 @@ describe("InviteRegisterModal", () => {
     expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(api.redeemInvite).toHaveBeenCalledWith("tok-si", "beta@example.com", "BetaPass123", true);
+  });
+
+  describe("in Czech", () => {
+    // Worth pinning harder than the other modals: public registration is
+    // closed, so an invite link is currently the ONLY way a new user reaches
+    // the app at all. This form is the whole front door.
+    beforeEach(() => {
+      setUrl("?invite=tok-cs");
+      useLocaleStore.setState({ locale: "cs", explicit: true });
+    });
+    afterEach(() =>
+      useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }),
+    );
+
+    it("renders no English on the form", async () => {
+      renderWithProviders(<InviteRegisterModal />);
+      await screen.findByRole("button", { name: /vytvořit účet/i });
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
+
+    it("states a failed password rule as a whole Czech sentence", async () => {
+      // Same fragment bug as ResetPasswordModal — the two carried BYTE-IDENTICAL
+      // copies of passwordProblem, so fixing one would have left this one
+      // rendering "Password needs a digit." under a Czech UI.
+      const user = userEvent.setup();
+      renderWithProviders(<InviteRegisterModal />);
+      await user.type(await screen.findByPlaceholderText(/^heslo$/i), "abcdefg1");
+      expect(await screen.findByText(/^Heslo .*\.$/)).toBeInTheDocument();
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
   });
 });
