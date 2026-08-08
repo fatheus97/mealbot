@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
-import { usePreferencesStore } from '../store/usePreferencesStore';
+import { usePreferencesStore, DEFAULT_PREFERENCES } from '../store/usePreferencesStore';
 import { useLocaleStore } from '../store/useLocaleStore';
 import { dayDateLabel } from '../utils/planDates';
 import { setColorScheme } from '../test/media';
@@ -144,7 +144,12 @@ describe('MealPlanner taste-preference cap', () => {
   }
 
   afterEach(() => {
-    usePreferencesStore.setState({ tastePreferences: '' });
+    // Restore the REAL default, not ''. The store is persisted, so leaving a
+    // value it would never naturally hold is the same order-dependent landmine
+    // this suite seeds around in the first place.
+    usePreferencesStore.setState({
+      tastePreferences: DEFAULT_PREFERENCES.tastePreferences,
+    });
   });
 
   it('says nothing while the entry is within the limit', () => {

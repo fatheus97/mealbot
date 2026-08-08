@@ -192,6 +192,32 @@ describe("IngredientChipInput", () => {
       expect(screen.getByTestId("state").textContent).toBe("a|b|c");
     });
 
+    it("keeps what you typed when the cap is what refused it", async () => {
+      // Clearing here would delete the user's text with no trace — the same
+      // silent-loss failure the cap exists to prevent, just moved into the input.
+      const user = userEvent.setup();
+      render(<Harness initial={["a", "b"]} suggestions={[]} maxItems={2} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "rejected-by-cap");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toBe("rejected-by-cap");
+    });
+
+    it("still clears the draft on a normal commit", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["a"]} suggestions={[]} maxItems={5} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "b");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
     it("takes chips again after one is removed", async () => {
       const user = userEvent.setup();
       render(<Harness initial={["a", "b"]} suggestions={[]} maxItems={2} />);

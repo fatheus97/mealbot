@@ -79,7 +79,11 @@ export function IngredientChipInput({
     const room = maxItems === undefined ? additions.length : maxItems - values.length;
     const accepted = additions.slice(0, Math.max(0, room));
     if (accepted.length > 0) onChange([...values, ...accepted]);
-    setDraft("");
+    // KEEP the draft when the cap is what rejected it. Clearing would wipe what
+    // the user just typed with no trace — the same silent-loss failure this cap
+    // exists to prevent, only moved into the input. A duplicate still clears,
+    // which is pre-existing behaviour: the value is already visible as a chip.
+    if (room > 0 || parts.length === 0) setDraft("");
   };
 
   const removeChip = (index: number) => {

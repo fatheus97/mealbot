@@ -337,62 +337,87 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: frontend FIELD_LIMITS match backend max_length
+        # Python, not a grep chain. Each field is declared TWICE (MealPlanRequest
+        # and SingleRecipeRequest) and in two shapes — multi-line and one-line —
+        # so a `grep -A3 | head -1` both ignores the second declaration and can
+        # capture a NEIGHBOURING field's max_length out of its trailing context.
+        # Every declaration of a field must agree with every other AND with the
+        # frontend; checking only the first is exactly the drift this job exists
+        # to catch.
         run: |
-          set -uo pipefail
-          models=backend/app/models/plan_models.py
-          limits=frontend/src/constants/fieldLimits.ts
+          python3 - <<'PY'
+          import re, sys
 
-          for f in "$models" "$limits"; do
-            [ -f "$f" ] || { echo "::error::$f does not exist"; exit 1; }
-          done
-
-          # backend: the max_length on the line following each field declaration
-          be_field() {
-            grep -A3 "^    $1: list\[str\] = Field(" "$models" \
-              | grep -oE 'max_length=[0-9]+' | head -1 | cut -d= -f2
-          }
-          # frontend: the value in the FIELD_LIMITS object literal
-          fe_field() {
-            grep -oE "$1: [0-9]+" "$limits" | head -1 | awk '{print $2}'
+          MODELS = "backend/app/models/plan_models.py"
+          LIMITS = "frontend/src/constants/fieldLimits.ts"
+          # backend field -> frontend key
+          FIELDS = {
+              "taste_preferences": "tastePreferences",
+              "avoid_ingredients": "avoidIngredients",
+              "ingredients_to_use": "ingredientsToUse",
           }
 
-          # Pinned COUNT, load-bearing: a renamed field would otherwise drop out
-          # of the loop silently and the job would pass having checked fewer
-          # fields than exist.
-          expected=3
-          checked=0
-          failed=0
-          # backend_name:frontend_name
-          for pair in taste_preferences:tastePreferences \
-                      avoid_ingredients:avoidIngredients \
-                      ingredients_to_use:ingredientsToUse; do
-            be_name="${pair%%:*}"
-            fe_name="${pair##*:}"
-            be="$(be_field "$be_name")"
-            fe="$(fe_field "$fe_name")"
-            if [ -z "$be" ]; then
-              echo "::error::no max_length found for ${be_name} in ${models}"
-              failed=1
-              continue
-            fi
-            if [ -z "$fe" ]; then
-              echo "::error::no ${fe_name} found in ${limits}"
-              failed=1
-              continue
-            fi
-            checked=$((checked + 1))
-            if [ "$be" != "$fe" ]; then
-              echo "::error::${be_name} is ${be} in the backend but ${fe_name} is ${fe} in the frontend"
-              failed=1
-            else
-              echo "ok  ${be_name}=${be}"
-            fi
-          done
+          try:
+              models = open(MODELS, encoding="utf-8").read()
+              limits = open(LIMITS, encoding="utf-8").read()
+          except OSError as exc:
+              print(f"::error::{exc}")
+              sys.exit(1)
 
-          if [ "$checked" -ne "$expected" ]; then
-            echo "::error::checked ${checked} fields, expected ${expected} — a field was renamed or removed"
-            failed=1
-          fi
+          def declarations(name: str) -> list[int]:
+              """Every max_length declared for `name`, read from the balanced
+              Field(...) span so trailing context cannot leak in."""
+              out = []
+              for m in re.finditer(rf"^\s*{re.escape(name)}\s*:\s*list\[str\]\s*=\s*Field\(",
+                                   models, re.MULTILINE):
+                  i, depth = m.end() - 1, 0
+                  while i < len(models):
+                      if models[i] == "(":
+                          depth += 1
+                      elif models[i] == ")":
+                          depth -= 1
+                          if depth == 0:
+                              break
+                      i += 1
+                  span = models[m.end():i]
+                  found = re.search(r"max_length\s*=\s*(\d+)", span)
+                  out.append(int(found.group(1)) if found else None)
+              return out
+
+          failed = False
+          for be_name, fe_name in FIELDS.items():
+              decls = declarations(be_name)
+              if not decls:
+                  print(f"::error::no `{be_name}: list[str] = Field(...)` found in {MODELS}")
+                  failed = True
+                  continue
+              if None in decls:
+                  print(f"::error::a declaration of {be_name} has no max_length — "
+                        "the sanitiser reads its cap from there and would fall back to a default")
+                  failed = True
+                  continue
+              if len(set(decls)) != 1:
+                  print(f"::error::{be_name} declares conflicting max_length values {decls} "
+                        "across its models — they feed the same validator")
+                  failed = True
+                  continue
+
+              fe = re.search(rf"\b{re.escape(fe_name)}\s*:\s*(\d+)", limits)
+              if not fe:
+                  print(f"::error::no `{fe_name}` in {LIMITS}")
+                  failed = True
+                  continue
+
+              be_val, fe_val = decls[0], int(fe.group(1))
+              if be_val != fe_val:
+                  print(f"::error::{be_name} is {be_val} in the backend "
+                        f"but {fe_name} is {fe_val} in the frontend")
+                  failed = True
+              else:
+                  print(f"ok  {be_name}={be_val} ({len(decls)} declarations agree)")
+
+          sys.exit(1 if failed else 0)
+          PY
           exit $failed
 
   locale-parity:
