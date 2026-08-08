@@ -7,6 +7,7 @@
 // Node globals to just this file instead of widening the whole app's type surface.
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
 // Reads the BUILT output (dist/index.html), not the source template — the
@@ -83,6 +84,26 @@ describe("landing <head> (built dist/index.html)", () => {
       // the claim the card exists to carry.
       expect(head).toContain('name="twitter:card" content="summary_large_image"');
       expect(head).not.toContain('name="twitter:card" content="summary"');
+    });
+
+    it("has not edited og-card.svg without regenerating og.png", () => {
+      // The PNG is produced by hand (docker one-liner in index.html's og:image
+      // comment), so the two can drift silently: edit the SVG, forget the
+      // regen, and every other assertion here still passes because they check
+      // the PNG's dimensions and magic bytes, not its CONTENT.
+      //
+      // This pins the SVG's hash as of the last regeneration. It does not prove
+      // the PNG matches the SVG — nothing cheap can, without rendering in CI —
+      // it proves nobody changed the source without acknowledging the PNG.
+      // Editing the card is therefore: edit SVG, regenerate, update this hash.
+      const svg = readFileSync(resolve(process.cwd(), "og-card.svg"));
+      const hash = createHash("sha256").update(svg).digest("hex");
+      expect(
+        hash,
+        "og-card.svg changed. Regenerate public/og.png (see the og:image " +
+          "comment in index.html), confirm the new card renders, then update " +
+          "this hash.",
+      ).toBe("7102a64afe7f52c9c924e23092e812a910d5dc8c039c6f0c574554d1571fb429");
     });
 
     it("ships an og.png that is really a 1200x630 PNG", () => {
