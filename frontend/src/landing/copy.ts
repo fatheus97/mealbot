@@ -209,7 +209,7 @@ const CS: LandingCopy = {
   accessGenericFailure:
     'Něco se pokazilo. Zkuste to prosím znovu, nebo napište na info@trymealbot.com.',
   accessRateLimited: 'Teď je požadavků příliš mnoho. Zkuste to prosím za minutu.',
-  accessBadEmail: 'Tohle nevypadá jako platná e-mailová adresa — zkontrolujte ji prosím.',
+  accessBadEmail: 'Toto nevypadá jako platná e-mailová adresa — zkontrolujte ji prosím.',
   accessNeedEmail: 'Zadejte svou e-mailovou adresu.',
   accessBusy: 'Odesílám…',
   accessSubmit: 'Odeslat žádost',
