@@ -464,9 +464,16 @@ export interface FunnelStage {
 export interface FunnelBySource {
   source: string;
   signed_up: number;
+  verified: number;
   generated: number;
   confirmed: number;
   cooked: number;
+  /** Checkout completed — includes trials, so this is the only conversion
+   *  number that is non-zero during a cohort's first 10 days. */
+  subscribed: number;
+  /** A paid invoice in the SaleRecord ledger. Structurally zero for the first
+   *  10 days of any cohort: the trial-opening invoice is zero-amount and
+   *  revenue_service rejects it by design. */
   paid: number;
 }
 

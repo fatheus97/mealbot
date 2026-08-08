@@ -80,12 +80,25 @@ const REVENUE: RevenueStats = {
 const FUNNEL: FunnelStatsResponse = {
   stages: [
     { key: "signed_up", label: "Signed up", count: 5 },
+    { key: "verified", label: "Verified their email", count: 4 },
     { key: "generated", label: "Generated a recipe", count: 3 },
     { key: "confirmed", label: "Confirmed a plan", count: 2 },
     { key: "cooked", label: "Cooked a meal", count: 1 },
-    { key: "paid", label: "Subscribed", count: 1 },
+    { key: "subscribed", label: "Started a subscription", count: 1 },
+    { key: "paid", label: "Paid an invoice", count: 1 },
   ],
-  by_source: [{ source: "direct", signed_up: 5, generated: 3, confirmed: 2, cooked: 1, paid: 1 }],
+  by_source: [
+    {
+      source: "direct",
+      signed_up: 5,
+      verified: 4,
+      generated: 3,
+      confirmed: 2,
+      cooked: 1,
+      subscribed: 1,
+      paid: 1,
+    },
+  ],
 };
 
 beforeEach(() => {

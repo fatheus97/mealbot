@@ -5,10 +5,12 @@ import type { FunnelStatsResponse } from "../../types";
 /** Short chart labels keyed by stage; the table below carries the full ones. */
 const SHORT_LABEL: Record<string, string> = {
   signed_up: "Signup",
+  verified: "Verified",
   generated: "Generated",
   confirmed: "Confirmed",
   cooked: "Cooked",
-  paid: "Subscribed",
+  subscribed: "Subscribed",
+  paid: "Paid",
 };
 
 function pct(part: number, whole: number): string {
@@ -36,7 +38,12 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
     <div>
       <BarChart data={bars} color={chart.funnel} height={140} />
 
-      {/* The two numbers acquisition actually turns on. */}
+      {/* The two numbers acquisition actually turns on. Subscription is read
+          off `subscribed`, not `paid`: paid invoices cannot exist for a
+          cohort's first 10 days (the trial-opening invoice is zero-amount and
+          the ledger rejects it), so a headline rate keyed on `paid` would
+          report 0% through exactly the window a launch is judged on. `paid`
+          is still on the chart and in the table. */}
       <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginTop: "1rem" }}>
         <ConversionStat
           label="Signup → activated"
@@ -45,8 +52,8 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
         />
         <ConversionStat
           label="Signup → subscribed"
-          value={pct(byKey.paid ?? 0, signups)}
-          sub="reached a paid plan"
+          value={pct(byKey.subscribed ?? 0, signups)}
+          sub="started a subscription, trials included"
         />
       </div>
 
@@ -58,26 +65,33 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
       ) : (
         // Wide table scrolls in its own container so the page body never does.
         <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13, minWidth: 480 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13, minWidth: 660 }}>
             <thead>
               <tr>
-                {["Source", "Signed up", "Generated", "Confirmed", "Cooked", "Subscribed"].map(
-                  (h, i) => (
-                    <th
-                      key={h}
-                      style={{
-                        textAlign: i === 0 ? "left" : "right",
-                        padding: "0.4rem 0.6rem",
-                        borderBottom: `1px solid ${colors.border}`,
-                        color: colors.textMuted,
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
+                {[
+                  "Source",
+                  "Signed up",
+                  "Verified",
+                  "Generated",
+                  "Confirmed",
+                  "Cooked",
+                  "Subscribed",
+                  "Paid",
+                ].map((h, i) => (
+                  <th
+                    key={h}
+                    style={{
+                      textAlign: i === 0 ? "left" : "right",
+                      padding: "0.4rem 0.6rem",
+                      borderBottom: `1px solid ${colors.border}`,
+                      color: colors.textMuted,
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -87,12 +101,14 @@ export function FunnelPanel({ stats }: { stats: FunnelStatsResponse }) {
                     {row.source}
                   </td>
                   <td style={cellStyle}>{row.signed_up}</td>
+                  <td style={cellStyle}>{row.verified}</td>
                   <td style={cellStyle}>{row.generated}</td>
                   <td style={cellStyle}>{row.confirmed}</td>
                   <td style={cellStyle}>{row.cooked}</td>
                   <td style={{ ...cellStyle, fontWeight: 600, color: chart.funnel }}>
-                    {row.paid}
+                    {row.subscribed}
                   </td>
+                  <td style={cellStyle}>{row.paid}</td>
                 </tr>
               ))}
             </tbody>
