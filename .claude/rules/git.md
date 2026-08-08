@@ -80,6 +80,31 @@ untracked files present: both survive the detach untouched. So release `main`
 the moment you notice, mid-work if need be — there is nothing to stash or
 finish first.
 
+### An absolute path silently edits the OTHER checkout
+
+Every worktree has its own copy of every tracked file, so
+`…/mealbot/.claude/rules/git.md` and
+`…/mealbot/.claude/worktrees/<yours>/.claude/rules/git.md` are **different
+files**. Reading or editing by the primary-checkout path from inside a worktree
+works — no warning, no error — and writes into whatever branch the primary
+happens to have checked out, which belongs to another session.
+
+Hit on 2026-08-08: an edit intended for a feature branch landed as an
+uncommitted change on a stranger's `fix/…` branch. It is invisible until you
+look, because the edit itself succeeds.
+
+- **Anchor paths to your own worktree**, not the repo path you remember.
+  `git rev-parse --show-toplevel` returns the root you actually want — from a
+  worktree it returns the *worktree*, not the primary.
+- **A clean `git status` right after editing is the tell.** You just changed a
+  file; the tree cannot be clean. That mismatch is the cheapest detector there
+  is, and it fires before you commit.
+- **Before restoring the primary, check what you are discarding.**
+  `git -C <primary> diff -- <path>` must show ONLY your change — the primary may
+  hold another session's in-flight work on the same file, and a blind
+  `git checkout --` would take that with it. Restore just the one path, never
+  the whole tree.
+
 ### Symptoms that this already went wrong
 
 - A tool or sub-agent reports success while naming a branch you never created.
