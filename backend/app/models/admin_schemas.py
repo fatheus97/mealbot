@@ -98,13 +98,14 @@ class FunnelStage(BaseModel):
     """One step of the overall signup→paid funnel, in order.
 
     ``count`` is distinct paywall-subject users (NOT demo/admin/comped) who
-    reached at least this stage. The generate→confirm→cook stages roll up, so
-    the counts are non-increasing across them; ``paid`` is a conversion outcome
-    and may exceed ``cooked`` (a user can subscribe without cooking). See
+    reached at least this stage. The verify→generate→confirm→cook stages roll
+    up, so the counts are non-increasing across them; ``subscribed`` and
+    ``paid`` are conversion outcomes and may exceed ``cooked`` (a user can
+    subscribe without cooking). ``paid`` never exceeds ``subscribed``. See
     ``stats_funnel``.
     """
 
-    key: str  # "signed_up" | "generated" | "confirmed" | "cooked" | "paid"
+    key: str  # signed_up | verified | generated | confirmed | cooked | subscribed | paid
     label: str
     count: int
 
@@ -116,9 +117,11 @@ class FunnelBySource(BaseModel):
 
     source: str
     signed_up: int
+    verified: int
     generated: int
     confirmed: int
     cooked: int
+    subscribed: int
     paid: int
 
 

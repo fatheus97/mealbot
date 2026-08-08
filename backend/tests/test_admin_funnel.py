@@ -41,6 +41,8 @@ async def _user(
     is_demo: bool = False,
     is_admin: bool = False,
     is_comped: bool = False,
+    verified: bool = False,
+    subscription_id: str | None = None,
 ) -> int:
     u = User(
         email=email,
@@ -49,6 +51,8 @@ async def _user(
         is_demo=is_demo,
         is_admin=is_admin,
         is_comped=is_comped,
+        email_verified_at=datetime.now(UTC) if verified else None,
+        stripe_subscription_id=subscription_id,
     )
     db_session.add(u)
     await db_session.flush()
@@ -124,16 +128,20 @@ class TestFunnelAggregation:
         assert a_plan.id is not None
         db_session.add_all([_cooked_entry(a, a_plan.id), _sale(a, "inv_a")])
 
-        # B — google, generated only.
-        b = await _user(db_session, "b@x.com", utm_source="google")
+        # B — google, generated + a live subscription but NO paid invoice. This
+        # is every user in a launch cohort's first 10 days: the trial-opening
+        # invoice is zero-amount and the ledger rejects it by design.
+        b = await _user(db_session, "b@x.com", utm_source="google", subscription_id="sub_b")
         db_session.add(_gen(b))
 
         # C — facebook, generated + confirmed (not cooked, not paid).
         c = await _user(db_session, "c@x.com", utm_source="facebook")
         db_session.add_all([_gen(c), _plan(c, confirmed=True)])
 
-        # D — a regular direct signup (no UTM), signup only.
-        await _user(db_session, "d@x.com")
+        # D — a regular direct signup (no UTM) who verified their email and then
+        # did nothing else, so `verified` is exercised on its own rather than
+        # only via the rollup from a later stage.
+        await _user(db_session, "d@x.com", verified=True)
 
         # A demo user with a FULL funnel — must be excluded everywhere.
         demo = await _user(db_session, "demo@x.com", utm_source="google", is_demo=True)
@@ -152,29 +160,36 @@ class TestFunnelAggregation:
         # A + B + C + D = 4 signups; demo and the admin (test_user) are excluded.
         assert stages == {
             "signed_up": 4,
+            "verified": 4,    # D explicitly; A, B, C by rollup from a later stage
             "generated": 3,   # A, B, C
             "confirmed": 2,   # A, C
             "cooked": 1,      # A
+            "subscribed": 2,  # B explicitly; A by rollup from its paid invoice
             "paid": 1,        # A
         }
         # Order preserved.
         assert [s["key"] for s in body["stages"]] == [
-            "signed_up", "generated", "confirmed", "cooked", "paid",
+            "signed_up", "verified", "generated", "confirmed",
+            "cooked", "subscribed", "paid",
         ]
+        # The label on `paid` used to read "Subscribed" while counting invoices.
+        labels = {s["key"]: s["label"] for s in body["stages"]}
+        assert labels["subscribed"] == "Started a subscription"
+        assert labels["paid"] == "Paid an invoice"
 
         by_source = {s["source"]: s for s in body["by_source"]}
         assert by_source["google"] == {
-            "source": "google", "signed_up": 2, "generated": 2,
-            "confirmed": 1, "cooked": 1, "paid": 1,
+            "source": "google", "signed_up": 2, "verified": 2, "generated": 2,
+            "confirmed": 1, "cooked": 1, "subscribed": 2, "paid": 1,
         }
         assert by_source["facebook"] == {
-            "source": "facebook", "signed_up": 1, "generated": 1,
-            "confirmed": 1, "cooked": 0, "paid": 0,
+            "source": "facebook", "signed_up": 1, "verified": 1, "generated": 1,
+            "confirmed": 1, "cooked": 0, "subscribed": 0, "paid": 0,
         }
-        # D has no UTM → the "direct" bucket, signup only.
+        # D has no UTM → the "direct" bucket: verified, nothing after.
         assert by_source["direct"] == {
-            "source": "direct", "signed_up": 1, "generated": 0,
-            "confirmed": 0, "cooked": 0, "paid": 0,
+            "source": "direct", "signed_up": 1, "verified": 1, "generated": 0,
+            "confirmed": 0, "cooked": 0, "subscribed": 0, "paid": 0,
         }
         # The demo user's "google" milestones must not have leaked in.
         assert "demo@x.com" not in {s["source"] for s in body["by_source"]}
@@ -209,8 +224,71 @@ class TestFunnelAggregation:
         assert stages["confirmed"] == 1
         assert stages["cooked"] == 1
         # And the funnel is non-increasing across the product-flow stages.
-        counts = [stages["signed_up"], stages["generated"], stages["confirmed"], stages["cooked"]]
+        counts = [
+            stages["signed_up"],
+            stages["verified"],
+            stages["generated"],
+            stages["confirmed"],
+            stages["cooked"],
+        ]
         assert counts == sorted(counts, reverse=True)
+
+    async def test_a_trialing_cohort_reads_as_converted_not_as_zero(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """The blind spot `subscribed` exists for.
+
+        `revenue_service` rejects the zero-amount trial-opening invoice by
+        design, so for the first 10 days of any cohort NOBODY can have a
+        SaleRecord row. With `paid` as the only conversion stage, a launch where
+        every single signup started a subscription and a launch where none did
+        produce the identical number — 0 — through exactly the window the launch
+        is judged on.
+        """
+        await _make_admin(db_session, test_user)
+        for i in range(3):
+            await _user(
+                db_session,
+                f"trial{i}@x.com",
+                utm_source="launch",
+                verified=True,
+                subscription_id=f"sub_{i}",
+            )
+        await db_session.flush()
+
+        resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
+        stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
+        assert stages["signed_up"] == 3
+        assert stages["subscribed"] == 3
+        assert stages["paid"] == 0
+
+    async def test_verified_rolls_up_for_a_user_with_no_verification_stamp(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Same class of bug as the generation rollup above, different column.
+
+        `require_verified_email` gates generation, so a user WITH a generation
+        and a NULL `email_verified_at` is a data anomaly — an operator-created
+        account, or a row predating the stamp. Counting `verified` literally
+        would render it BELOW `generated`, i.e. a funnel that widens.
+        """
+        await _make_admin(db_session, test_user)
+        u = await _user(db_session, "unstamped@x.com", utm_source="google")
+        db_session.add(_gen(u))
+        await db_session.flush()
+
+        resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
+        stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
+        assert stages["verified"] == 1
+        assert stages["generated"] == 1
 
     async def test_multi_row_user_is_counted_once(
         self,
@@ -272,12 +350,21 @@ class TestFunnelAggregation:
         exempt from paying, so including them would depress every conversion
         rate. Each here has a full funnel and must appear NOWHERE."""
         await _make_admin(db_session, test_user)
-        for email, kwargs in [
-            ("demo2@x.com", {"is_demo": True}),
-            ("admin2@x.com", {"is_admin": True}),
-            ("comped@x.com", {"is_comped": True}),
+        # Spelled out rather than **kwargs: `_user` no longer takes only bools,
+        # so a dict[str, bool] splat is a mypy arg-type error under strict.
+        for email, is_demo, is_admin, is_comped in [
+            ("demo2@x.com", True, False, False),
+            ("admin2@x.com", False, True, False),
+            ("comped@x.com", False, False, True),
         ]:
-            uid = await _user(db_session, email, utm_source="google", **kwargs)
+            uid = await _user(
+                db_session,
+                email,
+                utm_source="google",
+                is_demo=is_demo,
+                is_admin=is_admin,
+                is_comped=is_comped,
+            )
             plan = _plan(uid, confirmed=True)
             db_session.add_all([_gen(uid), plan])
             await db_session.flush()
@@ -288,7 +375,8 @@ class TestFunnelAggregation:
         resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
         stages = {s["key"]: s["count"] for s in resp.json()["stages"]}
         assert stages == {
-            "signed_up": 0, "generated": 0, "confirmed": 0, "cooked": 0, "paid": 0,
+            "signed_up": 0, "verified": 0, "generated": 0, "confirmed": 0,
+            "cooked": 0, "subscribed": 0, "paid": 0,
         }
         assert resp.json()["by_source"] == []
 
