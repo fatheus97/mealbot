@@ -22,6 +22,7 @@ import stripe
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.i18n import DEFAULT_LOCALE, Locale
 from app.models.db_models import User
 
 logger = logging.getLogger(__name__)
@@ -47,17 +48,29 @@ def annual_available() -> bool:
     return bool(settings.stripe_price_id_annual)
 
 
-def _price_id_for_plan(plan: BillingPlan) -> str:
-    """Resolve the configured Stripe Price id for a plan. Raises when the requested
-    plan isn't configured (annual is optional — a request for it must fail loudly,
-    not silently fall back to monthly and charge the wrong amount)."""
+def _price_id_for_plan(plan: BillingPlan, locale: Locale = DEFAULT_LOCALE) -> str:
+    """Resolve the configured Stripe Price id for a plan, in the caller's locale.
+
+    Raises when the requested plan isn't configured (annual is optional — a request
+    for it must fail loudly, not silently fall back to monthly and charge the wrong
+    amount).
+
+    A locale override applies only when one is configured for that locale;
+    otherwise the baseline Price is used, so an unconfigured locale keeps working
+    and merely shows the default Product's copy. PLAN AVAILABILITY is still decided
+    by the baseline id — a locale override cannot conjure an annual plan the
+    account does not otherwise offer, which keeps ``annual_available()`` the single
+    answer to "can anyone buy annual".
+    """
     if plan == "annual":
         if not settings.stripe_price_id_annual:
             raise RuntimeError("Annual plan is not configured (STRIPE_PRICE_ID_ANNUAL missing)")
-        return settings.stripe_price_id_annual
+        localized = settings.stripe_price_id_annual_cs if locale == "cs" else None
+        return localized or settings.stripe_price_id_annual
     if not settings.stripe_price_id:
         raise RuntimeError("STRIPE_PRICE_ID not configured")
-    return settings.stripe_price_id
+    localized = settings.stripe_price_id_cs if locale == "cs" else None
+    return localized or settings.stripe_price_id
 
 
 def _require_stripe() -> None:
@@ -132,12 +145,20 @@ def _extract_price_id(subscription: dict[str, Any]) -> str | None:
 
 
 def annual_price_ids() -> frozenset[str]:
-    """Every Price id that counts as ANNUAL: the current annual id + any retired ones
-    in ``stripe_price_ids_annual_legacy`` (comma-separated). The allow-list is what
-    makes annual detection rotation-safe."""
+    """Every Price id that counts as ANNUAL: the current annual id, its per-locale
+    counterparts, and any retired ones in ``stripe_price_ids_annual_legacy``
+    (comma-separated). The allow-list is what makes annual detection rotation-safe.
+
+    The per-locale ids belong here for the same reason the legacy ones do, and the
+    consequence is the same shape of bug: a Czech annual subscriber is on a
+    DIFFERENT Price id than an English one, so leaving it out would read them as
+    monthly and grant them the monthly-only feedback credit. Real money, silently.
+    """
     ids: set[str] = set()
     if settings.stripe_price_id_annual:
         ids.add(settings.stripe_price_id_annual)
+    if settings.stripe_price_id_annual_cs:
+        ids.add(settings.stripe_price_id_annual_cs)
     if settings.stripe_price_ids_annual_legacy:
         ids.update(
             p.strip() for p in settings.stripe_price_ids_annual_legacy.split(",") if p.strip()
@@ -255,12 +276,15 @@ async def sync_customer_email(customer_id: str, new_email: str) -> None:
 
 
 async def create_checkout_session(
-    user: User, session: AsyncSession, plan: BillingPlan = "monthly"
+    user: User,
+    session: AsyncSession,
+    plan: BillingPlan = "monthly",
+    locale: Locale = DEFAULT_LOCALE,
 ) -> str:
     """Create a subscription Checkout session (10-day trial) for the chosen plan
     (monthly | annual) and return its URL."""
     _require_stripe()
-    price_id = _price_id_for_plan(plan)
+    price_id = _price_id_for_plan(plan, locale)
     customer_id = await _ensure_customer(user, session)
     # Gate A of the trial-abuse guard: a repeat account (has_used_trial) gets NO
     # trial — subscription-mode Checkout then charges the first invoice at
@@ -288,6 +312,11 @@ async def create_checkout_session(
         # host) the marketing page, which has no billing-return handler.
         success_url=f"{settings.frontend_base_url}/app?billing=success",
         cancel_url=f"{settings.frontend_base_url}/app?billing=cancel",
+        # Pinned, NOT Stripe's "auto". Auto resolves from the browser/IP, so the
+        # page came up Czech for a Czech-based user no matter which language they
+        # had picked in the app — the same follow-the-browser bug fixed across the
+        # frontend in #414/#417, in the one place the frontend cannot reach.
+        locale=locale,
         **trial_kwargs,
     )
     if not checkout.url:
@@ -295,7 +324,7 @@ async def create_checkout_session(
     return checkout.url
 
 
-async def create_portal_session(user: User) -> str:
+async def create_portal_session(user: User, locale: Locale = DEFAULT_LOCALE) -> str:
     """Create a Customer Portal session (manage/cancel) and return its URL."""
     _require_stripe()
     if not user.stripe_customer_id:
@@ -307,6 +336,10 @@ async def create_portal_session(user: User) -> str:
         # card update just happened) instead of showing stale state until reload.
         # /app, not the root — see create_checkout_session above.
         return_url=f"{settings.frontend_base_url}/app?billing=managed",
+        # Same reasoning as Checkout: the Portal is where a subscription is
+        # cancelled, which is the worst place to be reading a language you did
+        # not choose.
+        locale=locale,
     )
     return portal.url
 
@@ -322,9 +355,14 @@ def construct_event(payload: bytes, sig_header: str) -> stripe.Event:
     """
     if not settings.stripe_webhook_secret:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET not configured")
-    return stripe.Webhook.construct_event(
+    # stripe ships no annotation for Webhook.construct_event, so it comes back
+    # as Any. Bind it to a declared local instead of returning Any straight out
+    # of a function promising stripe.Event. Re-check on every stripe bump — if
+    # they annotate it, this ignore becomes an unused-ignore error.
+    event: stripe.Event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
         payload, sig_header, settings.stripe_webhook_secret
     )
+    return event
 
 
 # --- Trial-abuse guard (Gate B) Stripe helpers -----------------------------------

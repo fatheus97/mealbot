@@ -1,12 +1,17 @@
 import io
 from datetime import date, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from pydantic import BaseModel
 from pypdf import PdfWriter
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.llm.client import llm_client
+from app.models.db_models import User
 from app.models.plan_models import (
     NormalizationResponse,
     NormalizedName,
@@ -49,7 +54,7 @@ class TestScanEndpoint:
     )
     async def test_scan_happy_path(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
-    ):
+    ) -> None:
         buf = _fake_jpeg()
         resp = await client.post(
             "/api/fridge/scan",
@@ -90,7 +95,7 @@ class TestScanEndpoint:
     )
     async def test_scan_no_purchase_date_defaults_to_today(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
-    ):
+    ) -> None:
         buf = _fake_jpeg()
         resp = await client.post(
             "/api/fridge/scan",
@@ -101,7 +106,7 @@ class TestScanEndpoint:
         expected_date = (date.today() + timedelta(days=3)).isoformat()
         assert data[0]["expiration_date"] == expected_date
 
-    async def test_scan_invalid_file_type(self, client: AsyncClient):
+    async def test_scan_invalid_file_type(self, client: AsyncClient) -> None:
         buf = io.BytesIO(b"plain text content")
         resp = await client.post(
             "/api/fridge/scan",
@@ -109,7 +114,7 @@ class TestScanEndpoint:
         )
         assert resp.status_code == 422
 
-    async def test_scan_file_too_large(self, client: AsyncClient):
+    async def test_scan_file_too_large(self, client: AsyncClient) -> None:
         # 11 MB file
         buf = io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * (11 * 1024 * 1024))
         resp = await client.post(
@@ -126,7 +131,7 @@ class TestScanEndpoint:
     )
     async def test_scan_llm_failure(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
-    ):
+    ) -> None:
         buf = _fake_jpeg()
         resp = await client.post(
             "/api/fridge/scan",
@@ -134,7 +139,7 @@ class TestScanEndpoint:
         )
         assert resp.status_code == 502
 
-    async def test_scan_requires_auth(self, unauthed_client: AsyncClient):
+    async def test_scan_requires_auth(self, unauthed_client: AsyncClient) -> None:
         buf = _fake_jpeg()
         resp = await unauthed_client.post(
             "/api/fridge/scan",
@@ -150,7 +155,7 @@ class TestScanEndpoint:
     )
     async def test_scan_empty_receipt(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
-    ):
+    ) -> None:
         buf = _fake_jpeg()
         resp = await client.post(
             "/api/fridge/scan",
@@ -159,7 +164,7 @@ class TestScanEndpoint:
         assert resp.status_code == 200
         assert resp.json()["items"] == []
 
-    async def test_scan_png_accepted(self, client: AsyncClient):
+    async def test_scan_png_accepted(self, client: AsyncClient) -> None:
         """PNG files should also be accepted."""
         with patch(
             "app.api.fridge.extract_items_from_receipt",
@@ -178,7 +183,7 @@ class TestScanEndpoint:
 
 
 class TestMergeEndpoint:
-    async def test_merge_into_empty_fridge(self, client: AsyncClient):
+    async def test_merge_into_empty_fridge(self, client: AsyncClient) -> None:
         payload = [
             {"name": "chicken breast", "quantity_grams": 500, "need_to_use": False},
             {"name": "rice", "quantity_grams": 1000, "need_to_use": False},
@@ -190,7 +195,7 @@ class TestMergeEndpoint:
         assert by_name["chicken breast"]["quantity_grams"] == 500
         assert by_name["rice"]["quantity_grams"] == 1000
 
-    async def test_merge_sums_overlapping_items(self, client: AsyncClient):
+    async def test_merge_sums_overlapping_items(self, client: AsyncClient) -> None:
         # Seed fridge with existing items
         await client.put("/api/fridge", json=[
             {"name": "chicken breast", "quantity_grams": 200, "need_to_use": False},
@@ -210,7 +215,7 @@ class TestMergeEndpoint:
         # Existing items should still be present
         assert by_name["rice"]["quantity_grams"] == 300
 
-    async def test_merge_case_insensitive(self, client: AsyncClient):
+    async def test_merge_case_insensitive(self, client: AsyncClient) -> None:
         await client.put("/api/fridge", json=[
             {"name": "Chicken Breast", "quantity_grams": 200, "need_to_use": False},
         ])
@@ -226,7 +231,7 @@ class TestMergeEndpoint:
         assert data[0]["quantity_grams"] == 500
         assert data[0]["name"] == "Chicken Breast"
 
-    async def test_merge_no_overlap(self, client: AsyncClient):
+    async def test_merge_no_overlap(self, client: AsyncClient) -> None:
         await client.put("/api/fridge", json=[
             {"name": "rice", "quantity_grams": 500, "need_to_use": False},
         ])
@@ -241,7 +246,7 @@ class TestMergeEndpoint:
         assert "rice" in names
         assert "olive oil" in names
 
-    async def test_merge_preserves_need_to_use(self, client: AsyncClient):
+    async def test_merge_preserves_need_to_use(self, client: AsyncClient) -> None:
         await client.put("/api/fridge", json=[
             {"name": "chicken", "quantity_grams": 200, "need_to_use": True},
         ])
@@ -255,7 +260,7 @@ class TestMergeEndpoint:
         # need_to_use should remain True (OR logic)
         assert data[0]["need_to_use"] is True
 
-    async def test_merge_requires_auth(self, unauthed_client: AsyncClient):
+    async def test_merge_requires_auth(self, unauthed_client: AsyncClient) -> None:
         resp = await unauthed_client.post("/api/fridge/merge", json=[
             {"name": "rice", "quantity_grams": 500, "need_to_use": False},
         ])
@@ -263,7 +268,7 @@ class TestMergeEndpoint:
 
 
 class TestLLMVisionMock:
-    async def test_mock_vision_response(self):
+    async def test_mock_vision_response(self) -> None:
         from app.llm.client import LLMClient
         client = LLMClient()
         result = client._mock_vision_response(ReceiptScanResponse)
@@ -273,7 +278,7 @@ class TestLLMVisionMock:
             assert item.quantity_grams > 0
             assert len(item.name) > 0
 
-    async def test_chat_json_mock_routes_receipt_model_to_vision_response(self):
+    async def test_chat_json_mock_routes_receipt_model_to_vision_response(self) -> None:
         """Regression: mock=True with ReceiptScanResponse must return receipt shape, not meal-plan shape."""
         from app.llm.client import LLMClient
         client = LLMClient()
@@ -296,8 +301,8 @@ class TestSnackFiltering:
     )
     async def test_snacks_included_when_track_snacks_true(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock,
-        client: AsyncClient, test_user,
-    ):
+        client: AsyncClient, test_user: User,
+    ) -> None:
         """By default track_snacks=True, so ready_to_eat items are included."""
         buf = _fake_jpeg()
         resp = await client.post(
@@ -316,8 +321,8 @@ class TestSnackFiltering:
     )
     async def test_snacks_excluded_when_track_snacks_false(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock,
-        client: AsyncClient, test_user, db_session,
-    ):
+        client: AsyncClient, test_user: User, db_session: AsyncSession,
+    ) -> None:
         """When track_snacks=False, ready_to_eat items are filtered out."""
         test_user.track_snacks = False
         db_session.add(test_user)
@@ -337,36 +342,36 @@ class TestSnackFiltering:
 
 
 class TestScannedReceiptItemValidation:
-    def test_valid_item(self):
+    def test_valid_item(self) -> None:
         item = ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3)
         assert item.name == "chicken breast"
         assert item.quantity_grams == 500
         assert item.item_type == "ingredient"
         assert item.shelf_life_days == 3
 
-    def test_ready_to_eat_item(self):
+    def test_ready_to_eat_item(self) -> None:
         item = ScannedReceiptItem(name="chocolate bar", quantity_grams=100, item_type="ready_to_eat", shelf_life_days=180)
         assert item.item_type == "ready_to_eat"
 
-    def test_zero_quantity_rejected(self):
+    def test_zero_quantity_rejected(self) -> None:
         with pytest.raises(ValueError, match="positive"):
             ScannedReceiptItem(name="chicken", quantity_grams=0, item_type="ingredient", shelf_life_days=3)
 
-    def test_negative_quantity_rejected(self):
+    def test_negative_quantity_rejected(self) -> None:
         with pytest.raises(ValueError, match="positive"):
             ScannedReceiptItem(name="chicken", quantity_grams=-100, item_type="ingredient", shelf_life_days=3)
 
-    def test_unrealistic_quantity_rejected(self):
+    def test_unrealistic_quantity_rejected(self) -> None:
         with pytest.raises(ValueError, match="50kg"):
             ScannedReceiptItem(name="chicken", quantity_grams=60_000, item_type="ingredient", shelf_life_days=3)
 
-    def test_shelf_life_days_bounds(self):
+    def test_shelf_life_days_bounds(self) -> None:
         with pytest.raises(ValueError):
             ScannedReceiptItem(name="chicken", quantity_grams=500, item_type="ingredient", shelf_life_days=-1)
         with pytest.raises(ValueError):
             ScannedReceiptItem(name="chicken", quantity_grams=500, item_type="ingredient", shelf_life_days=731)
 
-    def test_long_name_rejected(self):
+    def test_long_name_rejected(self) -> None:
         # Capped at the LLM-schema source so the downstream ScannedItemDTO can't
         # 500 the scan on a crafted-receipt long name.
         with pytest.raises(ValueError):
@@ -374,13 +379,13 @@ class TestScannedReceiptItemValidation:
 
 
 class TestNormalizedNameValidation:
-    def test_long_normalized_rejected(self):
+    def test_long_normalized_rejected(self) -> None:
         # Bounded so a hallucinated normalized name can't crash the
         # ScannedReceiptItem reconstruction in normalize_item_names.
         with pytest.raises(ValueError):
             NormalizedName(original="milk", normalized="y" * 101)
 
-    def test_empty_normalized_rejected(self):
+    def test_empty_normalized_rejected(self) -> None:
         with pytest.raises(ValueError):
             NormalizedName(original="milk", normalized="")
 
@@ -388,7 +393,7 @@ class TestNormalizedNameValidation:
 class TestNameNormalization:
     """Tests for the normalize_item_names service function."""
 
-    async def test_mock_mode_returns_unchanged(self):
+    async def test_mock_mode_returns_unchanged(self) -> None:
         """When llm_mock=True, items are returned as-is."""
         items = [
             ScannedReceiptItem(name="ground mixed meat", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
@@ -400,7 +405,7 @@ class TestNameNormalization:
         assert len(result) == 1
         assert result[0].name == "ground mixed meat"
 
-    async def test_normalizes_to_fridge_name(self):
+    async def test_normalizes_to_fridge_name(self) -> None:
         """Scanned 'ground mixed meat' with fridge 'minced meat' → normalized to 'minced meat'."""
         items = [
             ScannedReceiptItem(name="ground mixed meat", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
@@ -419,7 +424,7 @@ class TestNameNormalization:
         assert result[0].quantity_grams == 500
         assert result[0].shelf_life_days == 3  # preserved through normalization
 
-    async def test_self_dedup_same_canonical(self):
+    async def test_self_dedup_same_canonical(self) -> None:
         """Multiple scanned synonyms without fridge match → same canonical name."""
         items = [
             ScannedReceiptItem(name="minced meat", quantity_grams=300, item_type="ingredient", shelf_life_days=3),
@@ -439,7 +444,7 @@ class TestNameNormalization:
         assert result[0].name == "minced meat"
         assert result[1].name == "minced meat"
 
-    async def test_different_items_preserved(self):
+    async def test_different_items_preserved(self) -> None:
         """Distinct items like chicken breast vs chicken thigh stay separate."""
         items = [
             ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
@@ -458,7 +463,7 @@ class TestNameNormalization:
         assert result[0].name == "chicken breast"
         assert result[1].name == "chicken thigh"
 
-    async def test_missing_mapping_keeps_original(self):
+    async def test_missing_mapping_keeps_original(self) -> None:
         """If LLM drops an item from its response, original name is preserved."""
         items = [
             ScannedReceiptItem(name="chicken breast", quantity_grams=500, item_type="ingredient", shelf_life_days=3),
@@ -478,7 +483,7 @@ class TestNameNormalization:
         assert result[0].name == "chicken breast"
         assert result[1].name == "rice"  # Kept original
 
-    async def test_empty_list_returns_empty(self):
+    async def test_empty_list_returns_empty(self) -> None:
         """Empty scanned items list returns empty without calling LLM."""
         from app.services.receipt_scanner import normalize_item_names
         with patch("app.services.receipt_scanner.settings") as mock_settings:
@@ -527,21 +532,21 @@ def _make_pdf_bytes(text: str, num_pages: int = 1) -> bytes:
 class TestPdfExtractText:
     """Unit tests for _extract_pdf_text helper."""
 
-    def test_extract_text_from_valid_pdf(self):
+    def test_extract_text_from_valid_pdf(self) -> None:
         from app.services.receipt_scanner import _extract_pdf_text
         long_text = "Chicken Breast 2x  4.99\n" * 5  # >50 chars
         pdf_bytes = _make_pdf_bytes(long_text)
         result = _extract_pdf_text(pdf_bytes)
         assert "Chicken" in result
 
-    def test_corrupt_pdf_raises_422(self):
+    def test_corrupt_pdf_raises_422(self) -> None:
         from app.services.receipt_scanner import _extract_pdf_text
         with pytest.raises(HTTPException) as exc_info:
             _extract_pdf_text(b"this is not a pdf at all")
         assert exc_info.value.status_code == 422
         assert "Could not read PDF" in exc_info.value.detail
 
-    def test_too_many_pages_raises_422(self):
+    def test_too_many_pages_raises_422(self) -> None:
         from app.services.receipt_scanner import _extract_pdf_text
         pdf_bytes = _make_pdf_bytes("item line " * 10, num_pages=11)
         with pytest.raises(HTTPException) as exc_info:
@@ -549,7 +554,7 @@ class TestPdfExtractText:
         assert exc_info.value.status_code == 422
         assert "11 pages" in str(exc_info.value.detail)
 
-    def test_no_extractable_text_raises_422(self):
+    def test_no_extractable_text_raises_422(self) -> None:
         from app.services.receipt_scanner import _extract_pdf_text
         # Blank page PDF — no text
         writer = PdfWriter()
@@ -574,7 +579,7 @@ class TestPdfScanEndpoint:
     )
     async def test_pdf_happy_path(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
-    ):
+    ) -> None:
         pdf_bytes = _make_pdf_bytes("Chicken Breast 2x  4.99\n" * 5)
         resp = await client.post(
             "/api/fridge/scan",
@@ -588,7 +593,7 @@ class TestPdfScanEndpoint:
     @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
     async def test_pdf_corrupt_returns_422(
         self, mock_normalize: AsyncMock, client: AsyncClient,
-    ):
+    ) -> None:
         resp = await client.post(
             "/api/fridge/scan",
             files={"file": ("receipt.pdf", io.BytesIO(b"not a pdf"), "application/pdf")},
@@ -598,7 +603,7 @@ class TestPdfScanEndpoint:
     @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
     async def test_pdf_no_text_returns_422(
         self, mock_normalize: AsyncMock, client: AsyncClient,
-    ):
+    ) -> None:
         writer = PdfWriter()
         writer.add_blank_page(width=612, height=792)
         buf = io.BytesIO()
@@ -610,7 +615,9 @@ class TestPdfScanEndpoint:
         )
         assert resp.status_code == 422
 
-    async def test_receipt_text_fence_tags_stripped_before_render(self, monkeypatch):
+    async def test_receipt_text_fence_tags_stripped_before_render(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Raw PDF text has no validator/length cap, so a literal </user_content>
         in it must be neutralized before rendering into the fenced prompt."""
         from app.services import receipt_scanner
@@ -621,11 +628,17 @@ class TestPdfScanEndpoint:
         )
         captured: dict[str, str] = {}
 
-        async def _fake_chat_json(*, system_prompt, user_prompt, response_model, mock=False):
+        async def _fake_chat_json(
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            response_model: type[BaseModel],
+            mock: bool = False,
+        ) -> ReceiptScanResponse:
             captured["prompt"] = user_prompt
             return ReceiptScanResponse(items=[])
 
-        monkeypatch.setattr(receipt_scanner.llm_client, "chat_json", _fake_chat_json)
+        monkeypatch.setattr(llm_client, "chat_json", _fake_chat_json)
         await receipt_scanner.extract_items_from_pdf(b"%PDF-1.4 fake", language="English")
 
         prompt = captured["prompt"]
@@ -637,24 +650,32 @@ class TestPdfScanEndpoint:
 
 
 class TestExtractItemsFromReceiptVision:
-    async def test_renders_template_and_forwards_image_to_vision_client(self, monkeypatch):
+    async def test_renders_template_and_forwards_image_to_vision_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The image (vision) extract path is only ever patched at the router
         boundary elsewhere; exercise its own body — template render + the
         chat_vision_json call wiring."""
         from app.services import receipt_scanner
 
-        captured: dict = {}
+        captured: dict[str, Any] = {}
 
         async def _fake_vision(
-            *, system_prompt, user_prompt, image_base64, image_media_type, response_model, mock=False
-        ):
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            image_base64: str,
+            image_media_type: str,
+            response_model: type[BaseModel],
+            mock: bool = False,
+        ) -> ReceiptScanResponse:
             captured.update(
                 user_prompt=user_prompt, image_base64=image_base64,
                 image_media_type=image_media_type, response_model=response_model,
             )
             return ReceiptScanResponse(items=[])
 
-        monkeypatch.setattr(receipt_scanner.llm_client, "chat_vision_json", _fake_vision)
+        monkeypatch.setattr(llm_client, "chat_vision_json", _fake_vision)
 
         result = await receipt_scanner.extract_items_from_receipt(
             image_base64="ZmFrZQ==", image_media_type="image/png", language="Czech",

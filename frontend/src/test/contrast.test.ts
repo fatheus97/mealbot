@@ -21,8 +21,10 @@ import {
   MUTED_COLOR,
 } from '../components/PantryStaples';
 import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/theme';
+import { colors as adminColors } from '../components/admin/theme';
 import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
 import { DISABLED_TEXT, DISABLED_SURFACE } from '../components/DayLayoutEditor';
+import { FAVORITE_SAVED, FAVORITE_UNSAVED } from '../components/FavoriteStar';
 import {
   OUT_OF_MONTH_SURFACE,
   OUT_OF_MONTH_DAY,
@@ -187,6 +189,27 @@ describe('colours on the adaptive page background', () => {
     expect(checkText('#666666', dark, 12.8).passes).toBe(false); // muted hint, 2.70:1
     expect(checkText('#ff0000', dark, 16).passes).toBe(false); // plain `red`, 3.88:1
     expect(checkText('#ff0000', THEME.light.bg, 16).passes).toBe(false); // ...and 4.00:1
+  });
+
+  it('rejects each mode-tab colour on the OPPOSITE surface', () => {
+    // The mirror of the control above, and the reason it earns its own test: a
+    // browser sweep that flips `prefers-color-scheme` WITHOUT reloading measures
+    // the previous scheme's inline colours against the new scheme's background,
+    // because `resize_window` changes what `matchMedia().matches` returns but
+    // dispatches no `change` event — so `usePrefersDark` keeps its mount-time
+    // value and React never re-renders (.claude/rules/frontend.md).
+    //
+    // Both directions of that artifact have now been reported as live bugs:
+    // light-on-dark (2.05/3.00, the block above) and dark-on-light (2.54 both,
+    // here). Neither is real — the tabs measure 5.17/7.56 in light and 6.11/6.11
+    // in dark once the app actually BOOTS under the scheme. These assertions pin
+    // the arithmetic so the next such report can be settled without a browser:
+    // if the numbers a sweep quotes are THESE, it measured a stale render.
+    const light = THEME.light.bg;
+    expect(checkText(PAGE_TEXT.tabActive.dark, light, 16).passes).toBe(false); // #60a5fa, 2.54:1
+    expect(checkText(PAGE_TEXT.tabInactive.dark, light, 16).passes).toBe(false); // #9ca3af, 2.54:1
+    // ...and the same pair the right way round is exactly what the loop above
+    // asserts passes, so this cannot be satisfied by a colour change.
   });
 
   it('rejects a muted opacity that is too low to read', () => {
@@ -591,5 +614,81 @@ describe('the scans accept both quote styles', () => {
     expect(findKeywordColors(`<p style={{ color: 'red' }} />`, 'x.tsx').map((k) => k.keyword)).toEqual(
       ['red'],
     );
+  });
+});
+
+describe('the favourite star', () => {
+  // An icon-only toggle: the glyph IS the control, so WCAG 1.4.11 wants 3:1.
+  // It shipped at 1.41:1 unsaved and 2.06:1 saved, on the two PINNED light
+  // surfaces it renders on. Only the unsaved state was ever on screen during a
+  // sweep — the saved one is a click away, the classic one-state blind spot.
+  const surfaces = ['#f9fafb', '#f9f9f9'];
+  for (const bg of surfaces) {
+    it(`both states clear AA on ${bg}`, () => {
+      expect(checkText(FAVORITE_SAVED, bg, 22.4)).toMatchObject({ passes: true });
+      expect(checkText(FAVORITE_UNSAVED, bg, 22.4)).toMatchObject({ passes: true });
+    });
+  }
+
+  it('rejects the pair that shipped', () => {
+    expect(checkText('#d1d5db', '#f9fafb', 22.4).passes).toBe(false); // unsaved, 1.41:1
+    expect(checkText('#f59e0b', '#f9fafb', 22.4).passes).toBe(false); // saved, 2.06:1
+  });
+
+  it('does not rely on the two states differing from each other', () => {
+    // They are 1.04:1 apart — essentially the same luminance. That is FINE only
+    // because the glyph changes shape too; if someone ever unifies the glyph,
+    // this assertion is the reminder that colour alone cannot carry the state.
+    expect(contrastRatio(FAVORITE_SAVED, FAVORITE_UNSAVED)).toBeLessThan(1.5);
+  });
+});
+
+describe('the admin palette', () => {
+  // Never browser-swept — the panels need an is_admin account — so the static
+  // check is the only coverage these surfaces have had.
+  const surfaces: [string, string][] = [
+    ['the page surface', adminColors.surface],
+    ['a card', adminColors.card],
+  ];
+  const texts: [string, string][] = [
+    ['primary', adminColors.text],
+    ['body', adminColors.textBody],
+    ['muted', adminColors.textMuted],
+  ];
+  for (const [sName, bg] of surfaces) {
+    for (const [tName, fg] of texts) {
+      it(`${tName} text meets WCAG AA on ${sName}`, () => {
+        expect(checkText(fg, bg, 12)).toMatchObject({ passes: true });
+      });
+    }
+  }
+
+  it('rejects the faint tier that shipped as enabled content', () => {
+    // #9ca3af was `colors.textFaint`, used for empty-state dashes, country
+    // sub-labels and "No signups yet." — enabled text, not disabled controls.
+    expect(checkText('#9ca3af', adminColors.surface, 12).passes).toBe(false);
+    expect(checkText('#9ca3af', adminColors.card, 12).passes).toBe(false);
+  });
+
+  it('has no room for a fainter tier, which is why it was collapsed', () => {
+    // textMuted is the LIGHTEST value that still clears 4.5 on the surface, so
+    // "pick something between muted and faint" is not available. Pins the
+    // reasoning: anything meaningfully lighter fails.
+    expect(checkText(adminColors.textMuted, adminColors.surface, 12).ratio).toBeLessThan(5);
+    expect(checkText('#717784', adminColors.surface, 12).passes).toBe(false);
+  });
+
+  it('keeps the dismiss control on a toast readable', () => {
+    // toastCloseStyle is `color: inherit` on a tinted toast. It carried
+    // opacity 0.7 while being always-enabled: 3.46:1 on the success toast and
+    // 3.54:1 on the warn one. Even 0.8 falls short, so the dimming is gone.
+    for (const [fg, bg] of [
+      ['#166534', '#f0fdf4'],
+      ['#92400e', '#fffbeb'],
+    ]) {
+      expect(checkText(fg, bg, 18)).toMatchObject({ passes: true });
+      expect(checkText(blend(fg, 0.7, bg), bg, 18).passes).toBe(false);
+      expect(checkText(blend(fg, 0.8, bg), bg, 18).passes).toBe(false);
+    }
   });
 });

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ResetPasswordModal } from './ResetPasswordModal';
+import { untranslatedEnglishIn } from '../test/i18nAssertions';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
 
 vi.mock('../api', () => ({
   resetPassword: vi.fn(),
@@ -119,5 +121,51 @@ describe('ResetPasswordModal', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/invalid or has expired/i);
     expect(screen.queryByText(/your password has been updated/i)).not.toBeInTheDocument();
+  });
+
+  describe('in Czech', () => {
+    beforeEach(() => {
+      setUrl('?reset_token=tok-cs');
+      useLocaleStore.setState({ locale: 'cs', explicit: true });
+    });
+    afterEach(() =>
+      useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }),
+    );
+
+    it('renders no English on the form', () => {
+      render(<ResetPasswordModal />);
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
+
+    // One case per password rule. These used to be FRAGMENTS spliced into
+    // "Password needs {problem}." — a shape with no correct Czech translation
+    // — so every branch is worth pinning, not just the first.
+    it.each([
+      ['short', 'Ab1'],
+      ['no upper-case', 'abcdefg1'],
+      ['no lower-case', 'ABCDEFG1'],
+      ['no digit', 'Abcdefgh'],
+    ])('states the %s rule as a whole Czech sentence', async (_label, pw) => {
+      const user = userEvent.setup();
+      render(<ResetPasswordModal />);
+      await user.type(screen.getByPlaceholderText(/nové heslo$/i), pw);
+      // Every rule sentence starts with "Heslo" and ends in a full stop; a
+      // fragment spliced into a carrier could not.
+      expect(await screen.findByText(/^Heslo .*\.$/)).toBeInTheDocument();
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
+
+    it('renders no English on the success state', async () => {
+      mockedReset.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<ResetPasswordModal />);
+      await user.type(screen.getByPlaceholderText(/nové heslo$/i), 'GoodPass123');
+      await user.type(screen.getByPlaceholderText(/nové heslo znovu/i), 'GoodPass123');
+      await user.click(screen.getByRole('button', { name: /nastavit heslo/i }));
+      await waitFor(() =>
+        expect(screen.getByText(/heslo bylo změněno/i)).toBeInTheDocument(),
+      );
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
   });
 });

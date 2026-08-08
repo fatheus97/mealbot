@@ -182,7 +182,7 @@ async def generate_recipe(
     # Pre-load the fridge so the LLM can use available stock. Unlike the plan
     # flow we don't allocate here — just feed the names+grams in so the LLM
     # prefers them.
-    fridge = await get_fridge_items(session, current_user.id)
+    fridge = await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
     plan_req.stock_items = [
         StockItemDTO(
             name=item.name,
@@ -268,24 +268,23 @@ async def cook_recipe(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
 
-    # TRUST BOUNDARY: payload.recipe is fully client-controlled. We enforce
-    # meal_type alignment below, but ingredient names / quantities / steps
-    # are taken at face value. The blast radius is self-scoped (each user's
-    # own fridge), so the risk is self-harm only — a user can craft a recipe
-    # that debits their fridge inaccurately. A future hardening step is to
-    # cache generated recipes server-side (short-TTL draft row) and accept
-    # a draft_id here instead of the full payload. See Phase 4 review on PR #89.
-    if payload.recipe.meal_type != payload.meal_type:
-        # Defensive: the frontend should only POST the recipe it just got back
-        # from /generate, which had its meal_type forced to payload.meal_type
-        # via slot_layout. A mismatch here means tampering or a client bug.
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"recipe.meal_type ({payload.recipe.meal_type}) must match "
-                f"meal_type ({payload.meal_type})."
-            ),
-        )
+    # TRUST BOUNDARY: payload.recipe is fully client-controlled — name,
+    # ingredients, quantities, steps AND meal_type are taken at face value. The
+    # blast radius is self-scoped (each user's own fridge), so the risk is
+    # self-harm only — a user can craft a recipe that debits their fridge
+    # inaccurately. A future hardening step is to cache generated recipes
+    # server-side (short-TTL draft row) and accept a draft_id here instead of
+    # the full payload. See Phase 4 review on PR #89.
+    #
+    # No meal_type-alignment guard: `payload.meal_type` is the slot the user
+    # ASKED for and `payload.recipe.meal_type` is the slot the model actually
+    # returned, and those legitimately differ — slot_layout is a prompt
+    # instruction, not something the LLM is incapable of ignoring (see
+    # generate_recipe: "a mismatch is logged but not retried"). This used to
+    # 400, which broke cook + favorite outright for every such recipe. It bought
+    # no integrity either: both fields arrive from the same client, so a forger
+    # sends a consistent pair. The RECIPE's meal_type is what gets persisted;
+    # the requested one stays in request_json as asked-vs-delivered signal.
 
     # leftover_of is server-assigned; strip whatever the client sent. This is a
     # 1-day/1-meal plan, so a link is nonsense by construction (it could only
@@ -399,21 +398,14 @@ async def favorite_recipe(
     touched. If they later click "Mark as cooked", the existing /recipe/cook
     flow runs separately; the cookbook entry remains.
 
-    TRUST BOUNDARY: same as /recipe/cook — payload.recipe is client-controlled.
-    No fridge debit here, so the blast radius is even narrower (the user can
-    only spam their own cookbook with garbage).
+    TRUST BOUNDARY: same as /recipe/cook — payload.recipe is client-controlled,
+    and for the same reasons its meal_type is NOT required to match the
+    requested `payload.meal_type` (see cook_recipe). No fridge debit here, so
+    the blast radius is even narrower (the user can only spam their own
+    cookbook with garbage).
     """
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
-
-    if payload.recipe.meal_type != payload.meal_type:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"recipe.meal_type ({payload.recipe.meal_type}) must match "
-                f"meal_type ({payload.meal_type})."
-            ),
-        )
 
     # Server-assigned field; strip it on this client-write path too (same
     # reasoning as /recipe/cook).

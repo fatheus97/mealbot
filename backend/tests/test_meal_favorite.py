@@ -6,6 +6,7 @@ cook/uncook — see app.api.plan.favorite_meal docstring.
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.meal_types import MealType
 from app.models.plan_models import (
@@ -39,7 +40,7 @@ async def _create_confirmed_plan(
         headers=auth_headers,
         json={"meals_per_day": 1, "people_count": 2},
     )
-    plan_id = resp.json()["plan_id"]
+    plan_id: int = resp.json()["plan_id"]
     await client.post(f"/api/plan/{plan_id}/confirm", headers=auth_headers)
     return plan_id
 
@@ -48,7 +49,8 @@ async def _get_entry_id(
     client: AsyncClient, auth_headers: dict[str, str], plan_id: int,
 ) -> int:
     resp = await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)
-    return resp.json()[0]["id"]
+    entry_id: int = resp.json()[0]["id"]
+    return entry_id
 
 
 class TestFavoriteMeal:
@@ -59,8 +61,8 @@ class TestFavoriteMeal:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         plan_id = await _create_confirmed_plan(client, auth_headers, mock_gen)
         entry_id = await _get_entry_id(client, auth_headers, plan_id)
 
@@ -82,8 +84,8 @@ class TestFavoriteMeal:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         """Favoriting an uncooked meal must NOT silently mark it cooked.
 
         Distinct from the legacy rate endpoint: favorite expresses preference,
@@ -107,8 +109,8 @@ class TestFavoriteMeal:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         plan_id = await _create_confirmed_plan(client, auth_headers, mock_gen)
         entry_id = await _get_entry_id(client, auth_headers, plan_id)
 
@@ -135,9 +137,9 @@ class TestFavoriteMeal:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-        db_session,
-    ):
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+    ) -> None:
         from app.models.db_models import MealEntry
 
         plan_id = await _create_confirmed_plan(client, auth_headers, mock_gen)
@@ -145,6 +147,7 @@ class TestFavoriteMeal:
 
         # Pre-seed an embedding so we can check it gets cleared
         entry = await db_session.get(MealEntry, entry_id)
+        assert entry is not None
         entry.is_favorite = True
         entry.embedding = [0.1] * 384
         db_session.add(entry)
@@ -166,8 +169,8 @@ class TestFavoriteMeal:
         self,
         mock_gen: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         # Note: favorite_meal currently does NOT check finished_at because
         # cookbook membership can change after a plan is closed (the user
         # finally cooks the meal next month and decides to keep it). This
@@ -188,8 +191,8 @@ class TestFavoriteMeal:
         assert resp.json()["is_favorite"] is True
 
     async def test_favorite_nonexistent_entry(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         resp = await client.post(
             "/api/plan/99999/meals/99999/favorite",
             headers=auth_headers,
@@ -204,8 +207,8 @@ class TestFavoriteMeal:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         """Regression: uncooking must NOT clear favorite or embedding.
 
         The legacy rate endpoint coupled rating-clearing to uncook because
@@ -239,8 +242,8 @@ class TestFavoriteMeal:
         mock_gen: AsyncMock,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         plan_id = await _create_confirmed_plan(client, auth_headers, mock_gen)
         entry_id = await _get_entry_id(client, auth_headers, plan_id)
 

@@ -1,12 +1,7 @@
 import { useAuth } from "../../contexts/AuthContext";
 import { useBilling } from "../../hooks/useBilling";
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
+import { useI18n, type TranslationKey } from "../../i18n";
+import { formatDate } from "../../i18n/localeFormat";
 
 type Variant = "trialing" | "active" | "past_due" | "subscribe";
 
@@ -23,6 +18,7 @@ const SURFACE: Record<Variant, { bg: string; color: string; border: string }> = 
 export function SubscriptionBanner() {
   const { isDemo, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped } = useAuth();
   const { startCheckout, openPortal, checkoutPending, portalPending, error } = useBilling();
+  const { t, locale } = useI18n();
 
   // Demo and comped ("friendlist") accounts get their access without a
   // subscription, so subscription billing UI is noise (and can be misleading — a
@@ -40,7 +36,7 @@ export function SubscriptionBanner() {
 
   if (!variant) return null;
 
-  const periodDate = formatDate(currentPeriodEnd);
+  const periodDate = formatDate(currentPeriodEnd, locale);
 
   // When canceled-but-still-active (cancel_at_period_end), the period end is when
   // access ENDS, not when it renews — say so instead of "renews". A subscription
@@ -52,24 +48,36 @@ export function SubscriptionBanner() {
   // A "canceled — ends {date}" message shouldn't sit on the positive green/blue
   // surface; use the cautionary amber one so colour matches the copy.
   const surface = canceling ? SURFACE.subscribe : SURFACE[variant];
-  const dateSuffix = periodDate
-    ? canceling
-      ? ` — ends ${periodDate}`
-      : variant === "active"
-        ? ` · renews ${periodDate}`
-        : ` — renews ${periodDate}`
-    : "";
 
-  const message =
-    variant === "trialing"
-      ? `${canceling ? "🚫 Trial canceled" : "🎉 Free trial"}${dateSuffix}.`
-      : variant === "active"
-        ? `${canceling ? "🚫 Subscription canceled" : "✓ Subscribed"}${dateSuffix}.`
-        : variant === "past_due"
-          ? canceling
-            ? `🚫 Subscription canceled${dateSuffix}.`
-            : "⚠️ Payment failed — update your card to keep access."
-          : "Subscribe to keep generating meal plans & recipes.";
+  // A WHOLE sentence per state, picked here and interpolated once. This used to
+  // build the message from a stem plus a shared " — renews {date}" suffix,
+  // which is untranslatable: Czech joins the clause with a comma rather than a
+  // dash, and "obnovuje se" / "končí" govern the date differently, so no single
+  // suffix is correct for both. An absent date is a different key, not an empty
+  // suffix, for the same reason.
+  let messageKey: TranslationKey;
+  if (variant === "subscribe") {
+    messageKey = "billing.banner.subscribe";
+  } else if (canceling) {
+    // A canceled TRIAL says "trial"; a canceled subscription (active or
+    // past_due) says "subscription" — past_due + canceling means access ends
+    // regardless, so "update your card" would be wrong advice.
+    messageKey =
+      variant === "trialing"
+        ? periodDate
+          ? "billing.banner.trialCanceledEnds"
+          : "billing.banner.trialCanceled"
+        : periodDate
+          ? "billing.banner.canceledEnds"
+          : "billing.banner.canceled";
+  } else if (variant === "past_due") {
+    messageKey = "billing.banner.pastDue";
+  } else if (variant === "trialing") {
+    messageKey = periodDate ? "billing.banner.trialRenews" : "billing.banner.trial";
+  } else {
+    messageKey = periodDate ? "billing.banner.activeRenews" : "billing.banner.active";
+  }
+  const message = t(messageKey, { date: periodDate });
 
   // past_due sends the user to the Portal to fix their card; the rest either
   // subscribe (no customer yet) or manage an existing subscription.
@@ -81,9 +89,9 @@ export function SubscriptionBanner() {
   const pending = isManage ? portalPending : checkoutPending;
   const label = isManage
     ? !canceling && variant === "past_due"
-      ? "Update payment"
-      : "Manage"
-    : "Subscribe";
+      ? t("billing.banner.updatePayment")
+      : t("billing.banner.manage")
+    : t("billing.banner.subscribeAction");
   const primary = !canceling && (variant === "subscribe" || variant === "past_due");
 
   return (

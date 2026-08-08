@@ -184,7 +184,7 @@ class TestDemoSession:
         assert resp.status_code == 200
 
         staples = await db_session.execute(
-            select(PantryStaple).where(PantryStaple.user_id == old_id)  # type: ignore[arg-type]
+            select(PantryStaple).where(PantryStaple.user_id == old_id)
         )
         assert staples.scalars().all() == []
         result2 = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712

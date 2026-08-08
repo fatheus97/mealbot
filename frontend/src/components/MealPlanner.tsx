@@ -75,7 +75,7 @@ interface MealPlannerProps {
 
 export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
   const { userId } = useAuth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const showPieces = useShowPieces();
   const isMobile = useIsMobile();
   // The tab bar and the inline error sit on the adaptive page background, which
@@ -659,9 +659,9 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                   >
                     <span style={{ marginRight: "0.4rem" }}>{expanded ? "▼" : "▶"}</span>
                     <strong>{t("planner.day", { n: dayIdx + 1 })}</strong>
-                    {dayDateLabel(startDate, dayIdx) && (
+                    {dayDateLabel(startDate, dayIdx, locale) && (
                       <span style={{ marginLeft: "0.5rem", color: "#666", fontSize: "0.85rem", fontWeight: 400 }}>
-                        {dayDateLabel(startDate, dayIdx)}
+                        {dayDateLabel(startDate, dayIdx, locale)}
                       </span>
                     )}
                     <span style={{ marginLeft: "0.75rem", color: "#666", fontSize: "0.85rem" }}>
@@ -818,9 +818,9 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                      opened plan, it reads the server value on currentPlan (which
                      handleConfirm keeps in sync) so an edit to the field can't
                      misrepresent a plan whose date is already committed. */}
-                 {dayDateLabel(isConfirmed ? currentPlan.start_date : startDate, idx) && (
+                 {dayDateLabel(isConfirmed ? currentPlan.start_date : startDate, idx, locale) && (
                    <span style={{ marginLeft: "0.6rem", color: "#666", fontSize: "0.85rem", fontWeight: 400 }}>
-                     {dayDateLabel(isConfirmed ? currentPlan.start_date : startDate, idx)}
+                     {dayDateLabel(isConfirmed ? currentPlan.start_date : startDate, idx, locale)}
                    </span>
                  )}
                </h4>
@@ -848,6 +848,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                        currentPlan,
                        meal.leftover_of,
                        isConfirmed ? currentPlan.start_date : startDate,
+                       locale,
+                       t,
                      )}
                      isMobile={isMobile}
                      cookStorageKey={`cookmode:${planId}:${idx}:${mealIdx}`}

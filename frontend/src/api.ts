@@ -222,7 +222,7 @@ export async function fetchUserProfile(): Promise<UserProfile> {
 }
 
 export async function updateUserProfile(
-  data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "show_pieces" | "onboarding_completed" | "default_day_layout">>
+  data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "show_pieces" | "need_to_use_enabled" | "onboarding_completed" | "default_day_layout">>
 ): Promise<UserProfile> {
   const res = await authFetch("/users", {
     method: "PATCH",
@@ -397,18 +397,15 @@ export interface AdminUserQuery {
 }
 
 /** Pull the backend's `detail` (a plain string on 400/404/409, or the first
- * Pydantic message on a 422) so mutation errors surface a real reason. */
-async function adminErrorDetail(res: Response, fallback: string): Promise<string> {
-  try {
-    const parsed = await res.json();
-    if (typeof parsed?.detail === "string") return parsed.detail;
-    if (Array.isArray(parsed?.detail) && typeof parsed.detail[0]?.msg === "string") {
-      return parsed.detail[0].msg;
-    }
-  } catch {
-    // non-JSON body — fall through to the status-based fallback
-  }
-  return `${fallback} (${res.status})`;
+ * Pydantic message on a 422) so admin mutation errors surface a real reason.
+ *
+ * A thin wrapper, not a second implementation: this used to be a near-copy of
+ * `extractErrorDetail` whose only real difference was rendering a 422's field
+ * errors, which the shared helper now takes as an opt-in. Kept as a named
+ * function purely so the thirteen admin call sites don't each repeat the
+ * option — delete it the day admin stops wanting field errors. */
+function adminErrorDetail(res: Response, fallback: string): Promise<string> {
+  return extractErrorDetail(res, fallback, { fieldErrors: true });
 }
 
 export async function fetchAdminUsers(

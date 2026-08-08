@@ -32,10 +32,10 @@ class TestFavoriteRecipe:
         self,
         mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         recipe = _fake_recipe()
         resp = await client.post(
             "/api/recipe/favorite",
@@ -69,10 +69,10 @@ class TestFavoriteRecipe:
         self,
         _mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """Pinning the contract: starring a not-yet-cooked recipe doesn't
         consume fridge stock. Only the explicit cook flow debits the fridge.
         """
@@ -103,10 +103,10 @@ class TestFavoriteRecipe:
         self,
         _mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
+        auth_headers: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
-    ):
+    ) -> None:
         """The plan row uses kind='cook_now' so it's invisible to the catalog
         listing (which filters kind='planned'), matching /recipe/cook's pattern.
         """
@@ -128,24 +128,43 @@ class TestFavoriteRecipe:
         assert plans[0].kind == "cook_now"
         assert plans[0].confirmed_at is not None
 
-    async def test_favorite_rejects_meal_type_mismatch(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+    @patch("app.api.recipe.embed_meal_entry", new_callable=AsyncMock)
+    async def test_favorite_accepts_model_chosen_meal_type(
+        self,
+        _mock_embed: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Regression: starring a recipe whose slot differs from the requested
+        one used to 400 ("must match"), which silently broke the star for every
+        generation where the model picked its own slot. The recipe's meal_type
+        wins; the requested one is only a record of what was asked for."""
         recipe = _fake_recipe(meal_type=MealType.SOUP)
         resp = await client.post(
             "/api/recipe/favorite",
             headers=auth_headers,
             json={
-                "meal_type": "main_course",  # mismatch
+                "meal_type": "main_course",  # what the user asked for
                 "people_count": 2,
                 "recipe": recipe.model_dump(mode="json"),
             },
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 200
+        assert resp.json()["meal_type"] == "soup"
+
+        result = await db_session.execute(
+            select(MealEntry).where(MealEntry.user_id == test_user.id),
+        )
+        entries = result.scalars().all()
+        assert len(entries) == 1
+        assert entries[0].meal_type == "soup"
+        assert entries[0].is_favorite is True
 
     async def test_favorite_rejects_unknown_meal_type(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
         resp = await client.post(
             "/api/recipe/favorite",
             headers=auth_headers,
@@ -162,8 +181,8 @@ class TestFavoriteRecipe:
         self,
         _mock_embed: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-    ):
+        auth_headers: dict[str, str],
+    ) -> None:
         """End-to-end: star a recipe → it shows up in /api/cookbook → DELETE removes it."""
         resp = await client.post(
             "/api/recipe/favorite",

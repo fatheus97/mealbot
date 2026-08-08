@@ -24,6 +24,7 @@ export function OnboardingModal() {
         include_spices: values.include_spices,
         show_pieces: values.show_pieces,
         track_snacks: values.track_snacks,
+        need_to_use_enabled: values.need_to_use_enabled,
         default_day_layout: values.default_day_layout,
         onboarding_completed: true,
       });
@@ -71,6 +72,7 @@ export function OnboardingModal() {
             include_spices: true,
             show_pieces: false,
             track_snacks: true,
+            need_to_use_enabled: true,
             default_day_layout: [],
           }}
           onSubmit={handleSubmit}

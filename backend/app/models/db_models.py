@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import BigInteger, Boolean, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.default import DefaultExecutionContext
@@ -15,7 +15,11 @@ def _default_normalized_email(context: DefaultExecutionContext) -> str:
     CLI, demo, and all test fixtures) gets a value without a per-call hook — the
     missed-hook class of bug simply can't happen. Explicit callers may still pass
     normalized_email, in which case this is not invoked."""
-    return normalize_email(str(context.get_current_parameters()["email"]))
+    # SQLAlchemy ships no annotation for get_current_parameters, so it returns
+    # Any. Re-check on every SQLAlchemy bump — once they annotate it, this
+    # ignore becomes an unused-ignore error under strict.
+    params = context.get_current_parameters()  # type: ignore[no-untyped-call]
+    return normalize_email(str(params["email"]))
 
 
 class User(SQLModel, table=True):
@@ -65,6 +69,16 @@ class User(SQLModel, table=True):
     # DISPLAY ONLY — grams stay the single stored quantity and the only thing any
     # arithmetic reads, so this can never change what a plan buys or debits.
     show_pieces: bool = Field(default=False)
+
+    # Master switch for the "need to use" (use-it-soon) ingredient feature.
+    # Defaults True to preserve existing behavior for users already relying on
+    # it. When False, every fridge read masks need_to_use to False (see
+    # fridge_service.get_fridge_items) instead of surfacing it in the UI or
+    # feeding it into meal-plan urgency prompts — so a user who doesn't want to
+    # triage this per-ingredient can turn it off in one place. StockItem rows
+    # keep their real stored value untouched, so re-enabling instantly restores
+    # whatever was there before.
+    need_to_use_enabled: bool = Field(default=True)
 
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)

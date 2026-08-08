@@ -161,6 +161,7 @@ describe('OnboardingModal', () => {
         include_spices: true,
         show_pieces: false,
         track_snacks: true,
+        need_to_use_enabled: true,
         default_day_layout: [],
         onboarding_completed: true,
       });
