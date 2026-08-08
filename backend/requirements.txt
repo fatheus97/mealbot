@@ -1,4 +1,4 @@
-fastapi~=0.139
+fastapi~=0.141
 uvicorn[standard]~=0.51
 pydantic-settings~=2.14
 jinja2~=3.1
@@ -6,7 +6,7 @@ python-multipart~=0.0.32
 
 # For LLM
 instructor~=1.15
-openai~=2.48
+openai~=2.52
 google-genai~=2.14
 # REQUIRED by instructor's Gemini structured-output path — it derefs the $refs
 # in nested Pydantic schemas (e.g. MealPlanResponse) before sending to Gemini.
@@ -37,7 +37,7 @@ PyJWT~=2.13
 slowapi~=0.1.10
 
 # Billing / payments
-stripe~=15.3
+stripe~=15.4
 
 # Alert emails (Resend) — used directly by app/services/email_service.py
 httpx~=0.28
