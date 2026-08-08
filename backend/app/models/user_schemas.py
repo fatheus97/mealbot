@@ -215,6 +215,20 @@ class ResetPasswordRequest(BaseModel):
         return validate_password_complexity(v)
 
 
+class AccountDeleteRequest(BaseModel):
+    """Body for POST /auth/delete-account.
+
+    Password-only, like PasswordChangeRequest: re-verifying the current password
+    is what stands between a stolen access token and a destroyed account, and the
+    request carries nothing else the server should trust. No "type DELETE to
+    confirm" field — the admin bulk path uses one because it acts on OTHER
+    people's accounts and has no password to ask for; here the password IS the
+    deliberate step, and a second one only teaches users to click through both.
+    """
+
+    current_password: str = Field(min_length=1, max_length=128)
+
+
 class UserRead(UserBase):
     id: int
     country: str | None = None

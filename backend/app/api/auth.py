@@ -24,10 +24,11 @@ from fastapi import (
     Response,
     status,
 )
-from sqlalchemy import update
+import stripe
+from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.api.deps import get_current_user
 from app.core.config import settings
@@ -52,6 +53,7 @@ from app.core.security import (
 from app.db import get_session
 from app.models.db_models import AuthSession, User
 from app.models.user_schemas import (
+    AccountDeleteRequest,
     EmailChangeRequest,
     ForgotPasswordRequest,
     LoginRequest,
@@ -629,6 +631,113 @@ async def change_email(
             current_user.stripe_customer_id,
             new_email,
         )
+    return None
+
+
+@router.post("/delete-account", status_code=status.HTTP_204_NO_CONTENT)
+# Per-user buckets, as change_password/change_email — authenticated and
+# security-sensitive, so a shared NAT must not let one user 429 another out of
+# it. 5/minute is generous for an action you can only usefully perform once, and
+# tight enough that the password check is not a guessing oracle.
+@limiter.limit("5/minute", key_func=user_id_key_func)
+async def delete_account(
+    request: Request,
+    response: Response,
+    body: AccountDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Permanently delete the caller's own account.
+
+    The self-service half of ``admin.delete_user``: the privacy policy used to
+    say outright that no such button existed and to email us instead, which is a
+    GDPR erasure request handled by hand. Same data handling as the admin path —
+    one ``DELETE FROM "user"``, with the FKs deciding the rest (owned rows
+    CASCADE; ``SaleRecord`` and ``InviteToken`` are anonymised via SET NULL so
+    the VAT ledger survives a deleted person, as tax law requires).
+
+    Guards, in executed order:
+      * **demo accounts refused** — the session is disposable and swept within
+        the hour, the password is server-generated, and ``verify_password``
+        could not pass anyway. A 403 that says so beats a 401 that looks like a
+        typo;
+      * **admin accounts refused.** Not a self-guard like the admin endpoint's
+        (there the actor and target differ; here they never do) — it stops the
+        operator locking themselves out of their own admin panel with a form
+        they filled in correctly. Clearing ``is_admin`` first is a deliberate,
+        separate step;
+      * **the current password is re-verified.** A valid access token must not
+        be enough to destroy an account — same reasoning as change_email, where
+        the consequence was merely a takeover.
+
+    Then, BEFORE deleting anything, the Stripe subscription is cancelled. If
+    that call fails the whole request fails (503) and nothing is touched: the
+    alternative is a customer who keeps being charged for an account that no
+    longer exists and no longer has a billing portal to cancel from. Cancelling
+    is immediate, and the remainder of the paid period is forfeited.
+
+    **No AdminAuditLog row is written**, unlike the admin path. That row exists
+    to record *who deleted whom*; here they are the same person, and keeping
+    their email address in a log after they asked to be erased is precisely
+    what erasure is not. The Stripe customer object is left in place — the
+    invoices hanging off it are the tax record.
+    """
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
+    if current_user.is_demo:
+        raise LocalizedHTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "auth_demo_cannot_delete_account",
+        )
+    if current_user.is_admin:
+        raise LocalizedHTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "auth_admin_cannot_self_delete",
+        )
+
+    current_ok = await asyncio.to_thread(
+        verify_password, body.current_password, current_user.hashed_password
+    )
+    if not current_ok:
+        logger.warning("account_delete_bad_current user_id=%s", current_user.id)
+        raise LocalizedHTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "auth_current_password_wrong",
+        )
+
+    user_id = current_user.id
+    subscription_id = current_user.stripe_subscription_id
+    if subscription_id:
+        try:
+            await stripe_service.cancel_subscription_now(subscription_id)
+        except stripe.InvalidRequestError:
+            # Already cancelled or already gone at Stripe — nothing to stop, so
+            # the delete may proceed. This is the one Stripe failure that is not
+            # a reason to keep the account alive.
+            logger.info(
+                "account_delete_subscription_already_gone user_id=%s sub=%s",
+                user_id,
+                subscription_id,
+            )
+        except stripe.StripeError:
+            # Fail CLOSED. Deleting now would leave a live subscription billing
+            # a customer with no account and no portal to cancel from.
+            logger.exception("account_delete_cancel_failed user_id=%s", user_id)
+            raise LocalizedHTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "auth_delete_billing_unavailable",
+            ) from None
+
+    # A Core delete() (not session.delete) so the DB-level CASCADE / SET NULL
+    # fire instead of ORM relationship handling null-updating NOT NULL child
+    # FKs — see admin.delete_user, which this mirrors deliberately.
+    await session.execute(delete(User).where(col(User.id) == user_id))
+    await session.commit()
+    # Cookies last: the rows are gone, so the session they point at is dead
+    # anyway; clearing them is what stops the SPA from showing a logged-in shell
+    # for a user the next request 401s on.
+    clear_auth_cookies(response)
+    logger.info("account_self_deleted user_id=%s", user_id)
     return None
 
 

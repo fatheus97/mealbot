@@ -408,6 +408,25 @@ async def retrieve_customer(customer_id: str) -> dict[str, Any]:
     return customer.to_dict()
 
 
+async def cancel_subscription_now(subscription_id: str) -> None:
+    """Cancel a subscription immediately, for self-service account deletion.
+
+    Immediate, not ``cancel_at_period_end``: the account is about to stop
+    existing, so there is nothing left to keep access to for the rest of the
+    period. No proration/refund is requested — the paid period is simply
+    forfeited, which the Terms already say about cancellation.
+
+    Idempotent in the one way that matters: an already-canceled (or already
+    deleted) subscription raises ``InvalidRequestError``, which the caller
+    treats as "nothing to cancel" rather than an error. Every other
+    ``StripeError`` must propagate — the caller's whole reason for cancelling
+    BEFORE deleting is that the alternative is billing a customer whose account
+    is gone.
+    """
+    _require_stripe()
+    await asyncio.to_thread(stripe.Subscription.cancel, subscription_id)
+
+
 async def end_trial_now(subscription_id: str) -> None:
     """End a trial immediately (``Subscription.modify(trial_end='now')``), moving
     the customer to paid billing now — used to claw back a cross-account trial

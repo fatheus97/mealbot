@@ -68,6 +68,9 @@ ErrorKey = Literal[
     "auth_email_unchanged",
     "auth_email_taken",
     "auth_demo_cannot_change_email",
+    "auth_demo_cannot_delete_account",
+    "auth_admin_cannot_self_delete",
+    "auth_delete_billing_unavailable",
     "auth_reset_link_invalid",
     "auth_confirm_link_invalid",
     "auth_demo_disabled",
@@ -164,6 +167,17 @@ _EN: Final[dict[str, str]] = {
     "auth_email_taken": "Email already registered",
     "auth_demo_cannot_change_email": (
         "Demo accounts cannot change their email address."
+    ),
+    "auth_demo_cannot_delete_account": (
+        "Demo accounts delete themselves automatically — there is nothing to do."
+    ),
+    "auth_admin_cannot_self_delete": (
+        "Admin accounts cannot be deleted from Settings. Remove the admin flag first."
+    ),
+    "auth_delete_billing_unavailable": (
+        "We could not cancel your subscription with our payment provider, so we "
+        "stopped before deleting anything — otherwise you would keep being "
+        "charged for an account that no longer exists. Please try again shortly."
     ),
     "auth_reset_link_invalid": (
         "This reset link is invalid or has expired. Please request a new one."
@@ -301,6 +315,17 @@ _CS: Final[dict[str, str]] = {
     "auth_email_unchanged": "Tuto e-mailovou adresu už na účtu máte.",
     "auth_email_taken": "E-mail je už zaregistrovaný",
     "auth_demo_cannot_change_email": "U demo účtů nelze změnit e-mailovou adresu.",
+    "auth_demo_cannot_delete_account": (
+        "Demo účty se smažou samy — není co dělat."
+    ),
+    "auth_admin_cannot_self_delete": (
+        "Účty správců nelze smazat z Nastavení. Nejdřív odeberte příznak správce."
+    ),
+    "auth_delete_billing_unavailable": (
+        "Nepodařilo se nám u platební brány zrušit vaše předplatné, takže jsme "
+        "nic nesmazali — jinak by vám dál účtovala platby za účet, který už "
+        "neexistuje. Zkuste to prosím za chvíli znovu."
+    ),
     "auth_reset_link_invalid": (
         "Tento odkaz pro obnovení hesla je neplatný nebo mu vypršela platnost. "
         "Vyžádejte si prosím nový."
