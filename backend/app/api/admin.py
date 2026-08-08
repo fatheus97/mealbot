@@ -1218,6 +1218,8 @@ async def _feedback_detail(session: AsyncSession, report: FeedbackReport) -> Adm
         kind=report.kind,
         message=report.message,
         page=report.page,
+        screenshot_base64=report.screenshot_base64,
+        screenshot_content_type=report.screenshot_content_type,
         status=report.status,
         created_at=report.created_at,
         triage_status=report.triage_status,

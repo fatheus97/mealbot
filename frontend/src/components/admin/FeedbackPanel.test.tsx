@@ -44,6 +44,8 @@ const detailResp: AdminFeedbackDetail = {
   kind: "bug",
   message: "The plan view crashes when I click regenerate twice.",
   page: "settings",
+  screenshot_base64: null,
+  screenshot_content_type: null,
   status: "new",
   created_at: "2026-07-24T10:00:00Z",
   triage_status: "done",
@@ -144,5 +146,31 @@ describe("FeedbackPanel", () => {
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Re-run" }));
     await waitFor(() => expect(api.retriageAdminFeedback).toHaveBeenCalledWith(1));
+  });
+
+  it("renders an attached screenshot in the detail drawer", async () => {
+    vi.mocked(api.fetchAdminFeedbackDetail).mockResolvedValue({
+      ...detailResp,
+      screenshot_base64: "c2NyZWVuc2hvdA==",
+      screenshot_content_type: "image/png",
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<FeedbackPanel />);
+    await screen.findByText("Plan crash on regenerate");
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    const img = within(dialog).getByAltText(/attached screenshot/i) as HTMLImageElement;
+    expect(img.src).toBe("data:image/png;base64,c2NyZWVuc2hvdA==");
+  });
+
+  it("shows no screenshot when the report has none", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FeedbackPanel />);
+    await screen.findByText("Plan crash on regenerate");
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByAltText(/attached screenshot/i)).not.toBeInTheDocument();
   });
 });
