@@ -5,6 +5,7 @@ junk gate, the per-user abuse checks (duplicate / too-many-open), Pydantic body
 validation, and that advisory triage is scheduled (only) when enabled.
 """
 
+import base64
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,9 +15,40 @@ from sqlmodel import select
 
 from app.core.config import settings
 from app.models.db_models import FeedbackReport, User
+from app.models.feedback_schemas import MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_PIXELS
 from app.services import feedback_triage
 
 _GOOD = {"kind": "bug", "message": "The regenerate button crashes the plan view."}
+
+
+def _png_bytes(width: int = 10, height: int = 10, padding: bytes = b"") -> bytes:
+    """A structurally valid PNG *header* — signature + IHDR carrying the given
+    dimensions. Not a decodable image (no IDAT/IEND/CRC), but the endpoint's
+    dimension check only reads bytes[0:24], so this is sufficient and lets
+    tests control width/height precisely. `padding` appended after (ignored
+    by the header check) to hit an exact total size."""
+    ihdr_data = (
+        width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
+    )
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + (13).to_bytes(4, "big")
+        + b"IHDR"
+        + ihdr_data
+        + padding
+    )
+
+
+def _jpeg_bytes(width: int = 10, height: int = 10, padding: bytes = b"") -> bytes:
+    """A structurally valid JPEG header — SOI + a single SOF0 marker segment
+    carrying the given dimensions. The endpoint's dimension check returns as
+    soon as it reads this segment, so trailing `padding` is safe."""
+    sof_payload = b"\x08" + height.to_bytes(2, "big") + width.to_bytes(2, "big") + b"\x01\x01\x11\x00"
+    seg_len = (2 + len(sof_payload)).to_bytes(2, "big")
+    return b"\xff\xd8" + b"\xff\xc0" + seg_len + sof_payload + padding
+
+
+_SCREENSHOT_B64 = base64.b64encode(_png_bytes()).decode("ascii")
 
 
 @pytest.fixture(autouse=True)
@@ -105,6 +137,133 @@ class TestBodyValidation:
     async def test_message_too_long_422(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/feedback", json={"kind": "bug", "message": "x" * 5000}
+        )
+        assert resp.status_code == 422
+
+
+class TestScreenshotAttachment:
+    async def test_stores_valid_screenshot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": _SCREENSHOT_B64,
+                "screenshot_content_type": "image/png",
+            },
+        )
+        assert resp.status_code == 201
+        row = (await db_session.execute(select(FeedbackReport))).scalars().one()
+        assert row.screenshot_base64 == _SCREENSHOT_B64
+        assert row.screenshot_content_type == "image/png"
+
+    async def test_submit_without_screenshot_leaves_columns_null(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        resp = await client.post("/api/feedback", json=_GOOD)
+        assert resp.status_code == 201
+        row = (await db_session.execute(select(FeedbackReport))).scalars().one()
+        assert row.screenshot_base64 is None
+        assert row.screenshot_content_type is None
+
+    async def test_content_type_without_data_rejected_422(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback", json={**_GOOD, "screenshot_content_type": "image/png"}
+        )
+        assert resp.status_code == 422
+
+    async def test_data_without_content_type_rejected_422(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback", json={**_GOOD, "screenshot_base64": _SCREENSHOT_B64}
+        )
+        assert resp.status_code == 422
+
+    async def test_disallowed_content_type_rejected_422(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": _SCREENSHOT_B64,
+                "screenshot_content_type": "image/svg+xml",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_malformed_base64_rejected_422(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": "not valid base64!!!",
+                "screenshot_content_type": "image/png",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_oversized_screenshot_rejected_422(self, client: AsyncClient) -> None:
+        oversized = base64.b64encode(b"x" * (MAX_SCREENSHOT_BYTES + 1)).decode("ascii")
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": oversized,
+                "screenshot_content_type": "image/png",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_at_size_limit_accepted(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        header = _jpeg_bytes(width=100, height=100)
+        at_limit = base64.b64encode(header + b"x" * (MAX_SCREENSHOT_BYTES - len(header))).decode(
+            "ascii"
+        )
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": at_limit,
+                "screenshot_content_type": "image/jpeg",
+            },
+        )
+        assert resp.status_code == 201
+
+    async def test_oversized_dimensions_rejected_422(self, client: AsyncClient) -> None:
+        # Decompression bomb: small on disk (well under MAX_SCREENSHOT_BYTES,
+        # so the byte-size cap alone wouldn't catch it), but a bitmap that
+        # would blow way past MAX_SCREENSHOT_PIXELS once decoded/painted.
+        bomb = _png_bytes(width=30000, height=30000)
+        assert MAX_SCREENSHOT_PIXELS < 30000 * 30000
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": base64.b64encode(bomb).decode("ascii"),
+                "screenshot_content_type": "image/png",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_unparseable_dimensions_rejected_422(self, client: AsyncClient) -> None:
+        # Fails CLOSED: content that passes base64/size/content-type but whose
+        # header this endpoint can't actually parse dimensions from (here:
+        # correct PNG signature, garbage after it) is rejected, not accepted.
+        garbage = b"\x89PNG\r\n\x1a\n" + b"not a real IHDR chunk"
+        resp = await client.post(
+            "/api/feedback",
+            json={
+                **_GOOD,
+                "screenshot_base64": base64.b64encode(garbage).decode("ascii"),
+                "screenshot_content_type": "image/png",
+            },
         )
         assert resp.status_code == 422
 

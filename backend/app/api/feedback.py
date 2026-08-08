@@ -95,6 +95,8 @@ async def submit_feedback(
         kind=body.kind,
         message=body.message,
         page=body.page,
+        screenshot_base64=body.screenshot_base64,
+        screenshot_content_type=body.screenshot_content_type,
         status="new",
         # Mark "pending" up front so the queue shows triage is coming even before the
         # background task lands; the task flips it to done/failed.

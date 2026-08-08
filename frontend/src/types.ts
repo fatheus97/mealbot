@@ -617,11 +617,17 @@ export interface AccessRequestListResponse {
 
 export type FeedbackKind = "bug" | "feature" | "other";
 
-/** Body for POST /feedback (authenticated). `page` is optional client context. */
+/** Content types the backend accepts for a feedback screenshot (FeedbackCreate). */
+export type FeedbackScreenshotContentType = "image/png" | "image/jpeg";
+
+/** Body for POST /feedback (authenticated). `page` is optional client context.
+ *  The screenshot pair is both-or-neither — the backend 422s a mismatch. */
 export interface FeedbackCreateRequest {
   kind: FeedbackKind;
   message: string;
   page?: string | null;
+  screenshot_base64?: string | null;
+  screenshot_content_type?: FeedbackScreenshotContentType | null;
 }
 
 export interface FeedbackSubmitResponse {
@@ -677,6 +683,8 @@ export interface AdminFeedbackDetail {
   kind: string;
   message: string;
   page: string | null;
+  screenshot_base64: string | null;
+  screenshot_content_type: string | null;
   status: string;
   created_at: string;
   triage_status: string | null;
