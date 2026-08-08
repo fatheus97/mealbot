@@ -40,10 +40,12 @@ many"; `--force` is what's implicated.
 **The mechanism was not isolated, and the intuitive guess is wrong.** "`--force`
 rewrites files while Vitest reads them" cannot be it: both tsconfigs set
 `"noEmit": true`, so `tsc -b` emits nothing, and its only write is a
-`tsBuildInfoFile` under `node_modules/`, which the container shadows with the
-`mealbot_fe_nm` named volume — never the mounted source tree. Row 1 is the
-counterexample: `npm run build` is `tsc -b && vite build`, and `vite build`
-*does* write into the bind-mounted tree (`dist/`), yet that run was clean. What
+`tsBuildInfoFile` under `node_modules/` — which is shadowed by a volume, not
+part of the bind mount (`docker-compose.override.yml:15` uses an anonymous one;
+the ad-hoc `docker run` recipe uses a named one). So that write never reaches
+the mounted source tree. Row 1 is the counterexample: `npm run build` is
+`tsc -b && vite build`, and `vite build` *does* write into the bind-mounted
+tree (`dist/`), yet that run was clean. What
 `--force` adds over row 1 is type-check **work**, not writes, so resource
 pressure is the surviving candidate. Treat the table as a reproduction recipe,
 not an explanation.
