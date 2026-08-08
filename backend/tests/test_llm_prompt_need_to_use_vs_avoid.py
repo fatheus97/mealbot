@@ -5,6 +5,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -159,7 +160,7 @@ def _text_contains_term(text: str, term: str) -> bool:
     return re.search(pattern, text) is not None
 
 
-def _find_hits_in_response(response_json: dict, avoid_term: str) -> list[str]:
+def _find_hits_in_response(response_json: dict[str, Any], avoid_term: str) -> list[str]:
     """
     Search full response text for avoid_term + synonyms/hyponyms.
     This follows your idea: "search the avoid word and its synonyms/hyponyms in the response".

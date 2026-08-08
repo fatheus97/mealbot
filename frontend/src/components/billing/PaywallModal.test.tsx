@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { untranslatedEnglishIn } from "../../test/i18nAssertions";
+import { useLocaleStore, DEFAULT_LOCALE } from "../../store/useLocaleStore";
 import { PaywallModal } from "./PaywallModal";
 
 const { startCheckout, reset, billingState, authState } = vi.hoisted(() => ({
@@ -103,5 +105,58 @@ describe("PaywallModal", () => {
     // With both controls disabled, focus must stay inside the dialog, not revert
     // to <body> and let Tab escape to the page behind the backdrop.
     expect(screen.getByRole("dialog")).toHaveFocus();
+  });
+
+  // The legal links are asserted in BOTH locales, because the bug was not a
+  // missing translation — the markup was correct English and the hrefs were
+  // correct for English. Only a Czech reader saw the wrong document, and no
+  // English-locale test could ever have noticed.
+  it("links English readers to the English contract", () => {
+    render(<PaywallModal />);
+    firePaywall();
+    expect(screen.getByRole("link", { name: /terms of service/i })).toHaveAttribute(
+      "href",
+      "/terms",
+    );
+    expect(screen.getByRole("link", { name: /privacy policy/i })).toHaveAttribute(
+      "href",
+      "/privacy",
+    );
+  });
+
+  describe("in Czech", () => {
+    beforeEach(() => useLocaleStore.setState({ locale: "cs", explicit: true }));
+    afterEach(() =>
+      useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }),
+    );
+
+    it("links to the CZECH contract, not the English one", () => {
+      // #396 made the two editions equally authoritative, and the Czech one is
+      // what binds a Czech consumer. Sending them to /terms one click from
+      // paying pointed at the wrong binding document.
+      render(<PaywallModal />);
+      firePaywall();
+      const links = screen.getAllByRole("link");
+      expect(links.map((a) => a.getAttribute("href"))).toEqual([
+        "/cs/terms",
+        "/cs/privacy",
+      ]);
+    });
+
+    it("renders no English, with the plan toggle shown", () => {
+      authState.annualBillingAvailable = true;
+      render(<PaywallModal />);
+      firePaywall();
+      expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
+
+    it("writes the price with a decimal comma", () => {
+      authState.annualBillingAvailable = true;
+      render(<PaywallModal />);
+      firePaywall();
+      // "€4.99" is not a number a Czech reader parses as four euros ninety-nine.
+      expect(screen.getByText("4,99 €")).toBeInTheDocument();
+      expect(screen.queryByText(/€4\.99/)).not.toBeInTheDocument();
+    });
   });
 });

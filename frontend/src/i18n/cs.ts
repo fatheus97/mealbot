@@ -53,6 +53,79 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Registrace se nezdařila. Zkuste to prosím znovu nebo napište na {supportEmail}.",
   "auth.error.demo": "Demo není dostupné. Zkuste to prosím znovu.",
 
+  "auth.emailPlaceholder": "vas@email.cz",
+  "auth.genericError": "Něco se pokazilo.",
+
+  "auth.forgot.title": "Obnovení hesla",
+  "auth.forgot.body":
+    "Zadejte svůj e-mail a pošleme vám odkaz pro nastavení nového hesla.",
+  "auth.forgot.send": "Poslat odkaz",
+  "auth.forgot.sending": "Odesílám…",
+  // Two sentences where the English has a dash. Czech does not punctuate an
+  // afterthought that way, and "just in case" has no natural Czech carrier —
+  // "i složku se spamem" already carries it.
+  "auth.forgot.sent":
+    "Pokud účet s adresou {email} existuje, poslali jsme na něj odkaz pro " +
+    "obnovení hesla. Zkontrolujte si schránku i složku se spamem. " +
+    "Odkaz platí 30 minut.",
+  "auth.forgot.done": "Hotovo",
+  "auth.forgot.cancel": "Zrušit",
+
+  "auth.reset.title": "Zvolte si nové heslo",
+  "auth.reset.newPassword": "Nové heslo",
+  "auth.reset.confirmPassword": "Nové heslo znovu",
+  "auth.reset.submit": "Nastavit heslo",
+  "auth.reset.saving": "Ukládám…",
+  "auth.reset.done":
+    "Heslo bylo změněno. Z bezpečnostních důvodů jsme vás odhlásili na všech " +
+    "zařízeních, přihlaste se prosím novým heslem.",
+  "auth.reset.signIn": "Přihlásit se",
+  "auth.reset.cancel": "Zrušit",
+
+  // "obsahovat" takes the accusative and each noun inflects differently
+  // ("velké písmeno" / "číslici"), which is exactly why these are whole
+  // sentences rather than fragments dropped into a shared carrier.
+  "auth.password.tooLong": "Heslo může mít nejvýše 128 znaků.",
+  "auth.password.needsUpper": "Heslo musí obsahovat velké písmeno.",
+  "auth.password.needsLower": "Heslo musí obsahovat malé písmeno.",
+  "auth.password.needsDigit": "Heslo musí obsahovat číslici.",
+  "auth.password.mismatch": "Hesla se neshodují.",
+
+  "auth.invite.title": "Vytvořte si účet",
+  "auth.invite.body":
+    "Dostali jste pozvánku do Mealbotu. Zvolte si níže přihlašovací údaje.",
+  "auth.invite.email": "E-mail",
+  "auth.invite.password": "Heslo",
+  "auth.invite.confirmPassword": "Heslo znovu",
+  "auth.invite.submit": "Vytvořit účet",
+  "auth.invite.creating": "Vytvářím…",
+  "auth.invite.cancel": "Zrušit",
+  "auth.invite.needsSignIn":
+    "Účet byl vytvořen, ale nepodařilo se vás automaticky přihlásit. " +
+    "Přihlaste se prosím e-mailem a heslem, které jste si právě zvolili.",
+  "auth.invite.signIn": "Přihlásit se",
+
+  "auth.changeEmail.title": "Změna e-mailové adresy",
+  "auth.changeEmail.body":
+    "Napsali jste ji při registraci špatně, nebo používáte jinou? Zadejte " +
+    "správnou adresu a potvrzovací odkaz pošleme na ni.",
+  "auth.changeEmail.newEmail": "Nová e-mailová adresa",
+  "auth.changeEmail.currentPassword": "Současné heslo",
+  "auth.changeEmail.why":
+    "Heslo po vás chceme proto, že kdo se dostane do vaší e-mailové schránky, " +
+    "může si ho nechat obnovit.",
+  "auth.changeEmail.submit": "Změnit adresu",
+  "auth.changeEmail.changing": "Měním…",
+  "auth.changeEmail.unchanged": "Tuto adresu už na účtu máte.",
+  "auth.changeEmail.cancel": "Zrušit",
+  "auth.changeEmail.doneTitle": "Zkontrolujte novou schránku",
+  "auth.changeEmail.doneBody":
+    "Váš účet teď používá {email}. Poslali jsme tam potvrzovací odkaz, " +
+    "otevřete ho a změnu tím dokončíte. Od této chvíle se budete přihlašovat " +
+    "novou adresou a na ostatních zařízeních jsme vás odhlásili.",
+  "auth.changeEmail.done": "Hotovo",
+  "auth.changeEmail.failed": "E-mailovou adresu se nepodařilo změnit.",
+
   // Instrumental case after "Souhlasím s" — see the file header.
   "auth.acceptTerms": "Souhlasím s {terms} a {privacy}.",
   "auth.acceptTerms.termsLink": "Podmínkami služby",
@@ -315,6 +388,12 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "meal.leftoversFromTitle": "Zbytky z jídla „{source}“",
   "meal.leftoversFromBadge": "↻ Zbytky z jídla „{source}“",
 
+  // "z" + genitive for the date; a COLON, not a dash, introduces the dish —
+  // Czech does not punctuate an apposition with an em-dash.
+  "calendar.leftoverFromDateAndName": "Zbytky z {date}: {name}",
+  "calendar.leftoverFromDate": "Zbytky z {date}",
+  "calendar.leftoverFromName": "Zbytky: {name}",
+
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":
     "Vygenerujte jeden recept na to, co právě vaříte. Označte ho jako uvařený a suroviny se odečtou z lednice.",
@@ -333,6 +412,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "cookNow.generating": "Vytvářím…",
   "cookNow.generateFailed": "Recept se nepodařilo vytvořit.",
   "cookNow.saveFailed": "Recept se nepodařilo uložit.",
+  "cookNow.favoriteFailed": "Nepodařilo se uložit do kuchařky — zkontrolujte připojení a zkuste to znovu.",
+  "cookNow.unfavoriteFailed": "Nepodařilo se odebrat z kuchařky — zkontrolujte připojení a zkuste to znovu.",
   "cookNow.saving": "Ukládám…",
   "cookNow.cookFailed": "Nepodařilo se uložit — zkontrolujte připojení a zkuste to znovu.",
 
@@ -519,7 +600,10 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "calendar.close": "Zavřít kalendář",
   "calendar.plan": "Jídelníček",
   "calendar.planNumbered": "Jídelníček č. {id}",
-  "calendar.emptyMonth": "V měsíci {month} nejsou naplánované žádné jídelníčky. Přiřaďte jídelníčku datum začátku a objeví se tady.",
+  // {month} arrives in the LOCATIVE from monthLabelIn ("srpnu 2026"), so this
+  // reads "V srpnu 2026 …". It used to say "V měsíci {month}", which dodges the
+  // declension by apposition — grammatical, but it reads like a form letter.
+  "calendar.emptyMonth": "V {month} nejsou naplánované žádné jídelníčky. Přiřaďte jídelníčku datum začátku a objeví se tady.",
   "calendar.loading": "Načítání…",
   "calendar.scheduled": "Naplánované jídelníčky",
   "calendar.openPlan": "Otevřít →",
@@ -577,6 +661,54 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
 
   // ─── Plurals ──────────────────────────────────────────────────────────────
   // 1 minuta · 2–4 minuty · 1,5 minuty · 0 a 5+ minut.
+  "demo.banner":
+    "Ukázkový režim: můžete generovat jídelníčky, vařit a hodnotit jídla. " +
+    "Vaše relace i všechny změny se za 2 hodiny automaticky smažou.",
+
+  "billing.paywall.title": "Je potřeba předplatné",
+  // "10denní" is written as one word — Czech fuses a numeral with the
+  // adjective it forms, where English hyphenates ("10-day").
+  "billing.paywall.body":
+    "Generování jídelníčků a receptů vyžaduje aktivní předplatné. Začněte " +
+    "10denní zkušební verzí zdarma: než skončí, nic vám nenaúčtujeme a " +
+    "zrušit ji můžete kdykoli.",
+  "billing.paywall.planGroup": "Varianta předplatného",
+  "billing.paywall.monthly": "Měsíčně",
+  // Decimal comma, symbol after the number with a non-breaking space.
+  "billing.paywall.monthlyPrice": "4,99 €",
+  "billing.paywall.monthlySub": "za měsíc",
+  "billing.paywall.annual": "Ročně",
+  "billing.paywall.annualPrice": "2,99 €",
+  "billing.paywall.annualSub": "za měsíc, účtováno 35,88 € ročně",
+  // Czech puts a space before the percent sign.
+  "billing.paywall.annualBadge": "Ušetříte 40 %",
+  "billing.paywall.later": "Teď ne",
+  "billing.paywall.start": "Vyzkoušet zdarma",
+  "billing.paywall.starting": "Spouštím…",
+  // "souhlasit s" + instrumental, the same government as `auth.acceptTerms`,
+  // which is why both share the two link labels.
+  "billing.paywall.legal": "Předplatným souhlasíte s {terms} a {privacy}.",
+
+  // A comma, not a dash, joins the state to its date. "obnovuje se" (renews)
+  // and "končí" (ends) govern the clause differently, so these could never
+  // have been one message plus a shared suffix.
+  "billing.banner.trial": "🎉 Zkušební období zdarma.",
+  "billing.banner.trialRenews":
+    "🎉 Zkušební období zdarma, {date} přejde na placené předplatné.",
+  "billing.banner.trialCanceled": "🚫 Zkušební období zrušeno.",
+  "billing.banner.trialCanceledEnds": "🚫 Zkušební období zrušeno, končí {date}.",
+  "billing.banner.active": "✓ Předplatné aktivní.",
+  "billing.banner.activeRenews": "✓ Předplatné aktivní, obnovuje se {date}.",
+  "billing.banner.canceled": "🚫 Předplatné zrušeno.",
+  "billing.banner.canceledEnds": "🚫 Předplatné zrušeno, končí {date}.",
+  "billing.banner.pastDue":
+    "⚠️ Platba neproběhla. Aktualizujte prosím kartu, ať o přístup nepřijdete.",
+  "billing.banner.subscribe":
+    "Chcete-li dál generovat jídelníčky a recepty, aktivujte si předplatné.",
+  "billing.banner.manage": "Spravovat",
+  "billing.banner.updatePayment": "Aktualizovat kartu",
+  "billing.banner.subscribeAction": "Aktivovat",
+
   "time.minutes_one": "{count} minuta",
   "time.minutes_few": "{count} minuty",
   "time.minutes_many": "{count} minuty",

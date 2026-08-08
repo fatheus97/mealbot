@@ -139,6 +139,24 @@ class Settings(BaseSettings):
     # credit). Fixes the rotation blind spot flagged in #287's review; matters now that
     # 6b keys money off is_annual.
     stripe_price_ids_annual_legacy: str | None = None
+    # Per-LOCALE Price overrides, so Checkout can show Czech product copy.
+    #
+    # Stripe renders the PRODUCT's name and description on the Checkout page and
+    # stores exactly one of each per Product — there is no localized-name field,
+    # and no way to override it per session (``price_data`` would mint an ad-hoc
+    # Price and break the annual allow-list above). Czech copy therefore needs a
+    # second Product, which needs its own Prices. That is what these are.
+    #
+    # OPTIONAL: unset means every locale uses the baseline Prices above, exactly
+    # as before these existed — so the code ships inert and starts working when
+    # the operator creates the Czech Product. Setup: docs/stripe-localized-checkout.md.
+    #
+    # ⚠️ A new annual id here MUST also be counted by ``annual_price_ids()``, or a
+    # Czech annual subscriber reads as monthly and is wrongly granted the
+    # monthly-only feedback credit. That is real money, so it is wired rather
+    # than left to be remembered — see the test that asserts it.
+    stripe_price_id_cs: str | None = None
+    stripe_price_id_annual_cs: str | None = None
     # Absolute base URL of the SPA — Checkout/Portal redirect back here.
     frontend_base_url: str = "http://localhost:5173"
 
@@ -354,7 +372,7 @@ class Settings(BaseSettings):
                 entries.append(ModelEntry(provider=LLMProvider(provider_str), model=model))
             return entries
         if isinstance(v, list):
-            return v  # type: ignore[return-value]  # already parsed (e.g. default)
+            return v  # already parsed (e.g. default)
         raise ValueError(f"llm_models must be a comma-separated string or list, got {type(v)}")
 
 

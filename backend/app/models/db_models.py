@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import BigInteger, Boolean, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.default import DefaultExecutionContext
@@ -15,7 +15,11 @@ def _default_normalized_email(context: DefaultExecutionContext) -> str:
     CLI, demo, and all test fixtures) gets a value without a per-call hook — the
     missed-hook class of bug simply can't happen. Explicit callers may still pass
     normalized_email, in which case this is not invoked."""
-    return normalize_email(str(context.get_current_parameters()["email"]))
+    # SQLAlchemy ships no annotation for get_current_parameters, so it returns
+    # Any. Re-check on every SQLAlchemy bump — once they annotate it, this
+    # ignore becomes an unused-ignore error under strict.
+    params = context.get_current_parameters()  # type: ignore[no-untyped-call]
+    return normalize_email(str(params["email"]))
 
 
 class User(SQLModel, table=True):

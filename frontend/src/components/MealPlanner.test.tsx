@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
 import { usePreferencesStore } from '../store/usePreferencesStore';
+import { useLocaleStore } from '../store/useLocaleStore';
 import { dayDateLabel } from '../utils/planDates';
 import { setColorScheme } from '../test/media';
 import { PAGE_TEXT } from '../constants/theme';
@@ -565,11 +566,19 @@ describe('MealPlanner', () => {
       { wrapper: createWrapper() },
     );
 
-    // Locale-agnostic: assert the exact labels the component's own formatter produces.
+    // Assert the exact labels the component's own formatter produces. The
+    // locale comes from the store rather than being hardcoded, so this keeps
+    // matching if the suite's default ever changes — the component reads the
+    // same value.
+    const locale = useLocaleStore.getState().locale;
     await waitFor(() =>
-      expect(screen.getByText(dayDateLabel('2026-08-01', 0)!, { exact: false })).toBeInTheDocument(),
+      expect(
+        screen.getByText(dayDateLabel('2026-08-01', 0, locale)!, { exact: false }),
+      ).toBeInTheDocument(),
     );
-    expect(screen.getByText(dayDateLabel('2026-08-01', 1)!, { exact: false })).toBeInTheDocument();
+    expect(
+      screen.getByText(dayDateLabel('2026-08-01', 1, locale)!, { exact: false }),
+    ).toBeInTheDocument();
   });
 
   it('renders total cook time badge only when present', async () => {

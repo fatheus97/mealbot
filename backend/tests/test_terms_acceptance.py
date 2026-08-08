@@ -107,7 +107,7 @@ class TestConsentCannotBeSkipped:
         ],
     )
     async def test_register_without_consent_is_422(
-        self, unauthed_client: AsyncClient, db_session: AsyncSession, body: dict
+        self, unauthed_client: AsyncClient, db_session: AsyncSession, body: dict[str, bool | None]
     ) -> None:
         # Omission must be a 422, not a silent False and certainly not a silent
         # True — a defaulted field would let a client register and still get a
@@ -240,7 +240,7 @@ class TestOperatorPathsRecordNothing:
 
     def test_user_create_still_does(self) -> None:
         with pytest.raises(Exception):
-            UserCreate(email="a@b.com", password=TEST_PASSWORD)  # type: ignore[call-arg]
+            UserCreate(email="a@b.com", password=TEST_PASSWORD)
 
 
 class _Ctx:

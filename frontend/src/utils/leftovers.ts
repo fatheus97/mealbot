@@ -6,6 +6,18 @@
 import { mealTypeLabel } from "../constants/mealTypes";
 import type { LeftoverRef, MealPlanResponse } from "../types";
 import { dayDateLabel } from "./planDates";
+import type { TranslationKey } from "../i18n";
+import type { Locale } from "../store/useLocaleStore";
+
+/**
+ * `t` from `useI18n`, narrowed to what these helpers need. Passed in rather
+ * than imported so they stay pure and unit-testable — a hook cannot be called
+ * outside a component anyway.
+ */
+type Translate = (
+  key: TranslationKey,
+  vars?: Record<string, string | number>,
+) => string;
 
 /**
  * Human label for the meal a leftover came from, e.g.
@@ -26,14 +38,19 @@ export function leftoverSourceLabel(
   plan: MealPlanResponse | null | undefined,
   ref: LeftoverRef | null | undefined,
   startISO: string | null | undefined,
+  locale: Locale,
+  t: Translate,
 ): string | null {
   if (!plan || !ref) return null;
   const source = plan.days?.[ref.day_index]?.meals?.[ref.meal_index];
   if (!source) return null;
 
   // Falls back to the positional day number when the plan is unscheduled —
-  // dayDateLabel returns null for a null/empty start date.
-  const day = dayDateLabel(startISO, ref.day_index) ?? `Day ${ref.day_index + 1}`;
+  // dayDateLabel returns null for a null/empty start date. That fallback was a
+  // hardcoded `Day N`, so an unscheduled Czech plan read "Day 3" mid-sentence.
+  const day =
+    dayDateLabel(startISO, ref.day_index, locale) ??
+    t("planner.day", { n: ref.day_index + 1 });
   const slot = mealTypeLabel(source.meal_type, source.meal_type_label);
   return `${day} · ${slot} — ${source.name}`;
 }
@@ -66,9 +83,18 @@ export function calendarLeftoverTitle(
   sourceDate: string | null,
   sourceName: string | null,
   formatDate: (iso: string) => string,
+  t: Translate,
 ): string {
-  const parts: string[] = [];
-  if (sourceDate) parts.push(`from ${formatDate(sourceDate)}`);
-  if (sourceName) parts.push(`— ${sourceName}`);
-  return parts.length ? `Leftovers ${parts.join(" ")}` : "Leftovers";
+  // One key per shape, not a stem plus appended fragments. Either half can be
+  // unresolved independently, and Czech needs "z" + a genitive date and a colon
+  // before the dish — neither survives being glued on after "Leftovers".
+  if (sourceDate && sourceName) {
+    return t("calendar.leftoverFromDateAndName", {
+      date: formatDate(sourceDate),
+      name: sourceName,
+    });
+  }
+  if (sourceDate) return t("calendar.leftoverFromDate", { date: formatDate(sourceDate) });
+  if (sourceName) return t("calendar.leftoverFromName", { name: sourceName });
+  return t("meal.leftovers");
 }

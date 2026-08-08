@@ -8,8 +8,10 @@ account, while a +tag on a non-subaddressing provider stays distinct.
 
 import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -57,7 +59,7 @@ def test_normalize_never_yields_empty_local() -> None:
 # normalize_email; if the live one changes without updating the migration, this
 # fails loudly rather than silently backfilling with stale logic.
 # --------------------------------------------------------------------------- #
-def _load_migration():
+def _load_migration() -> ModuleType:
     path = (
         Path(__file__).resolve().parents[1]
         / "alembic"
@@ -136,7 +138,7 @@ async def test_column_default_derives_normalized_email(
 # End-to-end registration / login flows
 # --------------------------------------------------------------------------- #
 async def test_registration_rejects_gmail_dot_variant(
-    unauthed_client, monkeypatch: pytest.MonkeyPatch
+    unauthed_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "registration_enabled", True)
     r1 = await unauthed_client.post(
@@ -152,7 +154,7 @@ async def test_registration_rejects_gmail_dot_variant(
 
 
 async def test_registration_allows_distinct_non_subaddressing_plus(
-    unauthed_client, monkeypatch: pytest.MonkeyPatch
+    unauthed_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Yahoo is NOT on the plus allowlist, so "+tag" is a distinct real mailbox —
     # both must register (guard against a false merge).
@@ -170,7 +172,7 @@ async def test_registration_allows_distinct_non_subaddressing_plus(
 
 
 async def test_login_succeeds_with_gmail_dot_variant(
-    unauthed_client, monkeypatch: pytest.MonkeyPatch
+    unauthed_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "registration_enabled", True)
     reg = await unauthed_client.post(
@@ -187,7 +189,7 @@ async def test_login_succeeds_with_gmail_dot_variant(
 
 
 async def test_login_wrong_password_still_401(
-    unauthed_client, monkeypatch: pytest.MonkeyPatch
+    unauthed_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "registration_enabled", True)
     reg = await unauthed_client.post(

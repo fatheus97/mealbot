@@ -260,7 +260,7 @@ def user_to_read(
     from app.services.stripe_service import is_entitled
 
     return UserRead(
-        id=u.id,  # type: ignore[arg-type]  # always populated post-flush
+        id=u.id,  # always populated post-flush
         email=u.email,
         country=u.country,
         language=u.language,

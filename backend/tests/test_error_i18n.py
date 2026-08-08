@@ -213,14 +213,14 @@ def test_plural_key_without_count_is_rejected() -> None:
     # key that appears nowhere in the source — a confusing report for what is
     # really a wrong call.
     with pytest.raises(ValueError, match="required for a plural key"):
-        LocalizedHTTPException(409, "plan_favorites_block_delete")  # type: ignore[call-overload]
+        LocalizedHTTPException(409, "plan_favorites_block_delete")
 
 
 def test_count_on_a_static_key_is_rejected() -> None:
     # The quieter mistake of the two: `render` would ignore the count and
     # return a perfectly good sentence, so nothing would ever surface it.
     with pytest.raises(ValueError, match="not\n?\\s*accepted for any other"):
-        LocalizedHTTPException(404, "plan_not_found", count=3)  # type: ignore[call-overload]
+        LocalizedHTTPException(404, "plan_not_found", count=3)
 
 
 def test_eager_english_detail_matches_the_rendered_english() -> None:

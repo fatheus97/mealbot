@@ -44,13 +44,18 @@ const okJson = (body: unknown) => ({
  * in this file.
  *
  * ⚠️ THE DAY MUST BE 15 OR LATER. monthMatrix() always emits a 6x7 = 42-cell
- * grid rewound to the week's Sunday, and PlanCalendar renders a chip for EVERY
- * cell — `inMonth` only changes styling, not whether the meal name is in the
- * DOM. So the current month's grid spills into next month by
+ * grid rewound to THE LOCALE'S FIRST WEEKDAY — Sunday under `en`, Monday under
+ * `cs` — and PlanCalendar renders a chip for EVERY cell; `inMonth` only changes
+ * styling, not whether the meal name is in the DOM. So the current month's grid
+ * spills into next month by
  *
- *     42 - weekday(1st, 0=Sun) - daysInMonth
+ *     42 - offsetOfFirst - daysInMonth
  *
- * which peaks at 42 - 0 - 28 = 14 (a 28-day February beginning on a Sunday).
+ * where offsetOfFirst is how far the 1st sits after the locale's first weekday.
+ * That still peaks at 42 - 0 - 28 = 14 whichever weekday starts the week: the
+ * worst case is a 28-day February whose 1st IS the first weekday, and one
+ * exists for both conventions (Feb 2026 opens on a Sunday, Feb 2021 opened on a
+ * Monday). So the margin below survived this file gaining a `cs` case.
  * Days 1-14 of next month can therefore land in a rendered cell and make the
  * /Chicken Curry/ assertions multi-match again — the same failure this helper
  * exists to prevent, re-triggered by calendar SHAPE instead of a literal.
@@ -203,6 +208,39 @@ describe("PlanCalendar", () => {
     });
     await waitFor(() => expect(screen.getByText(/nejsou naplánované/)).toBeInTheDocument());
     expect(untranslatedEnglishIn(empty.container, 4, IGNORED_FIXTURE_KEYS)).toEqual([]);
+  });
+
+  it("declines the month for the sentence but not for the heading", async () => {
+    // The same month renders in two grammatical roles on this one screen, and
+    // untranslatedEnglishIn cannot see the difference — both forms are Czech.
+    // The heading is standalone (nominative, "srpen 2026"); the empty-state
+    // sentence follows "V" and needs the locative ("v srpnu 2026"). Getting
+    // this wrong is invisible to every other guard in the suite.
+    loginUser();
+    routeDefault({ plans: [] });
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    render(<PlanCalendar onClose={vi.fn()} onOpenPlan={vi.fn()} />, {
+      wrapper: createWrapper(),
+    });
+
+    const sentence = await screen.findByText(/nejsou naplánované/);
+    const monthNow = new Date().getMonth();
+    // září is the one month whose two forms coincide, so it can never fail this
+    // — skip rather than assert something vacuous when the suite runs in Sept.
+    if (monthNow !== 8) {
+      expect(sentence.textContent).not.toMatch(
+        /\bV (leden|únor|březen|duben|květen|červen|červenec|srpen|říjen|listopad|prosinec)\b/,
+      );
+    }
+    expect(sentence.textContent).toMatch(
+      /\bV (lednu|únoru|březnu|dubnu|květnu|červnu|červenci|srpnu|září|říjnu|listopadu|prosinci) \d{4}/,
+    );
+    // And the heading keeps the standalone form.
+    expect(
+      screen.getByText(
+        /^(leden|únor|březen|duben|květen|červen|červenec|srpen|září|říjen|listopad|prosinec) \d{4}$/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("lists scheduled plans with their meals", async () => {

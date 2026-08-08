@@ -277,7 +277,7 @@ class TestFunnelAggregation:
             ("admin2@x.com", {"is_admin": True}),
             ("comped@x.com", {"is_comped": True}),
         ]:
-            uid = await _user(db_session, email, utm_source="google", **kwargs)  # type: ignore[arg-type]
+            uid = await _user(db_session, email, utm_source="google", **kwargs)
             plan = _plan(uid, confirmed=True)
             db_session.add_all([_gen(uid), plan])
             await db_session.flush()

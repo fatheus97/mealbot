@@ -72,7 +72,7 @@ async def list_cookbook(
 ) -> CookbookListResponse:
     """Return the user's favorites, paginated, newest first."""
     filters = [
-        MealEntry.user_id == current_user.id,  # type: ignore[arg-type]
+        MealEntry.user_id == current_user.id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     ]
     if q:
@@ -81,7 +81,7 @@ async def list_cookbook(
         # not input — so SQL injection isn't possible.
         filters.append(MealEntry.name.ilike(f"%{q}%"))  # type: ignore[attr-defined]
     if meal_type:
-        filters.append(MealEntry.meal_type == meal_type)  # type: ignore[arg-type]
+        filters.append(MealEntry.meal_type == meal_type)
 
     count_stmt = select(func.count()).select_from(MealEntry).where(*filters)
     total = (await session.execute(count_stmt)).scalar() or 0
@@ -127,7 +127,7 @@ async def cookbook_count(
     RAG threshold (settings.rag_cookbook_threshold).
     """
     stmt = select(func.count()).select_from(MealEntry).where(
-        MealEntry.user_id == current_user.id,  # type: ignore[arg-type]
+        MealEntry.user_id == current_user.id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     )
     count = (await session.execute(stmt)).scalar() or 0
@@ -161,7 +161,7 @@ async def remove_from_cookbook(
         await session.commit()
 
     stmt = select(func.count()).select_from(MealEntry).where(
-        MealEntry.user_id == current_user.id,  # type: ignore[arg-type]
+        MealEntry.user_id == current_user.id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     )
     count = (await session.execute(stmt)).scalar() or 0

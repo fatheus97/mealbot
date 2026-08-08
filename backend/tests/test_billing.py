@@ -7,6 +7,9 @@ entitled, what status codes the router returns, and that a webhook event mutates
 the mirrored state on the right user.
 """
 
+from collections.abc import Iterator
+from typing import Any
+
 import pytest
 import stripe
 from fastapi import HTTPException
@@ -23,7 +26,7 @@ from app.services import stripe_service
 # --------------------------------------------------------------------------- #
 # is_entitled — the single source of truth for the paywall
 # --------------------------------------------------------------------------- #
-def _user(**kwargs) -> User:
+def _user(**kwargs: Any) -> User:
     base = dict(
         email="e@example.com",
         hashed_password="x",
@@ -35,23 +38,23 @@ def _user(**kwargs) -> User:
     return User(**base)
 
 
-def test_is_entitled_billing_off_allows_everyone(monkeypatch):
+def test_is_entitled_billing_off_allows_everyone(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", False)
     # Even an unsubscribed, non-privileged user is entitled while billing is off.
     assert stripe_service.is_entitled(_user(subscription_status="none")) is True
 
 
-def test_is_entitled_admin_bypasses_paywall(monkeypatch):
+def test_is_entitled_admin_bypasses_paywall(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     assert stripe_service.is_entitled(_user(is_admin=True)) is True
 
 
-def test_is_entitled_demo_bypasses_paywall(monkeypatch):
+def test_is_entitled_demo_bypasses_paywall(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     assert stripe_service.is_entitled(_user(is_demo=True)) is True
 
 
-def test_is_entitled_comped_bypasses_paywall(monkeypatch):
+def test_is_entitled_comped_bypasses_paywall(monkeypatch: pytest.MonkeyPatch) -> None:
     # Comped ("friendlist"/grandfathered) users keep access without subscribing.
     monkeypatch.setattr(settings, "billing_enabled", True)
     assert stripe_service.is_entitled(_user(is_comped=True)) is True
@@ -70,7 +73,7 @@ def test_is_entitled_comped_bypasses_paywall(monkeypatch):
         ("incomplete_expired", False),
     ],
 )
-def test_is_entitled_by_status(monkeypatch, status, expected):
+def test_is_entitled_by_status(monkeypatch: pytest.MonkeyPatch, status: str, expected: bool) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     assert stripe_service.is_entitled(_user(subscription_status=status)) is expected
 
@@ -78,7 +81,7 @@ def test_is_entitled_by_status(monkeypatch, status, expected):
 # --------------------------------------------------------------------------- #
 # apply_subscription — mirroring a Stripe Subscription object
 # --------------------------------------------------------------------------- #
-def test_apply_subscription_mirrors_top_level_fields():
+def test_apply_subscription_mirrors_top_level_fields() -> None:
     user = _user()
     stripe_service.apply_subscription(
         user,
@@ -90,7 +93,7 @@ def test_apply_subscription_mirrors_top_level_fields():
     assert user.current_period_end.year == 2030
 
 
-def test_apply_subscription_mirrors_cancel_at_period_end():
+def test_apply_subscription_mirrors_cancel_at_period_end() -> None:
     user = _user()
     stripe_service.apply_subscription(
         user, {"id": "s", "status": "trialing", "cancel_at_period_end": True}
@@ -103,7 +106,7 @@ def test_apply_subscription_mirrors_cancel_at_period_end():
     assert user.cancel_at_period_end is False
 
 
-def test_apply_subscription_reads_item_level_period_end():
+def test_apply_subscription_reads_item_level_period_end() -> None:
     """Stripe's 2025 'basil' API moved current_period_end onto the item."""
     user = _user()
     stripe_service.apply_subscription(
@@ -120,21 +123,21 @@ def test_apply_subscription_reads_item_level_period_end():
     assert user.current_period_end.year == 2030
 
 
-def test_apply_subscription_missing_period_end_leaves_none():
+def test_apply_subscription_missing_period_end_leaves_none() -> None:
     user = _user()
     stripe_service.apply_subscription(user, {"id": "sub_3", "status": "active"})
     assert user.subscription_status == "active"
     assert user.current_period_end is None
 
 
-def test_apply_subscription_ignores_non_string_status():
+def test_apply_subscription_ignores_non_string_status() -> None:
     user = _user(subscription_status="active")
     stripe_service.apply_subscription(user, {"id": "sub_4", "status": None})
     # A malformed event must not clobber a known-good status.
     assert user.subscription_status == "active"
 
 
-def test_apply_subscription_ignores_stale_out_of_order_event():
+def test_apply_subscription_ignores_stale_out_of_order_event() -> None:
     """A later-arriving but OLDER event must not overwrite newer mirrored state."""
     user = _user()
     # Newer event (created=200): subscription got canceled.
@@ -155,7 +158,7 @@ def test_apply_subscription_ignores_stale_out_of_order_event():
     assert user.subscription_event_ts == 200  # watermark not moved backwards
 
 
-def test_apply_subscription_applies_newer_event():
+def test_apply_subscription_applies_newer_event() -> None:
     user = _user()
     stripe_service.apply_subscription(user, {"id": "s", "status": "active"}, event_created=100)
     applied = stripe_service.apply_subscription(
@@ -166,7 +169,7 @@ def test_apply_subscription_applies_newer_event():
     assert user.subscription_event_ts == 200
 
 
-def test_apply_subscription_equal_timestamp_still_applies():
+def test_apply_subscription_equal_timestamp_still_applies() -> None:
     """Equal timestamps (idempotent redelivery) apply — the guard is strict-older."""
     user = _user()
     stripe_service.apply_subscription(user, {"id": "s", "status": "active"}, event_created=100)
@@ -178,16 +181,16 @@ def test_apply_subscription_equal_timestamp_still_applies():
 
 
 async def test_ensure_customer_uses_stable_idempotency_key(
-    test_user: User, db_session: AsyncSession, monkeypatch
-):
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The Customer create must carry a per-user idempotency key so two racing
     /checkout calls resolve to the same Customer (no orphaned duplicate)."""
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _FakeCustomer:
         id = "cus_fake"
 
-    def _fake_create(**kwargs):
+    def _fake_create(**kwargs: Any) -> _FakeCustomer:
         captured.update(kwargs)
         return _FakeCustomer()
 
@@ -202,12 +205,12 @@ async def test_ensure_customer_uses_stable_idempotency_key(
 
 
 async def test_ensure_customer_returns_existing_without_create(
-    test_user: User, db_session: AsyncSession, monkeypatch
-):
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A user that already has a customer id must not hit Stripe again."""
     test_user.stripe_customer_id = "cus_existing"
 
-    def _boom(**kwargs):
+    def _boom(**kwargs: Any) -> None:
         raise AssertionError("Customer.create must not be called")
 
     monkeypatch.setattr(stripe.Customer, "create", _boom)
@@ -216,8 +219,8 @@ async def test_ensure_customer_returns_existing_without_create(
 
 
 async def test_create_checkout_forwards_configured_trial_period(
-    test_user: User, db_session: AsyncSession, monkeypatch
-):
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Checkout must forward settings.trial_period_days into subscription_data
     verbatim — the trial length is a config knob, not a hardcoded literal. Uses a
     sentinel (7) that differs from any shipped default, so it guards the *wiring*
@@ -232,12 +235,12 @@ async def test_create_checkout_forwards_configured_trial_period(
     monkeypatch.setattr(stripe, "default_http_client", None)
     monkeypatch.setattr(stripe, "max_network_retries", 0)
 
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _FakeSession:
         url = "https://checkout.stripe.test/session/abc"
 
-    def _fake_session_create(**kwargs):
+    def _fake_session_create(**kwargs: Any) -> _FakeSession:
         captured.update(kwargs)
         return _FakeSession()
 
@@ -255,8 +258,8 @@ async def test_create_checkout_forwards_configured_trial_period(
 
 
 async def test_create_portal_session_points_at_app_namespace(
-    test_user: User, monkeypatch
-):
+    test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """create_portal_session's return_url must target /app, same rationale as
     the checkout success/cancel URLs above."""
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
@@ -265,12 +268,12 @@ async def test_create_portal_session_points_at_app_namespace(
     monkeypatch.setattr(stripe, "default_http_client", None)
     monkeypatch.setattr(stripe, "max_network_retries", 0)
 
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _FakePortalSession:
         url = "https://billing.stripe.test/portal/xyz"
 
-    def _fake_portal_create(**kwargs):
+    def _fake_portal_create(**kwargs: Any) -> _FakePortalSession:
         captured.update(kwargs)
         return _FakePortalSession()
 
@@ -282,7 +285,7 @@ async def test_create_portal_session_points_at_app_namespace(
     assert captured["return_url"] == f"{settings.frontend_base_url}/app?billing=managed"
 
 
-def test_require_stripe_configures_timeout_and_retries(monkeypatch):
+def test_require_stripe_configures_timeout_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     """_require_stripe sets the API key + an explicit timeout/retry policy so
     outbound calls don't silently inherit the SDK's 80s default."""
     # setattr registers the originals for auto-restore, so this can't leak state.
@@ -300,13 +303,13 @@ def test_require_stripe_configures_timeout_and_retries(monkeypatch):
     assert stripe.default_http_client is not None
 
 
-def test_require_stripe_raises_without_secret_key(monkeypatch):
+def test_require_stripe_raises_without_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_secret_key", None)
     with pytest.raises(RuntimeError):
         stripe_service._require_stripe()
 
 
-def test_billing_configured(monkeypatch):
+def test_billing_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_secret_key", None)
     monkeypatch.setattr(settings, "stripe_price_id", None)
     assert stripe_service.billing_configured() is False
@@ -318,13 +321,13 @@ def test_billing_configured(monkeypatch):
 # --------------------------------------------------------------------------- #
 # require_active_subscription — the FastAPI gate dependency
 # --------------------------------------------------------------------------- #
-async def test_gate_allows_entitled_user(monkeypatch):
+async def test_gate_allows_entitled_user(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     user = _user(subscription_status="active")
     assert await require_active_subscription(current_user=user) is user
 
 
-async def test_gate_blocks_unentitled_user(monkeypatch):
+async def test_gate_blocks_unentitled_user(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     user = _user(subscription_status="none")
     with pytest.raises(HTTPException) as exc:
@@ -335,25 +338,25 @@ async def test_gate_blocks_unentitled_user(monkeypatch):
 # --------------------------------------------------------------------------- #
 # Gate wiring — the actual generation routes reject an unentitled caller with 402
 # --------------------------------------------------------------------------- #
-async def test_recipe_generate_gated_402(client: AsyncClient, monkeypatch):
+async def test_recipe_generate_gated_402(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     resp = await client.post("/api/recipe/generate", json={"meal_type": "main_course"})
     assert resp.status_code == 402
 
 
-async def test_plan_gated_402(client: AsyncClient, monkeypatch):
+async def test_plan_gated_402(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     resp = await client.post("/api/plan?days=2", json={})
     assert resp.status_code == 402
 
 
-async def test_regenerate_gated_402(client: AsyncClient, monkeypatch):
+async def test_regenerate_gated_402(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     resp = await client.post("/api/plan/1/regenerate", json={})
     assert resp.status_code == 402
 
 
-async def test_fridge_scan_gated_402(client: AsyncClient, monkeypatch):
+async def test_fridge_scan_gated_402(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     resp = await client.post(
         "/api/fridge/scan",
@@ -365,13 +368,15 @@ async def test_fridge_scan_gated_402(client: AsyncClient, monkeypatch):
 # --------------------------------------------------------------------------- #
 # Checkout / Portal router
 # --------------------------------------------------------------------------- #
-async def test_checkout_503_when_billing_disabled(client: AsyncClient, monkeypatch):
+async def test_checkout_503_when_billing_disabled(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", False)
     resp = await client.post("/api/billing/checkout")
     assert resp.status_code == 503
 
 
-async def test_checkout_503_when_enabled_but_unconfigured(client: AsyncClient, monkeypatch):
+async def test_checkout_503_when_enabled_but_unconfigured(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", None)
     monkeypatch.setattr(settings, "stripe_price_id", None)
@@ -379,13 +384,15 @@ async def test_checkout_503_when_enabled_but_unconfigured(client: AsyncClient, m
     assert resp.status_code == 503
 
 
-async def test_checkout_403_for_demo(client: AsyncClient, test_user: User, monkeypatch):
+async def test_checkout_403_for_demo(
+    client: AsyncClient, test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
     test_user.is_demo = True
 
-    async def _boom(*a, **k):  # must never be reached
+    async def _boom(*a: Any, **k: Any) -> None:  # must never be reached
         raise AssertionError("checkout must not start for a demo user")
 
     monkeypatch.setattr(stripe_service, "create_checkout_session", _boom)
@@ -393,12 +400,14 @@ async def test_checkout_403_for_demo(client: AsyncClient, test_user: User, monke
     assert resp.status_code == 403
 
 
-async def test_checkout_returns_url(client: AsyncClient, monkeypatch):
+async def test_checkout_returns_url(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
 
-    async def _fake_checkout(user, session, plan="monthly"):
+    async def _fake_checkout(
+        user: User, session: AsyncSession, plan: str = "monthly", locale: str = "en"
+    ) -> str:
         return "https://checkout.stripe.test/session/abc"
 
     monkeypatch.setattr(stripe_service, "create_checkout_session", _fake_checkout)
@@ -410,21 +419,21 @@ async def test_checkout_returns_url(client: AsyncClient, monkeypatch):
 # --------------------------------------------------------------------------- #
 # Plan selection (monthly / annual) + annual detection — the reprice PR
 # --------------------------------------------------------------------------- #
-def test_price_id_for_plan_resolves_each_plan(monkeypatch):
+def test_price_id_for_plan_resolves_each_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
     monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
     assert stripe_service._price_id_for_plan("monthly") == "price_monthly"
     assert stripe_service._price_id_for_plan("annual") == "price_annual"
 
 
-def test_price_id_for_plan_annual_unconfigured_raises(monkeypatch):
+def test_price_id_for_plan_annual_unconfigured_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
     monkeypatch.setattr(settings, "stripe_price_id_annual", None)
     with pytest.raises(RuntimeError):
         stripe_service._price_id_for_plan("annual")
 
 
-def test_annual_available_reflects_config(monkeypatch):
+def test_annual_available_reflects_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_price_id_annual", None)
     assert stripe_service.annual_available() is False
     monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
@@ -432,8 +441,8 @@ def test_annual_available_reflects_config(monkeypatch):
 
 
 async def test_create_checkout_uses_annual_price(
-    test_user: User, db_session: AsyncSession, monkeypatch
-):
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """plan='annual' must put the ANNUAL price id in the Checkout line item — the
     regression guard against silently charging the monthly price for an annual pick."""
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
@@ -444,12 +453,12 @@ async def test_create_checkout_uses_annual_price(
     monkeypatch.setattr(stripe, "default_http_client", None)
     monkeypatch.setattr(stripe, "max_network_retries", 0)
 
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _FakeSession:
         url = "https://checkout.stripe.test/session/annual"
 
-    def _fake_session_create(**kwargs):
+    def _fake_session_create(**kwargs: Any) -> _FakeSession:
         captured.update(kwargs)
         return _FakeSession()
 
@@ -460,7 +469,7 @@ async def test_create_checkout_uses_annual_price(
     assert captured["line_items"] == [{"price": "price_annual", "quantity": 1}]
 
 
-def test_apply_subscription_stores_price_id():
+def test_apply_subscription_stores_price_id() -> None:
     user = _user()
     stripe_service.apply_subscription(
         user,
@@ -473,14 +482,14 @@ def test_apply_subscription_stores_price_id():
     assert user.subscription_price_id == "price_annual"
 
 
-def test_apply_subscription_keeps_price_id_when_payload_lacks_items():
+def test_apply_subscription_keeps_price_id_when_payload_lacks_items() -> None:
     # A payload without items (or without a price) must NOT blank a known price id.
     user = _user(subscription_price_id="price_monthly")
     stripe_service.apply_subscription(user, {"id": "s", "status": "active"})
     assert user.subscription_price_id == "price_monthly"
 
 
-def test_apply_subscription_reads_bare_string_price():
+def test_apply_subscription_reads_bare_string_price() -> None:
     # Tolerate items[0].price being the bare id string (unexpanded) — the _extract_
     # price_id str branch, so a differently-expanded webhook still mirrors the plan.
     user = _user()
@@ -491,7 +500,7 @@ def test_apply_subscription_reads_bare_string_price():
     assert user.subscription_price_id == "price_annual"
 
 
-def test_apply_subscription_plan_switch_overwrites_price_id():
+def test_apply_subscription_plan_switch_overwrites_price_id() -> None:
     # A Customer-Portal switch monthly→annual arrives as a NEWER event and must
     # update the mirrored price id (so is_annual/6b sees the new plan).
     user = _user(subscription_price_id="price_monthly", subscription_event_ts=100)
@@ -504,7 +513,7 @@ def test_apply_subscription_plan_switch_overwrites_price_id():
     assert user.subscription_price_id == "price_annual"
 
 
-def test_apply_subscription_stale_event_does_not_clobber_price_id():
+def test_apply_subscription_stale_event_does_not_clobber_price_id() -> None:
     # The monotonic guard: a STALE event (older than the last applied) is skipped
     # wholesale, so it can never overwrite the price id with an out-of-order plan —
     # the money-critical interaction 6b's annual detection depends on.
@@ -518,7 +527,7 @@ def test_apply_subscription_stale_event_does_not_clobber_price_id():
     assert user.subscription_price_id == "price_annual"  # unchanged
 
 
-def test_is_annual(monkeypatch):
+def test_is_annual(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
     assert stripe_service.is_annual(_user(subscription_price_id="price_annual")) is True
     assert stripe_service.is_annual(_user(subscription_price_id="price_monthly")) is False
@@ -528,13 +537,15 @@ def test_is_annual(monkeypatch):
     assert stripe_service.is_annual(_user(subscription_price_id="price_annual")) is False
 
 
-async def test_checkout_annual_400_when_unconfigured(client: AsyncClient, monkeypatch):
+async def test_checkout_annual_400_when_unconfigured(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
     monkeypatch.setattr(settings, "stripe_price_id_annual", None)
 
-    async def _boom(*a, **k):  # must never be reached — the 400 fires first
+    async def _boom(*a: Any, **k: Any) -> None:  # must never be reached — the 400 fires first
         raise AssertionError("checkout must not start for an unavailable annual plan")
 
     monkeypatch.setattr(stripe_service, "create_checkout_session", _boom)
@@ -542,15 +553,19 @@ async def test_checkout_annual_400_when_unconfigured(client: AsyncClient, monkey
     assert resp.status_code == 400
 
 
-async def test_checkout_forwards_selected_plan(client: AsyncClient, monkeypatch):
+async def test_checkout_forwards_selected_plan(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
     monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
 
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
-    async def _fake_checkout(user, session, plan="monthly"):
+    async def _fake_checkout(
+        user: User, session: AsyncSession, plan: str = "monthly", locale: str = "en"
+    ) -> str:
         captured["plan"] = plan
         return "https://checkout.stripe.test/session/x"
 
@@ -560,7 +575,7 @@ async def test_checkout_forwards_selected_plan(client: AsyncClient, monkeypatch)
     assert captured["plan"] == "annual"
 
 
-async def test_checkout_invalid_plan_422(client: AsyncClient, monkeypatch):
+async def test_checkout_invalid_plan_422(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_monthly")
@@ -568,7 +583,9 @@ async def test_checkout_invalid_plan_422(client: AsyncClient, monkeypatch):
     assert resp.status_code == 422
 
 
-async def test_config_exposes_annual_availability(client: AsyncClient, monkeypatch):
+async def test_config_exposes_annual_availability(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "stripe_price_id_annual", "price_annual")
     resp = await client.get("/api/config")
     assert resp.status_code == 200
@@ -578,12 +595,12 @@ async def test_config_exposes_annual_availability(client: AsyncClient, monkeypat
     assert resp.json()["annual_billing_available"] is False
 
 
-async def test_checkout_502_on_stripe_error(client: AsyncClient, monkeypatch):
+async def test_checkout_502_on_stripe_error(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
 
-    async def _fail(user, session):
+    async def _fail(user: User, session: AsyncSession) -> str:
         raise RuntimeError("stripe down")
 
     monkeypatch.setattr(stripe_service, "create_checkout_session", _fail)
@@ -591,7 +608,9 @@ async def test_checkout_502_on_stripe_error(client: AsyncClient, monkeypatch):
     assert resp.status_code == 502
 
 
-async def test_portal_400_when_no_customer(client: AsyncClient, test_user: User, monkeypatch):
+async def test_portal_400_when_no_customer(
+    client: AsyncClient, test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
@@ -600,13 +619,15 @@ async def test_portal_400_when_no_customer(client: AsyncClient, test_user: User,
     assert resp.status_code == 400
 
 
-async def test_portal_returns_url(client: AsyncClient, test_user: User, monkeypatch):
+async def test_portal_returns_url(
+    client: AsyncClient, test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "billing_enabled", True)
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
     test_user.stripe_customer_id = "cus_abc"
 
-    async def _fake_portal(user):
+    async def _fake_portal(user: User, locale: str = "en") -> str:
         return "https://billing.stripe.test/portal/xyz"
 
     monkeypatch.setattr(stripe_service, "create_portal_session", _fake_portal)
@@ -618,7 +639,7 @@ async def test_portal_returns_url(client: AsyncClient, test_user: User, monkeypa
 # --------------------------------------------------------------------------- #
 # Webhook
 # --------------------------------------------------------------------------- #
-def test_construct_event_does_not_require_api_key(monkeypatch):
+def test_construct_event_does_not_require_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Webhook signature verification is pure HMAC over the webhook secret — it
     must NOT depend on STRIPE_SECRET_KEY. A partially-configured env (webhook
     secret set, API key missing) must still reach signature verification (and
@@ -629,8 +650,8 @@ def test_construct_event_does_not_require_api_key(monkeypatch):
         stripe_service.construct_event(b"{}", "t=1,v1=deadbeef")
 
 
-async def test_webhook_400_on_bad_signature(client: AsyncClient, monkeypatch):
-    def _raise(payload, sig):
+async def test_webhook_400_on_bad_signature(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise(payload: bytes, sig: str) -> stripe.Event:
         raise ValueError("bad signature")
 
     monkeypatch.setattr(stripe_service, "construct_event", _raise)
@@ -642,7 +663,7 @@ async def test_webhook_400_on_bad_signature(client: AsyncClient, monkeypatch):
     assert resp.status_code == 400
 
 
-def _stripe_event(payload: dict) -> stripe.Event:
+def _stripe_event(payload: dict[str, Any]) -> stripe.Event:
     """Wrap a webhook payload in a real ``stripe.Event`` (a stripe>=15
     ``StripeObject``, NOT a plain dict) so these tests exercise the actual SDK
     runtime. Plain-dict fixtures hide that v15 dropped the dict methods from
@@ -656,8 +677,8 @@ def _stripe_event(payload: dict) -> stripe.Event:
 
 
 async def test_webhook_updates_subscription_state(
-    client: AsyncClient, test_user: User, db_session: AsyncSession, monkeypatch
-):
+    client: AsyncClient, test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     test_user.stripe_customer_id = "cus_hook"
     await db_session.flush()
 
@@ -688,8 +709,8 @@ async def test_webhook_updates_subscription_state(
 
 
 async def test_webhook_out_of_order_delivery_does_not_resurrect_access(
-    client: AsyncClient, test_user: User, db_session: AsyncSession, monkeypatch
-):
+    client: AsyncClient, test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The revenue-leak scenario from the adversarial review: a terminal
     'canceled' event processed first, then a delayed pre-cancellation 'active'
     event. The stale event must NOT re-grant access."""
@@ -726,7 +747,9 @@ async def test_webhook_out_of_order_delivery_does_not_resurrect_access(
     assert test_user.subscription_status == "canceled"  # access stays revoked
 
 
-async def test_webhook_unknown_customer_is_noop(client: AsyncClient, monkeypatch):
+async def test_webhook_unknown_customer_is_noop(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     event = _stripe_event({
         "type": "customer.subscription.updated",
         "data": {"object": {"id": "sub_x", "customer": "cus_nobody", "status": "active"}},
@@ -740,8 +763,8 @@ async def test_webhook_unknown_customer_is_noop(client: AsyncClient, monkeypatch
 
 
 async def test_webhook_ignores_unrelated_event(
-    client: AsyncClient, test_user: User, monkeypatch
-):
+    client: AsyncClient, test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
     test_user.stripe_customer_id = "cus_hook"
     event = _stripe_event({
         "type": "invoice.paid",
@@ -759,7 +782,7 @@ async def test_webhook_ignores_unrelated_event(
 # --------------------------------------------------------------------------- #
 # UserRead contract — the SPA gates paid UI on is_subscribed
 # --------------------------------------------------------------------------- #
-def test_user_to_read_exposes_subscription(monkeypatch):
+def test_user_to_read_exposes_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.models.user_schemas import user_to_read
 
     monkeypatch.setattr(settings, "billing_enabled", True)
@@ -773,7 +796,7 @@ def test_user_to_read_exposes_subscription(monkeypatch):
     assert read.is_comped is False
 
 
-def test_user_to_read_exposes_is_comped(monkeypatch):
+def test_user_to_read_exposes_is_comped(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.models.user_schemas import user_to_read
 
     u = _user(is_comped=True)
@@ -785,7 +808,7 @@ def test_user_to_read_exposes_is_comped(monkeypatch):
 # --------------------------------------------------------------------------- #
 # Regression guard: the webhook must stay CSRF-exempt (Stripe can't send our token)
 # --------------------------------------------------------------------------- #
-def test_webhook_path_is_csrf_exempt():
+def test_webhook_path_is_csrf_exempt() -> None:
     assert "/api/billing/webhook" in _CSRF_EXEMPT_PATHS
 
 
@@ -793,14 +816,14 @@ def test_webhook_path_is_csrf_exempt():
 # Feedback credit (6b) — labeled invoice-item credit helpers. The SIGN is money-
 # critical: a credit is a NEGATIVE invoice item; a flip would CHARGE the user.
 # --------------------------------------------------------------------------- #
-async def test_apply_feedback_invoice_credit_posts_negative_item(monkeypatch):
+async def test_apply_feedback_invoice_credit_posts_negative_item(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(stripe, "api_key", None)
     monkeypatch.setattr(stripe, "default_http_client", None)
     monkeypatch.setattr(stripe, "max_network_retries", 0)
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
-    def _fake_create(**kwargs):
+    def _fake_create(**kwargs: Any) -> object:
         captured.update(kwargs)
         return object()
 
@@ -821,24 +844,26 @@ async def test_apply_feedback_invoice_credit_posts_negative_item(monkeypatch):
 
 
 class _FakeItem:
-    def __init__(self, d):
+    def __init__(self, d: dict[str, Any]) -> None:
         self._d = d
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return self._d
 
 
 class _FakeItems:
     """Mimics a Stripe ListObject: iterated via ``auto_paging_iter`` (as the code does)."""
 
-    def __init__(self, data):
+    def __init__(self, data: list[dict[str, Any]]) -> None:
         self._data = data
 
-    def auto_paging_iter(self):
+    def auto_paging_iter(self) -> Iterator[_FakeItem]:
         return iter([_FakeItem(d) for d in self._data])
 
 
-async def test_pending_feedback_credit_cents_sums_only_our_negative_items(monkeypatch):
+async def test_pending_feedback_credit_cents_sums_only_our_negative_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(stripe, "api_key", None)
     monkeypatch.setattr(stripe, "default_http_client", None)
@@ -856,7 +881,7 @@ async def test_pending_feedback_credit_cents_sums_only_our_negative_items(monkey
     assert await stripe_service.pending_feedback_credit_cents("cus_1") == 250
 
 
-async def test_pending_feedback_credit_cents_empty_is_zero(monkeypatch):
+async def test_pending_feedback_credit_cents_empty_is_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     monkeypatch.setattr(stripe, "api_key", None)
     monkeypatch.setattr(stripe, "default_http_client", None)
@@ -869,7 +894,9 @@ async def test_pending_feedback_credit_cents_empty_is_zero(monkeypatch):
     ("balance", "expected"),
     [(-250, 250), (-1, 1), (0, 0), (100, 0), (None, 0)],
 )
-async def test_customer_credit_balance_cents_sign(monkeypatch, balance, expected):
+async def test_customer_credit_balance_cents_sign(
+    monkeypatch: pytest.MonkeyPatch, balance: int | None, expected: int
+) -> None:
     # The OTHER never-€0 floor term. SIGN is money-critical: a negative balance is a
     # CREDIT (magnitude returned), a positive balance is DEBT (returns 0, not a credit).
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
@@ -878,8 +905,181 @@ async def test_customer_credit_balance_cents_sign(monkeypatch, balance, expected
     monkeypatch.setattr(stripe, "max_network_retries", 0)
 
     class _FakeCustomer:
-        def to_dict(self):
+        def to_dict(self) -> dict[str, int | None]:
             return {"balance": balance}
 
     monkeypatch.setattr(stripe.Customer, "retrieve", lambda cid: _FakeCustomer())
     assert await stripe_service.customer_credit_balance_cents("cus_1") == expected
+
+
+# --- Locale: Stripe's hosted pages follow the APP's language, not the browser's ---
+
+
+async def test_checkout_pins_the_locale_instead_of_letting_stripe_guess(
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Checkout session must carry an explicit ``locale``.
+
+    Stripe's default is "auto", which resolves from the browser/IP — so the page
+    came up Czech for a Czech-based user no matter which language they had picked
+    in the app. Owner-reported. This asserts the pin, not a particular language.
+    """
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+    test_user.stripe_customer_id = "cus_existing"
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeSession:
+        url = "https://checkout.stripe.test/session/cs"
+
+    def _fake_session_create(**kwargs: Any) -> _FakeSession:
+        captured.update(kwargs)
+        return _FakeSession()
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", _fake_session_create)
+
+    await stripe_service.create_checkout_session(test_user, db_session, "monthly", "cs")
+    assert captured["locale"] == "cs"
+
+    captured.clear()
+    await stripe_service.create_checkout_session(test_user, db_session, "monthly", "en")
+    assert captured["locale"] == "en"
+
+
+async def test_portal_pins_the_locale_too(
+    test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Portal is where a subscription gets cancelled — the worst place to be
+    reading a language you did not choose."""
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    test_user.stripe_customer_id = "cus_existing"
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    captured: dict[str, Any] = {}
+
+    class _FakePortal:
+        url = "https://portal.stripe.test/session/cs"
+
+    def _fake_portal_create(**kwargs: Any) -> _FakePortal:
+        captured.update(kwargs)
+        return _FakePortal()
+
+    monkeypatch.setattr(stripe.billing_portal.Session, "create", _fake_portal_create)
+
+    await stripe_service.create_portal_session(test_user, "cs")
+    assert captured["locale"] == "cs"
+
+
+def test_price_id_falls_back_when_no_locale_override_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unconfigured locale overrides must be inert — a Czech user still checks out,
+    just against the default Product's copy. This is what lets the feature ship
+    before the operator creates the Czech Product in Stripe."""
+    monkeypatch.setattr(settings, "stripe_price_id", "price_base")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_cs", None)
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", None)
+
+    assert stripe_service._price_id_for_plan("monthly", "cs") == "price_base"
+    assert stripe_service._price_id_for_plan("annual", "cs") == "price_base_annual"
+
+
+def test_price_id_uses_the_locale_override_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Czech gets the Czech Product's Price; English is untouched by its existence."""
+    monkeypatch.setattr(settings, "stripe_price_id", "price_base")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_cs", "price_cs")
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", "price_cs_annual")
+
+    assert stripe_service._price_id_for_plan("monthly", "cs") == "price_cs"
+    assert stripe_service._price_id_for_plan("annual", "cs") == "price_cs_annual"
+    assert stripe_service._price_id_for_plan("monthly", "en") == "price_base"
+    assert stripe_service._price_id_for_plan("annual", "en") == "price_base_annual"
+
+
+def test_czech_annual_price_counts_as_annual(monkeypatch: pytest.MonkeyPatch) -> None:
+    """THE money test for this feature.
+
+    A Czech annual subscriber sits on a DIFFERENT Price id than an English one. If
+    ``annual_price_ids()`` doesn't know it, ``is_annual`` reads them as monthly and
+    the launch feedback credit — which is monthly-only because annual is already
+    discounted — grants them real euros they shouldn't get. Same failure shape as
+    the rotation blind spot the legacy allow-list exists for.
+    """
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", "price_cs_annual")
+    monkeypatch.setattr(settings, "stripe_price_ids_annual_legacy", None)
+
+    ids = stripe_service.annual_price_ids()
+    assert "price_cs_annual" in ids
+    assert "price_base_annual" in ids
+
+    cs_annual = User(email="cs@example.com", hashed_password="x")
+    cs_annual.subscription_price_id = "price_cs_annual"
+    assert stripe_service.is_annual(cs_annual) is True
+
+    monthly = User(email="m@example.com", hashed_password="x")
+    monthly.subscription_price_id = "price_base"
+    assert stripe_service.is_annual(monthly) is False
+
+
+def test_annual_price_ids_still_works_with_no_locale_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The complement: adding the per-locale lookup must not have broken the
+    baseline, and must not inject a None into the set."""
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", None)
+    monkeypatch.setattr(settings, "stripe_price_ids_annual_legacy", "price_old")
+
+    assert stripe_service.annual_price_ids() == frozenset({"price_base_annual", "price_old"})
+
+
+async def test_checkout_endpoint_forwards_the_accept_language_locale(
+    client: AsyncClient, test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The endpoint must read the SPA's locale off Accept-Language and hand it on.
+
+    Covers the wiring the service-level tests structurally cannot: those call
+    create_checkout_session directly, so they would still pass if the endpoint
+    never read the header at all.
+
+    Accept-Language, not request.state.locale, is deliberate — see
+    billing._checkout_locale. request.state.locale comes from User.language, the
+    RECIPE language, which is a different question from what language to render
+    the checkout chrome in.
+    """
+    monkeypatch.setattr(settings, "billing_enabled", True)
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+    captured: dict[str, Any] = {}
+
+    async def _fake_checkout(
+        user: User, session: AsyncSession, plan: str = "monthly", locale: str = "en"
+    ) -> str:
+        captured["locale"] = locale
+        return "https://checkout.stripe.test/session/x"
+
+    monkeypatch.setattr(stripe_service, "create_checkout_session", _fake_checkout)
+
+    resp = await client.post("/api/billing/checkout", headers={"Accept-Language": "cs"})
+    assert resp.status_code == 200
+    assert captured["locale"] == "cs"
+
+    resp = await client.post("/api/billing/checkout", headers={"Accept-Language": "en"})
+    assert resp.status_code == 200
+    assert captured["locale"] == "en"
+
+    # No header at all → the default, not a crash.
+    resp = await client.post("/api/billing/checkout")
+    assert resp.status_code == 200
+    assert captured["locale"] == "en"

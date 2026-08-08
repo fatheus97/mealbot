@@ -22,7 +22,7 @@ from app.models.usage_schemas import BudgetStatus
 from app.services import llm_cost, usage_budget
 
 
-def _user(**kwargs) -> User:
+def _user(**kwargs: object) -> User:
     base = dict(
         email="e@example.com",
         hashed_password="x",

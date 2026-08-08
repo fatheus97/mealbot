@@ -80,9 +80,14 @@ export function CookNowForm() {
   // Ahead unmounts it — after which the bubble must stop offering a way back
   // rather than rendering a button whose handler is bound to a dead instance.
   useReopenTarget(COOKNOW_COOK_KEY, () => setCooking(true), recipe != null);
-  // Track the request that produced `recipe` so /recipe/cook gets the same
-  // context (server re-validates meal_type match). Resetting the form while
-  // a recipe is on screen keeps the old pendingRequest until a new generate.
+  // Track the request that produced `recipe` so /recipe/cook and /recipe/favorite
+  // record the context the recipe actually came from rather than live form state.
+  // The server does NOT re-validate that they agree — it used to reject a
+  // recipe whose meal_type differed from the requested one, which broke every
+  // generation where the model picked its own slot (#418). Keeping them aligned
+  // is now purely about recording an honest request, so it is on us.
+  // Resetting the form while a recipe is on screen keeps the old pendingRequest
+  // until a new generate.
   const [pendingRequest, setPendingRequest] = useState<SingleRecipeRequest | null>(null);
   // The machine_generation id for the recipe on screen. Echoed back on
   // cook/favorite so the server can link any edits to what was generated.
@@ -119,6 +124,12 @@ export function CookNowForm() {
     setSavedEntry(null);
     setEditing(false);
     setCooking(false);
+    // The star alert lives in the recipe card, which survives a re-generate —
+    // without this, a failure on the previous recipe would still be on screen
+    // under the new one, blaming it for something that never happened to it.
+    // (Same reasoning as the `cookMutation.reset()` on entering cook mode.)
+    favoriteRecipeMutation.reset();
+    removeFromCookbookMutation.reset();
     // Drop any half-finished checklist from a previous recipe.
     try {
       localStorage.removeItem(COOKNOW_COOK_KEY);
@@ -168,10 +179,23 @@ export function CookNowForm() {
   //                 listing dedupes nothing, but the user paid for both
   //                 stars deliberately so it's their cookbook.
   const handleFavoriteToggle = (next: boolean) => {
-    if (!recipe) return;
+    if (!recipe || !pendingRequest) return;
     if (next) {
+      // meal_type and people_count come from `pendingRequest` — the frozen
+      // request that produced `recipe` — NOT from live form state. The form
+      // stays editable while the recipe is on screen, so reading `mealType`
+      // here meant touching the select after generating sent a meal_type the
+      // recipe disagreed with, and the server's `recipe.meal_type must match
+      // meal_type` guard 400'd. handleCook has always spread pendingRequest;
+      // this is the same rule. `people_count` is the quiet half of the same
+      // bug: no 400, just the wrong servings stored on the cookbook row.
       favoriteRecipeMutation.mutate(
-        { meal_type: mealType, people_count: peopleCount, recipe, generation_id: generationId },
+        {
+          meal_type: pendingRequest.meal_type,
+          people_count: pendingRequest.people_count,
+          recipe,
+          generation_id: generationId,
+        },
         { onSuccess: (entry) => setSavedEntry({ id: entry.id, isFavorite: true }) },
       );
     } else if (savedEntry) {
@@ -419,6 +443,19 @@ export function CookNowForm() {
               </div>
             )}
           </div>
+
+          {/* Sits BELOW the header row on purpose. The star and the action
+              buttons are both in that row, so surfacing the failure here pushes
+              only the passive ingredients/steps down — it never shifts a
+              control out from under the cursor (see the CLS rule). Colour is a
+              fixed dark red because this card pins its own light surface. */}
+          {(favoriteRecipeMutation.isError || removeFromCookbookMutation.isError) && (
+            <div role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
+              {favoriteRecipeMutation.isError
+                ? t("cookNow.favoriteFailed")
+                : t("cookNow.unfavoriteFailed")}
+            </div>
+          )}
 
           {editing ? (
             <div style={{ marginTop: "0.75rem" }}>

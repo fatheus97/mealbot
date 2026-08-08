@@ -1,7 +1,9 @@
 import { useAuth } from "../contexts/AuthContext";
+import { useI18n } from "../i18n";
 
 export function DemoBanner() {
   const { isDemo } = useAuth();
+  const { t } = useI18n();
 
   if (!isDemo) return null;
 
@@ -21,7 +23,7 @@ export function DemoBanner() {
         fontSize: "0.875rem",
       }}
     >
-      Demo mode — generate plans, cook and rate meals. Your session and all changes are auto-deleted in 2 hours.
+      {t("demo.banner")}
     </div>
   );
 }

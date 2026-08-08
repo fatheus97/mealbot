@@ -10,19 +10,24 @@ import {
   startOfMonthISO,
   addMonthsISO,
   monthLabelOf,
+  monthLabelIn,
   monthMatrix,
   isSameMonthISO,
   dayOfMonth,
   parseISODateLocal,
   formatISODate,
+  firstDayOfWeek,
+  weekdayLabels,
 } from "../utils/planDates";
 import { calendarLeftoverTitle, lowerFirst } from "../utils/leftovers";
 import type { CalendarMeal, MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
 import { useI18n } from "../i18n";
+import { localeTags } from "../i18n/localeFormat";
+import type { Locale } from "../store/useLocaleStore";
 
 /** "Sat Aug 1" — a short weekday+date label for the agenda/list rows. */
-function shortDayLabel(iso: string): string {
-  return parseISODateLocal(iso).toLocaleDateString(undefined, {
+function shortDayLabel(iso: string, locale: Locale): string {
+  return parseISODateLocal(iso).toLocaleDateString(localeTags(locale), {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -55,7 +60,9 @@ export const OUT_OF_MONTH_DAY = "#475569"; // 6.92:1 on the tinted cell
 export const IN_MONTH_DAY = "#374151"; // 10.31:1 on #fff
 export const TODAY_COLOR = "#2563eb"; // 5.17:1 on #fff, 4.72:1 tinted
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Weekday headers are derived per-render from the locale (see weekdayLabels):
+// the array that used to live here could only ever be English AND could only
+// ever be Sunday-first, which is wrong for cs and for most of Europe.
 
 const navBtn: CSSProperties = {
   minWidth: 32,
@@ -103,7 +110,8 @@ interface DayChip {
 }
 
 export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const weekdays = weekdayLabels(locale);
   const { userId } = useAuth();
   const isMobile = useIsMobile();
   const [monthCursor, setMonthCursor] = useState<string>(() => startOfMonthISO(todayISO()));
@@ -114,7 +122,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
   // the server value — otherwise a failed input keeps showing the unsaved date.
   const [inputNonce, setInputNonce] = useState(0);
 
-  const weeks = monthMatrix(monthCursor);
+  const weeks = monthMatrix(monthCursor, firstDayOfWeek(locale));
   const from = weeks[0][0];
   const to = weeks[5][6];
 
@@ -185,7 +193,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
           <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
             <button aria-label={t("calendar.previousMonth")} onClick={() => setMonthCursor(addMonthsISO(monthCursor, -1))} style={navBtn}>‹</button>
             <strong style={{ minWidth: isMobile ? 116 : 150, textAlign: "center" }}>
-              {monthLabelOf(monthCursor)}
+              {monthLabelOf(monthCursor, locale)}
             </strong>
             <button aria-label={t("calendar.nextMonth")} onClick={() => setMonthCursor(addMonthsISO(monthCursor, 1))} style={navBtn}>›</button>
             <button
@@ -205,7 +213,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
               agenda list below — a 7-col grid is unusable at 375px. */}
           {!isMobile && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", marginBottom: "1rem" }}>
-              {WEEKDAYS.map((w) => (
+              {weekdays.map((w) => (
                 <div key={w} style={{ textAlign: "center", fontSize: "0.72rem", fontWeight: 600, color: "#6b7280", padding: "0.2rem 0" }}>
                   {w}
                 </div>
@@ -264,7 +272,8 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                               m.is_leftover
                                 ? `${m.name} (${lowerFirst(
                                     calendarLeftoverTitle(
-                                      m.source_date, m.source_name, formatISODate,
+                                      m.source_date, m.source_name,
+                                      (iso) => formatISODate(iso, locale), t,
                                     ),
                                   )})`
                                 : m.name,
@@ -343,7 +352,10 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
             )}
             {!isLoading && plans.length === 0 && (
               <p style={{ color: "#6b7280", fontSize: "0.9rem", margin: 0 }}>
-                {t("calendar.emptyMonth", { month: monthLabelOf(monthCursor) })}
+                {/* monthLabelIN, not monthLabelOf: this one sits inside a sentence, and
+                    Czech needs the locative there ("V srpnu 2026", not "V srpen
+                    2026"). The heading above keeps the standalone form. */}
+                {t("calendar.emptyMonth", { month: monthLabelIn(monthCursor, locale) })}
               </p>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
@@ -409,7 +421,7 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                     {p.days.map((d) => (
                       <div key={d.day_index} style={{ fontSize: "0.8rem", color: "#374151", lineHeight: 1.3 }}>
                         <strong style={{ color: "#6b7280", fontWeight: 600, marginRight: "0.4rem" }}>
-                          {shortDayLabel(d.date)}
+                          {shortDayLabel(d.date, locale)}
                         </strong>
                         {/* A JSX map, not .join(" · ") — the meals are objects
                             now, and joining them would silently render
@@ -424,7 +436,8 @@ export function PlanCalendar({ onClose, onOpenPlan }: PlanCalendarProps) {
                                   title={
                                     m.is_leftover
                                       ? calendarLeftoverTitle(
-                                          m.source_date, m.source_name, formatISODate,
+                                          m.source_date, m.source_name,
+                                          (iso) => formatISODate(iso, locale), t,
                                         )
                                       : undefined
                                   }

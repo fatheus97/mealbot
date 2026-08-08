@@ -79,7 +79,7 @@ async def retrieve_rated_meals(
         logger.warning("RAG query embedding timed out after %ss — skipping retrieval", EMBEDDING_TIMEOUT_S)
         return []
 
-    distance_expr = MealEntry.embedding.cosine_distance(query_emb)  # type: ignore[attr-defined,union-attr]
+    distance_expr = MealEntry.embedding.cosine_distance(query_emb)  # type: ignore[union-attr]
 
     base_filters = [
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
@@ -90,7 +90,7 @@ async def retrieve_rated_meals(
     # (always-hybrid + post-filter) wastes a global HNSW lookup that the
     # large-cookbook user wouldn't use anyway.
     favorite_count_stmt = select(func.count()).select_from(MealEntry).where(
-        MealEntry.user_id == user_id,  # type: ignore[arg-type]
+        MealEntry.user_id == user_id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     )
     favorite_count = (await session.execute(favorite_count_stmt)).scalar() or 0
@@ -101,7 +101,7 @@ async def retrieve_rated_meals(
         # for downstream observability.
         own_stmt = (
             select(MealEntry, distance_expr.label("cosine_distance"))
-            .where(*base_filters, MealEntry.user_id == user_id)  # type: ignore[arg-type]
+            .where(*base_filters, MealEntry.user_id == user_id)
             .order_by(literal_column("cosine_distance"))
             .limit(settings.rag_cookbook_only_fetch)
         )
@@ -128,7 +128,7 @@ async def retrieve_rated_meals(
     # Hybrid path
     own_stmt = (
         select(MealEntry, distance_expr.label("cosine_distance"))
-        .where(*base_filters, MealEntry.user_id == user_id)  # type: ignore[arg-type]
+        .where(*base_filters, MealEntry.user_id == user_id)
         .order_by(literal_column("cosine_distance"))
         .limit(settings.rag_own_user_fetch)
     )

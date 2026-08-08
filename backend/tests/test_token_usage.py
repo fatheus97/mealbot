@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.llm.usage import (
+    _MAX_TOKEN_COUNT,
     LlmCallUsage,
+    _as_int,
     capture_llm_usage,
     record_call_usage,
     usage_from_completion,
@@ -24,6 +26,53 @@ def _u(prompt: int = 1, completion: int = 1, total: int = 2) -> LlmCallUsage:
         completion_tokens=completion,
         total_tokens=total,
     )
+
+
+class TestTokenCountCoercion:
+    """`_as_int` bounds a provider-supplied token count. The counts are
+    untrusted (they come from the provider response) and they feed the per-user
+    LLM cost cap, so a value that escapes coercion costs a whole unrecorded
+    call."""
+
+    def test_infinity_does_not_escape(self) -> None:
+        """int(float("inf")) raises OverflowError, which was NOT in the except
+        clause — nan raised ValueError and was caught, inf and -inf propagated
+        into usage_from_completion's outer `except Exception` and dropped the
+        whole record. Neither provider shape can produce inf today, so this is
+        a boundary guard, not a fixed incident."""
+        assert _as_int(float("inf")) == 0
+        assert _as_int(float("-inf")) == 0
+
+    def test_nan_and_junk_coerce_to_zero(self) -> None:
+        assert _as_int(float("nan")) == 0
+        assert _as_int(None) == 0
+        assert _as_int("not a number") == 0
+        assert _as_int({"tokens": 5}) == 0
+
+    def test_ordinary_counts_survive(self) -> None:
+        assert _as_int(42) == 42
+        assert _as_int("42") == 42
+        assert _as_int(7.9) == 7
+        assert _as_int(-5) == 0  # clamped non-negative
+
+    def test_coercible_non_builtin_types_still_work(self) -> None:
+        """Guards the shape of the fix: an isinstance gate listing int/float/str
+        would silently zero these. int() accepts anything with __int__ or
+        __index__, and so must this."""
+        from decimal import Decimal
+        from fractions import Fraction
+
+        class _Countish:
+            def __int__(self) -> int:
+                return 7
+
+        assert _as_int(Decimal("42")) == 42
+        assert _as_int(Fraction(84, 2)) == 42
+        assert _as_int(b"42") == 42
+        assert _as_int(_Countish()) == 7
+
+    def test_absurd_count_clamps_to_int32_safe_bound(self) -> None:
+        assert _as_int(10**12) == _MAX_TOKEN_COUNT
 
 
 class TestUsageExtraction:
