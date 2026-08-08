@@ -202,7 +202,6 @@ export function useReschedulePlan() {
 // is responsible for saying so; a silent success on a screen where nothing
 // visibly changes reads as a no-op.
 export function useRepeatPlan() {
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ planId, startDate }: { planId: number; startDate: string | null }): Promise<MealPlanResponse> => {
       const res = await authFetch(`/plan/${planId}/repeat`, {
@@ -212,10 +211,13 @@ export function useRepeatPlan() {
       if (!res.ok) throw new Error(`Repeat failed: ${res.status}`);
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['planList'] });
-      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
-    },
+    // No invalidation, deliberately. Both `planList` and `planCalendar` filter
+    // `confirmed_at IS NOT NULL` server-side (plan.py:130 and :211), and a
+    // repeat copy is ALWAYS created unconfirmed — so neither query's result can
+    // change, and invalidating them would fire two refetches that are
+    // guaranteed to return what they already had. The copy becomes visible in
+    // both the moment the user confirms it in the planner, and the confirm path
+    // already invalidates.
   });
 }
 

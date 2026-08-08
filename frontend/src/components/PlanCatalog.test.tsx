@@ -456,3 +456,38 @@ describe("PlanCatalog — repeat this week", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't repeat/i);
   });
 });
+
+describe("PlanCatalog — repeating an unscheduled plan", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE });
+    mockedAuthFetch.mockReset();
+  });
+
+  it("sends start_date null when the plan has no date", async () => {
+    // The other repeat test covers the scheduled case. This is the deliberate
+    // design decision from the PR body — an unset date is legitimate, the copy
+    // is simply unscheduled — and it was the case with no coverage. A `""` or
+    // omitted field here would 422 on the backend's date validator.
+    loginUser();
+    const undated: MealPlanSummary = { ...SAMPLE_PLAN, id: 3, start_date: null };
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.endsWith("/repeat"))
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ plan_id: 77, start_date: null, days: [], shopping_list: [] }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([undated]) });
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await userEvent.click(await screen.findByRole("button", { name: /repeat/i }));
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith("/plan/3/repeat", {
+        method: "POST",
+        body: JSON.stringify({ start_date: null }),
+      }),
+    );
+  });
+});
