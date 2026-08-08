@@ -63,7 +63,7 @@ cycle defeats the point.
   `ScheduleWakeup` so the session doesn't block.
 - **There is no `jq` on the host** (not in Git Bash's PATH). Use **`gh --jq`** —
   the GitHub CLI embeds its own — for every one of these polls:
-  `gh pr checks 424 --json name,bucket --jq '.[] | "\(.bucket) \(.name)"'`.
+  `gh pr checks <n> --json name,bucket --jq '.[] | "\(.bucket) \(.name)"'`.
   A watcher ending in `| jq` dies with `jq: command not found`, and inside a poll
   loop wrapped in `|| true` / `2>/dev/null` **that failure is silent**: the loop
   runs its full duration and exits 0 having measured nothing. One watcher burned
