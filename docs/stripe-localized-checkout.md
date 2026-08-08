@@ -54,12 +54,15 @@ Do the rest of this page only if you want genuinely Czech product copy.
 2. **Product catalog → Products → + Add product**.
 3. Name it (e.g. `Mealbot`) and give it the Czech description
    (e.g. `Neomezené AI jídelníčky a recepty`).
-4. Add a **recurring monthly** Price: `4,99 EUR`, billing period *Monthly*,
-   and set **tax behaviour to inclusive** — matching the existing Prices, since
-   the operator is a Czech OSVČ/neplátce and the sticker price is what is
-   charged.
+4. Add a **recurring monthly** Price: `4,99 EUR`, billing period *Monthly*.
+   Leave **tax behaviour as `unspecified`** — that is what the live Prices
+   actually use (verified against the Stripe API on 2026-08-08), because the
+   operator is a Czech OSVČ/neplátce and `automatic_tax` is deliberately off, so
+   Stripe applies no tax logic and the sticker price is what is charged. An
+   earlier draft of this page said "inclusive" and claimed it matched the
+   existing Prices; it did not.
 5. Add a second **recurring yearly** Price on the same Product: `35,88 EUR`,
-   billing period *Yearly*, tax behaviour inclusive.
+   billing period *Yearly*, same tax behaviour.
 6. Copy both Price ids (`price_…`).
 7. On the box, add them to `/opt/mealbot/.env`:
 

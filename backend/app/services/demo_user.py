@@ -46,7 +46,12 @@ async def create_ephemeral_demo_user(session: AsyncSession) -> User:
         hashed_password=hashed_password,
         is_demo=True,
         onboarding_completed=True,
-        country="US",
+        # Must be a value `normalize_country` accepts — i.e. a name from
+        # SUPPORTED_COUNTRIES, not an ISO code. PreferencesForm validates the
+        # field against the same canonical list (`GET /api/countries`) and
+        # DISABLES "Save preferences" while it doesn't match, so seeding "US"
+        # here left every demo session unable to change ANY preference.
+        country="United States",
         language="English",
         measurement_system="metric",
         variability="traditional",
