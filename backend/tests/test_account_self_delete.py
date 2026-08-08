@@ -23,6 +23,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from app.core.config import settings
 from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
 from app.models.db_models import (
     AdminAuditLog,
@@ -317,6 +318,38 @@ class TestSelfDeleteCancelsBilling:
         )
         assert resp.status_code == 503
         # Fail CLOSED: still billable, so still deletable later.
+        assert await _user_count(db_session, uid) == 1
+
+    async def test_unconfigured_stripe_key_also_aborts_the_delete(
+        self,
+        unauthed_client: AsyncClient,
+        test_user: User,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The one path the other tests in this class cannot reach.
+
+        They all monkeypatch ``cancel_subscription_now`` itself, so
+        ``_require_stripe()`` never runs — and it raises a PLAIN ``RuntimeError``
+        (not a ``StripeError``) when the secret key is missing. Reachable on a
+        deployment that had billing configured, so users hold subscription ids,
+        and later lost the key. Caught by the review, not by this suite.
+
+        The real service function runs here; only the key is taken away.
+        """
+        uid = test_user.id
+        assert uid is not None
+        test_user.stripe_subscription_id = "sub_orphaned_999"
+        db_session.add(test_user)
+        await db_session.flush()
+        await _login(unauthed_client)
+
+        monkeypatch.setattr(settings, "stripe_secret_key", "")
+
+        resp = await unauthed_client.post(
+            ENDPOINT, json={"current_password": TEST_PASSWORD}
+        )
+        assert resp.status_code == 503
         assert await _user_count(db_session, uid) == 1
 
     async def test_already_cancelled_subscription_still_deletes(

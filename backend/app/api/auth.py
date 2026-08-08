@@ -719,9 +719,21 @@ async def delete_account(
                 user_id,
                 subscription_id,
             )
-        except stripe.StripeError:
+        except (stripe.StripeError, RuntimeError):
             # Fail CLOSED. Deleting now would leave a live subscription billing
             # a customer with no account and no portal to cancel from.
+            #
+            # RuntimeError is here because `_require_stripe()` raises a PLAIN one
+            # when STRIPE_SECRET_KEY is missing — it is not a StripeError
+            # subclass. Reachable in exactly the case that matters: a deployment
+            # that HAD billing configured (so users hold subscription ids) and
+            # later lost the key. Without this clause that lands as an
+            # unhandled 500 — the account still survives, since the delete is
+            # below, but the user is told nothing actionable and the
+            # `account_delete_cancel_failed` line is never logged. Caught HERE
+            # rather than fixed in `_require_stripe`: 13 call sites raise it,
+            # and re-typing it to satisfy this one endpoint changes the failure
+            # mode of checkout, the portal and the webhooks too.
             logger.exception("account_delete_cancel_failed user_id=%s", user_id)
             raise LocalizedHTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
