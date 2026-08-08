@@ -5,6 +5,8 @@ PII minimization (user_id not email), and that HTTP/transport errors return None
 without raising (a ticket failure must never break the Accept).
 """
 
+from typing import Any
+
 import httpx
 import pytest
 
@@ -89,7 +91,7 @@ async def test_unconfigured_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_success_returns_url_and_builds_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict = {}
+    captured: dict[str, Any] = {}
     _install_fake_httpx(monkeypatch, captured=captured)
     url = await feedback_ticket.create_issue_for_report(_report(), _triage())
     assert url == "https://github.com/owner/tickets/issues/1"
@@ -107,7 +109,7 @@ async def test_success_returns_url_and_builds_payload(monkeypatch: pytest.Monkey
 async def test_title_falls_back_to_first_line_without_triage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: dict = {}
+    captured: dict[str, Any] = {}
     _install_fake_httpx(monkeypatch, captured=captured)
     await feedback_ticket.create_issue_for_report(_report(), None)
     assert captured["json"]["title"] == "[bug] Regenerate crashes"
@@ -118,7 +120,7 @@ async def test_body_notes_screenshot_without_embedding_it(
 ) -> None:
     # The image itself must never reach this repo — see the module docstring's
     # PII note — only a pointer to check the admin dashboard.
-    captured: dict = {}
+    captured: dict[str, Any] = {}
     _install_fake_httpx(monkeypatch, captured=captured)
     report = _report(
         screenshot_base64="c2NyZWVuc2hvdA==", screenshot_content_type="image/png"
@@ -134,7 +136,7 @@ async def test_body_notes_screenshot_without_embedding_it(
 async def test_body_omits_screenshot_note_when_none_attached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: dict = {}
+    captured: dict[str, Any] = {}
     _install_fake_httpx(monkeypatch, captured=captured)
     await feedback_ticket.create_issue_for_report(_report(), _triage())
     assert "screenshot" not in captured["json"]["body"].lower()
