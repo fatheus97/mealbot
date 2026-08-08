@@ -4,7 +4,7 @@ Every "forgot password" request inserts a row, and nothing ever deletes one.
 Both ways a row leaves circulation are stamps, not deletions: redemption sets
 ``used_at`` (a replayed link stays distinguishable from an expired or forged one
 in the logs), and **requesting a second reset SUPERSEDES the first by stamping
-it too** — ``password_reset._supersede_live_tokens`` runs
+it too** — ``password_reset.void_outstanding_tokens`` runs
 ``UPDATE … SET used_at = now``, it does not delete. Expiry is a timestamp
 comparison, not a removal either. So the table grows monotonically with reset
 activity, and the rows it accumulates are overwhelmingly stamped ones.

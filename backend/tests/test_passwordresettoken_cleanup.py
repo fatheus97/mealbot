@@ -46,7 +46,7 @@ async def _add_token(
 
     That is not a test-fixture quirk; it is the shape of the table. Requesting a
     second reset does not delete the first row, it *stamps* it
-    (`password_reset._supersede_live_tokens` → ``.values(used_at=now)``), so the
+    (``password_reset.void_outstanding_tokens`` → ``.values(used_at=now)``), so the
     rows this job sweeps are overwhelmingly stamped ones. An earlier draft of
     these tests created several unstamped rows per user and every one of them
     died on that index — which is how the constraint's real predicate got read
