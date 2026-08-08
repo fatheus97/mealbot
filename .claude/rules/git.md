@@ -61,8 +61,12 @@ cycle defeats the point.
 - Open a PR with `gh pr create` — do not ask first.
 - After pushing, wait for CI and the Claude PR Review workflow. Poll with
   `ScheduleWakeup` so the session doesn't block.
-- **There is no `jq` on the host** (not in Git Bash's PATH). Use **`gh --jq`** —
-  the GitHub CLI embeds its own — for every one of these polls:
+- **Never assume `jq` is on the host** — it is absent from Git Bash's `PATH` on
+  the Windows dev box (verified 2026-08-08), while the Linux CI runners and the
+  `/work-tickets` cloud routine have their own tooling. This file carries no
+  `paths:` scope, so it loads on all of them; don't read either state as given.
+  Use **`gh --jq`** unconditionally — the GitHub CLI embeds its own jq, so it
+  works the same either way and you never have to know which host you are on:
   `gh pr checks <n> --json name,bucket --jq '.[] | "\(.bucket) \(.name)"'`.
   A watcher ending in `| jq` dies with `jq: command not found`, and inside a poll
   loop wrapped in `|| true` / `2>/dev/null` **that failure is silent**: the loop
