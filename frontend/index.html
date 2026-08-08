@@ -37,9 +37,13 @@
          at all. Everything else on these pages is relative; these two are the
          exception, not an oversight.
 
-         The image is SELF-HOSTED, like the favicons: the CSP forbids any
-         external host, and a social card served from someone else's CDN is a
-         third party learning who shares the link.
+         The image is SELF-HOSTED for a PRIVACY reason, not a CSP one: a card
+         served from someone else's CDN turns every unfurl into a third party
+         learning who shares this link. Note the CSP does NOT enforce that here
+         — `img-src 'self' data:` governs what the VISITOR's browser fetches,
+         and og:image is fetched out-of-band by the scraper's own HTTP client,
+         which never sees this site's headers. An external og:image would work
+         fine on Facebook; it just should not.
 
          /og.png is generated from ../og-card.svg — edit the SVG, never the PNG,
          then regenerate (from the repo root):
