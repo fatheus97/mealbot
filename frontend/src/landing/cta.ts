@@ -98,6 +98,101 @@ export function primaryOpensRegister(config: PublicConfig | null): boolean {
   return config?.registration_enabled === true;
 }
 
+/** Collapse HTML source whitespace so an answer wrapped across three lines in
+ *  the markup compares equal to the same sentence on one line in the JSON-LD. */
+function normalizeText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Rewrite one answer inside the FAQPage JSON-LD, matched by its CURRENT text.
+ *
+ * Matching on the text rather than on the question's `name` is what keeps this
+ * locale-agnostic: `/cs/` asks the same question in Czech, and a name match
+ * would need a second lookup table that could drift from the markup. The two
+ * copies of the answer are already required to be identical — the `<head>`
+ * comment says the JSON-LD "mirrors the on-page FAQ verbatim", and
+ * `landingHead.test.ts` now fails if they diverge — so the text IS the key.
+ *
+ * A parse failure or a miss leaves the block untouched, which is the same
+ * fail-safe direction as the rest of this module: the structured data keeps
+ * the (currently true) closed-registration answer.
+ */
+function rewriteFaqAnswer(script: HTMLScriptElement, closed: string, open: string): void {
+  let data: unknown;
+  try {
+    data = JSON.parse(script.textContent ?? "") as unknown;
+  } catch {
+    return;
+  }
+
+  let replaced = false;
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (typeof node !== "object" || node === null) return;
+    const record = node as Record<string, unknown>;
+    if (typeof record.text === "string" && normalizeText(record.text) === closed) {
+      record.text = open;
+      replaced = true;
+      return;
+    }
+    Object.values(record).forEach(visit);
+  };
+  visit(data);
+
+  if (replaced) script.textContent = JSON.stringify(data, null, 2);
+}
+
+/** The four places the page states the access model, plus the structured-data
+ *  copy of the fourth. Every one is optional — a page that drops an id keeps
+ *  its static wording rather than throwing. */
+export interface RegistrationCopyElements {
+  note: HTMLElement | null;
+  faqAnswer: HTMLElement | null;
+  accessHeading: HTMLElement | null;
+  accessIntro: HTMLElement | null;
+  faqSchema: HTMLScriptElement | null;
+}
+
+/**
+ * Bring the rest of the page in line with the primary CTA once registration is
+ * open. `applyConfig` above rewrites the BUTTON; without this, the button said
+ * "Get started" on a page that still said "private alpha" in four other places
+ * — the hero note, the visible FAQ answer, the Access heading and its intro —
+ * one of which is mirrored into the FAQPage JSON-LD that Google has indexed.
+ *
+ * Deliberately a separate function from `applyConfig`, whose contract is that
+ * it "only ever mutates the BUTTONS … so this can never shift layout". These
+ * swaps replace prose in flow, so that promise does not extend to them. They
+ * are still CLS-safe by construction: every swap is text-for-text inside an
+ * element that already exists, nothing is hidden, added or removed, and the
+ * replacement sentences are of comparable length. Nothing is swapped while
+ * registration is closed — including on a failed or pending fetch, where the
+ * static (closed) wording is both correct today and the safer thing to show.
+ */
+export function applyRegistrationCopy(
+  config: PublicConfig | null,
+  els: RegistrationCopyElements,
+): void {
+  if (config?.registration_enabled !== true) return;
+  const copy = landingCopy();
+
+  // Read the closed answer BEFORE overwriting it — it is the key the JSON-LD
+  // block is matched on.
+  const closedAnswer = normalizeText(els.faqAnswer?.textContent ?? "");
+
+  if (els.note) els.note.textContent = copy.openCtaNote;
+  if (els.faqAnswer) els.faqAnswer.textContent = copy.openFaqAvailability;
+  if (els.accessHeading) els.accessHeading.textContent = copy.openAccessHeading;
+  if (els.accessIntro) els.accessIntro.textContent = copy.openAccessIntro;
+  if (els.faqSchema && closedAnswer) {
+    rewriteFaqAnswer(els.faqSchema, closedAnswer, copy.openFaqAvailability);
+  }
+}
+
 /**
  * Click handler for "Try the demo": start a session, then hand off to /app.
  *

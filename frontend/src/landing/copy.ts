@@ -35,6 +35,25 @@ export interface LandingCopy {
   /** cta.ts — the demo button while a demo session is being minted. */
   ctaDemoStarting: string;
 
+  /**
+   * cta.ts — the four places the page states the ACCESS MODEL, replaced once
+   * /api/config reports registration is open.
+   *
+   * The static HTML carries the closed wording ("private alpha", "leave your
+   * email and we'll get back to you with an invite"), which is both true today
+   * and the correct fail-safe: a visitor whose /api/config never resolves reads
+   * the more conservative claim, and is told to ask rather than wrongly told to
+   * sign up. Only the open variants live here, because only they are swapped in.
+   *
+   * Without these, flipping REGISTRATION_ENABLED leaves the primary CTA saying
+   * "Get started" on a page that still says four times over that sign-ups are
+   * closed — including in the FAQPage JSON-LD Google has indexed.
+   */
+  openCtaNote: string;
+  openFaqAvailability: string;
+  openAccessHeading: string;
+  openAccessIntro: string;
+
   /** authModal.ts — login mode. */
   authLoginTitle: string;
   authLoginSubmit: string;
@@ -98,6 +117,13 @@ const EN: LandingCopy = {
   ctaGetStarted: 'Get started',
   ctaDemoStarting: 'Starting…',
 
+  openCtaNote: '10-day free trial. Cancel any time.',
+  openFaqAvailability:
+    'Yes. Sign up above and start a 10-day free trial — no charge until it ends.',
+  openAccessHeading: 'Questions before you start?',
+  openAccessIntro:
+    "Sign-ups are open — use Get started above. If you'd rather ask something first, leave your email and we'll reply.",
+
   authLoginTitle: 'Log in',
   authLoginSubmit: 'Log in',
   authLoginPrompt: "Don't have an account?",
@@ -139,6 +165,13 @@ const EN: LandingCopy = {
 const CS: LandingCopy = {
   ctaGetStarted: 'Začít',
   ctaDemoStarting: 'Spouštím…',
+
+  openCtaNote: '10denní zkušební verze zdarma. Zrušit můžete kdykoli.',
+  openFaqAvailability:
+    'Ano. Zaregistrujte se výše a začněte s 10denní zkušební verzí zdarma; platíte až po jejím skončení.',
+  openAccessHeading: 'Máte otázku, než začnete?',
+  openAccessIntro:
+    'Registrace je otevřená, použijte tlačítko Začít výše. Pokud se chcete nejdříve na něco zeptat, nechte nám e-mail a ozveme se.',
 
   authLoginTitle: 'Přihlásit se',
   authLoginSubmit: 'Přihlásit se',
