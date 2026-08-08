@@ -169,6 +169,245 @@ class TestExpirationAutoTick:
         assert data[0]["need_to_use"] is False
 
 
+class TestNeedToUseToggle:
+    """User.need_to_use_enabled=False masks need_to_use to False everywhere the
+    fridge is read (fatheus97/mealbot-tickets#6), without touching the stored
+    value — re-enabling the preference must restore exactly what was there."""
+
+    async def test_get_masks_stored_true_to_false_when_disabled(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
+        await client.put("/api/fridge", headers=auth_headers, json=payload)
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is False
+
+        # Re-enabling restores the view without the item ever having been touched.
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is True
+
+    async def test_near_expiry_auto_tick_also_masked_when_disabled(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        payload = [
+            {"name": "chicken", "quantity_grams": 500, "need_to_use": False, "expiration_date": tomorrow},
+        ]
+        await client.put("/api/fridge", headers=auth_headers, json=payload)
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is False
+
+    async def test_put_ignores_client_need_to_use_for_new_items_when_disabled(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        # A masked client can't see the field, so it can't set it either —
+        # even a client-supplied True on a brand-new item is dropped.
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
+        put_resp = await client.put("/api/fridge", headers=auth_headers, json=payload)
+        assert put_resp.json()[0]["need_to_use"] is False
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is False
+
+    async def test_put_round_trip_of_masked_get_does_not_wipe_stored_value(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        # Regression: the fridge UI PUTs its ENTIRE local array back on any
+        # edit (quantity, add, remove — not just a need_to_use change), and
+        # that local array was seeded from a masked GET. If PUT trusted the
+        # client's (masked, always-False) need_to_use verbatim, the first
+        # unrelated edit while the toggle is off would silently zero
+        # need_to_use for the whole fridge, permanently — re-enabling the
+        # preference would NOT bring it back, because the true value was
+        # never masked in the DB, only overwritten there.
+        put_resp = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500, "need_to_use": True}],
+        )
+        assert put_resp.status_code == 200
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        masked = await client.get("/api/fridge", headers=auth_headers)
+        masked_items = masked.json()
+        assert masked_items[0]["need_to_use"] is False  # confirms it's really masked
+
+        # Simulate an unrelated edit (bump quantity) and PUT the whole
+        # (masked) array back, exactly like Fridge.tsx's persistFridge does.
+        masked_items[0]["quantity_grams"] = 400
+        edit_resp = await client.put("/api/fridge", headers=auth_headers, json=masked_items)
+        assert edit_resp.status_code == 200
+        assert edit_resp.json()[0]["quantity_grams"] == 400.0
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["quantity_grams"] == 400.0
+        assert resp.json()[0]["need_to_use"] is True
+
+    async def test_editing_name_or_expiration_while_masked_still_preserves_flag(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        # Regression: editing an item's NAME or EXPIRATION_DATE — an ordinary,
+        # everyday fridge action, not a rare edge case — changes the only
+        # fields (name, expiration_date) the masked-write reconciliation used
+        # to key on. That would make the edited row look "new" (no match) and
+        # fall back to False, losing the real flag even though the user never
+        # touched need_to_use. Matching by the row's id (round-tripped
+        # unchanged through the edit) must survive this.
+        put_resp = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{
+                "name": "chicken",
+                "quantity_grams": 500,
+                "need_to_use": True,
+                "expiration_date": "2026-08-10",
+            }],
+        )
+        assert put_resp.status_code == 200
+        item_id = put_resp.json()[0]["id"]
+        assert item_id is not None
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        masked = (await client.get("/api/fridge", headers=auth_headers)).json()
+        assert masked[0]["need_to_use"] is False
+        assert masked[0]["id"] == item_id
+
+        # Edit BOTH the name (fix a typo) and the expiration date, id unchanged.
+        masked[0]["name"] = "chicken breast"
+        masked[0]["expiration_date"] = "2026-08-15"
+        edit_resp = await client.put("/api/fridge", headers=auth_headers, json=masked)
+        assert edit_resp.status_code == 200
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "chicken breast"
+        assert data[0]["expiration_date"] == "2026-08-15"
+        assert data[0]["need_to_use"] is True
+
+    async def test_put_round_trip_preserves_individual_values_across_duplicate_keys(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        # (name, expiration_date) has no DB uniqueness constraint, so two rows
+        # CAN share a key — e.g. two batches of the same item with no
+        # expiration set, both addable via plain PUTs. A real GET->PUT round
+        # trip carries each row's id, so the two are still distinguishable
+        # even though their (name, expiration_date) collide — no ambiguity,
+        # no merging, each keeps its own value.
+        put_resp = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[
+                {"name": "chicken", "quantity_grams": 200, "need_to_use": False},
+                {"name": "chicken", "quantity_grams": 300, "need_to_use": True},
+            ],
+        )
+        assert put_resp.status_code == 200
+        assert len(put_resp.json()) == 2  # both rows persisted, not merged
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        masked = (await client.get("/api/fridge", headers=auth_headers)).json()
+        assert all(item["need_to_use"] is False for item in masked)
+        assert all(item["id"] is not None for item in masked)
+
+        edit_resp = await client.put("/api/fridge", headers=auth_headers, json=masked)
+        assert edit_resp.status_code == 200
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        data = resp.json()
+        assert len(data) == 2
+        by_qty = {item["quantity_grams"]: item["need_to_use"] for item in data}
+        assert by_qty == {200.0: False, 300.0: True}
+
+    async def test_put_round_trip_without_ids_falls_back_to_or_combine(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        # A client that doesn't carry ids (an older cached page, or a
+        # hand-built request) can't disambiguate the duplicate key either —
+        # same OR-combine safety net as before: never silently drop a True.
+        put_resp = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[
+                {"name": "chicken", "quantity_grams": 200, "need_to_use": False},
+                {"name": "chicken", "quantity_grams": 300, "need_to_use": True},
+            ],
+        )
+        assert put_resp.status_code == 200
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        masked = (await client.get("/api/fridge", headers=auth_headers)).json()
+        for item in masked:
+            item["id"] = None
+
+        edit_resp = await client.put("/api/fridge", headers=auth_headers, json=masked)
+        assert edit_resp.status_code == 200
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        data = resp.json()
+        assert len(data) == 2
+        assert sum(item["quantity_grams"] for item in data) == 500.0
+        assert all(item["need_to_use"] is True for item in data)
+
+    async def test_merge_response_masked_when_disabled(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        # A client-supplied True is ignored while disabled, both in the
+        # response AND in what actually gets stored (same protection as
+        # PUT — /fridge/merge takes an arbitrary client payload too, not
+        # only the always-need_to_use=False shape the receipt-scan flow
+        # happens to send).
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
+        )
+        payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
+        resp = await client.post("/api/fridge/merge", headers=auth_headers, json=payload)
+        assert resp.status_code == 200
+        assert resp.json()[0]["need_to_use"] is False
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"need_to_use_enabled": True}
+        )
+        resp = await client.get("/api/fridge", headers=auth_headers)
+        assert resp.json()[0]["need_to_use"] is False
+
+
 class TestMergeWithExpiration:
     async def test_merge_same_name_same_expiration_sums(
         self, client: AsyncClient, auth_headers: dict[str, str]

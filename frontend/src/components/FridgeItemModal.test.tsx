@@ -162,6 +162,45 @@ describe("FridgeItemModal", () => {
     });
   });
 
+  it("hides the need-to-use checkbox when needToUseEnabled is false", () => {
+    render(
+      <FridgeItemModal
+        mode="edit"
+        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: null, need_to_use: true }}
+        onOk={vi.fn()}
+        onCancel={vi.fn()}
+        needToUseEnabled={false}
+      />,
+    );
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("submits the stored need_to_use unchanged when the checkbox is hidden", async () => {
+    // The field is invisible, not cleared — a disabled preference masks the
+    // signal server-side; it never mutates what's actually stored, so
+    // re-enabling the preference restores it.
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FridgeItemModal
+        mode="edit"
+        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: null, need_to_use: true }}
+        onOk={onOk}
+        onCancel={vi.fn()}
+        needToUseEnabled={false}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+
+    expect(onOk).toHaveBeenCalledWith({
+      name: "Eggs",
+      quantity_grams: 200,
+      expiration_date: null,
+      need_to_use: true,
+    });
+  });
+
   it("rejects non-numeric input at the keystroke level", async () => {
     const user = userEvent.setup();
     render(

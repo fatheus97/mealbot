@@ -215,6 +215,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "prefs.trackSnacks": "Sledovat sladkosti a snacky z účtenek",
   "prefs.trackSnacksHint":
     "Když je volba vypnutá, hotové výrobky (dezerty, snacky, nápoje) se při skenování účtenek přeskočí",
+  "prefs.needToUseEnabled": "Zapnout sledování „spotřebovat brzy“",
+  "prefs.needToUseEnabledHint":
+    "Když je volba vypnutá, příznak „spotřebovat brzy“ se nikde v lednici nezobrazuje a při generování jídelníčku se už nezohledňuje. Kdykoliv ji můžete znovu zapnout — nic se neztratí.",
 
   "prefs.dayLayout": "Výchozí rozvržení dne",
   "prefs.dayLayoutHint":
@@ -652,6 +655,14 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "feedback.sending": "Odesílám…",
   "feedback.tooShort": "Napište prosím trochu více podrobností.",
   "feedback.failed": "Zpětnou vazbu se nepodařilo odeslat.",
+  "feedback.attachScreenshot": "📎 Přiložit screenshot",
+  "feedback.pasteHint": "Obrázek můžete do tohoto pole i vložit (Ctrl/Cmd+V).",
+  "feedback.removeScreenshot": "Odebrat",
+  "feedback.screenshotAlt": "Náhled přiloženého screenshotu",
+  "feedback.screenshotUnsupportedType": "Prosím, přiložte obrázek ve formátu PNG nebo JPEG.",
+  "feedback.screenshotTooLarge": "Tento obrázek je příliš velký (max. 3 MB). Zkuste menší screenshot.",
+  "feedback.screenshotEmpty": "Tento obrázkový soubor je prázdný. Zkuste ho přiložit znovu.",
+  "feedback.screenshotReadFailed": "Obrázek se nepodařilo načíst. Zkuste ho přiložit znovu.",
   "feedback.thanksTitle": "Díky — máme to. 🙏",
   "feedback.thanksBody": "Vaše hlášení míří k týmu. Čteme každé.",
   "feedback.done": "Hotovo",
