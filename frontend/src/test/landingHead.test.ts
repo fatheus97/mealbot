@@ -61,7 +61,13 @@ describe("landing <head> (built dist/index.html)", () => {
     });
 
     it("has valid JSON-LD for Organization + SoftwareApplication + FAQPage with no price/offers", () => {
-      const match = head.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+      // Attribute-tolerant: the block carries id="faq-schema" so cta.ts can
+      // find and rewrite the availability answer when registration opens.
+      // Pinning the exact opening tag made adding that id look like a missing
+      // JSON-LD block.
+      const match = head.match(
+        /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/,
+      );
       expect(match).not.toBeNull();
       const data = JSON.parse(match![1]);
       const graph = data["@graph"] as Array<{ "@type": string }>;

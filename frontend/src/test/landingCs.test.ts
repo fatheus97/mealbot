@@ -273,6 +273,57 @@ describe("en/cs structural parity", () => {
       expect(csHtml).toContain('<a href="/" hreflang="en" lang="en">English</a>');
     });
 
+    it("each page carries the ids applyRegistrationCopy rewrites", () => {
+      // Four blocks of prose state that sign-ups are closed. cta.ts swaps them
+      // once /api/config reports registration is open; without the ids it
+      // silently swaps nothing, and the page contradicts its own CTA.
+      for (const [name, html] of Object.entries({ en, cs: csHtml })) {
+        for (const id of [
+          "cta-note",
+          "faq-availability",
+          "access-heading",
+          "access-intro",
+          "faq-schema",
+        ]) {
+          expect(html, `${name} is missing id="${id}"`).toContain(`id="${id}"`);
+        }
+      }
+    });
+
+    it("each page's availability answer is identical in the JSON-LD and on the page", () => {
+      // applyRegistrationCopy finds the structured-data answer by MATCHING the
+      // visible one, so this is not a tidiness assertion: if the two drift, the
+      // rewrite silently misses and the indexed FAQPage keeps telling Google
+      // that registration is closed after it has opened. The <head> comment
+      // already asks for these to mirror each other verbatim; this enforces it
+      // for the one answer whose text is load-bearing.
+      const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+
+      for (const [name, html] of Object.entries({ en, cs: csHtml })) {
+        const visible = squash(
+          html.match(/<div id="faq-availability"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? "",
+        );
+        expect(visible, `${name} visible answer`).not.toBe("");
+
+        const schema = html.match(
+          /<script id="faq-schema" type="application\/ld\+json">([\s\S]*?)<\/script>/,
+        )?.[1];
+        expect(schema, `${name} faq-schema block`).toBeDefined();
+
+        const texts: string[] = [];
+        const visit = (node: unknown): void => {
+          if (Array.isArray(node)) return node.forEach(visit);
+          if (typeof node !== "object" || node === null) return;
+          const record = node as Record<string, unknown>;
+          if (typeof record.text === "string") texts.push(squash(record.text));
+          Object.values(record).forEach(visit);
+        };
+        visit(JSON.parse(schema!) as unknown);
+
+        expect(texts, `${name} JSON-LD has no answer matching the visible one`).toContain(visible);
+      }
+    });
+
     it("each page's FAQPage JSON-LD has one entry per on-page question", () => {
       // The structured data mirrors the visible FAQ. Adding a question to one
       // and not the other is a structured-data mismatch Google can penalise,
