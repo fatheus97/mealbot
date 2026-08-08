@@ -381,3 +381,113 @@ describe("PlanCatalog alert colour follows the OS colour scheme", () => {
     expect(PAGE_TEXT.error.dark).not.toBe(PAGE_TEXT.error.light);
   });
 });
+
+describe("PlanCatalog — repeat this week", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE });
+    mockedAuthFetch.mockReset();
+  });
+
+  it("POSTs the plan's own scheduled date to /repeat", async () => {
+    loginUser();
+    const scheduled: MealPlanSummary = { ...SAMPLE_PLAN, id: 2, start_date: "2026-08-01" };
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.endsWith("/repeat"))
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ plan_id: 99, start_date: "2026-08-01", days: [], shopping_list: [] }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([scheduled]) });
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await userEvent.click(await screen.findByRole("button", { name: /repeat/i }));
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith("/plan/2/repeat", {
+        method: "POST",
+        body: JSON.stringify({ start_date: "2026-08-01" }),
+      }),
+    );
+  });
+
+  it("hands the COPY to the planner, not the source", async () => {
+    // The copy is created unconfirmed and this catalog is confirmed-only, so
+    // it would be invisible here. Handing it to the planner is the whole point;
+    // handing back the SOURCE would silently reopen last week's plan instead.
+    loginUser();
+    const onOpenPlan = vi.fn();
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.endsWith("/repeat"))
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ plan_id: 99, start_date: "2026-08-17", days: [], shopping_list: [] }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([SAMPLE_PLAN]) });
+    });
+
+    render(<PlanCatalog onOpenPlan={onOpenPlan} />, { wrapper: createWrapper() });
+    await userEvent.click(await screen.findByRole("button", { name: /repeat/i }));
+
+    await waitFor(() => expect(onOpenPlan).toHaveBeenCalled());
+    const [plan, summary] = onOpenPlan.mock.calls[0];
+    expect(plan.plan_id).toBe(99);
+    expect(summary.id).toBe(99);
+    expect(summary.id).not.toBe(SAMPLE_PLAN.id);
+    // A copy has cooked nothing and finished nothing, however far the source got.
+    expect(summary.cooked_meals).toBe(0);
+    expect(summary.finished_at).toBeNull();
+    expect(summary.status).toBe("planned");
+  });
+
+  it("surfaces a failure instead of silently doing nothing", async () => {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.endsWith("/repeat"))
+        return Promise.resolve({ ok: false, status: 422, json: () => Promise.resolve({}) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([SAMPLE_PLAN]) });
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await userEvent.click(await screen.findByRole("button", { name: /repeat/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't repeat/i);
+  });
+});
+
+describe("PlanCatalog — repeating an unscheduled plan", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE });
+    mockedAuthFetch.mockReset();
+  });
+
+  it("sends start_date null when the plan has no date", async () => {
+    // The other repeat test covers the scheduled case. This is the deliberate
+    // design decision from the PR body — an unset date is legitimate, the copy
+    // is simply unscheduled — and it was the case with no coverage. A `""` or
+    // omitted field here would 422 on the backend's date validator.
+    loginUser();
+    const undated: MealPlanSummary = { ...SAMPLE_PLAN, id: 3, start_date: null };
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.endsWith("/repeat"))
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ plan_id: 77, start_date: null, days: [], shopping_list: [] }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([undated]) });
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await userEvent.click(await screen.findByRole("button", { name: /repeat/i }));
+
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith("/plan/3/repeat", {
+        method: "POST",
+        body: JSON.stringify({ start_date: null }),
+      }),
+    );
+  });
+});

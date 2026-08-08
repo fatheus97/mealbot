@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { usePlanList, useDeletePlan, useReschedulePlan } from "../hooks/useServerState";
+import { usePlanList, useDeletePlan, useReschedulePlan, useRepeatPlan } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
@@ -29,6 +29,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   const { data: plans, isLoading } = usePlanList(userId);
   const deleteMutation = useDeletePlan();
   const rescheduleMutation = useReschedulePlan();
+  const repeatMutation = useRepeatPlan();
   const [expanded, setExpanded] = useState(true);
   const [loadingPlanId, setLoadingPlanId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
@@ -37,6 +38,8 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   // Bumped on a failed reschedule to remount the (uncontrolled) date inputs
   // back onto the server value.
   const [rescheduleNonce, setRescheduleNonce] = useState(0);
+  const [repeatingPlanId, setRepeatingPlanId] = useState<number | null>(null);
+  const [repeatError, setRepeatError] = useState<string | null>(null);
 
   if (!userId) return null;
 
@@ -51,6 +54,41 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       setOpenError(t("plans.openFailed"));
     } finally {
       setLoadingPlanId(null);
+    }
+  };
+
+  // Repeat copies the plan's meals onto a new date and hands the copy to the
+  // PLANNER, not back to this list. That is not a shortcut — the copy is
+  // created unconfirmed, and this catalog is confirmed-only, so leaving the
+  // user here would look like the button did nothing. The planner is where an
+  // unconfirmed plan already lives: it is exactly where a freshly generated one
+  // lands, and confirming it there is the same gesture.
+  const handleRepeat = async (summary: MealPlanSummary, startDate: string | null) => {
+    setRepeatingPlanId(summary.id);
+    setRepeatError(null);
+    try {
+      const copy = await repeatMutation.mutateAsync({ planId: summary.id, startDate });
+      // Every field is DERIVED from the copy or the source, not invented: the
+      // shape/size fields are copied server-side, the copy is by construction
+      // uncooked and unfinished, and total_meals is what the plan will hold
+      // once confirmed. The one guess-free unknown is created_at, which is now.
+      onOpenPlan(copy, {
+        id: copy.plan_id ?? summary.id,
+        created_at: new Date().toISOString(),
+        days: summary.days,
+        meals_per_day: summary.meals_per_day,
+        people_count: summary.people_count,
+        start_date: copy.start_date ?? null,
+        status: "planned",
+        total_meals: summary.days * summary.meals_per_day,
+        cooked_meals: 0,
+        finished_at: null,
+      });
+    } catch (err) {
+      console.error("Failed to repeat plan:", err);
+      setRepeatError(t("plans.repeatFailed"));
+    } finally {
+      setRepeatingPlanId(null);
     }
   };
 
@@ -119,6 +157,11 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
           {rescheduleError && (
             <p role="alert" style={{ color: PAGE_TEXT.error[scheme], fontSize: "0.9rem", marginTop: 0 }}>
               {rescheduleError}
+            </p>
+          )}
+          {repeatError && (
+            <p role="alert" style={{ color: PAGE_TEXT.error[scheme], fontSize: "0.9rem", marginTop: 0 }}>
+              {repeatError}
             </p>
           )}
 
@@ -228,6 +271,32 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                         }}
                       >
                         {loadingPlanId === plan.id ? t("plans.opening") : t("plans.open")}
+                      </button>
+
+                      {/* Repeat copies this plan's meals onto the date in the
+                          field above — the one the card already has, rather
+                          than a second date picker. Passing null (no date set)
+                          is legitimate: the copy is simply unscheduled, and the
+                          planner is where the user dates and confirms it.
+                          Colours are the existing secondary-button pair from
+                          the same card, not new ones. */}
+                      <button
+                        onClick={() => handleRepeat(plan, plan.start_date ?? null)}
+                        disabled={repeatingPlanId === plan.id}
+                        style={{
+                          flex: isMobile ? 1 : undefined,
+                          padding: "0.3rem 0.8rem",
+                          fontSize: "0.85rem",
+                          backgroundColor: "#e2e8f0",
+                          color: "#475569", // 7.06:1 on #e2e8f0 — the STATUS_COLORS.planned pair
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {repeatingPlanId === plan.id
+                          ? t("plans.repeating")
+                          : t("plans.repeat")}
                       </button>
 
                       <button

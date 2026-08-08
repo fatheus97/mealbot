@@ -662,6 +662,9 @@ export const en = {
   "plans.opening": "Loading...",
   "plans.delete": "Delete",
   "plans.deleting": "Deleting…",
+  "plans.repeat": "Repeat",
+  "plans.repeating": "Copying…",
+  "plans.repeatFailed": "Couldn't repeat that plan. Please try again.",
   "plans.deleteTitle": "Delete this plan?",
   "plans.deleteBody":
     "This will permanently delete the {days}-day / {meals}-meal plan from {date}. This cannot be undone.",
