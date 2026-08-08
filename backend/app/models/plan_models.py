@@ -826,6 +826,11 @@ class PlanRepeatRequest(BaseModel):
 
     start_date: date | None = None
 
+    @field_validator("start_date")
+    @classmethod
+    def _bound_start_date(cls, v: date | None) -> date | None:
+        return validate_plan_start_date(v)
+
 
 class PlanScheduleUpdate(BaseModel):
     """Body for PATCH /plan/{id} — reschedule a plan.

@@ -52,6 +52,10 @@ class PlanRepeatError(ValueError):
     """The source plan cannot be repeated — its stored JSON no longer parses."""
 
 
+class PlanNotRepeatableError(ValueError):
+    """The source is not a multi-day plan, so "repeat this week" is meaningless."""
+
+
 async def repeat_plan(
     session: AsyncSession,
     user: User,
@@ -66,6 +70,17 @@ async def repeat_plan(
     """
     if user.id is None:
         raise ValueError("repeat_plan requires a persisted user")
+
+    # Cook Now plans are a different lane, and copying one strands a row nobody
+    # can reach. They are auto-confirmed on creation, and both ``list_plans``
+    # and ``plan_calendar`` filter on ``kind == "planned"`` — so a copy, which is
+    # deliberately created UNCONFIRMED, fails BOTH filters at once: invisible in
+    # the catalog, invisible on the calendar, from the moment it exists. Refuse
+    # server-side rather than trusting the UI to only offer the button on
+    # catalog plans; the endpoint is reachable without it, and "repeat this
+    # WEEK" does not mean anything for a single recipe.
+    if source.kind != "planned":
+        raise PlanNotRepeatableError(f"kind={source.kind!r} is not repeatable")
 
     # A plan whose response_json no longer parses cannot be repeated. This is a
     # 422 to the caller rather than a 500: the row is real and owned, it just
