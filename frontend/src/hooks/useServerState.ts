@@ -193,6 +193,32 @@ export function useReschedulePlan() {
   });
 }
 
+// "Repeat this week": copy a plan's meals onto a new start date. No LLM call,
+// so this returns immediately and costs nothing — but it DOES create a plan, so
+// the catalog and calendar both have to re-fetch, same as a reschedule.
+//
+// The copy comes back UNCONFIRMED, which means it will not appear in the plan
+// catalog (that list is confirmed-only) until the user confirms it. The caller
+// is responsible for saying so; a silent success on a screen where nothing
+// visibly changes reads as a no-op.
+export function useRepeatPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ planId, startDate }: { planId: number; startDate: string | null }): Promise<MealPlanResponse> => {
+      const res = await authFetch(`/plan/${planId}/repeat`, {
+        method: "POST",
+        body: JSON.stringify({ start_date: startDate }),
+      });
+      if (!res.ok) throw new Error(`Repeat failed: ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planList'] });
+      queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
+    },
+  });
+}
+
 export function useMealEntries(planId: number | null) {
   return useQuery({
     queryKey: ['mealEntries', planId],

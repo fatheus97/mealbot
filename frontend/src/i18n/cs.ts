@@ -616,6 +616,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "plans.opening": "Načítání...",
   "plans.delete": "Smazat",
   "plans.deleting": "Mažu…",
+  "plans.repeat": "Zopakovat",
+  "plans.repeating": "Kopíruji…",
+  "plans.repeatFailed": "Jídelníček se nepodařilo zopakovat. Zkuste to prosím znovu.",
   "plans.deleteTitle": "Smazat tento jídelníček?",
   "plans.deleteBody":
     "Tímto trvale smažete jídelníček na {days} dní po {meals} jídlech z {date}. Akci nelze vrátit zpět.",
