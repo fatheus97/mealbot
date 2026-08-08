@@ -32,12 +32,13 @@ the daemon's build cache / images, so it has no reason to enter a container).
 | `mealbot-offsite-backup` | `scripts/offsite-backup.sh` — encrypt the newest dump and copy it to Backblaze B2 | daily 03:00 | **PARKED** — inert until `OFFSITE_BACKUP_ENABLED=true` (§6) |
 | `mealbot-billing-alerts` | `app.scripts.billing_alerts` — VAT-threshold + monthly filing-reminder emails (#202) | daily 08:00 | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-authsession-cleanup` | `app.scripts.authsession_cleanup` — delete long-expired `authsession` rows so the table doesn't grow unbounded | daily 03:30 | No |
+| `mealbot-passwordresettoken-cleanup` | `app.scripts.passwordresettoken_cleanup` — delete long-expired `passwordresettoken` rows so the table doesn't grow unbounded | daily 04:00 | No |
 | `mealbot-docker-cleanup` | `docker builder prune -af` + `docker image prune -af` — cap the ever-growing BuildKit build cache / unused images so the disk doesn't fill | **weekly** Sun 04:30 | No |
 
-The schedules are staggered (02:30 vs 03:30 vs Sun 04:30 vs 08:00) so they never
-contend for the small Hetzner box at once. The backup deliberately runs *before*
-the session sweep: if that sweep ever deletes something it shouldn't, the
-night's dump predates it.
+The schedules are staggered (02:30, 03:00, 03:30, 04:00, Sun 04:30, 08:00, plus
+the hourly disk check) so they never contend for the small Hetzner box at once.
+The backup deliberately runs *before* both row sweeps: if either ever deletes
+something it shouldn't, the night's dump predates it.
 
 ## Failure alerting (`mealbot-alert@.service`)
 
@@ -581,6 +582,54 @@ steady state. The first run on a box that has drifted is the noisy one.
 To confirm it truly closes the loop, edit a `.timer`'s `OnCalendar=` on `main`
 and watch `systemctl list-timers` change within ten minutes without touching the
 box.
+
+---
+
+## 8. Expired-reset-token cleanup (`mealbot-passwordresettoken-cleanup`)
+
+Every "forgot password" request inserts a `passwordresettoken` row and nothing
+ever deletes one: redemption stamps `used_at` rather than deleting (a replayed
+link stays distinguishable from an expired or forged one in the logs), and
+expiry is a timestamp comparison. So the table grows monotonically with reset
+activity. This job deletes rows expired more than **30 days** ago. No env vars
+required — it only touches the database the app already connects to.
+
+Longer retention than §2's 7 days on purpose: a reset row is the audit trail for
+"someone changed my password", a question that reaches an operator weeks later,
+and the volume that buys is negligible (minting is bounded by the 60s per-account
+cooldown, the 5/min per-IP limit, and the one-live-token-per-user partial unique
+index). Nothing sensitive is being retained either — the row holds a sha256 of a
+single-use token that expired a month ago.
+
+**With §7 installed you do not need to do anything**: `sync-systemd-units.sh`
+copies both files and enables a *new* timer on its next ten-minute pass. The
+commands below are for a box rebuild or a box without §7.
+
+```bash
+sudo cp deploy/systemd/mealbot-passwordresettoken-cleanup.service /etc/systemd/system/
+sudo cp deploy/systemd/mealbot-passwordresettoken-cleanup.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mealbot-passwordresettoken-cleanup.timer
+```
+
+### Verify
+
+```bash
+# next scheduled run:
+systemctl list-timers mealbot-passwordresettoken-cleanup.timer
+
+# run it once right now (doesn't wait for 04:00):
+sudo systemctl start mealbot-passwordresettoken-cleanup.service
+
+# check the result:
+journalctl -u mealbot-passwordresettoken-cleanup.service -n 30 --no-pager
+```
+
+Expected log line: `passwordresettoken_cleanup: deleted N reset-token row(s) expired > 30d ago`.
+
+A first run reporting `deleted 0` is the expected result, not a failure: the app
+has had few password resets, and any row younger than 30 days is deliberately
+kept.
 
 ---
 
