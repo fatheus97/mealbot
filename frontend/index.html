@@ -30,10 +30,41 @@
     <link rel="alternate" hreflang="cs" href="https://trymealbot.com/cs" />
     <link rel="alternate" hreflang="x-default" href="https://trymealbot.com/" />
 
-    <!-- Open Graph. No og:image yet — a self-hosted screenshot/hero asset is
-         a tracked fast-follow (docs/landing-page-plan.md); omitting it here
-         degrades gracefully to a text-only unfurl rather than a broken or
-         placeholder image. -->
+    <!-- Open Graph.
+         og:url and og:image are ABSOLUTE on purpose — several scrapers
+         (Facebook's included) ignore a relative og:image outright, so a
+         root-relative "/og.png" is the one shape that silently yields no card
+         at all. Everything else on these pages is relative; these two are the
+         exception, not an oversight.
+
+         The image is SELF-HOSTED for a PRIVACY reason, not a CSP one: a card
+         served from someone else's CDN turns every unfurl into a third party
+         learning who shares this link. Note the CSP does NOT enforce that here
+         — `img-src 'self' data:` governs what the VISITOR's browser fetches,
+         and og:image is fetched out-of-band by the scraper's own HTTP client,
+         which never sees this site's headers. An external og:image would work
+         fine on Facebook; it just should not.
+
+         /og.png is generated from ../og-card.svg — edit the SVG, never the PNG,
+         then regenerate (from the repo root):
+
+           docker run --rm -v "$PWD/frontend:/w" -w /w node:26.4.0 bash -c \
+             "apt-get update -qq && apt-get install -y -qq fonts-dejavu-core \
+              && npm i --no-save sharp \
+              && node -e \"const s=require('sharp'),f=require('fs'); \
+                 s(f.readFileSync('og-card.svg'),{density:144}) \
+                  .resize(1200,630).png({compressionLevel:9}) \
+                  .toFile('public/og.png')\""
+
+         The font package is not optional — without it libvips substitutes
+         whatever it can find and the card renders in the wrong typeface, or
+         with missing glyphs, and nothing errors. Read the PNG back after
+         regenerating.
+
+         /cs uses this same image deliberately: one asset, English wordmark and
+         claim. A Czech card is a cheap follow-up if the Czech page ever carries
+         its own share traffic; it needs its own og:image line there, not a
+         second file here. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Mealbot" />
     <meta property="og:locale" content="en_US" />
@@ -43,8 +74,23 @@
       property="og:description"
       content="Combine multiple diets and allergies in one plan. Every recipe is screened against the 14 EU-regulated allergens, grounded in cited public-health sources."
     />
+    <meta property="og:image" content="https://trymealbot.com/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <!-- Declared dimensions let a scraper lay the card out before the image
+         finishes downloading, which is the difference between a card that
+         appears instantly and one that pops in. -->
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Mealbot — meal plans screened against the 14 EU-regulated allergens"
+    />
 
-    <meta name="twitter:card" content="summary" />
+    <!-- summary_large_image, not summary: the small variant crops a 1200x630
+         card to a square thumbnail and throws away the claim it exists to
+         carry. X reads og:image as its fallback, so no separate twitter:image
+         is needed. -->
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Mealbot — Meal Plans Screened Against the EU-14 Allergens" />
     <meta
       name="twitter:description"

@@ -273,6 +273,25 @@ describe("en/cs structural parity", () => {
       expect(csHtml).toContain('<a href="/" hreflang="en" lang="en">English</a>');
     });
 
+    it("both pages point at the SAME og:image but translate its alt text", () => {
+      // One asset by design (see the og:image comment in index.html). The alt
+      // is the one part a Czech reader actually receives — a screen reader, or
+      // a client that failed to fetch the image — so it is translated even
+      // though the picture is not.
+      const image = (html: string) =>
+        html.match(/property="og:image"\s+content="([^"]+)"/)?.[1];
+      const alt = (html: string) =>
+        html.match(/property="og:image:alt"\s+content="([^"]+)"/)?.[1];
+
+      expect(image(en)).toBe("https://trymealbot.com/og.png");
+      expect(image(csHtml)).toBe(image(en));
+
+      expect(alt(en)).toBeDefined();
+      expect(alt(csHtml)).toBeDefined();
+      expect(alt(csHtml)).not.toBe(alt(en));
+      expect(alt(csHtml)).toMatch(/alergen/i);
+    });
+
     it("each page carries the ids applyRegistrationCopy rewrites", () => {
       // Four blocks of prose state that sign-ups are closed. cta.ts swaps them
       // once /api/config reports registration is open; without the ids it

@@ -60,6 +60,47 @@ describe("landing <head> (built dist/index.html)", () => {
       expect(head).toContain('name="twitter:title"');
     });
 
+    it("declares an ABSOLUTE og:image — a relative one yields no card at all", () => {
+      // Several scrapers, Facebook's included, ignore a relative og:image
+      // outright rather than resolving it against og:url. "/og.png" would look
+      // correct in the source and produce a text-only unfurl in every client,
+      // which is exactly the state this replaced.
+      const src = head.match(/property="og:image"\s+content="([^"]+)"/)?.[1];
+      expect(src, "og:image is missing").toBeDefined();
+      expect(src).toBe("https://trymealbot.com/og.png");
+    });
+
+    it("declares the image's dimensions and alt text", () => {
+      // Dimensions let a scraper lay the card out before the bytes arrive.
+      expect(head).toContain('property="og:image:width" content="1200"');
+      expect(head).toContain('property="og:image:height" content="630"');
+      const alt = head.match(/property="og:image:alt"\s+content="([^"]+)"/)?.[1];
+      expect(alt?.length ?? 0).toBeGreaterThan(20);
+    });
+
+    it("uses the large Twitter card, not the square one", () => {
+      // `summary` crops a 1200x630 image to a square thumbnail and throws away
+      // the claim the card exists to carry.
+      expect(head).toContain('name="twitter:card" content="summary_large_image"');
+      expect(head).not.toContain('name="twitter:card" content="summary"');
+    });
+
+    it("ships an og.png that is really a 1200x630 PNG", () => {
+      // The tags above are satisfiable by a broken or absent file. Read the
+      // actual bytes: PNG magic, then the IHDR width/height at offsets 16..23.
+      // A card whose declared dimensions disagree with the file gets laid out
+      // wrong in every client that trusted the meta tag.
+      const png = resolve(process.cwd(), "dist/og.png");
+      expect(existsSync(png), "dist/og.png is missing").toBe(true);
+      const buf = readFileSync(png);
+      expect(buf.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+      expect(buf.readUInt32BE(16)).toBe(1200);
+      expect(buf.readUInt32BE(20)).toBe(630);
+      // Bigger than a placeholder, smaller than the 5 MB most scrapers fetch.
+      expect(buf.length).toBeGreaterThan(5_000);
+      expect(buf.length).toBeLessThan(1_000_000);
+    });
+
     it("has valid JSON-LD for Organization + SoftwareApplication + FAQPage with no price/offers", () => {
       // Attribute-tolerant: the block carries id="faq-schema" so cta.ts can
       // find and rewrite the availability answer when registration opens.
