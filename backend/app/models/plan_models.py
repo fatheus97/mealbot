@@ -814,6 +814,24 @@ class ConfirmPlanRequest(BaseModel):
         return validate_plan_start_date(v)
 
 
+class PlanRepeatRequest(BaseModel):
+    """Body for POST /plan/{id}/repeat — copy a plan forward to a new date.
+
+    Null (or an absent body → `{}`) creates the copy UNSCHEDULED, which is a
+    legitimate thing to want: "make me this plan again, I'll date it later".
+    That is the same null-semantics as PlanScheduleUpdate below and the opposite
+    of ConfirmPlanRequest — but here there is no prior value to preserve, so the
+    ambiguity that makes PATCH's rule worth warning about does not arise.
+    """
+
+    start_date: date | None = None
+
+    @field_validator("start_date")
+    @classmethod
+    def _bound_start_date(cls, v: date | None) -> date | None:
+        return validate_plan_start_date(v)
+
+
 class PlanScheduleUpdate(BaseModel):
     """Body for PATCH /plan/{id} — reschedule a plan.
 

@@ -81,6 +81,7 @@ ErrorKey = Literal[
     "plan_not_found",
     "plan_data_unreadable",
     "plan_data_inconsistent",
+    "plan_repeat_not_repeatable",
     "plan_generation_failed",
     "plan_regeneration_failed",
     "plan_regenerate_confirmed",
@@ -191,6 +192,9 @@ _EN: Final[dict[str, str]] = {
     "plan_not_found": "Plan not found",
     "plan_data_unreadable": "Stored plan data could not be loaded.",
     "plan_data_inconsistent": "Stored plan data is inconsistent; edit aborted.",
+    "plan_repeat_not_repeatable": (
+        "Only meal plans can be repeated, not a single Cook Now recipe."
+    ),
     "plan_generation_failed": "Meal plan generation failed. Please try again.",
     "plan_regeneration_failed": "Meal plan regeneration failed. Please try again.",
     "plan_regenerate_confirmed": "Cannot regenerate a confirmed plan",
@@ -342,6 +346,9 @@ _CS: Final[dict[str, str]] = {
     "plan_data_unreadable": "Uložená data jídelníčku se nepodařilo načíst.",
     "plan_data_inconsistent": (
         "Uložená data jídelníčku nejsou konzistentní, úprava byla zrušena."
+    ),
+    "plan_repeat_not_repeatable": (
+        "Zopakovat lze jen jídelníček, ne jednotlivý recept z režimu Uvařit teď."
     ),
     "plan_generation_failed": (
         "Vytvoření jídelníčku se nezdařilo. Zkuste to prosím znovu."
