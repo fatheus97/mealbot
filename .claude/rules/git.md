@@ -61,6 +61,28 @@ cycle defeats the point.
 - Open a PR with `gh pr create` — do not ask first.
 - After pushing, wait for CI and the Claude PR Review workflow. Poll with
   `ScheduleWakeup` so the session doesn't block.
+- **Never assume `jq` is on the host** — it is absent from Git Bash's `PATH` on
+  the Windows dev box (verified 2026-08-08), while the Linux CI runners and the
+  `/work-tickets` cloud routine have their own tooling. This file carries no
+  `paths:` scope, so it loads on all of them; don't read either state as given.
+  Use **`gh --jq`** unconditionally — the GitHub CLI embeds its own jq, so it
+  works the same either way and you never have to know which host you are on:
+  `gh pr checks <n> --json name,bucket --jq '.[] | "\(.bucket) \(.name)"'`.
+  A watcher ending in `| jq` dies with `jq: command not found`, and inside a poll
+  loop wrapped in `|| true` / `2>/dev/null` **that failure is silent**: the loop
+  runs its full duration and exits 0 having measured nothing. One watcher burned
+  20 minutes that way and reported no events — which reads exactly like "all
+  checks still pending", i.e. a broken watcher looks identical to a patient one.
+  **No output is not evidence of no failures.** Any watcher whose quiet result
+  you would act on must distinguish "nothing happened" from "I never ran" — emit
+  a per-probe marker, or don't swallow the exit code.
+  - Related: `gh pr checks` exits **non-zero while checks are pending**, so the
+    idiomatic `s=$(gh pr checks …) || continue` guard skips every iteration until
+    the run finishes — a second way to poll vacuously.
+  - A settle that arrives implausibly fast is the other tell. Confirm the runs
+    are real before trusting green: `gh api repos/<o>/<r>/commits/<headSha>/check-runs`
+    and check `started_at`/`completed_at` against the push time, so you don't
+    read another commit's results as your own.
 - Loop while any CI check is red OR the latest AI review lists any issues —
   regardless of severity label. Fix each item, commit, push, and wait for
   the next review. Low-severity items count; fix them unless the reviewer

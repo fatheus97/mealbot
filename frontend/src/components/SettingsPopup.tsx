@@ -45,6 +45,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         include_spices: values.include_spices,
         show_pieces: values.show_pieces,
         track_snacks: values.track_snacks,
+        need_to_use_enabled: values.need_to_use_enabled,
         // Send the raw array (possibly []). The backend treats [] as "clear"
         // and a populated list as the new stored layout.
         default_day_layout: values.default_day_layout,
@@ -159,6 +160,10 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             // existed would otherwise send undefined and look like a no-op save.
             show_pieces: profile.show_pieces ?? false,
             track_snacks: profile.track_snacks,
+            // ?? true (not false): the feature already exists and defaults on —
+            // a payload cached before this field existed should read as "still
+            // enabled", not silently opt the user out.
+            need_to_use_enabled: profile.need_to_use_enabled ?? true,
             default_day_layout: profile.default_day_layout ?? [],
           }}
           onSubmit={handleSubmit}

@@ -35,6 +35,8 @@ async def _add_report(
     triage_json: str | None = None,
     triage_status: str | None = None,
     triage_type: str | None = None,
+    screenshot_base64: str | None = None,
+    screenshot_content_type: str | None = None,
 ) -> FeedbackReport:
     report = FeedbackReport(
         user_id=user_id,
@@ -44,6 +46,8 @@ async def _add_report(
         triage_json=triage_json,
         triage_status=triage_status,
         triage_type=triage_type,
+        screenshot_base64=screenshot_base64,
+        screenshot_content_type=screenshot_content_type,
     )
     db_session.add(report)
     await db_session.flush()
@@ -174,6 +178,35 @@ class TestDetail:
     ) -> None:
         await _make_admin(db_session, test_user)
         assert (await client.get("/api/admin/feedback/999999")).status_code == 404
+
+    async def test_detail_includes_screenshot_when_present(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(
+            db_session,
+            test_user.id,
+            screenshot_base64="c2NyZWVuc2hvdA==",
+            screenshot_content_type="image/png",
+        )
+        resp = await client.get(f"/api/admin/feedback/{report.id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["screenshot_base64"] == "c2NyZWVuc2hvdA=="
+        assert body["screenshot_content_type"] == "image/png"
+
+    async def test_detail_screenshot_null_when_absent(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+        resp = await client.get(f"/api/admin/feedback/{report.id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["screenshot_base64"] is None
+        assert body["screenshot_content_type"] is None
 
 
 class TestModerate:
