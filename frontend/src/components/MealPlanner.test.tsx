@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
-import { usePreferencesStore } from '../store/usePreferencesStore';
+import { usePreferencesStore, DEFAULT_PREFERENCES } from '../store/usePreferencesStore';
 import { useLocaleStore } from '../store/useLocaleStore';
 import { dayDateLabel } from '../utils/planDates';
 import { setColorScheme } from '../test/media';
@@ -126,6 +126,53 @@ describe('MealPlanner mode-tab colours follow the OS colour scheme', () => {
     expect(screen.getByRole('tab', { name: 'Plan Ahead' }).style.borderBottom).toContain(
       hexToRgb(PAGE_TEXT.tabActive.dark),
     );
+  });
+});
+
+describe('MealPlanner taste-preference cap', () => {
+  // Tastes is free text, not chips, so it cannot be hard-capped mid-sentence.
+  // The server keeps only the first 20 and says nothing about the rest, so the
+  // UI has to — otherwise the entries are lost with no error and no log.
+  // usePreferencesStore is PERSISTED, so seed it rather than typing: typing 100+
+  // characters into a store-backed controlled input leaks the value into every
+  // later test in the file (it broke the border-box test below when this suite
+  // first used user.type).
+  function renderWithTastes(tastes: string) {
+    loginUser();
+    usePreferencesStore.setState({ mode: 'plan_ahead', tastePreferences: tastes });
+    render(<MealPlanner />, { wrapper: createWrapper() });
+  }
+
+  afterEach(() => {
+    // Restore the REAL default, not ''. The store is persisted, so leaving a
+    // value it would never naturally hold is the same order-dependent landmine
+    // this suite seeds around in the first place.
+    usePreferencesStore.setState({
+      tastePreferences: DEFAULT_PREFERENCES.tastePreferences,
+    });
+  });
+
+  it('says nothing while the entry is within the limit', () => {
+    renderWithTastes(Array.from({ length: 20 }, (_, i) => `t${i}`).join(', '));
+    expect(screen.queryByText(/Only the first/)).not.toBeInTheDocument();
+  });
+
+  it('warns once the entry exceeds what the server will keep', () => {
+    renderWithTastes(Array.from({ length: 21 }, (_, i) => `t${i}`).join(', '));
+    expect(
+      screen.getByText('Only the first 20 will be used. You entered 21.'),
+    ).toBeInTheDocument();
+  });
+
+  it('reserves the hint row so showing it cannot shove the fields below down', () => {
+    renderWithTastes('spicy');
+    // The container is always in the DOM (empty), never `{over && <div/>}` —
+    // mounting it on demand is the CLS trap in .claude/rules/frontend.md.
+    const input = screen.getByLabelText('Taste Preferences (comma separated):');
+    const hint = input.nextElementSibling as HTMLElement;
+    expect(hint).toBeTruthy();
+    expect(hint.textContent).toBe('');
+    expect(hint.style.minHeight).toBe('1rem');
   });
 });
 

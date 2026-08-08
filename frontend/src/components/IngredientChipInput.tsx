@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
+import { MUTED_PAGE_TEXT } from "../constants/theme";
 
 interface IngredientChipInputProps {
   values: string[];
@@ -8,6 +9,12 @@ interface IngredientChipInputProps {
   suggestions: string[];
   placeholder?: string;
   id?: string;
+  /**
+   * Hard cap on chips. The server truncates past its own limit WITHOUT telling
+   * anyone, so the count is always shown and commits stop at the cap — the user
+   * sees the ceiling instead of losing entries to it.
+   */
+  maxItems?: number;
 }
 
 const MAX_SUGGESTIONS = 8;
@@ -25,6 +32,7 @@ export function IngredientChipInput({
   suggestions,
   placeholder,
   id,
+  maxItems,
 }: IngredientChipInputProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState("");
@@ -36,16 +44,18 @@ export function IngredientChipInput({
     [values],
   );
 
+  const isFull = maxItems !== undefined && values.length >= maxItems;
+
   const filteredSuggestions = useMemo(() => {
     const q = draft.trim().toLowerCase();
-    if (!q) return [];
+    if (!q || isFull) return [];
     return suggestions
       .filter((s) => {
         const sl = s.toLowerCase();
         return sl.includes(q) && !lowerValues.has(sl);
       })
       .slice(0, MAX_SUGGESTIONS);
-  }, [draft, suggestions, lowerValues]);
+  }, [draft, suggestions, lowerValues, isFull]);
 
   const commitChip = (raw: string) => {
     // Split on commas so a pasted "a, b, c" becomes separate chips — and, crucially, so a
@@ -63,8 +73,25 @@ export function IngredientChipInput({
       seen.add(key);
       additions.push(part);
     }
-    if (additions.length > 0) onChange([...values, ...additions]);
-    setDraft("");
+    // Stop AT the cap rather than letting the server drop the overflow silently.
+    // Pasting "a, b, c" into the last free slot keeps "a" and drops the rest —
+    // the counter next to the field is what shows why.
+    const room = maxItems === undefined ? additions.length : maxItems - values.length;
+    const accepted = additions.slice(0, Math.max(0, room));
+    if (accepted.length > 0) onChange([...values, ...accepted]);
+    // KEEP the draft only when the CAP is what rejected everything. Clearing
+    // then would wipe what the user just typed with no trace — the same
+    // silent-loss failure this cap exists to prevent, only moved into the input.
+    //
+    // Keyed off the cap explicitly rather than off `room`: with no maxItems,
+    // `room` is additions.length, which is also 0 when every part was a
+    // duplicate — so testing `room` would leave the draft stuck on an UNCAPPED
+    // field whenever dedup was the only thing rejecting it. Duplicates still
+    // clear (the value is already on screen as a chip), and so does a partial
+    // accept — something landed, and the counter explains the rest.
+    const blockedByCap =
+      maxItems !== undefined && additions.length > 0 && accepted.length === 0;
+    if (!blockedByCap) setDraft("");
   };
 
   const removeChip = (index: number) => {
@@ -163,6 +190,33 @@ export function IngredientChipInput({
           }}
         />
       </div>
+
+      {maxItems !== undefined && (
+        // ALWAYS rendered once maxItems is set — never `{isFull && …}`. This sits
+        // directly above other form controls, so mounting it on demand would push
+        // them down mid-interaction (the CLS trap in .claude/rules/frontend.md).
+        // No explicit `color`: it sits on the adaptive page background, so it
+        // inherits the browser's default text colour and stays legible in BOTH
+        // schemes. Do not hardcode one here.
+        <div
+          aria-live="polite"
+          style={{
+            // MUTED_PAGE_TEXT is `inherit` + 0.75 opacity, so it dims the
+            // adaptive default rather than picking a grey that could invert when
+            // the scheme flips. At the limit the message matters, so it goes
+            // full-strength instead.
+            ...(isFull ? {} : MUTED_PAGE_TEXT),
+            marginTop: "0.2rem",
+            fontSize: "0.75rem",
+            textAlign: "right",
+            fontWeight: isFull ? 600 : 400,
+          }}
+        >
+          {isFull
+            ? t("chips.limitReached", { max: String(maxItems) })
+            : t("chips.count", { count: String(values.length), max: String(maxItems) })}
+        </div>
+      )}
 
       {showSuggestions && (
         <ul

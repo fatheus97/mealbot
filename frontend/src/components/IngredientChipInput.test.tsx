@@ -4,11 +4,21 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { IngredientChipInput } from "./IngredientChipInput";
 
-function Harness({ initial = [], suggestions }: { initial?: string[]; suggestions: string[] }) {
+function Harness({
+  initial = [],
+  suggestions,
+  maxItems,
+}: { initial?: string[]; suggestions: string[]; maxItems?: number }) {
   const [values, setValues] = useState<string[]>(initial);
   return (
     <>
-      <IngredientChipInput values={values} onChange={setValues} suggestions={suggestions} placeholder="type here" />
+      <IngredientChipInput
+        values={values}
+        onChange={setValues}
+        suggestions={suggestions}
+        placeholder="type here"
+        maxItems={maxItems}
+      />
       <div data-testid="state">{values.join("|")}</div>
     </>
   );
@@ -144,6 +154,148 @@ describe("IngredientChipInput", () => {
 
     expect(screen.queryByRole("option", { name: "chicken breast" })).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: "chickpeas" })).toBeInTheDocument();
+  });
+
+  // The server truncates past its own max_length with no error and no log, so
+  // anything the UI lets through above the cap is discarded silently.
+  describe("maxItems cap", () => {
+    it("shows the count so the ceiling is visible before it is hit", () => {
+      render(<Harness initial={["a", "b"]} suggestions={[]} maxItems={5} />);
+      expect(screen.getByText("2 of 5")).toBeInTheDocument();
+    });
+
+    it("renders no counter at all when uncapped", () => {
+      render(<Harness initial={["a"]} suggestions={[]} />);
+      expect(screen.queryByText(/of/)).not.toBeInTheDocument();
+    });
+
+    it("refuses a commit once full, and says why", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["a", "b"]} suggestions={[]} maxItems={2} />);
+
+      await user.type(screen.getByPlaceholderText(""), "c");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect(screen.getByText("Limit of 2 reached — remove one to add another.")).toBeInTheDocument();
+    });
+
+    it("accepts only what fits when a paste would overflow", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["a"]} suggestions={[]} maxItems={3} />);
+
+      await user.type(screen.getByPlaceholderText(""), "b, c, d, e");
+      await user.keyboard("{Enter}");
+
+      // Two free slots -> b and c land, d and e are refused rather than being
+      // sent and dropped server-side.
+      expect(screen.getByTestId("state").textContent).toBe("a|b|c");
+    });
+
+    it("keeps what you typed when the cap is what refused it", async () => {
+      // Clearing here would delete the user's text with no trace — the same
+      // silent-loss failure the cap exists to prevent, just moved into the input.
+      const user = userEvent.setup();
+      render(<Harness initial={["a", "b"]} suggestions={[]} maxItems={2} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "rejected-by-cap");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toBe("rejected-by-cap");
+    });
+
+    it("clears the draft when DEDUP rejected it on an uncapped field", async () => {
+      // Regression guard: keying the retention off `room` would leave the draft
+      // stuck here, because with no maxItems `room` is additions.length — which
+      // is also 0 when every part was a duplicate. Only the CAP should retain.
+      const user = userEvent.setup();
+      render(<Harness initial={["basil"]} suggestions={[]} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "basil");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("basil");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
+    it("clears the draft when dedup rejected it on a CAPPED field too", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["basil"]} suggestions={[]} maxItems={5} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "basil");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("basil");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
+    it("clears the draft on a PARTIAL accept — something landed", async () => {
+      // Must be a PASTE, not typing: the comma key commits per value, so typing
+      // "b, c, d" into a full field commits "b" and then legitimately RETAINS
+      // " c d" (the cap blocked those two, so their text is preserved). A paste
+      // arrives as one commit, which is the partial-accept path under test.
+      const user = userEvent.setup();
+      render(<Harness initial={["a"]} suggestions={[]} maxItems={2} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.click(input);
+      await user.paste("b, c, d");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
+    it("retains the text the cap blocked when typing past a full field", async () => {
+      // The typing counterpart of the case above: "b" fills the last slot, then
+      // c and d are refused — and their text must survive in the input rather
+      // than vanishing.
+      const user = userEvent.setup();
+      render(<Harness initial={["a"]} suggestions={[]} maxItems={2} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "b, c, d");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toContain("c");
+      expect((input as HTMLInputElement).value).toContain("d");
+    });
+
+    it("still clears the draft on a normal commit", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["a"]} suggestions={[]} maxItems={5} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "b");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
+    it("takes chips again after one is removed", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["a", "b"]} suggestions={[]} maxItems={2} />);
+
+      await user.click(screen.getByLabelText("Remove b"));
+      await user.type(screen.getByPlaceholderText(""), "c");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|c");
+    });
+
+    it("stops offering suggestions once full", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["rice"]} suggestions={["chicken", "chickpeas"]} maxItems={1} />);
+
+      await user.type(screen.getByPlaceholderText(""), "chick");
+
+      expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    });
   });
 });
 

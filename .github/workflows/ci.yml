@@ -321,6 +321,104 @@ jobs:
   # can catch it, because the backend container mounts only ./backend and the
   # frontend one only ./frontend — the same boundary that made the
   # TERMS_VERSION check a CI job rather than a pytest.
+  # The UI shows a per-field cap and stops the user exceeding it; the server
+  # truncates anything past its own `max_length` SILENTLY, with no error and no
+  # log. So if the two drift, the UI promises room the server will quietly throw
+  # away — which is the exact bug this pair of numbers was added to prevent
+  # (avoid_ingredients declared 50 while the sanitiser hardcoded 20).
+  #
+  # A CI job rather than a test for the usual reason: it spans backend/ and
+  # frontend/, and each container mounts only its own half — see legal-version.
+  list-field-caps:
+    name: list field caps
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: frontend FIELD_LIMITS match backend max_length
+        # Python, not a grep chain. Each field is declared TWICE (MealPlanRequest
+        # and SingleRecipeRequest) and in two shapes — multi-line and one-line —
+        # so a `grep -A3 | head -1` both ignores the second declaration and can
+        # capture a NEIGHBOURING field's max_length out of its trailing context.
+        # Every declaration of a field must agree with every other AND with the
+        # frontend; checking only the first is exactly the drift this job exists
+        # to catch.
+        run: |
+          python3 - <<'PY'
+          import re, sys
+
+          MODELS = "backend/app/models/plan_models.py"
+          LIMITS = "frontend/src/constants/fieldLimits.ts"
+          # backend field -> frontend key
+          FIELDS = {
+              "taste_preferences": "tastePreferences",
+              "avoid_ingredients": "avoidIngredients",
+              "ingredients_to_use": "ingredientsToUse",
+          }
+
+          try:
+              models = open(MODELS, encoding="utf-8").read()
+              limits = open(LIMITS, encoding="utf-8").read()
+          except OSError as exc:
+              print(f"::error::{exc}")
+              sys.exit(1)
+
+          def declarations(name: str) -> list[int]:
+              """Every max_length declared for `name`, read from the balanced
+              Field(...) span so trailing context cannot leak in."""
+              out = []
+              for m in re.finditer(rf"^\s*{re.escape(name)}\s*:\s*list\[str\]\s*=\s*Field\(",
+                                   models, re.MULTILINE):
+                  i, depth = m.end() - 1, 0
+                  while i < len(models):
+                      if models[i] == "(":
+                          depth += 1
+                      elif models[i] == ")":
+                          depth -= 1
+                          if depth == 0:
+                              break
+                      i += 1
+                  span = models[m.end():i]
+                  found = re.search(r"max_length\s*=\s*(\d+)", span)
+                  out.append(int(found.group(1)) if found else None)
+              return out
+
+          failed = False
+          for be_name, fe_name in FIELDS.items():
+              decls = declarations(be_name)
+              if not decls:
+                  print(f"::error::no `{be_name}: list[str] = Field(...)` found in {MODELS}")
+                  failed = True
+                  continue
+              if None in decls:
+                  print(f"::error::a declaration of {be_name} has no max_length — "
+                        "the sanitiser reads its cap from there and would fall back to a default")
+                  failed = True
+                  continue
+              if len(set(decls)) != 1:
+                  print(f"::error::{be_name} declares conflicting max_length values {decls} "
+                        "across its models — they feed the same validator")
+                  failed = True
+                  continue
+
+              fe = re.search(rf"\b{re.escape(fe_name)}\s*:\s*(\d+)", limits)
+              if not fe:
+                  print(f"::error::no `{fe_name}` in {LIMITS}")
+                  failed = True
+                  continue
+
+              be_val, fe_val = decls[0], int(fe.group(1))
+              if be_val != fe_val:
+                  print(f"::error::{be_name} is {be_val} in the backend "
+                        f"but {fe_name} is {fe_val} in the frontend")
+                  failed = True
+              else:
+                  print(f"ok  {be_name}={be_val} ({len(decls)} declarations agree)")
+
+          sys.exit(1 if failed else 0)
+          PY
+
   locale-parity:
     name: locale parity
     runs-on: ubuntu-latest

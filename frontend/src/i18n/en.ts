@@ -401,6 +401,9 @@ export const en = {
   "planner.shareLabel": "Share shopping list",
 
   "chips.remove": "Remove {chip}",
+  "chips.count": "{count} of {max}",
+  "chips.limitReached": "Limit of {max} reached — remove one to add another.",
+  "fields.tastesOverLimit": "Only the first {max} will be used. You entered {count}.",
 
   // ─── Meal card ────────────────────────────────────────────────────────────
   "meal.freeze": "Freeze",
