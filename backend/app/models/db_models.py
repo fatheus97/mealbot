@@ -290,12 +290,14 @@ class PasswordResetToken(SQLModel, table=True):
 
     Single-use via ``used_at`` (kept rather than deleted so a replayed link is
     distinguishable from an expired/forged one in the logs). ``expires_at`` is
-    indexed standalone so a *future* retention sweep (a global
+    indexed standalone so the retention sweep (a global
     ``DELETE ... WHERE expires_at < cutoff``) can be index-served — the
     ``user_id`` index is user_id-leading and cannot serve a global cutoff
-    filter. **That sweep does not exist yet**; the index lands ahead of it, the
-    same way ``ix_authsession_expires_at`` (z6a7b8c9d0e1) preceded
-    ``services/authsession_cleanup``.
+    filter. This said "**that sweep does not exist yet**" until 2026-08-08; it
+    is now ``services/passwordresettoken_cleanup`` (daily timer, 30-day
+    retention), landing after its index exactly as
+    ``services/authsession_cleanup`` followed ``ix_authsession_expires_at``
+    (z6a7b8c9d0e1).
 
     No ORM relationship to ``User`` on purpose: redemption looks the row up by
     ``token_hash`` and then loads the user by id, so a back-reference would be
