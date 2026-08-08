@@ -7,6 +7,7 @@
 // Node globals to just this file instead of widening the whole app's type surface.
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
 // Reads the BUILT output (dist/index.html), not the source template — the
@@ -83,6 +84,33 @@ describe("landing <head> (built dist/index.html)", () => {
       // the claim the card exists to carry.
       expect(head).toContain('name="twitter:card" content="summary_large_image"');
       expect(head).not.toContain('name="twitter:card" content="summary"');
+    });
+
+    it("has not edited og-card.svg without regenerating og.png", () => {
+      // The PNG is produced by hand (docker one-liner in index.html's og:image
+      // comment), so the two can drift silently: edit the SVG, forget the
+      // regen, and every other assertion here still passes because they check
+      // the PNG's dimensions and magic bytes, not its CONTENT.
+      //
+      // This pins the SVG's hash as of the last regeneration. It does not prove
+      // the PNG matches the SVG — nothing cheap can, without rendering in CI —
+      // it proves nobody changed the source without acknowledging the PNG.
+      // Editing the card is therefore: edit SVG, regenerate, update this hash.
+      // Line endings are NORMALIZED before hashing, and that is load-bearing
+      // rather than tidy: this repo's Windows working copies are CRLF while the
+      // committed blob and every CI checkout are LF, so a hash of the raw bytes
+      // is a different value on the maintainer's machine than in CI. The first
+      // version of this test pinned the CRLF hash and failed instantly on
+      // Linux. The guard is about the card's CONTENT; the file's line endings
+      // are not part of it.
+      const svg = readFileSync(resolve(process.cwd(), "og-card.svg"), "utf-8");
+      const hash = createHash("sha256").update(svg.split("\r\n").join("\n")).digest("hex");
+      expect(
+        hash,
+        "og-card.svg changed. Regenerate public/og.png (see the og:image " +
+          "comment in index.html), confirm the new card renders, then update " +
+          "this hash.",
+      ).toBe("a0254af29f5d6d96a82c44fb9a56c35f636737541b9d810cd271af0395759877");
     });
 
     it("ships an og.png that is really a 1200x630 PNG", () => {
