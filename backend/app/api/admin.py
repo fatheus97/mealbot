@@ -207,9 +207,26 @@ async def stats_funnel(
       meal surface; receipt scans are a fridge action, not activation).
     - **confirmed** — a plan with ``confirmed_at`` set.
     - **cooked** — a meal with ``cooked_at`` set.
+    - **verified** — ``email_verified_at`` set. ``require_verified_email`` runs
+      FIRST in the dependency chain, ahead of the subscription and budget gates,
+      so an unverified self-registered user can log in and browse but can neither
+      generate nor start checkout. That makes this a real cliff between signup
+      and everything after it, and until now the funnel could not see it: a
+      bounced or typo'd address rendered as "signed up but never activated",
+      indistinguishable from disinterest.
+    - **subscribed** — ``stripe_subscription_id`` set, i.e. Checkout completed
+      and the webhook mirrored a subscription. Distinct from ``paid`` on purpose,
+      and the distinction is not cosmetic: the trial-opening invoice is
+      zero-amount and ``revenue_service`` rejects it by design, so **no launch
+      cohort can produce a single ``paid`` row for its first 10 days**. Without
+      this stage "nobody converted" and "every trial is still running" are the
+      same number, which is exactly the wrong thing to be blind to in the first
+      week of opening registration.
     - **paid** — a row in the ``SaleRecord`` ledger (an actually-paid invoice),
       which is the truest "converted to revenue" — unlike ``subscription_status``
-      it survives a later cancellation.
+      it survives a later cancellation. ``stripe_subscription_id`` is likewise
+      durable (a ``deleted`` webhook still carries the id), so ``subscribed``
+      counts "ever started a subscription", not "has one right now".
 
     **The stages roll up so the funnel is monotonic.** ``generated`` comes from
     best-effort telemetry that *postdates the app* (a plan generated before
@@ -255,13 +272,22 @@ async def stats_funnel(
         .subquery()
     )
 
-    # Presence flags after the LEFT JOINs, then the monotonic rollup.
+    # Presence flags after the LEFT JOINs, then the monotonic rollup. The two
+    # stages added here need no subquery — both are columns on `user` already.
     gen = generated_sub.c.user_id.is_not(None)
     conf = confirmed_sub.c.user_id.is_not(None)
     cook = cooked_sub.c.user_id.is_not(None)
     paid = paid_sub.c.user_id.is_not(None)
+    verified = col(User.email_verified_at).is_not(None)
+    subscribed = col(User.stripe_subscription_id).is_not(None)
     reached_generated = or_(gen, conf, cook, paid)
     reached_confirmed = or_(conf, cook)
+    reached_subscribed = or_(subscribed, paid)
+    # Every later stage is gated on verification server-side, so a row that
+    # reached one but has a NULL `email_verified_at` is a data anomaly, not a
+    # user who skipped the step — roll it up rather than render a funnel that
+    # widens.
+    reached_verified = or_(verified, reached_generated, reached_subscribed)
 
     source_col = func.coalesce(col(User.signup_utm_source), "direct")
     rows = (
@@ -269,9 +295,11 @@ async def stats_funnel(
             select(
                 source_col.label("source"),
                 func.count().label("signed_up"),
+                func.count().filter(reached_verified).label("verified"),
                 func.count().filter(reached_generated).label("generated"),
                 func.count().filter(reached_confirmed).label("confirmed"),
                 func.count().filter(cook).label("cooked"),
+                func.count().filter(reached_subscribed).label("subscribed"),
                 func.count().filter(paid).label("paid"),
             )
             .select_from(User)
@@ -299,9 +327,11 @@ async def stats_funnel(
         FunnelBySource(
             source=str(r.source),
             signed_up=int(r.signed_up),
+            verified=int(r.verified),
             generated=int(r.generated),
             confirmed=int(r.confirmed),
             cooked=int(r.cooked),
+            subscribed=int(r.subscribed),
             paid=int(r.paid),
         )
         for r in rows
@@ -312,9 +342,11 @@ async def stats_funnel(
             FunnelBySource(
                 source="other",
                 signed_up=sum(s.signed_up for s in tail),
+                verified=sum(s.verified for s in tail),
                 generated=sum(s.generated for s in tail),
                 confirmed=sum(s.confirmed for s in tail),
                 cooked=sum(s.cooked for s in tail),
+                subscribed=sum(s.subscribed for s in tail),
                 paid=sum(s.paid for s in tail),
             )
         )
@@ -329,10 +361,14 @@ async def stats_funnel(
 
     stages = [
         FunnelStage(key="signed_up", label="Signed up", count=_total("signed_up")),
+        FunnelStage(key="verified", label="Verified their email", count=_total("verified")),
         FunnelStage(key="generated", label="Generated a recipe", count=_total("generated")),
         FunnelStage(key="confirmed", label="Confirmed a plan", count=_total("confirmed")),
         FunnelStage(key="cooked", label="Cooked a meal", count=_total("cooked")),
-        FunnelStage(key="paid", label="Subscribed", count=_total("paid")),
+        FunnelStage(key="subscribed", label="Started a subscription", count=_total("subscribed")),
+        # Was labelled "Subscribed" while counting paid invoices — the one place
+        # the funnel actively misnamed what it measured.
+        FunnelStage(key="paid", label="Paid an invoice", count=_total("paid")),
     ]
     return FunnelStatsResponse(stages=stages, by_source=by_source)
 
