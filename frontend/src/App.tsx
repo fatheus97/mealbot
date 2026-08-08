@@ -4,6 +4,7 @@ import { CookTimerProvider } from "./contexts/CookTimerContext";
 import { FloatingTimers } from "./components/recipe/FloatingTimers";
 import { useIsMobile } from "./hooks/useIsMobile";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { AppFooter } from "./components/AppFooter";
 import { AuthBar } from "./components/AuthBar";
 import { DemoBanner } from "./components/DemoBanner";
 import { Fridge } from "./components/Fridge";
@@ -88,6 +89,10 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
         initialSummary={openedPlan?.summary}
         onExitPlan={() => setOpenedPlan(null)}
       />
+      {/* Legal footer, unconditional (logged in or not — the consent checkbox at
+          registration was the only other route to these documents). Inside the
+          padded container so the mobile FAB clearance applies to it too. */}
+      <AppFooter />
       {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
       {userId && <CookbookFab />}
       {userId && (
