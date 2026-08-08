@@ -305,7 +305,10 @@ class TestSelfDeleteCancelsBilling:
         await _login(unauthed_client)
 
         async def _boom(subscription_id: str) -> None:
-            raise stripe.APIConnectionError("stripe is down")
+            # The ignores below (here and in _already_gone) are the stripe SDK's
+            # doing: it ships its exception constructors untyped, so strict mode
+            # rejects the CALL, not the usage.
+            raise stripe.APIConnectionError("stripe is down")  # type: ignore[no-untyped-call]
 
         monkeypatch.setattr(stripe_service, "cancel_subscription_now", _boom)
 
@@ -331,7 +334,9 @@ class TestSelfDeleteCancelsBilling:
         await _login(unauthed_client)
 
         async def _already_gone(subscription_id: str) -> None:
-            raise stripe.InvalidRequestError("No such subscription", param="id")
+            raise stripe.InvalidRequestError(  # type: ignore[no-untyped-call]
+                "No such subscription", param="id"
+            )
 
         monkeypatch.setattr(stripe_service, "cancel_subscription_now", _already_gone)
 
