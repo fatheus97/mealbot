@@ -57,7 +57,7 @@
          Stripe checkout is the authoritative source for the live figure, and
          a hardcoded price here would go stale and become a structured-data
          liability. -->
-    <script type="application/ld+json">
+    <script id="faq-schema" type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
@@ -692,7 +692,12 @@
             <a id="cta-demo" class="btn btn-tertiary cta-reserved" href="/app">Try the demo</a>
           </div>
         </div>
-        <p class="muted" style="font-size: 0.85rem;">Private alpha — see Access below.</p>
+        <!-- This and the three other access-model claims below (the FAQ answer,
+             the Access heading and its intro) are rewritten by
+             cta.ts applyRegistrationCopy once /api/config reports registration
+             is open. The wording here is the closed state, which is both true
+             today and the safe thing to show if that fetch never resolves. -->
+        <p id="cta-note" class="muted" style="font-size: 0.85rem;">Private alpha — see Access below.</p>
       </section>
 
       <!-- THE DIFFERENTIATOR -->
@@ -859,7 +864,7 @@
         </details>
         <details class="card">
           <summary>Is it available now?</summary>
-          <div class="answer">
+          <div id="faq-availability" class="answer">
             Mealbot is currently a private alpha. Request access below, or log in if you already have an
             account.
           </div>
@@ -868,8 +873,8 @@
 
       <!-- ACCESS -->
       <section id="access">
-        <h2>Private alpha</h2>
-        <p>
+        <h2 id="access-heading">Private alpha</h2>
+        <p id="access-intro">
           Mealbot isn't open to public sign-ups yet. Leave your email and we'll get back to you
           with an invite.
         </p>

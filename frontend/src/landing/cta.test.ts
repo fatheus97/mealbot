@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   applyConfig,
+  applyRegistrationCopy,
   createDemoHandler,
   forwardSearchOnAppLinks,
   loggedInRedirectTarget,
   paramForwardTarget,
   type PublicConfig,
+  type RegistrationCopyElements,
 } from "./cta";
 
 function link(): HTMLAnchorElement {
@@ -189,5 +191,162 @@ describe("createDemoHandler", () => {
     click(handler);
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/app?utm_source=x"));
     expect(button.textContent).toBe("Try the demo");
+  });
+});
+
+describe("applyRegistrationCopy", () => {
+  const CLOSED_ANSWER =
+    "Mealbot is currently a private alpha. Request access below, or log in if you already have an account.";
+
+  interface Fixture {
+    note: HTMLElement;
+    faqAnswer: HTMLElement;
+    accessHeading: HTMLElement;
+    accessIntro: HTMLElement;
+    faqSchema: HTMLScriptElement;
+    els: RegistrationCopyElements;
+  }
+
+  function fixture(answerInMarkup = CLOSED_ANSWER): Fixture {
+    const note = document.createElement("p");
+    note.textContent = "Private alpha — see Access below.";
+
+    const faqAnswer = document.createElement("div");
+    // Wrapped across lines exactly as the markup wraps it, so the test also
+    // covers the whitespace normalization the JSON-LD match depends on.
+    faqAnswer.textContent = `\n            ${answerInMarkup.replace(
+      "or log in",
+      "or log in\n            ",
+    )}\n          `;
+
+    const accessHeading = document.createElement("h2");
+    accessHeading.textContent = "Private alpha";
+
+    const accessIntro = document.createElement("p");
+    accessIntro.textContent = "Mealbot isn't open to public sign-ups yet.";
+
+    const faqSchema = document.createElement("script");
+    faqSchema.type = "application/ld+json";
+    faqSchema.textContent = JSON.stringify({
+      "@context": "https://schema.org",
+      "@graph": [
+        { "@type": "Organization", name: "Mealbot" },
+        {
+          "@type": "FAQPage",
+          mainEntity: [
+            {
+              "@type": "Question",
+              name: "How much does it cost?",
+              acceptedAnswer: { "@type": "Answer", text: "€4.99 per month." },
+            },
+            {
+              "@type": "Question",
+              name: "Is it available now?",
+              acceptedAnswer: { "@type": "Answer", text: CLOSED_ANSWER },
+            },
+          ],
+        },
+      ],
+    });
+
+    return {
+      note,
+      faqAnswer,
+      accessHeading,
+      accessIntro,
+      faqSchema,
+      els: { note, faqAnswer, accessHeading, accessIntro, faqSchema },
+    };
+  }
+
+  function schemaAnswers(script: HTMLScriptElement): string[] {
+    const parsed = JSON.parse(script.textContent ?? "") as {
+      "@graph": Array<{ mainEntity?: Array<{ acceptedAnswer: { text: string } }> }>;
+    };
+    const faq = parsed["@graph"].find((node) => node.mainEntity !== undefined);
+    return (faq?.mainEntity ?? []).map((q) => q.acceptedAnswer.text);
+  }
+
+  beforeEach(() => {
+    document.documentElement.setAttribute("lang", "en");
+  });
+
+  it("rewrites all four access-model claims once registration is open", () => {
+    const f = fixture();
+    applyRegistrationCopy({ registration_enabled: true }, f.els);
+
+    expect(f.note.textContent).toBe("10-day free trial. Cancel any time.");
+    expect(f.faqAnswer.textContent).toContain("Sign up above");
+    expect(f.accessHeading.textContent).toBe("Questions before you start?");
+    expect(f.accessIntro.textContent).toContain("Sign-ups are open");
+
+    for (const el of [f.note, f.faqAnswer, f.accessHeading, f.accessIntro]) {
+      expect(el.textContent).not.toMatch(/private alpha/i);
+    }
+  });
+
+  it("rewrites the matching FAQPage answer and leaves the others alone", () => {
+    const f = fixture();
+    applyRegistrationCopy({ registration_enabled: true }, f.els);
+
+    const answers = schemaAnswers(f.faqSchema);
+    expect(answers[0]).toBe("€4.99 per month.");
+    expect(answers[1]).not.toMatch(/private alpha/i);
+    expect(answers[1]).toBe(f.faqAnswer.textContent);
+  });
+
+  it("leaves everything alone while registration is closed", () => {
+    const f = fixture();
+    applyRegistrationCopy({ registration_enabled: false }, f.els);
+
+    expect(f.note.textContent).toContain("Private alpha");
+    expect(f.accessHeading.textContent).toBe("Private alpha");
+    expect(schemaAnswers(f.faqSchema)[1]).toBe(CLOSED_ANSWER);
+  });
+
+  it("leaves everything alone when the config never resolved", () => {
+    // Same fail-safe as applyConfig: an unreachable /api/config must not be
+    // read as "registration is open" and invite people to sign up into a 403.
+    const f = fixture();
+    applyRegistrationCopy(null, f.els);
+    expect(f.accessHeading.textContent).toBe("Private alpha");
+    expect(schemaAnswers(f.faqSchema)[1]).toBe(CLOSED_ANSWER);
+  });
+
+  it("uses the Czech table on the Czech page", () => {
+    document.documentElement.setAttribute("lang", "cs");
+    const f = fixture();
+    applyRegistrationCopy({ registration_enabled: true }, f.els);
+
+    expect(f.accessHeading.textContent).toBe("Máte otázku, než začnete?");
+    expect(f.note.textContent).toContain("zkušební verze zdarma");
+  });
+
+  it("leaves the JSON-LD untouched when it has drifted from the visible answer", () => {
+    // The block is matched on the visible answer's text. If the two copies
+    // have diverged, replacing the wrong entry is worse than replacing none —
+    // so a miss is a no-op, and landingCs.test.ts fails the build if they ever
+    // do diverge in the shipped HTML.
+    const f = fixture("Mealbot is currently invite-only. Ask below.");
+    applyRegistrationCopy({ registration_enabled: true }, f.els);
+
+    expect(schemaAnswers(f.faqSchema)[1]).toBe(CLOSED_ANSWER);
+    expect(f.faqAnswer.textContent).toContain("Sign up above");
+  });
+
+  it("survives a page that is missing every element", () => {
+    expect(() =>
+      applyRegistrationCopy(
+        { registration_enabled: true },
+        { note: null, faqAnswer: null, accessHeading: null, accessIntro: null, faqSchema: null },
+      ),
+    ).not.toThrow();
+  });
+
+  it("survives a JSON-LD block that is not valid JSON", () => {
+    const f = fixture();
+    f.faqSchema.textContent = "{ not json";
+    expect(() => applyRegistrationCopy({ registration_enabled: true }, f.els)).not.toThrow();
+    expect(f.faqSchema.textContent).toBe("{ not json");
   });
 });

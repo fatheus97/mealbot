@@ -132,7 +132,48 @@ describe("Czech pages are written in formal Czech", () => {
       expect(nonStandard.length).toBeGreaterThan(4);
       expect(SPOKEN.length).toBeGreaterThan(nonStandard.length);
     });
+  });
 
+  // `prose()` reads BUILT HTML, which is the right source for everything a
+  // visitor sees before JS runs — and blind to everything the landing bundle
+  // WRITES at runtime. Button labels, validation messages and the
+  // registration-open copy swaps all live in a TypeScript table that no build
+  // output contains, so they had no register guard at all. The first run of
+  // this block found one: "Tohle nevypadá jako platná e-mailová adresa",
+  // shipped since the Czech landing page did.
+  //
+  // Marketing tier, deliberately: this copy is app voice, allowed to be warmer
+  // than a contract. Only the forms that are non-standard by morphology apply.
+  describe("runtime Czech copy (src/landing/copy.ts)", () => {
+    /** The CS table only. The EN table above it is not Czech, and the shared
+     *  interface between them is neither. */
+    function czechTable(): string {
+      const src = readFileSync(resolve(process.cwd(), "src/landing/copy.ts"), "utf-8");
+      const start = src.indexOf("const CS: LandingCopy = {");
+      expect(start, "src/landing/copy.ts no longer declares `const CS: LandingCopy`").toBeGreaterThan(-1);
+      const end = src.indexOf("\n};", start);
+      return src.slice(start, end);
+    }
+
+    it("uses no NON-STANDARD Czech", () => {
+      const table = czechTable();
+      const found = nonStandard
+        .filter((s) => s.pattern.test(table))
+        .map((s) => `${s.pattern} — use ${s.instead}`);
+      expect(found).toEqual([]);
+    });
+
+    it("guards the guard: the slice really is the Czech table", () => {
+      // A slice that silently came back empty — a renamed const, a reordered
+      // file — would pass the assertion above by having nothing to match.
+      const table = czechTable();
+      expect(table.length).toBeGreaterThan(500);
+      expect(table).toMatch(/[ěščřžýáíéůú]/);
+      expect(table).not.toContain("const EN: LandingCopy");
+    });
+  });
+
+  describe.skipIf(!hasBuild)("punctuation and voice", () => {
     it("does not punctuate Czech like English", () => {
       // The owner's first complaint. English uses the em-dash constantly as a
       // dramatic aside; the translation kept EVERY one, so both Czech pages
