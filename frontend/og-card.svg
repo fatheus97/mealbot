@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Source for public/og.png. Regeneration command and rationale: see the
+     og:image comment in index.html. Do not add prose here: an XML comment may
+     not contain a double hyphen, so CSS custom property names and docker flags
+     both break the parse, and libvips reports that as "unsupported image
+     format" rather than as a parse error. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#242424"/>
+
+  <rect x="96" y="150" width="120" height="8" rx="4" fill="#5b8def"/>
+
+  <text x="96" y="290"
+        font-family="DejaVu Sans, system-ui, sans-serif"
+        font-size="104" font-weight="700" fill="#ffffff" letter-spacing="-2">Mealbot</text>
+
+  <text x="96" y="378"
+        font-family="DejaVu Sans, system-ui, sans-serif"
+        font-size="42" fill="#d4d4d4">Meal plans screened against</text>
+  <text x="96" y="434"
+        font-family="DejaVu Sans, system-ui, sans-serif"
+        font-size="42" fill="#d4d4d4">the 14 EU-regulated allergens</text>
+
+  <text x="96" y="540"
+        font-family="DejaVu Sans, system-ui, sans-serif"
+        font-size="32" fill="#5b8def">trymealbot.com</text>
+</svg>
