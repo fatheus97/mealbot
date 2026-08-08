@@ -182,7 +182,7 @@ async def generate_recipe(
     # Pre-load the fridge so the LLM can use available stock. Unlike the plan
     # flow we don't allocate here — just feed the names+grams in so the LLM
     # prefers them.
-    fridge = await get_fridge_items(session, current_user.id)
+    fridge = await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
     plan_req.stock_items = [
         StockItemDTO(
             name=item.name,

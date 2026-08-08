@@ -207,6 +207,14 @@ class StockItemDTO(BaseModel):
     quantity_grams: float = Field(..., ge=0, allow_inf_nan=False)
     need_to_use: bool = Field(default=False)
     expiration_date: date | None = None
+    # StockItem.id, round-tripped GET -> edit -> PUT so fridge_service can match
+    # an incoming item back to the row it came from even if name/expiration_date
+    # (its only other identity) changed in the same edit — see
+    # replace_fridge_items. Purely an optimistic hint: it's only ever looked up
+    # against the CALLING user's own rows, so a client sending a stale, forged,
+    # or another user's id just misses the lookup (falls back to no match) —
+    # never a cross-user read. None for a not-yet-persisted (add-mode) item.
+    id: int | None = None
 
     @field_validator("name", mode="before")
     @classmethod

@@ -70,6 +70,16 @@ class User(SQLModel, table=True):
     # arithmetic reads, so this can never change what a plan buys or debits.
     show_pieces: bool = Field(default=False)
 
+    # Master switch for the "need to use" (use-it-soon) ingredient feature.
+    # Defaults True to preserve existing behavior for users already relying on
+    # it. When False, every fridge read masks need_to_use to False (see
+    # fridge_service.get_fridge_items) instead of surfacing it in the UI or
+    # feeding it into meal-plan urgency prompts — so a user who doesn't want to
+    # triage this per-ingredient can turn it off in one place. StockItem rows
+    # keep their real stored value untouched, so re-enabling instantly restores
+    # whatever was there before.
+    need_to_use_enabled: bool = Field(default=True)
+
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)
 
