@@ -194,7 +194,7 @@ class TestDemoSession:
 
     async def test_seeded_preferences_pass_their_own_whitelists(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
-    ):
+    ) -> None:
         # Regression: the seed set country="US", an ISO code. `normalize_country`
         # only accepts names from SUPPORTED_COUNTRIES, so PATCH /api/users would
         # have 400'd it — but the user never got that far, because
