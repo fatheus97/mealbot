@@ -79,11 +79,19 @@ export function IngredientChipInput({
     const room = maxItems === undefined ? additions.length : maxItems - values.length;
     const accepted = additions.slice(0, Math.max(0, room));
     if (accepted.length > 0) onChange([...values, ...accepted]);
-    // KEEP the draft when the cap is what rejected it. Clearing would wipe what
-    // the user just typed with no trace — the same silent-loss failure this cap
-    // exists to prevent, only moved into the input. A duplicate still clears,
-    // which is pre-existing behaviour: the value is already visible as a chip.
-    if (room > 0 || parts.length === 0) setDraft("");
+    // KEEP the draft only when the CAP is what rejected everything. Clearing
+    // then would wipe what the user just typed with no trace — the same
+    // silent-loss failure this cap exists to prevent, only moved into the input.
+    //
+    // Keyed off the cap explicitly rather than off `room`: with no maxItems,
+    // `room` is additions.length, which is also 0 when every part was a
+    // duplicate — so testing `room` would leave the draft stuck on an UNCAPPED
+    // field whenever dedup was the only thing rejecting it. Duplicates still
+    // clear (the value is already on screen as a chip), and so does a partial
+    // accept — something landed, and the counter explains the rest.
+    const blockedByCap =
+      maxItems !== undefined && additions.length > 0 && accepted.length === 0;
+    if (!blockedByCap) setDraft("");
   };
 
   const removeChip = (index: number) => {

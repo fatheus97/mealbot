@@ -418,7 +418,6 @@ jobs:
 
           sys.exit(1 if failed else 0)
           PY
-          exit $failed
 
   locale-parity:
     name: locale parity

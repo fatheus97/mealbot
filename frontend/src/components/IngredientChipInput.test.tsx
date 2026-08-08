@@ -206,6 +206,65 @@ describe("IngredientChipInput", () => {
       expect((input as HTMLInputElement).value).toBe("rejected-by-cap");
     });
 
+    it("clears the draft when DEDUP rejected it on an uncapped field", async () => {
+      // Regression guard: keying the retention off `room` would leave the draft
+      // stuck here, because with no maxItems `room` is additions.length — which
+      // is also 0 when every part was a duplicate. Only the CAP should retain.
+      const user = userEvent.setup();
+      render(<Harness initial={["basil"]} suggestions={[]} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "basil");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("basil");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
+    it("clears the draft when dedup rejected it on a CAPPED field too", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={["basil"]} suggestions={[]} maxItems={5} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "basil");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("basil");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
+    it("clears the draft on a PARTIAL accept — something landed", async () => {
+      // Must be a PASTE, not typing: the comma key commits per value, so typing
+      // "b, c, d" into a full field commits "b" and then legitimately RETAINS
+      // " c d" (the cap blocked those two, so their text is preserved). A paste
+      // arrives as one commit, which is the partial-accept path under test.
+      const user = userEvent.setup();
+      render(<Harness initial={["a"]} suggestions={[]} maxItems={2} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.click(input);
+      await user.paste("b, c, d");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+
+    it("retains the text the cap blocked when typing past a full field", async () => {
+      // The typing counterpart of the case above: "b" fills the last slot, then
+      // c and d are refused — and their text must survive in the input rather
+      // than vanishing.
+      const user = userEvent.setup();
+      render(<Harness initial={["a"]} suggestions={[]} maxItems={2} />);
+
+      const input = screen.getByPlaceholderText("");
+      await user.type(input, "b, c, d");
+
+      expect(screen.getByTestId("state").textContent).toBe("a|b");
+      expect((input as HTMLInputElement).value).toContain("c");
+      expect((input as HTMLInputElement).value).toContain("d");
+    });
+
     it("still clears the draft on a normal commit", async () => {
       const user = userEvent.setup();
       render(<Harness initial={["a"]} suggestions={[]} maxItems={5} />);
