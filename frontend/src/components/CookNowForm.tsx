@@ -12,6 +12,7 @@ import {
   useRemoveFromCookbook,
 } from "../hooks/useServerState";
 import { IngredientChipInput } from "./IngredientChipInput";
+import { FIELD_LIMITS } from "../constants/fieldLimits";
 import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
@@ -103,6 +104,8 @@ export function CookNowForm() {
 
   const parseList = (input: string) =>
     input.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+
+  const tasteCount = parseList(tastePreferences).length;
 
   const buildRequest = (): SingleRecipeRequest => ({
     meal_type: mealType,
@@ -281,6 +284,19 @@ export function CookNowForm() {
             placeholder={t("cookNow.tastesPlaceholder")}
             style={{ width: "100%", marginTop: "0.25rem", padding: "0.4rem", boxSizing: "border-box" }}
           />
+          {/* See MealPlanner: free text can't be hard-capped, so state what the
+              server will do. Always rendered so it can't shift the fields below. */}
+          <div
+            aria-live="polite"
+            style={{ ...MUTED_PAGE_TEXT, marginTop: "0.2rem", fontSize: "0.75rem", minHeight: "1rem" }}
+          >
+            {tasteCount > FIELD_LIMITS.tastePreferences
+              ? t("fields.tastesOverLimit", {
+                  max: String(FIELD_LIMITS.tastePreferences),
+                  count: String(tasteCount),
+                })
+              : ""}
+          </div>
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
@@ -290,6 +306,7 @@ export function CookNowForm() {
             onChange={setAvoidIngredients}
             suggestions={[]}
             placeholder={t("cookNow.avoidPlaceholder")}
+            maxItems={FIELD_LIMITS.avoidIngredients}
           />
         </label>
 
@@ -300,6 +317,7 @@ export function CookNowForm() {
             onChange={setIngredientsToUse}
             suggestions={fridgeSuggestions}
             placeholder={t("cookNow.featurePlaceholder")}
+            maxItems={FIELD_LIMITS.ingredientsToUse}
           />
         </label>
 

@@ -9,6 +9,7 @@ import { formatAmount } from "../utils/pieces";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
+import { FIELD_LIMITS } from "../constants/fieldLimits";
 import { DayLayoutEditor } from "./DayLayoutEditor";
 import { useI18n } from "../i18n";
 import { CookNowForm } from "./CookNowForm";
@@ -253,6 +254,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // persisted avoid string to/from the chip input's string[] at the widget boundary.
   const parseList = (input: string) =>
     input.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+
+  const tasteCount = parseList(tastePreferences).length;
 
   const handleGenerate = () => {
     if (!userId) return;
@@ -581,6 +584,21 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           {t("planner.tastes")}
           <input type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder={t("planner.tastesPlaceholder")} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
+          {/* Free text, so it cannot be hard-capped the way the chip inputs are —
+              the user is mid-sentence. Say what the server will do instead, so the
+              truncation is visible rather than silent. Always rendered (never
+              `{over && …}`) so appearing does not shove the fields below it down. */}
+          <div
+            aria-live="polite"
+            style={{ ...MUTED_PAGE_TEXT, marginTop: "0.2rem", fontSize: "0.75rem", minHeight: "1rem" }}
+          >
+            {tasteCount > FIELD_LIMITS.tastePreferences
+              ? t("fields.tastesOverLimit", {
+                  max: String(FIELD_LIMITS.tastePreferences),
+                  count: String(tasteCount),
+                })
+              : ""}
+          </div>
         </label>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
@@ -590,6 +608,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             onChange={(next) => setAvoidIngredients(next.join(", "))}
             suggestions={[]}
             placeholder={t("planner.avoidPlaceholder")}
+            maxItems={FIELD_LIMITS.avoidIngredients}
           />
         </label>
 
@@ -600,6 +619,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
             onChange={setIngredientsToUse}
             suggestions={fridgeSuggestions}
             placeholder={t("planner.useUpPlaceholder")}
+            maxItems={FIELD_LIMITS.ingredientsToUse}
           />
         </label>
 

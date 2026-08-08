@@ -358,6 +358,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.shareLabel": "Sdílet nákupní seznam",
 
   "chips.remove": "Odebrat {chip}",
+  "chips.count": "{count} z {max}",
+  "chips.limitReached": "Dosažen limit {max} — jednu položku odeberte, abyste mohli přidat další.",
+  "fields.tastesOverLimit": "Použije se jen prvních {max}. Zadali jste {count}.",
 
   // ─── Meal card ────────────────────────────────────────────────────────────
   "meal.freeze": "Zamknout",

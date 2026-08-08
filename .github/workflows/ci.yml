@@ -321,6 +321,80 @@ jobs:
   # can catch it, because the backend container mounts only ./backend and the
   # frontend one only ./frontend — the same boundary that made the
   # TERMS_VERSION check a CI job rather than a pytest.
+  # The UI shows a per-field cap and stops the user exceeding it; the server
+  # truncates anything past its own `max_length` SILENTLY, with no error and no
+  # log. So if the two drift, the UI promises room the server will quietly throw
+  # away — which is the exact bug this pair of numbers was added to prevent
+  # (avoid_ingredients declared 50 while the sanitiser hardcoded 20).
+  #
+  # A CI job rather than a test for the usual reason: it spans backend/ and
+  # frontend/, and each container mounts only its own half — see legal-version.
+  list-field-caps:
+    name: list field caps
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: frontend FIELD_LIMITS match backend max_length
+        run: |
+          set -uo pipefail
+          models=backend/app/models/plan_models.py
+          limits=frontend/src/constants/fieldLimits.ts
+
+          for f in "$models" "$limits"; do
+            [ -f "$f" ] || { echo "::error::$f does not exist"; exit 1; }
+          done
+
+          # backend: the max_length on the line following each field declaration
+          be_field() {
+            grep -A3 "^    $1: list\[str\] = Field(" "$models" \
+              | grep -oE 'max_length=[0-9]+' | head -1 | cut -d= -f2
+          }
+          # frontend: the value in the FIELD_LIMITS object literal
+          fe_field() {
+            grep -oE "$1: [0-9]+" "$limits" | head -1 | awk '{print $2}'
+          }
+
+          # Pinned COUNT, load-bearing: a renamed field would otherwise drop out
+          # of the loop silently and the job would pass having checked fewer
+          # fields than exist.
+          expected=3
+          checked=0
+          failed=0
+          # backend_name:frontend_name
+          for pair in taste_preferences:tastePreferences \
+                      avoid_ingredients:avoidIngredients \
+                      ingredients_to_use:ingredientsToUse; do
+            be_name="${pair%%:*}"
+            fe_name="${pair##*:}"
+            be="$(be_field "$be_name")"
+            fe="$(fe_field "$fe_name")"
+            if [ -z "$be" ]; then
+              echo "::error::no max_length found for ${be_name} in ${models}"
+              failed=1
+              continue
+            fi
+            if [ -z "$fe" ]; then
+              echo "::error::no ${fe_name} found in ${limits}"
+              failed=1
+              continue
+            fi
+            checked=$((checked + 1))
+            if [ "$be" != "$fe" ]; then
+              echo "::error::${be_name} is ${be} in the backend but ${fe_name} is ${fe} in the frontend"
+              failed=1
+            else
+              echo "ok  ${be_name}=${be}"
+            fi
+          done
+
+          if [ "$checked" -ne "$expected" ]; then
+            echo "::error::checked ${checked} fields, expected ${expected} — a field was renamed or removed"
+            failed=1
+          fi
+          exit $failed
+
   locale-parity:
     name: locale parity
     runs-on: ubuntu-latest
