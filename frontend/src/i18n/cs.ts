@@ -126,6 +126,27 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.changeEmail.done": "Hotovo",
   "auth.changeEmail.failed": "E-mailovou adresu se nepodařilo změnit.",
 
+  "auth.deleteAccount.title": "Smazání účtu",
+  "auth.deleteAccount.body":
+    "Je to trvalé a projeví se okamžitě. Nejde to vzít zpět a není žádná ochranná lhůta.",
+  "auth.deleteAccount.pointData":
+    "Vaše jídelníčky, recepty, kuchařka, lednice, spížové základy a předvolby se smažou.",
+  "auth.deleteAccount.pointSubscription":
+    "Předplatné se hned zruší. Zbytek už zaplaceného období se nevrací.",
+  "auth.deleteAccount.pointInvoices":
+    "Záznamy o fakturách zůstávají bez vazby na váš účet — ukládá nám to daňový zákon.",
+  "auth.deleteAccount.pointBackups":
+    "V zálohách databáze zůstanete až 14 dní, pak se zálohy samy smažou.",
+  "auth.deleteAccount.exportFirst":
+    "Jestli chcete něco z účtu mít u sebe, stáhněte si nejdřív svoje data — potom už to nepůjde.",
+  "auth.deleteAccount.currentPassword": "Současné heslo",
+  "auth.deleteAccount.submit": "Smazat můj účet",
+  "auth.deleteAccount.deleting": "Mažeme…",
+  "auth.deleteAccount.cancel": "Zrušit",
+  "auth.deleteAccount.failed": "Účet se nepodařilo smazat",
+  "auth.deleteAccount.rateLimited":
+    "Příliš mnoho pokusů. Počkejte prosím minutu a zkuste to znovu.",
+
   // Instrumental case after "Souhlasím s" — see the file header.
   "auth.acceptTerms": "Souhlasím s {terms} a {privacy}.",
   "auth.acceptTerms.termsLink": "Podmínkami služby",
@@ -168,6 +189,13 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "settings.discardCancel": "Pokračovat v úpravách",
   "settings.emailAddress": "E-mailová adresa",
   "settings.changeEmail": "Změnit",
+  "settings.yourData": "Vaše data",
+  "settings.exportData": "⬇️ Stáhnout moje data",
+  "settings.exporting": "Připravujeme…",
+  "settings.exportFailed": "Export dat se nepodařilo připravit",
+  "settings.exportRateLimited":
+    "O tohle jste už párkrát žádali. Zkuste to prosím později.",
+  "settings.deleteAccount": "Smazat můj účet",
   "settings.sendFeedback": "💬 Poslat zpětnou vazbu",
   "settings.feedbackHintLabel": "Jak funguje kredit za zpětnou vazbu",
   "settings.feedbackHintText":

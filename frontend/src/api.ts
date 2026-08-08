@@ -554,6 +554,81 @@ export async function changeEmail(currentPassword: string, newEmail: string): Pr
   throw new Error(await extractErrorDetail(res, "Could not change your email address"));
 }
 
+/**
+ * The two sentences these calls may have to invent, passed in ALREADY
+ * TRANSLATED by the component.
+ *
+ * `api.ts` runs outside React and cannot call `t()`, so any English literal in
+ * here is English forever — `changeEmail` above has two, which is the bug this
+ * shape avoids rather than the precedent it follows. Everything else the user
+ * sees on these paths is a server `detail`, which the backend already localises.
+ */
+export interface RequestCopy {
+  /** Shown on 429 — slowapi's envelope carries no `detail` to render. */
+  rateLimited: string;
+  /** Shown when the response body carries no usable `detail` at all. */
+  fallback: string;
+}
+
+/**
+ * Download everything the account owns as one JSON file.
+ *
+ * Goes through `authFetch` rather than a plain `<a download href="/api/…">`,
+ * which would be less code: an anchor downloads whatever comes back, so a 401
+ * or a 429 lands in the user's Downloads folder as a file full of error JSON,
+ * and the silent-refresh retry never runs. Fetching first means a failure is a
+ * message on screen and a success is still a real file.
+ *
+ * The filename comes from the server's Content-Disposition when present — it
+ * carries the export date — with a static fallback for the case where a proxy
+ * strips the header.
+ */
+export async function downloadMyData(copy: RequestCopy): Promise<void> {
+  const res = await authFetch("/users/export");
+  if (!res.ok) {
+    // slowapi's 429 envelope has no `detail` key at all, so extractErrorDetail
+    // has nothing to render. It is also the likeliest failure here (5/hour).
+    if (res.status === 429) throw new Error(copy.rateLimited);
+    throw new Error(await extractErrorDetail(res, copy.fallback));
+  }
+  const match = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = match?.[1] ?? "mealbot-export.json";
+    a.click();
+  } finally {
+    // Deferred: revoking synchronously can beat the browser to reading the blob
+    // in some engines, and the object would otherwise be pinned for the life of
+    // the document — an export is the largest thing this app holds in memory.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+}
+
+/**
+ * Permanently delete the caller's own account.
+ *
+ * The server cancels the Stripe subscription BEFORE deleting and 503s if that
+ * fails, so a failure here can mean "nothing happened, try again" — which is
+ * why the detail is surfaced verbatim rather than collapsed into one message.
+ * On success every cookie is cleared server-side; the caller is responsible for
+ * dropping SPA state (there is no session left to refresh).
+ */
+export async function deleteAccount(
+  currentPassword: string,
+  copy: RequestCopy,
+): Promise<void> {
+  const res = await authFetch("/auth/delete-account", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword }),
+  });
+  if (res.ok) return;
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
+}
+
 // --- Access requests (admin triage of the public landing form) ---
 
 export async function fetchAccessRequests(
