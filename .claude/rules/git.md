@@ -36,7 +36,49 @@ checked out in **exactly one** worktree at a time, so:
 | latest `main` | `git fetch origin` — then read `origin/main`. Never check it out. |
 | start new work | `git checkout -b <branch> origin/main` (branch from the **remote** ref, so a stale or foreign local `main` can't leak in) |
 | update your PR branch | `gh api -X PUT repos/fatheus97/mealbot/pulls/<n>/update-branch` — a server-side merge of base into head. No local checkout, and no force push (which is banned anyway). |
-| after merging | nothing. Report and stop. |
+| after merging | check `git branch --show-current`. See below — the merge itself may have moved you. |
+
+### `gh pr merge --delete-branch` MOVES YOU — "stay where you are" is not enough
+
+`-d/--delete-branch` is documented as "Delete the **local** and remote branch
+after merge", and git cannot delete the branch you are standing on — so `gh`
+switches you to the base branch first. **The merge command checks out `main`
+for you**, in the worktree you ran it from. Neither the standing merge
+instruction nor your own restraint prevents this.
+
+It fails LOUDLY or QUIETLY depending on nothing you control — whether another
+worktree happened to hold `main` at that second:
+
+```
+# another worktree held main — gh could not switch, merge still landed remotely
+failed to run git: fatal: 'main' is already used by worktree at '.../exciting-saha-f89b48'
+
+# nobody held main — gh switched, pulled, and left this worktree ON main
+Fast-forward
+ .claude/rules/git.md | 22 ++++++++++++++++++++++
+```
+
+Both observed on the same day, back to back (#422 then #424). The first reads
+like the guardrail working; the second is the case the top of this section
+calls *worse than the error*, and it prints a cheerful diffstat while doing it.
+
+**So after every merge from a worktree, verify and release:**
+
+```bash
+git branch --show-current    # says "main"? you are squatting on it
+git checkout --detach        # releases main, stays on the same commit
+```
+
+Detaching is the fix, not checking out some other branch — a detached worktree
+holds no branch name, so nothing is blocked. Do it even though the worktree is
+disposable: a worktree left on `main` blocks every other session from checking
+it out until someone notices.
+
+**`--detach` with no ref needs no clean tree** — it stays on the current commit,
+so there are no files to update. Verified with modified tracked files *and*
+untracked files present: both survive the detach untouched. So release `main`
+the moment you notice, mid-work if need be — there is nothing to stash or
+finish first.
 
 ### Symptoms that this already went wrong
 
@@ -44,6 +86,8 @@ checked out in **exactly one** worktree at a time, so:
 - Your finished work shows up as *uncommitted changes on someone else's branch*.
 - The test count drops (see the HEAD-verification habit in
   `.claude/rules/testing.md`).
+- `git worktree list` shows **your** disposable worktree holding `[main]`
+  (see the merge trap above — you did not type that checkout).
 
 Recovery: confirm the two bases are equivalent first
 (`git diff <wrong-base> <right-base> -- <path>`), then
@@ -110,7 +154,11 @@ cycle defeats the point.
   layer; the user's intent is documented and clear, so proceed. Never
   `--admin`.) Then **stay where you are** — do NOT check out `main`. See
   "Worktrees" below; this is the single most common way a session corrupts
-  another session's work.
+  another session's work. **Not checking it out is not sufficient**: with
+  `--delete-branch`, `gh` checks out the base branch itself, so the merge can
+  leave you on `main` without you typing a thing. Verify with
+  `git branch --show-current` afterwards and `git checkout --detach` if it
+  moved you — see "gh pr merge --delete-branch MOVES YOU" above.
 - Still surface (don't auto-merge) when CI is red, the review has unresolved
   actionable items, or the change is genuinely high-risk/ambiguous.
 
