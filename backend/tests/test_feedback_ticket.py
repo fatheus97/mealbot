@@ -125,6 +125,33 @@ async def test_title_falls_back_to_first_line_without_triage(
     assert captured["json"]["title"] == "[bug] Regenerate crashes"
 
 
+async def test_body_notes_screenshot_without_embedding_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The image itself must never reach this repo — see the module docstring's
+    # PII note — only a pointer to check the admin dashboard.
+    captured: dict[str, Any] = {}
+    _install_fake_httpx(monkeypatch, captured=captured)
+    report = _report(
+        screenshot_base64="c2NyZWVuc2hvdA==", screenshot_content_type="image/png"
+    )
+    await feedback_ticket.create_issue_for_report(report, _triage())
+    body = captured["json"]["body"]
+    assert "screenshot" in body.lower()
+    assert "admin dashboard" in body.lower()
+    assert "c2NyZWVuc2hvdA==" not in body
+    assert "data:image" not in body
+
+
+async def test_body_omits_screenshot_note_when_none_attached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    _install_fake_httpx(monkeypatch, captured=captured)
+    await feedback_ticket.create_issue_for_report(_report(), _triage())
+    assert "screenshot" not in captured["json"]["body"].lower()
+
+
 async def test_http_error_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_httpx(monkeypatch, status_code=422)
     assert await feedback_ticket.create_issue_for_report(_report(), _triage()) is None

@@ -80,9 +80,14 @@ export function CookNowForm() {
   // Ahead unmounts it — after which the bubble must stop offering a way back
   // rather than rendering a button whose handler is bound to a dead instance.
   useReopenTarget(COOKNOW_COOK_KEY, () => setCooking(true), recipe != null);
-  // Track the request that produced `recipe` so /recipe/cook gets the same
-  // context (server re-validates meal_type match). Resetting the form while
-  // a recipe is on screen keeps the old pendingRequest until a new generate.
+  // Track the request that produced `recipe` so /recipe/cook and /recipe/favorite
+  // record the context the recipe actually came from rather than live form state.
+  // The server does NOT re-validate that they agree — it used to reject a
+  // recipe whose meal_type differed from the requested one, which broke every
+  // generation where the model picked its own slot (#418). Keeping them aligned
+  // is now purely about recording an honest request, so it is on us.
+  // Resetting the form while a recipe is on screen keeps the old pendingRequest
+  // until a new generate.
   const [pendingRequest, setPendingRequest] = useState<SingleRecipeRequest | null>(null);
   // The machine_generation id for the recipe on screen. Echoed back on
   // cook/favorite so the server can link any edits to what was generated.

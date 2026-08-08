@@ -75,8 +75,17 @@ def flatten_fridge_batches(
     ]
 
 
-async def get_fridge_items(session: AsyncSession, user_id: int) -> list[StockItemDTO]:
-    """Return fridge items to the user in API schema form. Auto-ticks near-expiry items."""
+async def get_fridge_items(
+    session: AsyncSession, user_id: int, need_to_use_enabled: bool = True,
+) -> list[StockItemDTO]:
+    """Return fridge items to the user in API schema form. Auto-ticks near-expiry items.
+
+    ``need_to_use_enabled=False`` (the user's master-off preference, see
+    User.need_to_use_enabled) masks every item's need_to_use to False instead
+    of reading the stored value — callers stop seeing/prompting on it without
+    the underlying StockItem rows ever being touched, so re-enabling instantly
+    restores whatever was there before.
+    """
     result = await session.execute(select(StockItem).where(StockItem.user_id == user_id))
     rows = result.scalars().all()
 
@@ -87,21 +96,72 @@ async def get_fridge_items(session: AsyncSession, user_id: int) -> list[StockIte
     for r in rows:
         is_expiring = r.expiration_date is not None and r.expiration_date <= threshold
         items.append(StockItemDTO(
+            id=r.id,
             name=r.name,
             quantity_grams=float(r.quantity_grams),
-            need_to_use=r.need_to_use or is_expiring,
+            need_to_use=need_to_use_enabled and (r.need_to_use or is_expiring),
             expiration_date=r.expiration_date,
         ))
     return items
 
 
 async def replace_fridge_items(
-    session: AsyncSession, user_id: int, items: list[StockItemDTO], commit: bool = True,
+    session: AsyncSession,
+    user_id: int,
+    items: list[StockItemDTO],
+    commit: bool = True,
+    need_to_use_enabled: bool = True,
 ) -> list[StockItemDTO]:
     """Replace fridge items for a user (delete old, insert new).
 
     Shared by PUT /fridge and plan confirm endpoint.
+
+    ``need_to_use_enabled=False`` means the caller's ``items`` came from a
+    client that only ever sees a masked (always-False) need_to_use — e.g. the
+    fridge UI round-trips its last GET response wholesale on every edit, even
+    one unrelated to need_to_use (PUT /fridge replaces the whole fridge, not
+    a single row). Trusting that blind value verbatim would silently zero out
+    every item's real need_to_use on the next unrelated edit. So when
+    disabled, each incoming item's need_to_use is IGNORED in favor of
+    whatever is actually stored right now — a masked client can neither read
+    nor write this field, only re-enabling the preference can.
+
+    Matched primarily by ``StockItem.id`` (round-tripped via ``StockItemDTO.id``
+    — see that field's docstring), so an item survives the reconciliation even
+    if its name or expiration_date was ALSO edited in the same masked PUT, not
+    just its untouched siblings. Falls back to the (name, expiration_date)
+    natural key for an item with no id (an older cached client, or one that
+    genuinely predates this field) — same OR-combine safety net as before.
+    A key with no existing match by either (a genuinely new item) has no
+    stored value to preserve, so it falls back to False.
     """
+    if not need_to_use_enabled:
+        existing = (
+            await session.execute(select(StockItem).where(StockItem.user_id == user_id))
+        ).scalars().all()
+        stored_by_id: dict[int, bool] = {
+            r.id: r.need_to_use for r in existing if r.id is not None
+        }
+        # OR-combine rather than overwrite: (name, expiration_date) has no DB
+        # uniqueness constraint, so two rows CAN legitimately share a key (e.g.
+        # two batches of the same item with no expiration set). Preferring the
+        # last-seen row for a key would be arbitrary (no ORDER BY) and could
+        # silently drop a True on one of them. ORing means a stray True never
+        # goes missing — worst case a duplicate that was actually False also
+        # reads True once re-enabled, which is the safe direction to be wrong
+        # in (a false "use soon" hint costs nothing; losing one outright does).
+        stored_by_key: dict[tuple[str, date | None], bool] = {}
+        for r in existing:
+            key = (r.name.strip().lower(), r.expiration_date)
+            stored_by_key[key] = stored_by_key.get(key, False) or r.need_to_use
+
+        def _preserved(it: StockItemDTO) -> bool:
+            if it.id is not None and it.id in stored_by_id:
+                return stored_by_id[it.id]
+            return stored_by_key.get((it.name.strip().lower(), it.expiration_date), False)
+
+        items = [it.model_copy(update={"need_to_use": _preserved(it)}) for it in items]
+
     await session.execute(delete(StockItem).where(StockItem.user_id == user_id))  # type: ignore[arg-type]
 
     for it in items:
@@ -121,7 +181,7 @@ async def replace_fridge_items(
 
     if commit:
         await session.commit()
-    return await get_fridge_items(session, user_id)
+    return await get_fridge_items(session, user_id, need_to_use_enabled)
 
 
 async def restore_consumed_batches(

@@ -247,6 +247,9 @@ export const en = {
   "prefs.trackSnacks": "Track snacks from receipts",
   "prefs.trackSnacksHint":
     "If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts",
+  "prefs.needToUseEnabled": "Enable \"need to use\" tracking",
+  "prefs.needToUseEnabledHint":
+    "If off, the need-to-use flag is hidden everywhere in the fridge and no longer prioritized when generating meal plans. Turn it back on any time — nothing is lost.",
 
   "prefs.dayLayout": "Default day layout",
   "prefs.dayLayoutHint":
@@ -693,6 +696,14 @@ export const en = {
   "feedback.sending": "Sending…",
   "feedback.tooShort": "Please add a bit more detail.",
   "feedback.failed": "Could not send your feedback.",
+  "feedback.attachScreenshot": "📎 Attach screenshot",
+  "feedback.pasteHint": "You can also paste an image (Ctrl/Cmd+V) into this box.",
+  "feedback.removeScreenshot": "Remove",
+  "feedback.screenshotAlt": "Attached screenshot preview",
+  "feedback.screenshotUnsupportedType": "Please attach a PNG or JPEG image.",
+  "feedback.screenshotTooLarge": "That image is too large (max 3 MB). Try a smaller screenshot.",
+  "feedback.screenshotEmpty": "That image file is empty. Try attaching it again.",
+  "feedback.screenshotReadFailed": "Could not read that image. Try attaching it again.",
   "feedback.thanksTitle": "Thanks — we got it. 🙏",
   "feedback.thanksBody": "Your report is on its way to the team. We read every one.",
   "feedback.done": "Done",

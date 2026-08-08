@@ -56,6 +56,10 @@ def _build_body(report: FeedbackReport, triage: FeedbackTriage | None) -> str:
         ]
         if triage.repro:
             lines.append(f"- repro: {triage.repro}")
+    if report.screenshot_base64:
+        # Never the image itself — a screenshot can carry PII the module
+        # docstring says to keep out of this repo, even though it's private.
+        lines += ["", "📎 A screenshot was attached — view it in the admin dashboard."]
     lines += [
         "",
         "_Opened automatically on admin Accept. The reporter is referenced only by "

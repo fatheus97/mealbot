@@ -237,6 +237,11 @@ export interface SingleRecipeResponse {
 export type ScannedItemType = "ingredient" | "ready_to_eat";
 
 export interface StockItem {
+  // Round-tripped GET -> edit -> PUT so the backend can match an edited item
+  // back to its row even if name/expiration_date (its only other identity)
+  // changed in the same edit — see StockItemDTO.id / fridge_service.
+  // Absent/null for a not-yet-persisted (add-mode) item.
+  id?: number | null;
   name: string;
   quantity_grams: number;
   need_to_use: boolean;
@@ -281,6 +286,7 @@ export interface AuthLoginResponse {
   include_spices: boolean;
   track_snacks: boolean;
   show_pieces: boolean;
+  need_to_use_enabled: boolean;
   onboarding_completed: boolean;
   is_demo: boolean;
   is_admin: boolean;
@@ -362,6 +368,7 @@ export interface UserProfile {
   include_spices: boolean;
   track_snacks: boolean;
   show_pieces: boolean;
+  need_to_use_enabled: boolean;
   onboarding_completed: boolean;
   is_admin: boolean;
   // Preferred shape of a single day's meals. null = user hasn't set one;
@@ -610,11 +617,17 @@ export interface AccessRequestListResponse {
 
 export type FeedbackKind = "bug" | "feature" | "other";
 
-/** Body for POST /feedback (authenticated). `page` is optional client context. */
+/** Content types the backend accepts for a feedback screenshot (FeedbackCreate). */
+export type FeedbackScreenshotContentType = "image/png" | "image/jpeg";
+
+/** Body for POST /feedback (authenticated). `page` is optional client context.
+ *  The screenshot pair is both-or-neither — the backend 422s a mismatch. */
 export interface FeedbackCreateRequest {
   kind: FeedbackKind;
   message: string;
   page?: string | null;
+  screenshot_base64?: string | null;
+  screenshot_content_type?: FeedbackScreenshotContentType | null;
 }
 
 export interface FeedbackSubmitResponse {
@@ -670,6 +683,8 @@ export interface AdminFeedbackDetail {
   kind: string;
   message: string;
   page: string | null;
+  screenshot_base64: string | null;
+  screenshot_content_type: string | null;
   status: string;
   created_at: string;
   triage_status: string | null;

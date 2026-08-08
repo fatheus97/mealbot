@@ -4,7 +4,14 @@ import re
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    JsonValue,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from app.core.dietary import Allergen, DietType
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
@@ -47,6 +54,48 @@ def _strip_prompt_fence_tags(v: object) -> object:
     if isinstance(v, str):
         return v.replace("<", "").replace(">", "")
     return v
+
+
+# The free-text list fields that run through `sanitize_input`. Named once and
+# splatted into the @field_validator so the decorator and the guard test in
+# test_plan_models.py cannot drift apart.
+#
+# EVERY field listed here MUST declare its own max_length — that declaration is
+# what caps how many entries survive sanitisation (see _declared_max_items).
+_MEAL_PLAN_SANITIZED_FIELDS = (
+    "taste_preferences",
+    "avoid_ingredients",
+    "ingredients_to_use",
+    "past_meals",
+)
+_SINGLE_RECIPE_SANITIZED_FIELDS = (
+    "taste_preferences",
+    "avoid_ingredients",
+    "ingredients_to_use",
+)
+
+# Fallback only for a field that somehow declares no max_length; the guard test
+# fails the build before that can reach production.
+_DEFAULT_SANITIZED_MAX_ITEMS = 20
+
+
+def _declared_max_items(model: type[BaseModel], field_name: str | None) -> int:
+    """How many entries a sanitised list field keeps, read off its OWN
+    ``max_length``.
+
+    `sanitize_input` runs ``mode="before"``, i.e. BEFORE pydantic evaluates
+    ``max_length``. So whatever this returns is the real, effective bound and
+    the declared one can never fire. Reading the declaration back is what keeps
+    the two from disagreeing: they used to, and a hardcoded ``[:20]`` silently
+    dropped items 21-50 of every ``avoid_ingredients`` list, which declares 50.
+    """
+    if field_name is None:  # pragma: no cover — pydantic always supplies it
+        return _DEFAULT_SANITIZED_MAX_ITEMS
+    for meta in model.model_fields[field_name].metadata:
+        max_length = getattr(meta, "max_length", None)
+        if max_length is not None:
+            return int(max_length)
+    return _DEFAULT_SANITIZED_MAX_ITEMS
 
 
 def _hide_array_bounds(schema: dict[str, JsonValue]) -> None:
@@ -158,6 +207,14 @@ class StockItemDTO(BaseModel):
     quantity_grams: float = Field(..., ge=0, allow_inf_nan=False)
     need_to_use: bool = Field(default=False)
     expiration_date: date | None = None
+    # StockItem.id, round-tripped GET -> edit -> PUT so fridge_service can match
+    # an incoming item back to the row it came from even if name/expiration_date
+    # (its only other identity) changed in the same edit — see
+    # replace_fridge_items. Purely an optimistic hint: it's only ever looked up
+    # against the CALLING user's own rows, so a client sending a stale, forged,
+    # or another user's id just misses the lookup (falls back to no match) —
+    # never a cross-user read. None for a not-yet-persisted (add-mode) item.
+    id: int | None = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -240,6 +297,10 @@ class MealPlanRequest(BaseModel):
     )
     past_meals: list[str] = Field(
         default_factory=list,
+        # Declared explicitly because the sanitiser reads its cap from here.
+        # It was already capped at 20 in practice by the old hardcoded slice —
+        # this states the bound rather than changing it.
+        max_length=20,
         description="Meal names eaten recently (to avoid similar dishes).",
     )
     # "auto" lets the server link a later light meal to an earlier batch-friendly
@@ -313,15 +374,9 @@ class MealPlanRequest(BaseModel):
                 )
         return v
 
-    @field_validator(
-        "taste_preferences",
-        "avoid_ingredients",
-        "ingredients_to_use",
-        "past_meals",
-        mode="before",
-    )
+    @field_validator(*_MEAL_PLAN_SANITIZED_FIELDS, mode="before")
     @classmethod
-    def sanitize_input(cls, v: object) -> list[str]:
+    def sanitize_input(cls, v: object, info: ValidationInfo) -> list[str]:
         # A mode="before" validator receives the raw request body value, so it
         # must not assume a list. Iterating blind raised TypeError on a scalar,
         # and pydantic converts only ValueError/AssertionError into a 422 —
@@ -345,7 +400,7 @@ class MealPlanRequest(BaseModel):
             if cleaned:
                 cleaned_list.append(cleaned)
 
-        return cleaned_list[:20]
+        return cleaned_list[: _declared_max_items(cls, info.field_name)]
 
     @model_validator(mode="after")
     def _reconcile_diet(self) -> MealPlanRequest:
@@ -950,18 +1005,14 @@ class SingleRecipeRequest(BaseModel):
     stock_only: bool = False
     note: str | None = Field(default=None, max_length=200)
 
-    @field_validator(
-        "taste_preferences",
-        "avoid_ingredients",
-        "ingredients_to_use",
-        mode="before",
-    )
+    @field_validator(*_SINGLE_RECIPE_SANITIZED_FIELDS, mode="before")
     @classmethod
-    def sanitize_input(cls, v: object) -> list[str]:
-        # Same unicode-aware whitelist and the same non-list guard as
-        # MealPlanRequest (see there for why TypeError became a 500).
-        # Duplicated rather than imported to keep model-layer cross-references
-        # minimal — so a fix to one is only half a fix.
+    def sanitize_input(cls, v: object, info: ValidationInfo) -> list[str]:
+        # Same unicode-aware whitelist, the same non-list guard and the same
+        # per-field cap as MealPlanRequest (see there for why TypeError became a
+        # 500, and why the cap is read from max_length). Duplicated rather than
+        # imported to keep model-layer cross-references minimal — so a fix to
+        # one is only half a fix.
         if v is None:
             return []
         if not isinstance(v, list):
@@ -975,7 +1026,7 @@ class SingleRecipeRequest(BaseModel):
             clean = re.sub(r"[^\w\s\-,.]", "", item, flags=re.UNICODE).strip()
             if clean:
                 cleaned.append(clean)
-        return cleaned[:20]
+        return cleaned[: _declared_max_items(cls, info.field_name)]
 
     @field_validator("note", mode="before")
     @classmethod

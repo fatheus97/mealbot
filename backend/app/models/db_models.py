@@ -70,6 +70,16 @@ class User(SQLModel, table=True):
     # arithmetic reads, so this can never change what a plan buys or debits.
     show_pieces: bool = Field(default=False)
 
+    # Master switch for the "need to use" (use-it-soon) ingredient feature.
+    # Defaults True to preserve existing behavior for users already relying on
+    # it. When False, every fridge read masks need_to_use to False (see
+    # fridge_service.get_fridge_items) instead of surfacing it in the UI or
+    # feeding it into meal-plan urgency prompts — so a user who doesn't want to
+    # triage this per-ingredient can turn it off in one place. StockItem rows
+    # keep their real stored value untouched, so re-enabling instantly restores
+    # whatever was there before.
+    need_to_use_enabled: bool = Field(default=True)
+
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)
 
@@ -964,6 +974,13 @@ class FeedbackReport(SQLModel, table=True):
     # Optional client-supplied context (the app view/route the user was on when they
     # reported). Untrusted, bounded at the API layer. NULL when not supplied.
     page: str | None = Field(default=None)
+    # Optional user-attached screenshot, stored as base64 (no blob/object storage
+    # exists in this app; a low-volume, admin-reviewed-only image doesn't justify
+    # adding one). Content-type/size are validated at the API layer (FeedbackCreate),
+    # not here. Both NULL when no screenshot was attached. Deliberately NOT sent to
+    # services.feedback_ticket — see that module's PII note.
+    screenshot_base64: str | None = Field(default=None)
+    screenshot_content_type: str | None = Field(default=None)
     # Moderation lifecycle: "new" (unmoderated) | "reviewing" | "accepted" |
     # "rejected" | "spam". Loose str (not an enum column) so a new state needs no
     # migration; allowed transitions are enforced in the admin API. This tracks the

@@ -13,9 +13,14 @@ interface FridgeItemModalProps {
   initialValues: FridgeItemValues;
   onOk: (values: FridgeItemValues) => void;
   onCancel: () => void;
+  // Mirrors User.need_to_use_enabled — hides the field entirely when the user
+  // has turned the feature off, rather than showing a control with no visible
+  // effect (fridge reads mask need_to_use to false while disabled). The
+  // underlying value still round-trips unchanged so re-enabling restores it.
+  needToUseEnabled?: boolean;
 }
 
-export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeItemModalProps) {
+export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUseEnabled = true }: FridgeItemModalProps) {
   const { t } = useI18n();
   const [name, setName] = useState(initialValues.name);
   const [quantity, setQuantity] = useState(String(initialValues.quantity_grams));
@@ -116,14 +121,16 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel }: FridgeI
             />
           </label>
 
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <input
-              type="checkbox"
-              checked={needToUse}
-              onChange={(e) => setNeedToUse(e.target.checked)}
-            />
-            {t("fridgeItem.needToUse")}
-          </label>
+          {needToUseEnabled && (
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input
+                type="checkbox"
+                checked={needToUse}
+                onChange={(e) => setNeedToUse(e.target.checked)}
+              />
+              {t("fridgeItem.needToUse")}
+            </label>
+          )}
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1.25rem" }}>

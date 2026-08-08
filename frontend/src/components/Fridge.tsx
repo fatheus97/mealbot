@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
-import { useFridge, useUpdateFridge } from "../hooks/useServerState";
+import { useFridge, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
 import type { StockItem } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
@@ -68,6 +68,10 @@ export function Fridge() {
 
   const { data: serverFridge, isLoading, error: fetchError } = useFridge(userId);
   const updateFridgeMutation = useUpdateFridge();
+  // Shares the ['userProfile', userId] query cache with Settings, so this
+  // costs no extra request beyond the app's existing profile fetch.
+  const { data: profile } = useUserProfile(userId);
+  const needToUseEnabled = profile?.need_to_use_enabled ?? true;
 
   const nextEditId = useRef(0);
   const assignId = (): number => nextEditId.current++;
@@ -345,7 +349,7 @@ export function Fridge() {
         <td>{item.name}</td>
         <td>{Math.round(item.quantity_grams)}</td>
         <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}</td>
-        <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>
+        {needToUseEnabled && <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>}
         <td style={{ display: "flex", gap: "0.25rem" }}>
           <button onClick={() => openEditModal(idx)}>{t("meal.edit")}</button>
           <button onClick={() => requestRemoveItem(idx)}>{t("fridge.remove")}</button>
@@ -393,7 +397,7 @@ export function Fridge() {
         <td style={{ fontSize: "0.85rem", color: rowMuted }}>
           {formatDate(group.earliestExpiration)}
         </td>
-        <td>{group.needToUse ? t("fridge.yes") : t("fridge.no")}</td>
+        {needToUseEnabled && <td>{group.needToUse ? t("fridge.yes") : t("fridge.no")}</td>}
         <td>
           <button onClick={(e) => { e.stopPropagation(); requestRemoveGroup(group); }}>
             {t("fridge.removeAll")}
@@ -427,7 +431,7 @@ export function Fridge() {
             </td>
             <td>{Math.round(item.quantity_grams)}</td>
             <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}</td>
-            <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>
+            {needToUseEnabled && <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>}
             <td style={{ display: "flex", gap: "0.25rem" }}>
               <button onClick={() => openEditModal(flatIdx)}>{t("meal.edit")}</button>
               <button onClick={() => requestRemoveItem(flatIdx)}>{t("fridge.remove")}</button>
@@ -485,7 +489,7 @@ export function Fridge() {
       <div key={item._editId} style={cardStyle}>
         <div style={cardHeaderRow}>
           <strong>{item.name || "—"}</strong>
-          {item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
+          {needToUseEnabled && item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
           <span>{Math.round(item.quantity_grams)} g</span>
@@ -510,7 +514,7 @@ export function Fridge() {
           <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.8rem" }}>{isExpanded ? "▼" : "▶"}</span>
           <strong>{group.displayName}</strong>
           <span style={{ fontSize: "0.8rem", color: PAGE_TEXT.muted[scheme] }}>{tn("fridge.batches", group.batchCount)}</span>
-          {group.needToUse && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
+          {needToUseEnabled && group.needToUse && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
           <span>{t("fridge.gramsTotal", { grams: Math.round(group.totalQuantity) })}</span>
@@ -528,7 +532,7 @@ export function Fridge() {
             >
               <div style={cardHeaderRow}>
                 <span style={{ color: ON_DARK_MUTED }}>{t("fridge.batchN", { n: batchIdx + 1 })}</span>
-                {item.need_to_use && <span style={onDarkBadge}>{t("fridge.useSoon")}</span>}
+                {needToUseEnabled && item.need_to_use && <span style={onDarkBadge}>{t("fridge.useSoon")}</span>}
               </div>
               {/* This card pins #0f172a in BOTH themes, so it must NOT take the
                   theme-following `cardMeta` colour — #475569 on #0f172a is
@@ -646,7 +650,7 @@ export function Fridge() {
                   <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleSort("expires")}>
                     {t("fridge.colExpires")}{sortKey === "expires" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : null}
                   </th>
-                  <th>{t("fridge.colNeedToUse")}</th>
+                  {needToUseEnabled && <th>{t("fridge.colNeedToUse")}</th>}
                   <th>{t("fridge.colAction")}</th>
                 </tr>
               </thead>
@@ -658,7 +662,7 @@ export function Fridge() {
                 )}
                 {fridge.length === 0 && !isLoading && (
                   <tr>
-                    <td colSpan={5}>{t("fridge.empty")}</td>
+                    <td colSpan={needToUseEnabled ? 5 : 4}>{t("fridge.empty")}</td>
                   </tr>
                 )}
               </tbody>
@@ -693,6 +697,7 @@ export function Fridge() {
           }
           onOk={handleModalOk}
           onCancel={handleModalCancel}
+          needToUseEnabled={needToUseEnabled}
         />
       )}
 

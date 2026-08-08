@@ -406,7 +406,7 @@ async def test_checkout_returns_url(client: AsyncClient, monkeypatch: pytest.Mon
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
 
     async def _fake_checkout(
-        user: User, session: AsyncSession, plan: str = "monthly"
+        user: User, session: AsyncSession, plan: str = "monthly", locale: str = "en"
     ) -> str:
         return "https://checkout.stripe.test/session/abc"
 
@@ -564,7 +564,7 @@ async def test_checkout_forwards_selected_plan(
     captured: dict[str, Any] = {}
 
     async def _fake_checkout(
-        user: User, session: AsyncSession, plan: str = "monthly"
+        user: User, session: AsyncSession, plan: str = "monthly", locale: str = "en"
     ) -> str:
         captured["plan"] = plan
         return "https://checkout.stripe.test/session/x"
@@ -627,7 +627,7 @@ async def test_portal_returns_url(
     monkeypatch.setattr(settings, "stripe_price_id", "price_x")
     test_user.stripe_customer_id = "cus_abc"
 
-    async def _fake_portal(user: User) -> str:
+    async def _fake_portal(user: User, locale: str = "en") -> str:
         return "https://billing.stripe.test/portal/xyz"
 
     monkeypatch.setattr(stripe_service, "create_portal_session", _fake_portal)
@@ -910,3 +910,176 @@ async def test_customer_credit_balance_cents_sign(
 
     monkeypatch.setattr(stripe.Customer, "retrieve", lambda cid: _FakeCustomer())
     assert await stripe_service.customer_credit_balance_cents("cus_1") == expected
+
+
+# --- Locale: Stripe's hosted pages follow the APP's language, not the browser's ---
+
+
+async def test_checkout_pins_the_locale_instead_of_letting_stripe_guess(
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Checkout session must carry an explicit ``locale``.
+
+    Stripe's default is "auto", which resolves from the browser/IP — so the page
+    came up Czech for a Czech-based user no matter which language they had picked
+    in the app. Owner-reported. This asserts the pin, not a particular language.
+    """
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+    test_user.stripe_customer_id = "cus_existing"
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeSession:
+        url = "https://checkout.stripe.test/session/cs"
+
+    def _fake_session_create(**kwargs: Any) -> _FakeSession:
+        captured.update(kwargs)
+        return _FakeSession()
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", _fake_session_create)
+
+    await stripe_service.create_checkout_session(test_user, db_session, "monthly", "cs")
+    assert captured["locale"] == "cs"
+
+    captured.clear()
+    await stripe_service.create_checkout_session(test_user, db_session, "monthly", "en")
+    assert captured["locale"] == "en"
+
+
+async def test_portal_pins_the_locale_too(
+    test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Portal is where a subscription gets cancelled — the worst place to be
+    reading a language you did not choose."""
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    test_user.stripe_customer_id = "cus_existing"
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+    captured: dict[str, Any] = {}
+
+    class _FakePortal:
+        url = "https://portal.stripe.test/session/cs"
+
+    def _fake_portal_create(**kwargs: Any) -> _FakePortal:
+        captured.update(kwargs)
+        return _FakePortal()
+
+    monkeypatch.setattr(stripe.billing_portal.Session, "create", _fake_portal_create)
+
+    await stripe_service.create_portal_session(test_user, "cs")
+    assert captured["locale"] == "cs"
+
+
+def test_price_id_falls_back_when_no_locale_override_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unconfigured locale overrides must be inert — a Czech user still checks out,
+    just against the default Product's copy. This is what lets the feature ship
+    before the operator creates the Czech Product in Stripe."""
+    monkeypatch.setattr(settings, "stripe_price_id", "price_base")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_cs", None)
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", None)
+
+    assert stripe_service._price_id_for_plan("monthly", "cs") == "price_base"
+    assert stripe_service._price_id_for_plan("annual", "cs") == "price_base_annual"
+
+
+def test_price_id_uses_the_locale_override_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Czech gets the Czech Product's Price; English is untouched by its existence."""
+    monkeypatch.setattr(settings, "stripe_price_id", "price_base")
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_cs", "price_cs")
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", "price_cs_annual")
+
+    assert stripe_service._price_id_for_plan("monthly", "cs") == "price_cs"
+    assert stripe_service._price_id_for_plan("annual", "cs") == "price_cs_annual"
+    assert stripe_service._price_id_for_plan("monthly", "en") == "price_base"
+    assert stripe_service._price_id_for_plan("annual", "en") == "price_base_annual"
+
+
+def test_czech_annual_price_counts_as_annual(monkeypatch: pytest.MonkeyPatch) -> None:
+    """THE money test for this feature.
+
+    A Czech annual subscriber sits on a DIFFERENT Price id than an English one. If
+    ``annual_price_ids()`` doesn't know it, ``is_annual`` reads them as monthly and
+    the launch feedback credit — which is monthly-only because annual is already
+    discounted — grants them real euros they shouldn't get. Same failure shape as
+    the rotation blind spot the legacy allow-list exists for.
+    """
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", "price_cs_annual")
+    monkeypatch.setattr(settings, "stripe_price_ids_annual_legacy", None)
+
+    ids = stripe_service.annual_price_ids()
+    assert "price_cs_annual" in ids
+    assert "price_base_annual" in ids
+
+    cs_annual = User(email="cs@example.com", hashed_password="x")
+    cs_annual.subscription_price_id = "price_cs_annual"
+    assert stripe_service.is_annual(cs_annual) is True
+
+    monthly = User(email="m@example.com", hashed_password="x")
+    monthly.subscription_price_id = "price_base"
+    assert stripe_service.is_annual(monthly) is False
+
+
+def test_annual_price_ids_still_works_with_no_locale_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The complement: adding the per-locale lookup must not have broken the
+    baseline, and must not inject a None into the set."""
+    monkeypatch.setattr(settings, "stripe_price_id_annual", "price_base_annual")
+    monkeypatch.setattr(settings, "stripe_price_id_annual_cs", None)
+    monkeypatch.setattr(settings, "stripe_price_ids_annual_legacy", "price_old")
+
+    assert stripe_service.annual_price_ids() == frozenset({"price_base_annual", "price_old"})
+
+
+async def test_checkout_endpoint_forwards_the_accept_language_locale(
+    client: AsyncClient, test_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The endpoint must read the SPA's locale off Accept-Language and hand it on.
+
+    Covers the wiring the service-level tests structurally cannot: those call
+    create_checkout_session directly, so they would still pass if the endpoint
+    never read the header at all.
+
+    Accept-Language, not request.state.locale, is deliberate — see
+    billing._checkout_locale. request.state.locale comes from User.language, the
+    RECIPE language, which is a different question from what language to render
+    the checkout chrome in.
+    """
+    monkeypatch.setattr(settings, "billing_enabled", True)
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+    captured: dict[str, Any] = {}
+
+    async def _fake_checkout(
+        user: User, session: AsyncSession, plan: str = "monthly", locale: str = "en"
+    ) -> str:
+        captured["locale"] = locale
+        return "https://checkout.stripe.test/session/x"
+
+    monkeypatch.setattr(stripe_service, "create_checkout_session", _fake_checkout)
+
+    resp = await client.post("/api/billing/checkout", headers={"Accept-Language": "cs"})
+    assert resp.status_code == 200
+    assert captured["locale"] == "cs"
+
+    resp = await client.post("/api/billing/checkout", headers={"Accept-Language": "en"})
+    assert resp.status_code == 200
+    assert captured["locale"] == "en"
+
+    # No header at all → the default, not a crash.
+    resp = await client.post("/api/billing/checkout")
+    assert resp.status_code == 200
+    assert captured["locale"] == "en"

@@ -593,7 +593,11 @@ async def regenerate_plan(
     db_items = result.scalars().all()
 
     remaining_ingredients: list[StockItemDTO] = [
-        StockItemDTO(name=item.name, quantity_grams=item.quantity_grams, need_to_use=item.need_to_use)
+        StockItemDTO(
+            name=item.name,
+            quantity_grams=item.quantity_grams,
+            need_to_use=item.need_to_use and current_user.need_to_use_enabled,
+        )
         for item in db_items
     ]
     initial_fridge: list[StockItemDTO] = [ing.model_copy() for ing in remaining_ingredients]
@@ -833,7 +837,7 @@ async def confirm_plan(
 
     # Idempotence guard (do not subtract twice)
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
-        return await get_fridge_items(session, current_user.id)
+        return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
 
     # Pin the calendar date at confirm time if the client supplied one (overrides
     # any date set at generation). Staged here; the single commit below persists
@@ -854,7 +858,7 @@ async def confirm_plan(
     await confirm_plan_fridge(session, current_user.id, plan, plan_obj)
     await session.commit()
 
-    return await get_fridge_items(session, current_user.id)
+    return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
 
 
 # POST /api/plan/{plan_id}/unconfirm
@@ -916,7 +920,7 @@ async def unconfirm_plan(
     await unconfirm_plan_fridge(session, current_user.id, plan)
     await session.commit()
 
-    return await get_fridge_items(session, current_user.id)
+    return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
 
 
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/cook
@@ -1437,6 +1441,6 @@ async def reopen_plan(
         ) from exc
     await session.commit()
 
-    return await get_fridge_items(session, current_user.id)
+    return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
 
 
