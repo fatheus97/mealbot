@@ -13,6 +13,7 @@ export interface PreferencesFormValues {
   include_spices: boolean;
   show_pieces: boolean;
   track_snacks: boolean;
+  need_to_use_enabled: boolean;
   // [] means "no default set" (the backend clears the column); a populated
   // list is stored verbatim and used as the per-day shape in Phase 3.
   default_day_layout: MealType[];
@@ -79,6 +80,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
   const [showPieces, setShowPieces] = useState(initialValues.show_pieces);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
+  const [needToUseEnabled, setNeedToUseEnabled] = useState(initialValues.need_to_use_enabled);
   const [defaultDayLayout, setDefaultDayLayout] = useState<MealType[]>(
     initialValues.default_day_layout,
   );
@@ -109,6 +111,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
       include_spices: includeSpices,
       show_pieces: showPieces,
       track_snacks: trackSnacks,
+      need_to_use_enabled: needToUseEnabled,
       default_day_layout: defaultDayLayout,
     });
   };
@@ -285,6 +288,22 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           <br />
           <span style={{ fontSize: "0.85rem", color: "#666" }}>
             {t("prefs.trackSnacksHint")}
+          </span>
+        </span>
+      </label>
+
+      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={needToUseEnabled}
+          onChange={(e) => setNeedToUseEnabled(e.target.checked)}
+          style={{ width: "18px", height: "18px" }}
+        />
+        <span>
+          <span style={{ fontWeight: 600 }}>{t("prefs.needToUseEnabled")}</span>
+          <br />
+          <span style={{ fontSize: "0.85rem", color: "#666" }}>
+            {t("prefs.needToUseEnabledHint")}
           </span>
         </span>
       </label>

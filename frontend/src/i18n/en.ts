@@ -247,6 +247,9 @@ export const en = {
   "prefs.trackSnacks": "Track snacks from receipts",
   "prefs.trackSnacksHint":
     "If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts",
+  "prefs.needToUseEnabled": "Enable \"need to use\" tracking",
+  "prefs.needToUseEnabledHint":
+    "If off, the need-to-use flag is hidden everywhere in the fridge and no longer prioritized when generating meal plans. Turn it back on any time — nothing is lost.",
 
   "prefs.dayLayout": "Default day layout",
   "prefs.dayLayoutHint":

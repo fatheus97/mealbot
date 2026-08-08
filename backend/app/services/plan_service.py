@@ -587,7 +587,11 @@ async def generate_plan_days(
     db_items = result.scalars().all()
 
     remaining_ingredients: list[StockItemDTO] = [
-        StockItemDTO(name=item.name, quantity_grams=item.quantity_grams, need_to_use=item.need_to_use)
+        StockItemDTO(
+            name=item.name,
+            quantity_grams=item.quantity_grams,
+            need_to_use=item.need_to_use and user.need_to_use_enabled,
+        )
         for item in db_items
     ]
     initial_fridge: list[StockItemDTO] = [ing.model_copy() for ing in remaining_ingredients]
