@@ -216,8 +216,12 @@ class TestPlanGeneration:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_need_to_use_disabled_masks_urgent_stock_from_prompt(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict, test_user
-    ):
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+    ) -> None:
         # fatheus97/mealbot-tickets#6: with the preference off, the LLM must
         # not see the item as urgent even though it's stored need_to_use=True.
         #
@@ -249,8 +253,8 @@ class TestPlanGeneration:
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_need_to_use_enabled_keeps_urgent_stock_in_prompt(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict
-    ):
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         put = await client.put(
             "/api/fridge",
             headers=auth_headers,
@@ -534,9 +538,9 @@ class TestPlanRegenerate:
         mock_gen: AsyncMock,
         mock_partial: AsyncMock,
         client: AsyncClient,
-        auth_headers: dict,
-        test_user,
-    ):
+        auth_headers: dict[str, str],
+        test_user: User,
+    ) -> None:
         # Regression: regenerate re-loads the fridge itself (api/plan.py,
         # separately from plan_service.generate_plan_days) and had its own,
         # unmasked construction of the LLM-facing stock list — the mask fix

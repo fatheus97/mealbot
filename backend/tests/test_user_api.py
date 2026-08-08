@@ -277,8 +277,8 @@ class TestProfile:
         assert resp.json()["track_snacks"] is False
 
     async def test_patch_need_to_use_enabled(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         resp = await client.get("/api/users", headers=auth_headers)
         assert resp.json()["need_to_use_enabled"] is True
 

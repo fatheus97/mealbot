@@ -175,8 +175,8 @@ class TestNeedToUseToggle:
     value — re-enabling the preference must restore exactly what was there."""
 
     async def test_get_masks_stored_true_to_false_when_disabled(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         payload = [{"name": "chicken", "quantity_grams": 500, "need_to_use": True}]
         await client.put("/api/fridge", headers=auth_headers, json=payload)
 
@@ -194,8 +194,8 @@ class TestNeedToUseToggle:
         assert resp.json()[0]["need_to_use"] is True
 
     async def test_near_expiry_auto_tick_also_masked_when_disabled(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         await client.patch(
             "/api/users", headers=auth_headers, json={"need_to_use_enabled": False}
         )
@@ -208,8 +208,8 @@ class TestNeedToUseToggle:
         assert resp.json()[0]["need_to_use"] is False
 
     async def test_put_ignores_client_need_to_use_for_new_items_when_disabled(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # A masked client can't see the field, so it can't set it either —
         # even a client-supplied True on a brand-new item is dropped.
         await client.patch(
@@ -226,8 +226,8 @@ class TestNeedToUseToggle:
         assert resp.json()[0]["need_to_use"] is False
 
     async def test_put_round_trip_of_masked_get_does_not_wipe_stored_value(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # Regression: the fridge UI PUTs its ENTIRE local array back on any
         # edit (quantity, add, remove — not just a need_to_use change), and
         # that local array was seeded from a masked GET. If PUT trusted the
@@ -265,8 +265,8 @@ class TestNeedToUseToggle:
         assert resp.json()[0]["need_to_use"] is True
 
     async def test_editing_name_or_expiration_while_masked_still_preserves_flag(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # Regression: editing an item's NAME or EXPIRATION_DATE — an ordinary,
         # everyday fridge action, not a rare edge case — changes the only
         # fields (name, expiration_date) the masked-write reconciliation used
@@ -312,8 +312,8 @@ class TestNeedToUseToggle:
         assert data[0]["need_to_use"] is True
 
     async def test_put_round_trip_preserves_individual_values_across_duplicate_keys(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # (name, expiration_date) has no DB uniqueness constraint, so two rows
         # CAN share a key — e.g. two batches of the same item with no
         # expiration set, both addable via plain PUTs. A real GET->PUT round
@@ -351,8 +351,8 @@ class TestNeedToUseToggle:
         assert by_qty == {200.0: False, 300.0: True}
 
     async def test_put_round_trip_without_ids_falls_back_to_or_combine(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # A client that doesn't carry ids (an older cached page, or a
         # hand-built request) can't disambiguate the duplicate key either —
         # same OR-combine safety net as before: never silently drop a True.
@@ -386,8 +386,8 @@ class TestNeedToUseToggle:
         assert all(item["need_to_use"] is True for item in data)
 
     async def test_merge_response_masked_when_disabled(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
         # A client-supplied True is ignored while disabled, both in the
         # response AND in what actually gets stored (same protection as
         # PUT — /fridge/merge takes an arbitrary client payload too, not
