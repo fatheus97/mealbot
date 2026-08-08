@@ -66,7 +66,11 @@ from app.services.leftovers import (
 )
 from app.services.meal_planner import generate_partial_day
 from app.services.pantry_service import load_staple_keys
-from app.services.plan_repeat import PlanRepeatError, repeat_plan
+from app.services.plan_repeat import (
+    PlanNotRepeatableError,
+    PlanRepeatError,
+    repeat_plan,
+)
 from app.services.plan_service import (
     PlanGenerationError,
     PlanReopenShortageError,
@@ -340,6 +344,10 @@ async def repeat_plan_endpoint(
 
     try:
         copy = await repeat_plan(session, current_user, plan, payload.start_date)
+    except PlanNotRepeatableError as exc:
+        # A Cook Now recipe, not a week. See repeat_plan for why this is a
+        # server-side refusal and not left to the UI.
+        raise LocalizedHTTPException(422, "plan_repeat_not_repeatable") from exc
     except PlanRepeatError as exc:
         # The row is real and owned; its stored JSON just predates a schema
         # change. Say that, rather than 500-ing on someone's oldest plan.

@@ -347,3 +347,59 @@ class TestRepeatUnreadableSource:
         assert resp.status_code == 422
         # And nothing was created.
         assert await _plan_count(db_session, uid) == 1
+
+
+class TestRepeatRefusesWhatIsNotAWeek:
+    async def test_a_cook_now_plan_cannot_be_repeated(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Cook Now is a different lane, and a copy of one is unreachable.
+
+        Those plans are auto-confirmed on creation, while a copy is deliberately
+        created UNCONFIRMED — and both `list_plans` and `plan_calendar` filter on
+        `kind == "planned"`. So the copy would fail both filters at once:
+        invisible in the catalog, invisible on the calendar, swept by the next
+        generation. Refused server-side rather than left to the UI, because the
+        endpoint is reachable without it.
+        """
+        source = await _plan(db_session, test_user)
+        source.kind = "cook_now"
+        db_session.add(source)
+        await db_session.commit()
+        uid = test_user.id
+        assert uid is not None
+
+        resp = await client.post(
+            ENDPOINT.format(source.id), json={}, headers=auth_headers
+        )
+
+        assert resp.status_code == 422
+        assert await _plan_count(db_session, uid) == 1
+
+    async def test_an_out_of_range_start_date_is_rejected(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Every other date-accepting model in plan_models runs start_date
+        through `validate_plan_start_date`; this one skipped it, so the endpoint
+        would happily persist year 9999 onto a real row and junk the calendar."""
+        source = await _plan(db_session, test_user)
+        await db_session.commit()
+        uid = test_user.id
+        assert uid is not None
+
+        resp = await client.post(
+            ENDPOINT.format(source.id),
+            json={"start_date": "9999-12-31"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 422
+        assert await _plan_count(db_session, uid) == 1
