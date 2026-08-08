@@ -61,6 +61,24 @@ cycle defeats the point.
 - Open a PR with `gh pr create` — do not ask first.
 - After pushing, wait for CI and the Claude PR Review workflow. Poll with
   `ScheduleWakeup` so the session doesn't block.
+- **There is no `jq` on the host** (not in Git Bash's PATH). Use **`gh --jq`** —
+  the GitHub CLI embeds its own — for every one of these polls:
+  `gh pr checks 424 --json name,bucket --jq '.[] | "\(.bucket) \(.name)"'`.
+  A watcher ending in `| jq` dies with `jq: command not found`, and inside a poll
+  loop wrapped in `|| true` / `2>/dev/null` **that failure is silent**: the loop
+  runs its full duration and exits 0 having measured nothing. One watcher burned
+  20 minutes that way and reported no events — which reads exactly like "all
+  checks still pending", i.e. a broken watcher looks identical to a patient one.
+  **No output is not evidence of no failures.** Any watcher whose quiet result
+  you would act on must distinguish "nothing happened" from "I never ran" — emit
+  a per-probe marker, or don't swallow the exit code.
+  - Related: `gh pr checks` exits **non-zero while checks are pending**, so the
+    idiomatic `s=$(gh pr checks …) || continue` guard skips every iteration until
+    the run finishes — a second way to poll vacuously.
+  - A settle that arrives implausibly fast is the other tell. Confirm the runs
+    are real before trusting green: `gh api repos/<o>/<r>/commits/<headSha>/check-runs`
+    and check `started_at`/`completed_at` against the push time, so you don't
+    read another commit's results as your own.
 - Loop while any CI check is red OR the latest AI review lists any issues —
   regardless of severity label. Fix each item, commit, push, and wait for
   the next review. Low-severity items count; fix them unless the reviewer
