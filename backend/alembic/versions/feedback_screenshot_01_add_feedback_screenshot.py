@@ -29,7 +29,12 @@ import sqlalchemy as sa
 
 
 revision: str = "feedback_screenshot_01"
-down_revision: Union[str, Sequence[str], None] = "terms_acceptance_01"
+# Chained behind need_to_use_toggle_01 (PR #403), NOT terms_acceptance_01.
+# Both PRs were cut from terms_acceptance_01, so leaving this pointed there
+# would give Alembic TWO HEADS once both merged and `alembic upgrade head`
+# would fail. CI never runs migrations, so that only surfaces at deploy — and
+# merging main IS the deploy. Consequence: #403 must merge FIRST.
+down_revision: Union[str, Sequence[str], None] = "need_to_use_toggle_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
