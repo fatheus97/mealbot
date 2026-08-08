@@ -8,7 +8,12 @@ from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from app.api.deps import get_current_user, require_generation_budget, usage_capture
+from app.api.deps import (
+    get_current_user,
+    require_active_subscription,
+    require_generation_budget,
+    usage_capture,
+)
 from app.core.config import settings
 from app.core.country_whitelist import normalize_country
 from app.core.dietary_reference import ALLERGEN_INFO
@@ -34,6 +39,7 @@ from app.models.plan_models import (
     MealPlanResponse,
     MealPlanSummary,
     PlannedMeal,
+    PlanRepeatRequest,
     PlanScheduleResponse,
     PlanScheduleUpdate,
     RegeneratePlanRequest,
@@ -60,6 +66,7 @@ from app.services.leftovers import (
 )
 from app.services.meal_planner import generate_partial_day
 from app.services.pantry_service import load_staple_keys
+from app.services.plan_repeat import PlanRepeatError, repeat_plan
 from app.services.plan_service import (
     PlanGenerationError,
     PlanReopenShortageError,
@@ -301,6 +308,52 @@ async def get_plan_detail(
     # row, not inside response_json.
     plan_obj.start_date = plan.start_date
     return plan_obj
+
+
+# POST /api/plan/{plan_id}/repeat — copy a plan forward to a new date
+@router.post("/{plan_id}/repeat", response_model=MealPlanResponse)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def repeat_plan_endpoint(
+    request: Request,
+    plan_id: int,
+    payload: PlanRepeatRequest,
+    current_user: User = Depends(require_active_subscription),
+    session: AsyncSession = Depends(get_session),
+) -> MealPlanResponse:
+    """"Repeat this week": copy an existing plan's meals to a new start date.
+
+    Gated on ``require_active_subscription``, NOT ``require_generation_budget``
+    like the endpoints above it. There is no LLM call here, so there is no
+    budget to charge — but a lapsed subscriber should not keep minting plans, so
+    the entitlement gate stays. That difference is the whole reason this is a
+    separate endpoint rather than a flag on POST /plan.
+
+    Deliberately does NOT call ``clear_unconfirmed_plans``, which plan creation
+    does: that sweep deletes the user's unconfirmed plans, and repeating an
+    unconfirmed plan would delete the source out from under the copy. The next
+    real generation still sweeps, so repeats do not accumulate forever — a
+    repeat you never confirm has exactly the lifetime any unconfirmed plan has.
+    """
+    plan = await session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise LocalizedHTTPException(404, "plan_not_found")
+
+    try:
+        copy = await repeat_plan(session, current_user, plan, payload.start_date)
+    except PlanRepeatError as exc:
+        # The row is real and owned; its stored JSON just predates a schema
+        # change. Say that, rather than 500-ing on someone's oldest plan.
+        # Reuses the existing `plan_data_unreadable` key rather than minting a
+        # repeat-specific one: it already says exactly this, in both languages.
+        raise LocalizedHTTPException(422, "plan_data_unreadable") from exc
+
+    await session.commit()
+    await session.refresh(copy)
+
+    response = MealPlanResponse.model_validate_json(copy.response_json)
+    response.plan_id = copy.id
+    response.start_date = copy.start_date
+    return response
 
 
 # DELETE /api/plan/{plan_id}
