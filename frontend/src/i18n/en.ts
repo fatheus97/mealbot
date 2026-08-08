@@ -142,6 +142,32 @@ export const en = {
   "auth.changeEmail.done": "Done",
   "auth.changeEmail.failed": "Could not change your email address.",
 
+  // ─── Delete account ───────────────────────────────────────────────────────
+  // The bullets stay specific rather than reassuring: the two things people are
+  // surprised by afterwards are that the subscription stops with no refund for
+  // the rest of the paid period, and that invoices survive because tax law says
+  // they must. Saying so here is cheaper than saying it in a support reply.
+  "auth.deleteAccount.title": "Delete your account",
+  "auth.deleteAccount.body":
+    "This is permanent and takes effect immediately. There is no undo and no grace period.",
+  "auth.deleteAccount.pointData":
+    "Your plans, recipes, cookbook, fridge, pantry staples and preferences are deleted.",
+  "auth.deleteAccount.pointSubscription":
+    "Your subscription is cancelled right away. The rest of the period you've paid for is not refunded.",
+  "auth.deleteAccount.pointInvoices":
+    "Your invoice records are kept without your account attached — tax law requires it.",
+  "auth.deleteAccount.pointBackups":
+    "You stay in our database backups for up to 14 days, after which they age out.",
+  "auth.deleteAccount.exportFirst":
+    "If you want a copy of anything, download your data first — you can't afterwards.",
+  "auth.deleteAccount.currentPassword": "Current password",
+  "auth.deleteAccount.submit": "Delete my account",
+  "auth.deleteAccount.deleting": "Deleting…",
+  "auth.deleteAccount.cancel": "Cancel",
+  "auth.deleteAccount.failed": "Could not delete your account",
+  "auth.deleteAccount.rateLimited":
+    "Too many attempts. Please wait a minute and try again.",
+
   // One key, two placeholders: Czech puts both documents in the instrumental
   // case after "Souhlasím s", which a prefix/suffix split cannot express.
   //
@@ -197,6 +223,13 @@ export const en = {
   "settings.discardCancel": "Keep editing",
   "settings.emailAddress": "Email address",
   "settings.changeEmail": "Change",
+  "settings.yourData": "Your data",
+  "settings.exportData": "⬇️ Download my data",
+  "settings.exporting": "Preparing…",
+  "settings.exportFailed": "Could not prepare your data export",
+  "settings.exportRateLimited":
+    "You've requested this a few times already. Please try again later.",
+  "settings.deleteAccount": "Delete my account",
   "settings.sendFeedback": "💬 Send feedback",
   "settings.feedbackHintLabel": "How feedback credit works",
   "settings.feedbackHintText":

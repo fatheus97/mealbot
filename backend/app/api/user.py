@@ -2,7 +2,15 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
@@ -16,7 +24,7 @@ from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
 from app.core.legal import TERMS_VERSION
 from app.core.meal_types import MealType
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
@@ -29,6 +37,7 @@ from app.models.user_schemas import (
     user_to_read,
 )
 from app.services import email_verification
+from app.services.data_export import build_export
 from app.services.invite import find_redeemable_invite
 
 _VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
@@ -206,6 +215,44 @@ async def get_user(
         Returns the profile of the user identified by the JWT.
     """
     return _to_read(current_user)
+
+
+@router.get("/export")
+@limiter.limit("5/hour", key_func=user_id_key_func)
+async def export_user_data(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Download everything this account owns as one JSON file.
+
+    Replaces "ask us and we will put your data together by hand" in the privacy
+    policy — a GDPR art. 15/20 request that used to be a manual job.
+
+    Returns a raw ``Response``, not a ``response_model``, because the deliverable
+    is a FILE: ``Content-Disposition: attachment`` is the point, and a JSON body
+    with a download header is not something a response model can express. The
+    payload is still fully typed — ``UserDataExport.model_dump_json`` produces it,
+    so there is no untyped dict anywhere on this path (see
+    ``models/export_schemas.py`` for why the sections are picked, not dumped).
+
+    Rate-limited per USER at 5/hour rather than the usual per-minute bucket: one
+    request reads every plan blob the account owns, which is the heaviest read in
+    the app, and nobody needs their own data twelve times a minute.
+    """
+    export = await build_export(session, current_user, _to_read(current_user))
+    stamp = export.exported_at.strftime("%Y-%m-%d")
+    return Response(
+        content=export.model_dump_json(indent=2),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="mealbot-export-{stamp}.json"',
+            # Belt-and-braces: this body is per-user and contains everything.
+            # Nothing in front of the app caches an authenticated 200 today, but
+            # this response is the one where being wrong about that is worst.
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.patch(path="", response_model=UserRead)

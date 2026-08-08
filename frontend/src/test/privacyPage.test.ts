@@ -48,14 +48,34 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
   });
 
   describe("promises the code can actually keep", () => {
-    it("does not claim a self-service account deletion button", () => {
-      // There is no DELETE on /api/users — only an admin-mediated path. A
-      // "delete your account in settings" sentence would be false.
-      expect(html).toMatch(/no "delete my account" button/i);
+    it("no longer claims the self-service buttons are missing", () => {
+      // This assertion used to run the other way: the page said outright that
+      // no delete button and no export existed. Both now do (GET
+      // /api/users/export, POST /api/auth/delete-account), so the honest
+      // disclosure became a false one. Kept as a regression guard because a
+      // copy-paste from the old wording is exactly how it would come back.
+      expect(html).not.toMatch(/no "delete my account" button/i);
+      expect(html).not.toMatch(/no self-service data export/i);
     });
 
-    it("admits deletion is neither instant nor absolute", () => {
-      expect(html).toMatch(/not instant or absolute/i);
+    it("points at Settings for the three self-service rights", () => {
+      expect(html).toMatch(/in Settings/i);
+      expect(html).toMatch(/download your data/i);
+      expect(html).toMatch(/delete your account/i);
+    });
+
+    it("still admits deletion is not absolute", () => {
+      // Invoices survive (tax law), Stripe's customer record and any filed bug
+      // report are not removed automatically, and backups age out over 14 days.
+      // Deleting the button-does-not-exist bullet must not quietly delete this.
+      expect(html).toMatch(/not absolute/i);
+      expect(html).toMatch(/14 days/i);
+    });
+
+    it("warns that deleting forfeits the rest of a paid period", () => {
+      // The single most likely support complaint, and the one thing a user
+      // cannot discover before it is irreversible.
+      expect(html).toMatch(/not refunded/i);
     });
   });
 

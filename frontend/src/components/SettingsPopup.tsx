@@ -6,6 +6,8 @@ import type { PreferencesFormValues } from "./PreferencesForm";
 import { PantryStaples } from "./PantryStaples";
 import { FeedbackModal } from "./FeedbackModal";
 import { ChangeEmailModal } from "./auth/ChangeEmailModal";
+import { DeleteAccountModal } from "./auth/DeleteAccountModal";
+import { downloadMyData } from "../api";
 import { InfoHint } from "./InfoHint";
 import { useI18n, type TranslationKey } from "../i18n";
 
@@ -25,6 +27,24 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    setExportError(null);
+    setExporting(true);
+    try {
+      await downloadMyData({
+        rateLimited: t("settings.exportRateLimited"),
+        fallback: t("settings.exportFailed"),
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : t("settings.exportFailed"));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Guard every close path (✕, backdrop, and a successful preferences save)
   // against silently dropping unsaved pantry-staple edits — staples have their
@@ -239,6 +259,71 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
       </div>
       )}
 
+      {/* Your data. Hidden for demo sessions like the email row above, and for
+          the same reason: a demo account has no password to re-verify, holds
+          nothing worth exporting, and is swept within the hour — both endpoints
+          would only ever refuse it.
+
+          Export sits ABOVE delete deliberately: it is the thing you want to
+          have done before the other becomes irreversible. */}
+      {!isDemo && (
+      <div
+        style={{
+          marginTop: "1.25rem",
+          borderTop: "1px solid #e5e7eb",
+          paddingTop: "1rem",
+        }}
+      >
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: "0.5rem" }}>
+          {t("settings.yourData")}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <button
+            type="button"
+            onClick={() => void handleExport()}
+            disabled={exporting}
+            style={{
+              padding: "0.5rem 0.75rem",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              background: "#f9fafb",
+              color: "#111827",
+              cursor: exporting ? "default" : "pointer",
+              fontSize: 13,
+              opacity: exporting ? 0.6 : 1,
+            }}
+          >
+            {exporting ? t("settings.exporting") : t("settings.exportData")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDeleteAccount(true)}
+            style={{
+              padding: "0.5rem 0.75rem",
+              border: "1px solid #fecaca",
+              borderRadius: 6,
+              background: "#fef2f2",
+              color: "#b91c1c",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            {t("settings.deleteAccount")}
+          </button>
+        </div>
+        {/* Reserved slot, not `{err && <p/>}` in flow — the delete button sits
+            directly below and must not slide out from under the cursor when an
+            export fails (CLS, .claude/rules/frontend.md). */}
+        <div style={{ minHeight: 20, marginTop: "0.4rem" }}>
+          {exportError && (
+            <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: 12 }}>
+              {exportError}
+            </p>
+          )}
+        </div>
+      </div>
+      )}
+
       {/* Feedback entry point — a low-friction way for any logged-in user to report
           a bug or request a feature. Opens above this popup (higher z-index). */}
       <div
@@ -280,6 +365,9 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
     )}
     {showChangeEmail && (
       <ChangeEmailModal onClose={() => setShowChangeEmail(false)} />
+    )}
+    {showDeleteAccount && (
+      <DeleteAccountModal onClose={() => setShowDeleteAccount(false)} />
     )}
     </>
   );

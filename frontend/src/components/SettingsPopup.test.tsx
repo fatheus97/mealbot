@@ -8,17 +8,24 @@ import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import type { ReactNode } from 'react';
 
+// Factory mock: anything the component imports from `../api` and is NOT listed
+// here arrives as `undefined` and only explodes when CALLED — so a new import in
+// the component has to be added here too, or its test fails as a TypeError
+// several frames away from the cause.
 vi.mock('../api', () => ({
   authFetch: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
+  downloadMyData: vi.fn(),
+  deleteAccount: vi.fn(),
 }));
 
-import { authFetch, fetchUserProfile, updateUserProfile } from '../api';
+import { authFetch, fetchUserProfile, updateUserProfile, downloadMyData } from '../api';
 
 const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
 const mockedUpdateProfile = updateUserProfile as ReturnType<typeof vi.fn>;
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
+const mockedDownload = downloadMyData as ReturnType<typeof vi.fn>;
 
 // PreferencesForm fetches /countries and /languages. AuthProvider fetches /config.
 function stubAuthFetch() {
@@ -473,5 +480,75 @@ describe('SettingsPopup — account email section', () => {
     await waitFor(() => expect(screen.getByText('Settings')).toBeInTheDocument());
     expect(screen.queryByText('Email address')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^change$/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('SettingsPopup — your data section', () => {
+  beforeEach(() => {
+    stubAuthFetch();
+    mockedDownload.mockReset();
+  });
+
+  it('downloads the export and shows progress while it runs', async () => {
+    const user = userEvent.setup();
+    let release: () => void = () => {};
+    mockedDownload.mockReturnValue(new Promise<void>((res) => { release = res; }));
+
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await user.click(await screen.findByRole('button', { name: /download my data/i }));
+    expect(mockedDownload).toHaveBeenCalledTimes(1);
+    // Disabled while in flight, so an impatient second click can't spend
+    // another of the five hourly requests.
+    expect(screen.getByRole('button', { name: /preparing/i })).toBeDisabled();
+
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /download my data/i })).toBeEnabled(),
+    );
+  });
+
+  it('surfaces an export failure and stays usable', async () => {
+    const user = userEvent.setup();
+    mockedDownload.mockRejectedValue(new Error('You have requested this a few times already.'));
+
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await user.click(await screen.findByRole('button', { name: /download my data/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/few times already/i);
+    expect(screen.getByRole('button', { name: /download my data/i })).toBeEnabled();
+  });
+
+  it('opens the delete-account modal', async () => {
+    const user = userEvent.setup();
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await user.click(await screen.findByRole('button', { name: /delete my account/i }));
+    expect(await screen.findByText(/permanent and takes effect immediately/i)).toBeInTheDocument();
+  });
+
+  it('hides both controls for a demo session', async () => {
+    // A demo account has no real password to re-verify, nothing worth
+    // exporting, and is swept within the hour — both endpoints refuse it.
+    const AuthCtx = await import('../contexts/AuthContext');
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      email: 'demo-abc@mealbot.local',
+      isDemo: true,
+    } as unknown as ReturnType<typeof AuthCtx.useAuth>);
+
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Settings')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /download my data/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete my account/i })).not.toBeInTheDocument();
   });
 });
