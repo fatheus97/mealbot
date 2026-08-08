@@ -8,6 +8,7 @@
 // flow — it never creates the only path to a feature.
 import {
   applyConfig,
+  applyRegistrationCopy,
   createDemoHandler,
   forwardSearchOnAppLinks,
   loggedInRedirectTarget,
@@ -104,6 +105,15 @@ if (forwardTarget) {
       .then((r) => (r.ok ? (r.json() as Promise<PublicConfig>) : null))
       .then((config) => {
         applyConfig(config, { primary, demo }, search);
+        // The button alone is not the claim — four blocks of prose and the
+        // FAQPage JSON-LD also state that sign-ups are closed.
+        applyRegistrationCopy(config, {
+          note: document.getElementById("cta-note"),
+          faqAnswer: document.getElementById("faq-availability"),
+          accessHeading: document.getElementById("access-heading"),
+          accessIntro: document.getElementById("access-intro"),
+          faqSchema: document.getElementById("faq-schema") as HTMLScriptElement | null,
+        });
         // Only once registration is actually open does the primary CTA mean
         // "sign up". While it's closed it stays the in-page #access anchor
         // that scrolls to the request form — which must NOT be hijacked into

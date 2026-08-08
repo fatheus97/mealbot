@@ -57,7 +57,7 @@
          Stripe checkout is the authoritative source for the live figure, and
          a hardcoded price here would go stale and become a structured-data
          liability. -->
-    <script type="application/ld+json">
+    <script id="faq-schema" type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
@@ -692,7 +692,12 @@
             <a id="cta-demo" class="btn btn-tertiary cta-reserved" href="/app">Vyzkoušet demo</a>
           </div>
         </div>
-        <p class="muted" style="font-size: 0.85rem;">Soukromá alfa verze — viz Přístup níže.</p>
+        <!-- This and the three other access-model claims below (the FAQ answer,
+             the Access heading and its intro) are rewritten by
+             cta.ts applyRegistrationCopy once /api/config reports registration
+             is open. The wording here is the closed state, which is both true
+             today and the safe thing to show if that fetch never resolves. -->
+        <p id="cta-note" class="muted" style="font-size: 0.85rem;">Soukromá alfa verze — viz Přístup níže.</p>
       </section>
 
       <!-- THE DIFFERENTIATOR -->
@@ -861,7 +866,7 @@
         </details>
         <details class="card">
           <summary>Je už dostupný?</summary>
-          <div class="answer">
+          <div id="faq-availability" class="answer">
             Mealbot je zatím v soukromé alfa verzi. Požádejte níže o přístup, nebo se přihlaste, pokud už
             účet máte.
           </div>
@@ -870,8 +875,8 @@
 
       <!-- ACCESS -->
       <section id="access">
-        <h2>Soukromá alfa verze</h2>
-        <p>
+        <h2 id="access-heading">Soukromá alfa verze</h2>
+        <p id="access-intro">
           Mealbot zatím není otevřený veřejné registraci. Nechte nám e-mail a ozveme se vám s pozvánkou.
         </p>
 
