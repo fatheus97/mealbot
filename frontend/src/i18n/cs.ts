@@ -724,4 +724,10 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "time.minutes_few": "{count} minuty",
   "time.minutes_many": "{count} minuty",
   "time.minutes_other": "{count} minut",
+
+  // Nominative forms — see the note in en.ts. Identical to the strings in
+  // `frontend/cs/index.html`'s footer, so the two surfaces name the same
+  // documents the same way.
+  "footer.privacy": "Zásady ochrany osobních údajů",
+  "footer.terms": "Obchodní podmínky",
 };

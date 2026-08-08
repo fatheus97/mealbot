@@ -778,4 +778,12 @@ export const en = {
   // a real user of it rather than being proven only by a test fixture.
   "time.minutes_one": "{count} minute",
   "time.minutes_other": "{count} minutes",
+
+  // ─── Persistent legal footer (AppFooter) ──────────────────────────────────
+  // Separate keys from `auth.acceptTerms.*Link`, not a reuse: those are
+  // inflected to sit inside a Czech sentence ("Podmínkami služby"), which reads
+  // as a grammatical error standing alone. These are the nominative forms, and
+  // match the wording the marketing landing's own footer already uses.
+  "footer.privacy": "Privacy Policy",
+  "footer.terms": "Terms of Service",
 } as const;
