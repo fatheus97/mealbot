@@ -254,3 +254,16 @@ inherits the other's CSS** (`vite.config.ts` has four HTML entry points; only
   run them in a `node:26.4.0` container with a cached `node_modules` volume, and
   drive the browser preview via a throwaway Vite container on the compose network
   (`VITE_PROXY_TARGET=http://backend:8000`). Exact commands are in project memory.
+- **There is no `jq` on the host** (not in Git Bash's PATH). Use **`gh --jq`** —
+  the GitHub CLI embeds its own — for anything reading GitHub JSON:
+  `gh pr checks 422 --json name,bucket --jq '.[] | "\(.bucket) \(.name)"'`.
+  A pipeline ending in `| jq` dies with `jq: command not found`, and inside a
+  poll loop wrapped in `|| true` / `2>/dev/null` **that failure is silent**: the
+  loop runs its full duration and exits 0 having measured nothing. One CI
+  watcher burned 20 minutes that way and reported no events — which reads
+  exactly like "all checks still pending". Same false-clean shape as the sweep
+  traps above: **no output is not evidence of no failures.** Any watcher whose
+  quiet result you would act on must be able to distinguish "nothing happened"
+  from "I never ran" — emit a heartbeat, or don't swallow the exit code.
+  (Related: `gh pr checks` exits **non-zero while checks are pending**, so
+  `s=$(gh pr checks …) || continue` skips every iteration until they finish.)
