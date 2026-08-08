@@ -66,14 +66,19 @@ calls *worse than the error*, and it prints a cheerful diffstat while doing it.
 
 ```bash
 git branch --show-current    # says "main"? you are squatting on it
-git status --short           # must be clean first
-git checkout --detach        # releases main, keeps the same commit
+git checkout --detach        # releases main, stays on the same commit
 ```
 
 Detaching is the fix, not checking out some other branch — a detached worktree
 holds no branch name, so nothing is blocked. Do it even though the worktree is
 disposable: a worktree left on `main` blocks every other session from checking
 it out until someone notices.
+
+**`--detach` with no ref needs no clean tree** — it stays on the current commit,
+so there are no files to update. Verified with modified tracked files *and*
+untracked files present: both survive the detach untouched. So release `main`
+the moment you notice, mid-work if need be — there is nothing to stash or
+finish first.
 
 ### Symptoms that this already went wrong
 
