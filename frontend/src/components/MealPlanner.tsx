@@ -6,7 +6,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
 import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import { formatAmount } from "../utils/pieces";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUserProfile } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
@@ -16,8 +16,10 @@ import { CookNowForm } from "./CookNowForm";
 import { DietarySelector } from "./DietarySelector";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { type MealType } from "../constants/mealTypes";
-import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, PlannedMeal, IngredientAmount } from "../types";
-import { todayISO, dayDateLabel } from "../utils/planDates";
+import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, PlannedMeal, IngredientAmount, StockItem, WasteEntry } from "../types";
+import { todayISO, dayDateLabel, addDaysISO } from "../utils/planDates";
+import { ExpiredReviewDialog, type ExpiredDecision } from "./ExpiredReviewDialog";
+import { isExpired, STILL_FINE_EXTENSION_DAYS } from "../utils/expiry";
 import { leftoverSourceLabel } from "../utils/leftovers";
 
 // Fallback seed for a single day when the user has no saved default layout.
@@ -129,8 +131,16 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     }
   }, [initialPlan]);
 
-  const { data: fridgeItems } = useFridge(userId);
+  const { data: fridgeItems, refetch: refetchFridge } = useFridge(userId);
   const { data: profile } = useUserProfile(userId);
+  // Opt-in, so the fallback is false: an unloaded profile prompts nothing.
+  const wasteTrackingEnabled = profile?.waste_tracking_enabled ?? false;
+  const updateFridgeMutation = useUpdateFridge();
+  const recordWasteMutation = useRecordWaste();
+  // Expired items to review after a finish. Snapshotted (not derived from the
+  // live fridge query) so the list the user is answering about can't shift
+  // underneath them mid-dialog.
+  const [expiredReview, setExpiredReview] = useState<StockItem[] | null>(null);
   const fridgeSuggestions = useMemo(
     () => (Array.isArray(fridgeItems) ? fridgeItems.map((i) => i.name) : []),
     [fridgeItems],
@@ -366,8 +376,79 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   const handleFinish = () => {
     if (!planId) return;
     finishMutation.mutate(planId, {
-      onSuccess: () => setIsFinished(true),
+      onSuccess: async () => {
+        setIsFinished(true);
+        if (!wasteTrackingEnabled) return;
+        // Refetch rather than reading `fridgeItems`: finishing RESTORES the
+        // uncooked meals' ingredients, and those restored batches carry their
+        // original expiry dates — so items that are past their date can appear
+        // only after the finish lands. Reading the pre-finish snapshot would
+        // miss exactly the ones this dialog exists for.
+        //
+        // Awaited inside onSuccess, never in front of setIsFinished: a failed
+        // refetch must leave the plan finished (it is, server-side) and simply
+        // skip the prompt.
+        try {
+          const { data } = await refetchFridge();
+          const expired = (data ?? []).filter(isExpired);
+          if (expired.length > 0) setExpiredReview(expired);
+        } catch {
+          // Prompting is best-effort; the finish already succeeded.
+        }
+      },
     });
+  };
+
+  /**
+   * Apply the user's answers: bin some items, push the dates of the rest.
+   *
+   * Both halves are ONE fridge write. PUT /fridge replaces the whole list, so
+   * issuing two writes would make the second clobber the first — and the list
+   * sent must be the CURRENT fridge, not the snapshot the dialog was built
+   * from, or any edit made in another tab meanwhile is silently reverted.
+   */
+  const handleExpiredApply = (decisions: ExpiredDecision[]) => {
+    setExpiredReview(null);
+    if (!userId || decisions.length === 0) return;
+
+    // Rows are matched by server id. An item with no id never round-tripped
+    // through the API and cannot be identified against the current list, so it
+    // is dropped up front rather than matched by name — two batches of the same
+    // ingredient share a name, and binning the wrong one destroys real data.
+    // Filtering here (rather than tolerating a stray null inside the Sets) is
+    // what makes that rule readable in one place instead of three.
+    const identified = decisions.filter(
+      (d): d is ExpiredDecision & { item: { id: number } } => d.item.id != null,
+    );
+    const binnedIds = new Set(
+      identified.filter((d) => d.choice === "thrown_out").map((d) => d.item.id),
+    );
+    const stillFineIds = new Set(
+      identified.filter((d) => d.choice === "still_fine").map((d) => d.item.id),
+    );
+    const current = fridgeItems ?? [];
+    const next = current
+      .filter((it) => it.id == null || !binnedIds.has(it.id))
+      .map((it) =>
+        it.id != null && stillFineIds.has(it.id) && it.expiration_date
+          ? { ...it, expiration_date: addDaysISO(todayISO(), STILL_FINE_EXTENSION_DAYS) }
+          : it,
+      );
+    updateFridgeMutation.mutate({ userId, items: next });
+
+    // Both dispositions are recorded, and still_fine is not an afterthought:
+    // it is the denominator. A count of binned items has no base rate to be
+    // read against without it.
+    const entries: WasteEntry[] = decisions
+      .filter((d) => d.item.id != null)
+      .map((d) => ({
+        name: d.item.name,
+        quantity_grams: d.item.quantity_grams,
+        expiration_date: d.item.expiration_date ?? null,
+        reason: d.choice,
+        source: "finish_plan",
+      }));
+    if (entries.length > 0) recordWasteMutation.mutate(entries);
   };
 
   const handleUnconfirm = () => {
@@ -824,6 +905,18 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
               {(unconfirmMutation.error ?? reopenMutation.error)?.message}
             </div>
           )}
+          {/* The expired-review dialog closes the moment the user answers, so a
+              failed fridge write would otherwise be invisible: the item is not
+              binned, the date is not pushed, and the surface that would have
+              said so is gone. Self-healing (the item stays past its date and is
+              re-offered next finish) is not the same as visible. The waste POST
+              is deliberately NOT surfaced here — it is optional metadata whose
+              failure changes nothing the user asked for. */}
+          {updateFridgeMutation.isError && (
+            <div role="alert" style={{ color: "#b91c1c", marginBottom: "1rem", padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", fontSize: "0.9rem" }}>
+              {t("expired.saveFailed")}
+            </div>
+          )}
           {!isConfirmed && frozenMeals.size > 0 && (
             <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>
               {frozenMeals.size} meal(s) frozen. Unfrozen meals will be regenerated.
@@ -963,6 +1056,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         </div>
       )}
       </>)}
+
+      {expiredReview && (
+        <ExpiredReviewDialog
+          items={expiredReview}
+          onApply={handleExpiredApply}
+          onSkip={() => setExpiredReview(null)}
+          applying={updateFridgeMutation.isPending}
+        />
+      )}
     </section>
   );
 }

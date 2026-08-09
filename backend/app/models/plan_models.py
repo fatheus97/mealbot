@@ -247,9 +247,17 @@ class WasteEntryDTO(BaseModel):
 
     ``reason`` and ``source`` are Literals here and loose ``str`` columns on
     WasteRecord, and that split is on purpose: the DB stays migration-free when
-    a third disposition appears, while the API boundary — the only place
+    a fourth disposition appears, while the API boundary — the only place
     untrusted input is actually stopped — still refuses anything outside the
     known set with a 422 rather than writing a junk value nobody can query.
+    ``still_fine`` is that extensibility already being spent once, and it needed
+    no migration exactly as designed.
+
+    ``still_fine`` means the item reached its expiry date and the user says it
+    is fine to keep — so it is NOT waste, and the row exists as the DENOMINATOR.
+    "5 items binned" is uninterpretable on its own; "5 binned, 12 outlived their
+    date" is the shelf-life signal, and it is the only feedback that ever
+    reaches the LLM's ``shelf_life_days`` guess in receipt_scan.jinja.
     """
 
     name: str = Field(..., min_length=1, max_length=100)
@@ -258,13 +266,30 @@ class WasteEntryDTO(BaseModel):
     # one. Kept (rather than a "was expired" bool) so the gap against the write
     # time survives — see WasteRecord for what that gap is for.
     expiration_date: date | None = None
-    reason: Literal["thrown_out", "eaten"]
+    reason: Literal["thrown_out", "eaten", "still_fine"]
     source: Literal["fridge_delete", "finish_plan"]
 
     @field_validator("name", mode="before")
     @classmethod
     def _strip_fence_tags(cls, v: object) -> object:
         return _strip_prompt_fence_tags(v)
+
+    @model_validator(mode="after")
+    def _reason_fits_source(self) -> WasteEntryDTO:
+        """Reject dispositions the surface that claims them cannot produce.
+
+        The fridge remove dialog only ever offers "ate it / threw it out" — an
+        item that is *still fine* is not being removed at all, so there is no
+        such answer to give there. Enforced rather than merely documented: a
+        comment saying "still_fine only comes from finish_plan" is a claim a
+        future reader would trust, and an unenforced claim about data is how a
+        query written against it silently returns the wrong thing.
+        """
+        if self.reason == "still_fine" and self.source != "finish_plan":
+            raise ValueError(
+                'reason "still_fine" is only valid from source "finish_plan"'
+            )
+        return self
 
 
 class WasteRecordedResponse(BaseModel):

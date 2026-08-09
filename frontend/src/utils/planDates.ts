@@ -111,6 +111,17 @@ export function startOfMonthISO(iso: string): string {
   return toISODate(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
+/**
+ * `iso` shifted by `n` days (n may be negative), still "YYYY-MM-DD".
+ *
+ * Goes through a local-midnight Date so month/year rollover and DST are the
+ * platform's problem, not ours — `new Date(y, m, d + n)` normalises overflow.
+ */
+export function addDaysISO(iso: string, n: number): string {
+  const d = parseISODateLocal(iso);
+  return toISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+}
+
 /** First-of-month `n` months away from `iso` (n may be negative). */
 export function addMonthsISO(iso: string, n: number): string {
   const d = parseISODateLocal(iso);

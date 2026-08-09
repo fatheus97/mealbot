@@ -286,8 +286,11 @@ export const en = {
 
   "prefs.foodWaste": "Food waste",
   "prefs.wasteTracking": "Ask where food went",
+  // Names BOTH surfaces. The preference gates the finish-plan review entirely,
+  // not just its logging, so a hint describing only the fridge dialog would
+  // understate what turning this off actually switches off.
   "prefs.wasteTrackingHint":
-    "When you remove something from the fridge, Mealbot asks whether you ate it or threw it out. Answering is always optional. Off by default — nothing is recorded until you turn this on.",
+    "Mealbot asks where food went: when you remove something from the fridge, and when finishing a plan leaves items past their date. Answering is always optional. Off by default — with this off you are never asked, and nothing is recorded.",
 
   "prefs.dayLayout": "Default day layout",
   "prefs.dayLayoutHint":
@@ -592,6 +595,26 @@ export const en = {
     "Remove all {count} batch of \"{name}\" from your fridge?",
   "fridge.removeGroupBody_other":
     "Remove all {count} batches of \"{name}\" from your fridge?",
+
+  // ─── Expired-item review (after finishing a plan) ─────────────────────────
+  // Deliberately never says "safe" or "still good to eat" — the app is not
+  // judging edibility and must not imply it has. The user is telling US.
+  "expired.title": "Anything past its date?",
+  "expired.body_one": "1 item in your fridge is past the date on it.",
+  "expired.body_other": "{count} items in your fridge are past the date on them.",
+  "expired.itemMeta": "{grams} g · dated {date}",
+  "expired.stillFine": "Still fine",
+  "expired.thrownOut": "Threw it out",
+  "expired.apply": "Save",
+  "expired.applying": "Saving…",
+  "expired.skip": "Skip",
+  // Says what "Still fine" DOES, because moving the date is a real edit to
+  // their fridge and a silent one would read as a bug.
+  "expired.optionalHint":
+    "Optional — skip anything you're not sure about. \"Still fine\" keeps the item and moves its date on a week.",
+  // The dialog closes as soon as it is answered, so a failed fridge write has
+  // nowhere else to be reported.
+  "expired.saveFailed": "Could not update your fridge — nothing was changed. Try again from the Fridge panel.",
 
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Add Ingredient",
