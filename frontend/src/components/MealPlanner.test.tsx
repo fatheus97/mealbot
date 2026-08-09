@@ -1315,6 +1315,60 @@ describe('MealPlanner — expired-item review after finishing', () => {
     ]);
   });
 
+  it('surfaces a failed fridge write instead of closing silently', async () => {
+    // The dialog closes the moment it is answered, so without this the user
+    // who clicked "Threw it out" sees the prompt vanish while nothing happened:
+    // the item is not binned and the date is not pushed. Self-healing (it gets
+    // re-offered next finish) is not the same as visible.
+    loginUser();
+    mockedFetchProfile.mockResolvedValue({
+      id: 1, email: 'test@test.com', country: null, language: 'English',
+      measurement_system: 'metric', variability: 'traditional', include_spices: true,
+      track_snacks: true, show_pieces: false, need_to_use_enabled: true,
+      onboarding_completed: true, is_admin: false, default_day_layout: null,
+      waste_tracking_enabled: true,
+    });
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/fridge' && opts?.method === 'PUT') {
+        return Promise.resolve({ ok: false, status: 500 } as unknown as Response);
+      }
+      if (url === '/fridge') {
+        return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve([EXPIRED, FRESH]),
+        } as unknown as Response);
+      }
+      if (url.endsWith('/finish')) {
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve({
+            status: 'finished', finished_at: new Date().toISOString(), returned_meals: 0,
+          }),
+        } as unknown as Response);
+      }
+      if (url.includes('/meals')) {
+        return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve([]),
+        } as unknown as Response);
+      }
+      return Promise.resolve(okEmpty());
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MealPlanner initialPlan={initialPlan} initialSummary={initialSummary} />,
+      { wrapper: createWrapper() },
+    );
+    await user.click(await screen.findByRole('button', { name: /finish plan/i }));
+    await screen.findByText(/anything past its date/i);
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/could not update your fridge/i),
+    );
+  });
+
   it('writes nothing at all when the prompt is skipped', async () => {
     const user = await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
     await screen.findByText(/anything past its date/i);

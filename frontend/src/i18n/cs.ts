@@ -250,7 +250,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "prefs.foodWaste": "Plýtvání potravinami",
   "prefs.wasteTracking": "Ptát se, kam potravina zmizela",
   "prefs.wasteTrackingHint":
-    "Když něco odeberete z lednice, Mealbot se zeptá, jestli jste to snědli, nebo vyhodili. Odpověď je vždy dobrovolná. Ve výchozím stavu vypnuto — dokud to nezapnete, nic se nezaznamenává.",
+    "Mealbot se ptá, kam potravina zmizela: když něco odeberete z lednice a když po dokončení jídelníčku zůstanou v lednici položky po uvedeném datu. Odpověď je vždy dobrovolná. Ve výchozím stavu vypnuto — dokud to nezapnete, nikdo se vás na nic neptá a nic se nezaznamenává.",
 
   "prefs.dayLayout": "Výchozí rozvržení dne",
   "prefs.dayLayoutHint":
@@ -575,6 +575,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "expired.skip": "Přeskočit",
   "expired.optionalHint":
     "Nepovinné — co si nejste jistí, přeskočte. „Ještě dobré“ položku ponechá a posune datum o týden.",
+  "expired.saveFailed":
+    "Lednici se nepodařilo upravit — nic se nezměnilo. Zkuste to znovu v sekci Lednice.",
 
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Přidat surovinu",

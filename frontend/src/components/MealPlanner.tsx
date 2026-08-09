@@ -411,16 +411,21 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     setExpiredReview(null);
     if (!userId || decisions.length === 0) return;
 
-    const binnedIds = new Set(
-      decisions.filter((d) => d.choice === "thrown_out").map((d) => d.item.id),
-    );
-    const stillFineIds = new Set(
-      decisions.filter((d) => d.choice === "still_fine").map((d) => d.item.id),
-    );
     // Rows are matched by server id. An item with no id never round-tripped
     // through the API and cannot be identified against the current list, so it
-    // is left alone rather than matched by name — two batches of the same
+    // is dropped up front rather than matched by name — two batches of the same
     // ingredient share a name, and binning the wrong one destroys real data.
+    // Filtering here (rather than tolerating a stray null inside the Sets) is
+    // what makes that rule readable in one place instead of three.
+    const identified = decisions.filter(
+      (d): d is ExpiredDecision & { item: { id: number } } => d.item.id != null,
+    );
+    const binnedIds = new Set(
+      identified.filter((d) => d.choice === "thrown_out").map((d) => d.item.id),
+    );
+    const stillFineIds = new Set(
+      identified.filter((d) => d.choice === "still_fine").map((d) => d.item.id),
+    );
     const current = fridgeItems ?? [];
     const next = current
       .filter((it) => it.id == null || !binnedIds.has(it.id))
@@ -898,6 +903,18 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           {(unconfirmMutation.isError || reopenMutation.isError) && (
             <div role="alert" style={{ color: "#b91c1c", marginBottom: "1rem", padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", fontSize: "0.9rem" }}>
               {(unconfirmMutation.error ?? reopenMutation.error)?.message}
+            </div>
+          )}
+          {/* The expired-review dialog closes the moment the user answers, so a
+              failed fridge write would otherwise be invisible: the item is not
+              binned, the date is not pushed, and the surface that would have
+              said so is gone. Self-healing (the item stays past its date and is
+              re-offered next finish) is not the same as visible. The waste POST
+              is deliberately NOT surfaced here — it is optional metadata whose
+              failure changes nothing the user asked for. */}
+          {updateFridgeMutation.isError && (
+            <div role="alert" style={{ color: "#b91c1c", marginBottom: "1rem", padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", fontSize: "0.9rem" }}>
+              {t("expired.saveFailed")}
             </div>
           )}
           {!isConfirmed && frozenMeals.size > 0 && (
