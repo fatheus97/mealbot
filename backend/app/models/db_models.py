@@ -625,10 +625,16 @@ class WasteRecord(SQLModel, table=True):
     # (or before) the date survives — that gap against created_at is the whole
     # shelf-life calibration signal.
     expiration_date: date | None = Field(default=None)
-    # "thrown_out" | "eaten". Loose str, not an enum column, so a third
-    # disposition needs no migration — the same choice FeedbackReport.status and
-    # AccessRequest.status made. Constrained to the known set by a Literal at
-    # the API boundary, which is where untrusted input is actually stopped.
+    # "thrown_out" | "eaten" | "still_fine". Loose str, not an enum column, so a
+    # further disposition needs no migration — the same choice FeedbackReport.status
+    # and AccessRequest.status made, and "still_fine" is that bet already paying
+    # off once. Constrained to the known set by a Literal at the API boundary,
+    # which is where untrusted input is actually stopped.
+    #
+    # NOTE "still_fine" is NOT waste: the item reached its expiry date and the
+    # user kept it. Those rows are the DENOMINATOR — a count of binned items
+    # alone has no base rate to compare against. Any query that sums "waste"
+    # must therefore filter on reason, not just count rows for a user.
     reason: str
     # "fridge_delete" | "finish_plan" — which surface captured the answer.
     # Same loose-str reasoning as `reason`.

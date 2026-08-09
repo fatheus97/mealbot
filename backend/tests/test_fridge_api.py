@@ -863,3 +863,111 @@ class TestWasteCapture:
             )
         )
         assert remaining.scalar() == 0
+
+
+class TestStillFineDisposition:
+    """``still_fine`` — the finish-plan surface's third answer.
+
+    An item that reached its expiry date and the user says is fine to keep. NOT
+    waste: it stays in the fridge (with a pushed date) and the row exists purely
+    as the denominator for the binned count.
+    """
+
+    async def test_records_still_fine_from_finish_plan(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        expired = (date.today() - timedelta(days=3)).isoformat()
+        resp = await client.post(
+            "/api/fridge/waste",
+            headers=auth_headers,
+            json=[
+                {
+                    "name": "yogurt",
+                    "quantity_grams": 500,
+                    "expiration_date": expired,
+                    "reason": "still_fine",
+                    "source": "finish_plan",
+                },
+                {
+                    "name": "spinach",
+                    "quantity_grams": 200,
+                    "expiration_date": expired,
+                    "reason": "thrown_out",
+                    "source": "finish_plan",
+                },
+            ],
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"recorded": 2}
+
+        assert test_user.id is not None
+        rows = await _waste_rows(db_session, test_user.id)
+        assert {(r.name, r.reason) for r in rows} == {
+            ("yogurt", "still_fine"),
+            ("spinach", "thrown_out"),
+        }
+        assert {r.source for r in rows} == {"finish_plan"}
+
+    async def test_still_fine_rejected_from_the_fridge_delete_surface(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """The remove dialog offers only "ate it / threw it out" — an item that
+        is still fine is not being removed, so there is no such answer to give
+        there. The cross-field rule is ENFORCED, not just documented, because an
+        unenforced claim about data is how a query written against it silently
+        returns the wrong thing."""
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        resp = await client.post(
+            "/api/fridge/waste",
+            headers=auth_headers,
+            json=[
+                {
+                    "name": "yogurt",
+                    "quantity_grams": 500,
+                    "reason": "still_fine",
+                    "source": "fridge_delete",
+                }
+            ],
+        )
+        assert resp.status_code == 422
+
+        assert test_user.id is not None
+        assert await _waste_rows(db_session, test_user.id) == []
+
+    async def test_other_reasons_still_accepted_from_both_surfaces(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """Negative-control the validator above: it must reject ONLY the one
+        invalid pairing, not narrow the endpoint generally."""
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        for source in ("fridge_delete", "finish_plan"):
+            for reason in ("thrown_out", "eaten"):
+                resp = await client.post(
+                    "/api/fridge/waste",
+                    headers=auth_headers,
+                    json=[
+                        {
+                            "name": "spinach",
+                            "quantity_grams": 200,
+                            "reason": reason,
+                            "source": source,
+                        }
+                    ],
+                )
+                assert resp.status_code == 200, f"{reason} from {source} was rejected"
+                assert resp.json() == {"recorded": 1}
