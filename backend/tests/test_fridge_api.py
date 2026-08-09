@@ -210,294 +210,6 @@ class TestNeedToUseToggle:
         assert resp.json()[0]["need_to_use"] is False
 
 
-async def _waste_rows(session: AsyncSession, user_id: int) -> list[WasteRecord]:
-    """Every WasteRecord for a user, oldest id first."""
-    result = await session.execute(
-        select(WasteRecord)
-        .where(WasteRecord.user_id == user_id)  # type: ignore[arg-type]
-        .order_by(WasteRecord.id)  # type: ignore[arg-type]
-    )
-    return list(result.scalars().all())
-
-
-class TestWasteCapture:
-    """POST /api/fridge/waste — the "ate it / threw it out" answer.
-
-    The endpoint is deliberately independent of the fridge write: PUT /fridge
-    replaces the whole list, so a removal (let alone its reason) is not
-    inferable server-side. See app.api.fridge.record_waste.
-    """
-
-    async def test_records_each_answer(
-        self,
-        client: AsyncClient,
-        auth_headers: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
-        )
-        expired = (date.today() - timedelta(days=2)).isoformat()
-        resp = await client.post(
-            "/api/fridge/waste",
-            headers=auth_headers,
-            json=[
-                {
-                    "name": "spinach",
-                    "quantity_grams": 200,
-                    "expiration_date": expired,
-                    "reason": "thrown_out",
-                    "source": "fridge_delete",
-                },
-                {
-                    "name": "rice",
-                    "quantity_grams": 500,
-                    "expiration_date": None,
-                    "reason": "eaten",
-                    "source": "fridge_delete",
-                },
-            ],
-        )
-        assert resp.status_code == 200
-        assert resp.json() == {"recorded": 2}
-
-        assert test_user.id is not None
-        rows = await _waste_rows(db_session, test_user.id)
-        assert [(r.name, r.reason, r.quantity_grams) for r in rows] == [
-            ("spinach", "thrown_out", 200.0),
-            ("rice", "eaten", 500.0),
-        ]
-        # The expiry is kept verbatim, not reduced to a was-expired flag — the
-        # gap between it and created_at is the shelf-life calibration signal.
-        assert rows[0].expiration_date == date.today() - timedelta(days=2)
-        assert rows[1].expiration_date is None
-        assert {r.source for r in rows} == {"fridge_delete"}
-        assert {r.user_id for r in rows} == {test_user.id}
-
-    async def test_disabled_preference_records_nothing(
-        self,
-        client: AsyncClient,
-        auth_headers: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """The preference is a server-side gate, not a client-side one.
-
-        A crafted request from a user who switched waste tracking off must not
-        write — otherwise the toggle is cosmetic. ``recorded: 0`` on a non-empty
-        payload is what makes the drop observable rather than silent.
-        """
-        profile = await client.get("/api/users", headers=auth_headers)
-        # Opt-in default: a user who never touched the setting is not tracked.
-        assert profile.json()["waste_tracking_enabled"] is False
-
-        resp = await client.post(
-            "/api/fridge/waste",
-            headers=auth_headers,
-            json=[
-                {
-                    "name": "spinach",
-                    "quantity_grams": 200,
-                    "reason": "thrown_out",
-                    "source": "fridge_delete",
-                }
-            ],
-        )
-        assert resp.status_code == 200
-        assert resp.json() == {"recorded": 0}
-
-        assert test_user.id is not None
-        assert await _waste_rows(db_session, test_user.id) == []
-
-    async def test_enabling_then_disabling_stops_new_rows(
-        self,
-        client: AsyncClient,
-        auth_headers: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """Flipping the toggle off stops capture but keeps what was already
-        recorded — the same "stored value is never touched" contract
-        need_to_use_enabled has."""
-        entry = {
-            "name": "spinach",
-            "quantity_grams": 200,
-            "reason": "thrown_out",
-            "source": "fridge_delete",
-        }
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
-        )
-        assert (
-            await client.post("/api/fridge/waste", headers=auth_headers, json=[entry])
-        ).json() == {"recorded": 1}
-
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": False}
-        )
-        assert (
-            await client.post("/api/fridge/waste", headers=auth_headers, json=[entry])
-        ).json() == {"recorded": 0}
-
-        assert test_user.id is not None
-        rows = await _waste_rows(db_session, test_user.id)
-        assert len(rows) == 1
-
-    async def test_empty_payload_is_not_an_error(
-        self, client: AsyncClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Answering is optional at every prompt, so "no answer" is a normal
-        request — the client should not have to branch on it."""
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
-        )
-        resp = await client.post("/api/fridge/waste", headers=auth_headers, json=[])
-        assert resp.status_code == 200
-        assert resp.json() == {"recorded": 0}
-
-    @pytest.mark.parametrize(
-        "field,value",
-        [
-            ("reason", "composted"),
-            ("reason", ""),
-            ("source", "somewhere_else"),
-        ],
-    )
-    async def test_unknown_reason_or_source_rejected(
-        self,
-        client: AsyncClient,
-        auth_headers: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-        field: str,
-        value: str,
-    ) -> None:
-        """The columns are loose ``str`` so a third disposition needs no
-        migration, but the API Literal is what stops junk getting in — this is
-        the test that keeps the loose column honest."""
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
-        )
-        entry = {
-            "name": "spinach",
-            "quantity_grams": 200,
-            "reason": "thrown_out",
-            "source": "fridge_delete",
-        }
-        entry[field] = value
-        resp = await client.post("/api/fridge/waste", headers=auth_headers, json=[entry])
-        assert resp.status_code == 422
-
-        assert test_user.id is not None
-        assert await _waste_rows(db_session, test_user.id) == []
-
-    async def test_one_bad_entry_rejects_the_whole_batch(
-        self,
-        client: AsyncClient,
-        auth_headers: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """Malformed input is hostile input: reject the payload rather than
-        silently keeping the good half, matching PUT /fridge's negative-quantity
-        behaviour."""
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
-        )
-        resp = await client.post(
-            "/api/fridge/waste",
-            headers=auth_headers,
-            json=[
-                {
-                    "name": "spinach",
-                    "quantity_grams": 200,
-                    "reason": "thrown_out",
-                    "source": "fridge_delete",
-                },
-                {
-                    "name": "rice",
-                    "quantity_grams": -1,
-                    "reason": "eaten",
-                    "source": "fridge_delete",
-                },
-            ],
-        )
-        assert resp.status_code == 422
-
-        assert test_user.id is not None
-        assert await _waste_rows(db_session, test_user.id) == []
-
-    async def test_too_many_entries_rejected(
-        self, client: AsyncClient, auth_headers: dict[str, str]
-    ) -> None:
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
-        )
-        entry = {
-            "name": "x",
-            "quantity_grams": 1,
-            "reason": "eaten",
-            "source": "fridge_delete",
-        }
-        resp = await client.post(
-            "/api/fridge/waste",
-            headers=auth_headers,
-            json=[entry] * (MAX_FRIDGE_ITEMS + 1),
-        )
-        assert resp.status_code == 422
-
-    async def test_requires_auth(self, unauthed_client: AsyncClient) -> None:
-        resp = await unauthed_client.post(
-            "/api/fridge/waste",
-            json=[
-                {
-                    "name": "spinach",
-                    "quantity_grams": 200,
-                    "reason": "thrown_out",
-                    "source": "fridge_delete",
-                }
-            ],
-        )
-        assert resp.status_code == 401
-
-    async def test_deleting_the_user_cascades(
-        self,
-        client: AsyncClient,
-        auth_headers: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """PantryStaple shipped with a bare user_id FK and wedged the demo-user
-        sweep in #337. This is the test that stops WasteRecord repeating it."""
-        await client.patch(
-            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
-        )
-        await client.post(
-            "/api/fridge/waste",
-            headers=auth_headers,
-            json=[
-                {
-                    "name": "spinach",
-                    "quantity_grams": 200,
-                    "reason": "thrown_out",
-                    "source": "fridge_delete",
-                }
-            ],
-        )
-        assert test_user.id is not None
-        user_id = test_user.id
-        assert len(await _waste_rows(db_session, user_id)) == 1
-
-        await db_session.execute(delete(User).where(User.id == user_id))  # type: ignore[arg-type]
-        await db_session.commit()
-
-        remaining = await db_session.execute(
-            select(func.count()).select_from(WasteRecord).where(
-                WasteRecord.user_id == user_id  # type: ignore[arg-type]
-            )
-        )
-        assert remaining.scalar() == 0
 
     async def test_put_ignores_client_need_to_use_for_new_items_when_disabled(
         self, client: AsyncClient, auth_headers: dict[str, str]
@@ -861,3 +573,293 @@ class TestFIFOSubtraction:
         assert len(milk_items) == 2
         assert milk_items[0].quantity_grams == 100  # smaller batch reduced
         assert milk_items[1].quantity_grams == 300  # larger batch untouched
+
+
+async def _waste_rows(session: AsyncSession, user_id: int) -> list[WasteRecord]:
+    """Every WasteRecord for a user, oldest id first."""
+    result = await session.execute(
+        select(WasteRecord)
+        .where(WasteRecord.user_id == user_id)  # type: ignore[arg-type]
+        .order_by(WasteRecord.id)  # type: ignore[arg-type]
+    )
+    return list(result.scalars().all())
+
+
+class TestWasteCapture:
+    """POST /api/fridge/waste — the "ate it / threw it out" answer.
+
+    The endpoint is deliberately independent of the fridge write: PUT /fridge
+    replaces the whole list, so a removal (let alone its reason) is not
+    inferable server-side. See app.api.fridge.record_waste.
+    """
+
+    async def test_records_each_answer(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        expired = (date.today() - timedelta(days=2)).isoformat()
+        resp = await client.post(
+            "/api/fridge/waste",
+            headers=auth_headers,
+            json=[
+                {
+                    "name": "spinach",
+                    "quantity_grams": 200,
+                    "expiration_date": expired,
+                    "reason": "thrown_out",
+                    "source": "fridge_delete",
+                },
+                {
+                    "name": "rice",
+                    "quantity_grams": 500,
+                    "expiration_date": None,
+                    "reason": "eaten",
+                    "source": "fridge_delete",
+                },
+            ],
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"recorded": 2}
+
+        assert test_user.id is not None
+        rows = await _waste_rows(db_session, test_user.id)
+        assert [(r.name, r.reason, r.quantity_grams) for r in rows] == [
+            ("spinach", "thrown_out", 200.0),
+            ("rice", "eaten", 500.0),
+        ]
+        # The expiry is kept verbatim, not reduced to a was-expired flag — the
+        # gap between it and created_at is the shelf-life calibration signal.
+        assert rows[0].expiration_date == date.today() - timedelta(days=2)
+        assert rows[1].expiration_date is None
+        assert {r.source for r in rows} == {"fridge_delete"}
+        assert {r.user_id for r in rows} == {test_user.id}
+
+    async def test_disabled_preference_records_nothing(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """The preference is a server-side gate, not a client-side one.
+
+        A crafted request from a user who switched waste tracking off must not
+        write — otherwise the toggle is cosmetic. ``recorded: 0`` on a non-empty
+        payload is what makes the drop observable rather than silent.
+        """
+        profile = await client.get("/api/users", headers=auth_headers)
+        # Opt-in default: a user who never touched the setting is not tracked.
+        assert profile.json()["waste_tracking_enabled"] is False
+
+        resp = await client.post(
+            "/api/fridge/waste",
+            headers=auth_headers,
+            json=[
+                {
+                    "name": "spinach",
+                    "quantity_grams": 200,
+                    "reason": "thrown_out",
+                    "source": "fridge_delete",
+                }
+            ],
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"recorded": 0}
+
+        assert test_user.id is not None
+        assert await _waste_rows(db_session, test_user.id) == []
+
+    async def test_enabling_then_disabling_stops_new_rows(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Flipping the toggle off stops capture but keeps what was already
+        recorded — the same "stored value is never touched" contract
+        need_to_use_enabled has."""
+        entry = {
+            "name": "spinach",
+            "quantity_grams": 200,
+            "reason": "thrown_out",
+            "source": "fridge_delete",
+        }
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        assert (
+            await client.post("/api/fridge/waste", headers=auth_headers, json=[entry])
+        ).json() == {"recorded": 1}
+
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": False}
+        )
+        assert (
+            await client.post("/api/fridge/waste", headers=auth_headers, json=[entry])
+        ).json() == {"recorded": 0}
+
+        assert test_user.id is not None
+        rows = await _waste_rows(db_session, test_user.id)
+        assert len(rows) == 1
+
+    async def test_empty_payload_is_not_an_error(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """Answering is optional at every prompt, so "no answer" is a normal
+        request — the client should not have to branch on it."""
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        resp = await client.post("/api/fridge/waste", headers=auth_headers, json=[])
+        assert resp.status_code == 200
+        assert resp.json() == {"recorded": 0}
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("reason", "composted"),
+            ("reason", ""),
+            ("source", "somewhere_else"),
+        ],
+    )
+    async def test_unknown_reason_or_source_rejected(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+        field: str,
+        value: str,
+    ) -> None:
+        """The columns are loose ``str`` so a third disposition needs no
+        migration, but the API Literal is what stops junk getting in — this is
+        the test that keeps the loose column honest."""
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        entry = {
+            "name": "spinach",
+            "quantity_grams": 200,
+            "reason": "thrown_out",
+            "source": "fridge_delete",
+        }
+        entry[field] = value
+        resp = await client.post("/api/fridge/waste", headers=auth_headers, json=[entry])
+        assert resp.status_code == 422
+
+        assert test_user.id is not None
+        assert await _waste_rows(db_session, test_user.id) == []
+
+    async def test_one_bad_entry_rejects_the_whole_batch(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Malformed input is hostile input: reject the payload rather than
+        silently keeping the good half, matching PUT /fridge's negative-quantity
+        behaviour."""
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        resp = await client.post(
+            "/api/fridge/waste",
+            headers=auth_headers,
+            json=[
+                {
+                    "name": "spinach",
+                    "quantity_grams": 200,
+                    "reason": "thrown_out",
+                    "source": "fridge_delete",
+                },
+                {
+                    "name": "rice",
+                    "quantity_grams": -1,
+                    "reason": "eaten",
+                    "source": "fridge_delete",
+                },
+            ],
+        )
+        assert resp.status_code == 422
+
+        assert test_user.id is not None
+        assert await _waste_rows(db_session, test_user.id) == []
+
+    async def test_too_many_entries_rejected(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        entry = {
+            "name": "x",
+            "quantity_grams": 1,
+            "reason": "eaten",
+            "source": "fridge_delete",
+        }
+        resp = await client.post(
+            "/api/fridge/waste",
+            headers=auth_headers,
+            json=[entry] * (MAX_FRIDGE_ITEMS + 1),
+        )
+        assert resp.status_code == 422
+
+    async def test_requires_auth(self, unauthed_client: AsyncClient) -> None:
+        resp = await unauthed_client.post(
+            "/api/fridge/waste",
+            json=[
+                {
+                    "name": "spinach",
+                    "quantity_grams": 200,
+                    "reason": "thrown_out",
+                    "source": "fridge_delete",
+                }
+            ],
+        )
+        assert resp.status_code == 401
+
+    async def test_deleting_the_user_cascades(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """PantryStaple shipped with a bare user_id FK and wedged the demo-user
+        sweep in #337. This is the test that stops WasteRecord repeating it."""
+        await client.patch(
+            "/api/users", headers=auth_headers, json={"waste_tracking_enabled": True}
+        )
+        await client.post(
+            "/api/fridge/waste",
+            headers=auth_headers,
+            json=[
+                {
+                    "name": "spinach",
+                    "quantity_grams": 200,
+                    "reason": "thrown_out",
+                    "source": "fridge_delete",
+                }
+            ],
+        )
+        assert test_user.id is not None
+        user_id = test_user.id
+        assert len(await _waste_rows(db_session, user_id)) == 1
+
+        await db_session.execute(delete(User).where(User.id == user_id))  # type: ignore[arg-type]
+        await db_session.commit()
+
+        remaining = await db_session.execute(
+            select(func.count()).select_from(WasteRecord).where(
+                WasteRecord.user_id == user_id  # type: ignore[arg-type]
+            )
+        )
+        assert remaining.scalar() == 0

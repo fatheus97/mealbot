@@ -66,6 +66,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         show_pieces: values.show_pieces,
         track_snacks: values.track_snacks,
         need_to_use_enabled: values.need_to_use_enabled,
+        waste_tracking_enabled: values.waste_tracking_enabled,
         // Send the raw array (possibly []). The backend treats [] as "clear"
         // and a populated list as the new stored layout.
         default_day_layout: values.default_day_layout,
@@ -184,6 +185,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             // a payload cached before this field existed should read as "still
             // enabled", not silently opt the user out.
             need_to_use_enabled: profile.need_to_use_enabled ?? true,
+            waste_tracking_enabled: profile.waste_tracking_enabled ?? false,
             default_day_layout: profile.default_day_layout ?? [],
           }}
           onSubmit={handleSubmit}

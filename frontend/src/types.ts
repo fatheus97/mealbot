@@ -287,6 +287,7 @@ export interface AuthLoginResponse {
   track_snacks: boolean;
   show_pieces: boolean;
   need_to_use_enabled: boolean;
+  waste_tracking_enabled: boolean;
   onboarding_completed: boolean;
   is_demo: boolean;
   is_admin: boolean;
@@ -369,11 +370,38 @@ export interface UserProfile {
   track_snacks: boolean;
   show_pieces: boolean;
   need_to_use_enabled: boolean;
+  waste_tracking_enabled: boolean;
   onboarding_completed: boolean;
   is_admin: boolean;
   // Preferred shape of a single day's meals. null = user hasn't set one;
   // plan generation falls back to the legacy meals_per_day counter.
   default_day_layout: MealType[] | null;
+}
+
+// --- Food waste capture (mirror backend WasteEntryDTO / WasteRecordedResponse) ---
+
+/** Where a fridge item went, once it left the fridge. */
+export type WasteReason = "thrown_out" | "eaten";
+
+/** Which surface asked the question. */
+export type WasteSource = "fridge_delete" | "finish_plan";
+
+export interface WasteEntry {
+  name: string;
+  quantity_grams: number;
+  /** The item's expiry at the moment it left, when it had one. */
+  expiration_date: string | null;
+  reason: WasteReason;
+  source: WasteSource;
+}
+
+export interface WasteRecordedResponse {
+  /**
+   * Rows actually written — NOT necessarily the number posted. The server
+   * enforces `waste_tracking_enabled` itself, so a user with the preference off
+   * gets 0 back for a non-empty post.
+   */
+  recorded: number;
 }
 
 // --- Admin stats API (mirror backend app/models/admin_schemas.py) ---

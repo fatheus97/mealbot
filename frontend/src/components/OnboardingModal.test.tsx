@@ -162,6 +162,7 @@ describe('OnboardingModal', () => {
         show_pieces: false,
         track_snacks: true,
         need_to_use_enabled: true,
+        waste_tracking_enabled: false,
         default_day_layout: [],
         onboarding_completed: true,
       });

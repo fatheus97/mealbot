@@ -20,6 +20,7 @@ const defaultValues: PreferencesFormValues = {
   show_pieces: false,
   track_snacks: true,
   need_to_use_enabled: true,
+  waste_tracking_enabled: false,
   default_day_layout: [],
 };
 
@@ -119,6 +120,7 @@ describe('PreferencesForm', () => {
       show_pieces: false,
       track_snacks: true,
       need_to_use_enabled: true,
+      waste_tracking_enabled: false,
       default_day_layout: [],
     });
   });
@@ -138,6 +140,7 @@ describe('PreferencesForm', () => {
           show_pieces: false,
           track_snacks: true,
           need_to_use_enabled: true,
+          waste_tracking_enabled: false,
           default_day_layout: [],
         }}
         onSubmit={onSubmit}
@@ -159,6 +162,7 @@ describe('PreferencesForm', () => {
       show_pieces: false,
       track_snacks: true,
       need_to_use_enabled: true,
+      waste_tracking_enabled: false,
       default_day_layout: [],
     });
   });
@@ -184,6 +188,30 @@ describe('PreferencesForm', () => {
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ need_to_use_enabled: false }),
+    );
+  });
+
+  it('toggles waste_tracking_enabled on and submits the change', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={onSubmit}
+        submitLabel="Save"
+      />,
+    );
+
+    // Fifth checkbox, after include_spices / show_pieces / track_snacks /
+    // need_to_use_enabled. Starts UNticked — it is the one opt-in preference.
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes[4]).not.toBeChecked();
+    await user.click(checkboxes[4]);
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ waste_tracking_enabled: true }),
     );
   });
 
@@ -294,6 +322,7 @@ describe('PreferencesForm', () => {
           show_pieces: false,
           track_snacks: true,
           need_to_use_enabled: true,
+          waste_tracking_enabled: false,
           default_day_layout: [],
         }}
         onSubmit={vi.fn()}
