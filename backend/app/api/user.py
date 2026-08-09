@@ -315,6 +315,8 @@ async def update_user(
         current_user.show_pieces = bool(patch.show_pieces)
     if patch.need_to_use_enabled is not None:
         current_user.need_to_use_enabled = bool(patch.need_to_use_enabled)
+    if patch.waste_tracking_enabled is not None:
+        current_user.waste_tracking_enabled = bool(patch.waste_tracking_enabled)
 
     if patch.onboarding_completed is not None:
         current_user.onboarding_completed = bool(patch.onboarding_completed)

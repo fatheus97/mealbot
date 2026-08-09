@@ -158,6 +158,84 @@ describe("ConfirmDialog", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
   });
 
+  it("renders children between the message and the buttons", () => {
+    render(
+      <ConfirmDialog
+        title="Remove?"
+        message="Sure?"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      >
+        <p>Where did it go?</p>
+      </ConfirmDialog>,
+    );
+
+    expect(screen.getByText("Where did it go?")).toBeInTheDocument();
+  });
+
+  it("keeps the focus trap closed when children add focusable controls", async () => {
+    // Regression: the trap used to cycle the Cancel/Confirm refs and was
+    // documented as exhaustive because the dialog only ever had two tabbable
+    // controls. Once `children` could contribute focusable elements, Shift+Tab
+    // off the FIRST one matched none of its cases and fell through to the
+    // browser default — leaving the dialog entirely, silently.
+    const user = userEvent.setup();
+    render(
+      <ConfirmDialog
+        title="Remove?"
+        message="Sure?"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      >
+        <input aria-label="Note" />
+      </ConfirmDialog>,
+    );
+
+    const note = screen.getByLabelText("Note");
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const confirm = screen.getByRole("button", { name: "Delete" });
+
+    expect(cancel).toHaveFocus();
+
+    // Backwards past the first control must wrap to the last, not escape.
+    await user.tab({ shift: true });
+    expect(note).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(confirm).toHaveFocus();
+
+    // Forwards off the last control still wraps to the first — which is now
+    // the child, not Cancel.
+    await user.tab();
+    expect(note).toHaveFocus();
+  });
+
+  it("skips disabled controls when wrapping", async () => {
+    // `loading` disables both buttons; without the filter the trap would try to
+    // focus one and the wrap would land nowhere.
+    const user = userEvent.setup();
+    render(
+      <ConfirmDialog
+        title="Remove?"
+        message="Sure?"
+        loading
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      >
+        <input aria-label="Note" />
+      </ConfirmDialog>,
+    );
+
+    const note = screen.getByLabelText("Note");
+    note.focus();
+    expect(note).toHaveFocus();
+
+    // The note is the only enabled control, so it is both first and last.
+    await user.tab();
+    expect(note).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(note).toHaveFocus();
+  });
+
   it("stops Escape from propagating to ancestor window listeners", async () => {
     // Regression: when ConfirmDialog is mounted inside another window-level
     // Escape handler (e.g. CookbookModal), the ancestor used to also fire

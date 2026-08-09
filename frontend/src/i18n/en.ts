@@ -284,6 +284,11 @@ export const en = {
   "prefs.needToUseEnabledHint":
     "If off, the need-to-use flag is hidden everywhere in the fridge and no longer prioritized when generating meal plans. Turn it back on any time — nothing is lost.",
 
+  "prefs.foodWaste": "Food waste",
+  "prefs.wasteTracking": "Ask where food went",
+  "prefs.wasteTrackingHint":
+    "When you remove something from the fridge, Mealbot asks whether you ate it or threw it out. Answering is always optional. Off by default — nothing is recorded until you turn this on.",
+
   "prefs.dayLayout": "Default day layout",
   "prefs.dayLayoutHint":
     "The meals you usually want on a planned day, in order. Individual days in a plan can override this.",
@@ -571,6 +576,11 @@ export const en = {
   "fridge.removeGroupTitle": "Remove all batches?",
   "fridge.removeItemTitle": "Remove ingredient?",
   "fridge.removeItemBody": "Remove \"{name}\" ({grams} g) from your fridge?",
+  // Shown in the remove dialog only when the food-waste preference is on.
+  "fridge.wasteQuestion": "Where did it go?",
+  "fridge.wasteEaten": "Ate it",
+  "fridge.wasteThrownOut": "Threw it out",
+  "fridge.wasteOptionalHint": "Optional — removing works either way.",
   "fridge.saveFailed": "Failed to save: {message}",
   "fridge.unknownError": "Unknown error",
   // A "batch" is a separate purchase of the same ingredient, with its own

@@ -14,6 +14,7 @@ export interface PreferencesFormValues {
   show_pieces: boolean;
   track_snacks: boolean;
   need_to_use_enabled: boolean;
+  waste_tracking_enabled: boolean;
   // [] means "no default set" (the backend clears the column); a populated
   // list is stored verbatim and used as the per-day shape in Phase 3.
   default_day_layout: MealType[];
@@ -81,6 +82,9 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   const [showPieces, setShowPieces] = useState(initialValues.show_pieces);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
   const [needToUseEnabled, setNeedToUseEnabled] = useState(initialValues.need_to_use_enabled);
+  const [wasteTrackingEnabled, setWasteTrackingEnabled] = useState(
+    initialValues.waste_tracking_enabled,
+  );
   const [defaultDayLayout, setDefaultDayLayout] = useState<MealType[]>(
     initialValues.default_day_layout,
   );
@@ -112,6 +116,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
       show_pieces: showPieces,
       track_snacks: trackSnacks,
       need_to_use_enabled: needToUseEnabled,
+      waste_tracking_enabled: wasteTrackingEnabled,
       default_day_layout: defaultDayLayout,
     });
   };
@@ -307,6 +312,25 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           </span>
         </span>
       </label>
+
+      <fieldset style={{ border: "1px solid #ddd", borderRadius: "6px", padding: "0.75rem 1rem" }}>
+        <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>{t("prefs.foodWaste")}</legend>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", marginTop: "0.25rem" }}>
+          <input
+            type="checkbox"
+            checked={wasteTrackingEnabled}
+            onChange={(e) => setWasteTrackingEnabled(e.target.checked)}
+            style={{ width: "18px", height: "18px" }}
+          />
+          <span>
+            <span style={{ fontWeight: 600 }}>{t("prefs.wasteTracking")}</span>
+            <br />
+            <span style={{ fontSize: "0.85rem", color: "#666" }}>
+              {t("prefs.wasteTrackingHint")}
+            </span>
+          </span>
+        </label>
+      </fieldset>
 
       <fieldset style={{ border: "1px solid #ddd", borderRadius: "6px", padding: "0.75rem 1rem" }}>
         <legend style={{ fontWeight: 600, padding: "0 0.25rem" }}>{t("prefs.dayLayout")}</legend>

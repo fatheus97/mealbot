@@ -11,8 +11,13 @@ from datetime import date, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete, select
 
-from app.models.db_models import StockItem
-from app.models.plan_models import ConsumedBatch, IngredientAmount, StockItemDTO
+from app.models.db_models import StockItem, WasteRecord
+from app.models.plan_models import (
+    ConsumedBatch,
+    IngredientAmount,
+    StockItemDTO,
+    WasteEntryDTO,
+)
 
 __all__ = [
     "allocate_fifo",
@@ -20,10 +25,49 @@ __all__ = [
     "get_fridge_items",
     "group_and_sort_fridge",
     "merge_into_fridge_buckets",
+    "record_waste_entries",
     "replace_fridge_items",
     "restore_consumed_batches",
     "subtract_ingredients_from_fridge",
 ]
+
+
+def record_waste_entries(
+    session: AsyncSession,
+    user_id: int,
+    entries: Iterable[WasteEntryDTO],
+    *,
+    waste_tracking_enabled: bool,
+) -> int:
+    """Stage one WasteRecord per entry and return how many were staged.
+
+    Caller commits — same contract as the telemetry writers, so the rows land
+    atomically with whatever else the request is already doing.
+
+    ``waste_tracking_enabled=False`` stages NOTHING and returns 0. The gate is
+    here rather than only in the client because a preference that a crafted
+    request can walk around is not a preference; a user who switched this off
+    has to be able to rely on the table staying empty for them. Returning 0
+    (instead of raising) keeps a stale client — one that still has the prompt
+    on screen from before the toggle flipped — from failing a fridge edit over
+    a preference change; the count is what tells the caller nothing was kept.
+    """
+    if not waste_tracking_enabled:
+        return 0
+    staged = 0
+    for entry in entries:
+        session.add(
+            WasteRecord(
+                user_id=user_id,
+                name=entry.name.strip(),
+                quantity_grams=entry.quantity_grams,
+                expiration_date=entry.expiration_date,
+                reason=entry.reason,
+                source=entry.source,
+            )
+        )
+        staged += 1
+    return staged
 
 
 def merge_into_fridge_buckets(

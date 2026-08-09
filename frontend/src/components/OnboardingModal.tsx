@@ -25,6 +25,7 @@ export function OnboardingModal() {
         show_pieces: values.show_pieces,
         track_snacks: values.track_snacks,
         need_to_use_enabled: values.need_to_use_enabled,
+        waste_tracking_enabled: values.waste_tracking_enabled,
         default_day_layout: values.default_day_layout,
         onboarding_completed: true,
       });
@@ -73,6 +74,9 @@ export function OnboardingModal() {
             show_pieces: false,
             track_snacks: true,
             need_to_use_enabled: true,
+            // Opt-in: onboarding shows the checkbox unticked rather than enrolling a
+            // brand-new user into being asked a question they have no context for.
+            waste_tracking_enabled: false,
             default_day_layout: [],
           }}
           onSubmit={handleSubmit}

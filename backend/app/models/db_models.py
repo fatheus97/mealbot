@@ -80,6 +80,20 @@ class User(SQLModel, table=True):
     # whatever was there before.
     need_to_use_enabled: bool = Field(default=True)
 
+    # Master switch for food-waste capture (WasteRecord). When False the client
+    # hides every "ate it / threw it out" prompt AND the /fridge/waste endpoint
+    # records nothing — the gate is enforced server-side, not just in the UI, so
+    # turning this off is a real guarantee rather than a cosmetic one.
+    #
+    # Defaults FALSE, unlike need_to_use_enabled above, and the difference is
+    # what the default costs a user who never touches it: need_to_use only
+    # re-ranks ingredients the app already had, while this one adds a question
+    # to a flow the user did not ask to be questioned in. Opt-in is the honest
+    # default for a prompt; existing rows therefore keep today's behaviour.
+    waste_tracking_enabled: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
+
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)
 
@@ -574,6 +588,59 @@ class StockItem(SQLModel, table=True):
     expiration_date: date | None = Field(default=None, index=True)
 
     user: User = Relationship(back_populates="fridge_items")
+
+
+class WasteRecord(SQLModel, table=True):
+    """One user-declared disposition of food that left the fridge: eaten, or
+    thrown out.
+
+    ⚠️ WRITE-ONLY TODAY — nothing in the app reads this table. That is
+    deliberate, not an unfinished half: the value of the signal is the TIME
+    SERIES, and a time series cannot be backfilled. Waiting for a reader before
+    capturing would mean the reader ships with an empty history. The intended
+    consumers are portion sizing, shopping-list suggestions, and calibrating the
+    LLM's ``shelf_life_days`` guess from receipt_scan (which today has no
+    feedback loop at all).
+
+    If nothing consumes it within a couple of months, delete the table — a
+    write-only table nobody ever reads is cost with no payoff, and that
+    judgement is the whole reason this warning is written down.
+
+    Deliberately NOT an aggregate or a counter on User: an aggregate throws away
+    the per-item detail (which ingredient, how much, how far past its date) that
+    every intended consumer needs, and it cannot be recomputed once lost.
+
+    No ORM back-relationship, following PantryStaple below: the write path is
+    insert-only and nothing loads these through ``User``, so a relationship
+    would be unused machinery. ``ondelete="CASCADE"`` is NOT optional — a bare
+    user_id FK is exactly what wedged the demo sweep in #337.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    name: str
+    quantity_grams: float = Field(ge=0)
+    # The item's expiration date at the moment it left the fridge, when it had
+    # one. Kept rather than reduced to a "was expired" bool so the DISTANCE past
+    # (or before) the date survives — that gap against created_at is the whole
+    # shelf-life calibration signal.
+    expiration_date: date | None = Field(default=None)
+    # "thrown_out" | "eaten". Loose str, not an enum column, so a third
+    # disposition needs no migration — the same choice FeedbackReport.status and
+    # AccessRequest.status made. Constrained to the known set by a Literal at
+    # the API boundary, which is where untrusted input is actually stopped.
+    reason: str
+    # "fridge_delete" | "finish_plan" — which surface captured the answer.
+    # Same loose-str reasoning as `reason`.
+    source: str
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+
+    # Indexed on user_id ONLY (via the FK above). Every other column is
+    # unindexed on purpose: with no reader there is no query plan to serve, and
+    # a speculative index is write cost paid for a query nobody has written yet.
+    # Add them alongside the first consumer, when its access pattern is known.
 
 
 class PantryStaple(SQLModel, table=True):

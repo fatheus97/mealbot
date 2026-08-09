@@ -13,10 +13,17 @@ from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import User
-from app.models.plan_models import ScannedItemDTO, ScannedItemsResponse, StockItemDTO
+from app.models.plan_models import (
+    ScannedItemDTO,
+    ScannedItemsResponse,
+    StockItemDTO,
+    WasteEntryDTO,
+    WasteRecordedResponse,
+)
 from app.services.fridge_service import (
     get_fridge_items,
     merge_into_fridge_buckets,
+    record_waste_entries,
     replace_fridge_items,
 )
 from app.services.receipt_scanner import (
@@ -102,6 +109,49 @@ async def put_fridge(
     return await replace_fridge_items(
         session, current_user.id, payload, need_to_use_enabled=current_user.need_to_use_enabled
     )
+
+
+@router.post("/waste", response_model=WasteRecordedResponse)
+@limiter.limit("30/minute", key_func=user_id_key_func)
+async def record_waste(
+    request: Request,
+    payload: list[WasteEntryDTO],
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> WasteRecordedResponse:
+    """Record where fridge items went — eaten, or thrown out.
+
+    Deliberately SEPARATE from the fridge write that removes the items. The
+    fridge has no delete endpoint (PUT /fridge replaces the whole list), so the
+    server cannot infer a removal, let alone its reason; the answer has to be
+    stated. Keeping it a second call also means a waste-capture failure can
+    never cost the user their fridge edit — the edit is already committed.
+
+    Answering is optional at every prompt, so an empty list is a normal request,
+    not a client bug. ``recorded`` may be 0 for a non-empty payload when the
+    user has waste tracking switched off — see record_waste_entries.
+    """
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
+    # Same list-level cap as the fridge itself: removing a whole group posts one
+    # entry per batch, so the bound has to cover the largest fridge, and nothing
+    # here should accept more rows than the fridge could ever hold.
+    if len(payload) > MAX_FRIDGE_ITEMS:
+        raise LocalizedHTTPException(
+            422,
+            "fridge_too_many_items",
+            count_given=str(len(payload)),
+            maximum=str(MAX_FRIDGE_ITEMS),
+        )
+    recorded = record_waste_entries(
+        session,
+        current_user.id,
+        payload,
+        waste_tracking_enabled=current_user.waste_tracking_enabled,
+    )
+    if recorded:
+        await session.commit()
+    return WasteRecordedResponse(recorded=recorded)
 
 
 @router.post("/scan", response_model=ScannedItemsResponse)

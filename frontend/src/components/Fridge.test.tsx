@@ -13,12 +13,35 @@ vi.mock('../api', () => ({
   authFetch: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
+  recordWaste: vi.fn(),
 }));
 
-import { authFetch, fetchUserProfile } from '../api';
+import { authFetch, fetchUserProfile, recordWaste } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
+const mockedRecordWaste = recordWaste as ReturnType<typeof vi.fn>;
+
+/** A profile payload with everything the Fridge reads off it. */
+function profileFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1,
+    email: 'test@test.com',
+    country: null,
+    language: 'English',
+    measurement_system: 'metric',
+    variability: 'traditional',
+    include_spices: true,
+    track_snacks: true,
+    show_pieces: false,
+    need_to_use_enabled: true,
+    waste_tracking_enabled: false,
+    onboarding_completed: true,
+    is_admin: false,
+    default_day_layout: null,
+    ...overrides,
+  };
+}
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -421,5 +444,176 @@ describe('Fridge', () => {
         body: JSON.stringify([{ name: 'Cream', quantity_grams: 500, need_to_use: false, expiration_date: null }]),
       });
     });
+  });
+});
+
+describe('Fridge — food-waste capture', () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+    mockedRecordWaste.mockReset();
+    mockedRecordWaste.mockResolvedValue({ recorded: 1 });
+  });
+
+  /**
+   * The dialog's confirm button. Must be scoped to the dialog: the row's own
+   * "Remove" is still in the document behind it and matches the same name.
+   */
+  function confirmButton() {
+    return within(screen.getByRole('dialog')).getByRole('button', { name: /^remove$/i });
+  }
+
+  /** Mock the profile + one fridge GET, then render and wait for the rows. */
+  async function renderFridge(
+    items: unknown[],
+    profileOverrides: Record<string, unknown> = {},
+  ) {
+    loginUser();
+    mockedFetchProfile.mockResolvedValueOnce(profileFixture(profileOverrides));
+    mockedAuthFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(items),
+    });
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Spinach')).toBeInTheDocument());
+  }
+
+  it('asks nothing extra when the preference is off', async () => {
+    await renderFridge([
+      { name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: '2026-08-01' },
+    ]);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /^remove$/i }));
+
+    // The removal confirm still appears — only the extra question is absent.
+    expect(screen.getByText('Remove ingredient?')).toBeInTheDocument();
+    expect(screen.queryByText('Where did it go?')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /threw it out/i })).not.toBeInTheDocument();
+  });
+
+  it('records the chosen answer for the removed batch', async () => {
+    await renderFridge(
+      [{ name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: '2026-08-01' }],
+      { waste_tracking_enabled: true },
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /^remove$/i }));
+
+    expect(screen.getByText('Where did it go?')).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(confirmButton());
+
+    await waitFor(() =>
+      expect(mockedRecordWaste).toHaveBeenCalledWith([
+        {
+          name: 'Spinach',
+          quantity_grams: 200,
+          expiration_date: '2026-08-01',
+          reason: 'thrown_out',
+          source: 'fridge_delete',
+        },
+      ]),
+    );
+  });
+
+  it('records "eaten" distinctly from "thrown out"', async () => {
+    await renderFridge(
+      [{ name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: null }],
+      { waste_tracking_enabled: true },
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /^remove$/i }));
+    await user.click(screen.getByRole('radio', { name: /ate it/i }));
+    await user.click(confirmButton());
+
+    await waitFor(() =>
+      expect(mockedRecordWaste).toHaveBeenCalledWith([
+        expect.objectContaining({ reason: 'eaten', expiration_date: null }),
+      ]),
+    );
+  });
+
+  it('removes without recording when the question is left unanswered', async () => {
+    // Answering is optional by design: no default is pre-selected, because
+    // "eaten" would undercount waste and "thrown out" would invent it.
+    await renderFridge(
+      [{ name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: null }],
+      { waste_tracking_enabled: true },
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /^remove$/i }));
+    expect(screen.getByRole('radio', { name: /ate it/i })).not.toBeChecked();
+    expect(screen.getByRole('radio', { name: /threw it out/i })).not.toBeChecked();
+
+    await user.click(confirmButton());
+
+    // The removal itself still went through...
+    await waitFor(() =>
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', expect.objectContaining({ method: 'PUT' })),
+    );
+    // ...and nothing was recorded.
+    expect(mockedRecordWaste).not.toHaveBeenCalled();
+  });
+
+  it('records one entry per batch, with each batch’s own quantity and expiry', async () => {
+    // Regression guard: confirmRemoval splices the fridge array, so the outgoing
+    // rows must be read BEFORE the splice. Reading after it would report
+    // whatever shifted into those indices — for a group removal, the wrong
+    // items entirely, or none at all.
+    await renderFridge(
+      [
+        { name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: '2026-08-01' },
+        { name: 'Spinach', quantity_grams: 350, need_to_use: false, expiration_date: '2026-08-05' },
+      ],
+      { waste_tracking_enabled: true },
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /remove all/i }));
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(screen.getByRole('button', { name: /^remove$/i }));
+
+    await waitFor(() => expect(mockedRecordWaste).toHaveBeenCalledTimes(1));
+    const entries = mockedRecordWaste.mock.calls[0][0];
+    expect(entries).toHaveLength(2);
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ quantity_grams: 200, expiration_date: '2026-08-01' }),
+        expect.objectContaining({ quantity_grams: 350, expiration_date: '2026-08-05' }),
+      ]),
+    );
+    expect(entries.every((e: { reason: string }) => e.reason === 'thrown_out')).toBe(true);
+  });
+
+  it('forgets the previous answer when a different item is removed next', async () => {
+    await renderFridge(
+      [
+        { name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: null },
+        { name: 'Yogurt', quantity_grams: 500, need_to_use: false, expiration_date: null },
+      ],
+      { waste_tracking_enabled: true },
+    );
+    const user = userEvent.setup();
+    const removeButtons = screen.getAllByRole('button', { name: /^remove$/i });
+    await user.click(removeButtons[0]);
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    // Cancel rather than confirm — the answer must not survive the dialog.
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+
+    await user.click(screen.getAllByRole('button', { name: /^remove$/i })[0]);
+    expect(screen.getByRole('radio', { name: /threw it out/i })).not.toBeChecked();
+    expect(screen.getByRole('radio', { name: /ate it/i })).not.toBeChecked();
+  });
+
+  it('leaves no untranslated English in the waste prompt when switched to Czech', async () => {
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    await renderFridge(
+      [{ name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: null }],
+      { waste_tracking_enabled: true },
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole('button', { name: /odebrat/i })[0]);
+
+    const dialog = screen.getByRole('dialog');
+    expect(untranslatedEnglishIn(dialog)).toEqual([]);
   });
 });

@@ -239,6 +239,7 @@ class UserRead(UserBase):
     track_snacks: bool
     show_pieces: bool
     need_to_use_enabled: bool
+    waste_tracking_enabled: bool
     onboarding_completed: bool
     is_demo: bool = False
     is_admin: bool = False
@@ -284,6 +285,7 @@ def user_to_read(
         track_snacks=u.track_snacks,
         show_pieces=u.show_pieces,
         need_to_use_enabled=u.need_to_use_enabled,
+        waste_tracking_enabled=u.waste_tracking_enabled,
         onboarding_completed=u.onboarding_completed,
         is_demo=u.is_demo,
         is_admin=u.is_admin,
@@ -307,6 +309,7 @@ class UserUpdate(SQLModel):
     track_snacks: bool | None = None
     show_pieces: bool | None = None
     need_to_use_enabled: bool | None = None
+    waste_tracking_enabled: bool | None = None
     onboarding_completed: bool | None = None
     # list[MealType] enforces the enum at the API boundary — unknown slot
     # names get a 422, never reach the DB. An empty list clears the stored

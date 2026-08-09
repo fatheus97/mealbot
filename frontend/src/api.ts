@@ -37,6 +37,8 @@ import type {
   UsageByUserResponse,
   UsageStatsResponse,
   UserProfile,
+  WasteEntry,
+  WasteRecordedResponse,
 } from "./types";
 import { extractErrorDetail } from "./utils/httpError";
 import { DEFAULT_LOCALE, useLocaleStore } from "./store/useLocaleStore";
@@ -779,6 +781,23 @@ export async function retriageAdminFeedback(id: number): Promise<AdminFeedbackDe
 export async function acceptAdminFeedback(id: number): Promise<AdminFeedbackDetail> {
   const res = await authFetch(`/admin/feedback/${id}/accept`, { method: "POST" });
   if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not accept the report"));
+  return res.json();
+}
+
+/**
+ * Post "ate it / threw it out" answers.
+ *
+ * Separate from the fridge write on purpose: PUT /fridge replaces the whole
+ * list, so the server cannot infer that an item was removed, let alone why.
+ * Callers fire this AFTER the fridge edit is away — the answers are optional
+ * metadata and must never be able to cost the user their edit.
+ */
+export async function recordWaste(entries: WasteEntry[]): Promise<WasteRecordedResponse> {
+  const res = await authFetch(`/fridge/waste`, {
+    method: "POST",
+    body: JSON.stringify(entries),
+  });
+  if (!res.ok) throw new Error(`Waste capture failed: ${res.status}`);
   return res.json();
 }
 

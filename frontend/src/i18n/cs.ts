@@ -247,6 +247,11 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "prefs.needToUseEnabledHint":
     "Když je volba vypnutá, příznak „spotřebovat brzy“ se nikde v lednici nezobrazuje a při generování jídelníčku se už nezohledňuje. Kdykoliv ji můžete znovu zapnout — nic se neztratí.",
 
+  "prefs.foodWaste": "Plýtvání potravinami",
+  "prefs.wasteTracking": "Ptát se, kam potravina zmizela",
+  "prefs.wasteTrackingHint":
+    "Když něco odeberete z lednice, Mealbot se zeptá, jestli jste to snědli, nebo vyhodili. Odpověď je vždy dobrovolná. Ve výchozím stavu vypnuto — dokud to nezapnete, nic se nezaznamenává.",
+
   "prefs.dayLayout": "Výchozí rozvržení dne",
   "prefs.dayLayoutHint":
     "Jídla, která obvykle chcete mít v naplánovaném dni, v pořadí. Jednotlivé dny v plánu to mohou přepsat.",
@@ -521,6 +526,13 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.removeGroupTitle": "Odebrat všechna balení?",
   "fridge.removeItemTitle": "Odebrat surovinu?",
   "fridge.removeItemBody": "Odebrat z lednice „{name}“ ({grams} g)?",
+  // V dialogu odebrání se zobrazí jen při zapnutém sledování plýtvání.
+  // "Snědli / Vyhodili" je 1. os. mn. č. minulého času — stejné oslovení jako
+  // ve zbytku aplikace, a bez rodu, takže nefunguje jen pro jedno pohlaví.
+  "fridge.wasteQuestion": "Kam to zmizelo?",
+  "fridge.wasteEaten": "Snědli jsme to",
+  "fridge.wasteThrownOut": "Vyhodili jsme to",
+  "fridge.wasteOptionalHint": "Nepovinné — odebrat jde i bez odpovědi.",
   "fridge.saveFailed": "Uložení se nezdařilo: {message}",
   "fridge.unknownError": "Neznámá chyba",
   // "balení" is neuter and INVARIANT across number — 1 balení / 3 balení /

@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
-import { useFridge, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
-import type { StockItem } from "../types";
+import { useFridge, useRecordWaste, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
+import type { StockItem, WasteEntry, WasteReason } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
@@ -72,6 +72,10 @@ export function Fridge() {
   // costs no extra request beyond the app's existing profile fetch.
   const { data: profile } = useUserProfile(userId);
   const needToUseEnabled = profile?.need_to_use_enabled ?? true;
+  // Opt-in, so the fallback is false: until the profile has loaded, or for a
+  // user who never enabled it, the remove dialog asks nothing extra.
+  const wasteTrackingEnabled = profile?.waste_tracking_enabled ?? false;
+  const recordWasteMutation = useRecordWaste();
 
   const nextEditId = useRef(0);
   const assignId = (): number => nextEditId.current++;
@@ -85,6 +89,12 @@ export function Fridge() {
   const [groupOrder, setGroupOrder] = useState<string[]>([]);
   const [modalState, setModalState] = useState<{ mode: "add" | "edit"; editIndex: number | null } | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
+  // The "where did it go?" answer for the removal currently being confirmed.
+  // null = unanswered, which is a first-class outcome: the removal goes through
+  // and nothing is recorded. Defaulting to either value would bias the data —
+  // "eaten" undercounts waste, "thrown out" invents it — and forcing a choice
+  // taxes every removal to serve a question the user never asked for.
+  const [wasteAnswer, setWasteAnswer] = useState<WasteReason | null>(null);
 
   /** Build grouped items from the flat fridge array. */
   const buildGroups = useCallback((items: EditableStockItem[]): GroupedItem[] => {
@@ -229,6 +239,7 @@ export function Fridge() {
   const requestRemoveItem = (index: number) => {
     const item = fridge[index];
     if (!item) return;
+    setWasteAnswer(null);
     setPendingRemoval({
       kind: "item",
       index,
@@ -238,6 +249,7 @@ export function Fridge() {
   };
 
   const requestRemoveGroup = (group: GroupedItem) => {
+    setWasteAnswer(null);
     setPendingRemoval({
       kind: "group",
       indices: group.flatIndices,
@@ -246,12 +258,22 @@ export function Fridge() {
     });
   };
 
-  const cancelRemoval = () => setPendingRemoval(null);
+  const cancelRemoval = () => {
+    setPendingRemoval(null);
+    setWasteAnswer(null);
+  };
 
   const confirmRemoval = () => {
     if (!pendingRemoval) return;
     const indices =
       pendingRemoval.kind === "item" ? [pendingRemoval.index] : pendingRemoval.indices;
+    // Read the outgoing rows BEFORE the splice — after it, the indices point at
+    // whatever shifted into their place, and a group removal would report the
+    // wrong items entirely.
+    const removed = indices
+      .map((idx) => fridge[idx])
+      .filter((item): item is EditableStockItem => item !== undefined);
+
     // Sort descending so splices don't shift later indices.
     const sorted = [...indices].sort((a, b) => b - a);
     const updated = [...fridge];
@@ -259,7 +281,25 @@ export function Fridge() {
     setFridge(updated);
     refreshGroupOrder(updated, sortKey, sortDir);
     persistFridge(updated);
+
+    // Fire AFTER the fridge write is away, and never await it. The answer is
+    // optional metadata; a failed capture must not cost the user their removal,
+    // so this deliberately has no error surface. One entry per BATCH — removing
+    // a group of three batches records three rows, because each carries its own
+    // quantity and expiry, which is the whole point of keeping them separate.
+    if (wasteTrackingEnabled && wasteAnswer !== null && removed.length > 0) {
+      const entries: WasteEntry[] = removed.map((item) => ({
+        name: item.name,
+        quantity_grams: item.quantity_grams,
+        expiration_date: item.expiration_date ?? null,
+        reason: wasteAnswer,
+        source: "fridge_delete",
+      }));
+      recordWasteMutation.mutate(entries);
+    }
+
     setPendingRemoval(null);
+    setWasteAnswer(null);
   };
 
   const openAddModal = () => setModalState({ mode: "add", editIndex: null });
@@ -716,7 +756,54 @@ export function Fridge() {
           loadingLabel={t("fridge.removing")}
           onConfirm={confirmRemoval}
           onCancel={cancelRemoval}
-        />
+        >
+          {wasteTrackingEnabled && (
+            // Sits INSIDE ConfirmDialog's explicit white/#111 surface, so these
+            // foregrounds are measured against white, not the page background.
+            <fieldset
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: "6px",
+                padding: "0.6rem 0.75rem",
+                margin: "0 0 1rem 0",
+              }}
+            >
+              <legend style={{ fontSize: "0.82rem", color: "#374151", padding: "0 0.3rem" }}>
+                {t("fridge.wasteQuestion")}
+              </legend>
+              <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                {([
+                  ["eaten", "fridge.wasteEaten"],
+                  ["thrown_out", "fridge.wasteThrownOut"],
+                ] as const).map(([value, labelKey]) => (
+                  <label
+                    key={value}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.35rem",
+                      cursor: "pointer",
+                      fontSize: "0.88rem",
+                      color: "#111",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="waste-reason"
+                      value={value}
+                      checked={wasteAnswer === value}
+                      onChange={() => setWasteAnswer(value)}
+                    />
+                    {t(labelKey)}
+                  </label>
+                ))}
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#374151", margin: "0.45rem 0 0" }}>
+                {t("fridge.wasteOptionalHint")}
+              </p>
+            </fieldset>
+          )}
+        </ConfirmDialog>
       )}
     </section>
   );

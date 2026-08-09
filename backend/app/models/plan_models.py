@@ -239,6 +239,47 @@ class PantryStapleDTO(BaseModel):
         return _strip_prompt_fence_tags(v)
 
 
+class WasteEntryDTO(BaseModel):
+    """One "where did this go?" answer, as posted to POST /fridge/waste.
+
+    Client-controlled, so bounded and fence-stripped exactly like StockItemDTO
+    (whose shape this mirrors — the item is a fridge item that just left).
+
+    ``reason`` and ``source`` are Literals here and loose ``str`` columns on
+    WasteRecord, and that split is on purpose: the DB stays migration-free when
+    a third disposition appears, while the API boundary — the only place
+    untrusted input is actually stopped — still refuses anything outside the
+    known set with a 422 rather than writing a junk value nobody can query.
+    """
+
+    name: str = Field(..., min_length=1, max_length=100)
+    quantity_grams: float = Field(..., ge=0, allow_inf_nan=False)
+    # The item's expiration date at the moment it left the fridge, when it had
+    # one. Kept (rather than a "was expired" bool) so the gap against the write
+    # time survives — see WasteRecord for what that gap is for.
+    expiration_date: date | None = None
+    reason: Literal["thrown_out", "eaten"]
+    source: Literal["fridge_delete", "finish_plan"]
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _strip_fence_tags(cls, v: object) -> object:
+        return _strip_prompt_fence_tags(v)
+
+
+class WasteRecordedResponse(BaseModel):
+    """How many WasteRecord rows POST /fridge/waste actually wrote.
+
+    ``recorded`` is NOT simply ``len(payload)``: a user with waste tracking
+    switched off gets ``0`` for a non-empty post, because the preference is
+    enforced server-side. Returning the real count rather than 204 is what makes
+    that gate observable — to a test, and to a client that would otherwise have
+    no way to tell "stored" from "silently dropped".
+    """
+
+    recorded: int
+
+
 class MealPlanRequest(BaseModel):
     """Request for planning meals (potentially multiple days, one day per LLM call)."""
     stock_items: list[StockItemDTO] = Field(

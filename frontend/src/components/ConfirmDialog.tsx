@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 
 interface ConfirmDialogProps {
@@ -12,6 +12,13 @@ interface ConfirmDialogProps {
   loadingLabel?: string;
   error?: string | null;
   destructive?: boolean;
+  /**
+   * Optional content rendered between the message and the buttons — e.g. the
+   * fridge's "ate it / threw it out" choice. Plain composition rather than a
+   * prop per use case; anything focusable in here is picked up by the focus
+   * trap below, which queries the live DOM rather than assuming two buttons.
+   */
+  children?: ReactNode;
 }
 
 export function ConfirmDialog({
@@ -25,6 +32,7 @@ export function ConfirmDialog({
   loadingLabel,
   error = null,
   destructive = true,
+  children,
 }: ConfirmDialogProps) {
   const { t } = useI18n();
   // Resolved at RENDER, not as parameter defaults: a default expression cannot
@@ -60,25 +68,41 @@ export function ConfirmDialog({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onCancel, loading]);
 
-  // Minimal focus trap: cycle Tab/Shift+Tab between Cancel and Confirm so
-  // keyboard users can't reach the page underneath. The dialog only has two
-  // tabbable controls, so this is exhaustive.
+  // Focus trap: cycle Tab/Shift+Tab within the dialog so keyboard users can't
+  // reach the page underneath.
+  //
+  // This QUERIES the live DOM instead of cycling the Cancel/Confirm refs, and
+  // that is load-bearing now that `children` exists. The ref-pair version was
+  // documented as "exhaustive" because the dialog only ever had two tabbable
+  // controls — the moment a caller renders a focusable child, Shift+Tab off
+  // that child matched none of its cases and fell through to the browser
+  // default, escaping the dialog entirely. A trap that silently stops trapping
+  // when the markup grows is worse than no trap, because nothing looks broken.
   const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;
-    const cancelEl = cancelRef.current;
-    const confirmEl = confirmRef.current;
-    if (!cancelEl || !confirmEl) return;
+    const tabbable = Array.from(
+      e.currentTarget.querySelectorAll<HTMLElement>(
+        'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      ),
+      // A disabled control is not tabbable, and neither is a non-checked radio
+      // in a group that has a checked member — but the browser handles the
+      // latter's arrow-key roving itself, and treating the group as one stop
+      // here would fight it. Filtering on `disabled` alone is enough to keep
+      // the first/last ends correct, which is all the cycle needs.
+    ).filter((el) => !el.hasAttribute("disabled"));
+    if (tabbable.length === 0) return;
+    const first = tabbable[0];
+    const last = tabbable[tabbable.length - 1];
     const active = document.activeElement;
+    const inside = active instanceof HTMLElement && e.currentTarget.contains(active);
     if (e.shiftKey) {
-      if (active === cancelEl || !active || !(active instanceof HTMLElement) || !e.currentTarget.contains(active)) {
+      if (!inside || active === first) {
         e.preventDefault();
-        confirmEl.focus();
+        last.focus();
       }
-    } else {
-      if (active === confirmEl) {
-        e.preventDefault();
-        cancelEl.focus();
-      }
+    } else if (!inside || active === last) {
+      e.preventDefault();
+      first.focus();
     }
   };
 
@@ -118,6 +142,8 @@ export function ConfirmDialog({
         <p style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.92rem" }}>
           {message}
         </p>
+
+        {children}
 
         {error && (
           <div role="alert" style={{ color: "#b91c1c", fontSize: "0.85rem", marginBottom: "0.75rem" }}>

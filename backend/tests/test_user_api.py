@@ -298,6 +298,31 @@ class TestProfile:
         assert resp.status_code == 200
         assert resp.json()["need_to_use_enabled"] is True
 
+    async def test_patch_waste_tracking_enabled(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        resp = await client.get("/api/users", headers=auth_headers)
+        # Opt-in, unlike the other boolean prefs: this one adds a QUESTION to a
+        # flow rather than re-ranking something the app already did, so a user
+        # who never opened Settings is never prompted.
+        assert resp.json()["waste_tracking_enabled"] is False
+
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"waste_tracking_enabled": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["waste_tracking_enabled"] is True
+
+        resp = await client.patch(
+            "/api/users",
+            headers=auth_headers,
+            json={"waste_tracking_enabled": False},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["waste_tracking_enabled"] is False
+
     async def test_patch_invalid_measurement(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
