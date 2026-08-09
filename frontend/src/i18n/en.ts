@@ -593,6 +593,23 @@ export const en = {
   "fridge.removeGroupBody_other":
     "Remove all {count} batches of \"{name}\" from your fridge?",
 
+  // ─── Expired-item review (after finishing a plan) ─────────────────────────
+  // Deliberately never says "safe" or "still good to eat" — the app is not
+  // judging edibility and must not imply it has. The user is telling US.
+  "expired.title": "Anything past its date?",
+  "expired.body_one": "1 item in your fridge is past the date on it.",
+  "expired.body_other": "{count} items in your fridge are past the date on them.",
+  "expired.itemMeta": "{grams} g · dated {date}",
+  "expired.stillFine": "Still fine",
+  "expired.thrownOut": "Threw it out",
+  "expired.apply": "Save",
+  "expired.applying": "Saving…",
+  "expired.skip": "Skip",
+  // Says what "Still fine" DOES, because moving the date is a real edit to
+  // their fridge and a silent one would read as a bug.
+  "expired.optionalHint":
+    "Optional — skip anything you're not sure about. \"Still fine\" keeps the item and moves its date on a week.",
+
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Add Ingredient",
   "fridgeItem.editTitle": "Edit Ingredient",

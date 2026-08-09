@@ -554,6 +554,28 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.removeGroupBody_other":
     "Odebrat z lednice všech {count} balení „{name}“?",
 
+  // ─── Expired-item review (after finishing a plan) ─────────────────────────
+  // "po uvedeném datu" — past the STATED date, deliberately not naming which
+  // kind. Czech distinguishes "datum spotřeby" (use-by) from "datum minimální
+  // trvanlivosti" (best-before) and the app stores one undifferentiated date,
+  // so picking either would assert something we do not know. Nothing here
+  // claims the food is safe; the user is telling us, not the other way round.
+  "expired.title": "Je něco po datu?",
+  // "položka" declines after the numeral: 1 položka / 2–4 položky / 5+ položek,
+  // and the verb agrees with it — "je" for singular, "jsou" for the 2–4 form.
+  "expired.body_one": "V lednici je 1 položka po uvedeném datu.",
+  "expired.body_few": "V lednici jsou {count} položky po uvedeném datu.",
+  "expired.body_many": "V lednici je {count} položky po uvedeném datu.",
+  "expired.body_other": "V lednici je {count} položek po uvedeném datu.",
+  "expired.itemMeta": "{grams} g · datum {date}",
+  "expired.stillFine": "Ještě dobré",
+  "expired.thrownOut": "Vyhodili jsme to",
+  "expired.apply": "Uložit",
+  "expired.applying": "Ukládám…",
+  "expired.skip": "Přeskočit",
+  "expired.optionalHint":
+    "Nepovinné — co si nejste jistí, přeskočte. „Ještě dobré“ položku ponechá a posune datum o týden.",
+
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Přidat surovinu",
   "fridgeItem.editTitle": "Upravit surovinu",

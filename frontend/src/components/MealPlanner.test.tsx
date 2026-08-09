@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
 import { usePreferencesStore, DEFAULT_PREFERENCES } from '../store/usePreferencesStore';
-import { useLocaleStore } from '../store/useLocaleStore';
-import { dayDateLabel } from '../utils/planDates';
+import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
+import { dayDateLabel, todayISO, addDaysISO } from '../utils/planDates';
 import { setColorScheme } from '../test/media';
 import { PAGE_TEXT } from '../constants/theme';
 import type { ReactNode } from 'react';
@@ -22,11 +22,14 @@ vi.mock('../api', () => ({
   authFetch: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
+  recordWaste: vi.fn(),
 }));
 
-import { authFetch } from '../api';
+import { authFetch, fetchUserProfile, recordWaste } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
+const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
+const mockedRecordWaste = recordWaste as ReturnType<typeof vi.fn>;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -1143,5 +1146,199 @@ describe('MealPlanner', () => {
     await waitFor(() =>
       expect(screen.getByRole('checkbox', { name: /mark eggs as bought/i })).not.toBeChecked(),
     );
+  });
+});
+
+describe('MealPlanner — expired-item review after finishing', () => {
+  const PLAN_ID = 900;
+
+  const initialPlan = {
+    plan_id: PLAN_ID,
+    start_date: null,
+    days: [{ meals: [{ name: 'Stew', meal_type: 'dinner', ingredients: [], steps: [] }] }],
+    shopping_list: [],
+  };
+  const initialSummary = {
+    id: PLAN_ID, start_date: null, created_at: new Date().toISOString(), days: 1,
+    meals_per_day: 1, people_count: 2, status: 'active' as const, total_meals: 1,
+    cooked_meals: 0, finished_at: null,
+  };
+
+  /** An expired batch and a fresh one, so the filter has something to exclude. */
+  const EXPIRED = {
+    id: 11, name: 'Yogurt', quantity_grams: 500,
+    need_to_use: true, expiration_date: addDaysISO(todayISO(), -4),
+  };
+  const FRESH = {
+    id: 12, name: 'Rice', quantity_grams: 900,
+    need_to_use: false, expiration_date: addDaysISO(todayISO(), 30),
+  };
+
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+    mockedRecordWaste.mockReset();
+    mockedRecordWaste.mockResolvedValue({ recorded: 1 });
+    mockedFetchProfile.mockReset();
+    // `mock.calls` ACCUMULATES across tests — the file-level beforeEach only
+    // reinstalls the implementation. Without this, the "nothing was written"
+    // assertions below find the PREVIOUS test's fridge PUT and fail, and worse,
+    // a genuinely broken no-write path would pass here for the same reason.
+    mockedAuthFetch.mockClear();
+  });
+
+  function routeFetch(fridge: unknown[]) {
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url === '/fridge') {
+        return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve(fridge),
+        } as unknown as Response);
+      }
+      if (url.endsWith('/finish')) {
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve({
+            status: 'finished', finished_at: new Date().toISOString(), returned_meals: 0,
+          }),
+        } as unknown as Response);
+      }
+      if (url.includes('/meals')) {
+        return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve([]),
+        } as unknown as Response);
+      }
+      return Promise.resolve(okEmpty());
+    });
+  }
+
+  /** The body of the PUT that persists the fridge, or undefined if none was issued. */
+  function fridgePutBody(): { id: number; expiration_date: string | null }[] | undefined {
+    const call = mockedAuthFetch.mock.calls.find(
+      (args) => args[0] === '/fridge' && args[1]?.method === 'PUT',
+    );
+    return call ? JSON.parse(call[1].body) : undefined;
+  }
+
+  async function finishPlan(profile: Record<string, unknown>, fridge: unknown[]) {
+    loginUser();
+    mockedFetchProfile.mockResolvedValue({
+      id: 1, email: 'test@test.com', country: null, language: 'English',
+      measurement_system: 'metric', variability: 'traditional', include_spices: true,
+      track_snacks: true, show_pieces: false, need_to_use_enabled: true,
+      onboarding_completed: true, is_admin: false, default_day_layout: null,
+      ...profile,
+    });
+    routeFetch(fridge);
+
+    const user = userEvent.setup();
+    render(
+      <MealPlanner initialPlan={initialPlan} initialSummary={initialSummary} />,
+      { wrapper: createWrapper() },
+    );
+    const finishBtn = await screen.findByRole('button', { name: /finish plan/i });
+    await user.click(finishBtn);
+    return user;
+  }
+
+  it('does not prompt when the waste preference is off', async () => {
+    await finishPlan({ waste_tracking_enabled: false }, [EXPIRED, FRESH]);
+
+    await waitFor(() => expect(screen.getByText(/finished plan/i)).toBeInTheDocument());
+    expect(screen.queryByText(/anything past its date/i)).not.toBeInTheDocument();
+  });
+
+  it('does not prompt when nothing is past its date', async () => {
+    await finishPlan({ waste_tracking_enabled: true }, [FRESH]);
+
+    await waitFor(() => expect(screen.getByText(/finished plan/i)).toBeInTheDocument());
+    expect(screen.queryByText(/anything past its date/i)).not.toBeInTheDocument();
+  });
+
+  it('lists only the expired items, and finishes the plan regardless', async () => {
+    await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
+
+    await screen.findByText(/anything past its date/i);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Yogurt')).toBeInTheDocument();
+    // The in-date batch must not be dragged into a question about spoilage.
+    expect(within(dialog).queryByText('Rice')).not.toBeInTheDocument();
+    // The finish itself already landed server-side — the prompt is separate.
+    expect(screen.getByText(/finished plan/i)).toBeInTheDocument();
+  });
+
+  it('bins an item: drops it from the fridge PUT and records it as waste', async () => {
+    const user = await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
+    await screen.findByText(/anything past its date/i);
+
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      const sent = fridgePutBody();
+      expect(sent).toBeDefined();
+      expect(sent!.map((i: { id: number }) => i.id)).toEqual([FRESH.id]);
+    });
+
+    expect(mockedRecordWaste).toHaveBeenCalledWith([
+      {
+        name: 'Yogurt',
+        quantity_grams: 500,
+        expiration_date: EXPIRED.expiration_date,
+        reason: 'thrown_out',
+        source: 'finish_plan',
+      },
+    ]);
+  });
+
+  it('keeps a still-fine item, pushes its date a week, and STILL records it', async () => {
+    const user = await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
+    await screen.findByText(/anything past its date/i);
+
+    await user.click(screen.getByRole('radio', { name: /still fine/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      const sent = fridgePutBody();
+      expect(sent).toBeDefined();
+      // Item survives...
+      expect(sent!.map((i: { id: number }) => i.id)).toEqual([EXPIRED.id, FRESH.id]);
+      // ...with its date moved on a week from TODAY, not from the stale date.
+      expect(sent![0].expiration_date).toBe(addDaysISO(todayISO(), 7));
+      // The untouched batch is passed through unchanged.
+      expect(sent![1].expiration_date).toBe(FRESH.expiration_date);
+    });
+
+    // still_fine is NOT waste, but it IS recorded — it is the denominator a
+    // binned count has to be read against.
+    expect(mockedRecordWaste).toHaveBeenCalledWith([
+      expect.objectContaining({ reason: 'still_fine', source: 'finish_plan' }),
+    ]);
+  });
+
+  it('writes nothing at all when the prompt is skipped', async () => {
+    const user = await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
+    await screen.findByText(/anything past its date/i);
+
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(screen.getByRole('button', { name: /^skip$/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/anything past its date/i)).not.toBeInTheDocument(),
+    );
+    expect(mockedRecordWaste).not.toHaveBeenCalled();
+    expect(fridgePutBody()).toBeUndefined();
+  });
+
+  it('confirming with nothing answered touches neither the fridge nor the waste log', async () => {
+    const user = await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
+    await screen.findByText(/anything past its date/i);
+
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/anything past its date/i)).not.toBeInTheDocument(),
+    );
+    expect(mockedRecordWaste).not.toHaveBeenCalled();
+    expect(fridgePutBody()).toBeUndefined();
   });
 });

@@ -6,6 +6,7 @@ import {
   dayDateLabel,
   formatISODate,
   startOfMonthISO,
+  addDaysISO,
   addMonthsISO,
   monthLabelOf,
   monthLabelIn,
@@ -83,6 +84,18 @@ describe("planDates", () => {
     it("startOfMonthISO returns the 1st of the month", () => {
       expect(startOfMonthISO("2026-08-15")).toBe("2026-08-01");
       expect(startOfMonthISO("2026-02-28")).toBe("2026-02-01");
+    });
+
+    it("addDaysISO shifts days and normalises month/year rollover", () => {
+      expect(addDaysISO("2026-08-09", 7)).toBe("2026-08-16");
+      // Month rollover, and a month shorter than 31 days.
+      expect(addDaysISO("2026-08-28", 7)).toBe("2026-09-04");
+      // Year rollover, both directions.
+      expect(addDaysISO("2026-12-28", 7)).toBe("2027-01-04");
+      expect(addDaysISO("2026-01-03", -7)).toBe("2025-12-27");
+      // Leap day is the platform's job, not ours.
+      expect(addDaysISO("2028-02-28", 1)).toBe("2028-02-29");
+      expect(addDaysISO("2026-02-28", 1)).toBe("2026-03-01");
     });
 
     it("addMonthsISO moves whole months and rolls over the year", () => {

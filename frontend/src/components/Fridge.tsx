@@ -3,7 +3,7 @@ import { useAuth } from "../contexts/AuthContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
 import { useFridge, useRecordWaste, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
-import type { StockItem, WasteEntry, WasteReason } from "../types";
+import type { StockItem, WasteEntry, RemovalWasteReason } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
@@ -94,7 +94,7 @@ export function Fridge() {
   // and nothing is recorded. Defaulting to either value would bias the data —
   // "eaten" undercounts waste, "thrown out" invents it — and forcing a choice
   // taxes every removal to serve a question the user never asked for.
-  const [wasteAnswer, setWasteAnswer] = useState<WasteReason | null>(null);
+  const [wasteAnswer, setWasteAnswer] = useState<RemovalWasteReason | null>(null);
 
   /** Build grouped items from the flat fridge array. */
   const buildGroups = useCallback((items: EditableStockItem[]): GroupedItem[] => {

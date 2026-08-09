@@ -380,8 +380,25 @@ export interface UserProfile {
 
 // --- Food waste capture (mirror backend WasteEntryDTO / WasteRecordedResponse) ---
 
-/** Where a fridge item went, once it left the fridge. */
-export type WasteReason = "thrown_out" | "eaten";
+/**
+ * What happened to an item that reached the end of its stated life.
+ *
+ * `still_fine` is NOT waste — the item stays in the fridge with a pushed date.
+ * Those rows are the denominator: a count of binned items has no base rate to
+ * be read against without them.
+ */
+export type WasteReason = "thrown_out" | "eaten" | "still_fine";
+
+/**
+ * The subset the fridge's remove dialog can produce.
+ *
+ * `still_fine` is excluded because that dialog only runs when an item is being
+ * REMOVED, and an item that is still fine is not being removed at all. The
+ * backend enforces the same pairing (`WasteEntryDTO._reason_fits_source`), so
+ * this alias is what turns violating it into a build error here rather than a
+ * 422 at runtime.
+ */
+export type RemovalWasteReason = Exclude<WasteReason, "still_fine">;
 
 /** Which surface asked the question. */
 export type WasteSource = "fridge_delete" | "finish_plan";
