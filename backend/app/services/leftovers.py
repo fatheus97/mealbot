@@ -27,6 +27,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from app.core.dietary import DietType
 from app.core.meal_types import MealType
 from app.models.plan_models import LeftoverRef, MealPlanResponse
 
@@ -50,6 +51,77 @@ LEFTOVER_TARGET_SLOTS: frozenset[MealType] = frozenset(
 # Per-plan cap. A week where half the meals are reheats reads as the planner
 # being lazy rather than efficient.
 DEFAULT_MAX_LEFTOVERS_PER_PLAN = 2
+
+
+@dataclass(frozen=True)
+class LeftoverPolicy:
+    """How aggressively to plan leftovers.
+
+    Grouped into one object rather than three loose ints so a caller cannot set
+    two of them and silently inherit a third that contradicts the first two —
+    the numbers only make sense together (a long lookback with no fan-in is a
+    different feature from a short one with fan-in).
+
+    The values differ by DIET, not by preference. That distinction matters: the
+    conservative defaults exist because reheating an adult dinner three days
+    later is unappetising, which is a fact about the food, not about how much
+    the user likes leftovers. A per-user "leftover appetite" setting would be
+    the wrong shape — it would let someone opt into a rule that is wrong for
+    what they are actually cooking.
+    """
+
+    #: Hard cap on links per plan.
+    max_links: int
+    #: How many days back a source may sit. 1 = yesterday only.
+    lookback_days: int
+    #: How many leftovers may point at ONE source. 1 = no fan-in.
+    max_per_source: int
+
+
+#: Adult cooking. Exactly the behaviour that shipped in #226-235.
+ADULT_LEFTOVER_POLICY = LeftoverPolicy(
+    max_links=DEFAULT_MAX_LEFTOVERS_PER_PLAN,
+    lookback_days=1,
+    max_per_source=1,
+)
+
+#: Infant purees (``diet_type="baby_food"``).
+#:
+#: Every adult rule is wrong here, and for the same underlying reason: a puree
+#: is cooked in a batch, portioned, and FROZEN, so the objections that shaped
+#: the defaults do not apply.
+#:
+#: * ``lookback_days=3`` — "reheat Monday's puree on Thursday" is ordinary for
+#:   frozen baby food and unappealing for a roast dinner. The one-day window is
+#:   the single rule that most actively fights this use case.
+#: * ``max_per_source=2`` — a triple batch. The adult objection is fridge space
+#:   and goodwill; an infant portion is ~100-150 g, so three of them is one
+#:   normal cooking session and a couple of freezer cubes.
+#: * ``max_links=4`` — two batch-cooks feeding four reheats across a week,
+#:   which is roughly how people actually cook for a baby.
+#:
+#: Deliberately NOT raised further: ``max_per_source`` above 2 would push
+#: portions past 3, and 3 is the largest multiplier the prompt states honestly
+#: (see the batch block in meal_plan.jinja).
+BABY_FOOD_LEFTOVER_POLICY = LeftoverPolicy(
+    max_links=4,
+    lookback_days=3,
+    max_per_source=2,
+)
+
+
+def leftover_policy_for(diet_types: Sequence[DietType]) -> LeftoverPolicy:
+    """The policy to plan under, given a request's diets.
+
+    Baby food wins over anything it is combined with. A plan that is baby food
+    AND something else is still feeding an infant, and the infant constraint is
+    the one that makes the adult rules wrong — so it is not a tie to break on
+    ordering, which would make the result depend on which chip the user tapped
+    first.
+    """
+    if DietType.BABY_FOOD in diet_types:
+        return BABY_FOOD_LEFTOVER_POLICY
+    return ADULT_LEFTOVER_POLICY
 
 
 @dataclass(frozen=True)
@@ -81,7 +153,7 @@ def plan_leftover_links(
     # list[list[str]] from any caller, which is what every test was tripping on.
     layouts: Sequence[list[str] | None],
     *,
-    max_links: int = DEFAULT_MAX_LEFTOVERS_PER_PLAN,
+    policy: LeftoverPolicy = ADULT_LEFTOVER_POLICY,
 ) -> list[LeftoverAssignment]:
     """Decide which meals should be leftovers, from the day layouts alone.
 
@@ -96,13 +168,20 @@ def plan_leftover_links(
     the model to scale the right dish — and scaling is the whole mechanism. The
     legacy meals_per_day path therefore never gets leftovers, by construction.
 
-    Rules, chosen so the result is predictable rather than clever:
-      * Look back exactly ONE day. A Thursday lunch reheating Monday's dinner is
-        not something anyone actually wants to eat.
-      * One leftover per source (no fan-in from the planner). The graph permits
-        fan-in and the portion maths handles it, but generating it automatically
-        would mean a triple batch, which strains both fridge space and goodwill.
-      * At most one leftover per day.
+    Rules, chosen so the result is predictable rather than clever. All three
+    numbers come from ``policy`` — see LeftoverPolicy for why they vary by DIET
+    rather than by user preference:
+      * Look back at most ``policy.lookback_days`` days, NEAREST DAY FIRST. For
+        adult cooking that is 1: a Thursday lunch reheating Monday's dinner is
+        not something anyone actually wants to eat. Frozen baby purees are the
+        opposite case and get a wider window.
+      * At most ``policy.max_per_source`` leftovers per source. 1 means no
+        fan-in. The graph has always permitted fan-in (L11) and
+        ``portions_for_day`` has always computed ``1 + dependents``; only this
+        function declined to emit it, so raising the number needs no new
+        machinery.
+      * At most one leftover per day — structural, since only the FIRST
+        eligible target slot in a day is ever considered.
       * A source is NEVER itself a leftover (L5, no chains). This needs an
         explicit check, not a structural argument: MAIN_COURSE is a member of
         BOTH the source and target sets, so yesterday's leftover slot is a
@@ -110,52 +189,76 @@ def plan_leftover_links(
         unguarded, [["main_course", "snack"]] * 3 produces
         day1.meal0 <- day0.meal0 AND day2.meal0 <- day1.meal0, i.e. a
         "Leftovers: Leftovers: X" meal that the invariant checker then rejects.
+        A LONGER lookback makes this trap easier to hit, not harder — day 3 can
+        now reach back to day 1's target as well as day 2's.
     """
     assignments: list[LeftoverAssignment] = []
-    used_sources: set[tuple[int, int]] = set()
-    # Slots already turned INTO leftovers. Must be excluded from future source
-    # lookups or the planner chains (see above).
+    # How many leftovers already point at each source. A COUNT, not a set,
+    # because fan-in means a source can be reused up to max_per_source times.
+    source_uses: dict[tuple[int, int], int] = {}
+    # Slots already turned INTO leftovers. Must be excluded from every future
+    # source lookup or the planner chains (see above).
     used_targets: set[tuple[int, int]] = set()
 
     for day_index in range(1, len(layouts)):
-        if len(assignments) >= max_links:
+        if len(assignments) >= policy.max_links:
             break
         today = layouts[day_index]
-        prev = layouts[day_index - 1]
-        if not today or not prev:
+        if not today:
             continue
 
         target_index = _first_slot_in(
             today,
             LEFTOVER_TARGET_SLOTS,
-            excluding={m for (d, m) in used_sources if d == day_index},
+            # A slot already feeding someone else cannot also BE a leftover:
+            # that is the L5 chain, one day early.
+            excluding={m for (d, m) in source_uses if d == day_index},
         )
         if target_index is None:
             continue
 
-        prev_day = day_index - 1
-        source_index = _first_slot_in(
-            prev,
-            BATCH_FRIENDLY_SOURCE_SLOTS,
-            excluding={
-                m
-                for (d, m) in (used_sources | used_targets)
-                if d == prev_day
-            },
-        )
-        if source_index is None:
+        # Nearest day first, so a 3-day window still prefers yesterday's cook.
+        # Ordering matters for predictability, not just correctness: the user
+        # should be able to guess which dish gets scaled.
+        # (day, slot, meal_type). Carrying the meal_type out of the loop rather
+        # than re-indexing `layouts` afterwards keeps the None-check that
+        # `continue` already did in scope — re-indexing would need a
+        # `type: ignore` to tell mypy something the loop already proved.
+        found: tuple[int, int, str] | None = None
+        oldest_day = max(0, day_index - policy.lookback_days)
+        for prev_day in range(day_index - 1, oldest_day - 1, -1):
+            prev = layouts[prev_day]
+            if not prev:
+                continue
+            source_index = _first_slot_in(
+                prev,
+                BATCH_FRIENDLY_SOURCE_SLOTS,
+                excluding={m for (d, m) in used_targets if d == prev_day}
+                | {
+                    m
+                    for (d, m), used in source_uses.items()
+                    if d == prev_day and used >= policy.max_per_source
+                },
+            )
+            if source_index is not None:
+                found = (prev_day, source_index, prev[source_index])
+                break
+        if found is None:
             continue
 
-        used_sources.add((day_index - 1, source_index))
+        source_day, source_index, source_slot = found
+        source_uses[(source_day, source_index)] = (
+            source_uses.get((source_day, source_index), 0) + 1
+        )
         used_targets.add((day_index, target_index))
         assignments.append(
             LeftoverAssignment(
                 day_index=day_index,
                 meal_index=target_index,
                 source=LeftoverRef(
-                    day_index=day_index - 1, meal_index=source_index
+                    day_index=source_day, meal_index=source_index
                 ),
-                source_meal_type=prev[source_index],
+                source_meal_type=source_slot,
                 target_meal_type=today[target_index],
             )
         )

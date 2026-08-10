@@ -48,6 +48,7 @@ from app.services.fridge_service import (
 from app.services.leftovers import (
     LeftoverAssignment,
     leftover_display_name,
+    leftover_policy_for,
     leftover_steps,
     plan_leftover_links,
     portions_for_day,
@@ -626,8 +627,13 @@ async def generate_plan_days(
     # plan_leftover_links): without knowing what slot N will be, we can't tell
     # the model which dish to scale.
     layouts: list[list[str] | None] = [_resolve_layout(i) for i in range(days)]
+    # The limits vary by DIET, not by preference: a frozen infant puree reheats
+    # happily three days later, an adult roast does not. See leftover_policy_for.
+    leftover_policy = leftover_policy_for(payload.diet_types)
     leftover_plan: list[LeftoverAssignment] = (
-        plan_leftover_links(layouts) if payload.leftover_policy == "auto" else []
+        plan_leftover_links(layouts, policy=leftover_policy)
+        if payload.leftover_policy == "auto"
+        else []
     )
     if leftover_plan:
         logger.info(

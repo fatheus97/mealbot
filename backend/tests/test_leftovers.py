@@ -7,9 +7,12 @@ These tests pin the rules before anything can violate them.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from pydantic import ValidationError
 
+from app.core.dietary import DietType
 from app.core.meal_types import MealType
 from app.models.plan_models import (
     GeneratedMeal,
@@ -21,9 +24,13 @@ from app.models.plan_models import (
     SingleDayResponse,
 )
 from app.services.leftovers import (
+    ADULT_LEFTOVER_POLICY,
+    BABY_FOOD_LEFTOVER_POLICY,
+    DEFAULT_MAX_LEFTOVERS_PER_PLAN,
     LeftoverAssignment,
     expand_leftover_groups,
     leftover_dependents,
+    leftover_policy_for,
     leftover_source_names,
     plan_leftover_links,
     portions_for_day,
@@ -399,9 +406,9 @@ class TestPlanLeftoverLinks:
 
     def test_respects_the_per_plan_cap(self) -> None:
         layouts = [["hot_dinner", "light_lunch"]] * 6
-        assert len(plan_leftover_links(layouts, max_links=2)) == 2
-        assert len(plan_leftover_links(layouts, max_links=1)) == 1
-        assert plan_leftover_links(layouts, max_links=0) == []
+        for cap in (2, 1, 0):
+            policy = replace(ADULT_LEFTOVER_POLICY, max_links=cap)
+            assert len(plan_leftover_links(layouts, policy=policy)) == cap
 
     def test_skips_days_with_no_resolved_layout(self) -> None:
         # The legacy meals_per_day path has no layout, so we cannot know which
@@ -525,7 +532,9 @@ class TestPlannerNeverChains:
             ["main_course", "light_lunch"],
             ["soup", "main_course"],
         ]
-        links = plan_leftover_links(layouts, max_links=99)
+        links = plan_leftover_links(
+            layouts, policy=replace(ADULT_LEFTOVER_POLICY, max_links=99)
+        )
         targets = {(a.day_index, a.meal_index) for a in links}
         sources = {(a.source.day_index, a.source.meal_index) for a in links}
         assert not (targets & sources)
@@ -533,20 +542,45 @@ class TestPlannerNeverChains:
     def test_every_layout_shape_yields_a_valid_graph(self) -> None:
         """Brute force over small layouts built from the slots that actually
         overlap the two sets — the planner and the invariants must never
-        disagree, whatever the user configures."""
+        disagree, whatever the user configures.
+
+        Runs over EVERY shipped policy, not just the adult defaults. A wider
+        lookback makes chaining easier to hit, not harder: with a 3-day window
+        day 3 can reach back to day 1's target as well as day 2's, so the L5
+        guard has strictly more chances to be wrong under the baby-food policy.
+        """
         from itertools import product
 
         slots = ["main_course", "hot_dinner", "light_lunch", "snack"]
-        for combo in product(slots, repeat=2):
-            for n_days in (2, 3, 4):
-                layouts: list[list[str] | None] = [list(combo)] * n_days
-                links = plan_leftover_links(layouts, max_links=99)
-                targets = {(a.day_index, a.meal_index) for a in links}
-                sources = {(a.source.day_index, a.source.meal_index) for a in links}
-                assert not (targets & sources), (
-                    f"chain for layout {combo} over {n_days} days: "
-                    f"{sorted(targets & sources)}"
-                )
+        policies = {
+            "adult": replace(ADULT_LEFTOVER_POLICY, max_links=99),
+            "baby": replace(BABY_FOOD_LEFTOVER_POLICY, max_links=99),
+        }
+        for name, policy in policies.items():
+            for combo in product(slots, repeat=2):
+                for n_days in (2, 3, 4, 5, 6):
+                    layouts: list[list[str] | None] = [list(combo)] * n_days
+                    links = plan_leftover_links(layouts, policy=policy)
+                    targets = {(a.day_index, a.meal_index) for a in links}
+                    sources = {
+                        (a.source.day_index, a.source.meal_index) for a in links
+                    }
+                    assert not (targets & sources), (
+                        f"[{name}] chain for layout {combo} over {n_days} days: "
+                        f"{sorted(targets & sources)}"
+                    )
+                    # Every link must also point strictly backwards (L4) and
+                    # sit inside the policy's window — the two properties the
+                    # longer lookback could plausibly break.
+                    for a in links:
+                        assert a.source.day_index < a.day_index, (
+                            f"[{name}] non-backward link {a}"
+                        )
+                        assert a.day_index - a.source.day_index <= policy.lookback_days, (
+                            f"[{name}] link reaches back "
+                            f"{a.day_index - a.source.day_index} days, policy "
+                            f"allows {policy.lookback_days}: {a}"
+                        )
 
 
 class TestExpandLeftoverGroups:
@@ -633,3 +667,181 @@ class TestLeftoverSourceNames:
         p = plan([meal("A")], [meal("B", leftover_of=(0, 0))])
         p.days[1].meals[0].leftover_of = LeftoverRef(day_index=9, meal_index=0)
         assert leftover_source_names(p) == {}
+
+
+class TestLeftoverPolicySelection:
+    """Which policy a request plans under. The limits vary by DIET, not by
+    preference — see LeftoverPolicy for why that distinction is load-bearing."""
+
+    def test_defaults_to_the_adult_policy(self) -> None:
+        assert leftover_policy_for([]) is ADULT_LEFTOVER_POLICY
+        assert leftover_policy_for([DietType.VEGETARIAN]) is ADULT_LEFTOVER_POLICY
+
+    def test_baby_food_gets_its_own_policy(self) -> None:
+        assert leftover_policy_for([DietType.BABY_FOOD]) is BABY_FOOD_LEFTOVER_POLICY
+
+    def test_baby_food_wins_over_anything_it_is_combined_with(self) -> None:
+        # Order-independent on purpose: a plan that is baby food AND something
+        # else is still feeding an infant, so the result must not depend on
+        # which chip the user tapped first.
+        assert (
+            leftover_policy_for([DietType.VEGETARIAN, DietType.BABY_FOOD])
+            is BABY_FOOD_LEFTOVER_POLICY
+        )
+        assert (
+            leftover_policy_for([DietType.BABY_FOOD, DietType.VEGETARIAN])
+            is BABY_FOOD_LEFTOVER_POLICY
+        )
+
+    def test_the_adult_policy_is_exactly_what_shipped_before(self) -> None:
+        # Regression guard with teeth: this feature is a policy change, and the
+        # only way it can hurt an existing user is by leaking into adult plans.
+        assert ADULT_LEFTOVER_POLICY.max_links == DEFAULT_MAX_LEFTOVERS_PER_PLAN
+        assert ADULT_LEFTOVER_POLICY.lookback_days == 1
+        assert ADULT_LEFTOVER_POLICY.max_per_source == 1
+
+    def test_baby_portions_stay_within_what_the_prompt_can_state(self) -> None:
+        # The batch block renders "{{ n }}x the usual", but the whole design
+        # assumes a batch a human would actually cook in one go. max_per_source
+        # of 2 means portions top out at 3; if this is ever raised, re-read the
+        # prompt block before assuming it still reads sensibly.
+        assert BABY_FOOD_LEFTOVER_POLICY.max_per_source == 2
+
+
+class TestAdultPolicyUnchanged:
+    """The existing behaviour, re-asserted through the new parameter. If any of
+    this moves, an ordinary user's plan changed — which this feature must not
+    do."""
+
+    def test_still_looks_back_exactly_one_day(self) -> None:
+        # Day 2 reaching past day 1 to day 0 is the thing the adult window
+        # exists to prevent.
+        layouts: list[list[str] | None] = [
+            ["hot_dinner"],
+            ["sweet_breakfast"],
+            ["light_lunch"],
+        ]
+        assert plan_leftover_links(layouts) == []
+
+    def test_still_refuses_fan_in(self) -> None:
+        layouts: list[list[str] | None] = [
+            ["hot_dinner"],
+            ["light_lunch"],
+            ["light_lunch"],
+        ]
+        links = plan_leftover_links(layouts)
+        sources = [(a.source.day_index, a.source.meal_index) for a in links]
+        assert len(sources) == len(set(sources)), "adult plans must not fan in"
+
+    def test_max_per_source_is_what_stops_fan_in__not_just_the_lookback(self) -> None:
+        """Isolate the cap, because the test above cannot.
+
+        Under the adult policy fan-in is ALREADY structurally impossible:
+        ``lookback_days=1`` means each day reaches back to a different day, so
+        two targets can never share a source. Deleting the ``max_per_source``
+        check entirely leaves that test green — verified by doing it — so it
+        proves nothing about the cap.
+
+        Widening only the lookback isolates the cap as the sole remaining
+        guard, which is the configuration the baby-food policy actually runs in.
+        """
+        layouts: list[list[str] | None] = [
+            ["main_course"],
+            ["light_lunch"],
+            ["light_lunch"],
+        ]
+        no_fan_in = replace(ADULT_LEFTOVER_POLICY, lookback_days=3, max_links=9)
+        links = plan_leftover_links(layouts, policy=no_fan_in)
+        sources = [(a.source.day_index, a.source.meal_index) for a in links]
+        assert len(sources) == len(set(sources)), (
+            f"max_per_source=1 must stop the second link reusing day 0: {sources}"
+        )
+
+
+class TestBabyFoodBatches:
+    """Frozen purees. Every adult rule is wrong here for the same reason: the
+    food is cooked in a batch, portioned and frozen."""
+
+    def test_reaches_back_further_than_one_day(self) -> None:
+        # "Reheat Monday's puree on Thursday" — ordinary for baby food, and
+        # exactly what the adult one-day window forbids.
+        layouts: list[list[str] | None] = [
+            ["main_course"],
+            ["snack"],
+            ["snack"],
+            ["light_lunch"],
+        ]
+        assert plan_leftover_links(layouts) == []  # adult: nothing
+        links = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
+        assert len(links) == 1
+        assert (links[0].day_index, links[0].source.day_index) == (3, 0)
+
+    def test_never_reaches_back_beyond_its_own_window(self) -> None:
+        # One day past the 3-day window: day 4 <- day 0 must NOT be emitted.
+        layouts: list[list[str] | None] = [
+            ["main_course"],
+            ["snack"],
+            ["snack"],
+            ["snack"],
+            ["light_lunch"],
+        ]
+        assert plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY) == []
+
+    def test_one_batch_can_feed_two_later_days(self) -> None:
+        layouts: list[list[str] | None] = [
+            ["main_course"],
+            ["light_lunch"],
+            ["light_lunch"],
+        ]
+        links = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
+        assert len(links) == 2
+        sources = {(a.source.day_index, a.source.meal_index) for a in links}
+        assert sources == {(0, 0)}, "both days should reheat the same batch"
+        # 1 original + 2 dependents = a triple batch on day 0.
+        assert portions_for_day(links, 0, 1) == [3]
+
+    def test_stops_fanning_in_at_the_policy_limit(self) -> None:
+        # A fourth day must NOT pile onto the same source once it is used twice.
+        layouts: list[list[str] | None] = [["main_course"], *([["light_lunch"]] * 3)]
+        links = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
+        per_source: dict[tuple[int, int], int] = {}
+        for a in links:
+            key = (a.source.day_index, a.source.meal_index)
+            per_source[key] = per_source.get(key, 0) + 1
+        assert max(per_source.values()) <= BABY_FOOD_LEFTOVER_POLICY.max_per_source
+        assert max(portions_for_day(links, 0, 1)) <= 3
+
+    def test_still_never_chains_across_the_wider_window(self) -> None:
+        # main_course is in BOTH the source and target sets, so a leftover slot
+        # is a tempting source — and a 3-day window gives the planner three
+        # chances to make that mistake instead of one.
+        layouts: list[list[str] | None] = [["main_course"]] * 6
+        links = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
+        targets = {(a.day_index, a.meal_index) for a in links}
+        sources = {(a.source.day_index, a.source.meal_index) for a in links}
+        assert not (targets & sources)
+
+    def test_produces_a_graph_the_invariants_accept(self) -> None:
+        # The planner and validate_leftover_graph must agree; fan-in is L11.
+        layouts: list[list[str] | None] = [
+            ["main_course"],
+            ["light_lunch"],
+            ["light_lunch"],
+        ]
+        links = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
+        assert len(links) == 2, "expected the fan-in this test exists to check"
+
+        # Materialise exactly what the planner decided, using the same helpers
+        # the rest of this file builds plans with.
+        def day_for(d: int) -> list[PlannedMeal]:
+            link = next((a for a in links if a.day_index == d), None)
+            if link is None:
+                return [meal(f"Pear puree d{d}")]
+            return [
+                meal(
+                    f"Leftovers d{d}",
+                    leftover_of=(link.source.day_index, link.source.meal_index),
+                )
+            ]
+
+        assert validate_leftover_graph(plan(*(day_for(d) for d in range(3)))) == []
