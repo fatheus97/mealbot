@@ -68,7 +68,7 @@ The output JSON must contain EXACTLY {{ slots_to_generate | length }} meal(s) wi
 {%- if slot_portions %}
 {%- for slot in slots_to_generate %}
 {%- if slot_portions[loop.index0] > 1 %}
-— COOK A {{ "DOUBLE" if slot_portions[loop.index0] == 2 else "TRIPLE" }} BATCH of the "{{ slot }}" meal:
+— COOK A LARGER BATCH of the "{{ slot }}" meal — {{ slot_portions[loop.index0] }}× the usual:
   give ingredient amounts for {{ people_count * slot_portions[loop.index0] }} people
   ({{ slot_portions[loop.index0] }} servings-worth), because the extra portion is
   deliberately kept as leftovers for another day. Restate the SCALED amount inline

@@ -637,7 +637,11 @@ class TestBatchCookingPrompt:
             slot_portions=[2, 1],
         )
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
-        assert "COOK A DOUBLE BATCH" in prompt
+        # States the multiplier as a NUMBER rather than a word. The old
+        # "DOUBLE if 2 else TRIPLE" wording silently mislabelled anything ≥ 4,
+        # which the baby-food policy brings within reach.
+        assert "COOK A LARGER BATCH" in prompt
+        assert "2× the usual" in prompt
         # people_count * portions — the model scales, we never post-multiply.
         assert "for 4 people" in prompt
         assert "2 servings-worth" in prompt
@@ -654,7 +658,8 @@ class TestBatchCookingPrompt:
             slot_portions=[3],
         )
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
-        assert "COOK A TRIPLE BATCH" in prompt
+        assert "COOK A LARGER BATCH" in prompt
+        assert "3× the usual" in prompt
         assert "for 9 people" in prompt
 
     @patch("app.services.meal_planner.llm_client")
@@ -686,7 +691,11 @@ class TestBatchCookingPrompt:
             slot_portions=[2],
         )
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
-        assert "COOK A DOUBLE BATCH" in prompt
+        # States the multiplier as a NUMBER rather than a word. The old
+        # "DOUBLE if 2 else TRIPLE" wording silently mislabelled anything ≥ 4,
+        # which the baby-food policy brings within reach.
+        assert "COOK A LARGER BATCH" in prompt
+        assert "2× the usual" in prompt
         assert "for 4 people" in prompt
         assert "do NOT vary it away" in prompt
 
@@ -715,7 +724,11 @@ class TestBatchCookingPrompt:
         )
         assert result is not None, "RAG should have fired with a relevant hit"
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
-        assert "COOK A DOUBLE BATCH" in prompt
+        # States the multiplier as a NUMBER rather than a word. The old
+        # "DOUBLE if 2 else TRIPLE" wording silently mislabelled anything ≥ 4,
+        # which the baby-food policy brings within reach.
+        assert "COOK A LARGER BATCH" in prompt
+        assert "2× the usual" in prompt
         assert "for 4 people" in prompt
         assert "Retrieved Meal" in prompt  # still the RAG prompt
 
