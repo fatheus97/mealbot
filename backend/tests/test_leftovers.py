@@ -733,6 +733,30 @@ class TestAdultPolicyUnchanged:
         sources = [(a.source.day_index, a.source.meal_index) for a in links]
         assert len(sources) == len(set(sources)), "adult plans must not fan in"
 
+    def test_max_per_source_is_what_stops_fan_in__not_just_the_lookback(self) -> None:
+        """Isolate the cap, because the test above cannot.
+
+        Under the adult policy fan-in is ALREADY structurally impossible:
+        ``lookback_days=1`` means each day reaches back to a different day, so
+        two targets can never share a source. Deleting the ``max_per_source``
+        check entirely leaves that test green — verified by doing it — so it
+        proves nothing about the cap.
+
+        Widening only the lookback isolates the cap as the sole remaining
+        guard, which is the configuration the baby-food policy actually runs in.
+        """
+        layouts: list[list[str] | None] = [
+            ["main_course"],
+            ["light_lunch"],
+            ["light_lunch"],
+        ]
+        no_fan_in = replace(ADULT_LEFTOVER_POLICY, lookback_days=3, max_links=9)
+        links = plan_leftover_links(layouts, policy=no_fan_in)
+        sources = [(a.source.day_index, a.source.meal_index) for a in links]
+        assert len(sources) == len(set(sources)), (
+            f"max_per_source=1 must stop the second link reusing day 0: {sources}"
+        )
+
 
 class TestBabyFoodBatches:
     """Frozen purees. Every adult rule is wrong here for the same reason: the
