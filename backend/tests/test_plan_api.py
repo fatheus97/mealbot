@@ -1582,3 +1582,166 @@ class TestEditSourceFansOutToLeftovers:
         ], "user's steps were clobbered"
         # The link itself survives — only the display text was the user's.
         assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}
+
+
+def _fake_main_and_snack_day() -> SingleDayResponse:
+    """A day matching the ["main_course", "snack"] layout.
+
+    main_course sits in BOTH the source and target slot sets, so this layout can
+    form links under either policy — which is what makes it a fair comparison:
+    any difference in the result is the POLICY, not the slots.
+    """
+    return SingleDayResponse(
+        meals=[
+            PlannedMeal(
+                name="Pear puree",
+                meal_type=MealType.MAIN_COURSE,
+                ingredients=[IngredientAmount(name="pear", quantity_grams=200)],
+                steps=["Steam and blend"],
+            ),
+            PlannedMeal(
+                name="Rice cake",
+                meal_type=MealType.SNACK,
+                ingredients=[IngredientAmount(name="rice", quantity_grams=20)],
+                steps=["Serve"],
+            ),
+        ]
+    )
+
+
+class TestLeftoverPolicyWiring:
+    """The one line that makes the diet-keyed policy reachable by a real user:
+    ``leftover_policy_for(payload.diet_types)`` in generate_plan_days.
+
+    Every other test of this feature calls ``plan_leftover_links`` with an
+    explicit policy object, so a WIRING regression — wrong field, dropped call,
+    precedence flipped — would pass all of them. These go through the real API.
+    """
+
+    async def _set_layout(
+        self, client: AsyncClient, auth_headers: dict[str, str], layout: list[str]
+    ) -> None:
+        resp = await client.patch(
+            "/api/users", headers=auth_headers, json={"default_day_layout": layout}
+        )
+        assert resp.status_code == 200
+
+    async def _plan_links(
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        body: dict[str, object],
+        days: int = 4,
+    ) -> list[tuple[int, dict[str, int]]]:
+        """POST a plan and return (target_day, leftover_of) for every link."""
+        mock_gen.reset_mock()
+        mock_gen.side_effect = lambda *a, **kw: _fake_main_and_snack_day()
+        resp = await client.post(
+            f"/api/plan?days={days}", headers=auth_headers, json=body
+        )
+        assert resp.status_code == 200, resp.text
+        return [
+            (d_i, m["leftover_of"])
+            for d_i, day in enumerate(resp.json()["days"])
+            for m in day["meals"]
+            if m["leftover_of"] is not None
+        ]
+
+    async def test_baby_food_reaches_further_back_than_an_adult_plan(
+        self, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
+        """A link spanning MORE than one day is impossible under the adult
+        policy and routine under the baby-food one. Both halves run the same
+        layout and day count, so the difference can only be the diet."""
+        await self._set_layout(client, auth_headers, ["main_course", "snack"])
+        base: dict[str, object] = {"meals_per_day": 2, "people_count": 2}
+
+        with patch(
+            "app.services.plan_service.generate_single_day", new_callable=AsyncMock
+        ) as mock_gen:
+            adult = await self._plan_links(mock_gen, client, auth_headers, dict(base))
+            baby = await self._plan_links(
+                mock_gen,
+                client,
+                auth_headers,
+                {**base, "diet_types": ["baby_food"]},
+            )
+
+        adult_spans = {d - ref["day_index"] for d, ref in adult}
+        baby_spans = {d - ref["day_index"] for d, ref in baby}
+        assert adult_spans <= {1}, f"adult plan reached back further than a day: {adult}"
+        assert baby_spans - {1}, (
+            f"baby-food plan never reached back more than one day: {baby}"
+        )
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_baby_food_fans_one_batch_into_a_triple_portion(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
+        """The observable end of fan-in: the source day is told to cook 3×.
+
+        An adult plan structurally cannot produce a 3 (max_per_source=1 caps
+        portions at 2), so this one number distinguishes the policies through
+        the real request path.
+        """
+        mock_gen.side_effect = lambda *a, **kw: _fake_main_and_snack_day()
+        await self._set_layout(client, auth_headers, ["main_course", "snack"])
+
+        resp = await client.post(
+            "/api/plan?days=3",
+            headers=auth_headers,
+            json={
+                "meals_per_day": 2,
+                "people_count": 2,
+                "diet_types": ["baby_food"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        day0 = mock_gen.await_args_list[0].kwargs["slot_portions"]
+        assert day0[0] == 3, f"expected a triple batch on the source day, got {day0}"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_an_adult_plan_never_gets_the_baby_multiplier(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
+        """The regression that matters: the new policy leaking into ordinary
+        plans. Same layout and day count as the test above, no diet."""
+        mock_gen.side_effect = lambda *a, **kw: _fake_main_and_snack_day()
+        await self._set_layout(client, auth_headers, ["main_course", "snack"])
+
+        resp = await client.post(
+            "/api/plan?days=3",
+            headers=auth_headers,
+            json={"meals_per_day": 2, "people_count": 2},
+        )
+        assert resp.status_code == 200, resp.text
+        for call in mock_gen.await_args_list:
+            assert max(call.kwargs["slot_portions"]) <= 2, (
+                f"adult plan got a baby-food batch size: {call.kwargs['slot_portions']}"
+            )
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_the_legacy_single_select_diet_field_also_reaches_the_policy(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+    ) -> None:
+        """Old clients still send ``diet_type`` (singular). _reconcile_diet_fields
+        folds it into diet_types before generate_plan_days runs, so they must get
+        the new policy too — otherwise the feature is invisible to exactly the
+        users least likely to have updated their client.
+        """
+        mock_gen.side_effect = lambda *a, **kw: _fake_main_and_snack_day()
+        await self._set_layout(client, auth_headers, ["main_course", "snack"])
+
+        resp = await client.post(
+            "/api/plan?days=3",
+            headers=auth_headers,
+            json={
+                "meals_per_day": 2,
+                "people_count": 2,
+                "diet_type": "baby_food",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        day0 = mock_gen.await_args_list[0].kwargs["slot_portions"]
+        assert day0[0] == 3, f"legacy diet_type did not reach the policy: {day0}"

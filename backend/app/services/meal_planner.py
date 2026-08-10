@@ -157,9 +157,9 @@ async def generate_single_day(
     Generates a meal plan for a single day with strict schema enforcement.
 
     ``slot_portions`` is parallel to ``slot_layout``: how many servings-worth to
-    cook per slot (1 = normal). A value > 1 renders a COOK A DOUBLE/TRIPLE BATCH
-    instruction, because that slot's extra portion is deliberately kept as a
-    leftover for a later day. The scaling is done BY THE MODEL, never by
+    cook per slot (1 = normal). A value > 1 renders a COOK A LARGER BATCH
+    instruction stating the multiplier, because that slot's extra portion is
+    deliberately kept as a leftover for a later day. The scaling is done BY THE MODEL, never by
     multiplying quantity_grams afterwards — the prompt requires every step to
     restate its amounts inline, so a Python multiply would leave the steps
     contradicting the ingredient list.
