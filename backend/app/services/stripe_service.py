@@ -355,11 +355,15 @@ def construct_event(payload: bytes, sig_header: str) -> stripe.Event:
     """
     if not settings.stripe_webhook_secret:
         raise RuntimeError("STRIPE_WEBHOOK_SECRET not configured")
-    # stripe ships no annotation for Webhook.construct_event, so it comes back
-    # as Any. Bind it to a declared local instead of returning Any straight out
-    # of a function promising stripe.Event. Re-check on every stripe bump — if
-    # they annotate it, this ignore becomes an unused-ignore error.
-    event: stripe.Event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
+    # stripe ANNOTATED Webhook.construct_event in 15.5.0, so the
+    # `# type: ignore[no-untyped-call]` this line used to carry became an
+    # unused-ignore error under `warn_unused_ignores` — exactly what the old
+    # comment here predicted would happen on a bump.
+    #
+    # The declared local stays. It is not redundant with the annotation: it is
+    # what makes a FUTURE widening of stripe's return type a local error here
+    # rather than an `Any` leaking out of a function that promises stripe.Event.
+    event: stripe.Event = stripe.Webhook.construct_event(
         payload, sig_header, settings.stripe_webhook_secret
     )
     return event
