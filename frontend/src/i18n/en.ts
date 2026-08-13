@@ -407,6 +407,27 @@ export const en = {
   "planner.useUp": "Ingredients to use up (this run only):",
   "planner.useUpPlaceholder": "Type an ingredient and press Enter (fridge items auto-suggest)",
   "planner.customizeDays": "Customize meal types per day",
+  // Info hints (ROADMAP U-9). Only for controls whose BEHAVIOUR is not derivable
+  // from the label — "Days to plan" and "People count" get none, because a hint
+  // that restates its label teaches the user that hints are noise.
+  // Each sentence below is checked against the code it describes: the override
+  // priority in plan_service (day_layouts beats meals_per_day), the stock-only
+  // and taste-filter rules in meal_plan.jinja, and FIELD_LIMITS.tastePreferences.
+  // Each hint needs its OWN accessible name. Reusing the field's label gives two
+  // controls one name — ambiguous to a screen reader, and it made getByLabelText
+  // resolve to the hint button instead of the input. Not interpolated from the
+  // label either: those end in a colon ("Meals per day:") and Czech would have to
+  // decline the interpolated noun.
+  "planner.mealsPerDayHintLabel": "About meals per day",
+  "planner.mealsPerDayHint":
+    "Ignored while \"Customize meal types per day\" is on — the per-day layout wins.",
+  "planner.stockOnlyHintLabel": "About stock-only mode",
+  "planner.stockOnlyHint":
+    "Nothing is added to your shopping list. If the fridge won't cover a full meal, you get a simpler one instead — never a list of things to buy.",
+  "planner.tastesHintLabel": "About taste preferences",
+  "planner.tastesHint":
+    "Treated as a filter, not a suggestion: at least half the meals will match these in both name and cooking method. Only the first 20 are used.",
+
   "planner.customizeDaysHint": "Off: uses \"Meals per day\" count · On: overrides per day",
   "planner.day": "Day {n}",
   "planner.dayLayoutLabel": "Day {n} layout",

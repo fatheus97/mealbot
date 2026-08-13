@@ -20,9 +20,12 @@ interface InfoHintProps {
  *  - The bubble is absolutely positioned (out of document flow), so revealing it never
  *    pushes surrounding content around under the user's cursor.
  *
- * Rollout note (U-9): when placing this INSIDE a modal that also closes on Escape, the
- * Escape here doesn't stopPropagation, so both may close. Harmless today (SettingsPopup
- * has no Escape-to-close); revisit before dropping it into ModalShell/PaywallModal.
+ * Escape CONSUMES the event while the bubble is open, so a hint inside a modal that also
+ * closes on Escape (ModalShell, PaywallModal, CookbookModal) dismisses only the hint —
+ * one Escape, one dismissal, innermost first. Without this the modal closed too, taking
+ * the thing the user was reading the hint ABOUT with it. Same technique and reasoning as
+ * ConfirmDialog: capture phase + stopImmediatePropagation, because bubble-vs-capture
+ * ordering between two `window` listeners is not well-defined.
  */
 export function InfoHint({ text, label = "More information" }: InfoHintProps) {
   const [open, setOpen] = useState(false);
@@ -45,13 +48,21 @@ export function InfoHint({ text, label = "More information" }: InfoHintProps) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      // Consume it: the hint is the innermost thing on screen, so one Escape
+      // should dismiss one layer. An enclosing modal (ModalShell, PaywallModal,
+      // CookbookModal) also listens on window, and without this BOTH close —
+      // taking away the thing the user opened the hint about. Registered in the
+      // capture phase below for the same reason ConfirmDialog is: ordering
+      // between two bubble-phase window listeners is not well-defined.
+      e.stopImmediatePropagation();
+      setOpen(false);
     };
     document.addEventListener("pointerdown", onDocPointerDown);
-    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("pointerdown", onDocPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [open]);
 
