@@ -365,7 +365,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // numeral onto a noun.
   "planner.mealsPerDayHintLabel": "Nápověda: jídel denně",
   "planner.mealsPerDayHint":
-    "Když je zapnuté „Vlastní typy jídel po dnech“, tento počet se nepoužije — rozhoduje rozvržení jednotlivých dnů.",
+    "Tento počet se nepoužije vždy, když platí rozvržení po dnech — buď je zapnuté „Vlastní typy jídel po dnech“, nebo máte v Nastavení uložené výchozí rozvržení dne.",
   "planner.stockOnlyHintLabel": "Nápověda: jen ze zásob",
   "planner.stockOnlyHint":
     "Do nákupního seznamu se nic nepřidá. Když zásoby nestačí na plnohodnotné jídlo, dostanete jednodušší — nikdy seznam věcí k nákupu.",

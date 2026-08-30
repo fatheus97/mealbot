@@ -420,7 +420,7 @@ export const en = {
   // decline the interpolated noun.
   "planner.mealsPerDayHintLabel": "About meals per day",
   "planner.mealsPerDayHint":
-    "Ignored while \"Customize meal types per day\" is on — the per-day layout wins.",
+    "Ignored whenever a per-day layout applies — either because \"Customize meal types per day\" is on, or because you saved a default day layout in Settings.",
   "planner.stockOnlyHintLabel": "About stock-only mode",
   "planner.stockOnlyHint":
     "Nothing is added to your shopping list. If the fridge won't cover a full meal, you get a simpler one instead — never a list of things to buy.",
