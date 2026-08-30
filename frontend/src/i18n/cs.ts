@@ -359,7 +359,22 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.useUp": "Suroviny ke spotřebování (jen pro toto generování):",
   "planner.useUpPlaceholder": "Napište surovinu a stiskněte Enter (položky z lednice se napovídají)",
   "planner.customizeDays": "Upravit typy jídel pro jednotlivé dny",
-  "planner.customizeDaysHint": "Vypnuto: použije se počet z „Jídel denně“ · Zapnuto: přepíše se po dnech",
+  // Info hints (ROADMAP U-9). Vykání ("dostanete", "vaše") jako ve zbytku aplikace.
+  // "Nápověda: X" keeps X in the nominative, so the interpolated label never has
+  // to be declined — the same reason the plural keys elsewhere avoid gluing a
+  // numeral onto a noun.
+  "planner.mealsPerDayHintLabel": "Nápověda: jídel denně",
+  "planner.mealsPerDayHint":
+    "Tento počet se nepoužije vždy, když platí rozvržení po dnech — buď je zapnuté „Vlastní typy jídel po dnech“, nebo máte v Nastavení uložené výchozí rozvržení dne.",
+  "planner.stockOnlyHintLabel": "Nápověda: jen ze zásob",
+  "planner.stockOnlyHint":
+    "Do nákupního seznamu se nic nepřidá. Když zásoby nestačí na plnohodnotné jídlo, dostanete jednodušší — nikdy seznam věcí k nákupu.",
+  "planner.tastesHintLabel": "Nápověda: chuťové preference",
+  "planner.tastesHint":
+    "Bere se jako filtr, ne jako námět: nejméně polovina jídel jim bude odpovídat názvem i způsobem přípravy. Použije se prvních 20.",
+
+  "planner.customizeDaysHint":
+    "Vypnuto: použije se vaše uložené výchozí rozvržení, a pokud žádné nemáte, počet z „Jídel denně“ · Zapnuto: přepíše se po dnech",
   "planner.day": "{n}. den",
   "planner.dayLayoutLabel": "Rozvržení {n}. dne",
   "planner.startDate": "Datum začátku",

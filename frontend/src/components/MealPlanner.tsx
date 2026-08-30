@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, useId, type CSSProperties } from "react";
 import type { AllergenWarning } from "../types";
 import { AllergenEditWarning } from "./AllergenEditWarning";
 import { useAuth, useShowPieces } from "../contexts/AuthContext";
@@ -14,6 +14,7 @@ import { DayLayoutEditor } from "./DayLayoutEditor";
 import { useI18n } from "../i18n";
 import { CookNowForm } from "./CookNowForm";
 import { DietarySelector } from "./DietarySelector";
+import { InfoHint } from "./InfoHint";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { type MealType } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, PlannedMeal, IngredientAmount, StockItem, WasteEntry } from "../types";
@@ -57,6 +58,19 @@ function shoppingListToText(
 // plan-output surface (which pins its own light background + dark text), so
 // light-styled controls with an explicit colour stay legible in both OS colour
 // schemes — per .claude/rules/frontend.md (set a colour whenever you set a bg).
+/**
+ * A label and its info hint on one baseline.
+ *
+ * `inline-flex` rather than `flex` so the row still sits in the normal text flow
+ * above its field, and `gap` instead of a margin so the hint never touches the
+ * label's underline on a focused field.
+ */
+const hintedLabelRow: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+};
+
 const shoppingListBtn: CSSProperties = {
   padding: "0.3rem 0.7rem",
   fontSize: "0.8rem",
@@ -119,6 +133,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Per-run only: intentionally not persisted in the preferences store —
   // "use these ingredients" is a one-shot hint for THIS plan generation.
   const [ingredientsToUse, setIngredientsToUse] = useState<string[]>([]);
+  // Stable ids so each hinted label can bind to its field with htmlFor. The
+  // implicit (wrapping) label those fields used to have could not survive an
+  // InfoHint being added — see the comment at the mealsPerDay field.
+  const mealsPerDayId = useId();
+  const tastesId = useId();
 
   // Scroll the rendered plan into view when the component mounts with an
   // opened plan (via App.tsx's key-based remount on Open). We only scroll
@@ -634,10 +653,20 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           <input type="number" value={days} onChange={(e) => setDays(Number(e.target.value) || 1)} min={1} max={7} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
         </label>
 
-        <label>
-          {t("planner.mealsPerDay")}
-          <input type="number" value={mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value) || 1)} min={1} max={5} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
-        </label>
+        {/* The hint sits OUTSIDE the <label>, and the label is bound to the input
+            by htmlFor rather than by wrapping it. A <button> nested inside a
+            <label> makes that label address TWO controls: the browser hands
+            label clicks to the first one, and getByLabelText resolves to the
+            hint instead of the field. Explicit association is the fix, not a
+            test workaround. InfoHint's bubble is absolutely positioned, so
+            opening it shifts nothing (CLS — .claude/rules/frontend.md). */}
+        <div>
+          <span style={hintedLabelRow}>
+            <label htmlFor={mealsPerDayId}>{t("planner.mealsPerDay")}</label>
+            <InfoHint text={t("planner.mealsPerDayHint")} label={t("planner.mealsPerDayHintLabel")} />
+          </span>
+          <input id={mealsPerDayId} type="number" value={mealsPerDay} onChange={(e) => setMealsPerDay(Number(e.target.value) || 1)} min={1} max={5} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
+        </div>
 
         <label>
           {t("planner.people")}
@@ -653,18 +682,24 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           />
         </div>
 
-        <label style={{ gridColumn: isMobile ? "auto" : "span 2", display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={stockOnly}
-            onChange={(e) => setStockOnly(e.target.checked)}
-          />
-          {t("planner.stockOnly")}
-        </label>
+        <div style={{ gridColumn: isMobile ? "auto" : "span 2", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={stockOnly}
+              onChange={(e) => setStockOnly(e.target.checked)}
+            />
+            {t("planner.stockOnly")}
+          </label>
+          <InfoHint text={t("planner.stockOnlyHint")} label={t("planner.stockOnlyHintLabel")} />
+        </div>
 
-        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          {t("planner.tastes")}
-          <input type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder={t("planner.tastesPlaceholder")} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
+        <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <span style={hintedLabelRow}>
+            <label htmlFor={tastesId}>{t("planner.tastes")}</label>
+            <InfoHint text={t("planner.tastesHint")} label={t("planner.tastesHintLabel")} />
+          </span>
+          <input id={tastesId} type="text" value={tastePreferences} onChange={(e) => setTastePreferences(e.target.value)} placeholder={t("planner.tastesPlaceholder")} style={{ width: "100%", marginTop: "0.25rem", boxSizing: "border-box" }} />
           {/* Free text, so it cannot be hard-capped the way the chip inputs are —
               the user is mid-sentence. Say what the server will do instead, so the
               truncation is visible rather than silent. Always rendered (never
@@ -680,7 +715,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 })
               : ""}
           </div>
-        </label>
+        </div>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           {t("planner.avoid")}
