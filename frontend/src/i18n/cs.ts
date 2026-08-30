@@ -373,7 +373,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.tastesHint":
     "Bere se jako filtr, ne jako námět: nejméně polovina jídel jim bude odpovídat názvem i způsobem přípravy. Použije se prvních 20.",
 
-  "planner.customizeDaysHint": "Vypnuto: použije se počet z „Jídel denně“ · Zapnuto: přepíše se po dnech",
+  "planner.customizeDaysHint":
+    "Vypnuto: použije se vaše uložené výchozí rozvržení, a pokud žádné nemáte, počet z „Jídel denně“ · Zapnuto: přepíše se po dnech",
   "planner.day": "{n}. den",
   "planner.dayLayoutLabel": "Rozvržení {n}. dne",
   "planner.startDate": "Datum začátku",

@@ -428,7 +428,12 @@ export const en = {
   "planner.tastesHint":
     "Treated as a filter, not a suggestion: at least half the meals will match these in both name and cooking method. Only the first 20 are used.",
 
-  "planner.customizeDaysHint": "Off: uses \"Meals per day\" count · On: overrides per day",
+  // "Off" is NOT simply "uses the count": with a saved default layout in
+  // Settings the count is ignored either way (plan_service._resolve_layout).
+  // Kept in step with planner.mealsPerDayHint — the two describe one behaviour
+  // and contradicted each other before #451.
+  "planner.customizeDaysHint":
+    "Off: uses your saved default layout, or the \"Meals per day\" count if you have none · On: overrides it per day",
   "planner.day": "Day {n}",
   "planner.dayLayoutLabel": "Day {n} layout",
   "planner.startDate": "Start date",
