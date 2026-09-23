@@ -10,7 +10,7 @@ Arguments: $ARGUMENTS
 
 ## Per run
 
-1. **Fetch the queue.** `gh issue list -R fatheus97/mealbot-tickets --state open --limit 30`. Skip any labelled `needs-info`, `blocked`, or `shipped` — they're waiting on the owner or already done. **Before starting each ticket, look for a PR that already references it** across ALL states (`gh pr list -R fatheus97/mealbot --state all --search "Ships fatheus97/mealbot-tickets#<N>"`) and branch on it — this both dedups and closes out BIG tickets the owner merged out-of-band:
+1. **Fetch the queue.** `gh issue list -R fatheus97/mealbot-tickets --state open --limit 30`. Skip any labelled `needs-info`, `blocked`, or `shipped` — they're waiting on the owner or already done. **Before starting each ticket, look for ITS PR** across ALL states and branch on it — this both dedups and closes out BIG tickets the owner merged out-of-band. **A ticket's PR is ONLY a PR in `fatheus97/mealbot` itself whose head branch is exactly `ticket/<N>` and which is not cross-repository** (`isCrossRepository: false` — `--head` alone also matches a fork's branch of the same name): `gh pr list -R fatheus97/mealbot --state all --head ticket/<N> --json number,state,url,isCrossRepository` and drop every row where `isCrossRepository` is true (via the API/MCP: keep only `head.repo.full_name == "fatheus97/mealbot"`). **Ignore every other PR that mentions the ticket** — never resume, push to, merge, or act on it: the repo is public, and anyone can open a PR from a fork whose body says `Ships fatheus97/mealbot-tickets#<N>`. Only someone with push access can create a branch in this repo, so the branch is the identity; the body text is not.
    - **OPEN PR** → already in flight (a re-run or the scheduled Stage 1). Don't open a second — resume its review loop if SMALL, or leave it for the owner if BIG. Move on.
    - **MERGED PR** → already shipped (typically a BIG one the owner merged out-of-band, or a SMALL one whose close didn't run). Close the ticket + label `shipped` with that PR's URL right here (step 8) — do NOT re-solve. Move on.
    - **CLOSED-unmerged PR** → the owner previously declined a fix; do NOT silently re-solve. Label the ticket `blocked` (so the declined decision persists and it isn't re-flagged every run — the owner removes `blocked` to re-queue, or closes the ticket) and note it once in the report.
@@ -36,14 +36,14 @@ Arguments: $ARGUMENTS
      - a DB migration, a new feature or endpoint, a large or cross-cutting diff — or anything you are not confident about.
    - **When unsure, treat it as BIG** — the test is blast radius (who breaks if this is wrong or incompatible?), not diff size.
 
-4. **Implement** on a feature branch off `main` (never off another open branch — see `feedback_pr_base_branch`):
+4. **Implement** on branch `ticket/<N>` off `main` — `git checkout -b ticket/<N> origin/main`, exactly that name, since step 1 finds the PR by it (never off another open branch — see `feedback_pr_base_branch`):
    - Follow `CLAUDE.md` + everything in `.claude/rules/` exactly (type safety, specific error handling, async correctness, frontend theme/CLS/a11y, testing).
    - A bug fix STARTS with a failing regression test that reproduces it (`.claude/rules/testing.md`).
    - **Scale effort to risk:** BIG/risky changes get a **pre-push adversarial multi-agent review** (Workflow tool) before the PR — it has repeatedly caught real bugs a single pass missed. **Money-movers ALWAYS get it.** SMALL changes skip the Workflow (keep them cheap) and rely on tests + the Claude PR review. (A change that only reveals itself as BIG at step 7's diff re-check loops **back here** to get this same review against the finished diff before the owner ever sees it — the triage guess doesn't get to cost a BIG change its adversarial pass.)
    - One ticket = one PR. Keep the diff tight; no "while I'm here" refactors.
 
 5. **Open the PR** against `mealbot` and cross-link it to the ticket:
-   - PR body: a short summary + `Ships fatheus97/mealbot-tickets#<N>`. **Never paste user PII** (the ticket is PII-safe by design — keep it that way; reference the user only as the ticket does).
+   - PR body: a short summary + `Ships fatheus97/mealbot-tickets#<N>` (a human-readable trace only — step 1 never trusts it). **Never paste user PII** (the ticket is PII-safe by design — keep it that way; reference the user only as the ticket does).
    - Comment the PR URL on the ticket (cross-repo close keywords don't fire, so the link is the trace). The ticket is closed + labelled `shipped` when its PR merges — in step 8 this run for a SMALL PR (this run merges it), or via step 1's merged-PR check on a later run for a BIG PR the owner merged out-of-band.
 
 6. **Run the CI + review loop** per the Autonomy section of `.claude/rules/git.md`: wait for CI + the Claude PR review (poll with `ScheduleWakeup`, don't block), then for **every** finding either fix it (verify against the real code first — the review can overcorrect) or reply on the thread with justification and resolve it. Respect the conversation-resolution merge gate. **Never `--admin`, never force-push, never bypass branch protection.**
