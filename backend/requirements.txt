@@ -21,7 +21,7 @@ jsonref~=1.1
 # a bump needs the tz-aware datetime migration first.
 sqlmodel==0.0.42
 psycopg[binary,pool]~=3.3
-alembic~=1.18
+alembic~=1.19
 pydantic[email]~=2.13
 
 # For RAG features
