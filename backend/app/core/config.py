@@ -265,7 +265,8 @@ class Settings(BaseSettings):
 
     # --- Alert emails (Resend) ---
     # The scheduled billing-alerts job emails the operator at 80%/100% of a VAT
-    # threshold and once a month (identifikovaná-osoba reminder). All optional —
+    # threshold and once a month (identifikovaná-osoba reminder, skipped when the
+    # previous month had no Stripe fees). All optional —
     # alerts are a no-op until an API key + recipient are set.
     resend_api_key: str | None = None
     # Default sender works without domain verification (Resend's shared domain);

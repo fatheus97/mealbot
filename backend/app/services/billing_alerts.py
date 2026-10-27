@@ -7,8 +7,9 @@ app/scripts/billing_alerts.py.
 import calendar
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
+import stripe
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 # subject, html -> sent?
 SendEmail = Callable[[str, str], Awaitable[bool]]
+
+# start, end -> did Stripe charge any fee in [start, end)?
+FeesCharged = Callable[[datetime, datetime], Awaitable[bool]]
 
 # Alert once when a threshold reaches 80%, again at 100%.
 _ALERT_LEVELS: tuple[float, ...] = (0.8, 1.0)
@@ -92,14 +96,25 @@ def _reminder_email(now: datetime) -> tuple[str, str]:
     return subject, html
 
 
+def _previous_month(now: datetime) -> tuple[datetime, datetime]:
+    """[start, end) of the calendar month before ``now``'s, in ``now``'s frame."""
+    end = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return (end - timedelta(days=1)).replace(day=1), end
+
+
 async def _maybe_send_reminder(
-    session: AsyncSession, now: datetime, send_email: SendEmail
+    session: AsyncSession, now: datetime, send_email: SendEmail, fees_charged: FeesCharged
 ) -> str | None:
-    """Monthly identifikovaná-osoba reminder — purely time-based, so it runs
-    independently of the revenue aggregation (a stats failure must not suppress
-    it). Fires on/after the configured day, clamped to the month's length as a
-    defensive guard (config already bounds vat_reminder_day to 1..25, so the
-    clamp only matters if that constraint is ever bypassed)."""
+    """Monthly identifikovaná-osoba reminder. Runs independently of the revenue
+    aggregation (a stats failure must not suppress it). Fires on/after the configured
+    day, clamped to the month's length as a defensive guard (config already bounds
+    vat_reminder_day to 1..25, so the clamp only matters if that constraint is ever
+    bypassed).
+
+    Skipped when Stripe charged no fees in the previous calendar month: those fees
+    are the whole self-assessment base, so there is nothing to file. Not recorded
+    when skipped, so later runs that month look again (a closed month's fees cannot
+    change, so the answer will not either; the cost is one Stripe list call a day)."""
     last_day = calendar.monthrange(now.year, now.month)[1]
     trigger_day = min(settings.vat_reminder_day, last_day)
     if now.day < trigger_day:
@@ -107,6 +122,16 @@ async def _maybe_send_reminder(
     key = f"vat_reminder:{now.year}-{now.month:02d}"
     if await _already_sent(session, key):
         return None
+    start, end = _previous_month(now)
+    try:
+        if not await fees_charged(start, end):
+            logger.info("vat reminder skipped: no Stripe fees in %s", f"{start:%Y-%m}")
+            return None
+    except (stripe.StripeError, RuntimeError):
+        # Fail OPEN. An unneeded reminder costs one email; a skipped one in a month
+        # that DID have fees is a missed filing. RuntimeError is _require_stripe()'s
+        # missing-key error, which is not a StripeError subclass.
+        logger.warning("vat reminder fee lookup failed; sending anyway: %s", key, exc_info=True)
     subject, html = _reminder_email(now)
     if await send_email(subject, html):
         await _record(session, key, "vat_reminder", now)
@@ -116,17 +141,20 @@ async def _maybe_send_reminder(
 
 
 async def run_billing_alerts(
-    session: AsyncSession, now: datetime, send_email: SendEmail
+    session: AsyncSession, now: datetime, send_email: SendEmail, fees_charged: FeesCharged
 ) -> list[str]:
     """Send any due reminder / threshold emails and return the dedupe keys fired.
 
-    The time-based reminder runs first and independently of compute_revenue_stats,
-    so a threshold-aggregation failure can't suppress it. An email is recorded
-    (deduped) only after it's actually sent, so a send failure retries next run.
+    The reminder runs first and independently of compute_revenue_stats, so a
+    threshold-aggregation failure can't suppress it. An email is recorded (deduped)
+    only after it's actually sent, so a send failure retries next run.
+
+    ``fees_charged`` is injected like ``send_email`` (production passes
+    ``stripe_service.stripe_fees_charged``), so tests never reach the Stripe API.
     """
     fired: list[str] = []
 
-    reminder_key = await _maybe_send_reminder(session, now, send_email)
+    reminder_key = await _maybe_send_reminder(session, now, send_email, fees_charged)
     if reminder_key:
         fired.append(reminder_key)
 

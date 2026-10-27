@@ -78,7 +78,9 @@ Runs the VAT-threshold / billing alert job once a day. The job:
 - emails the operator at **80%** and **100%** of the EU-OSS (€10k) and
   CZ-domestic (2M CZK) VAT thresholds, and
 - sends a monthly *identifikovaná osoba* filing reminder (days 1–25, ahead of
-  the FÚ 25th deadline).
+  the FÚ 25th deadline), only when Stripe charged fees in the previous month —
+  those fees are the whole self-assessment base, so a fee-free month has
+  nothing to file. If the Stripe lookup fails it sends anyway.
 
 Every alert is deduped via the `BillingAlert` table, so running it twice, or
 missing a day and catching up, never double-sends.
