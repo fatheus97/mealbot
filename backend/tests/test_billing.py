@@ -7,7 +7,9 @@ entitled, what status codes the router returns, and that a webhook event mutates
 the mirrored state on the right user.
 """
 
+import time
 from collections.abc import Iterator
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -888,6 +890,61 @@ async def test_pending_feedback_credit_cents_empty_is_zero(monkeypatch: pytest.M
     monkeypatch.setattr(stripe, "max_network_retries", 0)
     monkeypatch.setattr(stripe.InvoiceItem, "list", lambda **kwargs: _FakeItems([]))
     assert await stripe_service.pending_feedback_credit_cents("cus_1") == 0
+
+
+def _stripe_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(stripe, "api_key", None)
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+
+@pytest.mark.parametrize(
+    ("txns", "expected"),
+    [
+        ([{"type": "charge", "fee": 45, "amount": 499}], True),
+        ([{"type": "stripe_fee", "fee": 0, "amount": -120}], True),
+        # A payout moves money but costs nothing; a POSITIVE stripe_fee is a fee refund.
+        ([{"type": "payout", "fee": 0, "amount": -5000}, {"type": "stripe_fee", "fee": 0, "amount": 30}], False),
+        ([], False),
+    ],
+    ids=["fee-on-a-charge", "fee-transaction", "no-fee-charged", "no-transactions"],
+)
+async def test_stripe_fees_charged(
+    monkeypatch: pytest.MonkeyPatch, txns: list[dict[str, Any]], expected: bool
+) -> None:
+    _stripe_offline(monkeypatch)
+    monkeypatch.setattr(stripe.BalanceTransaction, "list", lambda **kwargs: _FakeItems(txns))
+    assert await stripe_service.stripe_fees_charged(datetime(2026, 9, 1), datetime(2026, 10, 1)) is expected
+
+
+async def test_stripe_fees_charged_reads_a_naive_window_as_utc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The billing job passes naive UTC. ``naive.timestamp()`` reads it as the HOST's
+    local time, so on a non-UTC host the month window would shift by the offset.
+    Forcing a non-UTC zone is what makes this test able to fail."""
+    _stripe_offline(monkeypatch)
+    captured: dict[str, Any] = {}
+
+    def fake_list(**kwargs: Any) -> _FakeItems:
+        captured.update(kwargs)
+        return _FakeItems([])
+
+    monkeypatch.setattr(stripe.BalanceTransaction, "list", fake_list)
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        await stripe_service.stripe_fees_charged(datetime(2026, 9, 1), datetime(2026, 10, 1))
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    # 2026-09-01T00:00Z and 2026-10-01T00:00Z.
+    assert captured["created"] == {"gte": 1788220800, "lt": 1790812800}
+
+
+async def test_stripe_fees_charged_requires_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "stripe_secret_key", None)
+    with pytest.raises(RuntimeError):
+        await stripe_service.stripe_fees_charged(datetime(2026, 9, 1), datetime(2026, 10, 1))
 
 
 @pytest.mark.parametrize(

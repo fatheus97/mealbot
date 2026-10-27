@@ -526,3 +526,42 @@ async def customer_credit_balance_cents(customer_id: str) -> int:
     if not isinstance(balance, int):
         return 0
     return -balance if balance < 0 else 0
+
+
+# Balance-transaction types whose (negative) ``amount`` IS a fee Stripe charged us,
+# rather than money moving through the account. Every other type carries its fee in
+# the transaction's own ``fee`` field (charges, refunds, dispute fees).
+_FEE_TRANSACTION_TYPES = frozenset({"stripe_fee", "stripe_fx_fee", "tax_fee"})
+
+
+def _unix(dt: datetime) -> int:
+    """Unix seconds for a datetime, reading a NAIVE one as UTC (the billing jobs' frame).
+    ``naive.timestamp()`` would read it as the host's local time instead."""
+    return int((dt if dt.tzinfo else dt.replace(tzinfo=UTC)).timestamp())
+
+
+async def stripe_fees_charged(start: datetime, end: datetime) -> bool:
+    """Whether Stripe charged us ANY fee on balance transactions created in [start, end).
+
+    Feeds the monthly identifikovaná-osoba VAT reminder: the self-assessment base is the
+    Stripe fees of the previous month, so a month with none has nothing to file. Stops
+    at the first fee found, so an active month costs one page, not the whole history.
+    Raises like every call here (``RuntimeError`` without a key, ``StripeError`` from the
+    API); the caller decides what a failed lookup means."""
+    _require_stripe()
+
+    def _any_fee() -> bool:
+        txns = stripe.BalanceTransaction.list(
+            created={"gte": _unix(start), "lt": _unix(end)}, limit=100
+        )
+        for txn in txns.auto_paging_iter():
+            d = txn.to_dict()
+            fee = d.get("fee")
+            if isinstance(fee, int) and fee > 0:
+                return True
+            amount = d.get("amount")
+            if d.get("type") in _FEE_TRANSACTION_TYPES and isinstance(amount, int) and amount < 0:
+                return True
+        return False
+
+    return await asyncio.to_thread(_any_fee)
