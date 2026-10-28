@@ -88,7 +88,9 @@ check() {
 
 P='No security hole, no real-money path. The tests cover the new branch.'
 BLOCK=' 1. **Security** at backend/app/api/x.py:10: the endpoint skips the ownership check.'
-TAIL=' · branch `feat/x`'  # the action appends this line to some comments (none in 10 sampled on this repo)
+TAIL=' · branch `feat/x`'  # the tail the action appends to some comments, in LOLBET's unlinked form
+# ...and the linked form this repo's action writes (verbatim from PR #468's finished review).
+TAIL_LINK=' · branch [`fix/work-tickets-requeue`](https://github.com/fatheus97/mealbot/tree/fix/work-tickets-requeue)'
 
 page clean          "$(review 123 "$P"$'\n\nREVIEW-VERDICT: CLEAN')"
 page blocking       "$(review 123 "$BLOCK"$'\n\nREVIEW-VERDICT: BLOCKING')"
@@ -98,6 +100,10 @@ page codespan       "$(review 123 "$P"$'\n\n`REVIEW-VERDICT: CLEAN`')"
 page crlf_trailing  "$(review 123 "$P"$'\r\n\r\nREVIEW-VERDICT: CLEAN\r\n\r\n\n')"
 page tail_clean     "$(review 123 "$P"$'\n\nREVIEW-VERDICT: CLEAN\n'"$TAIL")"
 page tail_blocking  "$(review 123 "$BLOCK"$'\n\nREVIEW-VERDICT: BLOCKING\n'"$TAIL")"
+page tail_link_clean    "$(review 123 "$P"$'\n\nREVIEW-VERDICT: CLEAN\n'"$TAIL_LINK")"
+page tail_link_blocking "$(review 123 "$BLOCK"$'\n\nREVIEW-VERDICT: BLOCKING\n'"$TAIL_LINK")"
+# Only the exact tail shape is skipped: anything after it on the line makes it a normal last line.
+page tail_lookalike "$(review 123 "$P"$'\n\nREVIEW-VERDICT: CLEAN\n'"$TAIL_LINK"' and one more thing')"
 page quoted         "$(review 123 "$P"$'\n\n> REVIEW-VERDICT: CLEAN')"
 page period         "$(review 123 "$P"$'\n\nREVIEW-VERDICT: CLEAN.')"
 page lowercase      "$(review 123 "$P"$'\n\nREVIEW-VERDICT: clean')"
@@ -130,6 +136,9 @@ check "code-span verdict is accepted"                     CLEAN codespan        
 check "CRLF and trailing blank lines are accepted"        CLEAN crlf_trailing    123
 check "the action's branch tail after CLEAN is ignored"   CLEAN tail_clean       123
 check "the action's branch tail after BLOCKING is ignored" FAIL tail_blocking    123 "blocking finding"
+check "the linked branch tail after CLEAN is ignored"     CLEAN tail_link_clean  123
+check "the linked branch tail after BLOCKING is ignored"  FAIL  tail_link_blocking 123 "blocking finding"
+check "text after a branch tail is not a tail"            FAIL  tail_lookalike   123 "got: MISSING"
 check "a '> ' quoted verdict is not a verdict"            FAIL  quoted           123 "got: MISSING"
 check "a trailing period is malformed"                    FAIL  period           123 "got: MALFORMED"
 check "a lowercase value is not CLEAN"                    FAIL  lowercase        123 "got: clean"

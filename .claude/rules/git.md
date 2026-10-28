@@ -7,10 +7,11 @@
 - Claude Code must NEVER force push or push directly to main
 - Claude Code must NEVER bypass branch protection — no `gh pr merge --admin`
 - Merging is STANDING-AUTHORIZED (see Autonomy): the user has granted blanket
-  approval to auto-merge a PR once CI is green and the AI review has no
-  actionable items — for all PRs, without re-asking per merge, unless the user
-  says otherwise for a specific PR. This standing grant IS the "explicit
-  approval"; don't re-ask each time.
+  approval to merge every PR without re-asking, unless the user says otherwise
+  for a specific PR. Since 2026-10-28 that means arming GitHub auto-merge when
+  the PR opens: the required checks (including `review`, which goes red on a
+  blocking finding) and review-thread resolution decide when it actually
+  merges. This standing grant IS the "explicit approval"; don't re-ask each time.
 - Always create feature branches for any changes
 
 ## Worktrees — NEVER check out `main` (read this before the Autonomy section)
@@ -172,32 +173,57 @@ cycle defeats the point.
 - Cap the loop at 5 iterations. If after 5 fix/push cycles the same issue
   persists (flaky CI, external dependency outage, reviewer oscillating on
   the same point), stop and surface what's stuck rather than continuing.
-- **Merge with auto-merge, right after opening the PR** — `gh pr merge <n>
-  --auto --squash` — per the standing authorization above (owner's decision
-  2026-10-28, "turn on merge when ready"). GitHub then merges the moment every
-  required check is green and every review thread is resolved. `review` is a
-  required check, and its last step turns it RED when the bot ends its review
-  with `REVIEW-VERDICT: BLOCKING` or states no valid verdict, so a blocking
-  finding holds the merge by itself. Do NOT re-ask for merge permission; the
-  user pre-approved it and pushed back on being re-asked. Never `--admin`.
-  - Leave out `--delete-branch`: the repo deletes merged branches itself
-    (`delete_branch_on_merge`), and `--auto` never checks anything out, so the
-    "MOVES YOU" trap above does not apply. A manual `gh pr merge` without
-    `--auto` still has it.
-  - **Auto-merge does not change the findings rule above.** A CLEAN verdict can
-    still carry non-blocking notes, and the PR may merge before you have
-    answered them. Answer every one anyway, on the PR. A fix for a note that
-    lands after the merge goes in a follow-up PR.
-  - `strict` is on (the branch must be up to date), and GitHub does not update
-    it for you. When another PR merges first, auto-merge waits. Run
-    `gh api -X PUT repos/fatheus97/mealbot/pulls/<n>/update-branch` and it
-    proceeds after the re-run.
-  - **A PR that edits `.github/workflows/claude-review.yml` can never go green
-    on its own**: the action refuses to run on a PR that changes its workflow,
-    so `review` stays red. Get it reviewed some other way, then surface it to
-    the owner to merge. Do not work around the required check.
-- Still surface (don't enable auto-merge) when CI is red, the review has
-  unresolved actionable items, or the change is genuinely high-risk/ambiguous.
+- **Merge with GitHub auto-merge**, per the standing authorization above
+  (owner's decision 2026-10-28, "turn on merge when ready"). Do NOT re-ask for
+  merge permission; the user pre-approved it and pushed back on being re-asked.
+  Never `--admin`.
+  - **Precondition, checked every time before arming.** Auto-merge waits ONLY
+    for REQUIRED checks, so an optional CI job that goes red would not stop it,
+    and merging is the prod deploy. Compare
+    `gh api repos/fatheus97/mealbot/branches/main/protection --jq '.required_status_checks.contexts'`
+    with `gh pr checks <n> --json name --jq '.[].name'`: every check that runs
+    on the PR, `review` included, must be required (ignore `automerge` and
+    `GitGuardian Security Checks`). If one is missing, do not arm. Use the
+    manual flow below and tell the owner which check to make required.
+  - **Arm when the PR opens:** `gh pr merge <n> --auto --squash`. GitHub merges
+    once every required check is green and every review thread is resolved.
+    `review` turns RED when the bot ends its review with
+    `REVIEW-VERDICT: BLOCKING` or states no valid verdict, so a blocking finding
+    holds the merge by itself. Do not arm a change you already know is high-risk
+    or ambiguous; surface it instead.
+  - **Disarm before you surface.** If a reason to surface appears after arming
+    (the 5-iteration cap, a finding you will not settle yourself, a risk you
+    discover), run `gh pr merge <n> --disable-auto` first.
+  - **Leave out `--delete-branch`.** The repo deletes merged branches itself
+    (`delete_branch_on_merge`), and without that flag gh never touches the local
+    checkout. With it, `--auto` on a PR that is already mergeable merges at once
+    and switches you to `main` (the "MOVES YOU" trap above).
+  - **The findings rule above still applies.** A CLEAN verdict can carry
+    non-blocking notes, and the PR may merge before you answer them. Answer
+    every one anyway, on the PR. Before pushing any fix, run
+    `gh pr view <n> --json state --jq .state`. If it says MERGED, the remote
+    branch is already gone: run `git checkout -b <new> origin/main`, re-apply
+    only the fix, and open a follow-up PR.
+  - **Behind `main`:** `strict` is on, and GitHub does not update the branch
+    for auto-merge. Run
+    `gh api -X PUT repos/fatheus97/mealbot/pulls/<n>/update-branch`; auto-merge
+    stays armed and proceeds after the re-run. **Never on a Dependabot PR**:
+    update-branch makes you the actor, so the review job runs instead of being
+    skipped (a skipped job counts as passing), and on a claude-code-action bump
+    it stays red. Comment `@dependabot rebase` instead, or
+    `@dependabot recreate` if a human commit is already on the branch.
+  - **A PR that edits `.github/workflows/claude-review.yml` cannot pass
+    `review`**: the action refuses to run on a PR that changes its workflow.
+    `enforce_admins` is on, so the owner cannot merge past a red required check
+    either. Get it reviewed independently, then surface it. Only the owner may
+    take `review` out of the required checks, merge, and put it straight back.
+    Sessions never edit branch protection.
+- **Manual flow**, when the precondition above fails: loop until CI is green and
+  the latest review has no actionable items, as above, then
+  `gh pr merge <n> --squash`, again without `--delete-branch`.
+- Still surface when CI is red, the review has unresolved actionable items, or
+  the change is genuinely high-risk/ambiguous. If auto-merge is armed, disarm
+  it first.
 
 ### How to decide while autonomous
 - Ask the user ONLY on low confidence or when facing multiple genuinely-similar

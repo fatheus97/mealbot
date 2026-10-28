@@ -24,11 +24,13 @@
 # extend to this script: a PR editing only .github/scripts/ runs its own version
 # of the guard against itself. That is accepted rather than fixed, because
 # pinning the guard to the default branch would make it impossible to iterate on
-# in a PR. It does not let such a PR green an unreviewed head: the verdict step
-# after this one in claude-review.yml is inline in the workflow, which a PR cannot
-# change without the action refusing to run, and it stays red unless this run's
-# own review comment ends in REVIEW-VERDICT: CLEAN. The `review-guard` CI job
-# tests both and is the backstop for accidental weakening.
+# in a PR. It does not let such a PR green an unreviewed head: the verdict step in
+# claude-review.yml is inline in the workflow, which a PR cannot change without the
+# action refusing to run, and it stays red unless this run's own review comment ends
+# in REVIEW-VERDICT: CLEAN. That step runs BEFORE this script (if: always()), so
+# nothing this script does, such as writing $GITHUB_PATH or $GITHUB_ENV, can reach
+# it. The `review-guard` CI job tests both and is the backstop for accidental
+# weakening.
 #
 # HISTORY
 # v1 (#184) counted inline comments and the longest claude[bot] comment across

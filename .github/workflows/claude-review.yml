@@ -72,7 +72,10 @@ jobs:
             - Findings the author FIXED must simply not reappear. Raise only genuinely NEW issues, or ones the
               current code still exhibits that were never addressed.
 
-            Post top-level feedback with `gh pr comment`. Use inline comments for specific code issues.
+            Put your top-level review in your Claude comment (the one you update with
+            mcp__github_comment__update_claude_comment), not in a separate `gh pr comment`:
+            the verdict line below must close that comment, and a CI step reads only that
+            comment. Use inline comments for specific code issues.
 
             VERDICT LINE (a CI step reads it and turns this check red on BLOCKING, so it gates the merge):
             - End the review in your Claude comment (the one you update with
@@ -92,6 +95,54 @@ jobs:
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*)"
 
+      # The verdict gates the merge: BLOCKING, or no verdict at all, turns this check red.
+      # It runs BEFORE the guard and with if: always(), so no code from the PR head runs
+      # ahead of it: the guard script is checked out from the PR and could otherwise plant
+      # a fake gh or jq through $GITHUB_PATH. When the action failed or posted nothing, this
+      # step finds no finished comment for this run and fails closed (MISSING). Each run
+      # writes its OWN tracking comment (use_sticky_comment is off) and edits it in place
+      # until the action ends, so the newest claude[bot] comment whose first [View job] link
+      # names this run is the finished review of this head. Identity and own-run rules match
+      # the guard's. The prompt's contract is enforced as written: exactly one verdict line,
+      # and it is the last non-blank line, else MISSING (red). So an echoed option block, a
+      # quoted fixture line or BLOCKING then CLEAN cannot green it. The one line skipped is
+      # the branch tail the action appends to some comments, in either form: " · branch `x`"
+      # (LOLBET, where this step was first written) or " · branch [`x`](<url>/tree/x)" (PR
+      # #468 here). Bold or a code span around the verdict is accepted, a "> " quote is not.
+      # Inline, not in .github/scripts/: the action refuses to run on a PR that edits this
+      # file, so a PR cannot quietly weaken the gate it is judged by.
+      # .github/scripts/tests/test-review-verdict.sh runs this step's script on fixtures
+      # (the `review-guard` CI job).
+      - name: Fail on a blocking review verdict
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          verdict=$(gh api --paginate "repos/$REPO/issues/$PR/comments" | jq -s -r --arg run "$RUN" '
+            [ (add // [])[]
+              | select(.user.type == "Bot" and (.user.login | test("^claude(-code)?\\[bot\\]$")))
+              | select(((.body | match("\\[View job[^\\]]*\\]\\([^)]*actions/runs/([0-9]+)\\)")
+                         | .captures[0].string) // "") == $run) ]
+            | (last // {body: ""}).body | split("\n")
+            | map(select(test("\\S") and (test("^ ?· branch (`[^`]+`|\\[`[^`]+`\\]\\([^)]*\\))\\s*$") | not))) as $l
+            | [ $l[] | select(test("^[*_` ]*REVIEW-VERDICT:")) ] as $v
+            | if ($v | length) == 1 and $v[0] == ($l | last) then
+                $v[0] | (capture("^[*_` ]*REVIEW-VERDICT:\\s*(?<v>[A-Za-z]+)[*_`\\s]*$").v // "MALFORMED")
+              else "MISSING" end')
+          case "$verdict" in
+            CLEAN) echo "Review verdict CLEAN: no blocking finding." ;;
+            BLOCKING)
+              echo "::error::The review reports a blocking finding (REVIEW-VERDICT: BLOCKING). Fix it and push, or reply dismissing it and re-run this job."
+              exit 1 ;;
+            *)
+              echo "::error::The review states no valid verdict (got: $verdict; expected a line REVIEW-VERDICT: BLOCKING or REVIEW-VERDICT: CLEAN). Treat it as not cleared and re-run this job."
+              exit 1 ;;
+          esac
+
       # A review that errors, stalls or produces an empty model turn still leaves
       # this job concluding SUCCESS — that is how #181–#183 merged UNREVIEWED with
       # a green `review` check. This guard turns those states RED. The logic and
@@ -107,46 +158,3 @@ jobs:
           set -euo pipefail
           gh api --paginate "repos/$REPO/issues/$PR/comments" \
             | bash .github/scripts/ensure-review-posted.sh "${{ github.run_id }}"
-
-      # The verdict gates the merge: BLOCKING, or no verdict at all, turns this check red.
-      # Runs only after the guard passed, so a completed review of this run exists. Each run
-      # writes its OWN tracking comment (use_sticky_comment is off) and edits it in place
-      # until the action ends, so the newest claude[bot] comment whose first [View job] link
-      # names this run is the finished review of this head. Identity and own-run rules are
-      # the guard's. The prompt's contract is enforced as written: exactly one verdict line,
-      # and it is the last non-blank line, else MISSING (red). So an echoed option block, a
-      # quoted fixture line or BLOCKING then CLEAN cannot green it. The one line skipped is
-      # the " · branch `x`" tail the action appends to some comments (seen on LOLBET, where
-      # this step was first written; none in 10 sampled here). Bold or a code span around the
-      # verdict is accepted, a "> " quote is not. Inline, not in .github/scripts/: the action
-      # refuses to run on a PR that edits this file, so a PR cannot quietly weaken the gate it
-      # is judged by. .github/scripts/tests/test-review-verdict.sh runs this step's script on
-      # fixtures (the `review-guard` CI job).
-      - name: Fail on a blocking review verdict
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          RUN: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          verdict=$(gh api --paginate "repos/$REPO/issues/$PR/comments" | jq -s -r --arg run "$RUN" '
-            [ (add // [])[]
-              | select(.user.type == "Bot" and (.user.login | test("^claude(-code)?\\[bot\\]$")))
-              | select(((.body | match("\\[View job[^\\]]*\\]\\([^)]*actions/runs/([0-9]+)\\)")
-                         | .captures[0].string) // "") == $run) ]
-            | (last // {body: ""}).body | split("\n")
-            | map(select(test("\\S") and (test("^ ?· branch `[^`]+`\\s*$") | not))) as $l
-            | [ $l[] | select(test("^[*_` ]*REVIEW-VERDICT:")) ] as $v
-            | if ($v | length) == 1 and $v[0] == ($l | last) then
-                $v[0] | (capture("^[*_` ]*REVIEW-VERDICT:\\s*(?<v>[A-Za-z]+)[*_`\\s]*$").v // "MALFORMED")
-              else "MISSING" end')
-          case "$verdict" in
-            CLEAN) echo "Review verdict CLEAN: no blocking finding." ;;
-            BLOCKING)
-              echo "::error::The review reports a blocking finding (REVIEW-VERDICT: BLOCKING). Fix it and push, or reply dismissing it and re-run this job."
-              exit 1 ;;
-            *)
-              echo "::error::The review states no valid verdict (got: $verdict; expected a line REVIEW-VERDICT: BLOCKING or REVIEW-VERDICT: CLEAN). Treat it as not cleared and re-run this job."
-              exit 1 ;;
-          esac
