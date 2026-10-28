@@ -455,13 +455,17 @@ jobs:
 
   # The Claude PR Review guard decides whether a review actually happened; it has
   # silently mis-decided twice (#184 shipped it, PR #229 exposed the hole). Its
-  # logic is therefore unit-tested like any other production code path.
+  # logic is therefore unit-tested like any other production code path. The second
+  # script tests the inline verdict step of claude-review.yml the same way: that step
+  # is what turns `review` red on a BLOCKING verdict, and `review` gates the merge.
   review-guard:
     name: review guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: bash .github/scripts/tests/test-ensure-review-posted.sh
+      - run: |
+          bash .github/scripts/tests/test-ensure-review-posted.sh
+          bash .github/scripts/tests/test-review-verdict.sh
 
   # Every mealbot job is Type=oneshot, so a failure lands in the journal and
   # nowhere else unless the unit declares OnFailure=. All three original timers
