@@ -70,19 +70,33 @@ From a live search on 2026-10-28:
      id in the URL. It does no searching, so the user is never left looking at a blank tab.
   3. The review screen shows a loading state and fetches the candidates for that flow id. That fetch
      runs the searches: at most a few `batch_search_products` calls in flight at once (4 queries
-     each), under one overall deadline. Each call's timeout is a setting, like
-     `stripe_timeout_seconds`. Results are cached in the flow entry, so a repeat fetch costs no
-     MCP calls. A line whose search failed or timed out shows as „nenalezeno“ with a retry. A retry
-     re-searches only the failed lines, retries are capped per flow, and the endpoint has a
-     per-user rate limit like the other expensive ones. A partial failure never discards the lines
-     that did match, and the flow entry stays.
-  4. The confirm POST sends the chosen product IDs and quantities, again with the CSRF header. Each
-     product ID must be one of the candidates stored for that line; anything else is rejected.
-     MealBot's OAuth client therefore only ever adds products that its own search returned. Then
-     the backend calls `add_items_to_cart` and deletes the flow entry.
+     each), under one overall deadline. Results are cached in the flow entry, so a repeat fetch
+     costs no MCP calls. A line whose search failed or timed out shows as „nenalezeno“ with a
+     retry, and a retry re-searches only the failed lines. A partial failure never discards the
+     lines that did match, and the flow entry stays. The limits are settings, the way
+     `stripe_timeout_seconds` is:
+     - `rohlik_timeout_seconds`: per MCP call
+     - `rohlik_search_deadline_seconds`: the whole fetch
+     - `rohlik_search_retry_cap`: retries per flow
+
+     The endpoint also has a rate limit keyed on the authenticated user, not on the flow id,
+     because a client could otherwise open new flows to get around it.
+  4. The confirm POST sends the chosen product IDs and quantities, again with the CSRF header. The
+     backend rejects the whole request unless:
+     - every line key exists in the flow;
+     - each product ID is one of the candidates stored for that line;
+     - each quantity is a positive integer within a bound derived from that line, on top of the
+       global cap. The bound is a small multiple of the pack count, and the backend computes that
+       pack count itself from the line's need and the chosen candidate's pack size. It never
+       takes the frontend's number.
+
+     MealBot's OAuth client therefore only ever adds products that its own search returned, in
+     amounts tied to the plan. Then the backend calls `add_items_to_cart` and deletes the flow
+     entry.
 
   The flow id is unguessable (`secrets.token_urlsafe`), and every read and write of a flow entry
-  checks that it belongs to the authenticated user.
+  checks that it belongs to the authenticated user. The callback likewise rejects a cookie whose
+  flow belongs to a different user than the current session. That case gets its own test.
 
   The list is kept server-side rather than in `sessionStorage`, so nothing that the backend later
   acts on has to come back from the browser except the final selection, which is validated as
