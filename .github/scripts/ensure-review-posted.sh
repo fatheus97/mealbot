@@ -13,11 +13,10 @@
 # script, not a verdict.
 #
 # WHY THIS IS PICKY
-# `review` is not a required status check, so a red result blocks nothing
-# mechanically — the convention is that a human or orchestrator treats red as
-# "not reviewed" and re-runs it. That convention is worth exactly as much as the
-# guard's inability to false-GREEN, so ambiguous states fail closed: a spurious
-# red costs one re-run, a spurious green merges unreviewed code.
+# `review` is a required status check on main (branch protection), so a red
+# result blocks the merge, auto-merge included, until a re-run turns it green.
+# Ambiguous states therefore fail closed: a spurious red costs one re-run, a
+# spurious green merges unreviewed code.
 #
 # KNOWN PROPERTY — this script is checked out from the PR head
 # The action itself refuses to run when the workflow file differs from the one on
@@ -25,9 +24,13 @@
 # extend to this script: a PR editing only .github/scripts/ runs its own version
 # of the guard against itself. That is accepted rather than fixed, because
 # pinning the guard to the default branch would make it impossible to iterate on
-# in a PR, and it grants no capability an author does not already have — `review`
-# is not a required check, so a red one can simply be merged past. The
-# `review-guard` CI job is the backstop for accidental weakening.
+# in a PR. It does not let such a PR green an unreviewed head: the verdict step in
+# claude-review.yml is inline in the workflow, which a PR cannot change without the
+# action refusing to run, and it stays red unless this run's own review comment ends
+# in REVIEW-VERDICT: CLEAN. That step runs BEFORE this script (if: always()), so
+# nothing this script does, such as writing $GITHUB_PATH or $GITHUB_ENV, can reach
+# it. The `review-guard` CI job tests both and is the backstop for accidental
+# weakening.
 #
 # HISTORY
 # v1 (#184) counted inline comments and the longest claude[bot] comment across
