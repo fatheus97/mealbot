@@ -57,6 +57,18 @@ From a live search on 2026-10-28:
   search keywords. Hidden everywhere else.
 - **Entry point:** one „Poslat do Rohlíku“ button on the shopping list. It sends the unticked lines
   (ticked means already have or already bought) to a review screen.
+- **Flow order:** login comes first, because searching needs the token too.
+  1. The click POSTs the unticked lines. The backend validates them and stores them in the flow
+     store (below) under a new flow id, then redirects to Rohlik's authorize URL.
+  2. The callback checks `state`, exchanges the code, keeps the token in the same flow entry, runs
+     the searches, and redirects to the review screen with only the flow id in the URL.
+  3. The review screen fetches the candidates for that flow id.
+  4. The confirm POST sends the chosen product IDs and quantities. The backend calls
+     `add_items_to_cart` and deletes the flow entry.
+
+  The list is kept server-side rather than in `sessionStorage`, so nothing that the backend later
+  acts on has to come back from the browser except the final selection, which is validated as
+  untrusted input.
 - **Preselection is deterministic:** drop promoted results, then take the user's favourite, then
   the first result, never an out-of-stock one. Every candidate can be swapped in.
 - **Pack count is computed in the frontend:** `packs = ceil(need / parsed pack size)`. The
@@ -71,17 +83,28 @@ From a live search on 2026-10-28:
   with a sane upper bound, and a capped line count. Every MCP call has a timeout and catches specific
   exceptions, in line with the rest of the codebase.
 - **Rohlik login: nothing is persisted.** The user logs in through OAuth on each send.
-  - The OAuth `state` and PKCE verifier live between redirect and callback in a signed, HttpOnly,
-    `Secure` cookie with `SameSite=Lax` (the callback is a cross-site navigation from
-    `identity.rohlik.cz`, so `Strict` would not be sent) and a short `Max-Age` of about 10 minutes.
-    The cookie is bound to the MealBot session that started the flow.
+  - The OAuth `state` and PKCE verifier live between redirect and callback in a signed, HttpOnly
+    cookie with `SameSite=Lax` (the callback is a cross-site navigation from `identity.rohlik.cz`,
+    so `Strict` would not be sent) and a short `Max-Age` of about 10 minutes. Its `Secure` flag
+    follows the existing `cookie_secure` setting, like the auth cookies. The cookie is bound to the
+    MealBot session that started the flow.
   - The callback rejects any `state` that does not match the cookie, then deletes the cookie.
-  - Token handoff: the backend keeps the access token in process memory, keyed by user and flow,
-    with a TTL of about 15 minutes, which is long enough to search, review and add. It is dropped
-    as soon as the add-to-cart call returns. The token never goes to the browser, so XSS or frontend
-    logging cannot leak it, and it is never written to disk or the database. This works because
-    prod runs a single uvicorn worker (`backend/Dockerfile` CMD, no `--workers`). If the backend
-    ever scales out, this needs a shared short-lived store, or the flow fails with a re-login.
+  - **Flow store:** a process-memory dict keyed by user and flow id. Each entry holds the validated
+    list, the access token, the MCP `Mcp-Session-Id` and the search candidates. Rules:
+    - TTL of about 15 minutes, which is long enough to search, review and add.
+    - Expiry is checked on every read and swept on every write.
+    - At most one live flow per user: starting a new one replaces the old.
+    - The entry is deleted as soon as `add_items_to_cart` returns.
+
+    So a user who starts flows and never finishes cannot grow it. The token never goes to the
+    browser, so XSS or frontend logging cannot leak it, and nothing is written to disk or the
+    database. A deploy or restart drops every entry, and the user simply logs in again.
+  - This works because prod runs a single uvicorn worker (`backend/Dockerfile` CMD, no
+    `--workers`). If the backend ever scales out, the flow store has to move to a shared
+    short-lived store, or flows fail with a re-login.
+  - Local dev can only exercise the OAuth flow with a `localhost` redirect, as the spike did: dynamic
+    registration rejects any other redirect URI. The production redirect needs Rohlik's allowlisting
+    (see the spike results).
   - The spike measured the cost in a browser with a live Rohlik session at `identity.rohlik.cz`:
     a repeat authorization came back in 0.4 s with no login or consent screen. A browser without
     that session gets Rohlik's login screen on each send. That cost is accepted for v1.
