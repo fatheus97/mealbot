@@ -61,23 +61,39 @@ From a live search on 2026-10-28:
   the first result, never an out-of-stock one. Every candidate can be swapped in.
 - **Pack count is computed in the frontend:** `packs = ceil(need / parsed pack size)`. The
   piece-weight table covers `ks` items, there is a 1-pack fallback when the size can't be parsed or
-  the units don't match, and every line gets −/+.
+  the units don't match, and every line gets −/+. Any rounding rule for weighed („cca“) items
+  applies only after the size has parsed as a weight; the 1-pack fallback always wins when parsing
+  fails.
 - **Review screen:** price per line, an estimated total, Xtra-only prices marked, and unmatched lines
   shown as „nenalezeno“.
-- **Backend:** proxies the Rohlik calls and nothing else.
-- **Rohlik login: nothing is stored.** The user logs in through OAuth on each send. The access token
-  passes through MealBot's backend only for that send and is never written anywhere. The OAuth
-  `state` and PKCE verifier live between redirect and callback in a short-lived, signed, HttpOnly
-  cookie, not a table. The spike confirmed this is cheap for the user: after the first login, a
-  repeat authorization came back in 0.4 s with no login or consent screen. (The rejected alternative
-  was an encrypted refresh token plus a Disconnect option, which needs a new `cryptography`
-  dependency, a key in `.env`, deletion on account delete, and exclusion from the data export.)
+- **Backend:** proxies the Rohlik calls and nothing else. Everything the review screen sends back is
+  untrusted input: a Pydantic model with integer product IDs, a positive integer quantity per line
+  with a sane upper bound, and a capped line count. Every MCP call has a timeout and catches specific
+  exceptions, in line with the rest of the codebase.
+- **Rohlik login: nothing is persisted.** The user logs in through OAuth on each send.
+  - The OAuth `state` and PKCE verifier live between redirect and callback in a signed, HttpOnly,
+    `Secure` cookie with `SameSite=Lax` (the callback is a cross-site navigation from
+    `identity.rohlik.cz`, so `Strict` would not be sent) and a short `Max-Age` of about 10 minutes.
+    The cookie is bound to the MealBot session that started the flow.
+  - The callback rejects any `state` that does not match the cookie, then deletes the cookie.
+  - Token handoff: the backend keeps the access token in process memory, keyed by user and flow,
+    with a TTL of about 15 minutes, which is long enough to search, review and add. It is dropped
+    as soon as the add-to-cart call returns. The token never goes to the browser, so XSS or frontend
+    logging cannot leak it, and it is never written to disk or the database. This works because
+    prod runs a single uvicorn worker (`backend/Dockerfile` CMD, no `--workers`). If the backend
+    ever scales out, this needs a shared short-lived store, or the flow fails with a re-login.
+  - The spike measured the cost in a browser with a live Rohlik session at `identity.rohlik.cz`:
+    a repeat authorization came back in 0.4 s with no login or consent screen. A browser without
+    that session gets Rohlik's login screen on each send. That cost is accepted for v1.
+  - The rejected alternative was an encrypted refresh token plus a Disconnect option. It needs a
+    new `cryptography` dependency, a key in `.env`, deletion on account delete, and exclusion from
+    the data export.
 - **Gate:** the same as generation (verified email + entitled). There are no LLM calls in v1, so the
   usage cost cap is not touched.
 - **Kill switch:** `ROHLIK_ENABLED`, off by default. While it is off, no host `.env` change is needed.
 - **Privacy pages** (en + cs; hand-edited source, never regenerate): name Rohlik as the recipient of
-  the shopping-list items the user sends, and say the Rohlik login token is used only during the send
-  and is not stored.
+  the shopping-list items the user sends, and say the Rohlik login token is used only for the send,
+  held in memory for at most about 15 minutes, and never stored.
 
 ## Deferred
 
@@ -120,7 +136,9 @@ cart, so the owner ran the script himself the same day.
 - **Preselection:** the skip-promoted rule chose olive oil (1 l) over the two promoted results. For
   „rajčata“ it chose cherry tomatoes because they are the owner's favourite. That is the rule working
   as designed, and the review screen is where a swap happens.
-- **Second authorization: silent, 0.4 s.** This confirms "nothing stored".
+- **Second authorization: silent, 0.4 s,** in the owner's browser, which had a live Rohlik
+  session. That confirms "nothing persisted" costs nothing for users who are logged in to Rohlik.
+  Users who aren't see Rohlik's login screen on each send.
 - **Leftover:** the spike's dev client stays registered at Rohlik, because no registration access
   token was kept. It is harmless: a localhost-only redirect and no secret.
 
