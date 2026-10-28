@@ -1,6 +1,8 @@
 # rohlik.cz integration: design
 
-Status: designed 2026-10-28 with the owner. Not built. Waiting on Rohlik's written consent (see Terms).
+Status: designed and spiked 2026-10-28 with the owner (results at the end). Not built. Waiting on
+Rohlik's written consent and on Rohlik allowlisting MealBot's redirect URI (see Terms and the spike
+results).
 
 Goal: a „Poslat do Rohlíku“ button on a plan's shopping list that puts the items into the user's own
 rohlik.cz cart. The user then finishes the order in Rohlik's e-shop as usual.
@@ -66,9 +68,10 @@ From a live search on 2026-10-28:
 - **Rohlik login: nothing is stored.** The user logs in through OAuth on each send. The access token
   passes through MealBot's backend only for that send and is never written anywhere. The OAuth
   `state` and PKCE verifier live between redirect and callback in a short-lived, signed, HttpOnly
-  cookie, not a table. If the spike shows that logging in every time is annoying, the alternative is
-  an encrypted refresh token plus a Disconnect option in Settings. That needs a new `cryptography`
-  dependency, a key in `.env`, deletion on account delete, and exclusion from the data export.
+  cookie, not a table. The spike confirmed this is cheap for the user: after the first login, a
+  repeat authorization came back in 0.4 s with no login or consent screen. (The rejected alternative
+  was an encrypted refresh token plus a Disconnect option, which needs a new `cryptography`
+  dependency, a key in `.env`, deletion on account delete, and exclusion from the data export.)
 - **Gate:** the same as generation (verified email + entitled). There are no LLM calls in v1, so the
   usage cost cap is not touched.
 - **Kill switch:** `ROHLIK_ENABLED`, off by default. While it is off, no host `.env` change is needed.
@@ -95,4 +98,35 @@ From a live search on 2026-10-28:
    screens. That second check decides between "nothing stored" and the encrypted refresh token.
 
 On 2026-10-28 the auto-mode classifier blocked an agent-run attempt, because it writes to a real
-cart. The owner runs the script himself, or approves it explicitly.
+cart, so the owner ran the script himself the same day.
+
+### Results (2026-10-28)
+
+- **A `trymealbot.com` redirect cannot self-register.** Dynamic client registration answered
+  `400 invalid_request`: „Redirect URI is not allowed for dynamic client registration“. A
+  `localhost`-only registration was accepted (public client, `token_endpoint_auth_method: none`). So
+  a production client needs Rohlik to register or allowlist MealBot's redirect URI. Production is
+  blocked on Rohlik technically as well as by the terms; question 2 of the consent request covers it.
+- **OAuth:** authorization code + PKCE works. The token response has `access_token` (valid 28 799 s,
+  about 8 h), `refresh_token`, `id_token`, `scope`, `token_type`. A refresh succeeded, and the refresh
+  token was not rotated.
+- **MCP:** `rohlik_mcp` 4.1.4, protocol `2025-06-18`, with an `Mcp-Session-Id`. It exposes 58
+  tools, including every tool this feature needs.
+- **Search, match, cart:** 8 of 8 lines of a typical Czech list matched, for an estimated 621,14 Kč.
+  The add landed exactly (each product's quantity was the old quantity plus the packs added), and
+  the cart was then restored exactly to its prior 3 products and 4 units. Cart items carry
+  `productId`, `quantity`, `textualAmount`, `price` and more, so the review screen needs no extra
+  lookups.
+- **Preselection:** the skip-promoted rule chose olive oil (1 l) over the two promoted results. For
+  „rajčata“ it chose cherry tomatoes because they are the owner's favourite. That is the rule working
+  as designed, and the review screen is where a swap happens.
+- **Second authorization: silent, 0.4 s.** This confirms "nothing stored".
+- **Leftover:** the spike's dev client stays registered at Rohlik, because no registration access
+  token was kept. It is harmless: a localhost-only redirect and no secret.
+
+### Open after the spike
+
+- **Rounding for weighed („cca“) products.** Always rounding up bought 2 × ~0,53 kg of chicken for
+  a 600 g need, about 77 % extra. The proposal: for „cca“ items only, round to the nearest pack count
+  when the shortfall is under 15 %. Packaged sizes (250 g, 10 ks) keep rounding up. Awaiting the
+  owner's call.
