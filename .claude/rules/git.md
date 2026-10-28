@@ -172,20 +172,32 @@ cycle defeats the point.
 - Cap the loop at 5 iterations. If after 5 fix/push cycles the same issue
   persists (flaky CI, external dependency outage, reviewer oscillating on
   the same point), stop and surface what's stuck rather than continuing.
-- **Then merge** — `gh pr merge <n> --squash --delete-branch` — per the
-  standing authorization above. Do NOT re-ask for merge permission each time;
-  the user has pre-approved it and pushed back on being re-asked. (The harness
-  auto-mode classifier may still prompt on the tool call — that's a separate
-  layer; the user's intent is documented and clear, so proceed. Never
-  `--admin`.) Then **stay where you are** — do NOT check out `main`. See
-  "Worktrees" below; this is the single most common way a session corrupts
-  another session's work. **Not checking it out is not sufficient**: with
-  `--delete-branch`, `gh` checks out the base branch itself, so the merge can
-  leave you on `main` without you typing a thing. Verify with
-  `git branch --show-current` afterwards and `git checkout --detach` if it
-  moved you — see "gh pr merge --delete-branch MOVES YOU" above.
-- Still surface (don't auto-merge) when CI is red, the review has unresolved
-  actionable items, or the change is genuinely high-risk/ambiguous.
+- **Merge with auto-merge, right after opening the PR** — `gh pr merge <n>
+  --auto --squash` — per the standing authorization above (owner's decision
+  2026-10-28, "turn on merge when ready"). GitHub then merges the moment every
+  required check is green and every review thread is resolved. `review` is a
+  required check, and its last step turns it RED when the bot ends its review
+  with `REVIEW-VERDICT: BLOCKING` or states no valid verdict, so a blocking
+  finding holds the merge by itself. Do NOT re-ask for merge permission; the
+  user pre-approved it and pushed back on being re-asked. Never `--admin`.
+  - Leave out `--delete-branch`: the repo deletes merged branches itself
+    (`delete_branch_on_merge`), and `--auto` never checks anything out, so the
+    "MOVES YOU" trap above does not apply. A manual `gh pr merge` without
+    `--auto` still has it.
+  - **Auto-merge does not change the findings rule above.** A CLEAN verdict can
+    still carry non-blocking notes, and the PR may merge before you have
+    answered them. Answer every one anyway, on the PR. A fix for a note that
+    lands after the merge goes in a follow-up PR.
+  - `strict` is on (the branch must be up to date), and GitHub does not update
+    it for you. When another PR merges first, auto-merge waits. Run
+    `gh api -X PUT repos/fatheus97/mealbot/pulls/<n>/update-branch` and it
+    proceeds after the re-run.
+  - **A PR that edits `.github/workflows/claude-review.yml` can never go green
+    on its own**: the action refuses to run on a PR that changes its workflow,
+    so `review` stays red. Get it reviewed some other way, then surface it to
+    the owner to merge. Do not work around the required check.
+- Still surface (don't enable auto-merge) when CI is red, the review has
+  unresolved actionable items, or the change is genuinely high-risk/ambiguous.
 
 ### How to decide while autonomous
 - Ask the user ONLY on low confidence or when facing multiple genuinely-similar
