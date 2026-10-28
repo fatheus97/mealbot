@@ -58,13 +58,22 @@ From a live search on 2026-10-28:
 - **Entry point:** one „Poslat do Rohlíku“ button on the shopping list. It sends the unticked lines
   (ticked means already have or already bought) to a review screen.
 - **Flow order:** login comes first, because searching needs the token too.
-  1. The click POSTs the unticked lines. The backend validates them and stores them in the flow
-     store (below) under a new flow id, then redirects to Rohlik's authorize URL.
-  2. The callback checks `state`, exchanges the code, keeps the token in the same flow entry, runs
-     the searches, and redirects to the review screen with only the flow id in the URL.
-  3. The review screen fetches the candidates for that flow id.
-  4. The confirm POST sends the chosen product IDs and quantities. The backend calls
-     `add_items_to_cart` and deletes the flow entry.
+  1. The click POSTs the unticked lines, with the existing CSRF header like every mutating call.
+     The backend validates them, stores them in the flow store (below) under a new flow id, and
+     returns Rohlik's authorize URL as JSON. The frontend sets `window.location` to it. (A 302 in
+     reply to a `fetch` POST would be followed by the browser and blocked by CORS, so the SPA would
+     never navigate.)
+  2. The callback is a GET from `identity.rohlik.cz` and cannot carry the CSRF header; the
+     `state`/cookie check below is its protection. It exchanges the code, keeps the token in the
+     flow entry, and redirects straight to the review screen with only the flow id in the URL. It
+     does no searching, so the user is never left looking at a blank tab.
+  3. The review screen shows a loading state and fetches the candidates for that flow id. That fetch
+     runs the searches: at most a few `batch_search_products` calls in flight at once (4 queries
+     each), under one overall deadline. Each call's timeout is a setting, like
+     `stripe_timeout_seconds`. A line whose search failed or timed out shows as „nenalezeno“ with a
+     retry; a partial failure never discards the lines that did match, and the flow entry stays.
+  4. The confirm POST sends the chosen product IDs and quantities, again with the CSRF header. The
+     backend calls `add_items_to_cart` and deletes the flow entry.
 
   The list is kept server-side rather than in `sessionStorage`, so nothing that the backend later
   acts on has to come back from the browser except the final selection, which is validated as
@@ -73,9 +82,10 @@ From a live search on 2026-10-28:
   the first result, never an out-of-stock one. Every candidate can be swapped in.
 - **Pack count is computed in the frontend:** `packs = ceil(need / parsed pack size)`. The
   piece-weight table covers `ks` items, there is a 1-pack fallback when the size can't be parsed or
-  the units don't match, and every line gets −/+. Any rounding rule for weighed („cca“) items
-  applies only after the size has parsed as a weight; the 1-pack fallback always wins when parsing
-  fails.
+  the units don't match, and every line gets −/+. Weighed („cca“) items round to the nearest pack
+  count when the shortfall is under 15 %, otherwise up (decided after the spike, see below). That
+  rule applies only after the size has parsed as a weight; the 1-pack fallback always wins when
+  parsing fails.
 - **Review screen:** price per line, an estimated total, Xtra-only prices marked, and unmatched lines
   shown as „nenalezeno“.
 - **Backend:** proxies the Rohlik calls and nothing else. Everything the review screen sends back is
@@ -93,7 +103,10 @@ From a live search on 2026-10-28:
     list, the access token, the MCP `Mcp-Session-Id` and the search candidates. Rules:
     - TTL of about 15 minutes, which is long enough to search, review and add.
     - Expiry is checked on every read and swept on every write.
-    - At most one live flow per user: starting a new one replaces the old.
+    - At most one live flow per user: starting a new one replaces the old. The state/PKCE cookie
+      has one fixed name, so a second tab also replaces the first tab's cookie. The first tab's
+      callback then fails its `state` check. That is accepted, and the user sees a translated
+      „spusťte odeslání znovu“ message (start the send again), not a 500.
     - The entry is deleted as soon as `add_items_to_cart` returns.
 
     So a user who starts flows and never finishes cannot grow it. The token never goes to the
@@ -125,6 +138,14 @@ From a live search on 2026-10-28:
 - A per-recipe "buy just this" button.
 - English-language plans. These need a translation step.
 - Rohlik Group's other shops (Knuspr, Gurkerl, Kifli, Sezamo).
+- **Shelf-life-aware rounding** (owner's idea, 2026-10-28): overbuying matters less for something
+  that keeps for weeks. The „cca“ rule already covers the commonest case, because weighed items are
+  mostly the perishable ones. The gap is packaged perishables, such as cooking cream rounding up to
+  2 × 180 ml for 200 g. Rohlik's website shows a figure like „běžně čerstvé 30 dnů“, but the MCP
+  does not expose it: neither search results nor `get_product_details` carry it, only a free-text
+  „Skladování“ paragraph (checked 2026-10-28). Two ways to enable it later:
+  - Rohlik exposes the freshness figure. Ask in the consent thread.
+  - Reuse the receipt scanner's LLM `shelf_life_days` estimate, at one LLM call per send.
 
 ## Spike (owner's personal use only, see Terms)
 
@@ -165,9 +186,10 @@ cart, so the owner ran the script himself the same day.
 - **Leftover:** the spike's dev client stays registered at Rohlik, because no registration access
   token was kept. It is harmless: a localhost-only redirect and no secret.
 
-### Open after the spike
+### Decided after the spike
 
-- **Rounding for weighed („cca“) products.** Always rounding up bought 2 × ~0,53 kg of chicken for
-  a 600 g need, about 77 % extra. The proposal: for „cca“ items only, round to the nearest pack count
-  when the shortfall is under 15 %. Packaged sizes (250 g, 10 ks) keep rounding up. Awaiting the
-  owner's call.
+- **Rounding for weighed („cca“) products (owner, 2026-10-28):** for „cca“ items only, round to the
+  nearest pack count when the shortfall is under 15 %; otherwise round up. Packaged sizes (250 g,
+  10 ks) always round up. The rule applies only after the size has parsed as a weight; the 1-pack
+  fallback wins when parsing fails. Always rounding up had bought 2 × ~0,53 kg of chicken for a
+  600 g need, about 77 % extra; the rule makes it 1 pack, an 11.7 % shortfall.
