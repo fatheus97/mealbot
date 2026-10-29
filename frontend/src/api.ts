@@ -29,6 +29,7 @@ import type {
   OverviewStats,
   MealEditResponse,
   RevenueStats,
+  ScanSource,
   ScannedItemsResponse,
   SingleRecipeRequest,
   SingleRecipeResponse,
@@ -234,11 +235,14 @@ export async function updateUserProfile(
   return res.json();
 }
 
-export async function scanReceipt(file: File): Promise<ScannedItemsResponse> {
+export async function scanReceipt(
+  file: File,
+  source: ScanSource = "receipt",
+): Promise<ScannedItemsResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await authFetch("/fridge/scan", {
+  const res = await authFetch(`/fridge/scan?source=${source}`, {
     method: "POST",
     body: formData,
   });

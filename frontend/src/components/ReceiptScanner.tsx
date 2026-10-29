@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import type { ChangeEvent } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import type { ScannedItemType, StockItem } from "../types";
+import type { ScanSource, ScannedItemType, StockItem } from "../types";
+import { InfoHint } from "./InfoHint";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 import { useI18n, type TranslationKey } from "../i18n";
 
@@ -63,6 +64,11 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const { isDemo } = useAuth();
   const isMobile = useIsMobile();
   const [state, setState] = useState<ScannerState>("idle");
+  // Receipt or a photo of the food itself. Only switchable in idle/error, so it
+  // can't change between a scan and its review.
+  const [source, setSource] = useState<ScanSource>("receipt");
+  const sourceGroupName = useId();
+  const isFoodPhoto = source === "food_photo";
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   // machine_generation id for the scan on screen — echoed back on merge so the
   // server can capture edits made in the review table. null on the demo path
@@ -231,7 +237,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     setScanGenerationId(null);
 
     try {
-      const scanResponse = await scanMutation.mutateAsync(file);
+      const scanResponse = await scanMutation.mutateAsync({ file, source });
       const scannedItems = scanResponse.items;
       setScanGenerationId(scanResponse.generation_id);
 
@@ -338,7 +344,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
   return (
     <div style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#1e293b", borderRadius: "8px", color: "rgba(255, 255, 255, 0.87)" }}>
-      <h3 style={{ marginTop: 0 }}>Scan Receipt</h3>
+      <h3 style={{ marginTop: 0 }}>{t("receipt.heading")}</h3>
 
       {/* File input — always visible in idle/error states. Selecting a file auto-triggers the scan. */}
       {(state === "idle" || state === "error") && (
@@ -356,11 +362,33 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             </>
           ) : (
             <>
+              <div
+                role="radiogroup"
+                aria-label={t("receipt.sourceLabel")}
+                style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", width: "100%" }}
+              >
+                {([["receipt", "receipt.sourceReceipt"], ["food_photo", "receipt.sourceFoodPhoto"]] as const).map(
+                  ([value, labelKey]) => (
+                    <label key={value} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                      <input
+                        type="radio"
+                        name={sourceGroupName}
+                        checked={source === value}
+                        onChange={() => setSource(value)}
+                        disabled={scanMutation.isPending || cameraOpening}
+                      />
+                      {t(labelKey)}
+                    </label>
+                  ),
+                )}
+                <InfoHint label={t("receipt.foodPhotoHintLabel")} text={t("receipt.foodPhotoHint")} />
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/png,application/pdf,.pdf"
-                aria-label={t("receipt.selectFile")}
+                // A food photo is never a PDF; the server rejects that pairing too.
+                accept={isFoodPhoto ? "image/jpeg,image/png" : "image/jpeg,image/png,application/pdf,.pdf"}
+                aria-label={isFoodPhoto ? t("receipt.selectFoodPhoto") : t("receipt.selectFile")}
                 onChange={handleFileChange}
                 disabled={scanMutation.isPending || cameraOpening}
               />
@@ -403,7 +431,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
       {/* Scanning state */}
       {state === "scanning" && (
-        <p>{t("receipt.scanning")}</p>
+        <p>{isFoodPhoto ? t("receipt.scanningFoodPhoto") : t("receipt.scanning")}</p>
       )}
 
       {/* Error state */}
@@ -418,7 +446,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             {t("receipt.reviewIntro")}
           </p>
           {reviewItems.length === 0 ? (
-            <p>{t("receipt.noItems")}</p>
+            <p>{isFoodPhoto ? t("receipt.noItemsFoodPhoto") : t("receipt.noItems")}</p>
           ) : (
             (() => {
               const typeBadge = (item: ReviewItem) => ({

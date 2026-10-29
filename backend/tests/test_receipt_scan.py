@@ -685,3 +685,104 @@ class TestExtractItemsFromReceiptVision:
         assert captured["image_base64"] == "ZmFrZQ=="
         assert captured["image_media_type"] == "image/png"
         assert captured["response_model"] is ReceiptScanResponse
+
+
+class TestFoodPhotoScan:
+    """source=food_photo: a photo of the food itself, not of a receipt."""
+
+    async def test_food_photo_uses_food_prompt_not_receipt_prompt(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        from sqlmodel import select
+
+        from app.models.db_models import MachineGeneration
+
+        with patch(
+            "app.api.fridge.extract_items_from_food_photo",
+            new_callable=AsyncMock,
+            return_value=ReceiptScanResponse(items=[
+                ScannedReceiptItem(
+                    name="cane sugar", quantity_grams=50, item_type="ingredient", shelf_life_days=730
+                ),
+            ]),
+        ) as food, patch(
+            "app.api.fridge.extract_items_from_receipt", new_callable=AsyncMock,
+        ) as receipt, patch(
+            "app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize,
+        ):
+            resp = await client.post(
+                "/api/fridge/scan?source=food_photo",
+                files={"file": ("food.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        assert food.await_count == 1
+        receipt.assert_not_awaited()
+        item = resp.json()["items"][0]
+        assert item["name"] == "cane sugar"
+        assert item["quantity_grams"] == 50
+        # No purchase date on a photo: shelf life counts from today.
+        assert item["expiration_date"] == (date.today() + timedelta(days=730)).isoformat()
+
+        # Same telemetry surface (so /merge links it), tagged with its own method.
+        await db_session.commit()
+        gen = (
+            await db_session.execute(
+                select(MachineGeneration).where(MachineGeneration.user_id == test_user.id)
+            )
+        ).scalars().one()
+        assert gen.surface == "receipt_scan"
+        assert gen.request_json is not None
+        assert '"method": "food_photo"' in gen.request_json
+
+    async def test_food_photo_rejects_pdf_before_any_llm_call(self, client: AsyncClient) -> None:
+        with patch("app.api.fridge.extract_items_from_pdf", new_callable=AsyncMock) as pdf, patch(
+            "app.api.fridge.extract_items_from_food_photo", new_callable=AsyncMock,
+        ) as food:
+            resp = await client.post(
+                "/api/fridge/scan?source=food_photo",
+                files={"file": ("r.pdf", io.BytesIO(b"%PDF-1.4 x"), "application/pdf")},
+            )
+        assert resp.status_code == 422
+        assert "JPEG or PNG" in resp.json()["detail"]
+        pdf.assert_not_awaited()
+        food.assert_not_awaited()
+
+    async def test_unknown_source_rejected(self, client: AsyncClient) -> None:
+        with patch("app.api.fridge.extract_items_from_receipt", new_callable=AsyncMock) as receipt:
+            resp = await client.post(
+                "/api/fridge/scan?source=selfie",
+                files={"file": ("x.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 422
+        receipt.assert_not_awaited()
+
+    async def test_service_renders_food_prompt_and_drops_model_purchase_date(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A date the model reads off a package is a best-before, never a purchase date."""
+        from app.services import receipt_scanner
+
+        captured: dict[str, Any] = {}
+
+        async def _fake_vision(
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            image_base64: str,
+            image_media_type: str,
+            response_model: type[BaseModel],
+            mock: bool = False,
+        ) -> ReceiptScanResponse:
+            captured.update(user_prompt=user_prompt, response_model=response_model)
+            return ReceiptScanResponse(purchase_date=date(2027, 5, 1), items=[])
+
+        monkeypatch.setattr(llm_client, "chat_vision_json", _fake_vision)
+
+        result = await receipt_scanner.extract_items_from_food_photo(
+            image_base64="ZmFrZQ==", image_media_type="image/jpeg", language="Czech",
+        )
+        assert result.purchase_date is None
+        assert "photo of food" in captured["user_prompt"]
+        assert "REMAINING amount" in captured["user_prompt"]  # fill-level rule present
+        assert "Czech" in captured["user_prompt"]
+        assert captured["response_model"] is ReceiptScanResponse

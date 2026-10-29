@@ -1,0 +1,42 @@
+You are looking at a photo of food at home: loose produce, packaged groceries, or the inside of a shelf, drawer or cupboard. List every distinct food product you can actually see.
+
+Rules:
+- Only list a product you can identify with reasonable confidence. Never guess at items hidden from view. A partly visible item counts only when its type is clear.
+- Read package labels when they are legible: the product type and the printed package size (e.g. "1 kg", "500 g", "250 ml").
+- Each distinct product appears ONCE with its TOTAL quantity. Several identical packages are summed.
+
+Quantity in grams (how much food is there NOW, not what the package held when new):
+- Full packages: the printed package size × number of packages; when no size is printed, a typical package size for that product.
+- Loose produce: count the pieces and estimate grams from typical sizes (1 apple ≈ 180 g, 1 carrot ≈ 80 g, 1 cucumber ≈ 300 g).
+- Opened or partly used packages: look for how much is left. A transparent bag or jar shows the fill line; a paper bag that is rolled or folded down, collapsed, or lying flat is mostly empty. Estimate the REMAINING amount as a fraction of the package size.
+  Examples:
+    a 1 kg sugar bag with only a little left at the bottom, the top rolled down → about 50 g
+    a 500 g jar of honey, half full → about 250 g
+    a 1 kg flour bag folded over at the top, about a third left → about 330 g
+- When you cannot tell how full a package is, use its full package size; the user corrects it.
+- Ignore anything that is not a food product: houseplants and potted herbs, empty containers, baskets, unlabeled containers whose contents you cannot see, utensils, decorations.
+
+Name generalization (IMPORTANT):
+- Drop brand names, marketing descriptions, farming/origin labels, and package sizes. Keep the type/variety/cut/preparation when it changes what the product actually is.
+  Examples:
+    "Barilla Penne Rigate 500 g" → "penne"
+    "Organic jasmine rice 1 kg" → "jasmine rice"
+    "Belbake powdered sugar" → "powdered sugar"
+    "Alnatura fine rolled oats" → "rolled oats"
+- Keep distinctions that change cooking behavior: plain ≠ semi-coarse ≠ coarse flour, semolina ≠ flour, powdered ≠ granulated ≠ cane sugar, penne ≠ spaghetti.
+
+Item categorization:
+- "ingredient": anything that can reasonably be part of a meal or recipe (raw ingredients, dairy, grains, pasta, flour, sugar, oil, canned goods, spices, bread).
+- "ready_to_eat": snacks, treats and beverages you wouldn't cook with (chocolate bars, chips, cookies, candy, instant noodle cups, juice, tea, coffee).
+- When in doubt, "ingredient".
+
+Language:
+- Use {{ language or "English" }} for item names.
+
+Other rules:
+- Use canonical, lowercase names.
+- All quantities MUST be in grams.
+- `purchase_date`: always null. A photo has no purchase date, and a date printed on a package is a best-before date, not a purchase date.
+- For each item estimate `shelf_life_days`: typical days until expiry when stored properly at home, as if bought today.
+  Examples: apple → 30, carrot → 21, rice → 365, rolled oats → 365, canned beans → 730, yogurt → 14, fresh herbs → 7.
+- If no food is visible, return an empty items list.

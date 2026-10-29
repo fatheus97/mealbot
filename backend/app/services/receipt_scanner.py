@@ -59,6 +59,40 @@ async def extract_items_from_receipt(
     )
 
 
+FOOD_PHOTO_SYSTEM_PROMPT = (
+    "You are an expert at recognizing groceries in photos. "
+    "Identify every food product you can see and estimate how many grams of it are left. "
+    "Return ONLY valid JSON."
+)
+
+
+async def extract_items_from_food_photo(
+    image_base64: str,
+    image_media_type: str,
+    language: str = "English",
+    mock: bool = False,
+) -> ReceiptScanResponse:
+    """Send a photo of food (produce, packages, a shelf) to the LLM and return the items it can see.
+
+    The receipt prompt can't be reused: it tells the model to return nothing for
+    an image that isn't a receipt, and counts every package at its full size.
+    """
+    template = _prompts_env.get_template("food_photo_scan.jinja")
+    user_prompt = template.render(language=language)
+
+    result = await llm_client.chat_vision_json(
+        system_prompt=FOOD_PHOTO_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        image_base64=image_base64,
+        image_media_type=image_media_type,
+        response_model=ReceiptScanResponse,
+        mock=mock,
+    )
+    # The prompt asks for null, but a model that reads a best-before date off a
+    # package would otherwise shift every expiration by it. Enforce it here.
+    return result.model_copy(update={"purchase_date": None})
+
+
 def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
     """Extract text from a PDF. Raises 422 if corrupt, too many pages, or no text."""
     try:
