@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import type { ChangeEvent } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import type { ScannedItemType, StockItem } from "../types";
+import type { ScanSource, ScannedItemType, StockItem } from "../types";
+import { InfoHint } from "./InfoHint";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 import { useI18n, type TranslationKey } from "../i18n";
 
@@ -20,7 +21,15 @@ interface ReviewItem {
   needToUse: boolean;
   itemType?: ScannedItemType;
   expirationDate: string | null;
+  // Set for an opened package from a food photo: its full size in grams. The
+  // row asks how much is left, and addedQty starts empty until answered.
+  packageGrams?: number;
 }
+
+// Quick answers to "how much is left?" for an opened package. "Almost nothing"
+// is 5%: about a spoonful in a 500 g bag.
+const LEFT_FRACTIONS: ReadonlyArray<readonly [number, string]> = [[0.25, "¼"], [0.5, "½"], [0.75, "¾"]];
+const ALMOST_EMPTY_FRACTION = 0.05;
 
 const parseQty = (s: string): number => {
   const n = Number(s);
@@ -63,6 +72,11 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const { isDemo } = useAuth();
   const isMobile = useIsMobile();
   const [state, setState] = useState<ScannerState>("idle");
+  // Receipt or a photo of the food itself. Only switchable in idle/error, so it
+  // can't change between a scan and its review.
+  const [source, setSource] = useState<ScanSource>("receipt");
+  const sourceGroupName = useId();
+  const isFoodPhoto = source === "food_photo";
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   // machine_generation id for the scan on screen — echoed back on merge so the
   // server can capture edits made in the review table. null on the demo path
@@ -231,7 +245,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     setScanGenerationId(null);
 
     try {
-      const scanResponse = await scanMutation.mutateAsync(file);
+      const scanResponse = await scanMutation.mutateAsync({ file, source });
       const scannedItems = scanResponse.items;
       setScanGenerationId(scanResponse.generation_id);
 
@@ -249,11 +263,12 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
         const existing = fridgeLookup.get(compoundKey);
         return {
           name: scanned.name,
-          addedQty: String(scanned.quantity_grams),
+          addedQty: scanned.opened ? "" : String(scanned.quantity_grams),
           existingQty: existing?.quantity_grams ?? 0,
           needToUse: existing?.need_to_use ?? false,
           itemType: scanned.item_type,
           expirationDate: expDate,
+          packageGrams: scanned.opened ? scanned.quantity_grams : undefined,
         };
       });
 
@@ -287,7 +302,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     const invalidIdx = reviewItems.findIndex((item) => Number.isNaN(parseQty(item.addedQty)));
     if (invalidIdx !== -1) {
       setConfirmError(
-        `Row ${invalidIdx + 1} (${reviewItems[invalidIdx].name || "unnamed"}) needs a quantity greater than 0.`,
+        t("receipt.rowNeedsQty", {
+          n: invalidIdx + 1,
+          name: reviewItems[invalidIdx].name || t("receipt.unnamed"),
+        }),
       );
       return;
     }
@@ -338,7 +356,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
   return (
     <div style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#1e293b", borderRadius: "8px", color: "rgba(255, 255, 255, 0.87)" }}>
-      <h3 style={{ marginTop: 0 }}>Scan Receipt</h3>
+      <h3 style={{ marginTop: 0 }}>{t("receipt.heading")}</h3>
 
       {/* File input — always visible in idle/error states. Selecting a file auto-triggers the scan. */}
       {(state === "idle" || state === "error") && (
@@ -356,11 +374,33 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             </>
           ) : (
             <>
+              <div
+                role="radiogroup"
+                aria-label={t("receipt.sourceLabel")}
+                style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", width: "100%" }}
+              >
+                {([["receipt", "receipt.sourceReceipt"], ["food_photo", "receipt.sourceFoodPhoto"]] as const).map(
+                  ([value, labelKey]) => (
+                    <label key={value} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                      <input
+                        type="radio"
+                        name={sourceGroupName}
+                        checked={source === value}
+                        onChange={() => setSource(value)}
+                        disabled={scanMutation.isPending || cameraOpening}
+                      />
+                      {t(labelKey)}
+                    </label>
+                  ),
+                )}
+                <InfoHint label={t("receipt.foodPhotoHintLabel")} text={t("receipt.foodPhotoHint")} />
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/png,application/pdf,.pdf"
-                aria-label={t("receipt.selectFile")}
+                // A food photo is never a PDF; the server rejects that pairing too.
+                accept={isFoodPhoto ? "image/jpeg,image/png" : "image/jpeg,image/png,application/pdf,.pdf"}
+                aria-label={isFoodPhoto ? t("receipt.selectFoodPhoto") : t("receipt.selectFile")}
                 onChange={handleFileChange}
                 disabled={scanMutation.isPending || cameraOpening}
               />
@@ -403,7 +443,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
       {/* Scanning state */}
       {state === "scanning" && (
-        <p>{t("receipt.scanning")}</p>
+        <p>{isFoodPhoto ? t("receipt.scanningFoodPhoto") : t("receipt.scanning")}</p>
       )}
 
       {/* Error state */}
@@ -418,7 +458,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             {t("receipt.reviewIntro")}
           </p>
           {reviewItems.length === 0 ? (
-            <p>{t("receipt.noItems")}</p>
+            <p>{isFoodPhoto ? t("receipt.noItemsFoodPhoto") : t("receipt.noItems")}</p>
           ) : (
             (() => {
               const typeBadge = (item: ReviewItem) => ({
@@ -438,6 +478,34 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                     ? t("receipt.resultNew", { grams: addedNum })
                     : `+${addedNum} → ${item.existingQty + addedNum}g`;
                 return { addedNum, isInvalid, isNew, resultLabel };
+              };
+              const setLeft = (index: number, grams: number) => {
+                updateReviewItem(index, "addedQty", String(Math.max(1, Math.round(grams))));
+                setConfirmError("");
+              };
+              const leftPrompt = (item: ReviewItem, index: number) => {
+                const packageGrams = item.packageGrams;
+                if (packageGrams === undefined) return null;
+                const choices: ReadonlyArray<readonly [number, string]> = [
+                  [ALMOST_EMPTY_FRACTION, t("receipt.leftAlmostEmpty")],
+                  ...LEFT_FRACTIONS,
+                ];
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap", fontSize: "0.8rem", color: "#fbbf24", marginTop: "0.3rem" }}>
+                    <span>{t("receipt.openedAsk", { grams: packageGrams })}</span>
+                    {choices.map(([fraction, label]) => (
+                      <button
+                        key={fraction}
+                        type="button"
+                        onClick={() => setLeft(index, packageGrams * fraction)}
+                        aria-label={t("receipt.itemLeft", { n: index + 1, amount: label })}
+                        style={{ padding: "0.1rem 0.45rem", fontSize: "0.8rem" }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                );
               };
               const onQtyChange = (index: number) => (e: ChangeEvent<HTMLInputElement>) => {
                 const v = e.target.value;
@@ -501,6 +569,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                               {t("receipt.useSoon")}
                             </label>
                           </div>
+                          {leftPrompt(item, index)}
                           <button onClick={() => removeReviewItem(index)} style={{ width: "100%", marginTop: "0.5rem" }}>
                             {t("receipt.remove")}
                           </button>
@@ -550,6 +619,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                               style={{ width: "80px", border: isInvalid ? "1px solid #ef4444" : undefined }}
                               aria-invalid={isInvalid}
                             />
+                            {leftPrompt(item, index)}
                           </td>
                           <td>
                             <input

@@ -255,10 +255,20 @@ export interface PantryStaple {
   name: string;
 }
 
+// What the image sent to POST /api/fridge/scan shows: a shopping receipt, or
+// the food itself (produce, packages, a shelf). Mirrors the `source` query param.
+export type ScanSource = "receipt" | "food_photo";
+
 // Response of POST /api/fridge/scan. generation_id is echoed back on merge
 // (as a query param) for edit telemetry; null on the demo path.
+export interface ScannedItem extends StockItem {
+  // Food photos only: an opened package. quantity_grams is the FULL package
+  // size; the review step asks how much is left.
+  opened?: boolean;
+}
+
 export interface ScannedItemsResponse {
-  items: StockItem[];
+  items: ScannedItem[];
   generation_id: number | null;
 }
 

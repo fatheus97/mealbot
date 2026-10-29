@@ -128,6 +128,7 @@ ErrorKey = Literal[
     "upload_missing_content_type",
     "upload_bad_file_type",  # $content_type
     "upload_file_too_large",  # $size, $maximum
+    "food_photo_needs_image",
     # ── Receipt scanning (app/services/receipt_scanner.py) ─────────────────
     "receipt_pdf_unreadable",
     "receipt_pdf_no_text",
@@ -283,6 +284,9 @@ _EN: Final[dict[str, str]] = {
     ),
     "upload_file_too_large": (
         "File too large ($size bytes). Maximum is $maximum bytes."
+    ),
+    "food_photo_needs_image": (
+        "A food photo must be a JPEG or PNG image. Scan PDF receipts as a receipt."
     ),
     "receipt_pdf_unreadable": (
         "Could not read PDF. The file may be corrupted or password-protected."
@@ -468,6 +472,10 @@ _CS: Final[dict[str, str]] = {
     ),
     "upload_file_too_large": (
         "Soubor je příliš velký ($size bajtů). Maximum je $maximum bajtů."
+    ),
+    "food_photo_needs_image": (
+        "Fotka jídla musí být obrázek JPEG nebo PNG. PDF účtenku naskenujte "
+        "jako účtenku."
     ),
     "receipt_pdf_unreadable": (
         "PDF se nepodařilo přečíst. Soubor může být poškozený nebo chráněný "

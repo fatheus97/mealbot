@@ -118,6 +118,97 @@ describe('ReceiptScanner', () => {
     });
   });
 
+  describe('food photo mode', () => {
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'mediaDevices');
+    });
+
+    it('scans as a receipt by default', async () => {
+      mockedScanReceipt.mockResolvedValue({ generation_id: 1, items: [] });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      expect(screen.getByRole('radio', { name: /^receipt$/i })).toBeChecked();
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+
+      await waitFor(() => expect(mockedScanReceipt).toHaveBeenCalledTimes(1));
+      expect(mockedScanReceipt.mock.calls[0][1]).toBe('receipt');
+      expect(await screen.findByText(/no food items found in receipt/i)).toBeInTheDocument();
+    });
+
+    it('sends source=food_photo, images only, with its own copy', async () => {
+      let resolveScan: (v: unknown) => void = () => {};
+      mockedScanReceipt.mockReturnValue(new Promise((r) => { resolveScan = r; }));
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('radio', { name: /food photo/i }));
+      const input = screen.getByLabelText(/select a photo of your food/i);
+      expect(input).toHaveAttribute('accept', 'image/jpeg,image/png');
+      await user.upload(input, createFile('food.jpg'));
+
+      expect(await screen.findByText(/looking at your photo/i)).toBeInTheDocument();
+      expect(mockedScanReceipt.mock.calls[0][1]).toBe('food_photo');
+
+      resolveScan({ generation_id: 2, items: [] });
+      expect(await screen.findByText(/no food found in the photo/i)).toBeInTheDocument();
+    });
+
+    it('asks how much is left in an opened package before it can be added', async () => {
+      mockedScanReceipt.mockResolvedValue({
+        generation_id: 4,
+        items: [
+          { name: 'cane sugar', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const, opened: true },
+          { name: 'penne', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+        ],
+      });
+      mockedMergeFridge.mockResolvedValue([]);
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('radio', { name: /food photo/i }));
+      await user.upload(screen.getByLabelText(/select a photo of your food/i), createFile('food.jpg'));
+
+      expect(await screen.findByText(/opened package \(500 g\)\. how much is left\?/i)).toBeInTheDocument();
+      // The opened row starts empty (no full-bag guess); the sealed one is prefilled.
+      expect(screen.getAllByDisplayValue('500')).toHaveLength(1);
+
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      expect(screen.getByText(/row 1 \(cane sugar\) needs a quantity/i)).toBeInTheDocument();
+      expect(mockedMergeFridge).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Item 1: almost nothing left' }));
+      expect(screen.getByDisplayValue('25')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Item 1: ½ left' }));
+      expect(screen.getByDisplayValue('250')).toBeInTheDocument();
+      // Typing an exact amount still works.
+      const qty = screen.getByDisplayValue('250');
+      await user.clear(qty);
+      await user.type(qty, '30');
+
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      await waitFor(() => expect(mockedMergeFridge).toHaveBeenCalledTimes(1));
+      const merged = mockedMergeFridge.mock.calls[0][0] as Array<{ name: string; quantity_grams: number }>;
+      expect(merged.map((i) => [i.name, i.quantity_grams])).toEqual([['cane sugar', 30], ['penne', 500]]);
+    });
+
+    it('a camera capture in food photo mode is scanned as a food photo', async () => {
+      mockCamera('granted');
+      mockCanvas('sync');
+      mockedScanReceipt.mockResolvedValue({ generation_id: 3, items: [] });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('radio', { name: /food photo/i }));
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      fireEvent.loadedMetadata(await screen.findByLabelText(/camera preview/i));
+      await user.click(screen.getByRole('button', { name: /^capture$/i }));
+
+      await waitFor(() => expect(mockedScanReceipt).toHaveBeenCalledTimes(1));
+      expect(mockedScanReceipt.mock.calls[0][1]).toBe('food_photo');
+    });
+  });
+
   it('shows review table after successful scan with new items', async () => {
     mockedScanReceipt.mockResolvedValue({
       generation_id: 7,

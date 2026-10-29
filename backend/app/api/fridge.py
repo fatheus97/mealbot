@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import TypeAdapter
@@ -14,6 +15,9 @@ from app.db import get_session
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import User
 from app.models.plan_models import (
+    FoodPhotoItem,
+    FoodPhotoScanResponse,
+    ReceiptScanResponse,
     ScannedItemDTO,
     ScannedItemsResponse,
     StockItemDTO,
@@ -27,6 +31,7 @@ from app.services.fridge_service import (
     replace_fridge_items,
 )
 from app.services.receipt_scanner import (
+    extract_items_from_food_photo,
     extract_items_from_pdf,
     extract_items_from_receipt,
     normalize_item_names,
@@ -159,11 +164,16 @@ async def record_waste(
 async def scan_receipt(
     request: Request,
     file: UploadFile = File(...),
+    source: Literal["receipt", "food_photo"] = Query(
+        default="receipt",
+        description="What the image shows: a shopping receipt, or the food itself "
+        "(produce, packages, a shelf).",
+    ),
     current_user: User = Depends(require_generation_budget),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> ScannedItemsResponse:
-    """Upload a receipt image or PDF and extract grocery items via LLM.
+    """Upload a receipt (image or PDF) or a photo of food and extract grocery items via LLM.
 
     Persists the raw scan as a best-effort ``receipt_scan`` machine_generation
     and returns its id; the client echoes it back on /fridge/merge so edits to
@@ -197,18 +207,23 @@ async def scan_receipt(
         )
 
     is_pdf = file.content_type == "application/pdf"
+    if is_pdf and source == "food_photo":
+        raise LocalizedHTTPException(422, "food_photo_needs_image")
+    method = "food_photo" if source == "food_photo" else "pdf_text" if is_pdf else "image_vision"
     logger.info(
         "Receipt scan requested by user_id=%s, size=%d bytes, method=%s",
-        current_user.id, len(file_bytes), "pdf_text" if is_pdf else "image_vision",
+        current_user.id, len(file_bytes), method,
     )
 
     user_language = current_user.language or "English"
 
+    scan_result: ReceiptScanResponse | FoodPhotoScanResponse
     if is_pdf:
         scan_result = await extract_items_from_pdf(pdf_bytes=file_bytes, language=user_language, mock=current_user.is_demo)
     else:
         image_base64 = base64.b64encode(file_bytes).decode("ascii")
-        scan_result = await extract_items_from_receipt(
+        extract = extract_items_from_food_photo if source == "food_photo" else extract_items_from_receipt
+        scan_result = await extract(
             image_base64=image_base64,
             image_media_type=file.content_type,
             language=user_language,
@@ -229,7 +244,8 @@ async def scan_receipt(
     if not current_user.track_snacks:
         items = [item for item in items if item.item_type == "ingredient"]
 
-    base_date = scan_result.purchase_date or date.today()
+    purchase_date = scan_result.purchase_date if isinstance(scan_result, ReceiptScanResponse) else None
+    base_date = purchase_date or date.today()
 
     scanned_items = [
         ScannedItemDTO(
@@ -238,6 +254,7 @@ async def scan_receipt(
             need_to_use=False,
             item_type=item.item_type,
             expiration_date=base_date + timedelta(days=item.shelf_life_days),
+            opened=isinstance(item, FoodPhotoItem) and item.opened,
         )
         for item in items
     ]
@@ -255,7 +272,7 @@ async def scan_receipt(
         output_json=_SCAN_ITEMS_ADAPTER.dump_json(scanned_items).decode(),
         request_json=json.dumps(
             {
-                "method": "pdf_text" if is_pdf else "image_vision",
+                "method": method,
                 "size_bytes": len(file_bytes),
                 "language": user_language,
             }

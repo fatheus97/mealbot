@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.llm.client import llm_client
 from app.models.db_models import User
 from app.models.plan_models import (
+    FoodPhotoItem,
+    FoodPhotoScanResponse,
     NormalizationResponse,
     NormalizedName,
     ReceiptScanResponse,
@@ -685,3 +687,144 @@ class TestExtractItemsFromReceiptVision:
         assert captured["image_base64"] == "ZmFrZQ=="
         assert captured["image_media_type"] == "image/png"
         assert captured["response_model"] is ReceiptScanResponse
+
+
+class TestFoodPhotoScan:
+    """source=food_photo: a photo of the food itself, not of a receipt."""
+
+    async def test_food_photo_uses_food_prompt_not_receipt_prompt(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        from sqlmodel import select
+
+        from app.models.db_models import MachineGeneration
+
+        with patch(
+            "app.api.fridge.extract_items_from_food_photo",
+            new_callable=AsyncMock,
+            return_value=FoodPhotoScanResponse(items=[
+                FoodPhotoItem(
+                    name="cane sugar", quantity_grams=500, item_type="ingredient",
+                    shelf_life_days=730, opened=True,
+                ),
+                FoodPhotoItem(
+                    name="penne", quantity_grams=500, item_type="ingredient", shelf_life_days=365,
+                ),
+            ]),
+        ) as food, patch(
+            "app.api.fridge.extract_items_from_receipt", new_callable=AsyncMock,
+        ) as receipt, patch(
+            "app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize,
+        ):
+            resp = await client.post(
+                "/api/fridge/scan?source=food_photo",
+                files={"file": ("food.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        assert food.await_count == 1
+        receipt.assert_not_awaited()
+        sugar, penne = resp.json()["items"]
+        # Opened: the full package size, flagged so the review step asks what's left.
+        assert (sugar["name"], sugar["quantity_grams"], sugar["opened"]) == ("cane sugar", 500, True)
+        assert penne["opened"] is False
+        # No purchase date on a photo: shelf life counts from today.
+        assert sugar["expiration_date"] == (date.today() + timedelta(days=730)).isoformat()
+
+        # Same telemetry surface (so /merge links it), tagged with its own method.
+        await db_session.commit()
+        gen = (
+            await db_session.execute(
+                select(MachineGeneration).where(MachineGeneration.user_id == test_user.id)
+            )
+        ).scalars().one()
+        assert gen.surface == "receipt_scan"
+        assert gen.request_json is not None
+        assert '"method": "food_photo"' in gen.request_json
+
+    async def test_food_photo_rejects_pdf_before_any_llm_call(self, client: AsyncClient) -> None:
+        with patch("app.api.fridge.extract_items_from_pdf", new_callable=AsyncMock) as pdf, patch(
+            "app.api.fridge.extract_items_from_food_photo", new_callable=AsyncMock,
+        ) as food:
+            resp = await client.post(
+                "/api/fridge/scan?source=food_photo",
+                files={"file": ("r.pdf", io.BytesIO(b"%PDF-1.4 x"), "application/pdf")},
+            )
+        assert resp.status_code == 422
+        assert "JPEG or PNG" in resp.json()["detail"]
+        pdf.assert_not_awaited()
+        food.assert_not_awaited()
+
+    async def test_unknown_source_rejected(self, client: AsyncClient) -> None:
+        with patch("app.api.fridge.extract_items_from_receipt", new_callable=AsyncMock) as receipt:
+            resp = await client.post(
+                "/api/fridge/scan?source=selfie",
+                files={"file": ("x.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 422
+        receipt.assert_not_awaited()
+
+    async def test_receipt_items_are_never_opened(self, client: AsyncClient) -> None:
+        with patch(
+            "app.api.fridge.extract_items_from_receipt",
+            new_callable=AsyncMock,
+            return_value=MOCK_SCAN_RESULT,
+        ), patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize):
+            resp = await client.post(
+                "/api/fridge/scan", files={"file": ("r.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        assert {i["opened"] for i in resp.json()["items"]} == {False}
+
+    async def test_normalization_keeps_opened_flag(self) -> None:
+        from app.services.receipt_scanner import normalize_item_names
+
+        items = [
+            FoodPhotoItem(
+                name="cukr třtinový", quantity_grams=500, item_type="ingredient",
+                shelf_life_days=730, opened=True,
+            ),
+        ]
+        mapping = NormalizationResponse(items=[
+            NormalizedName(original="cukr třtinový", normalized="třtinový cukr"),
+        ])
+        with patch("app.services.receipt_scanner.settings") as mock_settings,              patch("app.services.receipt_scanner.llm_client") as mock_client:
+            mock_settings.llm_mock = False
+            mock_client.chat_json = AsyncMock(return_value=mapping)
+            result = await normalize_item_names(items, ["třtinový cukr"])
+        assert len(result) == 1
+        renamed = result[0]
+        assert isinstance(renamed, FoodPhotoItem)
+        assert (renamed.name, renamed.opened, renamed.quantity_grams) == ("třtinový cukr", True, 500)
+
+    async def test_service_renders_food_prompt_with_no_purchase_date(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A photo has no purchase date, and a best-before read off a package must
+        not stand in for one, so the response model has no such field at all."""
+        from app.services import receipt_scanner
+
+        captured: dict[str, Any] = {}
+
+        async def _fake_vision(
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            image_base64: str,
+            image_media_type: str,
+            response_model: type[BaseModel],
+            mock: bool = False,
+        ) -> FoodPhotoScanResponse:
+            captured.update(user_prompt=user_prompt, response_model=response_model)
+            return FoodPhotoScanResponse(items=[])
+
+        monkeypatch.setattr(llm_client, "chat_vision_json", _fake_vision)
+
+        result = await receipt_scanner.extract_items_from_food_photo(
+            image_base64="ZmFrZQ==", image_media_type="image/jpeg", language="Czech",
+        )
+        assert result.items == []
+        assert "purchase_date" not in FoodPhotoScanResponse.model_fields
+        assert "photo of food" in captured["user_prompt"]
+        assert "FULL package size" in captured["user_prompt"]  # opened rule present
+        assert "Czech" in captured["user_prompt"]
+        assert captured["response_model"] is FoodPhotoScanResponse
