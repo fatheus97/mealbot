@@ -5,9 +5,11 @@ import random
 from collections.abc import Callable
 from typing import (  # Any: instructor kwargs are inherently untyped
     Any,
+    Literal,
     TypeVar,
 )
 
+import httpx
 import instructor
 from fastapi import HTTPException
 from google import genai
@@ -15,6 +17,7 @@ from google.genai import types as genai_types
 from google.genai.errors import APIError as GeminiAPIError
 from google.genai.types import HttpOptionsDict
 from openai import APIStatusError as OpenAIAPIStatusError
+from openai import APITimeoutError as OpenAIAPITimeoutError
 from openai import AsyncOpenAI
 from openai import RateLimitError as OpenAIRateLimitError
 from openai.types.chat import ChatCompletionSystemMessageParam
@@ -30,6 +33,16 @@ T = TypeVar('T', bound=BaseModel)
 
 MAX_LLM_RETRIES = 3
 
+# Per-request HTTP deadline for every provider. google-genai ALSO sends it to
+# Google as `X-Server-Timeout`, so it is Google's deadline too: lowering it would
+# cut healthy calls server-side, and raising it does not rescue a model that is
+# hanging (gemini-flash-latest 504'd at 179 s with a 180 s deadline, 2026-10-29).
+_HTTP_TIMEOUT_SECONDS = 60.0
+
+# What a chain call sends: text only (chat_json) or a user-supplied image
+# (chat_vision_json). Model demotions are tracked per kind.
+CallKind = Literal["text", "vision"]
+
 class LLMClient:
     """Thin wrapper utilising Instructor for strict JSON schema enforcement."""
 
@@ -37,17 +50,23 @@ class LLMClient:
         self.openai_client: instructor.AsyncInstructor | None = None
         self.gemini_client: instructor.AsyncInstructor | None = None
         self.deepseek_client: instructor.AsyncInstructor | None = None
+        # (kind, provider, model) -> loop.time() until which that model is tried
+        # last for that kind of call, after it timed out. In-process: one uvicorn
+        # process serves every user and the background triage, so they all share
+        # it. Keyed by kind so one slow photo (user-supplied bytes) can't reorder
+        # text calls for everyone; a model hung for both pays one timeout per kind.
+        self._demoted_until: dict[tuple[CallKind, LLMProvider, str], float] = {}
 
         if settings.openai_api_key:
             self.openai_client = instructor.from_openai(
-                AsyncOpenAI(api_key=settings.openai_api_key, timeout=60.0)
+                AsyncOpenAI(api_key=settings.openai_api_key, timeout=_HTTP_TIMEOUT_SECONDS)
             )
         if settings.deepseek_api_key:
             self.deepseek_client = instructor.from_openai(
                 AsyncOpenAI(
                     api_key=settings.deepseek_api_key,
                     base_url="https://api.deepseek.com",
-                    timeout=60.0,
+                    timeout=_HTTP_TIMEOUT_SECONDS,
                 )
             )
         if settings.gemini_api_key:
@@ -55,7 +74,7 @@ class LLMClient:
             self.gemini_client = instructor.from_genai(
                 genai.Client(
                     api_key=settings.gemini_api_key,
-                    http_options=HttpOptionsDict(timeout=60_000),
+                    http_options=HttpOptionsDict(timeout=int(_HTTP_TIMEOUT_SECONDS * 1000)),
                 ),
                 use_async=True,
                 mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
@@ -76,34 +95,78 @@ class LLMClient:
             return self.deepseek_client
         raise HTTPException(500, "Unsupported provider")
 
-    # HTTP status codes that trigger chain fallback. Split by whether the
-    # upstream is expected to recover on its own:
-    #   - RETRYABLE: transient load / overload (429 quota, 503 overloaded,
-    #     504 deadline exceeded). Worth a short backoff before the next provider
-    #     to absorb a thundering herd — if every concurrent request tries the
-    #     fallback instantly, the next provider's quota dies the same way.
-    #     504 is what Gemini returns when this client's 60 s request deadline
-    #     (`HttpOptionsDict(timeout=60_000)` in __init__) runs out on an
-    #     overloaded model. On 2026-10-29, 5 of 8 receipt-scan
-    #     calls on gemini-flash-latest ended that way, and the same images took
-    #     2.5-10 s on gemini-2.5-flash. So another model is a real chance, not a
-    #     repeat of the failure. 500 stays out on purpose: Google documents it as
-    #     possibly caused by the request itself (e.g. oversized input), so the
-    #     next model is likely to fail the same way (test_gemini_500_is_not_fallback).
+    # Errors that trigger chain fallback, split by what they say about the model:
+    #   - TIMEOUT: the model did not answer within our deadline. A 504
+    #     DEADLINE_EXCEEDED is that deadline enforced by Google (genai sends our
+    #     timeout as X-Server-Timeout); a bare TimeoutError is the same event when
+    #     our own timer fires first. Either way the model is too slow right now:
+    #     on 2026-10-29 gemini-flash-latest 504'd at 60 s on 5 of 8 receipt-scan
+    #     calls in a first run and on every vision call in later runs, and at
+    #     179 s with a 180 s deadline, while gemini-flash-lite-latest answered the
+    #     same images in 1.5-3 s. Backoff + next model, AND the model
+    #     is demoted (tried last) for _DEMOTE_SECONDS so the next requests don't
+    #     each pay the full deadline to learn the same thing.
+    #   - RETRYABLE: transient load (429 quota, 503 overloaded). Worth a short
+    #     backoff before the next provider to absorb a thundering herd — if every
+    #     concurrent request tries the fallback instantly, the next provider's
+    #     quota dies the same way. Not demoted: these fail in about a second, so
+    #     retrying the model first costs little, and demoting would move every
+    #     user to a weaker model for minutes over one blip.
     #   - TERMINAL: permanent for this model (402 billing, 404 model-not-found).
     #     No point sleeping — the config is wrong, move on immediately.
-    _RETRYABLE_STATUS_CODES = {429, 503, 504}
+    # 500 stays out on purpose: Google documents it as possibly caused by the
+    # request itself (e.g. oversized input), so the next model is likely to fail
+    # the same way (test_gemini_500_is_not_fallback).
+    _TIMEOUT_STATUS_CODES = {504}
+    _RETRYABLE_STATUS_CODES = {429, 503}
     _TERMINAL_FALLBACK_STATUS_CODES = {402, 404}
-    _FALLBACK_STATUS_CODES = _RETRYABLE_STATUS_CODES | _TERMINAL_FALLBACK_STATUS_CODES
+    _FALLBACK_STATUS_CODES = (
+        _TIMEOUT_STATUS_CODES | _RETRYABLE_STATUS_CODES | _TERMINAL_FALLBACK_STATUS_CODES
+    )
+    # Client-side timeouts. genai (over aiohttp) and an asyncio cut raise the
+    # builtin TimeoutError; httpx and the OpenAI SDK raise their own classes,
+    # which do NOT subclass it. httpx is reachable for genai only if instructor
+    # ever drops its aiohttp dependency — cheap insurance.
+    _TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (
+        TimeoutError,
+        httpx.TimeoutException,
+        OpenAIAPITimeoutError,
+    )
 
     # Backoff cap: one bad request shouldn't stall the whole chain for long.
     _BACKOFF_CAP_SECONDS = 10.0
 
+    # Time limits on one _call_with_fallback, all on the event loop's clock:
+    # - _ATTEMPT_CAP_SECONDS bounds one model attempt, which can be several HTTP
+    #   requests (instructor makes up to MAX_LLM_RETRIES + 1 = 4 calls on invalid
+    #   output, genai retries once on a dropped connection, the OpenAI SDK retries
+    #   twice). It sits above _HTTP_TIMEOUT_SECONDS so a single hung request still
+    #   ends through the SDK / Google's 504, not through our cancellation. An
+    #   attempt cut here counts as a timeout and demotes the model: the user waited
+    #   75 s either way, and only re-asks over invalid output get an answering
+    #   model this far.
+    # - _CHAIN_BUDGET_SECONDS bounds the whole chain. It fits one model cut at the
+    #   cap, a second failing at the HTTP deadline, both backoffs, and a minimal
+    #   attempt for a third (75 + 60 + 1.5 + 2.5 + 10 = 149;
+    #   test_time_limits_fit_together). Two models that both hang to the cap do
+    #   not fit: the second one's attempt is clamped to the budget, so it is cut
+    #   by the budget (and not demoted) instead.
+    # - _MIN_ATTEMPT_SECONDS: don't start an attempt the budget would cut almost
+    #   at once; 10 s is the slowest healthy fallback seen (gemini-2.5-flash,
+    #   2.5-10 s, #482).
+    # - _DEMOTE_SECONDS: how long a model that timed out is tried last.
+    _ATTEMPT_CAP_SECONDS = _HTTP_TIMEOUT_SECONDS + 15.0
+    _CHAIN_BUDGET_SECONDS = 150.0
+    _MIN_ATTEMPT_SECONDS = 10.0
+    _DEMOTE_SECONDS = 600.0
+
     @staticmethod
     def _classify_error(exc: Exception) -> str | None:
-        """Return 'retryable', 'terminal', or None (non-fallback) for an exception."""
+        """Return 'timeout', 'retryable', 'terminal', or None (non-fallback) for an exception."""
         current: BaseException | None = exc
         while current is not None:
+            if isinstance(current, LLMClient._TIMEOUT_ERRORS):
+                return "timeout"
             code: int | None = None
             if isinstance(current, GeminiAPIError):
                 code = getattr(current, "code", None)
@@ -112,6 +175,8 @@ class LLMClient:
             elif isinstance(current, OpenAIAPIStatusError):
                 code = current.status_code
 
+            if code in LLMClient._TIMEOUT_STATUS_CODES:
+                return "timeout"
             if code in LLMClient._RETRYABLE_STATUS_CODES:
                 return "retryable"
             if code in LLMClient._TERMINAL_FALLBACK_STATUS_CODES:
@@ -129,14 +194,41 @@ class LLMClient:
         build_kwargs: Callable[[ModelEntry], dict[str, Any]],
         response_model: type[T],
         error_context: str,
+        kind: CallKind,
     ) -> T:
-        """Try each model in settings.model_chain; fall back on retryable/terminal errors."""
+        """Try each model in settings.model_chain within _CHAIN_BUDGET_SECONDS.
+
+        Falls back on timeout/retryable/terminal errors. A model that timed out
+        is demoted (tried last for this kind of call) for _DEMOTE_SECONDS; it is
+        never dropped, so a chain whose other models are failing still reaches it.
+        """
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        deadline = start + self._CHAIN_BUDGET_SECONDS
+        chain = self._attempt_order(start, kind)
         last_exc: Exception | None = None
+        missing_client: HTTPException | None = None
         retryable_attempts = 0
-        chain = settings.model_chain
+        # One entry per attempt, for the give-up log line.
+        outcomes: list[str] = []
         for i, entry in enumerate(chain):
-            client = self._get_client(entry.provider)
+            if deadline - loop.time() < self._MIN_ATTEMPT_SECONDS:
+                outcomes.append(f"{entry.model}:no-budget")
+                break
+            key = (kind, entry.provider, entry.model)
+            try:
+                client = self._get_client(entry.provider)
+            except HTTPException as e:
+                # No API key for this provider: skip it like a config error. Since
+                # demotion can reorder the chain, aborting here would let a keyless
+                # fallback stand in front of a demoted primary and 500 every call.
+                missing_client = missing_client or e
+                outcomes.append(f"{entry.model}:no-client")
+                continue
             kwargs = build_kwargs(entry)
+            t0 = loop.time()
+            attempt_deadline = min(t0 + self._ATTEMPT_CAP_SECONDS, deadline)
+            cut = asyncio.timeout_at(attempt_deadline)
             try:
                 logger.info(
                     "LLM call: provider=%s model=%s response_model=%s",
@@ -148,61 +240,121 @@ class LLMClient:
                 # which carries the token-usage metadata. Capturing it here means
                 # only the SUCCESSFUL attempt in the fallback chain is counted —
                 # failed attempts raise before this point.
-                result, completion = await client.chat.completions.create_with_completion(
-                    model=entry.model,
-                    response_model=response_model,
-                    max_retries=MAX_LLM_RETRIES,
-                    **kwargs,
-                )
+                async with cut:
+                    result, completion = await client.chat.completions.create_with_completion(
+                        model=entry.model,
+                        response_model=response_model,
+                        max_retries=MAX_LLM_RETRIES,
+                        **kwargs,
+                    )
+                # A success lifts the demotion only if this attempt started after the
+                # demotion was recorded: a slow call that began earlier says nothing
+                # about the model since.
+                until = self._demoted_until.get(key)
+                if until is not None and t0 >= until - self._DEMOTE_SECONDS:
+                    del self._demoted_until[key]
                 usage = usage_from_completion(
                     entry.provider.value, entry.model, completion
                 )
                 if usage is not None:
                     record_call_usage(usage)
+                now = loop.time()
                 logger.info(
-                    "LLM call completed: provider=%s model=%s tokens(prompt/completion/total)=%s/%s/%s",
+                    "LLM call completed: provider=%s model=%s elapsed=%.1fs chain=%.1fs "
+                    "tokens(prompt/completion/total)=%s/%s/%s",
                     entry.provider.value,
                     entry.model,
+                    now - t0,
+                    now - start,
                     usage.prompt_tokens if usage else "?",
                     usage.completion_tokens if usage else "?",
                     usage.total_tokens if usage else "?",
                 )
                 return result
+            # CancelledError (shutdown, an outer cancel) is a BaseException and
+            # passes through untouched; only the cut above turns into TimeoutError.
             except Exception as e:
                 last_exc = e
+                now = loop.time()
+                elapsed = now - t0
+                if cut.expired() and attempt_deadline == deadline:
+                    # Cut by the CHAIN budget, not by this model's own cap: it may
+                    # be healthy and merely started late, so it is not demoted.
+                    outcomes.append(f"{entry.model}:budget:{elapsed:.1f}s")
+                    break
                 classification = self._classify_error(e)
-                is_last = i == len(chain) - 1
-                if classification == "retryable":
-                    retryable_attempts += 1
-                    # Skip the sleep if there's no next provider to hand off to —
-                    # we're about to raise 502 anyway, don't tack on ~10s of dead wait.
-                    if is_last:
-                        continue
-                    delay = min(2 ** (retryable_attempts - 1), self._BACKOFF_CAP_SECONDS) + random.uniform(0, 0.5)
-                    logger.warning(
-                        "Retryable error on %s/%s, sleeping %.2fs before next provider: %s",
+                outcomes.append(f"{entry.model}:{classification or 'error'}:{elapsed:.1f}s")
+                if classification is None:
+                    logger.exception(
+                        "LLM call failed on %s/%s after %.1fs with non-fallback error; aborting chain",
                         entry.provider.value,
                         entry.model,
-                        delay,
-                        e,
+                        elapsed,
                     )
-                    await asyncio.sleep(delay)
-                    continue
+                    break
                 if classification == "terminal":
                     logger.warning(
-                        "Terminal error on %s/%s (config issue), trying next immediately: %s",
+                        "Terminal error on %s/%s after %.1fs (config issue), trying next immediately: %r",
                         entry.provider.value,
                         entry.model,
+                        elapsed,
                         e,
                     )
                     continue
-                logger.exception(
-                    "LLM call failed on %s/%s with non-fallback error; aborting chain",
-                    entry.provider.value,
-                    entry.model,
-                )
-                break
+                # %r, not %s: str() of a bare TimeoutError is empty. (Wrapped by
+                # instructor it still prints little; "timed out" + elapsed say it.)
+                if classification == "timeout":
+                    self._demoted_until[key] = now + self._DEMOTE_SECONDS
+                    logger.warning(
+                        "LLM %s/%s timed out after %.1fs; trying it last for %.0fs: %r",
+                        entry.provider.value,
+                        entry.model,
+                        elapsed,
+                        self._DEMOTE_SECONDS,
+                        e,
+                    )
+                else:
+                    logger.warning(
+                        "Retryable error on %s/%s after %.1fs: %r",
+                        entry.provider.value,
+                        entry.model,
+                        elapsed,
+                        e,
+                    )
+                retryable_attempts += 1
+                # Skip the sleep if there's no next provider to hand off to —
+                # we're about to raise 502 anyway, don't tack on ~10s of dead wait.
+                if i == len(chain) - 1:
+                    continue
+                delay = min(2 ** (retryable_attempts - 1), self._BACKOFF_CAP_SECONDS) + random.uniform(0, 0.5)
+                if now + delay + self._MIN_ATTEMPT_SECONDS > deadline:
+                    outcomes.append("stop:no-budget-for-next")
+                    break
+                await asyncio.sleep(delay)
+        logger.warning(
+            "LLM chain gave up after %.1fs (budget %.0fs): %s",
+            loop.time() - start,
+            self._CHAIN_BUDGET_SECONDS,
+            ", ".join(outcomes),
+        )
+        if last_exc is None and missing_client is not None:
+            # Nothing was even attempted: every entry lacked a key. Keep the 500.
+            raise missing_client
         raise HTTPException(502, f"{error_context} is temporarily unavailable.") from last_exc
+
+    def _attempt_order(self, now: float, kind: CallKind) -> list[ModelEntry]:
+        """settings.model_chain with models currently demoted for `kind` moved to the end.
+
+        Demote, never drop: the stable sort keeps config order within each group.
+        """
+        # ponytail: after a demotion expires, every request that STARTS before the
+        # first re-probe finishes (up to the 60 s deadline) tries the model first;
+        # add a single-flight probe (one caller re-probes, the rest keep it last)
+        # if traffic ever makes that hurt.
+        return sorted(
+            settings.model_chain,
+            key=lambda e: self._demoted_until.get((kind, e.provider, e.model), 0.0) > now,
+        )
 
     async def chat_json(
         self,
@@ -229,7 +381,7 @@ class LLMClient:
         def build_kwargs(entry: ModelEntry) -> dict[str, Any]:
             return {"messages": messages}
 
-        return await self._call_with_fallback(build_kwargs, response_model, "Meal planning service")
+        return await self._call_with_fallback(build_kwargs, response_model, "Meal planning service", "text")
 
     async def chat_vision_json(
         self,
@@ -292,7 +444,7 @@ class LLMClient:
                 "safety_settings": [],
             }
 
-        return await self._call_with_fallback(build_kwargs, response_model, "Receipt scanning service")
+        return await self._call_with_fallback(build_kwargs, response_model, "Receipt scanning service", "vision")
 
     # Three-day rotating meal templates using the seeded demo fridge.
     # Indexed by day_index % 3 → list of (name, meal_type, label, ingredients, steps).

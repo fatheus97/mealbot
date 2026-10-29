@@ -1,18 +1,27 @@
 """Tests for LLM client: mock mode, quota detection, fallback chain."""
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import instructor
 import pytest
+from aiohttp import web
 from fastapi import HTTPException
+from google import genai
+from google.genai import types as genai_types
 from google.genai.errors import ClientError as GeminiClientError
 from google.genai.errors import ServerError as GeminiServerError
 from openai import APIStatusError as OpenAIAPIStatusError
+from openai import APITimeoutError as OpenAIAPITimeoutError
 from openai import RateLimitError as OpenAIRateLimitError
+from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry
-from app.llm.client import LLMClient, check_model_chain_keys
+from app.llm.client import CallKind, LLMClient, check_model_chain_keys
 from app.llm.usage import capture_llm_usage
 from app.models.plan_models import SingleDayResponse
 
@@ -248,9 +257,29 @@ class TestIsFallbackError:
         client = LLMClient()
         assert client._is_fallback_error(_gateway_timeout_openai()) is True
 
-    def test_gemini_504_is_retryable_not_terminal(self) -> None:
-        """504 gets the backoff before the next model, like 503: it is load, not a bad config."""
-        assert LLMClient._classify_error(_deadline_exceeded_gemini()) == "retryable"
+    def test_gemini_504_is_a_timeout_not_terminal(self) -> None:
+        """504 is our own deadline enforced by Google: backoff + next model, like a
+        client-side timeout, and the model gets demoted. Not a config error."""
+        assert LLMClient._classify_error(_deadline_exceeded_gemini()) == "timeout"
+
+    @pytest.mark.parametrize(
+        "err",
+        [
+            TimeoutError(),
+            httpx.ReadTimeout("read timed out"),
+            OpenAIAPITimeoutError(request=httpx.Request("POST", "https://api.example")),
+        ],
+        ids=["bare", "httpx", "openai"],
+    )
+    def test_client_side_timeouts_are_timeouts(self, err: Exception) -> None:
+        """Our own timer firing before Google's 504 is the same event. These used to
+        classify as None, which aborted the whole chain with a 502."""
+        assert LLMClient._classify_error(err) == "timeout"
+
+    def test_instructor_wrapped_timeout_is_a_timeout(self) -> None:
+        wrapper = Exception("instructor retry wrapper")
+        wrapper.__cause__ = TimeoutError()
+        assert LLMClient._classify_error(wrapper) == "timeout"
 
     def test_gemini_500_is_not_fallback(self) -> None:
         """500 Internal Server Error is not a 'try another model' signal — next model likely fails too."""
@@ -895,3 +924,450 @@ class TestPrivacyDisclosureTripwire:
         from app.llm.client import DISCLOSED_PROVIDERS
 
         assert frozenset({LLMProvider.GEMINI}) == DISCLOSED_PROVIDERS
+
+
+# ── Chain time budget + demotion ─────────────────────────────────────────────
+#
+# Driven by an offset clock on the event loop: the client reads loop.time()
+# and asyncio.timeout_at() schedules on it, so advancing the offset moves the
+# client's sense of time without sleeping. Real time still runs underneath, so
+# a broken test fails instead of hanging (there is no pytest-timeout plugin).
+
+_REAL_SLEEP = asyncio.sleep
+
+Behavior = Callable[[], Awaitable[tuple[BaseModel, None]]]
+
+
+class _Clock:
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._real = loop.time
+        self.offset = 0.0
+
+    def __call__(self) -> float:
+        return self._real() + self.offset
+
+    def advance(self, seconds: float) -> None:
+        self.offset += seconds
+
+
+@pytest.fixture
+async def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
+    loop = asyncio.get_running_loop()
+    c = _Clock(loop)
+    monkeypatch.setattr(loop, "time", c)
+
+    async def _fake_sleep(delay: float) -> None:
+        c.advance(delay)
+        await _REAL_SLEEP(0)
+
+    # The backoff sleep advances the clock instead of waiting.
+    monkeypatch.setattr("app.llm.client.asyncio.sleep", AsyncMock(side_effect=_fake_sleep))
+    return c
+
+
+def _after(clock: _Clock, seconds: float, outcome: BaseException | BaseModel) -> Behavior:
+    """An attempt that takes `seconds`, then raises or returns `outcome`."""
+    async def call() -> tuple[BaseModel, None]:
+        clock.advance(seconds)
+        # A real (tiny) await, so a cut that is now overdue fires mid-call,
+        # exactly as it would during a real request.
+        await _REAL_SLEEP(0.01)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome, None
+    return call
+
+
+def _hang(clock: _Clock, seconds: float) -> Behavior:
+    """An attempt still in flight after `seconds`; only a cut can end it."""
+    async def call() -> tuple[BaseModel, None]:
+        clock.advance(seconds)
+        try:
+            async with asyncio.timeout(2):
+                await asyncio.Event().wait()
+        except TimeoutError:
+            # pytest.fail raises a BaseException, so the client's `except Exception`
+            # can't swallow it into a 502 that would let the test pass anyway.
+            pytest.fail("attempt was not cut")
+        pytest.fail("unreachable")
+    return call
+
+
+def _scripted_client(
+    monkeypatch: pytest.MonkeyPatch, script: dict[str, list[Behavior]]
+) -> tuple[LLMClient, AsyncMock]:
+    """LLMClient whose chain is script's keys (all gemini, in order); each call to
+    a model runs that model's next scripted behavior."""
+    settings = MagicMock()
+    settings.llm_mock = False
+    settings.model_chain = _chain(*(f"gemini/{m}" for m in script))
+    settings.gemini_api_key = "fake-key"
+    settings.openai_api_key = None
+    settings.deepseek_api_key = None
+    monkeypatch.setattr("app.llm.client.settings", settings)
+
+    async def create_with_completion(**kwargs: object) -> tuple[BaseModel, None]:
+        return await script[str(kwargs["model"])].pop(0)()
+
+    client = LLMClient()
+    gemini = MagicMock()
+    gemini.chat.completions.create_with_completion = AsyncMock(side_effect=create_with_completion)
+    client.gemini_client = gemini
+    return client, gemini.chat.completions.create_with_completion
+
+
+def _models_called(mock: AsyncMock) -> list[str]:
+    return [str(c.kwargs["model"]) for c in mock.call_args_list]
+
+
+def _demoted(client: LLMClient) -> set[str]:
+    return {model for (_, _, model) in client._demoted_until}
+
+
+class TestChainTimeBudget:
+    async def test_client_side_timeout_falls_back(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The live bug: our timer firing before Google's 504 aborted the chain with
+        a 502 and the next model was never tried."""
+        expected = _mock_single_day()
+        wrapped = Exception("instructor retry wrapper")
+        wrapped.__cause__ = TimeoutError()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 60, wrapped)],
+            "b": [_after(clock, 3, expected)],
+        })
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == expected
+        assert _models_called(mock) == ["a", "b"]
+        assert _demoted(client) == {"a"}
+
+    async def test_attempt_cap_cuts_a_hung_attempt(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An attempt that never returns (instructor re-asks, genai's reconnect retry)
+        is cut at _ATTEMPT_CAP_SECONDS and the chain moves on."""
+        expected = _mock_single_day()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_hang(clock, LLMClient._ATTEMPT_CAP_SECONDS + 1)],
+            "b": [_after(clock, 3, expected)],
+        })
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == expected
+        assert _models_called(mock) == ["a", "b"]
+        assert _demoted(client) == {"a"}
+
+    async def test_slow_healthy_attempt_is_not_cut(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A healthy request can run up to the 60 s HTTP deadline, and instructor may
+        add a quick re-ask on top. HTTP deadline + 10 s, deliberately NOT "cap - 1":
+        that would move with the cap and never catch a cap set too close to the
+        deadline."""
+        from app.llm.client import _HTTP_TIMEOUT_SECONDS
+
+        expected = _mock_single_day()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, _HTTP_TIMEOUT_SECONDS + 10, expected)],
+            "b": [],
+        })
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == expected
+        assert _models_called(mock) == ["a"]
+        assert _demoted(client) == set()
+
+    async def test_chain_budget_cut_stops_without_demoting(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two dead models eat most of the budget; the third is cut by the CHAIN
+        deadline, not its own cap, so it is not demoted, and the fourth never starts."""
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 60, _deadline_exceeded_gemini())],
+            "b": [_after(clock, 60, _deadline_exceeded_gemini())],
+            "c": [_hang(clock, 80)],
+            "d": [],
+        })
+        with pytest.raises(HTTPException) as exc_info:
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        assert exc_info.value.status_code == 502
+        assert _models_called(mock) == ["a", "b", "c"]
+        assert _demoted(client) == {"a", "b"}
+
+    async def test_backoff_never_crosses_the_deadline(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No sleep and no next attempt when the budget can't fit backoff plus a
+        minimal attempt: give up now instead of after a pointless wait."""
+        monkeypatch.setattr(LLMClient, "_CHAIN_BUDGET_SECONDS", 65.0)
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 60, _quota_error_gemini())],
+            "b": [],
+        })
+        with pytest.raises(HTTPException):
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        assert _models_called(mock) == ["a"]
+        sleep_mock = asyncio.sleep
+        assert isinstance(sleep_mock, AsyncMock)
+        sleep_mock.assert_not_awaited()
+
+    async def test_clamped_attempt_failing_on_its_own_still_falls_back(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """b starts late enough that its deadline is clamped to the chain's; a fast
+        503 there is NOT a budget cut (the cut never fired) and must fall back to c."""
+        ok = _mock_single_day()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_hang(clock, LLMClient._ATTEMPT_CAP_SECONDS + 1)],
+            "b": [_after(clock, 1, _service_unavailable_gemini())],
+            "c": [_after(clock, 3, ok)],
+        })
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == ok
+        assert _models_called(mock) == ["a", "b", "c"]
+
+    async def test_no_attempt_starts_without_budget(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A terminal error skips the backoff (and its budget check), so the check at
+        the top of the loop is what stops an attempt the budget can't fit."""
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 60, _deadline_exceeded_gemini())],
+            "b": [_after(clock, 60, _deadline_exceeded_gemini())],
+            "c": [_after(clock, 22, _model_not_found_gemini())],
+            "d": [_after(clock, 1, _mock_single_day())],
+        })
+        with pytest.raises(HTTPException):
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        assert _models_called(mock) == ["a", "b", "c"]
+
+    async def test_outer_cancel_propagates(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Shutdown or a cancelled request must cancel, not turn into a 502 or a
+        demotion: CancelledError is not ours to catch."""
+        client, _ = _scripted_client(monkeypatch, {"a": [_hang(clock, 0)], "b": []})
+        task = asyncio.create_task(client.chat_json("sys", "usr", SingleDayResponse))
+        await _REAL_SLEEP(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert _demoted(client) == set()
+
+    def test_time_limits_fit_together(self) -> None:
+        # The cap must exceed the HTTP deadline (a hung request ends via the SDK /
+        # Google's 504, not our cancel). The budget must fit what its comment
+        # promises: one model cut at the cap, a second failing at the HTTP
+        # deadline, both worst-case backoffs (1 s and 2 s, each + 0.5 s jitter),
+        # and a minimal attempt for a third. A demotion must outlive one chain.
+        from app.llm.client import _HTTP_TIMEOUT_SECONDS
+
+        assert LLMClient._ATTEMPT_CAP_SECONDS > _HTTP_TIMEOUT_SECONDS
+        assert LLMClient._CHAIN_BUDGET_SECONDS >= (
+            LLMClient._ATTEMPT_CAP_SECONDS
+            + _HTTP_TIMEOUT_SECONDS
+            + (1 + 0.5)
+            + (2 + 0.5)
+            + LLMClient._MIN_ATTEMPT_SECONDS
+        )
+        assert LLMClient._DEMOTE_SECONDS > LLMClient._CHAIN_BUDGET_SECONDS
+
+
+class TestModelDemotion:
+    async def test_timeout_demotes_then_reprobes(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """After a timeout the next request goes straight to the fallback instead of
+        paying the deadline again; once the window passes, the model is tried first
+        again and a success restores it."""
+        ok = _mock_single_day()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 60, _deadline_exceeded_gemini()), _after(clock, 3, ok)],
+            "b": [_after(clock, 3, ok), _after(clock, 3, ok)],
+        })
+        await client.chat_json("sys", "usr", SingleDayResponse)
+        await client.chat_json("sys", "usr", SingleDayResponse)
+        assert _models_called(mock) == ["a", "b", "b"]
+
+        clock.advance(LLMClient._DEMOTE_SECONDS + 1)
+        await client.chat_json("sys", "usr", SingleDayResponse)
+        assert _models_called(mock) == ["a", "b", "b", "a"]
+        assert _demoted(client) == set()
+
+    @pytest.mark.parametrize(
+        "error",
+        [_quota_error_gemini(), _service_unavailable_gemini(), _model_not_found_gemini()],
+        ids=["429", "503", "404"],
+    )
+    async def test_fast_failures_do_not_demote(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch, error: Exception
+    ) -> None:
+        ok = _mock_single_day()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 1, error), _after(clock, 3, ok)],
+            "b": [_after(clock, 3, ok)],
+        })
+        await client.chat_json("sys", "usr", SingleDayResponse)
+        await client.chat_json("sys", "usr", SingleDayResponse)
+        assert _models_called(mock) == ["a", "b", "a"]
+        assert _demoted(client) == set()
+
+    async def test_demoted_model_is_last_resort_not_dropped(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A demoted model still gets tried when everything ahead of it fails."""
+        ok = _mock_single_day()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 3, ok)],
+            "b": [_after(clock, 1, _service_unavailable_gemini())],
+            "c": [_after(clock, 1, _service_unavailable_gemini())],
+        })
+        client._demoted_until[("text", LLMProvider.GEMINI, "a")] = clock() + 100
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == ok
+        assert _models_called(mock) == ["b", "c", "a"]
+
+
+    async def test_success_started_before_the_demotion_keeps_it(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A slow call that began before another request demoted the model says
+        nothing about the model since; it must not lift the fresh demotion."""
+        ok = _mock_single_day()
+        key: tuple[CallKind, LLMProvider, str] = ("text", LLMProvider.GEMINI, "a")
+        holder: list[LLMClient] = []
+
+        async def slow_success_while_another_request_demotes() -> tuple[BaseModel, None]:
+            clock.advance(30)
+            holder[0]._demoted_until[key] = clock() + LLMClient._DEMOTE_SECONDS
+            clock.advance(31)
+            await _REAL_SLEEP(0.01)
+            return ok, None
+
+        client, _ = _scripted_client(monkeypatch, {
+            "a": [slow_success_while_another_request_demotes],
+            "b": [],
+        })
+        holder.append(client)
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == ok
+        assert _demoted(client) == {"a"}
+
+    async def test_demotion_is_per_kind_of_call(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A photo that times out (user-supplied bytes) demotes the model for photos
+        only: text calls still try it first."""
+        ok = _mock_single_day()
+        client, mock = _scripted_client(monkeypatch, {
+            "a": [_after(clock, 60, _deadline_exceeded_gemini()), _after(clock, 3, ok)],
+            "b": [_after(clock, 3, ok)],
+        })
+        await client.chat_vision_json("sys", "usr", "aGk=", "image/jpeg", SingleDayResponse)
+        await client.chat_json("sys", "usr", SingleDayResponse)
+        assert _models_called(mock) == ["a", "b", "a"]
+        assert set(client._demoted_until) == {("vision", LLMProvider.GEMINI, "a")}
+
+
+class TestKeylessChainEntries:
+    """An entry whose provider has no API key is skipped like a config error.
+    check_model_chain_keys only WARNS about a keyless fallback at boot, and
+    demotion can reorder the chain, so aborting on it would let a keyless entry
+    block a healthy model."""
+
+    def _client(self, monkeypatch: pytest.MonkeyPatch, *specs: str) -> tuple[LLMClient, AsyncMock]:
+        settings = MagicMock()
+        settings.llm_mock = False
+        settings.model_chain = _chain(*specs)
+        settings.gemini_api_key = "fake-key"
+        settings.openai_api_key = None
+        settings.deepseek_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        client = LLMClient()
+        gemini = MagicMock()
+        gemini.chat.completions.create_with_completion = AsyncMock(return_value=(_mock_single_day(), None))
+        client.gemini_client = gemini
+        return client, gemini.chat.completions.create_with_completion
+
+    async def test_keyless_fallback_never_blocks_a_demoted_primary(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, mock = self._client(monkeypatch, "gemini/a", "openai/x")
+        client._demoted_until[("text", LLMProvider.GEMINI, "a")] = clock() + 100
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == _mock_single_day()
+        assert _models_called(mock) == ["a"]
+
+    async def test_keyless_primary_is_skipped(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, mock = self._client(monkeypatch, "openai/x", "gemini/a")
+        assert await client.chat_json("sys", "usr", SingleDayResponse) == _mock_single_day()
+        assert _models_called(mock) == ["a"]
+
+
+class _Tiny(BaseModel):
+    x: int
+
+
+class TestRealStackContract:
+    """The timeout shapes above, produced by the REAL instructor + google-genai +
+    aiohttp stack against a local fake Gemini. A dependency bump that changes what
+    a timeout looks like turns this red instead of silently aborting chains."""
+
+    @pytest.fixture
+    async def fake_gemini(self) -> AsyncIterator[str]:
+        async def handler(request: web.Request) -> web.Response:
+            await request.read()
+            if "models/slow:" in request.path:
+                await asyncio.sleep(1.5)
+            return web.json_response({
+                "candidates": [{"content": {"role": "model", "parts": [{"text": '{"x": 1}'}]}, "finishReason": "STOP"}],
+                "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2},
+            })
+
+        app = web.Application()
+        app.router.add_route("*", "/{tail:.*}", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        host, port = runner.addresses[0][:2]
+        try:
+            yield f"http://{host}:{port}"
+        finally:
+            await runner.cleanup()
+
+    def _client(self, monkeypatch: pytest.MonkeyPatch, base_url: str, timeout_ms: int) -> LLMClient:
+        settings = MagicMock()
+        settings.llm_mock = False
+        settings.model_chain = _chain("gemini/slow", "gemini/fast")
+        settings.gemini_api_key = "fake-key"
+        settings.openai_api_key = None
+        settings.deepseek_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        client = LLMClient()
+        client.gemini_client = instructor.from_genai(
+            genai.Client(
+                api_key="fake-key",
+                http_options=genai_types.HttpOptions(base_url=base_url, timeout=timeout_ms),
+            ),
+            use_async=True,
+            mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
+        )
+        return client
+
+    async def test_sdk_timeout_falls_back(
+        self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """genai's own client timer fires (300 ms < 1.5 s): the chain falls back."""
+        client = self._client(monkeypatch, fake_gemini, timeout_ms=300)
+        async with asyncio.timeout(10):
+            result = await client.chat_json("sys", "usr", _Tiny)
+        # instructor hands back a subclass of the response model, so compare fields.
+        assert result.x == 1
+        assert _demoted(client) == {"slow"}
+
+    async def test_attempt_cap_cuts_a_real_request(
+        self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Our cap (0.3 s) cancels a real in-flight aiohttp request, and the chain falls back."""
+        monkeypatch.setattr(LLMClient, "_ATTEMPT_CAP_SECONDS", 0.3)
+        client = self._client(monkeypatch, fake_gemini, timeout_ms=5000)
+        async with asyncio.timeout(10):
+            result = await client.chat_json("sys", "usr", _Tiny)
+        # instructor hands back a subclass of the response model, so compare fields.
+        assert result.x == 1
+        assert _demoted(client) == {"slow"}

@@ -132,6 +132,17 @@ def _reset_parse_executor_latch() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _reset_llm_demotions() -> Iterator[None]:
+    """llm_client is a process-wide singleton, and a model that times out is
+    demoted on it for minutes. Clear that after each test so one test's timeout
+    can't reorder another test's chain."""
+    yield
+    from app.llm.client import llm_client
+
+    llm_client._demoted_until.clear()
+
+
+@pytest.fixture(autouse=True)
 def _disable_csrf(monkeypatch: pytest.MonkeyPatch) -> None:
     """Disable CSRF middleware for the default test client.
 
