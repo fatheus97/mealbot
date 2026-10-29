@@ -64,16 +64,39 @@ From a live search on 2026-10-28:
      reply to a `fetch` POST would be followed by the browser and blocked by CORS, so the SPA would
      never navigate.)
   2. The callback is a GET from `identity.rohlik.cz` and cannot carry the CSRF header; the
-     `state`/cookie check below is its protection. It exchanges the code, keeps the token in the
-     flow entry, and redirects straight to the review screen with only the flow id in the URL. It
-     does no searching, so the user is never left looking at a blank tab.
+     `state`/cookie check below is its protection. It finds its flow through the flow id, which
+     sits in the same signed cookie as `state` and the PKCE verifier. It exchanges the code, keeps
+     the token in the flow entry, and redirects straight to the review screen with only the flow
+     id in the URL. It does no searching, so the user is never left looking at a blank tab.
   3. The review screen shows a loading state and fetches the candidates for that flow id. That fetch
      runs the searches: at most a few `batch_search_products` calls in flight at once (4 queries
-     each), under one overall deadline. Each call's timeout is a setting, like
-     `stripe_timeout_seconds`. A line whose search failed or timed out shows as „nenalezeno“ with a
-     retry; a partial failure never discards the lines that did match, and the flow entry stays.
+     each), under one overall deadline. Results are cached in the flow entry, so a repeat fetch
+     costs no MCP calls. A line whose search failed or timed out shows as „nenalezeno“ with a
+     retry, and a retry re-searches only the failed lines. A partial failure never discards the
+     lines that did match, and the flow entry stays. The limits are settings, the way
+     `stripe_timeout_seconds` is:
+     - `rohlik_timeout_seconds`: per MCP call
+     - `rohlik_search_deadline_seconds`: the whole fetch
+     - `rohlik_search_retry_cap`: retries per flow
+
+     The endpoint also has a rate limit keyed on the authenticated user, not on the flow id,
+     because a client could otherwise open new flows to get around it.
   4. The confirm POST sends the chosen product IDs and quantities, again with the CSRF header. The
-     backend calls `add_items_to_cart` and deletes the flow entry.
+     backend rejects the whole request unless:
+     - every line key exists in the flow;
+     - each product ID is one of the candidates stored for that line;
+     - each quantity is a positive integer within a bound derived from that line, on top of the
+       global cap. The bound is a small multiple of the pack count, and the backend computes that
+       pack count itself from the line's need and the chosen candidate's pack size. It never
+       takes the frontend's number.
+
+     MealBot's OAuth client therefore only ever adds products that its own search returned, in
+     amounts tied to the plan. Then the backend calls `add_items_to_cart` and deletes the flow
+     entry.
+
+  The flow id is unguessable (`secrets.token_urlsafe`), and every read and write of a flow entry
+  checks that it belongs to the authenticated user. The callback likewise rejects a cookie whose
+  flow belongs to a different user than the current session. That case gets its own test.
 
   The list is kept server-side rather than in `sessionStorage`, so nothing that the backend later
   acts on has to come back from the browser except the final selection, which is validated as
@@ -92,9 +115,15 @@ From a live search on 2026-10-28:
   untrusted input: a Pydantic model with integer product IDs, a positive integer quantity per line
   with a sane upper bound, and a capped line count. Every MCP call has a timeout and catches specific
   exceptions, in line with the rest of the codebase.
+  - What comes back from `mcp.rohlik.cz` is untrusted input too. Search and cart payloads are
+    parsed into Pydantic models. A missing or changed field (`textualAmount`, `price`, `inStock`)
+    degrades the line to „nenalezeno“ or to the 1-pack fallback, never to a 500.
+  - Product names and badges are third-party text and are rendered as text only, never as HTML.
+  - The access token and the `Authorization` header never reach logs, error reports or exception
+    messages.
 - **Rohlik login: nothing is persisted.** The user logs in through OAuth on each send.
-  - The OAuth `state` and PKCE verifier live between redirect and callback in a signed, HttpOnly
-    cookie with `SameSite=Lax` (the callback is a cross-site navigation from `identity.rohlik.cz`,
+  - The OAuth `state`, the PKCE verifier and the flow id live between redirect and callback in a
+    signed, HttpOnly cookie with `SameSite=Lax` (the callback is a cross-site navigation from `identity.rohlik.cz`,
     so `Strict` would not be sent) and a short `Max-Age` of about 10 minutes. Its `Secure` flag
     follows the existing `cookie_secure` setting, like the auth cookies. The cookie is bound to the
     MealBot session that started the flow.

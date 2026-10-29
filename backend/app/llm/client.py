@@ -78,13 +78,21 @@ class LLMClient:
 
     # HTTP status codes that trigger chain fallback. Split by whether the
     # upstream is expected to recover on its own:
-    #   - RETRYABLE: transient load / overload (429 quota, 503 overloaded).
-    #     Worth a short backoff before the next provider to absorb a thundering
-    #     herd — if every concurrent request tries the fallback instantly, the
-    #     next provider's quota dies the same way.
+    #   - RETRYABLE: transient load / overload (429 quota, 503 overloaded,
+    #     504 deadline exceeded). Worth a short backoff before the next provider
+    #     to absorb a thundering herd — if every concurrent request tries the
+    #     fallback instantly, the next provider's quota dies the same way.
+    #     504 is what Gemini returns when this client's 60 s request deadline
+    #     (`HttpOptionsDict(timeout=60_000)` in __init__) runs out on an
+    #     overloaded model. On 2026-10-29, 5 of 8 receipt-scan
+    #     calls on gemini-flash-latest ended that way, and the same images took
+    #     2.5-10 s on gemini-2.5-flash. So another model is a real chance, not a
+    #     repeat of the failure. 500 stays out on purpose: Google documents it as
+    #     possibly caused by the request itself (e.g. oversized input), so the
+    #     next model is likely to fail the same way (test_gemini_500_is_not_fallback).
     #   - TERMINAL: permanent for this model (402 billing, 404 model-not-found).
     #     No point sleeping — the config is wrong, move on immediately.
-    _RETRYABLE_STATUS_CODES = {429, 503}
+    _RETRYABLE_STATUS_CODES = {429, 503, 504}
     _TERMINAL_FALLBACK_STATUS_CODES = {402, 404}
     _FALLBACK_STATUS_CODES = _RETRYABLE_STATUS_CODES | _TERMINAL_FALLBACK_STATUS_CODES
 
