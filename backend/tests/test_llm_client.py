@@ -68,6 +68,22 @@ def _service_unavailable_openai() -> OpenAIAPIStatusError:
     )
 
 
+def _deadline_exceeded_gemini() -> GeminiServerError:
+    """Create a Gemini 504: the request deadline ran out on an overloaded model."""
+    return GeminiServerError(
+        504, {"error": {"message": "Deadline expired before operation could complete.", "status": "DEADLINE_EXCEEDED"}}
+    )
+
+
+def _gateway_timeout_openai() -> OpenAIAPIStatusError:
+    """Create an OpenAI-compatible 504 Gateway Timeout error."""
+    return OpenAIAPIStatusError(
+        message="Gateway timeout",
+        response=MagicMock(status_code=504, headers={}),
+        body=None,
+    )
+
+
 def _mock_single_day() -> SingleDayResponse:
     """Build a valid SingleDayResponse for fallback tests."""
     return SingleDayResponse.model_validate({
@@ -144,7 +160,7 @@ class TestMockMode:
 
 
 class TestIsFallbackError:
-    """Tests for _is_fallback_error helper — Gemini and OpenAI, codes 402/404/429."""
+    """Tests for _is_fallback_error helper — Gemini and OpenAI, codes 402/404/429/503/504."""
 
     def test_direct_gemini_429(self) -> None:
         client = LLMClient()
@@ -216,6 +232,25 @@ class TestIsFallbackError:
     def test_direct_openai_503(self) -> None:
         client = LLMClient()
         assert client._is_fallback_error(_service_unavailable_openai()) is True
+
+    def test_direct_gemini_504_deadline_exceeded(self) -> None:
+        """A Gemini 504 means our deadline ran out on a slow model; another model may answer."""
+        client = LLMClient()
+        assert client._is_fallback_error(_deadline_exceeded_gemini()) is True
+
+    def test_wrapped_gemini_504(self) -> None:
+        client = LLMClient()
+        wrapper = Exception("Instructor retry exhausted")
+        wrapper.__cause__ = _deadline_exceeded_gemini()
+        assert client._is_fallback_error(wrapper) is True
+
+    def test_direct_openai_504(self) -> None:
+        client = LLMClient()
+        assert client._is_fallback_error(_gateway_timeout_openai()) is True
+
+    def test_gemini_504_is_retryable_not_terminal(self) -> None:
+        """504 gets the backoff before the next model, like 503: it is load, not a bad config."""
+        assert LLMClient._classify_error(_deadline_exceeded_gemini()) == "retryable"
 
     def test_gemini_500_is_not_fallback(self) -> None:
         """500 Internal Server Error is not a 'try another model' signal — next model likely fails too."""
@@ -385,6 +420,37 @@ class TestFallbackChain:
         mock_gemini = MagicMock()
         mock_gemini.chat.completions.create_with_completion = AsyncMock(
             side_effect=[_service_unavailable_gemini(), (expected, None)],
+        )
+        client.gemini_client = mock_gemini
+
+        result = await client.chat_json("sys", "usr", SingleDayResponse)
+        assert result == expected
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 2
+        second_call = mock_gemini.chat.completions.create_with_completion.call_args_list[1]
+        assert second_call.kwargs["model"] == "gemini-2.5-flash"
+
+    @patch("app.llm.client.settings")
+    async def test_fallback_on_504_deadline_exceeded(self, mock_settings: MagicMock) -> None:
+        """Primary model 504 (deadline ran out) → second model succeeds.
+
+        Regression guard for 2026-10-29: gemini-flash-latest answered receipt
+        scans with 504 DEADLINE_EXCEEDED after ~60 s and the chain aborted, while
+        gemini-2.5-flash answered the same images in seconds.
+        """
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain(
+            "gemini/gemini-flash-latest",
+            "gemini/gemini-2.5-flash",
+        )
+        mock_settings.gemini_api_key = "fake-key"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+        client = LLMClient()
+        expected = _mock_single_day()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_deadline_exceeded_gemini(), (expected, None)],
         )
         client.gemini_client = mock_gemini
 
