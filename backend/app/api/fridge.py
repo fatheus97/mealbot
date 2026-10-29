@@ -15,6 +15,9 @@ from app.db import get_session
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import User
 from app.models.plan_models import (
+    FoodPhotoItem,
+    FoodPhotoScanResponse,
+    ReceiptScanResponse,
     ScannedItemDTO,
     ScannedItemsResponse,
     StockItemDTO,
@@ -214,6 +217,7 @@ async def scan_receipt(
 
     user_language = current_user.language or "English"
 
+    scan_result: ReceiptScanResponse | FoodPhotoScanResponse
     if is_pdf:
         scan_result = await extract_items_from_pdf(pdf_bytes=file_bytes, language=user_language, mock=current_user.is_demo)
     else:
@@ -240,7 +244,8 @@ async def scan_receipt(
     if not current_user.track_snacks:
         items = [item for item in items if item.item_type == "ingredient"]
 
-    base_date = scan_result.purchase_date or date.today()
+    purchase_date = scan_result.purchase_date if isinstance(scan_result, ReceiptScanResponse) else None
+    base_date = purchase_date or date.today()
 
     scanned_items = [
         ScannedItemDTO(
@@ -249,6 +254,7 @@ async def scan_receipt(
             need_to_use=False,
             item_type=item.item_type,
             expiration_date=base_date + timedelta(days=item.shelf_life_days),
+            opened=isinstance(item, FoodPhotoItem) and item.opened,
         )
         for item in items
     ]

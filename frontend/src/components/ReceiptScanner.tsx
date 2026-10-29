@@ -21,7 +21,15 @@ interface ReviewItem {
   needToUse: boolean;
   itemType?: ScannedItemType;
   expirationDate: string | null;
+  // Set for an opened package from a food photo: its full size in grams. The
+  // row asks how much is left, and addedQty starts empty until answered.
+  packageGrams?: number;
 }
+
+// Quick answers to "how much is left?" for an opened package. "Almost nothing"
+// is 5%: about a spoonful in a 500 g bag.
+const LEFT_FRACTIONS: ReadonlyArray<readonly [number, string]> = [[0.25, "¼"], [0.5, "½"], [0.75, "¾"]];
+const ALMOST_EMPTY_FRACTION = 0.05;
 
 const parseQty = (s: string): number => {
   const n = Number(s);
@@ -255,11 +263,12 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
         const existing = fridgeLookup.get(compoundKey);
         return {
           name: scanned.name,
-          addedQty: String(scanned.quantity_grams),
+          addedQty: scanned.opened ? "" : String(scanned.quantity_grams),
           existingQty: existing?.quantity_grams ?? 0,
           needToUse: existing?.need_to_use ?? false,
           itemType: scanned.item_type,
           expirationDate: expDate,
+          packageGrams: scanned.opened ? scanned.quantity_grams : undefined,
         };
       });
 
@@ -293,7 +302,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     const invalidIdx = reviewItems.findIndex((item) => Number.isNaN(parseQty(item.addedQty)));
     if (invalidIdx !== -1) {
       setConfirmError(
-        `Row ${invalidIdx + 1} (${reviewItems[invalidIdx].name || "unnamed"}) needs a quantity greater than 0.`,
+        t("receipt.rowNeedsQty", {
+          n: invalidIdx + 1,
+          name: reviewItems[invalidIdx].name || t("receipt.unnamed"),
+        }),
       );
       return;
     }
@@ -467,6 +479,34 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                     : `+${addedNum} → ${item.existingQty + addedNum}g`;
                 return { addedNum, isInvalid, isNew, resultLabel };
               };
+              const setLeft = (index: number, grams: number) => {
+                updateReviewItem(index, "addedQty", String(Math.max(1, Math.round(grams))));
+                setConfirmError("");
+              };
+              const leftPrompt = (item: ReviewItem, index: number) => {
+                const packageGrams = item.packageGrams;
+                if (packageGrams === undefined) return null;
+                const choices: ReadonlyArray<readonly [number, string]> = [
+                  [ALMOST_EMPTY_FRACTION, t("receipt.leftAlmostEmpty")],
+                  ...LEFT_FRACTIONS,
+                ];
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap", fontSize: "0.8rem", color: "#fbbf24", marginTop: "0.3rem" }}>
+                    <span>{t("receipt.openedAsk", { grams: packageGrams })}</span>
+                    {choices.map(([fraction, label]) => (
+                      <button
+                        key={fraction}
+                        type="button"
+                        onClick={() => setLeft(index, packageGrams * fraction)}
+                        aria-label={t("receipt.itemLeft", { n: index + 1, amount: label })}
+                        style={{ padding: "0.1rem 0.45rem", fontSize: "0.8rem" }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                );
+              };
               const onQtyChange = (index: number) => (e: ChangeEvent<HTMLInputElement>) => {
                 const v = e.target.value;
                 if (v === "" || /^\d*\.?\d*$/.test(v)) {
@@ -529,6 +569,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                               {t("receipt.useSoon")}
                             </label>
                           </div>
+                          {leftPrompt(item, index)}
                           <button onClick={() => removeReviewItem(index)} style={{ width: "100%", marginTop: "0.5rem" }}>
                             {t("receipt.remove")}
                           </button>
@@ -578,6 +619,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                               style={{ width: "80px", border: isInvalid ? "1px solid #ef4444" : undefined }}
                               aria-invalid={isInvalid}
                             />
+                            {leftPrompt(item, index)}
                           </td>
                           <td>
                             <input

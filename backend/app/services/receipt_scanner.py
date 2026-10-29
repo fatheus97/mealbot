@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 from jinja2 import FileSystemLoader
@@ -13,6 +14,7 @@ from app.core.errors import LocalizedHTTPException
 from app.core.executors import run_in_parse_executor
 from app.llm.client import llm_client
 from app.models.plan_models import (
+    FoodPhotoScanResponse,
     NormalizationResponse,
     ReceiptScanResponse,
     ScannedReceiptItem,
@@ -61,7 +63,7 @@ async def extract_items_from_receipt(
 
 FOOD_PHOTO_SYSTEM_PROMPT = (
     "You are an expert at recognizing groceries in photos. "
-    "Identify every food product you can see and estimate how many grams of it are left. "
+    "Identify every food product you can see, its package size, and whether it is opened. "
     "Return ONLY valid JSON."
 )
 
@@ -71,26 +73,24 @@ async def extract_items_from_food_photo(
     image_media_type: str,
     language: str = "English",
     mock: bool = False,
-) -> ReceiptScanResponse:
+) -> FoodPhotoScanResponse:
     """Send a photo of food (produce, packages, a shelf) to the LLM and return the items it can see.
 
     The receipt prompt can't be reused: it tells the model to return nothing for
-    an image that isn't a receipt, and counts every package at its full size.
+    an image that isn't a receipt. How much is left in an opened package is not
+    guessed from the photo; the item is flagged and the user is asked.
     """
     template = _prompts_env.get_template("food_photo_scan.jinja")
     user_prompt = template.render(language=language)
 
-    result = await llm_client.chat_vision_json(
+    return await llm_client.chat_vision_json(
         system_prompt=FOOD_PHOTO_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         image_base64=image_base64,
         image_media_type=image_media_type,
-        response_model=ReceiptScanResponse,
+        response_model=FoodPhotoScanResponse,
         mock=mock,
     )
-    # The prompt asks for null, but a model that reads a best-before date off a
-    # package would otherwise shift every expiration by it. Enforce it here.
-    return result.model_copy(update={"purchase_date": None})
 
 
 def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
@@ -164,13 +164,13 @@ NORMALIZE_SYSTEM_PROMPT = (
 
 
 async def normalize_item_names(
-    scanned_items: list[ScannedReceiptItem],
+    scanned_items: Sequence[ScannedReceiptItem],
     fridge_item_names: list[str],
     mock: bool = False,
 ) -> list[ScannedReceiptItem]:
     """Normalize scanned item names against existing fridge items via LLM."""
     if mock or settings.llm_mock:
-        return scanned_items
+        return list(scanned_items)
 
     if not scanned_items:
         return []
@@ -202,13 +202,12 @@ async def normalize_item_names(
         sum(1 for item in scanned_items if name_map.get(item.name, item.name) != item.name),
     )
 
-    # Apply mapping; if LLM dropped an item, keep its original name
+    # Apply mapping; if LLM dropped an item, keep its original name. Re-validated
+    # (not model_copy, which skips validators) so the new name gets the same
+    # fence-strip and length checks; type(item) keeps a FoodPhotoItem's `opened`.
     return [
-        ScannedReceiptItem(
-            name=name_map.get(item.name, item.name),
-            quantity_grams=item.quantity_grams,
-            item_type=item.item_type,
-            shelf_life_days=item.shelf_life_days,
+        type(item).model_validate(
+            {**item.model_dump(), "name": name_map.get(item.name, item.name)}
         )
         for item in scanned_items
     ]

@@ -1020,6 +1020,21 @@ class ReceiptScanResponse(BaseModel):
     items: list[ScannedReceiptItem]
 
 
+class FoodPhotoItem(ScannedReceiptItem):
+    """Single item seen in a photo of the food itself."""
+    opened: bool = Field(
+        default=False,
+        description="True when the package is visibly opened or partly used. "
+        "quantity_grams is then the FULL package size; the user says how much is left.",
+    )
+
+
+class FoodPhotoScanResponse(BaseModel):
+    """LLM response model for a photo of food. No purchase_date: a photo has none,
+    and a best-before date read off a package must not stand in for one."""
+    items: list[FoodPhotoItem]
+
+
 class ScannedItemDTO(BaseModel):
     """Item returned to the frontend after receipt scan, before merge."""
     # Same hostile-input bounds as StockItemDTO (this rides the same fridge path).
@@ -1028,6 +1043,9 @@ class ScannedItemDTO(BaseModel):
     need_to_use: bool = False
     item_type: Literal["ingredient", "ready_to_eat"]
     expiration_date: date | None = None
+    # Food photos only: an opened package. quantity_grams is the full package
+    # size, and the review step asks the user how much is left.
+    opened: bool = False
 
 
 class ScannedItemsResponse(BaseModel):

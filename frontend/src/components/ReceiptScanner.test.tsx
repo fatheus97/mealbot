@@ -154,6 +154,44 @@ describe('ReceiptScanner', () => {
       expect(await screen.findByText(/no food found in the photo/i)).toBeInTheDocument();
     });
 
+    it('asks how much is left in an opened package before it can be added', async () => {
+      mockedScanReceipt.mockResolvedValue({
+        generation_id: 4,
+        items: [
+          { name: 'cane sugar', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const, opened: true },
+          { name: 'penne', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+        ],
+      });
+      mockedMergeFridge.mockResolvedValue([]);
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+
+      await user.click(screen.getByRole('radio', { name: /food photo/i }));
+      await user.upload(screen.getByLabelText(/select a photo of your food/i), createFile('food.jpg'));
+
+      expect(await screen.findByText(/opened package \(500 g\)\. how much is left\?/i)).toBeInTheDocument();
+      // The opened row starts empty (no full-bag guess); the sealed one is prefilled.
+      expect(screen.getAllByDisplayValue('500')).toHaveLength(1);
+
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      expect(screen.getByText(/row 1 \(cane sugar\) needs a quantity/i)).toBeInTheDocument();
+      expect(mockedMergeFridge).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Item 1: almost nothing left' }));
+      expect(screen.getByDisplayValue('25')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Item 1: ½ left' }));
+      expect(screen.getByDisplayValue('250')).toBeInTheDocument();
+      // Typing an exact amount still works.
+      const qty = screen.getByDisplayValue('250');
+      await user.clear(qty);
+      await user.type(qty, '30');
+
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      await waitFor(() => expect(mockedMergeFridge).toHaveBeenCalledTimes(1));
+      const merged = mockedMergeFridge.mock.calls[0][0] as Array<{ name: string; quantity_grams: number }>;
+      expect(merged.map((i) => [i.name, i.quantity_grams])).toEqual([['cane sugar', 30], ['penne', 500]]);
+    });
+
     it('a camera capture in food photo mode is scanned as a food photo', async () => {
       mockCamera('granted');
       mockCanvas('sync');
