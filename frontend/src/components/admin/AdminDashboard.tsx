@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../contexts/AuthContext";
 import { useIsMobile } from "../../hooks/useIsMobile";
+import { InfoHint } from "../InfoHint";
 import { BarChart, type Bar } from "./BarChart";
 import { RevenuePanel } from "./RevenuePanel";
 import { UserManagementPanel } from "./UserManagementPanel";
@@ -48,11 +49,29 @@ const ADMIN_TABS: TabDef[] = [
 
 const ID_BASE = "admin";
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+// The hint sits BESIDE the title/label, never inside it: inside the uppercase
+// label the bubble would inherit textTransform, and inside the <h3> its button
+// label would join the heading's accessible name.
+const hintedTitleRow: CSSProperties = { display: "flex", alignItems: "center", gap: 6 };
+
+function StatCard({
+  label,
+  value,
+  sub,
+  hint,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  hint?: ReactNode;
+}) {
   return (
     <div style={cardStyle}>
-      <div style={{ fontSize: 12, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>
-        {label}
+      <div style={hintedTitleRow}>
+        <div style={{ fontSize: 12, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          {label}
+        </div>
+        {hint}
       </div>
       <div style={{ fontSize: 26, fontWeight: 700, color: colors.text, marginTop: 4 }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>{sub}</div>}
@@ -60,10 +79,13 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
   return (
     <section style={{ marginTop: "1.75rem" }}>
-      <h3 style={sectionTitleStyle}>{title}</h3>
+      <div style={{ ...hintedTitleRow, marginBottom: "0.75rem" }}>
+        <h3 style={{ ...sectionTitleStyle, margin: 0 }}>{title}</h3>
+        {hint}
+      </div>
       {children}
     </section>
   );
@@ -244,10 +266,18 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
                         value={`${overview.data.demo_users} / ${overview.data.admin_users}`}
                       />
                       <StatCard label="LLM calls" value={overview.data.llm_calls.toLocaleString()} />
+                      {/* One hint for both usage cards, on the rightmost one so the
+                          bubble (anchored at the icon, opening leftward) stays on screen. */}
                       <StatCard
                         label="Total tokens"
                         value={overview.data.total_tokens.toLocaleString()}
                         sub={`${overview.data.prompt_tokens.toLocaleString()} in · ${overview.data.completion_tokens.toLocaleString()} out`}
+                        hint={
+                          <InfoHint
+                            label="About the LLM call and token counts"
+                            text="A lower bound on AI spend. Feedback triage isn't counted, failed requests record nothing, and expired demo or deleted accounts take their usage with them."
+                          />
+                        }
                       />
                     </div>
                     <div style={{ marginTop: "1.25rem" }}>
@@ -258,7 +288,15 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
                 )}
               </QueryState>
 
-              <Section title="Activation funnel">
+              <Section
+                title="Activation funnel"
+                hint={
+                  <InfoHint
+                    label="About the activation funnel"
+                    text="All-time, counting only users who face the paywall. Demo, admin and comped accounts (invited testers by default) are left out."
+                  />
+                }
+              >
                 <QueryState isLoading={funnel.isLoading} error={funnel.error}>
                   {funnel.data && <FunnelPanel stats={funnel.data} />}
                 </QueryState>

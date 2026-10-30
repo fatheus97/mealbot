@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { RevenuePanel } from "./RevenuePanel";
 import type { RevenueStats } from "../../types";
 
@@ -69,6 +70,19 @@ describe("RevenuePanel", () => {
     expect(screen.getByText(/€50\.00/)).toBeInTheDocument(); // total_cents 5000
     expect(screen.getByText("DE")).toBeInTheDocument();
     expect(screen.getByText("US")).toBeInTheDocument();
+  });
+
+  it("explains the totals row's scope beside it when there are sales", async () => {
+    const user = userEvent.setup();
+    render(<RevenuePanel stats={stats()} />);
+    await user.click(screen.getByRole("button", { name: "About the revenue totals" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/all-time sums of paid invoices/i);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/czech billing addresses only/i);
+  });
+
+  it("shows no totals hint in the empty state", () => {
+    render(<RevenuePanel stats={stats({ sales_count: 0, non_eur_sales_count: 0, by_country: [], recent: [], total_cents: 0 })} />);
+    expect(screen.queryByRole("button", { name: "About the revenue totals" })).not.toBeInTheDocument();
   });
 
   it("flags excluded non-EUR sales", () => {

@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { InfoHint } from "../InfoHint";
 import { ModalShell } from "../ModalShell";
 import { useAuth } from "../../contexts/AuthContext";
 import {
@@ -329,6 +330,23 @@ export function UserManagementPanel() {
           </select>
         </label>
         <div style={{ flex: 1 }} />
+        {/* Hints for the row actions live HERE, once, not in the table: the table
+            sits in an overflowX scroller, which clips anything above its top edge,
+            and InfoHint's bubble opens upward, so a header hint would be invisible.
+            A span, not a <label>: these are buttons, not a field's caption. */}
+        {data?.users.some((u) => !u.is_demo) && (
+          <span style={filterLabel}>
+            Row actions
+            <InfoHint
+              label="About billing for Comp, Deactivate and Delete"
+              text="Comp, Deactivate and Delete never touch Stripe. A paying subscriber keeps being billed and, once deactivated or deleted, can't sign in to cancel."
+            />
+            <InfoHint
+              label="About Reset onboarding"
+              text="After Reset onboarding they must redo setup on their next visit. The form starts from defaults (English, no country), so saving it overwrites their current preferences."
+            />
+          </span>
+        )}
         <button type="button" onClick={() => setShowCreate(true)} style={primaryBtn}>
           + New user
         </button>

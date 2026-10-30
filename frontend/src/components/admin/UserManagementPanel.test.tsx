@@ -135,6 +135,41 @@ describe("UserManagementPanel", () => {
     expect(screen.queryByRole("button", { name: "Make admin" })).not.toBeInTheDocument();
   });
 
+  it("explains the row actions' billing and onboarding side effects once, not per row", async () => {
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(
+      listResp([
+        mkUser({ id: 1, email: "a@example.com", onboarding_completed: true }),
+        mkUser({ id: 2, email: "b@example.com", onboarding_completed: true }),
+      ]),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    const billing = screen.getAllByRole("button", { name: "About billing for Comp, Deactivate and Delete" });
+    expect(billing).toHaveLength(1);
+    await user.click(billing[0]);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/never touch stripe/i);
+
+    const reset = screen.getAllByRole("button", { name: "About Reset onboarding" });
+    expect(reset).toHaveLength(1);
+    await user.click(reset[0]);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/overwrites their current preferences/i);
+  });
+
+  it("shows no row-action hints when no row has actions", async () => {
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(
+      listResp([mkUser({ id: 5, email: "demo@example.com", is_demo: true })]),
+    );
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("demo@example.com");
+
+    expect(
+      screen.queryByRole("button", { name: "About billing for Comp, Deactivate and Delete" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "About Reset onboarding" })).not.toBeInTheDocument();
+  });
+
   it("badges an unverified user and offers the verify action only for them", async () => {
     const stuck = mkUser({ id: 11, email: "stuck@example.com", email_verified: false });
     const ok = mkUser({ id: 12, email: "fine@example.com", email_verified: true });
