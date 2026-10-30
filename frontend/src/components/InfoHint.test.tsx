@@ -170,21 +170,36 @@ describe("InfoHint", () => {
       expect(tip.style.left).toBe("");
     });
 
-    it("clamps maxWidth to the room left on the chosen side", async () => {
-      // A left-anchored bubble on a narrow screen must not overflow the RIGHT edge
-      // either: with the trigger at x=200 of 320px it may grow 320-200-8 = 112px.
+    /** Open a hint whose trigger sits at x=`left` on a screen `width` px wide. */
+    async function openAt(left: number, width: number) {
       const user = userEvent.setup();
       const saved = window.innerWidth;
-      window.innerWidth = 320;
+      window.innerWidth = width;
       try {
         render(<InfoHint text="Narrow explanation" />);
         const trigger = screen.getByRole("button", { name: "More information" });
-        placeTrigger(trigger, 200);
+        placeTrigger(trigger, left);
         await user.click(trigger);
-        expect(screen.getByRole("tooltip").style.maxWidth).toBe("112px");
+        return screen.getByRole("tooltip");
       } finally {
         window.innerWidth = saved;
       }
+    }
+
+    it("when the default doesn't fit, still keeps it if the left has more room", async () => {
+      // Trigger at x=200 of 320px: 218px leftward vs 120px rightward. Flipping would
+      // squeeze the bubble to 112px; staying right-anchored gives it 218-8 = 210px.
+      const tip = await openAt(200, 320);
+      expect(tip.style.right).toMatch(/^0(px)?$/);
+      expect(tip.style.maxWidth).toBe("210px");
+    });
+
+    it("clamps maxWidth to the room left on the chosen side", async () => {
+      // Trigger at x=40 of 200px: only 58px leftward, so it flips right, and must not
+      // overflow the RIGHT edge either: 200-40-8 = 152px.
+      const tip = await openAt(40, 200);
+      expect(tip.style.left).toMatch(/^0(px)?$/);
+      expect(tip.style.maxWidth).toBe("152px");
     });
   });
 

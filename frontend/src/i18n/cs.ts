@@ -198,7 +198,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "settings.changeEmail": "Změnit",
   "settings.changeEmailHintLabel": "Co způsobí změna e-mailu",
   "settings.changeEmailHint":
-    "Dokud novou adresu nepotvrdíte, je vytváření nových jídelníčků a receptů i skenování pozastavené. Na ostatních zařízeních budete navíc odhlášeni.",
+    "Dokud novou adresu nepotvrdíte, nemůžete vytvářet nové jídelníčky a recepty ani skenovat. Na ostatních zařízeních vás navíc odhlásíme.",
   "settings.yourData": "Vaše data",
   "settings.exportData": "⬇️ Stáhnout moje data",
   "settings.exporting": "Připravujeme…",
@@ -417,7 +417,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Zamkněte jídla, která chcete ponechat, a objeví se tlačítko „Přegenerovat nezamčené“. To vytvoří zbývající jídla znovu podle původního zadání tohoto jídelníčku, ne podle formuláře výše.",
   "planner.confirmHintLabel": "O potvrzení jídelníčku",
   "planner.confirmHint":
-    "Uloží jídelníček do sekce Moje jídelníčky a hned odečte z lednice suroviny, které už máte. Koření se neodečítá.",
+    "Uloží jídelníček do sekce „Moje jídelníčky“ a hned odečte z lednice suroviny, které už máte. Koření se neodečítá.",
   "planner.finishHintLabel": "O dokončení jídelníčku",
   "planner.finishHint":
     "Vrátí do lednice suroviny odečtené pro jídla, která nejsou označená jako uvařená. Potom už nelze nic upravovat ani označovat jako uvařené, dokud jídelníček znovu neotevřete.",
@@ -431,7 +431,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.shareLabel": "Sdílet nákupní seznam",
   "planner.shoppingListHintLabel": "O nákupním seznamu",
   "planner.shoppingListHint":
-    "Sestaví se při vytvoření jídelníčku a nezahrnuje to, co tehdy bylo v lednici, ani vaše zásoby spíže. Pozdější úpravy ho nezmění a odškrtnuté položky se neukládají.",
+    "Seznam se sestaví při vytvoření jídelníčku a nezahrnuje to, co tehdy bylo v lednici, ani zásoby spíže. Pozdější úpravy ho nezmění a odškrtnuté položky se neukládají.",
 
   "chips.remove": "Odebrat {chip}",
   "chips.count": "{count} z {max}",
@@ -481,7 +481,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Vygenerujte jeden recept na to, co právě vaříte. Označte ho jako uvařený a suroviny se odečtou z lednice.",
   "cookNow.markCookedHintLabel": "O označení jako uvařené",
   "cookNow.markCookedHint":
-    "Odečte tato množství (kromě koření) z položek v lednici se stejným názvem. Suroviny, které v lednici žádnou odpovídající položku nemají, se přeskočí. Vrátit to nelze.",
+    "Odečte tato množství (kromě koření) z položek v lednici se stejným názvem. Suroviny, které v lednici nemáte, se přeskočí. Vrátit to nelze.",
   "cookNow.mealType": "Typ jídla",
   "cookNow.people": "Počet osob",
   "cookNow.stockOnly": "Použít jen to, co je v lednici",
@@ -550,7 +550,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.title": "Lednice",
   "fridge.titleHintLabel": "Jak se mění obsah lednice",
   "fridge.titleHint":
-    "Potvrzení jídelníčku nebo označení receptu z režimu „Uvařit hned“ jako uvařeného odtud odebere suroviny, nejdříve ty s nejbližším datem. Dokončení jídelníčku vrátí zpět to, co se neuvařilo.",
+    "Když potvrdíte jídelníček nebo označíte recept z režimu „Uvařit hned“ jako uvařený, suroviny se odtud odeberou, nejdříve ty s nejbližším datem spotřeby. Po dokončení jídelníčku se vrátí to, co se neuvařilo.",
   "fridge.loginPrompt": "Pro zobrazení a úpravu lednice se prosím přihlaste.",
   "fridge.loading": "Načítání zásob...",
   "fridge.connecting": "Připojování k serveru…",
@@ -655,7 +655,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.reviewIntro": "Než položky přidáte do lednice, zkontrolujte je.",
   "receipt.expiresHintLabel": "O datu spotřeby",
   "receipt.expiresHint":
-    "Datum spotřeby se odhaduje z data na účtence (nebo z dnešního dne) a z obvyklé trvanlivosti každé potraviny, nečte se z obalu. V případě potřeby ho opravte.",
+    "Datum spotřeby se odhaduje z data na účtence (nebo z dnešního dne) a z obvyklé trvanlivosti každé potraviny, nečte se z obalu. Pokud nesedí, opravte ho.",
   "receipt.noItems": "Na účtence nebyly nalezeny žádné potraviny.",
   "receipt.qty": "Množství (g)",
   "receipt.expires": "Spotřebovat do",
@@ -824,7 +824,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // "zkušební verze" as in the body right above, so the dialog uses one term.
   "billing.paywall.allowanceHintLabel": "O limitu využití AI",
   "billing.paywall.allowanceHint":
-    "Na celou zkušební verzi máte jeden limit využití AI, potom jeden na každý kalendářní měsíc. Když ho vyčerpáte, vytváření nových jídelníčků a receptů i skenování se pozastaví až do začátku dalšího období.",
+    "Na celou zkušební verzi máte jeden limit využití AI, potom jeden na každý kalendářní měsíc. Když ho vyčerpáte, nebudete moci vytvářet nové jídelníčky a recepty ani skenovat až do začátku dalšího období.",
   "billing.paywall.planGroup": "Varianta předplatného",
   "billing.paywall.monthly": "Měsíčně",
   // Decimal comma, symbol after the number with a non-breaking space.

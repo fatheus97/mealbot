@@ -8,25 +8,6 @@ interface InfoHintProps {
   label?: string;
 }
 
-/**
- * A small "i"-in-a-circle affordance: hover, keyboard-focus, or tap it to reveal a short
- * explanation. Intended as the app's reusable "explain this" primitive (ROADMAP U-9) —
- * inline hints instead of intrusive intro tours.
- *
- * Deliberately theme-robust and CLS-safe (see .claude/rules/frontend.md):
- *  - The circle AND the bubble carry their OWN explicit surface + colour, so the control
- *    stays legible on any background — a light card OR the app's adaptive dark page —
- *    without leaning on inherited/adaptive text colour (the white-on-white trap).
- *  - The bubble is absolutely positioned (out of document flow), so revealing it never
- *    pushes surrounding content around under the user's cursor.
- *
- * Escape CONSUMES the event while the bubble is open, so a hint inside a modal that also
- * closes on Escape (ModalShell, PaywallModal, CookbookModal) dismisses only the hint —
- * one Escape, one dismissal, innermost first. Without this the modal closed too, taking
- * the thing the user was reading the hint ABOUT with it. Same technique and reasoning as
- * ConfirmDialog: capture phase + stopImmediatePropagation, because bubble-vs-capture
- * ordering between two `window` listeners is not well-defined.
- */
 /** Bubble width in px; also the room a right-anchored bubble needs left of the trigger. */
 const BUBBLE_WIDTH = 240;
 /** Minimum gap kept between the bubble and the viewport edge. */
@@ -44,16 +25,41 @@ interface Placement {
  *
  * Right-anchored (the default) the bubble grows LEFTWARD from the trigger; near the
  * left edge of a narrow screen that put most of it off-screen, cut off and
- * unscrollable. There it flips to grow rightward instead, and maxWidth is clamped to
- * the room actually left on the chosen side, so neither side can overflow.
+ * unscrollable. It flips to grow rightward only when the default doesn't fit AND the
+ * right side has more room (flipping whenever the default doesn't fit would squeeze it
+ * narrower than it needs to be). maxWidth is clamped to the room actually left on the
+ * chosen side, so neither side can overflow.
  */
 function placeFor(trigger: HTMLElement): Placement {
   const rect = trigger.getBoundingClientRect();
-  const side = rect.right < BUBBLE_WIDTH + EDGE_GAP ? "left" : "right";
-  const room = side === "left" ? window.innerWidth - rect.left : rect.right;
+  const roomLeftward = rect.right;
+  const roomRightward = window.innerWidth - rect.left;
+  const side =
+    roomLeftward >= BUBBLE_WIDTH + EDGE_GAP || roomLeftward >= roomRightward ? "right" : "left";
+  const room = side === "left" ? roomRightward : roomLeftward;
   return { side, maxWidth: Math.min(window.innerWidth - 2 * EDGE_GAP, room - EDGE_GAP) };
 }
 
+/**
+ * A small "i"-in-a-circle affordance: hover, keyboard-focus, or tap it to reveal a short
+ * explanation. Intended as the app's reusable "explain this" primitive (ROADMAP U-9) —
+ * inline hints instead of intrusive intro tours.
+ *
+ * Deliberately theme-robust and CLS-safe (see .claude/rules/frontend.md):
+ *  - The circle AND the bubble carry their OWN explicit surface + colour, so the control
+ *    stays legible on any background — a light card OR the app's adaptive dark page —
+ *    without leaning on inherited/adaptive text colour (the white-on-white trap).
+ *  - The bubble is absolutely positioned (out of document flow), so revealing it never
+ *    pushes surrounding content around under the user's cursor.
+ *  - Near a screen edge the bubble opens toward the roomier side (see placeFor).
+ *
+ * Escape CONSUMES the event while the bubble is open, so a hint inside a modal that also
+ * closes on Escape (ModalShell, PaywallModal, CookbookModal) dismisses only the hint —
+ * one Escape, one dismissal, innermost first. Without this the modal closed too, taking
+ * the thing the user was reading the hint ABOUT with it. Same technique and reasoning as
+ * ConfirmDialog: capture phase + stopImmediatePropagation, because bubble-vs-capture
+ * ordering between two `window` listeners is not well-defined.
+ */
 export function InfoHint({ text, label = "More information" }: InfoHintProps) {
   // null = closed. One state, so the bubble can never be open without a placement.
   const [placement, setPlacement] = useState<Placement | null>(null);
