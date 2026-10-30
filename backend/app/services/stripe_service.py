@@ -431,6 +431,87 @@ async def cancel_subscription_now(subscription_id: str) -> None:
     await asyncio.to_thread(stripe.Subscription.cancel, subscription_id)
 
 
+class BillingStopFailed(Exception):
+    """Stripe could not stop a subscription that an account change needs stopped.
+
+    Callers must ABORT the account change (fail closed): deleting or locking out
+    a customer whose subscription is still live leaves them billed with no way
+    into the billing portal to cancel. Raised for every ``StripeError`` except
+    ``InvalidRequestError`` (which means the subscription is already gone), and
+    for the plain ``RuntimeError`` ``_require_stripe()`` raises when the secret
+    key is missing on a deployment whose users still hold subscription ids.
+    (Caught as RuntimeError rather than re-typed in ``_require_stripe``: its
+    other call sites, checkout, portal and webhooks, rely on that failure mode.)
+    """
+
+
+async def stop_billing_before_removal(
+    user: User,
+) -> Literal["no_subscription", "cancelled", "already_gone"]:
+    """Cancel a subscription immediately because its account is about to be deleted.
+
+    Shared by self-service ``delete-account`` and the admin hard delete, so both
+    stop billing the same way: immediately (there is no account left to keep
+    access to), with the rest of the paid period forfeited (see
+    ``cancel_subscription_now``). Raises ``BillingStopFailed`` when the caller
+    must not proceed.
+    """
+    subscription_id = user.stripe_subscription_id
+    # "canceled" is terminal at Stripe, so the local mirror can be trusted for
+    # it, and a deployment that later dropped billing can still delete the user.
+    if not subscription_id or user.subscription_status == "canceled":
+        return "no_subscription"
+    try:
+        await cancel_subscription_now(subscription_id)
+    except stripe.InvalidRequestError:
+        # Already cancelled or already deleted at Stripe: nothing left to stop.
+        return "already_gone"
+    except (stripe.StripeError, RuntimeError) as exc:
+        raise BillingStopFailed(subscription_id) from exc
+    return "cancelled"
+
+
+async def stop_renewal(subscription_id: str) -> None:
+    """Set ``cancel_at_period_end``: no further charge, access to period end."""
+    _require_stripe()
+    await asyncio.to_thread(
+        stripe.Subscription.modify, subscription_id, cancel_at_period_end=True
+    )
+
+
+async def stop_renewal_before_lockout(
+    user: User,
+) -> Literal["no_subscription", "renewal_stopped", "already_gone"]:
+    """Stop a subscription renewing because an admin is deactivating its account.
+
+    A deactivated user can't sign in, so can't reach the billing portal to
+    cancel, and would be charged at every renewal for an account they can't
+    use. Unlike deletion this is reversible, so the subscription is set to end
+    at the period end rather than cancelled now: the period they already paid
+    for isn't taken back, and a trial ends without converting to a charge.
+    Reactivating does NOT resume renewal (that could override a user's own
+    cancellation); the user can resume it in the billing portal.
+
+    Mirrors the flag onto ``user.cancel_at_period_end`` on success so the admin
+    view is right before the webhook lands. Raises ``BillingStopFailed`` when
+    the caller must not proceed.
+    """
+    subscription_id = user.stripe_subscription_id
+    # "canceled" is trusted as in stop_billing_before_removal. A local
+    # cancel_at_period_end is not: the user may have resumed in the portal
+    # before the webhook landed, and setting it again is a no-op anyway.
+    if not subscription_id or user.subscription_status == "canceled":
+        return "no_subscription"
+    try:
+        await stop_renewal(subscription_id)
+    except stripe.InvalidRequestError:
+        return "already_gone"
+    except (stripe.StripeError, RuntimeError) as exc:
+        raise BillingStopFailed(subscription_id) from exc
+    user.cancel_at_period_end = True
+    return "renewal_stopped"
+
+
 async def end_trial_now(subscription_id: str) -> None:
     """End a trial immediately (``Subscription.modify(trial_end='now')``), moving
     the customer to paid billing now — used to claw back a cross-account trial

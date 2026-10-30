@@ -347,7 +347,7 @@ export function UserManagementPanel() {
           Row actions
           <InfoHint
             label="About billing for Comp, Deactivate and Delete"
-            text="Comp, Deactivate and Delete never touch Stripe. A paying subscriber keeps being billed and, once deactivated or deleted, can't sign in to cancel."
+            text="Comp leaves billing alone. Deactivate stops the subscription renewing after the period already paid for; reactivating doesn't restart it, the user can resume it themselves. Delete cancels it at once, with no refund for the unused days. If Stripe can't be reached, Deactivate and Delete change nothing."
           />
           <span
             style={{
