@@ -215,6 +215,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "onboarding.title": "Vítejte! Nastavte si své předvolby",
   "onboarding.subtitle": "Pomohou nám vytvářet jídelníčky na míru právě vám.",
   "onboarding.submit": "Začít",
+  "onboarding.loadFailed": "Vaše předvolby se nepodařilo načíst.",
+  "onboarding.retry": "Zkusit znovu",
 
   // ─── Preferences form ─────────────────────────────────────────────────────
   "prefs.country": "Země",
