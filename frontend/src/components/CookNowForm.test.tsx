@@ -409,6 +409,62 @@ describe('CookNowForm', () => {
     // No recipe card rendered on error.
     expect(screen.queryByRole('button', { name: /mark as cooked/i })).toBeNull();
   });
+
+  it('hints that the avoid list is not checked, from outside the field label', async () => {
+    loginUser();
+    const user = userEvent.setup();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    // Bound by htmlFor, so the label still names exactly one control: the chip
+    // input, not the hint button next to it.
+    expect(screen.getByLabelText('Ingredients to avoid')).toBe(
+      screen.getByPlaceholderText(/to avoid and press enter/i),
+    );
+    await user.click(screen.getByRole('button', { name: 'About the avoid list' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/nothing checks the recipe afterwards/i);
+  });
+
+  it('explains Mark as cooked only while the recipe can still be marked', async () => {
+    loginUser();
+    mockedGenerate.mockResolvedValueOnce({
+      recipe: {
+        name: 'Quick Soup',
+        meal_type: 'soup',
+        meal_type_label: 'Soup',
+        ingredients: [{ name: 'chicken', quantity_grams: 200, is_spice: false }],
+        steps: ['Simmer'],
+      },
+      generation_id: 7,
+    });
+    mockedCook.mockResolvedValueOnce({
+      id: 42,
+      day_index: 1,
+      meal_index: 1,
+      name: 'Quick Soup',
+      meal_type: 'soup',
+      cooked_at: '2026-04-23T10:00:00Z',
+      is_favorite: false,
+    });
+    const hint = () => screen.queryByRole('button', { name: 'About marking as cooked' });
+
+    const user = userEvent.setup();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    expect(hint()).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    await user.click(await screen.findByRole('button', { name: 'About marking as cooked' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/there is no undo/i);
+
+    // Editing hides the button row. The shared editor carries no plan-only
+    // ingredient hint here: in Cook Now the edited recipe IS what gets debited.
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(hint()).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'About editing ingredients' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await user.click(screen.getByRole('button', { name: /mark as cooked/i }));
+    await screen.findByText(/✓ cooked/i);
+    expect(hint()).not.toBeInTheDocument();
+  });
 });
 
 describe('CookNowForm colours on the adaptive page background', () => {

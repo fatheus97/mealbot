@@ -128,6 +128,27 @@ describe('Fridge', () => {
   it('shows "Please log in" when no userId', () => {
     render(<Fridge />, { wrapper: createWrapper() });
     expect(screen.getByText(/please log in/i)).toBeInTheDocument();
+    // Nothing to explain about a fridge the visitor cannot see.
+    expect(screen.queryByRole('button', { name: 'How the fridge changes' })).not.toBeInTheDocument();
+  });
+
+  it('explains what changes the fridge, and opening the hint does not collapse it', async () => {
+    loginUser();
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ name: 'Chicken', quantity_grams: 500, need_to_use: false }]),
+    });
+
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Chicken')).toBeInTheDocument());
+
+    // The hint sits inside the clickable collapse header; InfoHint stops its
+    // click, so the section must stay open.
+    await user.click(screen.getByRole('button', { name: 'How the fridge changes' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/soonest date first/i);
+    expect(screen.getByText('Chicken')).toBeInTheDocument();
   });
 
   it('renders items as cards (not a table) on a mobile viewport', async () => {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useReopenTarget } from "../contexts/CookTimerContext";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -12,6 +12,7 @@ import {
   useRemoveFromCookbook,
 } from "../hooks/useServerState";
 import { IngredientChipInput } from "./IngredientChipInput";
+import { InfoHint } from "./InfoHint";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
 import { FavoriteStar } from "./FavoriteStar";
 import { IngredientsList } from "./recipe/IngredientsList";
@@ -37,11 +38,21 @@ import type {
 // once a cook succeeds.
 const COOKNOW_COOK_KEY = "cookmode:cooknow";
 
+// A field label with its InfoHint beside it (same shape as MealPlanner's).
+const hintedLabelRow: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+};
+
 // Cook Now: one-shot single-recipe generator. The saved recipe carries its
 // full PlannedMeal through /recipe/cook so the server doesn't re-invoke the
 // LLM on the cook action — it just persists + debits fridge + marks cooked.
 export function CookNowForm() {
   const { t } = useI18n();
+  // The avoid field's label binds by htmlFor: its InfoHint must sit OUTSIDE the
+  // <label>, or the label would address two controls (see MealPlanner).
+  const avoidId = useId();
   const mealTypeLabel = useMealTypeLabel();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
@@ -299,16 +310,20 @@ export function CookNowForm() {
           </div>
         </label>
 
-        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          {t("cookNow.avoid")}
+        <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <span style={hintedLabelRow}>
+            <label htmlFor={avoidId}>{t("cookNow.avoid")}</label>
+            <InfoHint text={t("fields.avoidHint")} label={t("fields.avoidHintLabel")} />
+          </span>
           <IngredientChipInput
+            id={avoidId}
             values={avoidIngredients}
             onChange={setAvoidIngredients}
             suggestions={[]}
             placeholder={t("cookNow.avoidPlaceholder")}
             maxItems={FIELD_LIMITS.avoidIngredients}
           />
-        </label>
+        </div>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           {t("cookNow.feature")}
@@ -458,6 +473,10 @@ export function CookNowForm() {
                 >
                   {cookMutation.isPending ? t("cookNow.saving") : t("meal.markCooked")}
                 </button>
+                {/* The row aligns to flex-start; centre the hint on the button. */}
+                <span style={{ display: "inline-flex", alignSelf: "center" }}>
+                  <InfoHint text={t("cookNow.markCookedHint")} label={t("cookNow.markCookedHintLabel")} />
+                </span>
               </div>
             )}
           </div>

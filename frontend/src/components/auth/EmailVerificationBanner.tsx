@@ -3,6 +3,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { ChangeEmailModal } from "./ChangeEmailModal";
 import { useI18n } from "../../i18n";
 import { Trans } from "../../i18n/Trans";
+import { InfoHint } from "../InfoHint";
 
 /**
  * "Confirm your email" prompt for an unverified account.
@@ -78,6 +79,12 @@ export function EmailVerificationBanner() {
           {state === "sending" ? t("verify.sending") : t("verify.resend")}
         </button>
       )}
+      {/* aria-live="off": this banner is a polite live region, and the hint's
+          bubble mounting inside it would otherwise be announced as a status
+          update on top of its own aria-describedby reading. */}
+      <span aria-live="off" style={{ display: "inline-flex" }}>
+        <InfoHint label={t("verify.resendHintLabel")} text={t("verify.resendHint")} />
+      </span>
       {/* The escape hatch from the lockout: resending only ever re-mails the
           SAME address, so a user who mistyped it can press "Resend link" all
           day and never receive anything. */}

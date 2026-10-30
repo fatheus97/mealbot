@@ -117,6 +117,92 @@ describe("InfoHint", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
+  describe("bubble placement (stays on screen)", () => {
+    /** Pin the trigger's measured box: an 18px circle whose left edge sits at `left`. */
+    function placeTrigger(trigger: HTMLElement, left: number) {
+      vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+        left,
+        right: left + 18,
+        top: 300,
+        bottom: 318,
+        x: left,
+        y: 300,
+        width: 18,
+        height: 18,
+        toJSON: () => ({}),
+      });
+    }
+
+    const openers = {
+      hover: (user: ReturnType<typeof userEvent.setup>, el: HTMLElement) => user.hover(el),
+      click: (user: ReturnType<typeof userEvent.setup>, el: HTMLElement) => user.click(el),
+      focus: async (_user: ReturnType<typeof userEvent.setup>, el: HTMLElement) => {
+        fireEvent.focus(el);
+      },
+    };
+
+    it.each(Object.keys(openers) as Array<keyof typeof openers>)(
+      "near the LEFT edge, opened by %s, grows rightward from the trigger",
+      async (how) => {
+        // Regression: the bubble was always right:0 / 240px wide, so a trigger at
+        // x=8 put ~230px of it left of the viewport, cut off and unscrollable.
+        const user = userEvent.setup();
+        render(<InfoHint text="Left-edge explanation" />);
+        const trigger = screen.getByRole("button", { name: "More information" });
+        placeTrigger(trigger, 8);
+
+        await openers[how](user, trigger);
+        const tip = screen.getByRole("tooltip");
+        expect(tip.style.left).toMatch(/^0(px)?$/);
+        expect(tip.style.right).toBe("");
+      },
+    );
+
+    it("far from the left edge keeps the default right anchor", async () => {
+      const user = userEvent.setup();
+      render(<InfoHint text="Right-side explanation" />);
+      const trigger = screen.getByRole("button", { name: "More information" });
+      placeTrigger(trigger, 900);
+
+      await user.click(trigger);
+      const tip = screen.getByRole("tooltip");
+      expect(tip.style.right).toMatch(/^0(px)?$/);
+      expect(tip.style.left).toBe("");
+    });
+
+    /** Open a hint whose trigger sits at x=`left` on a screen `width` px wide. */
+    async function openAt(left: number, width: number) {
+      const user = userEvent.setup();
+      const saved = window.innerWidth;
+      window.innerWidth = width;
+      try {
+        render(<InfoHint text="Narrow explanation" />);
+        const trigger = screen.getByRole("button", { name: "More information" });
+        placeTrigger(trigger, left);
+        await user.click(trigger);
+        return screen.getByRole("tooltip");
+      } finally {
+        window.innerWidth = saved;
+      }
+    }
+
+    it("when the default doesn't fit, still keeps it if the left has more room", async () => {
+      // Trigger at x=200 of 320px: 218px leftward vs 120px rightward. Flipping would
+      // squeeze the bubble to 112px; staying right-anchored gives it 218-8 = 210px.
+      const tip = await openAt(200, 320);
+      expect(tip.style.right).toMatch(/^0(px)?$/);
+      expect(tip.style.maxWidth).toBe("210px");
+    });
+
+    it("clamps maxWidth to the room left on the chosen side", async () => {
+      // Trigger at x=40 of 200px: only 58px leftward, so it flips right, and must not
+      // overflow the RIGHT edge either: 200-40-8 = 152px.
+      const tip = await openAt(40, 200);
+      expect(tip.style.left).toMatch(/^0(px)?$/);
+      expect(tip.style.maxWidth).toBe("152px");
+    });
+  });
+
   it("keeps the trigger a square on mobile (defeats index.css min-height:40 → no pill)", () => {
     setMobileViewport(true);
     render(<InfoHint text="Mobile explanation" />);

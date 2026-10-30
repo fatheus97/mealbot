@@ -1147,6 +1147,98 @@ describe('MealPlanner', () => {
       expect(screen.getByRole('checkbox', { name: /mark eggs as bought/i })).not.toBeChecked(),
     );
   });
+
+  it('explains when the shopping list was worked out, beside its heading', async () => {
+    const user = await renderWithShoppingList();
+    await user.click(screen.getByRole('button', { name: 'About the shopping list' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/ticks aren't saved/i);
+    // The heading keeps its own text: the hint sits beside it, not inside it.
+    expect(screen.getByRole('heading', { name: 'Shopping List' })).toBeInTheDocument();
+  });
+});
+
+describe('MealPlanner info hints (U-9)', () => {
+  // Each hint renders only in the plan state where its claim holds, so every
+  // test checks the wrong state too: a hint that leaks into it is a false
+  // statement on screen.
+  const meal = { name: 'Egg Scramble', meal_type: 'breakfast', ingredients: [], steps: [] };
+
+  function mockPlanEndpoints(plan: unknown) {
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url.endsWith('/confirm') || url.includes('/meals')) {
+        return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve([]),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true, status: 200, json: () => Promise.resolve(plan),
+      } as unknown as Response);
+    });
+  }
+
+  it('explains Confirm and regeneration while unconfirmed, and Finish once confirmed', async () => {
+    loginUser();
+    mockPlanEndpoints({ plan_id: 91, days: [{ meals: [meal] }], shopping_list: [] });
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await user.click(screen.getByRole('tab', { name: /plan ahead/i }));
+    await user.click(screen.getByRole('button', { name: /generate plan/i }));
+    await screen.findByText('Egg Scramble');
+
+    await user.click(screen.getByRole('button', { name: 'About confirming' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/except spices, out of your fridge right away/i);
+    await user.click(screen.getByRole('button', { name: 'About freezing and regenerating' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/original choices, not the form above/i);
+    expect(screen.queryByRole('button', { name: 'About finishing' })).not.toBeInTheDocument();
+    // An empty shopping list renders no card, so no hint for it either.
+    expect(screen.queryByRole('button', { name: 'About the shopping list' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /confirm plan/i }));
+    const finishHint = await screen.findByRole('button', { name: 'About finishing' });
+    expect(screen.queryByRole('button', { name: 'About confirming' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'About freezing and regenerating' }),
+    ).not.toBeInTheDocument();
+    await user.click(finishHint);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/until you reopen the plan/i);
+  });
+
+  it('shows neither the Confirm nor the Finish hint on a finished plan', async () => {
+    loginUser();
+    mockPlanEndpoints({});
+    render(
+      <MealPlanner
+        initialPlan={{ plan_id: 92, start_date: null, days: [{ meals: [meal] }], shopping_list: [] }}
+        initialSummary={{
+          id: 92, start_date: null, created_at: new Date().toISOString(), days: 1,
+          meals_per_day: 1, people_count: 2, status: 'finished', total_meals: 1,
+          cooked_meals: 0, finished_at: new Date().toISOString(),
+        }}
+      />,
+      { wrapper: createWrapper() },
+    );
+    await screen.findByRole('button', { name: /^reopen$/i });
+    expect(screen.queryByRole('button', { name: 'About finishing' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'About confirming' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'About freezing and regenerating' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('hints that the avoid list is not checked, from outside the field label', async () => {
+    loginUser();
+    usePreferencesStore.setState({ mode: 'plan_ahead', avoidIngredients: '' });
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    // Bound by htmlFor, so the label still names exactly one control: the chip
+    // input, not the hint button next to it.
+    expect(screen.getByLabelText('Ingredients to Avoid:')).toBe(
+      screen.getByPlaceholderText(/to avoid and press enter/i),
+    );
+    await user.click(screen.getByRole('button', { name: 'About the avoid list' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/nothing checks the recipe afterwards/i);
+  });
 });
 
 describe('MealPlanner — expired-item review after finishing', () => {

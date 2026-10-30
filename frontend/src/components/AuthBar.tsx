@@ -6,6 +6,7 @@ import { SettingsPopup } from "./SettingsPopup";
 import { ForgotPasswordModal } from "./ForgotPasswordModal";
 import { TermsConsent } from "./auth/TermsConsent";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { InfoHint } from "./InfoHint";
 import { useI18n, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
 
@@ -115,7 +116,17 @@ export function AuthBar() {
           it costs no vertical space and cannot shift the form below it. */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
         <h2 style={{ margin: 0 }}>{userId ? t("auth.welcome") : t("auth.login")}</h2>
-        <LanguageSwitcher />
+        {/* The hint sits OUTSIDE LanguageSwitcher's <label>, which wraps its
+            <select>. Logged in only: it points at Settings, which a logged-out
+            visitor cannot reach yet. */}
+        {userId ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+            <LanguageSwitcher />
+            <InfoHint label={t("lang.hintLabel")} text={t("lang.hint")} />
+          </span>
+        ) : (
+          <LanguageSwitcher />
+        )}
       </div>
       <div style={{ display: "flex", gap: "0.5rem", alignItems: isMobile ? "stretch" : "center", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", marginTop: "0.75rem" }}>
         {!userId && (

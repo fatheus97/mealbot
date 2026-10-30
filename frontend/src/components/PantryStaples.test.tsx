@@ -77,6 +77,22 @@ describe('PantryStaples', () => {
     ).toBeInTheDocument();
   });
 
+  it('explains how staples match, beside the heading rather than inside it', async () => {
+    loginUser();
+    mockStaples([{ name: 'Salt' }]);
+    const user = userEvent.setup();
+
+    render(<PantryStaples />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
+
+    // Exact name: a hint inside the <h4> would add its label to the heading's.
+    expect(screen.getByRole('heading', { name: 'Pantry staples (1)' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'How staples are matched' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      /matches exactly .* only on shopping lists made after you save/i,
+    );
+  });
+
   it('adds a staple and saves the full list', async () => {
     loginUser();
     mockStaples([{ name: 'Salt' }]);

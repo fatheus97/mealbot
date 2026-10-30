@@ -138,6 +138,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // InfoHint being added — see the comment at the mealsPerDay field.
   const mealsPerDayId = useId();
   const tastesId = useId();
+  const avoidId = useId();
 
   // Scroll the rendered plan into view when the component mounts with an
   // opened plan (via App.tsx's key-based remount on Open). We only scroll
@@ -717,16 +718,20 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           </div>
         </div>
 
-        <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          {t("planner.avoid")}
+        <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <span style={hintedLabelRow}>
+            <label htmlFor={avoidId}>{t("planner.avoid")}</label>
+            <InfoHint text={t("fields.avoidHint")} label={t("fields.avoidHintLabel")} />
+          </span>
           <IngredientChipInput
+            id={avoidId}
             values={parseList(avoidIngredients)}
             onChange={(next) => setAvoidIngredients(next.join(", "))}
             suggestions={[]}
             placeholder={t("planner.avoidPlaceholder")}
             maxItems={FIELD_LIMITS.avoidIngredients}
           />
-        </label>
+        </div>
 
         <label style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
           {t("planner.useUp")}
@@ -868,6 +873,12 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                     ? t("planner.titleConfirmed")
                     : t("planner.titleGenerated")}
               </h3>
+              {/* One hint per plan rather than one per Freeze button: before
+                  anything is frozen, Regenerate Unfrozen is hidden, so nothing
+                  else on screen says regeneration exists. */}
+              {!isConfirmed && (
+                <InfoHint text={t("planner.regenerateHint")} label={t("planner.regenerateHintLabel")} />
+              )}
               {isFinished && (
                 <span style={{
                   padding: "0.15rem 0.6rem", borderRadius: "12px", fontSize: "0.8rem",
@@ -877,7 +888,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 </span>
               )}
             </div>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               {!isConfirmed && frozenMeals.size > 0 && (
                 <button
                   onClick={handleRegenerate}
@@ -888,13 +899,16 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 </button>
               )}
               {!isConfirmed && (
-                <button
-                  onClick={handleConfirm}
-                  disabled={confirmMutation.isPending}
-                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#15803d", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
-                >
-                  {confirmMutation.isPending ? t("planner.confirming") : t("planner.confirm")}
-                </button>
+                <>
+                  <button
+                    onClick={handleConfirm}
+                    disabled={confirmMutation.isPending}
+                    style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#15803d", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                  >
+                    {confirmMutation.isPending ? t("planner.confirming") : t("planner.confirm")}
+                  </button>
+                  <InfoHint text={t("planner.confirmHint")} label={t("planner.confirmHintLabel")} />
+                </>
               )}
               {/*
                 Defensive default: hide Un-confirm until mealEntries has
@@ -915,13 +929,16 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 </button>
               )}
               {isConfirmed && !isFinished && (
-                <button
-                  onClick={handleFinish}
-                  disabled={finishMutation.isPending}
-                  style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#7c3aed", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
-                >
-                  {finishMutation.isPending ? t("planner.finishing") : t("planner.finish")}
-                </button>
+                <>
+                  <button
+                    onClick={handleFinish}
+                    disabled={finishMutation.isPending}
+                    style={{ padding: "0.4rem 1.2rem", fontSize: "0.95rem", backgroundColor: "#7c3aed", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                  >
+                    {finishMutation.isPending ? t("planner.finishing") : t("planner.finish")}
+                  </button>
+                  <InfoHint text={t("planner.finishHint")} label={t("planner.finishHintLabel")} />
+                </>
               )}
               {isFinished && (
                 <button
@@ -1032,7 +1049,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           {currentPlan.shopping_list.length > 0 && (
             <div style={{ marginTop: "1.5rem", padding: "1rem", backgroundColor: "#fff", color: "#111", border: "1px solid #ddd", borderRadius: "6px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
-                <h4 style={{ margin: 0 }}>{t("planner.shoppingList")}</h4>
+                <span style={hintedLabelRow}>
+                  <h4 style={{ margin: 0 }}>{t("planner.shoppingList")}</h4>
+                  <InfoHint text={t("planner.shoppingListHint")} label={t("planner.shoppingListHintLabel")} />
+                </span>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   <button
                     type="button"

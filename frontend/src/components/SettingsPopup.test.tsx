@@ -463,6 +463,18 @@ describe('SettingsPopup — account email section', () => {
     expect(screen.getByRole('button', { name: /^change$/i })).toBeInTheDocument();
   });
 
+  it('warns before the change what it pauses and who it signs out', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    const user = userEvent.setup();
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await user.click(await screen.findByRole('button', { name: 'What changing your email does' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      /new plans, recipes and scans are paused\. Your other devices are also signed out/i,
+    );
+  });
+
   it('hides it for a demo session', async () => {
     // The address is server-generated and POST /auth/email refuses demo
     // accounts with a 403 — so the control could only ever fail.
@@ -481,6 +493,9 @@ describe('SettingsPopup — account email section', () => {
     await waitFor(() => expect(screen.getByText('Settings')).toBeInTheDocument());
     expect(screen.queryByText('Email address')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^change$/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'What changing your email does' }),
+    ).not.toBeInTheDocument();
   });
 });
 
