@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from pypdf import PdfWriter
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import LocalizedHTTPException
 from app.llm.client import llm_client
 from app.models.db_models import User
 from app.models.plan_models import (
@@ -129,7 +130,7 @@ class TestScanEndpoint:
     @patch(
         "app.api.fridge.extract_items_from_receipt",
         new_callable=AsyncMock,
-        side_effect=HTTPException(status_code=502, detail="Receipt scanning service is temporarily unavailable."),
+        side_effect=LocalizedHTTPException(502, "llm_scan_unavailable"),
     )
     async def test_scan_llm_failure(
         self, mock_extract: AsyncMock, mock_normalize: AsyncMock, client: AsyncClient,
@@ -140,6 +141,9 @@ class TestScanEndpoint:
             files={"file": ("receipt.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 502
+        assert resp.json()["detail"] == (
+            "Scanning is temporarily unavailable. Please try again in a few minutes."
+        )
 
     async def test_scan_requires_auth(self, unauthed_client: AsyncClient) -> None:
         buf = _fake_jpeg()
@@ -828,3 +832,60 @@ class TestFoodPhotoScan:
         assert "FULL package size" in captured["user_prompt"]  # opened rule present
         assert "Czech" in captured["user_prompt"]
         assert captured["response_model"] is FoodPhotoScanResponse
+
+
+class TestScanWithoutNormalization:
+    """Name normalization is a second LLM call after the scan itself. When it is
+    unavailable the scan the user already waited for must survive with raw names."""
+
+    async def test_unavailable_normalization_keeps_the_scan(self, client: AsyncClient) -> None:
+        with patch(
+            "app.api.fridge.extract_items_from_receipt",
+            new_callable=AsyncMock,
+            return_value=MOCK_SCAN_RESULT,
+        ), patch(
+            "app.api.fridge.normalize_item_names",
+            new_callable=AsyncMock,
+            side_effect=LocalizedHTTPException(502, "llm_unavailable"),
+        ):
+            resp = await client.post(
+                "/api/fridge/scan", files={"file": ("r.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        names = {i["name"] for i in resp.json()["items"]}
+        assert {"chicken breast", "rice"} <= names
+
+    async def test_other_normalization_errors_still_fail(self, client: AsyncClient) -> None:
+        """Only the chain's 502 is degraded; a config error (500) must stay loud."""
+        with patch(
+            "app.api.fridge.extract_items_from_receipt",
+            new_callable=AsyncMock,
+            return_value=MOCK_SCAN_RESULT,
+        ), patch(
+            "app.api.fridge.normalize_item_names",
+            new_callable=AsyncMock,
+            side_effect=HTTPException(500, "Gemini API key not configured"),
+        ):
+            resp = await client.post(
+                "/api/fridge/scan", files={"file": ("r.jpg", _fake_jpeg(), "image/jpeg")},
+            )
+        assert resp.status_code == 500
+
+    async def test_scan_failure_reads_in_czech(self, client: AsyncClient) -> None:
+        # The test client overrides get_current_user, which is what stamps the
+        # user's own language; the SPA also sends its picked locale as
+        # Accept-Language, and that is the path exercised here.
+        with patch(
+            "app.api.fridge.extract_items_from_receipt",
+            new_callable=AsyncMock,
+            side_effect=LocalizedHTTPException(502, "llm_scan_unavailable"),
+        ):
+            resp = await client.post(
+                "/api/fridge/scan",
+                files={"file": ("r.jpg", _fake_jpeg(), "image/jpeg")},
+                headers={"Accept-Language": "cs"},
+            )
+        assert resp.status_code == 502
+        assert resp.json()["detail"] == (
+            "Skenování je dočasně nedostupné. Zkuste to prosím za pár minut znovu."
+        )

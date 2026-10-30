@@ -21,6 +21,7 @@ from openai import RateLimitError as OpenAIRateLimitError
 from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry
+from app.core.errors import LocalizedHTTPException
 from app.llm.client import CallKind, LLMClient, check_model_chain_keys
 from app.llm.usage import capture_llm_usage
 from app.models.plan_models import SingleDayResponse
@@ -1135,6 +1136,24 @@ class TestChainTimeBudget:
         with pytest.raises(HTTPException):
             await client.chat_json("sys", "usr", SingleDayResponse)
         assert _models_called(mock) == ["a", "b", "c"]
+
+    async def test_give_up_error_names_the_kind_of_call(
+        self, clock: _Clock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The 502 is a localized key, not an English sentence: one key for every
+        text call (plans, recipes, normalization), one for photo scans."""
+        client, _ = _scripted_client(monkeypatch, {
+            "a": [
+                _after(clock, 1, _service_unavailable_gemini()),
+                _after(clock, 1, _service_unavailable_gemini()),
+            ],
+        })
+        with pytest.raises(LocalizedHTTPException) as text_exc:
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        with pytest.raises(LocalizedHTTPException) as vision_exc:
+            await client.chat_vision_json("sys", "usr", "aGk=", "image/jpeg", SingleDayResponse)
+        assert (text_exc.value.status_code, text_exc.value.key) == (502, "llm_unavailable")
+        assert (vision_exc.value.status_code, vision_exc.value.key) == (502, "llm_scan_unavailable")
 
     async def test_outer_cancel_propagates(
         self, clock: _Clock, monkeypatch: pytest.MonkeyPatch

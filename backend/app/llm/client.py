@@ -24,6 +24,8 @@ from openai.types.chat import ChatCompletionSystemMessageParam
 from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry, settings
+from app.core.error_copy import ErrorKey
+from app.core.errors import LocalizedHTTPException
 from app.llm.usage import record_call_usage, usage_from_completion
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,14 @@ _HTTP_TIMEOUT_SECONDS = 60.0
 # What a chain call sends: text only (chat_json) or a user-supplied image
 # (chat_vision_json). Model demotions are tracked per kind.
 CallKind = Literal["text", "vision"]
+
+# What the user is told when the whole chain gives up, per kind. Text calls back
+# plans, recipes, name normalization and triage alike, so the message names the
+# AI service rather than one feature.
+_UNAVAILABLE_KEY: dict[CallKind, ErrorKey] = {
+    "text": "llm_unavailable",
+    "vision": "llm_scan_unavailable",
+}
 
 class LLMClient:
     """Thin wrapper utilising Instructor for strict JSON schema enforcement."""
@@ -193,7 +203,6 @@ class LLMClient:
         self,
         build_kwargs: Callable[[ModelEntry], dict[str, Any]],
         response_model: type[T],
-        error_context: str,
         kind: CallKind,
     ) -> T:
         """Try each model in settings.model_chain within _CHAIN_BUDGET_SECONDS.
@@ -340,7 +349,7 @@ class LLMClient:
         if last_exc is None and missing_client is not None:
             # Nothing was even attempted: every entry lacked a key. Keep the 500.
             raise missing_client
-        raise HTTPException(502, f"{error_context} is temporarily unavailable.") from last_exc
+        raise LocalizedHTTPException(502, _UNAVAILABLE_KEY[kind]) from last_exc
 
     def _attempt_order(self, now: float, kind: CallKind) -> list[ModelEntry]:
         """settings.model_chain with models currently demoted for `kind` moved to the end.
@@ -381,7 +390,7 @@ class LLMClient:
         def build_kwargs(entry: ModelEntry) -> dict[str, Any]:
             return {"messages": messages}
 
-        return await self._call_with_fallback(build_kwargs, response_model, "Meal planning service", "text")
+        return await self._call_with_fallback(build_kwargs, response_model, "text")
 
     async def chat_vision_json(
         self,
@@ -444,7 +453,7 @@ class LLMClient:
                 "safety_settings": [],
             }
 
-        return await self._call_with_fallback(build_kwargs, response_model, "Receipt scanning service", "vision")
+        return await self._call_with_fallback(build_kwargs, response_model, "vision")
 
     # Three-day rotating meal templates using the seeded demo fridge.
     # Indexed by day_index % 3 → list of (name, meal_type, label, ingredients, steps).
