@@ -158,10 +158,11 @@ describe("UserManagementPanel", () => {
   });
 
   // The hints stay MOUNTED and are hidden via visibility (CLS), so absence is
-  // asserted as "in the DOM but not visible": a plain queryByRole would already
-  // skip a hidden button and pass whether or not it was hidden. getByLabelText,
-  // not getByRole({ hidden: true }): a hidden element's computed accessible name
-  // is "", so a name-filtered role query cannot find it at all.
+  // asserted as "in the DOM but not visible": queryByRole returns null for a
+  // hidden hint and an unmounted one alike, so it can't tell whether the hint
+  // still holds its space. getByLabelText + not.toBeVisible() checks both.
+  // getByLabelText, not getByRole({ hidden: true }): a hidden element's computed
+  // accessible name is "", so a name-filtered role query cannot find it at all.
   it("hides the row-action hints when no row has actions", async () => {
     vi.mocked(api.fetchAdminUsers).mockResolvedValue(
       listResp([mkUser({ id: 5, email: "demo@example.com", is_demo: true, onboarding_completed: true })]),
