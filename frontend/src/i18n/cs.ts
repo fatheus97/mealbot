@@ -274,7 +274,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "staples.hintIncludeSpices": "Zahrnout koření",
   "staples.matchHintLabel": "Jak se zásoby spíže porovnávají",
   "staples.matchHint":
-    "Skryje jen surovinu s přesně stejným názvem (na velikosti písmen nezáleží), a to jen v nákupních seznamech vytvořených po uložení.",
+    "Položka ze zásob skryje jen surovinu s přesně stejným názvem (na velikosti písmen nezáleží), a to jen v nákupních seznamech vytvořených po uložení.",
   "staples.loading": "Načítání zásob…",
   "staples.connecting": "Připojování k serveru…",
   "staples.placeholder": "Přidat položku (např. olivový olej)",
@@ -481,7 +481,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Vygenerujte jeden recept na to, co právě vaříte. Označte ho jako uvařený a suroviny se odečtou z lednice.",
   "cookNow.markCookedHintLabel": "O označení jako uvařené",
   "cookNow.markCookedHint":
-    "Odečte tato množství z položek v lednici se stejným názvem. Suroviny, které v lednici žádnou odpovídající položku nemají, se přeskočí. Vrátit to nelze.",
+    "Odečte tato množství (kromě koření) z položek v lednici se stejným názvem. Suroviny, které v lednici žádnou odpovídající položku nemají, se přeskočí. Vrátit to nelze.",
   "cookNow.mealType": "Typ jídla",
   "cookNow.people": "Počet osob",
   "cookNow.stockOnly": "Použít jen to, co je v lednici",

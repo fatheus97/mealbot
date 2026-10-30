@@ -193,6 +193,9 @@ describe("MealCard", () => {
       expect(screen.getByRole("tooltip")).toHaveTextContent(
         /don't update the shopping list or what was already taken from your fridge/i,
       );
+      // The hint sits inside the <legend>, but must not join the group's name:
+      // the fieldset is labelled by the legend text alone, open bubble or not.
+      expect(screen.getByRole("group", { name: "Ingredients" })).toBeInTheDocument();
     });
 
     it("fires onStartEdit from the Edit button", async () => {

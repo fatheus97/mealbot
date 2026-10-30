@@ -549,7 +549,7 @@ export const en = {
     "Generate one recipe for what you're cooking right now. Mark it cooked to debit your fridge.",
   "cookNow.markCookedHintLabel": "About marking as cooked",
   "cookNow.markCookedHint":
-    "Subtracts these amounts from fridge items with the same name; ingredients with no matching fridge item are skipped. There is no undo.",
+    "Subtracts these amounts, except spices, from fridge items with the same name; ingredients with no matching fridge item are skipped. There is no undo.",
   "cookNow.mealType": "Meal type",
   "cookNow.people": "People",
   "cookNow.stockOnly": "Only use what's in the fridge",

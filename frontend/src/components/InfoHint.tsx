@@ -27,8 +27,40 @@ interface InfoHintProps {
  * ConfirmDialog: capture phase + stopImmediatePropagation, because bubble-vs-capture
  * ordering between two `window` listeners is not well-defined.
  */
+/** Bubble width in px; also the room a right-anchored bubble needs left of the trigger. */
+const BUBBLE_WIDTH = 240;
+/** Minimum gap kept between the bubble and the viewport edge. */
+const EDGE_GAP = 8;
+
+/** Which trigger edge the bubble is pinned to, and how wide it may grow there. */
+interface Placement {
+  side: "left" | "right";
+  maxWidth: number;
+}
+
+/**
+ * Measured at open time, in the same handler that opens the hint, so the bubble's
+ * first paint is already on the right side.
+ *
+ * Right-anchored (the default) the bubble grows LEFTWARD from the trigger; near the
+ * left edge of a narrow screen that put most of it off-screen, cut off and
+ * unscrollable. There it flips to grow rightward instead, and maxWidth is clamped to
+ * the room actually left on the chosen side, so neither side can overflow.
+ */
+function placeFor(trigger: HTMLElement): Placement {
+  const rect = trigger.getBoundingClientRect();
+  const side = rect.right < BUBBLE_WIDTH + EDGE_GAP ? "left" : "right";
+  const room = side === "left" ? window.innerWidth - rect.left : rect.right;
+  return { side, maxWidth: Math.min(window.innerWidth - 2 * EDGE_GAP, room - EDGE_GAP) };
+}
+
 export function InfoHint({ text, label = "More information" }: InfoHintProps) {
-  const [open, setOpen] = useState(false);
+  // null = closed. One state, so the bubble can never be open without a placement.
+  const [placement, setPlacement] = useState<Placement | null>(null);
+  const open = placement !== null;
+  const close = () => setPlacement(null);
+  // Every open path (hover, focus, click/tap) goes through here: same measurement.
+  const show = (e: { currentTarget: HTMLElement }) => setPlacement(placeFor(e.currentTarget));
   const rootRef = useRef<HTMLSpanElement>(null);
   const tooltipId = useId();
   const isMobile = useIsMobile();
@@ -45,7 +77,7 @@ export function InfoHint({ text, label = "More information" }: InfoHintProps) {
   useEffect(() => {
     if (!open) return;
     const onDocPointerDown = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setPlacement(null);
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -56,7 +88,7 @@ export function InfoHint({ text, label = "More information" }: InfoHintProps) {
       // capture phase below for the same reason ConfirmDialog is: ordering
       // between two bubble-phase window listeners is not well-defined.
       e.stopImmediatePropagation();
-      setOpen(false);
+      setPlacement(null);
     };
     document.addEventListener("pointerdown", onDocPointerDown);
     window.addEventListener("keydown", onKeyDown, true);
@@ -73,23 +105,31 @@ export function InfoHint({ text, label = "More information" }: InfoHintProps) {
         aria-label={label}
         aria-expanded={open}
         aria-describedby={open ? tooltipId : undefined}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onMouseEnter={show}
+        onMouseLeave={close}
+        onFocus={show}
+        onBlur={close}
         // Open (not toggle) on click: on touch, the tap also emits a synthetic
         // mouseenter, so a toggle would net to "closed" and the tap would look dead.
         // Tap-away / Escape / blur handle dismissal instead.
         onClick={(e) => {
           e.stopPropagation();
-          setOpen(true);
+          show(e);
         }}
         style={{ ...triggerStyle, width: size, height: size, minWidth: size, minHeight: size }}
       >
         <span aria-hidden="true">i</span>
       </button>
-      {open && (
-        <span role="tooltip" id={tooltipId} style={bubbleStyle}>
+      {placement && (
+        <span
+          role="tooltip"
+          id={tooltipId}
+          style={{
+            ...bubbleStyle,
+            ...(placement.side === "left" ? { left: 0 } : { right: 0 }),
+            maxWidth: placement.maxWidth,
+          }}
+        >
           {text}
         </span>
       )}
@@ -125,10 +165,10 @@ const triggerStyle: CSSProperties = {
 const bubbleStyle: CSSProperties = {
   position: "absolute",
   bottom: "calc(100% + 8px)", // float above the icon so it never covers the trigger
-  right: 0,
+  // left/right and maxWidth are measured per open (see placeFor), never fixed here.
   zIndex: 20,
-  width: 240,
-  maxWidth: "80vw", // never overflow a narrow (mobile) viewport
+  width: BUBBLE_WIDTH,
+  boxSizing: "border-box", // so maxWidth bounds the painted box, padding included
   padding: "0.5rem 0.625rem",
   borderRadius: 8,
   background: "#1f2937", // self-contained dark surface — legible over any page

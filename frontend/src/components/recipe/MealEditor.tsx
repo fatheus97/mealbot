@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import type { IngredientAmount, PlannedMeal } from "../../types";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useI18n, useMealTypeLabel } from "../../i18n";
@@ -54,6 +54,7 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
   const { t } = useI18n();
   const mealTypeLabel = useMealTypeLabel();
   const isMobile = useIsMobile();
+  const ingredientsLegendId = useId();
   const [name, setName] = useState(meal.name);
   const [time, setTime] = useState<string>(
     meal.total_time_minutes != null ? String(meal.total_time_minutes) : "",
@@ -157,9 +158,14 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
         />
       </label>
 
-      <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.5rem 0" }}>
+      {/* Named by the legend TEXT only: a hint inside <legend> would otherwise join the
+          group's accessible name (its button label always, its bubble text while open). */}
+      <fieldset
+        aria-labelledby={ingredientsLegendId}
+        style={{ border: "none", padding: 0, margin: "0 0 0.5rem 0" }}
+      >
         <legend style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.3rem" }}>
-          {t("editor.ingredients")}
+          <span id={ingredientsLegendId}>{t("editor.ingredients")}</span>
           {ingredientsHint && <> {ingredientsHint}</>}
         </legend>
         {ingredients.map((ing, idx) => (
