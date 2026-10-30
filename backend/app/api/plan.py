@@ -375,6 +375,12 @@ async def delete_plan(
 ) -> Response:
     """Delete a plan and its associated meal entries.
 
+    Deleting a confirmed, unfinished plan first returns to the fridge what
+    Finish would: the confirm-time batches of every meal not marked cooked
+    (a leftover returns nothing; its source carried the debit). The entries
+    hold the only record of that debit, so deleting them without the restore
+    loses the food for good. Restore and delete commit together.
+
     Refuses (409) if any meal entry on the plan is in the user's cookbook.
     Cookbook membership outlives the plan it was first cooked in, so silently
     cascading the delete would destroy data the user explicitly chose to keep.
@@ -398,6 +404,12 @@ async def delete_plan(
         raise LocalizedHTTPException(
             409, "plan_favorites_block_delete", count=favorite_count
         )
+
+    # A finished plan already returned its food and an unconfirmed one never
+    # took any. Staged only (it also sets finished_at on a row about to go).
+    if plan.confirmed_at is not None and plan.finished_at is None:
+        assert current_user.id is not None  # narrowed by the ownership check above
+        await finish_plan_fridge(session, current_user.id, plan)
 
     # Delete meal entries first (no cascade in SQLModel by default)
     await session.execute(
