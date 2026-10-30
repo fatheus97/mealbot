@@ -705,26 +705,19 @@ async def delete_account(
         )
 
     user_id = current_user.id
-    subscription_id = current_user.stripe_subscription_id
     try:
-        outcome = await stripe_service.stop_billing_before_removal(current_user)
+        billing = await stripe_service.stop_billing(current_user, "cancel_now")
     except stripe_service.BillingStopFailed:
         # Fail CLOSED. Deleting now would leave a live subscription billing a
         # customer with no account and no portal to cancel from. Covers a
-        # missing STRIPE_SECRET_KEY too (see BillingStopFailed): without that a
-        # deployment that lost its key would 500 here with nothing logged.
+        # deployment that lost its STRIPE_SECRET_KEY too (reason "unconfigured"),
+        # which would otherwise 500 here with nothing logged.
         logger.exception("account_delete_cancel_failed user_id=%s", user_id)
         raise LocalizedHTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "auth_delete_billing_unavailable",
         ) from None
-    if outcome == "already_gone":
-        # The one Stripe failure that is not a reason to keep the account alive.
-        logger.info(
-            "account_delete_subscription_already_gone user_id=%s sub=%s",
-            user_id,
-            subscription_id,
-        )
+    logger.info("account_delete_billing_stopped user_id=%s billing=%s", user_id, billing)
 
     # A Core delete() (not session.delete) so the DB-level CASCADE / SET NULL
     # fire instead of ORM relationship handling null-updating NOT NULL child

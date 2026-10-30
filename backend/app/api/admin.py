@@ -706,6 +706,27 @@ async def _revoke_sessions_and_bump(session: AsyncSession, user: User, now: date
     user.token_version += 1
 
 
+def _billing_stop_failed(exc: stripe_service.BillingStopFailed, verb: str) -> HTTPException:
+    """The 503 for an admin action refused because billing couldn't be stopped,
+    worded so the admin knows whether retrying can help."""
+    if exc.reason == "refused":
+        why = (
+            f"Stripe refused to stop {exc.stripe_id}. "
+            "Stop it in the Stripe dashboard, then try again."
+        )
+    elif exc.reason == "unconfigured":
+        why = (
+            "Stripe isn't configured on this server, but this user has a "
+            f"subscription ({exc.stripe_id}) that may still be live."
+        )
+    else:
+        why = "Stripe couldn't be reached. Try again shortly."
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"Billing wasn't stopped, so the account was not {verb}. {why}",
+    )
+
+
 async def _ensure_active_admin_remains(
     session: AsyncSession, target: User, detail: str
 ) -> None:
@@ -804,8 +825,8 @@ async def update_user(
       when other admins exist).
     - Disabling (is_active True→False) triggers the instant+complete lockout
       (revoke sessions + bump token_version) and first stops the subscription
-      renewing (``stop_renewal_before_lockout``): a locked-out user can't reach
-      the billing portal. If Stripe can't be reached the request 503s with
+      renewing (``stripe_service.stop_billing``): a locked-out user can't reach
+      the billing portal. If billing can't be stopped the request 503s with
       nothing changed. Reactivating leaves billing alone.
     """
     target = await session.get(User, user_id)
@@ -859,14 +880,12 @@ async def update_user(
             # Last step before any write, after every guard: a 503 here must
             # leave nothing half-applied (the session is never committed).
             try:
-                active_detail["billing"] = await stripe_service.stop_renewal_before_lockout(target)
-            except stripe_service.BillingStopFailed:
+                active_detail["billing"] = await stripe_service.stop_billing(
+                    target, "end_at_period_end"
+                )
+            except stripe_service.BillingStopFailed as exc:
                 logger.exception("admin_deactivate_billing_failed target_id=%s", target.id)
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Could not stop this user's subscription at Stripe, "
-                    "so the account was not deactivated. Try again shortly.",
-                ) from None
+                raise _billing_stop_failed(exc, "deactivated") from None
         target.is_active = body.is_active
         if body.is_active is False:
             await _revoke_sessions_and_bump(session, target, now)
@@ -1008,7 +1027,7 @@ async def delete_user(
     account (self-guard); 503 if Stripe can't cancel the subscription.
 
     Billing stops first, the same way self-service deletion does it
-    (``stop_billing_before_removal``): cancelled immediately, the rest of the
+    (``stripe_service.stop_billing``): cancelled immediately, the rest of the
     paid period forfeited. Failing closed matters most here, because after the
     delete nobody can reach that subscription from the app at all.
 
@@ -1048,14 +1067,10 @@ async def delete_user(
         )
 
     try:
-        billing = await stripe_service.stop_billing_before_removal(target)
-    except stripe_service.BillingStopFailed:
+        billing = await stripe_service.stop_billing(target, "cancel_now")
+    except stripe_service.BillingStopFailed as exc:
         logger.exception("admin_delete_billing_failed target_id=%s", target.id)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Could not cancel this user's subscription at Stripe, "
-            "so the account was not deleted. Try again shortly.",
-        ) from None
+        raise _billing_stop_failed(exc, "deleted") from None
 
     # Audit FIRST so the email snapshot is captured before the row is gone.
     record_admin_action(

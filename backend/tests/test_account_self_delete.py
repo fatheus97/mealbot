@@ -17,7 +17,6 @@ bills a real card for an account that no longer exists.
 from datetime import UTC, datetime
 
 import pytest
-import stripe
 from httpx import AsyncClient
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +35,8 @@ from app.models.db_models import (
     User,
 )
 from app.services import stripe_service
+from app.services.stripe_service import BillingStopMode
+from tests import fake_stripe
 from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 ENDPOINT = "/api/auth/delete-account"
@@ -256,10 +257,11 @@ class TestSelfDeleteCancelsBilling:
     """Cancel at Stripe BEFORE deleting, and abort the delete if that fails.
 
     The failure this guards is not a 500 — it is a live subscription charging a
-    card every month for an account with no login and no billing portal.
+    card every month for an account with no login and no billing portal. What
+    ``stop_billing`` tells Stripe is covered in test_stripe_stop_billing.py.
     """
 
-    async def test_cancels_the_subscription_before_deleting(
+    async def test_cancels_billing_before_deleting(
         self,
         unauthed_client: AsyncClient,
         test_user: User,
@@ -268,6 +270,7 @@ class TestSelfDeleteCancelsBilling:
     ) -> None:
         uid = test_user.id
         assert uid is not None
+        test_user.stripe_customer_id = "cus_1"
         test_user.stripe_subscription_id = "sub_live_123"
         test_user.subscription_status = "active"
         db_session.add(test_user)
@@ -278,40 +281,37 @@ class TestSelfDeleteCancelsBilling:
         # Records whether the user row still existed at cancel time — ordering is
         # the whole point, and asserting only "it was called" would pass even if
         # the cancel ran after the delete.
-        async def _fake_cancel(subscription_id: str) -> None:
-            seen.append(subscription_id)
+        async def _fake_stop(user: User, mode: BillingStopMode) -> str:
+            seen.append(mode)
             assert await _user_count(db_session, uid) == 1
+            return "sub_live_123=cancelled"
 
-        monkeypatch.setattr(stripe_service, "cancel_subscription_now", _fake_cancel)
+        monkeypatch.setattr(stripe_service, "stop_billing", _fake_stop)
 
         resp = await unauthed_client.post(
             ENDPOINT, json={"current_password": TEST_PASSWORD}
         )
         assert resp.status_code == 204
-        assert seen == ["sub_live_123"]
+        assert seen == ["cancel_now"]
         assert await _user_count(db_session, uid) == 0
 
-    async def test_stripe_failure_aborts_the_delete(
+    @pytest.mark.parametrize("reason", ["unreachable", "refused", "unconfigured"])
+    async def test_billing_stop_failure_aborts_the_delete(
         self,
         unauthed_client: AsyncClient,
         test_user: User,
         db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
+        reason: str,
     ) -> None:
         uid = test_user.id
         assert uid is not None
-        test_user.stripe_subscription_id = "sub_live_456"
-        db_session.add(test_user)
-        await db_session.flush()
         await _login(unauthed_client)
 
-        async def _boom(subscription_id: str) -> None:
-            # The ignores below (here and in _already_gone) are the stripe SDK's
-            # doing: it ships its exception constructors untyped, so strict mode
-            # rejects the CALL, not the usage.
-            raise stripe.APIConnectionError("stripe is down")  # type: ignore[no-untyped-call]
+        async def _fail(user: User, mode: BillingStopMode) -> str:
+            raise stripe_service.BillingStopFailed("sub_live_456", reason)  # type: ignore[arg-type]
 
-        monkeypatch.setattr(stripe_service, "cancel_subscription_now", _boom)
+        monkeypatch.setattr(stripe_service, "stop_billing", _fail)
 
         resp = await unauthed_client.post(
             ENDPOINT, json={"current_password": TEST_PASSWORD}
@@ -327,19 +327,12 @@ class TestSelfDeleteCancelsBilling:
         db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """The one path the other tests in this class cannot reach.
-
-        They all monkeypatch ``cancel_subscription_now`` itself, so
-        ``_require_stripe()`` never runs — and it raises a PLAIN ``RuntimeError``
-        (not a ``StripeError``) when the secret key is missing. Reachable on a
-        deployment that had billing configured, so users hold subscription ids,
-        and later lost the key. Caught by the review, not by this suite.
-
-        The real service function runs here; only the key is taken away.
-        """
+        """A deployment that had billing (so users hold subscription ids) and
+        later lost the key. The real service runs; only the key is taken away."""
         uid = test_user.id
         assert uid is not None
         test_user.stripe_subscription_id = "sub_orphaned_999"
+        test_user.subscription_status = "active"
         db_session.add(test_user)
         await db_session.flush()
         await _login(unauthed_client)
@@ -352,31 +345,30 @@ class TestSelfDeleteCancelsBilling:
         assert resp.status_code == 503
         assert await _user_count(db_session, uid) == 1
 
-    async def test_already_cancelled_subscription_still_deletes(
+    async def test_end_to_end_cancels_every_live_subscription(
         self,
         unauthed_client: AsyncClient,
         test_user: User,
         db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        fake = fake_stripe.install(monkeypatch)
+        fake.add_sub("sub_live", customer="cus_self")
+        fake.add_sub("sub_old", customer="cus_self", status="canceled")
         uid = test_user.id
         assert uid is not None
-        test_user.stripe_subscription_id = "sub_gone_789"
+        test_user.stripe_customer_id = "cus_self"
+        test_user.stripe_subscription_id = "sub_live"
+        test_user.subscription_status = "active"
         db_session.add(test_user)
         await db_session.flush()
         await _login(unauthed_client)
-
-        async def _already_gone(subscription_id: str) -> None:
-            raise stripe.InvalidRequestError(  # type: ignore[no-untyped-call]
-                "No such subscription", param="id"
-            )
-
-        monkeypatch.setattr(stripe_service, "cancel_subscription_now", _already_gone)
 
         resp = await unauthed_client.post(
             ENDPOINT, json={"current_password": TEST_PASSWORD}
         )
         assert resp.status_code == 204
+        assert [c[1] for c in fake.calls if c[0] == "Subscription.cancel"] == ["sub_live"]
         assert await _user_count(db_session, uid) == 0
 
     async def test_no_subscription_means_no_stripe_call(
@@ -386,17 +378,14 @@ class TestSelfDeleteCancelsBilling:
         db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        fake = fake_stripe.install(monkeypatch)
         uid = test_user.id
         assert uid is not None
         await _login(unauthed_client)
-
-        async def _must_not_run(subscription_id: str) -> None:
-            raise AssertionError("Stripe must not be called without a subscription")
-
-        monkeypatch.setattr(stripe_service, "cancel_subscription_now", _must_not_run)
 
         resp = await unauthed_client.post(
             ENDPOINT, json={"current_password": TEST_PASSWORD}
         )
         assert resp.status_code == 204
+        assert fake.calls == []
         assert await _user_count(db_session, uid) == 0

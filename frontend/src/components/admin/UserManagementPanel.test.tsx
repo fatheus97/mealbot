@@ -153,6 +153,7 @@ describe("UserManagementPanel", () => {
     expect(tip).toHaveTextContent(/comp leaves billing alone/i);
     expect(tip).toHaveTextContent(/deactivate stops the subscription renewing/i);
     expect(tip).toHaveTextContent(/delete cancels it at once/i);
+    expect(tip).toHaveTextContent(/if billing can't be stopped, deactivate and delete change nothing/i);
 
     const reset = screen.getAllByRole("button", { name: "About Reset onboarding" });
     expect(reset).toHaveLength(1);
