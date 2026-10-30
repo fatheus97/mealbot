@@ -20,6 +20,7 @@ from app.models.plan_models import (
     ReceiptScanResponse,
     ScannedItemDTO,
     ScannedItemsResponse,
+    ScannedReceiptItem,
     StockItemDTO,
     WasteEntryDTO,
     WasteRecordedResponse,
@@ -234,11 +235,24 @@ async def scan_receipt(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     fridge_items = await get_fridge_items(session, current_user.id)
-    items = await normalize_item_names(
-        scan_result.items,
-        [i.name for i in fridge_items],
-        mock=current_user.is_demo,
-    )
+    items: list[ScannedReceiptItem]
+    try:
+        items = await normalize_item_names(
+            scan_result.items,
+            [i.name for i in fridge_items],
+            mock=current_user.is_demo,
+        )
+    except HTTPException as exc:
+        if exc.status_code != 502:
+            raise
+        # Normalization only maps scanned names onto names already in the fridge.
+        # Without it a row may read "rýže" next to an existing "rýže basmati";
+        # failing here would throw away the scan the user just waited for.
+        logger.warning(
+            "Scan name normalization unavailable for user %s; keeping raw names",
+            current_user.id,
+        )
+        items = [*scan_result.items]
 
     # Filter out ready_to_eat items if user doesn't track snacks
     if not current_user.track_snacks:

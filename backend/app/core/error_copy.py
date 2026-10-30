@@ -133,6 +133,9 @@ ErrorKey = Literal[
     "receipt_pdf_unreadable",
     "receipt_pdf_no_text",
     "receipt_pdf_timeout",
+    # ── LLM provider chain (app/llm/client.py) ─────────────────────────────
+    "llm_unavailable",
+    "llm_scan_unavailable",
 ]
 
 #: Keys whose sentence changes with a count. The copy holds
@@ -297,6 +300,12 @@ _EN: Final[dict[str, str]] = {
     ),
     "receipt_pdf_timeout": (
         "Receipt PDF took too long to process. Try a smaller/simpler file."
+    ),
+    "llm_unavailable": (
+        "The AI service is temporarily unavailable. Please try again in a few minutes."
+    ),
+    "llm_scan_unavailable": (
+        "Scanning is temporarily unavailable. Please try again in a few minutes."
     ),
     "receipt_pdf_too_many_pages_one": "PDF has $count page — maximum is $maximum.",
     "receipt_pdf_too_many_pages_other": (
@@ -488,6 +497,12 @@ _CS: Final[dict[str, str]] = {
     "receipt_pdf_timeout": (
         "Zpracování PDF s účtenkou trvalo příliš dlouho. Zkuste menší nebo "
         "jednodušší soubor."
+    ),
+    "llm_unavailable": (
+        "Služba AI je dočasně nedostupná. Zkuste to prosím za pár minut znovu."
+    ),
+    "llm_scan_unavailable": (
+        "Skenování je dočasně nedostupné. Zkuste to prosím za pár minut znovu."
     ),
     # Here the count DOES govern the noun: 1 strana / 2-4 strany / 5+ stran.
     "receipt_pdf_too_many_pages_one": "PDF má $count stranu — maximum je $maximum.",
