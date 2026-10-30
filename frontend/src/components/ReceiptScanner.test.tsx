@@ -238,6 +238,34 @@ describe('ReceiptScanner', () => {
     expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
   });
 
+  it.each([
+    ['desktop table', false],
+    ['mobile cards', true],
+  ])('explains the estimated expiry dates once, in review only (%s)', async (_layout, mobile) => {
+    // ONE hint on the intro line, not one per "Expires" label: on mobile that
+    // label repeats on every card.
+    setMobileViewport(mobile);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
+        { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+    expect(screen.queryByRole('button', { name: 'About expiry dates' })).not.toBeInTheDocument();
+
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await waitFor(() => expect(screen.getByDisplayValue('rice')).toBeInTheDocument());
+
+    const hints = screen.getAllByRole('button', { name: 'About expiry dates' });
+    expect(hints).toHaveLength(1);
+    await user.click(hints[0]);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/not read from the package/i);
+  });
+
   it('renders review items as cards (not a table) on mobile, edits still flow', async () => {
     setMobileViewport(true);
     mockedScanReceipt.mockResolvedValue({

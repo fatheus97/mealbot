@@ -77,6 +77,42 @@ describe("PaywallModal", () => {
     expect(startCheckout).toHaveBeenCalledWith("annual");
   });
 
+  it.each([
+    ["monthly only", false],
+    ["with the annual toggle", true],
+  ])("explains the AI allowance and the one-trial rule (%s)", async (_layout, annual) => {
+    authState.annualBillingAvailable = annual;
+    const user = userEvent.setup();
+    render(<PaywallModal />);
+    expect(screen.queryByRole("button", { name: "About the AI allowance" })).not.toBeInTheDocument();
+    firePaywall();
+
+    // Beside the title, not inside it: the h3 names the dialog.
+    expect(screen.getByRole("dialog", { name: "Subscription required" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "About the AI allowance" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/one per calendar month/i);
+    await user.click(screen.getByRole("button", { name: "About the free trial" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/charged straight away/i);
+  });
+
+  it("Escape closes an open hint first, and only the next one closes the paywall", async () => {
+    // Regression: the paywall's Escape listener sits in the window CAPTURE
+    // phase and registers before any hint's, so it ran first and closed the
+    // whole dialog over the hint the user was reading.
+    const user = userEvent.setup();
+    render(<PaywallModal />);
+    firePaywall();
+    await user.click(screen.getByRole("button", { name: "About the free trial" }));
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("dismisses on 'Maybe later' without starting checkout", async () => {
     render(<PaywallModal />);
     firePaywall();

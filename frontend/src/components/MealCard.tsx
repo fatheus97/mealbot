@@ -1,4 +1,5 @@
 import { FavoriteStar } from "./FavoriteStar";
+import { InfoHint } from "./InfoHint";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
@@ -280,6 +281,12 @@ export function MealCard({
           onCancel={onCancelEdit}
           saving={savePending}
           error={saveError}
+          // Plan-only claim: an edit here never recomputes the shopping list or
+          // the confirm-time fridge debit. Cook Now's editor gets no hint, since
+          // there the edited recipe IS what "Mark as cooked" debits.
+          ingredientsHint={
+            <InfoHint text={t("meal.editIngredientsHint")} label={t("meal.editIngredientsHintLabel")} />
+          }
         />
       ) : (
         <>

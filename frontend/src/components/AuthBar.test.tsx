@@ -145,6 +145,26 @@ describe('AuthBar', () => {
     expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument();
   });
 
+  it('explains the language picker once logged in, from outside its label', async () => {
+    localStorage.setItem('mealbot_user_id', '1');
+    localStorage.setItem('mealbot_user_email', 'user@test.com');
+    const user = userEvent.setup();
+    render(<AuthBar />, { wrapper: createWrapper() });
+
+    // The picker's <label> still names only its <select>.
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'About the language picker' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      /in this browser only\. Plans and recipes are written in the Language chosen in Settings/i,
+    );
+  });
+
+  it('shows no language hint when logged out (it points at Settings, not reachable yet)', () => {
+    render(<AuthBar />, { wrapper: createWrapper() });
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'About the language picker' })).not.toBeInTheDocument();
+  });
+
   it('logout clears state', async () => {
     localStorage.setItem('mealbot_user_id', '1');
     localStorage.setItem('mealbot_user_email', 'user@test.com');

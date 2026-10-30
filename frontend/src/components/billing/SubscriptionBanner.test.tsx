@@ -130,6 +130,31 @@ describe("SubscriptionBanner", () => {
     expect(openPortal).not.toHaveBeenCalled();
   });
 
+  it("explains that a trial's 'renews' date is the first charge", async () => {
+    mockedUseAuth.mockReturnValue(
+      authState({ isSubscribed: true, subscriptionStatus: "trialing", currentPeriodEnd: "2026-08-01T00:00:00Z" }),
+    );
+    const user = userEvent.setup();
+    render(<SubscriptionBanner />);
+    await user.click(screen.getByRole("button", { name: "About the first payment" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/a whole year at once on annual/i);
+    // The banner is a polite live region; the bubble mounts inside a part of it
+    // that is switched off, so opening the hint is not announced as a status.
+    expect(screen.getByRole("tooltip").closest('[aria-live="off"]')).not.toBeNull();
+  });
+
+  it.each([
+    ["a canceled trial", { subscriptionStatus: "trialing", cancelAtPeriodEnd: true }],
+    ["an active subscription", { subscriptionStatus: "active" }],
+    ["past_due", { subscriptionStatus: "past_due" }],
+  ])("shows no first-payment hint for %s", (_label, overrides) => {
+    mockedUseAuth.mockReturnValue(
+      authState({ isSubscribed: true, currentPeriodEnd: "2026-08-01T00:00:00Z", ...overrides }),
+    );
+    render(<SubscriptionBanner />);
+    expect(screen.queryByRole("button", { name: "About the first payment" })).not.toBeInTheDocument();
+  });
+
   describe("in Czech", () => {
     beforeEach(() => useLocaleStore.setState({ locale: "cs", explicit: true }));
     afterEach(() =>

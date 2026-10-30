@@ -4,6 +4,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { Trans } from "../../i18n/Trans";
 import { legalHref } from "../../i18n/localeFormat";
+import { InfoHint } from "../InfoHint";
 import type { BillingPlan } from "../../types";
 
 // Marketing copy for the plan toggle. The authoritative amount is shown on Stripe's
@@ -66,10 +67,14 @@ export function PaywallModal() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !checkoutPending) {
-        e.stopImmediatePropagation();
-        setOpen(false);
-      }
+      if (e.key !== "Escape" || checkoutPending) return;
+      // An open InfoHint in the card owns this Escape. Both listeners sit in the
+      // window CAPTURE phase and this one registered first, so it runs first:
+      // without this check one Escape closed the whole paywall instead of the
+      // hint the user was reading, and the hint never saw the key.
+      if (dialogRef.current?.querySelector('[role="tooltip"]')) return;
+      e.stopImmediatePropagation();
+      setOpen(false);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -149,9 +154,15 @@ export function PaywallModal() {
           border: "1px solid #e5e7eb",
         }}
       >
-        <h3 id={titleId} style={{ margin: "0 0 0.5rem 0", fontSize: "1.15rem" }}>
-          {t("billing.paywall.title")}
-        </h3>
+        {/* The hint sits BESIDE the h3, not in it: the h3 names the dialog
+            (aria-labelledby), and the hint's label would join that name. Outside
+            the annual-only plan group, so both layouts show it. */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", margin: "0 0 0.5rem 0" }}>
+          <h3 id={titleId} style={{ margin: 0, fontSize: "1.15rem" }}>
+            {t("billing.paywall.title")}
+          </h3>
+          <InfoHint label={t("billing.paywall.allowanceHintLabel")} text={t("billing.paywall.allowanceHint")} />
+        </div>
         <p style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.95rem", lineHeight: 1.5 }}>
           {t("billing.paywall.body")}
         </p>
@@ -200,7 +211,7 @@ export function PaywallModal() {
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.5rem" }}>
           <button
             ref={laterRef}
             type="button"
@@ -236,6 +247,9 @@ export function PaywallModal() {
           >
             {checkoutPending ? t("billing.paywall.starting") : t("billing.paywall.start")}
           </button>
+          {/* has_used_trial never reaches the client, so the button cannot
+              relabel itself for a returning account; the hint says it instead. */}
+          <InfoHint label={t("billing.paywall.trialHintLabel")} text={t("billing.paywall.trialHint")} />
         </div>
 
         {/* The paywall is where money starts changing hands, and it linked to

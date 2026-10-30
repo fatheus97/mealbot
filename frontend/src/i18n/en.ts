@@ -29,6 +29,13 @@ export const en = {
   // separate setting (`User.language`, in preferences) and stays that way — see
   // store/useLocaleStore.ts for why the two lists are not the same list.
   "lang.label": "Language",
+  // Info hints (ROADMAP U-9) for the user-facing controls whose effect is not
+  // visible from the control: each one below is checked against the code it
+  // describes. Labels never repeat the control's own name, so a hint and its
+  // control never share an accessible name (see planner.mealsPerDayHintLabel).
+  "lang.hintLabel": "About the language picker",
+  "lang.hint":
+    "Changes the app's own text, in this browser only. Plans and recipes are written in the Language chosen in Settings.",
 
   // ─── Auth panel ───────────────────────────────────────────────────────────
   "auth.welcome": "Welcome",
@@ -189,6 +196,8 @@ export const en = {
   "verify.sent": "Sent ✓",
   "verify.sending": "Sending…",
   "verify.resend": "Resend link",
+  "verify.resendHintLabel": "About older links",
+  "verify.resendHint": "Each resend cancels the earlier links, so only the newest email works.",
   "verify.wrongAddress": "Wrong address?",
   "verify.resendFailed": "Couldn't resend just now — please try again in a minute.",
 
@@ -223,6 +232,9 @@ export const en = {
   "settings.discardCancel": "Keep editing",
   "settings.emailAddress": "Email address",
   "settings.changeEmail": "Change",
+  "settings.changeEmailHintLabel": "What changing your email does",
+  "settings.changeEmailHint":
+    "Until you confirm the new address, new plans, recipes and scans are paused. Your other devices are also signed out.",
   "settings.yourData": "Your data",
   "settings.exportData": "⬇️ Download my data",
   "settings.exporting": "Preparing…",
@@ -304,6 +316,9 @@ export const en = {
   // The setting is referred to by its short name here, not its full label —
   // a quoted control name inside a sentence, scoped to this sentence.
   "staples.hintIncludeSpices": "Include spices",
+  "staples.matchHintLabel": "How staples are matched",
+  "staples.matchHint":
+    "Only hides an ingredient whose name matches exactly (capital letters aside), and only on shopping lists made after you save.",
   "staples.loading": "Loading staples…",
   "staples.connecting": "Connecting to server…",
   "staples.placeholder": "Add a staple (e.g. olive oil)",
@@ -458,6 +473,15 @@ export const en = {
   "planner.reopen": "Reopen",
   "planner.reopening": "Reopening...",
   "planner.reopenTitle": "Re-debit ingredients for uncooked meals and return to the active plan",
+  "planner.regenerateHintLabel": "About freezing and regenerating",
+  "planner.regenerateHint":
+    "Freeze the meals you want to keep and Regenerate Unfrozen appears. It redoes the rest with this plan's original choices, not the form above.",
+  "planner.confirmHintLabel": "About confirming",
+  "planner.confirmHint":
+    "Saves the plan to My Plans and takes the ingredients you already have, except spices, out of your fridge right away.",
+  "planner.finishHintLabel": "About finishing",
+  "planner.finishHint":
+    "Puts the food taken for meals not marked Cooked back in your fridge. After that, no edits or cooked marks until you reopen the plan.",
   "planner.saveFailed": "Save failed",
 
   "planner.shoppingList": "Shopping List",
@@ -466,11 +490,18 @@ export const en = {
   "planner.copyLabel": "Copy shopping list",
   "planner.share": "Share",
   "planner.shareLabel": "Share shopping list",
+  "planner.shoppingListHintLabel": "About the shopping list",
+  "planner.shoppingListHint":
+    "Worked out when the plan was generated, minus what your fridge held then and your pantry staples. Later edits don't update it, and ticks aren't saved.",
 
   "chips.remove": "Remove {chip}",
   "chips.count": "{count} of {max}",
   "chips.limitReached": "Limit of {max} reached — remove one to add another.",
   "fields.tastesOverLimit": "Only the first {max} will be used. You entered {count}.",
+  // Shared by Cook Now and Plan Ahead: the same field, never both on screen.
+  "fields.avoidHintLabel": "About the avoid list",
+  "fields.avoidHint":
+    "The AI is asked to leave these out, but nothing checks the recipe afterwards. For allergies, use the allergy chips above instead.",
 
   // ─── Meal card ────────────────────────────────────────────────────────────
   "meal.freeze": "Freeze",
@@ -485,6 +516,10 @@ export const en = {
   "meal.cookFailed": "Couldn't mark as cooked — check your connection and try again.",
   "meal.edit": "Edit",
   "meal.editTitle": "Edit this recipe",
+  // Plan view only. In Cook Now the edited recipe IS what gets debited.
+  "meal.editIngredientsHintLabel": "About editing ingredients",
+  "meal.editIngredientsHint":
+    "Changes here don't update the shopping list or what was already taken from your fridge. Items marked as spice are never taken from the fridge.",
   "meal.startCooking": "Start cooking",
   "meal.startCookingTitle": "Cook this recipe step by step",
   "meal.leftovers": "Leftovers",
@@ -512,6 +547,9 @@ export const en = {
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":
     "Generate one recipe for what you're cooking right now. Mark it cooked to debit your fridge.",
+  "cookNow.markCookedHintLabel": "About marking as cooked",
+  "cookNow.markCookedHint":
+    "Subtracts these amounts from fridge items with the same name; ingredients with no matching fridge item are skipped. There is no undo.",
   "cookNow.mealType": "Meal type",
   "cookNow.people": "People",
   "cookNow.stockOnly": "Only use what's in the fridge",
@@ -578,6 +616,9 @@ export const en = {
 
   // ─── Fridge ───────────────────────────────────────────────────────────────
   "fridge.title": "Fridge",
+  "fridge.titleHintLabel": "How the fridge changes",
+  "fridge.titleHint":
+    "Confirming a plan, or marking a Cook Now recipe as cooked, takes ingredients from here, soonest date first. Finishing a plan puts back what wasn't cooked.",
   "fridge.loginPrompt": "Please log in to view and edit your fridge.",
   "fridge.loading": "Loading inventory...",
   "fridge.connecting": "Connecting to server…",
@@ -665,6 +706,11 @@ export const en = {
   "receipt.capture": "Capture",
   "receipt.startingCamera": "Starting camera…",
   "receipt.reviewIntro": "Review the extracted items before adding to your fridge.",
+  // The server computes the date (purchase date or today + the model's shelf
+  // life guess); no prompt reads a printed date.
+  "receipt.expiresHintLabel": "About expiry dates",
+  "receipt.expiresHint":
+    "Expiry dates are estimated from the receipt's date (or today) plus a typical shelf life for each food, not read from the package. Correct them if needed.",
   "receipt.noItems": "No food items found in receipt.",
   "receipt.qty": "Qty (g)",
   "receipt.expires": "Expires",
@@ -741,6 +787,9 @@ export const en = {
   "plans.deleteTitle": "Delete this plan?",
   "plans.deleteBody":
     "This will permanently delete the {days}-day / {meals}-meal plan from {date}. This cannot be undone.",
+  // Appended to deleteBody for "planned"/"active" plans only (PlanCatalog).
+  "plans.deleteKeepsFood":
+    "Deleting doesn't put any food back in your fridge. Finish the plan first to get back what was taken for uncooked meals.",
   "plans.openFailed": "Couldn't open that plan. Please try again.",
   "plans.deleteFailed": "Failed to delete plan.",
   "plans.dateFailed": "Couldn't update that plan's date. Please try again.",
@@ -835,6 +884,10 @@ export const en = {
   "billing.paywall.body":
     "Generating meal plans and recipes needs an active subscription. Start a " +
     "10-day free trial — no charge until it ends, cancel anytime.",
+  // No amounts on purpose: the cap is a server setting (usage_budget.py).
+  "billing.paywall.allowanceHintLabel": "About the AI allowance",
+  "billing.paywall.allowanceHint":
+    "One AI allowance covers the whole trial, then one per calendar month. If it runs out, new plans, recipes and scans pause until the next one.",
   "billing.paywall.planGroup": "Billing plan",
   "billing.paywall.monthly": "Monthly",
   // The prices are keys, not literals, because the DECIMAL SEPARATOR is part
@@ -851,6 +904,9 @@ export const en = {
   "billing.paywall.later": "Maybe later",
   "billing.paywall.start": "Start free trial",
   "billing.paywall.starting": "Starting…",
+  "billing.paywall.trialHintLabel": "About the free trial",
+  "billing.paywall.trialHint":
+    "One free trial per account and per payment card. If you've had one, you're charged straight away instead.",
   // Its own sentence, but it REUSES `auth.acceptTerms.{terms,privacy}Link` for
   // the two labels. The warning recorded on those keys — that their Czech
   // values are inflected to fit their carrier and so are not general-purpose —
@@ -870,6 +926,9 @@ export const en = {
   // optional hole.
   "billing.banner.trial": "🎉 Free trial.",
   "billing.banner.trialRenews": "🎉 Free trial — renews {date}.",
+  "billing.banner.trialHintLabel": "About the first payment",
+  "billing.banner.trialHint":
+    "When the trial ends you're charged for your plan, a whole year at once on annual. Cancel under Manage before then to pay nothing.",
   "billing.banner.trialCanceled": "🚫 Trial canceled.",
   "billing.banner.trialCanceledEnds": "🚫 Trial canceled — ends {date}.",
   "billing.banner.active": "✓ Subscribed.",

@@ -8,6 +8,7 @@ import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { InfoHint } from "./InfoHint";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { useI18n } from "../i18n";
 
@@ -610,6 +611,9 @@ export function Fridge() {
             adaptive default is instead. */}
         <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.9rem" }}>{expanded ? "\u25BC" : "\u25B6"}</span>
         <h2 style={{ margin: 0 }}>{t("fridge.title")}</h2>
+        {/* Safe inside the collapsible header: InfoHint stops its click from
+            propagating, so opening the hint never toggles the section. */}
+        <InfoHint label={t("fridge.titleHintLabel")} text={t("fridge.titleHint")} />
         {fridge.length > 0 && (
           <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.85rem" }}>
             {sortedGroups.length === fridge.length

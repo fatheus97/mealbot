@@ -254,6 +254,57 @@ describe("PlanCatalog", () => {
     expect(screen.getByText("Delete this plan?")).toBeInTheDocument();
   });
 
+  // Deleting never returns food to the fridge. Only a plan still holding food
+  // for uncooked meals gets the warning: a "cooked" plan has nothing left to
+  // return and a "finished" one already returned it.
+  it.each([
+    ["planned", true],
+    ["active", true],
+    ["cooked", false],
+    ["finished", false],
+  ] as const)("warns that deleting returns no food only when it matters (%s)", async (status, warns) => {
+    loginUser();
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([{ ...SAMPLE_PLAN, status }]),
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await waitFor(() => {
+      expect(screen.getByText("Delete")).toBeInTheDocument();
+    });
+    await userEvent.setup().click(screen.getByText("Delete"));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(/this cannot be undone/i);
+    if (warns) {
+      expect(dialog).toHaveTextContent(
+        /doesn't put any food back in your fridge\. Finish the plan first/i,
+      );
+    } else {
+      expect(dialog).not.toHaveTextContent(/food back in your fridge/i);
+    }
+  });
+
+  it("translates the delete warning (the dialog is behind a click, so no other Czech test sees it)", async () => {
+    loginUser();
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([{ ...SAMPLE_PLAN, status: "active" }]),
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await waitFor(() => {
+      expect(screen.getByText("Smazat")).toBeInTheDocument();
+    });
+    await userEvent.setup().click(screen.getByText("Smazat"));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(/jídelníček nejprve dokončete/);
+    expect(untranslatedEnglishIn(dialog)).toEqual([]);
+  });
+
   it("cancels delete on Cancel click", async () => {
     loginUser();
     mockedAuthFetch.mockResolvedValueOnce({

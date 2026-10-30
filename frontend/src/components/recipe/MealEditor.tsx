@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { IngredientAmount, PlannedMeal } from "../../types";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useI18n, useMealTypeLabel } from "../../i18n";
@@ -12,6 +12,11 @@ interface Props {
   onCancel: () => void;
   saving?: boolean;
   error?: string | null;
+  // Rendered beside the "Ingredients" legend. A slot, not built in here: the
+  // editor is shared by the plan view and Cook Now, and what an ingredient edit
+  // does to the fridge differs between them (Cook Now debits the edited recipe),
+  // so only the caller can say it truthfully.
+  ingredientsHint?: ReactNode;
 }
 
 // Rows carry a stable `_key` so React keys survive add/remove. With index
@@ -45,7 +50,7 @@ const smallBtn: React.CSSProperties = {
 // Reusable across the Plan Ahead result view and the Cook Now preview.
 // meal_type / meal_type_label are NOT editable — the backend edit endpoint
 // preserves the slot, so we carry them through untouched.
-export function MealEditor({ meal, onSave, onCancel, saving = false, error = null }: Props) {
+export function MealEditor({ meal, onSave, onCancel, saving = false, error = null, ingredientsHint }: Props) {
   const { t } = useI18n();
   const mealTypeLabel = useMealTypeLabel();
   const isMobile = useIsMobile();
@@ -155,6 +160,7 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
       <fieldset style={{ border: "none", padding: 0, margin: "0 0 0.5rem 0" }}>
         <legend style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.3rem" }}>
           {t("editor.ingredients")}
+          {ingredientsHint && <> {ingredientsHint}</>}
         </legend>
         {ingredients.map((ing, idx) => (
           <div

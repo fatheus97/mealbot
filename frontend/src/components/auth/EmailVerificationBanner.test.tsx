@@ -68,6 +68,25 @@ describe("EmailVerificationBanner", () => {
     expect(screen.getByRole("button", { name: /resend link/i })).toBeEnabled();
   });
 
+  it("explains that a resend voids the earlier links, without announcing the hint", async () => {
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({}));
+    const user = userEvent.setup();
+    renderWithProviders(<EmailVerificationBanner />);
+
+    await user.click(screen.getByRole("button", { name: "About older links" }));
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent(/only the newest email works/i);
+    // The banner is a polite live region; the bubble mounts inside a part of it
+    // that is switched off, so opening the hint is not read out as a status.
+    expect(tooltip.closest('[aria-live="off"]')).not.toBeNull();
+  });
+
+  it("shows no resend hint once the address is verified", () => {
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ emailVerified: true }));
+    renderWithProviders(<EmailVerificationBanner />);
+    expect(screen.queryByRole("button", { name: "About older links" })).not.toBeInTheDocument();
+  });
+
   it("uses an explicit background AND colour so it can't go dark-on-dark", () => {
     // The recurring white-on-white trap (.claude/rules/frontend.md): a surface
     // that sets one but not the other inherits the adaptive default.

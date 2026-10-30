@@ -177,6 +177,24 @@ describe("MealCard", () => {
       expect(screen.getByText("Save failed")).toBeInTheDocument();
     });
 
+    it("shows no ingredient-edit hint outside the editor", () => {
+      // The claim is true for a plan meal only (Cook Now debits the edited
+      // recipe), which is why MealCard supplies it rather than MealEditor.
+      renderCard();
+      expect(
+        screen.queryByRole("button", { name: "About editing ingredients" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("opens the ingredient-edit hint beside the editor's Ingredients legend", async () => {
+      const user = userEvent.setup();
+      renderCard({ isEditing: true });
+      await user.click(screen.getByRole("button", { name: "About editing ingredients" }));
+      expect(screen.getByRole("tooltip")).toHaveTextContent(
+        /don't update the shopping list or what was already taken from your fridge/i,
+      );
+    });
+
     it("fires onStartEdit from the Edit button", async () => {
       const { props } = renderCard();
       await userEvent.click(screen.getByRole("button", { name: /^Edit$/ }));

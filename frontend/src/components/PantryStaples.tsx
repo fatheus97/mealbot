@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext.tsx";
 import { useStaples, useUpdateStaples } from "../hooks/useServerState";
 import { useI18n, type PluralKey, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
+import { InfoHint } from "./InfoHint";
 
 // Keep in step with MAX_STAPLES in app/api/pantry.py — a client-side guard so we
 // give a friendly message instead of letting the PUT 422.
@@ -189,9 +190,12 @@ export function PantryStaples({
 
   return (
     <section style={{ borderTop: "1px solid #e0e0e0", paddingTop: "1rem" }}>
-      <h4 style={{ margin: "0 0 0.25rem", color: "#111" }}>
-        {t("staples.title")}{items.length > 0 ? ` (${items.length})` : ""}
-      </h4>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", margin: "0 0 0.25rem" }}>
+        <h4 style={{ margin: 0, color: "#111" }}>
+          {t("staples.title")}{items.length > 0 ? ` (${items.length})` : ""}
+        </h4>
+        <InfoHint label={t("staples.matchHintLabel")} text={t("staples.matchHint")} />
+      </div>
       <p style={{ ...mutedStyle, margin: "0 0 0.75rem" }}>
         {/* One sentence with a bold run, not three fragments — the setting it
             names is a noun phrase that Czech inflects with the sentence. */}

@@ -326,11 +326,19 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       {planPendingDelete && (
         <ConfirmDialog
           title={t("plans.deleteTitle")}
-          message={t("plans.deleteBody", {
-            days: planPendingDelete.days,
-            meals: planPendingDelete.meals_per_day,
-            date: formatDate(planPendingDelete.created_at),
-          })}
+          // Deleting never touches the fridge. Only a plan that still holds
+          // food for uncooked meals needs the warning: a "cooked" plan has
+          // nothing left to return and a "finished" one already returned it.
+          message={
+            t("plans.deleteBody", {
+              days: planPendingDelete.days,
+              meals: planPendingDelete.meals_per_day,
+              date: formatDate(planPendingDelete.created_at),
+            }) +
+            (planPendingDelete.status === "planned" || planPendingDelete.status === "active"
+              ? ` ${t("plans.deleteKeepsFood")}`
+              : "")
+          }
           confirmLabel={t("plans.delete")}
           loadingLabel={t("plans.deleting")}
           loading={deleteMutation.isPending}

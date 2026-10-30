@@ -2,6 +2,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useBilling } from "../../hooks/useBilling";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { formatDate } from "../../i18n/localeFormat";
+import { InfoHint } from "../InfoHint";
 
 type Variant = "trialing" | "active" | "past_due" | "subscribe";
 
@@ -114,6 +115,17 @@ export function SubscriptionBanner() {
     >
       <span>
         {message}
+        {/* "Renews" on a trial is the FIRST charge, which the label does not
+            say. aria-live="off": this banner is a polite live region, and the
+            hint's bubble mounting inside it would be announced as a status. */}
+        {variant === "trialing" && !canceling && (
+          <>
+            {" "}
+            <span aria-live="off">
+              <InfoHint label={t("billing.banner.trialHintLabel")} text={t("billing.banner.trialHint")} />
+            </span>
+          </>
+        )}
         {error && (
           <span role="alert" style={{ color: "#b91c1c", marginLeft: 8 }}>
             {error}

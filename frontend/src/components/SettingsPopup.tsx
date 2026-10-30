@@ -241,22 +241,30 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
           <span style={{ fontSize: 14, color: "#111827", wordBreak: "break-all" }}>
             {email}
           </span>
-          <button
-            type="button"
-            onClick={() => setShowChangeEmail(true)}
-            style={{
-              padding: "0.4rem 0.75rem",
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              background: "#f9fafb",
-              color: "#111827",
-              cursor: "pointer",
-              fontSize: 13,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {t("settings.changeEmail")}
-          </button>
+          {/* The hint warns BEFORE the action: the change modal mentions
+              neither the lockout nor the sign-out until it has happened. */}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={() => setShowChangeEmail(true)}
+              style={{
+                padding: "0.4rem 0.75rem",
+                border: "1px solid #d1d5db",
+                borderRadius: 6,
+                background: "#f9fafb",
+                color: "#111827",
+                cursor: "pointer",
+                fontSize: 13,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {t("settings.changeEmail")}
+            </button>
+            <InfoHint
+              label={t("settings.changeEmailHintLabel")}
+              text={t("settings.changeEmailHint")}
+            />
+          </span>
         </div>
       </div>
       )}

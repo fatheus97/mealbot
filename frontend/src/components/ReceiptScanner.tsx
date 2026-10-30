@@ -454,8 +454,11 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       {/* Review state */}
       {state === "review" && (
         <>
+          {/* The expiry hint rides on the intro line, once, rather than on the
+              "Expires" column: on mobile that label repeats on every card. */}
           <p style={{ color: "#94a3b8", marginBottom: "0.5rem" }}>
-            {t("receipt.reviewIntro")}
+            {t("receipt.reviewIntro")}{" "}
+            <InfoHint label={t("receipt.expiresHintLabel")} text={t("receipt.expiresHint")} />
           </p>
           {reviewItems.length === 0 ? (
             <p>{isFoodPhoto ? t("receipt.noItemsFoodPhoto") : t("receipt.noItems")}</p>

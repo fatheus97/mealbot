@@ -21,6 +21,10 @@ import type { DictionaryFor } from ".";
 export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // ─── Language switcher ────────────────────────────────────────────────────
   "lang.label": "Jazyk",
+  // Info hints (ROADMAP U-9). Vykání, termíny z UI aplikace; viz en.ts.
+  "lang.hintLabel": "O volbě jazyka",
+  "lang.hint":
+    "Mění jen texty aplikace, a to jen v tomto prohlížeči. Jídelníčky a recepty se vytvářejí v jazyce, který máte zvolený v Nastavení.",
 
   // ─── Auth panel ───────────────────────────────────────────────────────────
   "auth.welcome": "Vítejte",
@@ -161,6 +165,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "verify.sent": "Odesláno ✓",
   "verify.sending": "Odesílání…",
   "verify.resend": "Poslat odkaz znovu",
+  "verify.resendHintLabel": "O starších odkazech",
+  "verify.resendHint":
+    "Každé nové odeslání zruší předchozí odkazy, takže funguje jen odkaz z nejnovějšího e-mailu.",
   "verify.wrongAddress": "Špatná adresa?",
   "verify.resendFailed": "Odeslání se teď nepovedlo — zkuste to prosím za minutu.",
 
@@ -189,6 +196,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "settings.discardCancel": "Pokračovat v úpravách",
   "settings.emailAddress": "E-mailová adresa",
   "settings.changeEmail": "Změnit",
+  "settings.changeEmailHintLabel": "Co způsobí změna e-mailu",
+  "settings.changeEmailHint":
+    "Dokud novou adresu nepotvrdíte, je vytváření nových jídelníčků a receptů i skenování pozastavené. Na ostatních zařízeních budete navíc odhlášeni.",
   "settings.yourData": "Vaše data",
   "settings.exportData": "⬇️ Stáhnout moje data",
   "settings.exporting": "Připravujeme…",
@@ -262,6 +272,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "staples.hint":
     "Potraviny, které máte doma vždy — olej, mouku, rýži, cukr — vynecháme z generovaných nákupních seznamů, ať je nekupujete znovu. Dochucovadla (sůl, pepř, bylinky) řeší nastavení {includeSpices} výše.",
   "staples.hintIncludeSpices": "Zahrnout koření",
+  "staples.matchHintLabel": "Jak se zásoby spíže porovnávají",
+  "staples.matchHint":
+    "Skryje jen surovinu s přesně stejným názvem (na velikosti písmen nezáleží), a to jen v nákupních seznamech vytvořených po uložení.",
   "staples.loading": "Načítání zásob…",
   "staples.connecting": "Připojování k serveru…",
   "staples.placeholder": "Přidat položku (např. olivový olej)",
@@ -399,6 +412,15 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.reopen": "Znovu otevřít",
   "planner.reopening": "Otevírám...",
   "planner.reopenTitle": "Znovu odečíst suroviny na neuvařená jídla a vrátit se k aktivnímu jídelníčku",
+  "planner.regenerateHintLabel": "O zamykání a přegenerování",
+  "planner.regenerateHint":
+    "Zamkněte jídla, která chcete ponechat, a objeví se tlačítko „Přegenerovat nezamčené“. To vytvoří zbývající jídla znovu podle původního zadání tohoto jídelníčku, ne podle formuláře výše.",
+  "planner.confirmHintLabel": "O potvrzení jídelníčku",
+  "planner.confirmHint":
+    "Uloží jídelníček do sekce Moje jídelníčky a hned odečte z lednice suroviny, které už máte. Koření se neodečítá.",
+  "planner.finishHintLabel": "O dokončení jídelníčku",
+  "planner.finishHint":
+    "Vrátí do lednice suroviny odečtené pro jídla, která nejsou označená jako uvařená. Potom už nelze nic upravovat ani označovat jako uvařené, dokud jídelníček znovu neotevřete.",
   "planner.saveFailed": "Uložení se nezdařilo",
 
   "planner.shoppingList": "Nákupní seznam",
@@ -407,11 +429,17 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.copyLabel": "Kopírovat nákupní seznam",
   "planner.share": "Sdílet",
   "planner.shareLabel": "Sdílet nákupní seznam",
+  "planner.shoppingListHintLabel": "O nákupním seznamu",
+  "planner.shoppingListHint":
+    "Sestaví se při vytvoření jídelníčku a nezahrnuje to, co tehdy bylo v lednici, ani vaše zásoby spíže. Pozdější úpravy ho nezmění a odškrtnuté položky se neukládají.",
 
   "chips.remove": "Odebrat {chip}",
   "chips.count": "{count} z {max}",
   "chips.limitReached": "Dosažen limit {max} — jednu položku odeberte, abyste mohli přidat další.",
   "fields.tastesOverLimit": "Použije se jen prvních {max}. Zadali jste {count}.",
+  "fields.avoidHintLabel": "O surovinách k vynechání",
+  "fields.avoidHint":
+    "AI dostane pokyn tyto suroviny vynechat, ale hotový recept už nic nekontroluje. U alergií raději použijte výběr alergenů výše.",
 
   // ─── Meal card ────────────────────────────────────────────────────────────
   "meal.freeze": "Zamknout",
@@ -426,6 +454,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "meal.cookFailed": "Nepodařilo se označit jako uvařené — zkontrolujte připojení a zkuste to znovu.",
   "meal.edit": "Upravit",
   "meal.editTitle": "Upravit tento recept",
+  "meal.editIngredientsHintLabel": "O úpravách surovin",
+  "meal.editIngredientsHint":
+    "Úpravy zde nezmění nákupní seznam ani to, co už bylo z lednice odečteno. Položky označené jako koření se z lednice nikdy neodečítají.",
   "meal.startCooking": "Začít vařit",
   "meal.startCookingTitle": "Vařit tento recept krok za krokem",
   "meal.leftovers": "Zbytky",
@@ -448,6 +479,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":
     "Vygenerujte jeden recept na to, co právě vaříte. Označte ho jako uvařený a suroviny se odečtou z lednice.",
+  "cookNow.markCookedHintLabel": "O označení jako uvařené",
+  "cookNow.markCookedHint":
+    "Odečte tato množství z položek v lednici se stejným názvem. Suroviny, které v lednici žádnou odpovídající položku nemají, se přeskočí. Vrátit to nelze.",
   "cookNow.mealType": "Typ jídla",
   "cookNow.people": "Počet osob",
   "cookNow.stockOnly": "Použít jen to, co je v lednici",
@@ -514,6 +548,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
 
   // ─── Fridge ───────────────────────────────────────────────────────────────
   "fridge.title": "Lednice",
+  "fridge.titleHintLabel": "Jak se mění obsah lednice",
+  "fridge.titleHint":
+    "Potvrzení jídelníčku nebo označení receptu z režimu „Uvařit hned“ jako uvařeného odtud odebere suroviny, nejdříve ty s nejbližším datem. Dokončení jídelníčku vrátí zpět to, co se neuvařilo.",
   "fridge.loginPrompt": "Pro zobrazení a úpravu lednice se prosím přihlaste.",
   "fridge.loading": "Načítání zásob...",
   "fridge.connecting": "Připojování k serveru…",
@@ -616,6 +653,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.capture": "Vyfotit",
   "receipt.startingCamera": "Spouštím fotoaparát…",
   "receipt.reviewIntro": "Než položky přidáte do lednice, zkontrolujte je.",
+  "receipt.expiresHintLabel": "O datu spotřeby",
+  "receipt.expiresHint":
+    "Datum spotřeby se odhaduje z data na účtence (nebo z dnešního dne) a z obvyklé trvanlivosti každé potraviny, nečte se z obalu. V případě potřeby ho opravte.",
   "receipt.noItems": "Na účtence nebyly nalezeny žádné potraviny.",
   "receipt.qty": "Množství (g)",
   "receipt.expires": "Spotřebovat do",
@@ -687,6 +727,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "plans.deleteTitle": "Smazat tento jídelníček?",
   "plans.deleteBody":
     "Tímto trvale smažete jídelníček na {days} dní po {meals} jídlech z {date}. Akci nelze vrátit zpět.",
+  "plans.deleteKeepsFood":
+    "Smazáním se do lednice nic nevrátí. Pokud chcete zpět suroviny odečtené pro neuvařená jídla, jídelníček nejprve dokončete.",
   "plans.openFailed": "Jídelníček se nepodařilo otevřít. Zkuste to prosím znovu.",
   "plans.deleteFailed": "Jídelníček se nepodařilo smazat.",
   "plans.dateFailed": "Datum jídelníčku se nepodařilo změnit. Zkuste to prosím znovu.",
@@ -779,6 +821,10 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Generování jídelníčků a receptů vyžaduje aktivní předplatné. Začněte " +
     "10denní zkušební verzí zdarma: než skončí, nic vám nenaúčtujeme a " +
     "zrušit ji můžete kdykoli.",
+  // "zkušební verze" as in the body right above, so the dialog uses one term.
+  "billing.paywall.allowanceHintLabel": "O limitu využití AI",
+  "billing.paywall.allowanceHint":
+    "Na celou zkušební verzi máte jeden limit využití AI, potom jeden na každý kalendářní měsíc. Když ho vyčerpáte, vytváření nových jídelníčků a receptů i skenování se pozastaví až do začátku dalšího období.",
   "billing.paywall.planGroup": "Varianta předplatného",
   "billing.paywall.monthly": "Měsíčně",
   // Decimal comma, symbol after the number with a non-breaking space.
@@ -792,6 +838,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "billing.paywall.later": "Teď ne",
   "billing.paywall.start": "Vyzkoušet zdarma",
   "billing.paywall.starting": "Spouštím…",
+  "billing.paywall.trialHintLabel": "O zkušební verzi zdarma",
+  "billing.paywall.trialHint":
+    "Zkušební verze zdarma je jen jedna na účet a na platební kartu. Pokud jste ji už využili, platba proběhne ihned.",
   // "souhlasit s" + instrumental, the same government as `auth.acceptTerms`,
   // which is why both share the two link labels.
   "billing.paywall.legal": "Předplatným souhlasíte s {terms} a {privacy}.",
@@ -802,6 +851,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "billing.banner.trial": "🎉 Zkušební období zdarma.",
   "billing.banner.trialRenews":
     "🎉 Zkušební období zdarma, {date} přejde na placené předplatné.",
+  "billing.banner.trialHintLabel": "O první platbě",
+  "billing.banner.trialHint":
+    "Po skončení zkušebního období vám naúčtujeme zvolené předplatné, u ročního celý rok najednou. Pokud ho předtím zrušíte přes tlačítko „Spravovat“, nezaplatíte nic.",
   "billing.banner.trialCanceled": "🚫 Zkušební období zrušeno.",
   "billing.banner.trialCanceledEnds": "🚫 Zkušební období zrušeno, končí {date}.",
   "billing.banner.active": "✓ Předplatné aktivní.",
