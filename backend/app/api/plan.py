@@ -406,7 +406,10 @@ async def delete_plan(
         )
 
     # A finished plan already returned its food and an unconfirmed one never
-    # took any. Staged only (it also sets finished_at on a row about to go).
+    # took any. Staged only. finish_plan_fridge also sets finished_at on a row
+    # about to go. Keep it: the UPDATE it flushes makes a concurrent second
+    # DELETE fail (StaleDataError, rolled back) instead of restoring the same
+    # food again.
     if plan.confirmed_at is not None and plan.finished_at is None:
         assert current_user.id is not None  # narrowed by the ownership check above
         await finish_plan_fridge(session, current_user.id, plan)
