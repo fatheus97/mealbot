@@ -466,6 +466,9 @@ async def test_refund_counts_in_the_period_it_was_made(
     eu_2027 = next(t for t in stats_2027.thresholds if t.key == "eu_oss")
     assert eu_2027.current == 0
     assert eu_2027.pct == 0
+    # Its 12-month CZ window nets 1000 - 500 - 1000 = -500: floored the same way.
+    cz_2027 = next(t for t in stats_2027.thresholds if t.key == "cz_domestic")
+    assert cz_2027.current == 0
 
 
 async def test_refund_of_a_payment_with_no_invoice_is_acked_and_ignored(
