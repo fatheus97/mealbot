@@ -109,6 +109,11 @@ async def stripe_webhook(
 ) -> WebhookAck:
     """Sync mirrored subscription state from Stripe events.
 
+    Events the Dashboard endpoint must send (any other is ACKed and ignored):
+    ``customer.subscription.created`` / ``.updated`` / ``.deleted``,
+    ``invoice.paid``, ``checkout.session.completed``, and ``refund.created`` /
+    ``.updated`` / ``.failed``. Keep .env.example's copy of this list in step.
+
     Replays of the same event are safe (applying a subscription object is
     idempotent), and out-of-order delivery of *different* events is guarded by
     the monotonic ``event_created`` watermark in apply_subscription — Stripe does
@@ -172,6 +177,25 @@ async def stripe_webhook(
         if recorded:
             await session.commit()
             logger.info("sale_recorded invoice=%s", invoice.get("id"))
+    elif event_type.startswith("refund."):
+        # refund.created / .updated / .failed all carry the whole Refund, so one
+        # path serves them: insert once (idempotent on the refund id), then mirror
+        # the status, so a failed refund stops netting out of revenue.
+        refund = dict(event_dict["data"]["object"])
+        try:
+            recorded = await revenue_service.record_refund(session, refund)
+        except (stripe.StripeError, RuntimeError):
+            # Tying a refund to its sale takes one Stripe read. ACKing without it
+            # would lose the refund for good; a non-2xx makes Stripe redeliver.
+            logger.exception("refund_record_failed refund=%s", refund.get("id"))
+            raise HTTPException(
+                status_code=503, detail="Refund not recorded, retry later."
+            ) from None
+        if recorded:
+            await session.commit()
+            logger.info(
+                "refund_recorded refund=%s status=%s", refund.get("id"), refund.get("status")
+            )
     elif event_type == "checkout.session.completed":
         # Trial-abuse guard, Gate B: capture the card fingerprint now that Checkout
         # has run and claw back a cross-account trial reuse. trial_guard owns its
