@@ -211,12 +211,13 @@ class TestFailClosed:
             await stripe_service.stop_billing(_user(), "cancel_now")
         assert err.value.reason == "unreachable"
 
+    @pytest.mark.parametrize("call", ["checkout.Session.list", "Subscription.list"])
     async def test_unexpected_refusal_on_listing_is_not_read_as_not_found(
-        self, fake: FakeStripe
+        self, fake: FakeStripe, call: str
     ) -> None:
         """Only resource_missing means 'nothing here'; a bad request must not."""
         fake.add_sub("sub_1")
-        fake.fail["Subscription.list"] = stripe.InvalidRequestError(  # type: ignore[no-untyped-call]
+        fake.fail[call] = stripe.InvalidRequestError(  # type: ignore[no-untyped-call]
             "Invalid status", "status"
         )
         with pytest.raises(BillingStopFailed) as err:
