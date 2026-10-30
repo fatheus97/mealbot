@@ -157,17 +157,37 @@ describe("UserManagementPanel", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent(/overwrites their current preferences/i);
   });
 
-  it("shows no row-action hints when no row has actions", async () => {
+  // The hints stay MOUNTED and are hidden via visibility (CLS), so absence is
+  // asserted as "in the DOM but not visible": a plain queryByRole would already
+  // skip a hidden button and pass whether or not it was hidden. getByLabelText,
+  // not getByRole({ hidden: true }): a hidden element's computed accessible name
+  // is "", so a name-filtered role query cannot find it at all.
+  it("hides the row-action hints when no row has actions", async () => {
     vi.mocked(api.fetchAdminUsers).mockResolvedValue(
-      listResp([mkUser({ id: 5, email: "demo@example.com", is_demo: true })]),
+      listResp([mkUser({ id: 5, email: "demo@example.com", is_demo: true, onboarding_completed: true })]),
     );
     renderWithProviders(<UserManagementPanel />);
     await screen.findByText("demo@example.com");
 
+    expect(screen.getByLabelText("About billing for Comp, Deactivate and Delete")).not.toBeVisible();
+    expect(screen.getByLabelText("About Reset onboarding")).not.toBeVisible();
+  });
+
+  it("hides the Reset onboarding hint when no row offers Reset onboarding", async () => {
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(
+      listResp([
+        mkUser({ id: 1, email: "a@example.com", onboarding_completed: false }),
+        mkUser({ id: 2, email: "b@example.com", onboarding_completed: false }),
+      ]),
+    );
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("a@example.com");
+
+    expect(screen.queryByRole("button", { name: "Reset onboarding" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "About billing for Comp, Deactivate and Delete" }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "About Reset onboarding" })).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "About billing for Comp, Deactivate and Delete" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("About Reset onboarding")).not.toBeVisible();
   });
 
   it("badges an unverified user and offers the verify action only for them", async () => {

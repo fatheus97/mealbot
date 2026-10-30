@@ -67,7 +67,10 @@ function StatCard({
 }) {
   return (
     <div style={cardStyle}>
-      <div style={hintedTitleRow}>
+      {/* Height pinned to the label's own line box (12px at line-height 18px) so a
+          taller hint icon (24px on touch) overflows into the padding instead of
+          growing the row and pushing this card's value below its neighbours'. */}
+      <div style={{ ...hintedTitleRow, height: 18, lineHeight: "18px" }}>
         <div style={{ fontSize: 12, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>
           {label}
         </div>
