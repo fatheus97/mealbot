@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { InfoHint } from "../InfoHint";
 import { colors } from "./theme";
 import type { RevenueStats, ThresholdProgress } from "../../types";
 
@@ -75,7 +76,7 @@ export function RevenuePanel({ stats }: { stats: RevenueStats }) {
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap", fontSize: 13, marginBottom: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap", fontSize: 13, marginBottom: "1rem" }}>
         <span>
           <strong>{money(stats.total_cents)}</strong> total · {stats.sales_count} sales
         </span>
@@ -85,6 +86,12 @@ export function RevenuePanel({ stats }: { stats: RevenueStats }) {
         <span>
           <strong>{money(stats.cz_domestic_cents)}</strong> CZ domestic
         </span>
+        {/* At the END of the row, not the start: the bubble opens leftward from
+            the icon, so a row-start icon would push it off the left edge. */}
+        <InfoHint
+          label="About the revenue totals"
+          text="All-time sums of paid invoices, with refunds never subtracted. 'CZ domestic' here is Czech billing addresses only, unlike the 12-month all-country bar above."
+        />
         {stats.non_eur_sales_count > 0 && (
           <span style={{ color: "#b45309" }}>
             {stats.non_eur_sales_count} non-EUR sale(s) excluded from totals

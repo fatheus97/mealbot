@@ -1,4 +1,5 @@
 import { type CSSProperties, useState } from "react";
+import { InfoHint } from "../InfoHint";
 import { ModalShell } from "../ModalShell";
 import {
   useAcceptFeedback,
@@ -348,7 +349,7 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
                 label already states the consequence, the server is idempotent (never
                 double-credits, never double-tickets), and a second click on every
                 accept is pure friction for the single admin who triages this queue. */}
-            <div style={{ marginTop: "1.25rem" }}>
+            <div style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
               <button
                 type="button"
                 onClick={doAccept}
@@ -370,6 +371,14 @@ function FeedbackDetailModal({ id, onClose }: { id: number; onClose: () => void 
                     ? "Re-run credit / ticket"
                     : "✓ Accept — €1 credit + ticket"}
               </button>
+              {/* Only while a credit can still land: none granted yet, and the
+                  button is live (rejected/spam must be reopened first). */}
+              {!d.credit_granted_at && d.status !== "rejected" && d.status !== "spam" && (
+                <InfoHint
+                  label="About the €1 credit"
+                  text="Credit is skipped for annual plans, users without a Stripe billing account, or once the per-user caps are hit. The reporter is emailed only when it lands."
+                />
+              )}
             </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.75rem" }}>

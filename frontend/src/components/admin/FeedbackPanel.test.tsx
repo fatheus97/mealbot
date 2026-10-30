@@ -137,6 +137,37 @@ describe("FeedbackPanel", () => {
     expect(screen.queryByRole("dialog", { name: /accept this report/i })).toBeNull();
   });
 
+  it("explains when the €1 credit is skipped, beside Accept, while a credit can still land", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FeedbackPanel />);
+    await screen.findByText("Plan crash on regenerate");
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "About the €1 credit" }));
+    expect(within(dialog).getByRole("tooltip")).toHaveTextContent(/skipped for annual plans/i);
+    expect(within(dialog).getByRole("tooltip")).toHaveTextContent(/emailed only when it lands/i);
+    // The hint dismisses on Escape without closing the drawer it sits in.
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["the credit already landed", { status: "accepted" as const, credit_cents: 100, credit_granted_at: "2026-07-25T10:00:00Z" }],
+    ["the report is rejected", { status: "rejected" as const }],
+    ["the report is spam", { status: "spam" as const }],
+  ])("hides the credit hint once %s", async (_why, overrides) => {
+    vi.mocked(api.fetchAdminFeedbackDetail).mockResolvedValue({ ...detailResp, ...overrides });
+    const user = userEvent.setup();
+    renderWithProviders(<FeedbackPanel />);
+    await screen.findByText("Plan crash on regenerate");
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText(detailResp.message);
+    expect(within(dialog).queryByRole("button", { name: "About the €1 credit" })).not.toBeInTheDocument();
+  });
+
   it("re-runs advisory triage from the drawer", async () => {
     const user = userEvent.setup();
     renderWithProviders(<FeedbackPanel />);

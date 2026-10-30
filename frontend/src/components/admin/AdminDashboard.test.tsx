@@ -166,6 +166,38 @@ describe("AdminDashboard", () => {
     expect(await screen.findByText(/no sales recorded yet/i)).toBeInTheDocument();
   });
 
+  it("explains who the activation funnel counts, on the Overview tab only", async () => {
+    window.localStorage.setItem("mealbot_is_admin", "true");
+    const user = userEvent.setup();
+    renderWithProviders(<AdminDashboard onExit={() => {}} />);
+    await screen.findByText("900");
+
+    await user.click(screen.getByRole("button", { name: "About the activation funnel" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/all-time, counting only users who face the paywall/i);
+    // The hint sits beside the heading, not inside it.
+    expect(screen.getByRole("heading", { name: "Activation funnel" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Revenue" }));
+    expect(screen.queryByRole("button", { name: "About the activation funnel" })).not.toBeInTheDocument();
+  });
+
+  it("flags the LLM call and token cards as a lower bound once the overview loads", async () => {
+    window.localStorage.setItem("mealbot_is_admin", "true");
+    const user = userEvent.setup();
+    renderWithProviders(<AdminDashboard onExit={() => {}} />);
+    // Not before the overview data is in: the hint rides on the stat card.
+    expect(screen.queryByRole("button", { name: "About the LLM call and token counts" })).not.toBeInTheDocument();
+    await screen.findByText("900");
+
+    // One hint for both cards, not one each.
+    expect(screen.getAllByRole("button", { name: "About the LLM call and token counts" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "About the LLM call and token counts" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/a lower bound on ai spend/i);
+
+    await user.click(screen.getByRole("tab", { name: "Generation" }));
+    expect(screen.queryByRole("button", { name: "About the LLM call and token counts" })).not.toBeInTheDocument();
+  });
+
   it("blocks a non-admin and never calls the admin endpoints", () => {
     // mealbot_is_admin not set → isAdmin false
     renderWithProviders(<AdminDashboard onExit={() => {}} />);
