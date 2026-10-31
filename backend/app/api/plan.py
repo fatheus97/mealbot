@@ -4,7 +4,7 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
-from sqlalchemy import delete, func
+from sqlalchemy import delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -852,6 +852,21 @@ async def regenerate_plan(
         shopping_list=shopping_items,
     )
 
+    # The LLM calls above ran without the kitchen lock (it must never be held
+    # across one). Take it now and re-read: a Confirm that landed meanwhile
+    # debited the fridge for the OLD meals, and a Delete removed the plan.
+    assert current_user.id is not None  # narrowed by the ownership check above
+    await lock_kitchen(session, current_user.id)
+    current = (
+        await session.execute(
+            select(col(MealPlan.confirmed_at)).where(col(MealPlan.id) == plan_id)
+        )
+    ).one_or_none()
+    if current is None:
+        raise LocalizedHTTPException(404, "plan_not_found")
+    if current[0] is not None:
+        raise LocalizedHTTPException(409, "plan_regenerate_confirmed")
+
     # 8) Persist updated response (no MealEntry rows pre-confirm)
     plan.response_json = response_obj.model_dump_json()
     session.add(plan)
@@ -1092,22 +1107,36 @@ async def favorite_meal(
         return MealEntrySummary.from_entry(entry)
 
     entry.is_favorite = body.is_favorite
+    if not body.is_favorite:
+        entry.embedding = None
+    session.add(entry)
+    # Commit (releasing the kitchen lock) BEFORE embedding: the embed can wait
+    # up to EMBEDDING_TIMEOUT_S for the shared parse executor, and the lock must
+    # never cover a wait like that.
+    await session.commit()
 
     if body.is_favorite:
+        # Embedded on a detached copy so the tracked entry never goes dirty: an
+        # autoflush would write the embedding unconditionally.
+        probe = MealEntry(name=entry.name, meal_json=entry.meal_json)
         try:
-            await embed_meal_entry(entry)
+            await embed_meal_entry(probe)
         except Exception:
             # logger.exception (not .warning) — keeps the traceback so we can
             # diagnose fastembed / pgvector failures instead of a bare message.
-            # The favorite bit still flips so the UI is consistent; a missing
-            # embedding just means the recipe is invisible to RAG until a
-            # backfill runs.
+            # The favorite bit is already committed so the UI is consistent; a
+            # missing embedding just means the recipe is invisible to RAG until
+            # a backfill runs.
             logger.exception("Failed to generate embedding for meal entry %d", meal_entry_id)
-    else:
-        entry.embedding = None
-
-    session.add(entry)
-    await session.commit()
+        else:
+            # Only onto a row that is still a favourite: an un-star or a plan
+            # delete that landed while this ran must not get it back.
+            await session.execute(
+                update(MealEntry)
+                .where(col(MealEntry.id) == meal_entry_id, col(MealEntry.is_favorite).is_(True))
+                .values(embedding=probe.embedding)
+            )
+            await session.commit()
     await session.refresh(entry)
 
     return MealEntrySummary.from_entry(entry)
@@ -1252,6 +1281,9 @@ async def edit_meal(
     ingredients cannot desync fridge accounting. meal_type/meal_type_label are
     preserved — changing a slot would desync the day layout and taxonomy.
     """
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise LocalizedHTTPException(404, "plan_not_found")

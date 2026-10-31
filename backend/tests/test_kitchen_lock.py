@@ -22,11 +22,11 @@ from sqlmodel import col, delete
 from app.api.deps import get_current_user
 from app.core.security import get_password_hash
 from app.db import get_session
-from app.models.db_models import User
+from app.models.db_models import MealEntry, User
 from app.models.plan_models import StockItemDTO
 from app.services import fridge_service
 from tests.conftest import TEST_PASSWORD
-from tests.test_plan_catalog import _create_and_confirm_plan, _fake_day
+from tests.test_plan_catalog import _fake_day
 
 # How long one request waits at the rendezvous for the other. Without the lock
 # the other arrives within milliseconds; with it, the other is blocked on the
@@ -87,18 +87,18 @@ async def kitchen(
         return user
 
     rv = Rendezvous()
-    # restore_consumed_batches is where Finish / Delete / Unconfirm read the
-    # fridge to rewrite it; get_fridge_items in the fridge router is Merge's read.
-    monkeypatch.setattr(
-        "app.services.plan_service.restore_consumed_batches",
-        _held(rv, fridge_service.restore_consumed_batches),
-    )
-    monkeypatch.setattr(
-        "app.api.fridge.get_fridge_items", _held(rv, fridge_service.get_fridge_items)
-    )
-    app.dependency_overrides[get_session] = own_connection
-    app.dependency_overrides[get_current_user] = as_user
     try:
+        # restore_consumed_batches is where Finish / Delete / Unconfirm read the
+        # fridge to rewrite it; get_fridge_items in the fridge router is Merge's read.
+        monkeypatch.setattr(
+            "app.services.plan_service.restore_consumed_batches",
+            _held(rv, fridge_service.restore_consumed_batches),
+        )
+        monkeypatch.setattr(
+            "app.api.fridge.get_fridge_items", _held(rv, fridge_service.get_fridge_items)
+        )
+        app.dependency_overrides[get_session] = own_connection
+        app.dependency_overrides[get_current_user] = as_user
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             yield c, rv
     finally:
@@ -244,40 +244,126 @@ class TestRewriteNeedsTheLock:
             )
 
 
-class TestPlanStateWritersTakeTheLock:
-    """Cook, Uncook and Favorite write no fridge row, so the rewrite guard can't
-    notice them dropping the lock. They need it all the same: Finish, Delete and
-    Unconfirm act on the meals they read as uncooked or unfavourited, so a
-    concurrent Cook or Favorite would get its food returned or its cookbook
-    entry deleted. This spy catches the lock being removed from one of them."""
+
+_EDIT = {"name": "Edited", "ingredients": [{"name": "rice", "quantity_grams": 100}], "steps": ["Cook"]}
+_RECIPE = _fake_day(1).meals[0].model_dump(mode="json")
+_COOK = {
+    "meal_type": _RECIPE["meal_type"], "people_count": 1, "taste_preferences": [],
+    "avoid_ingredients": [], "ingredients_to_use": [], "stock_only": False, "recipe": _RECIPE,
+}
+_LOCKING_HANDLERS: list[tuple[str, str, str, object]] = [
+    ("plan", "post", "/api/plan/999999/confirm", None),
+    ("plan", "post", "/api/plan/999999/unconfirm", None),
+    ("plan", "post", "/api/plan/999999/finish", None),
+    ("plan", "post", "/api/plan/999999/reopen", None),
+    ("plan", "delete", "/api/plan/999999", None),
+    ("plan", "post", "/api/plan/999999/meals/999999/cook", None),
+    ("plan", "post", "/api/plan/999999/meals/999999/uncook", None),
+    ("plan", "post", "/api/plan/999999/meals/999999/favorite", {"is_favorite": True}),
+    ("plan", "patch", "/api/plan/999999/days/0/meals/0", _EDIT),
+    ("fridge", "put", "/api/fridge", []),
+    ("fridge", "post", "/api/fridge/merge", []),
+    ("recipe", "post", "/api/recipe/cook", _COOK),
+]
+
+
+class TestTheLockComesFirst:
+    """The lock protects only what is read after it. Each request here gets a
+    fresh session, so "no transaction open yet" when the lock is taken proves
+    no read ran before it. Moving it below the first read (the double-Finish
+    bug's shape) fails here for every handler that takes it."""
 
     @pytest.mark.parametrize(
-        ("action", "body"),
-        [("cook", None), ("uncook", None), ("favorite", {"is_favorite": False})],
+        ("router", "method", "url", "body"),
+        _LOCKING_HANDLERS,
+        ids=[f"{m} {u}" for _, m, u, _ in _LOCKING_HANDLERS],
     )
-    async def test_handler_takes_the_kitchen_lock(
+    async def test_lock_is_the_first_statement(
         self,
-        client: AsyncClient,
-        auth_headers: dict[str, str],
-        test_user: User,
+        kitchen: tuple[AsyncClient, Rendezvous],
         monkeypatch: pytest.MonkeyPatch,
-        action: str,
-        body: dict[str, bool] | None,
+        router: str,
+        method: str,
+        url: str,
+        body: object,
     ) -> None:
-        plan_id = (await _create_and_confirm_plan(client, auth_headers))["plan_id"]
-        entries = (await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)).json()
-        locked: list[int] = []
+        c, _ = kitchen
+        seen: list[bool] = []
 
         async def spy(session: AsyncSession, user_id: int) -> None:
-            locked.append(user_id)
+            seen.append(session.in_transaction())
             await fridge_service.lock_kitchen(session, user_id)
 
-        monkeypatch.setattr("app.api.plan.lock_kitchen", spy)
-        resp = await client.post(
-            f"/api/plan/{plan_id}/meals/{entries[0]['id']}/{action}",
-            headers=auth_headers,
-            json=body,
-        )
+        monkeypatch.setattr(f"app.api.{router}.lock_kitchen", spy)
+        await c.request(method.upper(), url, json=body)
 
-        assert resp.status_code == 200, resp.text
-        assert locked == [test_user.id]
+        assert seen == [False]
+
+
+class TestRegenerateRechecksUnderTheLock:
+    async def test_confirm_landing_during_the_llm_call_wins(
+        self, kitchen: tuple[AsyncClient, Rendezvous]
+    ) -> None:
+        """Regenerate holds no lock across the LLM call. A Confirm in that window
+        debits the fridge for the old meals, so the regenerate must refuse
+        rather than write new meals over a confirmed plan."""
+        c, _ = kitchen
+        await _stock(c, 1000)
+        with patch(
+            "app.services.plan_service.generate_single_day",
+            new_callable=AsyncMock,
+            return_value=_fake_day(3),
+        ):
+            r = await c.post("/api/plan?days=1", json={"meals_per_day": 3, "people_count": 2})
+        assert r.status_code == 200, r.text
+        plan_id = r.json()["plan_id"]
+
+        new_day = _fake_day(3)
+        for meal in new_day.meals:
+            meal.name = "Regenerated " + meal.name
+
+        async def llm_call_while_user_confirms(*args: object, **kwargs: object) -> object:
+            confirm = await c.post(f"/api/plan/{plan_id}/confirm")
+            assert confirm.status_code == 200, confirm.text
+            return new_day
+
+        with patch("app.api.plan.generate_partial_day", side_effect=llm_call_while_user_confirms):
+            r = await c.post(f"/api/plan/{plan_id}/regenerate", json={"frozen_meals": []})
+
+        assert r.status_code == 409
+        names = [m["name"] for d in (await c.get(f"/api/plan/{plan_id}")).json()["days"] for m in d["meals"]]
+        assert names and not any(n.startswith("Regenerated") for n in names)
+
+
+class TestFavoriteEmbedsOutsideTheLock:
+    async def test_unstar_during_the_embed_is_not_blocked_and_wins(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        """The embed can wait seconds on a shared executor; it must not hold the
+        kitchen lock, and its write must not resurrect an embedding on a meal
+        the user un-starred meanwhile."""
+        c, _ = kitchen
+        await _stock(c, 1000)
+        plan_id = await _confirmed_plan(c)
+        entry_id = (await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"]
+
+        async def slow_embed(entry: MealEntry) -> None:
+            # Another request for the same user must get through right now.
+            unstar = await asyncio.wait_for(
+                c.post(f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": False}),
+                timeout=5,
+            )
+            assert unstar.status_code == 200, unstar.text
+            entry.embedding = [0.1] * 384
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=slow_embed):
+            r = await c.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
+            )
+
+        assert r.status_code == 200, r.text
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None
+        assert stored.is_favorite is False
+        assert stored.embedding is None
