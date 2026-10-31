@@ -166,7 +166,7 @@ async def stripe_webhook(
                 if (
                     not user.is_active
                     and live
-                    and not stripe_service.subscription_already_ending(dict(obj))
+                    and not stripe_service.subscription_already_ending(obj)
                 ):
                     logger.error(
                         "billing_sync_inactive_user_renewing user_id=%s sub=%s status=%s",

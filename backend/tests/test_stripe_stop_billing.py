@@ -227,14 +227,26 @@ class TestFailClosed:
         assert err.value.reason == "refused"
 
     async def test_missing_on_the_recheck_is_not_read_as_gone(self, fake: FakeStripe) -> None:
-        """resource_missing is trusted only for the initial lookup."""
-        fake.add_sub("sub_1")
+        """resource_missing is trusted only for the initial lookup. The failure
+        names the subscription that was refused, not the mirrored id."""
+        fake.add_sub("sub_unmirrored")
         fake.refuse_modify = True
         fake.fail["Subscription.retrieve"] = stripe.InvalidRequestError(  # type: ignore[no-untyped-call]
             "No such subscription", "id", code="resource_missing"
         )
-        with pytest.raises(BillingStopFailed):
-            await stripe_service.stop_billing(_user(), "end_at_period_end")
+        with pytest.raises(BillingStopFailed) as err:
+            await stripe_service.stop_billing(_user(sub="sub_mirrored"), "end_at_period_end")
+        assert (err.value.reason, err.value.stripe_id) == ("refused", "sub_unmirrored")
+
+    async def test_checkout_recheck_failing_names_the_checkout(self, fake: FakeStripe) -> None:
+        fake.add_checkout("cs_1")
+        fake.stuck_checkout = "cs_1"
+        fake.fail["checkout.Session.retrieve"] = stripe.APIConnectionError(  # type: ignore[no-untyped-call]
+            "stripe is down"
+        )
+        with pytest.raises(BillingStopFailed) as err:
+            await stripe_service.stop_billing(_user(), "cancel_now")
+        assert (err.value.reason, err.value.stripe_id) == ("unreachable", "cs_1")
 
 
 class TestNoStripeKey:
