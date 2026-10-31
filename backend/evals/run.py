@@ -16,6 +16,7 @@ review, next to the scorecard as Markdown. See evals/README.md.
 import argparse
 import asyncio
 import json
+import re
 import statistics
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -47,6 +48,9 @@ class RunResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_eur: float | None = None
+    #: The provider refused for quota (HTTP 429) even after waiting. Not the
+    #: model's fault, so left out of every rate in the scorecard.
+    rate_limited: bool = False
     checks: list[Check] = field(default_factory=list)
     #: The generated day, for a human to read when a check looks wrong.
     output: dict[str, object] = field(default_factory=dict)
@@ -86,25 +90,74 @@ def pinned(entry: ModelEntry) -> Iterator[None]:
         settings.llm_models = saved
 
 
-async def run_one(entry: ModelEntry, case: EvalCase, repeat: int, *, mock: bool) -> RunResult:
+class Pacer:
+    """Start at most `rpm` calls a minute: free-tier keys refuse bursts (429)."""
+
+    def __init__(self, rpm: float | None) -> None:
+        self.interval = 60 / rpm if rpm else 0.0
+        self.next_start = 0.0
+        self.lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        async with self.lock:
+            now = time.monotonic()
+            if self.next_start > now:
+                await asyncio.sleep(self.next_start - now)
+            self.next_start = max(now, self.next_start) + self.interval
+
+
+def _root(exc: BaseException) -> BaseException:
+    while (inner := exc.__cause__ or exc.__context__) is not None:
+        exc = inner
+    return exc
+
+
+_RETRY_HINT = re.compile(r"retryDelay\W+(\d+)")
+
+
+def _rate_limit_delay(root: BaseException) -> float | None:
+    """Seconds to wait if this is a quota refusal (HTTP 429), else None."""
+    status = getattr(root, "code", None) or getattr(root, "status_code", None)
+    if status != 429 and "429" not in str(root)[:40]:
+        return None
+    hint = _RETRY_HINT.search(str(root))
+    return float(hint.group(1)) + 1 if hint else 30.0
+
+
+async def run_one(
+    entry: ModelEntry,
+    case: EvalCase,
+    repeat: int,
+    *,
+    mock: bool,
+    pacer: Pacer | None = None,
+    max_waits: int = 4,
+) -> RunResult:
     result = RunResult(label(entry), case.id, repeat, ok=False)
     prompt = render_day_prompt(case.request, slot_layout=None, slot_portions=None)
-    started = time.perf_counter()
-    try:
-        with capture_llm_usage() as calls:
-            raw = await llm_client.chat_json(SYSTEM_PROMPT, prompt, LlmDayResponse, mock=mock)
-        day = raw.to_planned_day()
-    except Exception as exc:  # any failure of the model under test is a result, not a crash
-        # The chain wraps provider errors in a user-facing "AI unavailable";
-        # the root cause (402 no balance, 429, a schema miss) is the useful part.
-        root: BaseException = exc
-        while (inner := root.__cause__ or root.__context__) is not None:
-            root = inner
-        result.error = f"{type(exc).__name__}: {exc}"[:200]
-        if root is not exc:
-            result.error += f" <- {type(root).__name__}: {root}"[:300]
-        result.seconds = time.perf_counter() - started
-        return result
+    for attempt in range(max_waits + 1):
+        if pacer:
+            await pacer.wait()
+        started = time.perf_counter()
+        try:
+            with capture_llm_usage() as calls:
+                raw = await llm_client.chat_json(SYSTEM_PROMPT, prompt, LlmDayResponse, mock=mock)
+            day = raw.to_planned_day()
+            break
+        except Exception as exc:  # any failure of the model under test is a result, not a crash
+            root = _root(exc)
+            delay = _rate_limit_delay(root)
+            if delay is not None and attempt < max_waits:
+                await asyncio.sleep(delay)
+                continue
+            # The chain wraps provider errors in a user-facing "AI unavailable";
+            # the root cause (402 no balance, 429, a schema miss) is the useful part.
+            result.error = f"{type(exc).__name__}: {exc}"[:200]
+            if root is not exc:
+                result.error += f" <- {type(root).__name__}: {root}"[:300]
+            result.rate_limited = delay is not None
+            result.seconds = time.perf_counter() - started
+            return result
     result.seconds = time.perf_counter() - started
     result.ok = True
     result.prompt_tokens = sum(c.prompt_tokens for c in calls)
@@ -117,7 +170,13 @@ async def run_one(entry: ModelEntry, case: EvalCase, repeat: int, *, mock: bool)
 
 
 async def run_suite(
-    entries: Sequence[ModelEntry], cases: Sequence[EvalCase], *, repeats: int, concurrency: int, mock: bool
+    entries: Sequence[ModelEntry],
+    cases: Sequence[EvalCase],
+    *,
+    repeats: int,
+    concurrency: int,
+    mock: bool,
+    rpm: float | None = None,
 ) -> list[RunResult]:
     results: list[RunResult] = []
     for entry in entries:
@@ -125,17 +184,24 @@ async def run_suite(
             print(f"skip {label(entry)}: no API key for {entry.provider.value}")
             continue
         gate = asyncio.Semaphore(concurrency)
+        pacer = Pacer(rpm)
 
         async def bounded(
-            case: EvalCase, repeat: int, entry: ModelEntry = entry, gate: asyncio.Semaphore = gate
+            case: EvalCase,
+            repeat: int,
+            entry: ModelEntry = entry,
+            gate: asyncio.Semaphore = gate,
+            pacer: Pacer = pacer,
         ) -> RunResult:
             async with gate:
-                return await run_one(entry, case, repeat, mock=mock)
+                return await run_one(entry, case, repeat, mock=mock, pacer=pacer)
 
         with pinned(entry):
             done = await asyncio.gather(*(bounded(c, r) for c in cases for r in range(1, repeats + 1)))
         results.extend(done)
-        print(f"done {label(entry)}: {sum(r.ok for r in done)}/{len(done)} answered")
+        limited = sum(r.rate_limited for r in done)
+        note = f", {limited} rate-limited (not graded)" if limited else ""
+        print(f"done {label(entry)}: {sum(r.ok for r in done)}/{len(done)} answered{note}")
     return results
 
 
@@ -149,7 +215,9 @@ def scorecard(results: Sequence[RunResult]) -> str:
     rows: list[tuple[str, list[str]]] = []
 
     def row(name: str, cell: Callable[[list[RunResult]], str]) -> None:
-        rows.append((name, [cell([r for r in results if r.model == m]) for m in models]))
+        # A quota refusal says nothing about the model: it is in no rate.
+        graded = [r for r in results if not r.rate_limited]
+        rows.append((name, [cell([r for r in graded if r.model == m]) for m in models]))
 
     row("answered", lambda rs: _rate(sum(r.ok for r in rs), len(rs)))
     row("**safety clean** (allergens, infant, diet)", lambda rs: _rate(
@@ -179,7 +247,12 @@ def scorecard(results: Sequence[RunResult]) -> str:
     lines += [f"| {name} | " + " | ".join(cells) + " |" for name, cells in rows]
     failures = [f"- `{r.model}` **{r.case_id}** #{r.repeat} {c.name}: {c.detail}"
                 for r in results for c in r.checks if c.name in SAFETY_CHECKS and not c.passed]
-    errors = [f"- `{r.model}` **{r.case_id}** #{r.repeat}: {r.error}" for r in results if not r.ok]
+    errors = [f"- `{r.model}` **{r.case_id}** #{r.repeat}: {r.error}" for r in results
+              if not r.ok and not r.rate_limited]
+    limited = sorted({r.model for r in results if r.rate_limited})
+    if limited:
+        count = sum(r.rate_limited for r in results)
+        lines += ["", f"_{count} run(s) refused for quota (429) and left out of every rate: {', '.join(limited)}._"]
     if failures:
         lines += ["", "### Safety failures", *failures]
     if errors:
@@ -203,6 +276,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--case", action="append", default=[], help="only this case id (repeatable)")
     parser.add_argument("--tag", action="append", default=[], help="only cases with this tag (repeatable)")
     parser.add_argument("--concurrency", type=int, default=4, help="parallel calls per model (default 4)")
+    parser.add_argument("--rpm", type=float, default=None,
+                        help="start at most this many calls a minute (free-tier keys: about 8)")
     parser.add_argument("--mock", action="store_true", help="use the mock LLM: tests the harness, not a model")
     parser.add_argument("--out", type=Path, default=RESULTS_DIR, help="where results go (default evals/results)")
     args = parser.parse_args(argv)
@@ -211,7 +286,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     cases = select(args.case, args.tag)
     print(f"{len(cases)} cases x {args.repeats} repeats x {len(entries)} models")
     results = asyncio.run(run_suite(entries, cases, repeats=args.repeats, concurrency=args.concurrency,
-                                    mock=args.mock))
+                                    mock=args.mock, rpm=args.rpm))
     card = scorecard(results)
     print(card)
 

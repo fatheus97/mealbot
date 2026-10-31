@@ -4,15 +4,18 @@ Real model runs happen by hand (python -m evals.run); these keep the harness
 honest in CI without a network.
 """
 
+import asyncio
+
 import pytest
 
 from app.core.config import LLMProvider, ModelEntry, settings
 from app.core.dietary import Allergen, DietType
 from app.core.meal_types import MealType
-from app.models.plan_models import IngredientAmount, MealPlanRequest, PlannedMeal
+from app.llm.client import llm_client
+from app.models.plan_models import IngredientAmount, LlmDayResponse, MealPlanRequest, PlannedMeal
 from evals.graders import DIET_RULES, GRADERS, grade
 from evals.meal_plan_cases import CASES, stock
-from evals.run import parse_model, pinned, run_suite, scorecard
+from evals.run import _rate_limit_delay, parse_model, pinned, run_one, run_suite, scorecard
 
 
 def meal(*ingredients: str | IngredientAmount, steps: tuple[str, ...] = ("Cook it.",), name: str = "Dish") -> PlannedMeal:
@@ -134,3 +137,54 @@ class TestTheRunner:
         assert len(results) == 3 and all(r.ok for r in results), [r.error for r in results]
         card = scorecard(results)
         assert "gemini:mock" in card and "safety clean" in card
+
+
+class _QuotaError(Exception):
+    code = 429
+
+    def __str__(self) -> str:
+        return "429 RESOURCE_EXHAUSTED {'retryDelay': '7s'}"
+
+
+class TestRateLimits:
+    """A quota refusal is the key's limit, not the model's failure."""
+
+    def test_a_429_is_recognised_with_its_retry_delay(self) -> None:
+        assert _rate_limit_delay(_QuotaError()) == 8.0
+        assert _rate_limit_delay(ValueError("bad schema")) is None
+
+    async def test_a_run_waits_out_a_429_and_then_counts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        real = llm_client.chat_json
+        calls = 0
+
+        async def flaky(*args: object, **kwargs: object) -> LlmDayResponse:
+            nonlocal calls
+            calls += 1
+            if calls <= 2:
+                raise RuntimeError("chain gave up") from _QuotaError()
+            return await real(*args, **kwargs)  # type: ignore[arg-type]
+
+        async def no_wait(_: float) -> None:
+            return None
+
+        monkeypatch.setattr(llm_client, "chat_json", flaky)
+        monkeypatch.setattr(asyncio, "sleep", no_wait)
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        result = await run_one(entry, CASES[0], 1, mock=True)
+        assert result.ok and not result.rate_limited and calls == 3
+
+    async def test_a_lasting_429_is_left_out_of_the_scorecard(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def refused(*args: object, **kwargs: object) -> LlmDayResponse:
+            raise RuntimeError("chain gave up") from _QuotaError()
+
+        async def no_wait(_: float) -> None:
+            return None
+
+        monkeypatch.setattr(llm_client, "chat_json", refused)
+        monkeypatch.setattr(asyncio, "sleep", no_wait)
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        result = await run_one(entry, CASES[0], 1, mock=True)
+        assert result.rate_limited and not result.ok
+        card = scorecard([result])
+        assert "| answered | - |" in card  # no graded run at all, so no rate
+        assert "refused for quota" in card
