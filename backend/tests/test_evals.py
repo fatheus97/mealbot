@@ -20,6 +20,7 @@ from evals.graders import DIET_RULES, GRADERS, grade
 from evals.meal_plan_cases import CASES, stock
 from evals.run import (
     Pacer,
+    RunResult,
     _rate_limit_delay,
     load_results,
     parse_model,
@@ -257,6 +258,35 @@ class TestRateLimits:
         first = await run_one(entry, CASES[0], 1, mock=True, pacer=pacer)
         second = await run_one(entry, CASES[1], 1, mock=True, pacer=pacer)
         assert first.rate_limited and second.rate_limited and calls == 1
+
+    async def test_a_429_that_outlasts_every_wait_also_stops_the_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = 0
+
+        async def refused(*args: object, **kwargs: object) -> LlmDayResponse:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("chain gave up") from _QuotaError()  # short retryDelay, every time
+
+        async def no_wait(_: float) -> None:
+            return None
+
+        monkeypatch.setattr(llm_client, "chat_json", refused)
+        monkeypatch.setattr(asyncio, "sleep", no_wait)
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        pacer = Pacer(None)
+        first = await run_one(entry, CASES[0], 1, mock=True, pacer=pacer, max_waits=2)
+        second = await run_one(entry, CASES[1], 1, mock=True, pacer=pacer, max_waits=2)
+        assert first.rate_limited and second.rate_limited and calls == 3  # 1 + 2 waits, then nothing
+
+    def test_the_scorecard_counts_quota_refusals_per_model(self) -> None:
+        def refused(model: str) -> RunResult:
+            return RunResult(model, "c", 1, ok=False, rate_limited=True)
+
+        card = scorecard([refused("gemini/a"), refused("gemini/a"), refused("deepseek/b"),
+                          RunResult("deepseek/b", "c", 2, ok=True)])
+        assert "| refused for quota (not graded) | 2 | 1 |" in card
 
     async def test_a_run_waits_out_a_429_and_then_counts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         real = llm_client.chat_json

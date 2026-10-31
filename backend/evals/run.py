@@ -173,7 +173,10 @@ async def run_one(
             if delay is not None and delay <= _MAX_WAIT_SECONDS and attempt < max_waits:
                 await asyncio.sleep(delay)
                 continue
-            if delay is not None and delay > _MAX_WAIT_SECONDS and pacer:
+            if delay is not None and pacer:
+                # Reaching here on a 429 means a daily quota, or one that outlasted
+                # every wait (a refusal without a retryDelay hint looks the same):
+                # the key is spent, so the model's remaining cases are not sent.
                 pacer.exhausted = True
             # The chain wraps provider errors in a user-facing "AI unavailable";
             # the root cause (402 no balance, 429, a schema miss) is the useful part.
@@ -245,6 +248,11 @@ def scorecard(results: Sequence[RunResult]) -> str:
         rows.append((name, [cell([r for r in graded if r.model == m]) for m in models]))
 
     row("answered", lambda rs: _rate(sum(r.ok for r in rs), len(rs)))
+    if any(r.rate_limited for r in results):
+        # Counted, never graded. A model refused far more often than another
+        # was measured on fewer cases, so compare this row before the rates.
+        rows.append(("refused for quota (not graded)",
+                     [str(sum(r.rate_limited for r in results if r.model == m)) for m in models]))
     row("**safety clean** (allergens, infant, diet)", lambda rs: _rate(
         sum(all(c.passed for c in r.checks if c.name in SAFETY_CHECKS) for r in rs
             if r.ok and any(c.name in SAFETY_CHECKS for c in r.checks)),
@@ -274,10 +282,8 @@ def scorecard(results: Sequence[RunResult]) -> str:
                 for r in results for c in r.checks if c.name in SAFETY_CHECKS and not c.passed]
     errors = [f"- `{r.model}` **{r.case_id}** #{r.repeat}: {r.error}" for r in results
               if not r.ok and not r.rate_limited]
-    limited = sorted({r.model for r in results if r.rate_limited})
-    if limited:
-        count = sum(r.rate_limited for r in results)
-        lines += ["", f"_{count} run(s) refused for quota (429) and left out of every rate: {', '.join(limited)}._"]
+    if any(r.rate_limited for r in results):
+        lines += ["", "_Runs refused for quota (429) are counted in their row and left out of every rate._"]
     if failures:
         lines += ["", "### Safety failures", *failures]
     if errors:
