@@ -103,7 +103,12 @@ async function postJson(path: string, body?: unknown): Promise<Response> {
     method: "POST",
     // Same-origin, but explicit: the whole point is the Set-Cookie response.
     credentials: "include",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    // The PAGE's language, not the browser's: the backend words its errors
+    // from this header, and a Slovak browser reads the Czech page.
+    headers: {
+      "Accept-Language": landingLocale(),
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }

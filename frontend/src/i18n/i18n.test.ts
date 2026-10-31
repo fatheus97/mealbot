@@ -175,7 +175,14 @@ describe('locale store', () => {
   });
 
   it('walks past languages we do not ship', () => {
-    expect(detectLocale(['sk-SK', 'de-DE', 'cs'])).toBe('cs');
+    expect(detectLocale(['pl-PL', 'de-DE', 'cs'])).toBe('cs');
+  });
+
+  it('answers Slovak with Czech, not English', () => {
+    expect(detectLocale(['sk-SK', 'en-US'])).toBe('cs');
+    expect(detectLocale(['sk'])).toBe('cs');
+    // An alias only fills in for its own position in the list.
+    expect(detectLocale(['en-GB', 'sk'])).toBe('en');
   });
 
   it('falls back to the default when nothing matches', () => {

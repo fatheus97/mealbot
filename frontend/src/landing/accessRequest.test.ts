@@ -61,6 +61,7 @@ describe("submitAccessRequest", () => {
     expect(msg).toMatch(/thanks/i);
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe("/api/access-requests");
+    expect(init!.headers).toMatchObject({ "Accept-Language": "en" });
     expect(JSON.parse(init!.body as string)).toEqual({
       email: "a@b.com",
       message: "let me in",
@@ -82,6 +83,9 @@ describe("submitAccessRequest", () => {
     document.documentElement.setAttribute("lang", "cs");
     try {
       await expect(submitAccessRequest("a@b.com", "")).resolves.toBe("Díky — žádost máme.");
+      expect(vi.mocked(fetch).mock.calls[0][1]!.headers).toMatchObject({
+        "Accept-Language": "cs",
+      });
     } finally {
       document.documentElement.removeAttribute("lang");
     }

@@ -166,7 +166,7 @@ describe("landing <head> (built dist/index.html)", () => {
     });
 
     it("every self-hosted asset referenced in <head> exists in the build output", () => {
-      const assetPaths = [...head.matchAll(/(?:href|src)="\/([^"]+\.(?:svg|ico|png|webmanifest|json))"/g)].map(
+      const assetPaths = [...head.matchAll(/(?:href|src)="\/([^"]+\.(?:svg|ico|png|webmanifest|json|js))"/g)].map(
         (m) => m[1],
       );
       expect(assetPaths.length).toBeGreaterThan(0);

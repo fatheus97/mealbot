@@ -91,6 +91,11 @@ describe("landing authApi", () => {
         await expect(landingLogin("u@example.com", "nope")).rejects.toThrow(
           "Přihlášení se nezdařilo. Zkontrolujte přihlašovací údaje.",
         );
+        // The backend words its own errors from this header, so it must carry
+        // the page's language, not whatever the browser was installed with.
+        expect(vi.mocked(fetch).mock.calls[0][1]!.headers).toMatchObject({
+          "Accept-Language": "cs",
+        });
       } finally {
         document.documentElement.removeAttribute("lang");
       }
@@ -104,7 +109,11 @@ describe("landing authApi", () => {
       expect(localStorage.getItem("mealbot_user_id")).toBe("5");
       const [url, init] = vi.mocked(fetch).mock.calls[0];
       expect(url).toBe("/api/auth/login");
-      expect(init).toMatchObject({ method: "POST", credentials: "include" });
+      expect(init).toMatchObject({
+        method: "POST",
+        credentials: "include",
+        headers: { "Accept-Language": "en", "Content-Type": "application/json" },
+      });
       expect(JSON.parse(init!.body as string)).toEqual({
         email: "u@example.com",
         password: "pw",

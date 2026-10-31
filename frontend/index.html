@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Language routing, first so a redirect happens before anything else
+         loads. External because the CSP forbids inline scripts. -->
+    <script src="/lang-redirect.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- index.css flips background-color under prefers-color-scheme: light
          (#242424 dark default -> #ffffff light); split into two
