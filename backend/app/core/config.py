@@ -14,6 +14,18 @@ class ModelEntry(BaseModel):
     provider: LLMProvider
     model: str
 
+    @property
+    def label(self) -> str:
+        """"provider/model", the LLM_MODELS spelling."""
+        return f"{self.provider.value}/{self.model}"
+
+
+class ExperimentArm(BaseModel):
+    """One LLM_EXPERIMENT entry: this share of meal generations tries `entry` first."""
+
+    entry: ModelEntry
+    percent: float = Field(gt=0, le=100)
+
 
 # Values that mean "not configured". The .env.example ships literal placeholders
 # (your_key_here); an operator who copies it without editing leaves a truthy-but-
@@ -54,6 +66,14 @@ class Settings(BaseSettings):
         ModelEntry(provider=LLMProvider.GEMINI, model="gemini-2.5-flash"),
         ModelEntry(provider=LLMProvider.GEMINI, model="gemini-2.5-flash-lite"),
     ]
+
+    # Model experiment, OFF when empty: "provider/model=percent,...". That
+    # percent of meal-plan generations (create and regenerate) try the model
+    # first, with the LLM_MODELS chain behind it as fallback; the rest run the
+    # chain as usual (the control). An arm runs only if its model is in
+    # EVAL_APPROVED and its provider in DISCLOSED_PROVIDERS (app/llm/experiment.py,
+    # app/llm/client.py); any other arm is logged at startup and never rolled.
+    llm_experiment: str | list[ExperimentArm] = []
 
     # API keys (still per-provider)
     openai_api_key: str | None = None
@@ -375,6 +395,36 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return v  # already parsed (e.g. default)
         raise ValueError(f"llm_models must be a comma-separated string or list, got {type(v)}")
+
+    @property
+    def experiment_arms(self) -> list[ExperimentArm]:
+        """llm_experiment as a typed list (always resolved after validation)."""
+        assert isinstance(self.llm_experiment, list)  # guaranteed by validator
+        return self.llm_experiment
+
+    @field_validator("llm_experiment", mode="before")
+    @classmethod
+    def parse_experiment(cls, v: object) -> list[ExperimentArm]:
+        if isinstance(v, list):
+            return v
+        if not isinstance(v, str):
+            raise ValueError(f"llm_experiment must be a string or list, got {type(v)}")
+        arms: list[ExperimentArm] = []
+        for item in (part.strip() for part in v.split(",")):
+            if not item:
+                continue
+            spec, eq, percent = item.rpartition("=")
+            provider, slash, model = spec.partition("/")
+            if not (eq and slash and model):
+                raise ValueError(f"LLM_EXPERIMENT entry {item!r}: expected provider/model=percent")
+            arms.append(ExperimentArm(
+                entry=ModelEntry(provider=LLMProvider(provider), model=model), percent=float(percent),
+            ))
+        if len({arm.entry.label for arm in arms}) != len(arms):
+            raise ValueError("LLM_EXPERIMENT names a model twice")
+        if sum(arm.percent for arm in arms) > 100:
+            raise ValueError("LLM_EXPERIMENT percents add up to more than 100")
+        return arms
 
 
 # noinspection PyArgumentList

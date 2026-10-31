@@ -21,6 +21,8 @@ from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
+from app.llm.client import first_choice
+from app.llm.experiment import pick_arm
 from app.llm.usage import LlmCallUsage
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
@@ -683,6 +685,8 @@ async def regenerate_plan(
 
     past_meals: list[str] = list(original_req.past_meals)
     new_days: list[SingleDayResponse] = []
+    # One roll per regeneration, as for a new plan (app/llm/experiment.py).
+    arm = pick_arm()
 
     # 6) Loop day-by-day
     for day_index, day in enumerate(original_resp.days):
@@ -725,13 +729,14 @@ async def regenerate_plan(
         day_req.past_meals = past_meals
 
         try:
-            new_meals_response = await generate_partial_day(
-                day_req,
-                frozen_only,
-                slots_to_generate,
-                replaced_meals=replaced_names,
-                mock=current_user.is_demo,
-            )
+            with first_choice(arm):
+                new_meals_response = await generate_partial_day(
+                    day_req,
+                    frozen_only,
+                    slots_to_generate,
+                    replaced_meals=replaced_names,
+                    mock=current_user.is_demo,
+                )
         except HTTPException:
             raise
         except ScreenError as exc:
@@ -1327,6 +1332,7 @@ async def edit_meal(
         steps=body.steps,
         total_time_minutes=body.total_time_minutes,
         leftover_of=existing.leftover_of,
+        generated_by=existing.generated_by,
     )
     day_meals[meal_index] = updated_meal
 

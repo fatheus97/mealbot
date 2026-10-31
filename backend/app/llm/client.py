@@ -2,7 +2,9 @@ import asyncio
 import base64
 import logging
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import (  # Any: instructor kwargs are inherently untyped
     Any,
     Literal,
@@ -52,6 +54,32 @@ _UNAVAILABLE_KEY: dict[CallKind, ErrorKey] = {
     "text": "llm_unavailable",
     "vision": "llm_scan_unavailable",
 }
+
+# A model to try before the configured chain, for calls inside first_choice()
+# (an experiment arm, see app/llm/experiment.py). None = the chain as configured.
+_first_choice: ContextVar[ModelEntry | None] = ContextVar("llm_first_choice", default=None)
+# The model that answered the latest chat_json in this task; None after a mock
+# answer. Read it right after the await, in the same task (see answered_by).
+_answered_by: ContextVar[ModelEntry | None] = ContextVar("llm_answered_by", default=None)
+
+
+@contextmanager
+def first_choice(entry: ModelEntry | None) -> Iterator[None]:
+    """Try `entry` first for LLM calls inside the block, the configured chain
+    behind it as fallback, so a failing first choice costs the user nothing but
+    time. None leaves the chain as it is."""
+    token = _first_choice.set(entry)
+    try:
+        yield
+    finally:
+        _first_choice.reset(token)
+
+
+def answered_by() -> ModelEntry | None:
+    """The model that wrote the answer of this task's latest chat_json, or None
+    for a mock answer. A ContextVar rather than a return value, so the many
+    chat_json callers and test fakes keep their signature."""
+    return _answered_by.get()
 
 class LLMClient:
     """Thin wrapper utilising Instructor for strict JSON schema enforcement."""
@@ -279,6 +307,7 @@ class LLMClient:
                     usage.completion_tokens if usage else "?",
                     usage.total_tokens if usage else "?",
                 )
+                _answered_by.set(entry)
                 return result
             # CancelledError (shutdown, an outer cancel) is a BaseException and
             # passes through untouched; only the cut above turns into TimeoutError.
@@ -352,16 +381,22 @@ class LLMClient:
         raise LocalizedHTTPException(502, _UNAVAILABLE_KEY[kind]) from last_exc
 
     def _attempt_order(self, now: float, kind: CallKind) -> list[ModelEntry]:
-        """settings.model_chain with models currently demoted for `kind` moved to the end.
+        """settings.model_chain, led by any first_choice() model, with models
+        currently demoted for `kind` moved to the end.
 
-        Demote, never drop: the stable sort keeps config order within each group.
+        Demote, never drop: the stable sort keeps that order within each group,
+        so a demoted first choice goes last like any other model.
         """
+        chain = settings.model_chain
+        first = _first_choice.get()
+        if first is not None:
+            chain = [first, *(e for e in chain if e != first)]
         # ponytail: after a demotion expires, every request that STARTS before the
         # first re-probe finishes (up to the 60 s deadline) tries the model first;
         # add a single-flight probe (one caller re-probes, the rest keep it last)
         # if traffic ever makes that hurt.
         return sorted(
-            settings.model_chain,
+            chain,
             key=lambda e: self._demoted_until.get((kind, e.provider, e.model), 0.0) > now,
         )
 
@@ -376,6 +411,7 @@ class LLMClient:
         """
         Forces the LLM to return data that perfectly validates against the injected Pydantic model.
         """
+        _answered_by.set(None)  # a mock answer must not inherit the last real model
         if mock or settings.llm_mock:
             from app.models.plan_models import ReceiptScanResponse
             if response_model is ReceiptScanResponse:
