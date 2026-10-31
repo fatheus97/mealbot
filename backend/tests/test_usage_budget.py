@@ -76,12 +76,10 @@ def test_cost_bills_thinking_tokens_at_output_rate() -> None:
     assert cost > undercount
 
 
-def test_cost_unknown_model_falls_back_to_max_rate() -> None:
-    known_max_out = max(
-        r.output_eur_per_token for r in llm_cost.MODEL_COST_RATES.values()
-    )
+def test_cost_unknown_model_falls_back_to_the_flash_rate() -> None:
+    flash_out = llm_cost.MODEL_COST_RATES[("gemini", "gemini-2.5-flash")].output_eur_per_token
     cost = llm_cost.cost_of(0, 1_000_000, "acme", "mystery-model")
-    assert cost == pytest.approx(1_000_000 * known_max_out)
+    assert cost == pytest.approx(1_000_000 * flash_out)
     assert cost > 0.0  # never free on config drift
 
 
