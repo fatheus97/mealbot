@@ -856,8 +856,9 @@ class MachineGeneration(SQLModel, table=True):
 
 
 class LlmUsage(SQLModel, table=True):
-    """Per-call LLM token usage, captured at call time. One row per successful,
-    non-mock LLM call.
+    """Per-call LLM token usage, captured at call time. One row per model a
+    non-mock LLM call reached that answered at all: the one that succeeded, and
+    any that answered and then failed before the chain moved on.
 
     Best-effort telemetry with the same contract as MachineGeneration — it rides
     the user action's transaction (recorded iff the action commits) and a failed
@@ -883,8 +884,9 @@ class LlmUsage(SQLModel, table=True):
       the earlier calls that already succeeded and were billed. (A future phase
       that needs exact billing should record each call in its own transaction so
       partial-failure spend survives; see ROADMAP.)
-    * Only the final successful attempt is counted; `instructor`'s internal
-      structured-output validation retries are billed but not captured here.
+    * A row sums every request instructor made to its model, the re-asks after
+      invalid output included. A request cut mid-flight (timeout, attempt cap)
+      never returned its usage, so it is billed but not captured.
     Good enough for cost trends / relative per-user & per-surface comparison;
     reconcile against the provider's own billing for exact figures.
     """

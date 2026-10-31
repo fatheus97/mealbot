@@ -4,6 +4,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import instructor
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -176,9 +177,15 @@ class TestUsageRecordedByGenerationRoute:
                 prompt_token_count=30, candidates_token_count=10, total_token_count=300
             )
         )
+        async def create_with_completion(**kwargs: object) -> tuple[LlmDayResponse, object]:
+            hooks = kwargs["hooks"]
+            assert isinstance(hooks, instructor.hooks.Hooks)
+            hooks.emit_completion_response(completion)  # as instructor does per request
+            return _fake_day(), completion
+
         stub_client = MagicMock()
         stub_client.chat.completions.create_with_completion = AsyncMock(
-            return_value=(_fake_day(), completion)
+            side_effect=create_with_completion
         )
         mock_get_client.return_value = stub_client
 

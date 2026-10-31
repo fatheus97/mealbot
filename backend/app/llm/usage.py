@@ -18,7 +18,7 @@ Contract:
 """
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -62,6 +62,35 @@ def capture_llm_usage() -> Iterator[list[LlmCallUsage]]:
         yield bucket
     finally:
         _usage_bucket.reset(token)
+
+
+def append_response_usage(
+    provider: str, model: str, into: list[LlmCallUsage], response: object
+) -> None:
+    """instructor ``completion:response`` handler (bind the first three with
+    ``functools.partial``): append one request's usage to ``into``. Never raises.
+
+    The hook fires before instructor folds a re-ask's usage into the running
+    total it writes back onto OpenAI/Anthropic responses, so each read here is
+    that one request's own count."""
+    usage = usage_from_completion(provider, model, response)
+    if usage is not None:
+        into.append(usage)
+
+
+def sum_usage(usages: Sequence[LlmCallUsage]) -> LlmCallUsage | None:
+    """One ``LlmCallUsage`` for one model's requests (an answer plus its
+    re-asks), or None for none. Each sum is clamped like a single count, so a
+    few attempts at the clamp still fit the int32 column."""
+    if not usages:
+        return None
+    return LlmCallUsage(
+        provider=usages[0].provider,
+        model=usages[0].model,
+        prompt_tokens=min(sum(u.prompt_tokens for u in usages), _MAX_TOKEN_COUNT),
+        completion_tokens=min(sum(u.completion_tokens for u in usages), _MAX_TOKEN_COUNT),
+        total_tokens=min(sum(u.total_tokens for u in usages), _MAX_TOKEN_COUNT),
+    )
 
 
 def usage_from_completion(

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import functools
 import logging
 import random
 from collections.abc import Callable, Iterator
@@ -32,7 +33,7 @@ from pydantic import BaseModel
 from app.core.config import LLMProvider, ModelEntry, settings
 from app.core.error_copy import ErrorKey
 from app.core.errors import LocalizedHTTPException
-from app.llm.usage import record_call_usage, usage_from_completion
+from app.llm.usage import LlmCallUsage, append_response_usage, record_call_usage, sum_usage
 
 logger = logging.getLogger(__name__)
 
@@ -297,36 +298,49 @@ class LLMClient:
                     entry.model,
                     response_model.__name__,
                 )
-                # create_with_completion also returns the raw provider response,
-                # which carries the token-usage metadata. Capturing it here means
-                # only the SUCCESSFUL attempt in the fallback chain is counted —
-                # failed attempts raise before this point.
-                async with cut:
-                    result, completion = await client.chat.completions.create_with_completion(
-                        model=entry.model,
-                        response_model=response_model,
-                        max_retries=MAX_LLM_RETRIES,
-                        **kwargs,
-                    )
+                # Usage is read off every response instructor gets, re-asks
+                # included, in its completion:response hook. The completion it
+                # returns is no source: instructor sums re-ask usage onto it for
+                # OpenAI and Anthropic but not for google-genai, whose re-asked
+                # calls it would under-count. Recorded however the attempt ends:
+                # a model that answered and then failed (output it could not
+                # repair, the attempt cap) was billed for those answers.
+                attempts: list[LlmCallUsage] = []
+                hooks = instructor.hooks.Hooks()
+                hooks.on(
+                    "completion:response",
+                    functools.partial(
+                        append_response_usage, entry.provider.value, entry.model, attempts
+                    ),
+                )
+                try:
+                    async with cut:
+                        result, _ = await client.chat.completions.create_with_completion(
+                            model=entry.model,
+                            response_model=response_model,
+                            max_retries=MAX_LLM_RETRIES,
+                            hooks=hooks,
+                            **kwargs,
+                        )
+                finally:
+                    usage = sum_usage(attempts)
+                    if usage is not None:
+                        record_call_usage(usage)
                 # A success lifts the demotion only if this attempt started after the
                 # demotion was recorded: a slow call that began earlier says nothing
                 # about the model since.
                 until = self._demoted_until.get(key)
                 if until is not None and t0 >= until - self._DEMOTE_SECONDS:
                     del self._demoted_until[key]
-                usage = usage_from_completion(
-                    entry.provider.value, entry.model, completion
-                )
-                if usage is not None:
-                    record_call_usage(usage)
                 now = loop.time()
                 logger.info(
                     "LLM call completed: provider=%s model=%s elapsed=%.1fs chain=%.1fs "
-                    "tokens(prompt/completion/total)=%s/%s/%s",
+                    "requests=%d tokens(prompt/completion/total)=%s/%s/%s",
                     entry.provider.value,
                     entry.model,
                     now - t0,
                     now - start,
+                    len(attempts),
                     usage.prompt_tokens if usage else "?",
                     usage.completion_tokens if usage else "?",
                     usage.total_tokens if usage else "?",
