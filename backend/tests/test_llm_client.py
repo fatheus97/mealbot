@@ -4,12 +4,17 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import instructor
 import pytest
 from aiohttp import web
+from anthropic import APIStatusError as AnthropicAPIStatusError
+from anthropic import APITimeoutError as AnthropicAPITimeoutError
+from anthropic import AsyncAnthropic
+from anthropic import RateLimitError as AnthropicRateLimitError
 from fastapi import HTTPException
 from google import genai
 from google.genai import types as genai_types
@@ -281,6 +286,24 @@ class TestIsFallbackError:
         wrapper = Exception("instructor retry wrapper")
         wrapper.__cause__ = TimeoutError()
         assert LLMClient._classify_error(wrapper) == "timeout"
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [(429, "retryable"), (529, "retryable"), (404, "terminal"), (400, None), (500, None)],
+    )
+    def test_anthropic_status_codes(self, status: int, expected: str | None) -> None:
+        """529 is Anthropic's overloaded_error: load, like Google's 503."""
+        response = httpx.Response(status, request=httpx.Request("POST", "https://api.anthropic.com"))
+        cls = AnthropicRateLimitError if status == 429 else AnthropicAPIStatusError
+        err = cls("boom", response=response, body=None)
+        wrapper = Exception("instructor retry wrapper")
+        wrapper.__cause__ = err
+        assert LLMClient._classify_error(err) == expected
+        assert LLMClient._classify_error(wrapper) == expected
+
+    def test_anthropic_client_timeout_is_a_timeout(self) -> None:
+        err = AnthropicAPITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com"))
+        assert LLMClient._classify_error(err) == "timeout"
 
     def test_gemini_500_is_not_fallback(self) -> None:
         """500 Internal Server Error is not a 'try another model' signal — next model likely fails too."""
@@ -1390,6 +1413,125 @@ class TestRealStackContract:
         # instructor hands back a subclass of the response model, so compare fields.
         assert result.x == 1
         assert _demoted(client) == {"slow"}
+
+
+class TestAnthropicStackContract:
+    """The REAL instructor + anthropic SDK stack against a local fake Messages API.
+
+    The SDK is held at instructor's pin (requirements.txt), so this is where a
+    bump that breaks the pairing turns red: the request must carry the system
+    prompt as `system`, an output cap and tool_choice auto, and the tool_use
+    answer must come back parsed with its token usage."""
+
+    @pytest.fixture
+    async def fake_claude(self) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
+        seen: list[dict[str, Any]] = []
+
+        async def handler(request: web.Request) -> web.Response:
+            body = await request.json()
+            seen.append(body)
+            if body["model"] == "busy":
+                return web.json_response(
+                    {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}},
+                    status=529,
+                )
+            return web.json_response({
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": body["model"],
+                "content": [
+                    {"type": "thinking", "thinking": "", "signature": "sig"},
+                    {"type": "tool_use", "id": "toolu_1", "name": body["tools"][0]["name"], "input": {"x": 1}},
+                ],
+                "stop_reason": "tool_use",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 11, "output_tokens": 7},
+            })
+
+        app = web.Application()
+        app.router.add_route("*", "/{tail:.*}", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        host, port = runner.addresses[0][:2]
+        try:
+            yield f"http://{host}:{port}", seen
+        finally:
+            await runner.cleanup()
+
+    @pytest.fixture
+    async def sdk(self, fake_claude: tuple[str, list[dict[str, Any]]]) -> AsyncIterator[AsyncAnthropic]:
+        # max_retries=0: the SDK's own 529 retries would only slow the test down.
+        client = AsyncAnthropic(api_key="fake-key", base_url=fake_claude[0], max_retries=0)
+        try:
+            yield client
+        finally:
+            await client.close()
+
+    def _client(self, monkeypatch: pytest.MonkeyPatch, sdk: AsyncAnthropic, *chain: str) -> LLMClient:
+        settings = MagicMock()
+        settings.llm_mock = False
+        settings.model_chain = _chain(*chain)
+        settings.gemini_api_key = None
+        settings.openai_api_key = None
+        settings.deepseek_api_key = None
+        settings.anthropic_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        client = LLMClient()
+        client.anthropic_client = instructor.from_anthropic(sdk)
+        return client
+
+    async def test_a_tool_answer_parses_with_its_usage(
+        self, fake_claude: tuple[str, list[dict[str, Any]]], sdk: AsyncAnthropic,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _, seen = fake_claude
+        client = self._client(monkeypatch, sdk, "anthropic/claude-haiku-5-5")
+        with capture_llm_usage() as calls:
+            async with asyncio.timeout(10):
+                result = await client.chat_json("sys prompt", "usr", _Tiny)
+        assert result.x == 1
+        assert answered_by() == _chain("anthropic/claude-haiku-5-5")[0]
+        [body] = seen
+        assert body["system"] == [{"type": "text", "text": "sys prompt"}]
+        assert [m["role"] for m in body["messages"]] == ["user"]
+        assert body["tool_choice"] == {"type": "auto"}
+        assert body["max_tokens"] > 0
+        [usage] = calls
+        assert (usage.provider, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
+            "anthropic", 11, 7, 18,
+        )
+
+    @patch("app.llm.client.asyncio.sleep", new_callable=AsyncMock)
+    async def test_overloaded_falls_back(
+        self, _sleep: AsyncMock, fake_claude: tuple[str, list[dict[str, Any]]],
+        sdk: AsyncAnthropic, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Anthropic's 529 overloaded_error is load, like Google's 503: next model."""
+        _, seen = fake_claude
+        client = self._client(monkeypatch, sdk, "anthropic/busy", "anthropic/claude-haiku-5-5")
+        async with asyncio.timeout(10):
+            result = await client.chat_json("sys", "usr", _Tiny)
+        assert result.x == 1
+        assert [b["model"] for b in seen] == ["busy", "claude-haiku-5-5"]
+
+    async def test_an_image_goes_as_an_anthropic_image_block(
+        self, fake_claude: tuple[str, list[dict[str, Any]]], sdk: AsyncAnthropic,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _, seen = fake_claude
+        client = self._client(monkeypatch, sdk, "anthropic/claude-haiku-5-5")
+        async with asyncio.timeout(10):
+            await client.chat_vision_json("sys", "read this", "aGVsbG8=", "image/jpeg", _Tiny)
+        [body] = seen
+        assert body["system"] == [{"type": "text", "text": "sys"}]
+        [user] = body["messages"]
+        assert user["content"][0] == {
+            "type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "aGVsbG8="},
+        }
+        assert user["content"][1] == {"type": "text", "text": "read this"}
 
 
 class TestFirstChoice:

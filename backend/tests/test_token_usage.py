@@ -104,6 +104,13 @@ class TestUsageExtraction:
         assert usage.total_tokens == 79
         assert usage.total_tokens != usage.prompt_tokens + usage.completion_tokens
 
+    def test_anthropic_shape(self) -> None:
+        # No total in Anthropic's usage; output already includes thinking.
+        completion = SimpleNamespace(usage=SimpleNamespace(input_tokens=10, output_tokens=25))
+        usage = usage_from_completion("anthropic", "claude-haiku-5-5", completion)
+        assert usage is not None
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (10, 25, 35)
+
     def test_openai_shape(self) -> None:
         completion = SimpleNamespace(
             usage=SimpleNamespace(

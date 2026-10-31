@@ -8,6 +8,7 @@ over-budget request is rejected before any generation runs. Ordering (402 before
 through require_generation_budget.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -16,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_generation_budget
-from app.core.config import settings
+from app.core.config import LLMProvider, ModelEntry, settings
 from app.models.db_models import LlmUsage, User
 from app.models.usage_schemas import BudgetStatus
 from app.services import llm_cost, usage_budget
@@ -90,6 +91,26 @@ def test_the_prod_chain_alias_has_its_own_rate() -> None:
     # matches it only while no model costs more than 2.5 Flash.
     rate = llm_cost.rate_for("gemini", "gemini-flash-lite-latest")
     assert rate is llm_cost.MODEL_COST_RATES[("gemini", "gemini-flash-lite-latest")]
+
+
+def test_the_pinned_prod_primary_has_its_own_rate() -> None:
+    # gemini-3.5-flash-lite leads the prod chain since 2026-10-31. Billed at the
+    # fallback rate it would be overcharged the moment a dearer model is added.
+    rate = llm_cost.rate_for("gemini", "gemini-3.5-flash-lite")
+    assert rate is llm_cost.MODEL_COST_RATES[("gemini", "gemini-3.5-flash-lite")]
+
+
+def test_startup_names_a_chain_model_without_a_rate(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(settings, "llm_models", [
+        ModelEntry(provider=LLMProvider.GEMINI, model="gemini-3.5-flash-lite"),
+        ModelEntry(provider=LLMProvider.GEMINI, model="gemini-9-unpriced"),
+    ])
+    with caplog.at_level(logging.WARNING, logger="app.services.llm_cost"):
+        llm_cost.check_chain_rates()
+    [record] = caplog.records
+    assert "gemini/gemini-9-unpriced" in record.getMessage()
 
 
 def test_cost_negative_output_clamped_to_zero() -> None:

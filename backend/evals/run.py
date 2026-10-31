@@ -31,7 +31,7 @@ from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
 
 from app.core.config import LLMProvider, ModelEntry, settings
-from app.llm.client import llm_client
+from app.llm.client import _PROVIDER_KEY_ATTR, llm_client
 from app.llm.usage import capture_llm_usage
 from app.models.plan_models import LlmDayResponse, SingleDayResponse
 from app.services.llm_cost import MODEL_COST_RATES, cost_of
@@ -76,12 +76,7 @@ def parse_model(spec: str) -> ModelEntry:
 
 
 def has_key(entry: ModelEntry) -> bool:
-    keys = {
-        LLMProvider.GEMINI: settings.gemini_api_key,
-        LLMProvider.OPENAI: settings.openai_api_key,
-        LLMProvider.DEEPSEEK: settings.deepseek_api_key,
-    }
-    return bool(keys[entry.provider])
+    return bool(getattr(settings, _PROVIDER_KEY_ATTR[entry.provider]))
 
 
 @contextmanager

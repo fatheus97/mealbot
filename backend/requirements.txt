@@ -7,6 +7,10 @@ python-multipart~=0.0.32
 # For LLM
 instructor~=1.15
 openai~=2.53
+# Claude. Held at the version instructor's `anthropic` extra pins (==0.93.0 up to
+# instructor 1.17), which is what its Anthropic handlers are tested against; the
+# 1.x/2.x SDKs moved to httpx2. TestAnthropicStackContract runs the real stack.
+anthropic~=0.93.0
 google-genai~=2.17
 # REQUIRED by instructor's Gemini structured-output path — it derefs the $refs
 # in nested Pydantic schemas (e.g. MealPlanResponse) before sending to Gemini.

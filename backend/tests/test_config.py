@@ -63,6 +63,7 @@ class TestSettingsKeyValidatorWired:
         openai_api_key: str | None = None,
         gemini_api_key: str | None = None,
         deepseek_api_key: str | None = None,
+        anthropic_api_key: str | None = None,
     ) -> Settings:
         return Settings(
             secret_key="x" * 40,
@@ -70,6 +71,7 @@ class TestSettingsKeyValidatorWired:
             openai_api_key=openai_api_key,
             gemini_api_key=gemini_api_key,
             deepseek_api_key=deepseek_api_key,
+            anthropic_api_key=anthropic_api_key,
         )
 
     def test_placeholder_openai_key_normalized_to_none(self) -> None:
@@ -77,6 +79,9 @@ class TestSettingsKeyValidatorWired:
 
     def test_placeholder_variant_normalized_to_none(self) -> None:
         assert self._settings(openai_api_key="your_openai_key_here").openai_api_key is None
+
+    def test_placeholder_anthropic_key_normalized_to_none(self) -> None:
+        assert self._settings(anthropic_api_key="your_key_here").anthropic_api_key is None
 
     def test_real_key_preserved(self) -> None:
         assert self._settings(gemini_api_key="AIzaSyReal").gemini_api_key == "AIzaSyReal"
