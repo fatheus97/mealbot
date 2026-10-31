@@ -7,6 +7,11 @@ updates:
     groups:
       backend-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Held at instructor's pin (backend/requirements.txt). Lift when
+      # instructor's `anthropic` extra moves past 0.93.
+      - dependency-name: anthropic
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: npm
     directory: /frontend

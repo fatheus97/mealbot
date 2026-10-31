@@ -8,6 +8,7 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     GEMINI = "gemini"
     DEEPSEEK = "deepseek"
+    ANTHROPIC = "anthropic"
 
 
 class ModelEntry(BaseModel):
@@ -74,8 +75,11 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     deepseek_api_key: str | None = None
+    anthropic_api_key: str | None = None
 
-    @field_validator("openai_api_key", "gemini_api_key", "deepseek_api_key", mode="after")
+    @field_validator(
+        "openai_api_key", "gemini_api_key", "deepseek_api_key", "anthropic_api_key", mode="after"
+    )
     @classmethod
     def _blank_placeholder_keys(cls, v: str | None) -> str | None:
         return normalize_optional_key(v)

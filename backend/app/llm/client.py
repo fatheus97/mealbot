@@ -13,6 +13,10 @@ from typing import (  # Any: instructor kwargs are inherently untyped
 
 import httpx
 import instructor
+from anthropic import APIStatusError as AnthropicAPIStatusError
+from anthropic import APITimeoutError as AnthropicAPITimeoutError
+from anthropic import AsyncAnthropic
+from anthropic import RateLimitError as AnthropicRateLimitError
 from fastapi import HTTPException
 from google import genai
 from google.genai import types as genai_types
@@ -36,6 +40,11 @@ logger = logging.getLogger(__name__)
 T = TypeVar('T', bound=BaseModel)
 
 MAX_LLM_RETRIES = 3
+
+# Anthropic requires an output cap on every request. A day of meals is ~2k
+# output tokens (backend/evals runs) and adaptive thinking adds to that; 16k is
+# room to spare, never the binding limit (the 60 s deadline is).
+_ANTHROPIC_MAX_TOKENS = 16_000
 
 # Per-request HTTP deadline for every provider. google-genai ALSO sends it to
 # Google as `X-Server-Timeout`, so it is Google's deadline too: lowering it would
@@ -88,6 +97,7 @@ class LLMClient:
         self.openai_client: instructor.AsyncInstructor | None = None
         self.gemini_client: instructor.AsyncInstructor | None = None
         self.deepseek_client: instructor.AsyncInstructor | None = None
+        self.anthropic_client: instructor.AsyncInstructor | None = None
         # (kind, provider, model) -> loop.time() until which that model is tried
         # last for that kind of call, after it timed out. In-process: one uvicorn
         # process serves every user and the background triage, so they all share
@@ -106,6 +116,10 @@ class LLMClient:
                     base_url="https://api.deepseek.com",
                     timeout=_HTTP_TIMEOUT_SECONDS,
                 )
+            )
+        if settings.anthropic_api_key:
+            self.anthropic_client = instructor.from_anthropic(
+                AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=_HTTP_TIMEOUT_SECONDS)
             )
         if settings.gemini_api_key:
             # Instructor seamlessly wraps the new google-genai client
@@ -131,6 +145,10 @@ class LLMClient:
             if not self.deepseek_client:
                 raise HTTPException(500, "DeepSeek API key not configured")
             return self.deepseek_client
+        if provider == LLMProvider.ANTHROPIC:
+            if not self.anthropic_client:
+                raise HTTPException(500, "Anthropic API key not configured")
+            return self.anthropic_client
         raise HTTPException(500, "Unsupported provider")
 
     # Errors that trigger chain fallback, split by what they say about the model:
@@ -144,7 +162,8 @@ class LLMClient:
     #     same images in 1.5-3 s. Backoff + next model, AND the model
     #     is demoted (tried last) for _DEMOTE_SECONDS so the next requests don't
     #     each pay the full deadline to learn the same thing.
-    #   - RETRYABLE: transient load (429 quota, 503 overloaded). Worth a short
+    #   - RETRYABLE: transient load (429 quota, 503 overloaded, Anthropic's 529
+    #     overloaded_error). Worth a short
     #     backoff before the next provider to absorb a thundering herd — if every
     #     concurrent request tries the fallback instantly, the next provider's
     #     quota dies the same way. Not demoted: these fail in about a second, so
@@ -156,19 +175,20 @@ class LLMClient:
     # request itself (e.g. oversized input), so the next model is likely to fail
     # the same way (test_gemini_500_is_not_fallback).
     _TIMEOUT_STATUS_CODES = {504}
-    _RETRYABLE_STATUS_CODES = {429, 503}
+    _RETRYABLE_STATUS_CODES = {429, 503, 529}
     _TERMINAL_FALLBACK_STATUS_CODES = {402, 404}
     _FALLBACK_STATUS_CODES = (
         _TIMEOUT_STATUS_CODES | _RETRYABLE_STATUS_CODES | _TERMINAL_FALLBACK_STATUS_CODES
     )
     # Client-side timeouts. genai (over aiohttp) and an asyncio cut raise the
-    # builtin TimeoutError; httpx and the OpenAI SDK raise their own classes,
+    # builtin TimeoutError; httpx and the OpenAI and Anthropic SDKs raise their own classes,
     # which do NOT subclass it. httpx is reachable for genai only if instructor
     # ever drops its aiohttp dependency — cheap insurance.
     _TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (
         TimeoutError,
         httpx.TimeoutException,
         OpenAIAPITimeoutError,
+        AnthropicAPITimeoutError,
     )
 
     # Backoff cap: one bad request shouldn't stall the whole chain for long.
@@ -211,6 +231,10 @@ class LLMClient:
             elif isinstance(current, OpenAIRateLimitError):
                 return "retryable"
             elif isinstance(current, OpenAIAPIStatusError):
+                code = current.status_code
+            elif isinstance(current, AnthropicRateLimitError):
+                return "retryable"
+            elif isinstance(current, AnthropicAPIStatusError):
                 code = current.status_code
 
             if code in LLMClient._TIMEOUT_STATUS_CODES:
@@ -441,7 +465,7 @@ class LLMClient:
         ]
 
         def build_kwargs(entry: ModelEntry) -> dict[str, Any]:
-            return {"messages": messages}
+            return {"messages": messages, **_provider_kwargs(entry)}
 
         return await self._call_with_fallback(build_kwargs, response_model, "text")
 
@@ -464,6 +488,27 @@ class LLMClient:
         image_bytes = base64.b64decode(image_base64)
 
         def build_kwargs(entry: ModelEntry) -> dict[str, Any]:
+            if entry.provider == LLMProvider.ANTHROPIC:
+                return {
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": image_media_type,
+                                        "data": image_base64,
+                                    },
+                                },
+                                {"type": "text", "text": user_prompt},
+                            ],
+                        },
+                    ],
+                    **_provider_kwargs(entry),
+                }
             if entry.provider in (LLMProvider.OPENAI, LLMProvider.DEEPSEEK):
                 return {
                     "messages": [
@@ -757,12 +802,29 @@ class LLMClient:
             ]
         })
 
+
+def _provider_kwargs(entry: ModelEntry) -> dict[str, Any]:
+    """Request arguments one provider needs and the others must not get.
+
+    Anthropic: an output cap is mandatory, and tool_choice stays "auto".
+    instructor would otherwise FORCE its tool, which the current Claude models
+    reject alongside their default thinking (Opus 5.5 and Sonnet 5.5 400 on a
+    forced tool_choice at all). With one tool on offer Claude calls it; an answer
+    that does not (the prompts ask for "JSON", not for a tool) is a validation
+    failure, which instructor re-asks like any other, and the evals count.
+    """
+    if entry.provider == LLMProvider.ANTHROPIC:
+        return {"max_tokens": _ANTHROPIC_MAX_TOKENS, "tool_choice": {"type": "auto"}}
+    return {}
+
+
 # Maps each provider to the Settings attribute holding its (already
 # placeholder-normalized) API key. Kept next to the check that consumes it.
 _PROVIDER_KEY_ATTR: dict[LLMProvider, str] = {
     LLMProvider.GEMINI: "gemini_api_key",
     LLMProvider.OPENAI: "openai_api_key",
     LLMProvider.DEEPSEEK: "deepseek_api_key",
+    LLMProvider.ANTHROPIC: "anthropic_api_key",
 }
 
 

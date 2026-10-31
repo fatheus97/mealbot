@@ -69,8 +69,10 @@ def usage_from_completion(
 ) -> LlmCallUsage | None:
     """Normalize the raw provider completion into an ``LlmCallUsage``.
 
-    Handles the two shapes we use:
+    Handles the three shapes we use:
     * google-genai: ``completion.usage_metadata.{prompt,candidates,total}_token_count``
+    * Anthropic: ``completion.usage.{input,output}_tokens``, no total; output
+      includes thinking, so total = input + output
     * OpenAI-compatible (OpenAI / DeepSeek): ``completion.usage.{prompt,completion,total}_tokens``
 
     Returns ``None`` (never raises) when the completion carries no usage we can
@@ -88,6 +90,18 @@ def usage_from_completion(
                 total_tokens=_as_int(getattr(meta, "total_token_count", 0)),
             )
         usage = getattr(completion, "usage", None)
+        # Cache read/creation tokens are left out: no request sets cache_control.
+        # Count them (at their own rates) if prompt caching is ever turned on.
+        if usage is not None and provider == "anthropic":
+            prompt = _as_int(getattr(usage, "input_tokens", 0))
+            output = _as_int(getattr(usage, "output_tokens", 0))
+            return LlmCallUsage(
+                provider=provider,
+                model=model,
+                prompt_tokens=prompt,
+                completion_tokens=output,
+                total_tokens=min(prompt + output, _MAX_TOKEN_COUNT),
+            )
         if usage is not None:  # OpenAI-compatible
             return LlmCallUsage(
                 provider=provider,

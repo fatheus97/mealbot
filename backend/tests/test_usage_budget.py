@@ -8,6 +8,7 @@ over-budget request is rejected before any generation runs. Ordering (402 before
 through require_generation_budget.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -16,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_generation_budget
-from app.core.config import settings
+from app.core.config import LLMProvider, ModelEntry, settings
 from app.models.db_models import LlmUsage, User
 from app.models.usage_schemas import BudgetStatus
 from app.services import llm_cost, usage_budget
@@ -75,21 +76,74 @@ def test_cost_bills_thinking_tokens_at_output_rate() -> None:
     assert cost > undercount
 
 
-def test_cost_unknown_model_falls_back_to_max_rate() -> None:
-    known_max_out = max(
-        r.output_eur_per_token for r in llm_cost.MODEL_COST_RATES.values()
-    )
+def test_cost_unknown_model_falls_back_to_the_flash_rate() -> None:
+    flash_out = llm_cost.MODEL_COST_RATES[("gemini", "gemini-2.5-flash")].output_eur_per_token
     cost = llm_cost.cost_of(0, 1_000_000, "acme", "mystery-model")
-    assert cost == pytest.approx(1_000_000 * known_max_out)
+    assert cost == pytest.approx(1_000_000 * flash_out)
     assert cost > 0.0  # never free on config drift
 
 
 def test_the_prod_chain_alias_has_its_own_rate() -> None:
     # gemini-flash-lite-latest has been in the prod chain since 2026-10-30.
-    # Without its own entry it is billed at the fallback (max) rate, which
-    # matches it only while no model costs more than 2.5 Flash.
+    # Without its own entry it is billed at the fallback rate (2.5 Flash's),
+    # which matches its price only by coincidence.
     rate = llm_cost.rate_for("gemini", "gemini-flash-lite-latest")
     assert rate is llm_cost.MODEL_COST_RATES[("gemini", "gemini-flash-lite-latest")]
+
+
+def test_the_pinned_prod_primary_has_its_own_rate() -> None:
+    # gemini-3.5-flash-lite leads the prod chain since 2026-10-31. Billed at the
+    # fallback rate it would be overcharged the moment a dearer model is added.
+    rate = llm_cost.rate_for("gemini", "gemini-3.5-flash-lite")
+    assert rate is llm_cost.MODEL_COST_RATES[("gemini", "gemini-3.5-flash-lite")]
+
+
+def test_a_retired_models_rows_keep_their_price() -> None:
+    # gemini-flash-latest served users until 2026-10-30 and has no row. Its rows
+    # still count toward this month's cap, so they must not be re-priced at the
+    # dearest model in the table (Opus, eval-only) just because it is there.
+    flash = llm_cost.cost_of(1000, 3000, "gemini", "gemini-2.5-flash")
+    assert llm_cost.cost_of(1000, 3000, "gemini", "gemini-flash-latest") == flash
+    assert llm_cost.cost_of(1000, 3000, "anthropic", "claude-opus-5-5") > 5 * flash
+
+
+def test_every_eval_approved_model_has_a_rate() -> None:
+    # An approved model can serve users as an experiment arm; without a row it
+    # would be charged the fixed fallback rate, under-billing a dearer model.
+    # The startup check only logs, so the approval PR is where CI must catch it.
+    from app.llm.experiment import EVAL_APPROVED
+    unpriced = {
+        label for label in EVAL_APPROVED
+        if tuple(label.split("/", 1)) not in llm_cost.MODEL_COST_RATES
+    }
+    assert unpriced == set()
+
+
+def test_startup_names_a_chain_model_without_a_rate(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(settings, "llm_models", [
+        ModelEntry(provider=LLMProvider.GEMINI, model="gemini-3.5-flash-lite"),
+        ModelEntry(provider=LLMProvider.GEMINI, model="gemini-9-unpriced"),
+    ])
+    with caplog.at_level(logging.WARNING, logger="app.services.llm_cost"):
+        llm_cost.check_chain_rates()
+    [record] = caplog.records
+    assert "gemini/gemini-9-unpriced" in record.getMessage()
+
+
+def test_startup_names_an_experiment_arm_without_a_rate(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # An arm leads the chain for its share of real generations, so it bills too.
+    monkeypatch.setattr(settings, "llm_models", [
+        ModelEntry(provider=LLMProvider.GEMINI, model="gemini-3.5-flash-lite"),
+    ])
+    monkeypatch.setattr(settings, "llm_experiment", "gemini/gemini-9-unpriced=10")
+    with caplog.at_level(logging.WARNING, logger="app.services.llm_cost"):
+        llm_cost.check_chain_rates()
+    [record] = caplog.records
+    assert "gemini/gemini-9-unpriced" in record.getMessage()
 
 
 def test_cost_negative_output_clamped_to_zero() -> None:

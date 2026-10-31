@@ -13,6 +13,7 @@ invoice — exact FX and list-price drift are immaterial for a ~€2 cap, and
 over-estimation fails safe.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -20,7 +21,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
+from app.core.config import settings
+from app.llm.experiment import parse_arms
 from app.models.db_models import LlmUsage
+
+logger = logging.getLogger(__name__)
 
 # USD → EUR. A fuzzy cap doesn't need precision; over-estimation fails safe.
 _USD_EUR = 0.92
@@ -37,10 +42,10 @@ class ModelRate:
 # Keyed on (provider, model). Derived from published USD per-1M-token pricing
 # × _USD_EUR, expressed per single token. Gemini 2.5 Flash: $0.30/1M in, $2.50/1M
 # out; Flash-Lite: $0.10/1M in, $0.40/1M out (ai.google.dev/gemini-api/docs/pricing).
-# NOTE: only the all-Gemini LLM_MODELS chains (default and prod) are mapped. If LLM_MODELS ever
-# gains an OpenAI/DeepSeek model, add its rate here — otherwise it uses the
-# (Gemini-max) _FALLBACK_RATE, which never undercounts but may over-restrict a
-# genuinely cheaper model.
+# A model missing here is charged _FALLBACK_RATE (below), so every model in a
+# chain needs its own row; check_chain_rates logs any that has none. The OpenAI
+# and Claude rows price backend/evals runs (list prices checked 2026-10-31);
+# none of them is in a chain.
 MODEL_COST_RATES: dict[tuple[str, str], ModelRate] = {
     ("gemini", "gemini-2.5-flash"): ModelRate(
         0.30 * _USD_EUR / 1_000_000, 2.50 * _USD_EUR / 1_000_000
@@ -55,14 +60,45 @@ MODEL_COST_RATES: dict[tuple[str, str], ModelRate] = {
     ("gemini", "gemini-flash-lite-latest"): ModelRate(
         0.30 * _USD_EUR / 1_000_000, 2.50 * _USD_EUR / 1_000_000
     ),
+    # What that alias served on 2026-10-31, pinned (prod primary since then).
+    ("gemini", "gemini-3.5-flash-lite"): ModelRate(
+        0.30 * _USD_EUR / 1_000_000, 2.50 * _USD_EUR / 1_000_000
+    ),
+    # developers.openai.com/api/docs/pricing (Standard tier).
+    ("openai", "gpt-5.6-luna"): ModelRate(0.20 * _USD_EUR / 1_000_000, 1.20 * _USD_EUR / 1_000_000),
+    ("openai", "gpt-5.4-nano"): ModelRate(0.20 * _USD_EUR / 1_000_000, 1.25 * _USD_EUR / 1_000_000),
+    ("openai", "gpt-5-mini"): ModelRate(0.25 * _USD_EUR / 1_000_000, 2.00 * _USD_EUR / 1_000_000),
+    ("openai", "gpt-4.1-mini"): ModelRate(0.40 * _USD_EUR / 1_000_000, 1.60 * _USD_EUR / 1_000_000),
+    # platform.claude.com/docs/en/about-claude/pricing, prompts under 100k tokens.
+    ("anthropic", "claude-haiku-5-5"): ModelRate(0.10 * _USD_EUR / 1_000_000, 0.50 * _USD_EUR / 1_000_000),
+    ("anthropic", "claude-sonnet-5-5"): ModelRate(2.00 * _USD_EUR / 1_000_000, 10.00 * _USD_EUR / 1_000_000),
+    ("anthropic", "claude-opus-5-5"): ModelRate(4.00 * _USD_EUR / 1_000_000, 20.00 * _USD_EUR / 1_000_000),
 }
 
-# Unknown (provider, model) → the MOST EXPENSIVE known rate, so a model swap or
-# config drift never silently under-bills the cap (fail-safe on the cost side).
-_FALLBACK_RATE = ModelRate(
-    max(r.input_eur_per_token for r in MODEL_COST_RATES.values()),
-    max(r.output_eur_per_token for r in MODEL_COST_RATES.values()),
-)
+# A (provider, model) with no row: priced as 2.5 Flash, which was the table's
+# maximum until 2026-10-31, so rows already stored keep the price they had. A
+# FIXED rate, not the table's maximum: spend is recomputed
+# from stored rows on every check (compute_window_cost), and most unmapped rows
+# are retired models (gemini-flash-latest served users until 2026-10-30). Under
+# a table maximum, adding an eval-only Opus row would have re-priced those rows
+# at Opus rates, 8x, and capped users for usage they had already paid for. An
+# unmapped model now in a chain is check_chain_rates' job instead.
+_FALLBACK_RATE = MODEL_COST_RATES[("gemini", "gemini-2.5-flash")]
+
+
+def check_chain_rates() -> None:
+    """Log at startup every model that can serve users without its own rate:
+    the chain and the LLM_EXPERIMENT arms. It is charged _FALLBACK_RATE, a
+    Gemini Flash price, which under-bills a dearer model against the usage cap
+    and over-bills a cheaper one. Never raises."""
+    arms, _ = parse_arms(settings.llm_experiment)
+    for entry in [*settings.model_chain, *(arm.entry for arm in arms)]:
+        if (entry.provider.value, entry.model) not in MODEL_COST_RATES:
+            logger.warning(
+                "LLM model %s has no rate in app/services/llm_cost.py; its calls "
+                "are charged the 2.5 Flash rate against the usage cap.",
+                entry.label,
+            )
 
 
 def rate_for(provider: str, model: str) -> ModelRate:

@@ -897,7 +897,7 @@ class LlmUsage(SQLModel, table=True):
     # Which flow the call served: "meal_plan" | "single_recipe" | "receipt_scan"
     # | "regenerate". Loose str, server-set from token_usage.USAGE_SURFACES.
     surface: str = Field(index=True, nullable=False)
-    # "gemini" | "openai" | "deepseek".
+    # "gemini" | "openai" | "deepseek" | "anthropic".
     provider: str = Field(nullable=False)
     # The concrete model that served the call, e.g. "gemini-2.5-flash".
     model: str = Field(nullable=False)
