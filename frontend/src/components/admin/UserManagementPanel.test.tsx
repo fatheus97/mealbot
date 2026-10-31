@@ -158,7 +158,7 @@ describe("UserManagementPanel", () => {
     const reset = screen.getAllByRole("button", { name: "About Reset onboarding" });
     expect(reset).toHaveLength(1);
     await user.click(reset[0]);
-    expect(screen.getByRole("tooltip")).toHaveTextContent(/overwrites their current preferences/i);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/opens with their saved preferences/i);
   });
 
   // The hints stay MOUNTED and are hidden via visibility (CLS), so absence is

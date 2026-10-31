@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -368,6 +369,112 @@ class TestDeletePlan:
             "/api/plan/99999", headers=auth_headers
         )
         assert resp.status_code == 404
+
+    async def test_delete_returns_food_taken_for_uncooked_meals(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """Deleting a confirmed, unfinished plan gives back exactly what Finish
+        would: the confirm-time batches of every meal not marked cooked, into
+        their original dated bucket with need_to_use kept. Before the fix that
+        food was simply lost."""
+        resp = await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{
+                "name": "chicken breast", "quantity_grams": 1000,
+                "expiration_date": "2099-04-25", "need_to_use": True,
+            }],
+        )
+        assert resp.status_code == 200
+
+        body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=3)
+        plan_id = body["plan_id"]
+        entries = (
+            await client.get(f"/api/plan/{plan_id}/meals", headers=auth_headers)
+        ).json()
+        cook = await client.post(
+            f"/api/plan/{plan_id}/meals/{entries[0]['id']}/cook", headers=auth_headers,
+        )
+        assert cook.status_code == 200
+
+        resp = await client.delete(f"/api/plan/{plan_id}", headers=auth_headers)
+        assert resp.status_code == 204
+
+        # 1000 - 3 x 200 at confirm, + 2 uncooked x 200 back = 800g, one bucket.
+        fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+        chicken = [i for i in fridge if i["name"] == "chicken breast"]
+        assert len(chicken) == 1, chicken
+        assert chicken[0]["quantity_grams"] == 800.0
+        assert chicken[0]["expiration_date"] == "2099-04-25"
+        assert chicken[0]["need_to_use"] is True
+
+    async def test_delete_finished_plan_does_not_return_food_twice(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        await _seed_fridge(client, auth_headers, [
+            StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
+        ])
+        body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=3)
+        plan_id = body["plan_id"]
+        finish = await client.post(f"/api/plan/{plan_id}/finish", headers=auth_headers)
+        assert finish.status_code == 200
+
+        fridge_resp = await client.get("/api/fridge", headers=auth_headers)
+        assert _get_chicken_grams(fridge_resp.json()) == 1000.0
+
+        resp = await client.delete(f"/api/plan/{plan_id}", headers=auth_headers)
+        assert resp.status_code == 204
+
+        fridge_resp = await client.get("/api/fridge", headers=auth_headers)
+        assert _get_chicken_grams(fridge_resp.json()) == 1000.0
+
+    async def test_delete_unconfirmed_plan_leaves_fridge_alone(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        await _seed_fridge(client, auth_headers, [
+            StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
+        ])
+        body = await _create_plan(client, auth_headers, meals_per_day=3)
+
+        resp = await client.delete(f"/api/plan/{body['plan_id']}", headers=auth_headers)
+        assert resp.status_code == 204
+
+        fridge_resp = await client.get("/api/fridge", headers=auth_headers)
+        assert _get_chicken_grams(fridge_resp.json()) == 1000.0
+
+    async def test_delete_failure_commits_nothing(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+    ) -> None:
+        """The restore and the delete must commit together. If the food went
+        back in a commit of its own and the delete then failed, the plan would
+        still hold its snapshots, and a retry or a Finish would return the
+        same food twice.
+
+        In prod a failed request's session is closed without a commit, which
+        discards everything staged. So "atomic" is "no commit before the
+        failure". That is asserted directly: this harness cannot show a real
+        rollback (its commits never reach the outer test transaction, and a
+        rollback here unwinds the test's own fixtures too).
+        """
+        await _seed_fridge(client, auth_headers, [
+            StockItemDTO(name="chicken breast", quantity_grams=1000, need_to_use=False),
+        ])
+        body = await _create_and_confirm_plan(client, auth_headers, meals_per_day=3)
+        plan_id = body["plan_id"]
+
+        commit_spy = AsyncMock(wraps=db_session.commit)
+        with (
+            patch.object(db_session, "commit", commit_spy),
+            # Fails after the restore is staged (the plan row goes last).
+            patch.object(db_session, "delete", side_effect=RuntimeError("db down")),
+            pytest.raises(RuntimeError, match="db down"),
+        ):
+            await client.delete(f"/api/plan/{plan_id}", headers=auth_headers)
+
+        commit_spy.assert_not_awaited()
 
     async def test_delete_plan_with_favorites_returns_409(
         self,

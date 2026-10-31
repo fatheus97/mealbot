@@ -251,6 +251,8 @@ export const en = {
   "onboarding.title": "Welcome! Set up your preferences",
   "onboarding.subtitle": "These help us generate meal plans tailored to you.",
   "onboarding.submit": "Get Started",
+  "onboarding.loadFailed": "Could not load your preferences.",
+  "onboarding.retry": "Try again",
 
   // ─── Preferences form ─────────────────────────────────────────────────────
   "prefs.country": "Country",
@@ -788,8 +790,8 @@ export const en = {
   "plans.deleteBody":
     "This will permanently delete the {days}-day / {meals}-meal plan from {date}. This cannot be undone.",
   // Appended to deleteBody for "planned"/"active" plans only (PlanCatalog).
-  "plans.deleteKeepsFood":
-    "Deleting doesn't put any food back in your fridge. Finish the plan first to get back what was taken for uncooked meals.",
+  "plans.deleteReturnsFood":
+    "Food taken for meals not marked Cooked goes back to your fridge.",
   "plans.openFailed": "Couldn't open that plan. Please try again.",
   "plans.deleteFailed": "Failed to delete plan.",
   "plans.dateFailed": "Couldn't update that plan's date. Please try again.",

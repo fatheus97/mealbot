@@ -254,15 +254,15 @@ describe("PlanCatalog", () => {
     expect(screen.getByText("Delete this plan?")).toBeInTheDocument();
   });
 
-  // Deleting never returns food to the fridge. Only a plan still holding food
-  // for uncooked meals gets the warning: a "cooked" plan has nothing left to
-  // return and a "finished" one already returned it.
+  // Deleting returns what Finish would. Only a plan still holding food for
+  // uncooked meals gets the note: a "cooked" plan has nothing left to return
+  // and a "finished" one already returned it.
   it.each([
     ["planned", true],
     ["active", true],
     ["cooked", false],
     ["finished", false],
-  ] as const)("warns that deleting returns no food only when it matters (%s)", async (status, warns) => {
+  ] as const)("says deleting returns the food only when there is some (%s)", async (status, notes) => {
     loginUser();
     mockedAuthFetch.mockResolvedValueOnce({
       ok: true,
@@ -277,16 +277,16 @@ describe("PlanCatalog", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent(/this cannot be undone/i);
-    if (warns) {
+    if (notes) {
       expect(dialog).toHaveTextContent(
-        /doesn't put any food back in your fridge\. Finish the plan first/i,
+        /Food taken for meals not marked Cooked goes back to your fridge\./,
       );
     } else {
-      expect(dialog).not.toHaveTextContent(/food back in your fridge/i);
+      expect(dialog).not.toHaveTextContent(/fridge/i);
     }
   });
 
-  it("translates the delete warning (the dialog is behind a click, so no other Czech test sees it)", async () => {
+  it("translates the delete note (the dialog is behind a click, so no other Czech test sees it)", async () => {
     loginUser();
     useLocaleStore.setState({ locale: "cs", explicit: true });
     mockedAuthFetch.mockResolvedValueOnce({
@@ -301,7 +301,7 @@ describe("PlanCatalog", () => {
     await userEvent.setup().click(screen.getByText("Smazat"));
 
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent(/jídelníček nejprve dokončete/);
+    expect(dialog).toHaveTextContent(/nejsou označená jako uvařená, se vrátí do lednice\./);
     expect(untranslatedEnglishIn(dialog)).toEqual([]);
   });
 
