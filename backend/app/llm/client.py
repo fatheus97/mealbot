@@ -322,6 +322,23 @@ class LLMClient:
                     break
                 classification = self._classify_error(e)
                 outcomes.append(f"{entry.model}:{classification or 'error'}:{elapsed:.1f}s")
+                if classification is None and entry == _first_choice.get():
+                    # A first choice is a model on trial (an experiment arm). Any
+                    # failure of it, a 400 on our schema or output instructor
+                    # cannot repair included, hands the request to the configured
+                    # chain as first_choice promises, and the model sits out for
+                    # _DEMOTE_SECONDS so the next requests do not pay for it too.
+                    self._demoted_until[key] = now + self._DEMOTE_SECONDS
+                    logger.warning(
+                        "First-choice %s/%s failed after %.1fs; using the chain and "
+                        "trying it last for %.0fs: %r",
+                        entry.provider.value,
+                        entry.model,
+                        elapsed,
+                        self._DEMOTE_SECONDS,
+                        e,
+                    )
+                    continue
                 if classification is None:
                     logger.exception(
                         "LLM call failed on %s/%s after %.1fs with non-fallback error; aborting chain",

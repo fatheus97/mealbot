@@ -26,7 +26,9 @@ not handed to the other arms, so their exposure is exactly what was configured.
 import logging
 import random
 
-from app.core.config import ExperimentArm, ModelEntry, settings
+from pydantic import BaseModel, Field, ValidationError
+
+from app.core.config import LLMProvider, ModelEntry, settings
 from app.llm.client import DISCLOSED_PROVIDERS
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,48 @@ logger = logging.getLogger(__name__)
 #: production primary on the rest. A model joins in the PR that adds its
 #: scorecard; this list, not the env, is the gate. Spelled as in LLM_MODELS.
 EVAL_APPROVED: frozenset[str] = frozenset()
+
+
+class ExperimentArm(BaseModel):
+    """One LLM_EXPERIMENT entry: this share of meal generations tries `entry` first."""
+
+    entry: ModelEntry
+    percent: float = Field(gt=0, le=100)
+
+
+def parse_arms(raw: str) -> tuple[list[ExperimentArm], list[str]]:
+    """LLM_EXPERIMENT as arms, plus one problem per part it could not use.
+
+    Never raises: an entry it cannot read is skipped and named, so a typo in
+    an optional experiment costs that arm, never the app's boot. Percents over
+    100 in total turn the whole experiment off, since no reading of them is
+    the one that was meant.
+    """
+    arms: list[ExperimentArm] = []
+    problems: list[str] = []
+    for item in (part.strip() for part in raw.split(",")):
+        if not item:
+            continue
+        spec, eq, percent = item.rpartition("=")
+        provider, slash, model = (part.strip() for part in spec.partition("/"))
+        try:
+            if not (eq and slash and model):
+                raise ValueError("expected provider/model=percent")
+            arm = ExperimentArm(
+                entry=ModelEntry(provider=LLMProvider(provider), model=model), percent=float(percent)
+            )
+        except (ValueError, ValidationError) as exc:
+            reason = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
+            problems.append(f"{item!r}: {reason}")
+            continue
+        if any(a.entry == arm.entry for a in arms):
+            problems.append(f"{item!r}: names {arm.entry.label} a second time")
+            continue
+        arms.append(arm)
+    if sum(a.percent for a in arms) > 100:
+        problems.append("the percents add up to more than 100, so the experiment is off")
+        arms = []
+    return arms, problems
 
 
 def ineligibility(entry: ModelEntry) -> str | None:
@@ -47,7 +91,8 @@ def ineligibility(entry: ModelEntry) -> str | None:
 
 
 def eligible_arms() -> list[ExperimentArm]:
-    return [arm for arm in settings.experiment_arms if ineligibility(arm.entry) is None]
+    arms, _ = parse_arms(settings.llm_experiment)
+    return [arm for arm in arms if ineligibility(arm.entry) is None]
 
 
 def pick_arm() -> ModelEntry | None:
@@ -63,7 +108,10 @@ def pick_arm() -> ModelEntry | None:
 def check_experiment_arms() -> None:
     """Log at startup what LLM_EXPERIMENT will do. Never raises: a bad arm is
     skipped (the control keeps its share), which is no reason to refuse boot."""
-    for arm in settings.experiment_arms:
+    arms, problems = parse_arms(settings.llm_experiment)
+    for problem in problems:
+        logger.error("LLM_EXPERIMENT %s.", problem)
+    for arm in arms:
         reason = ineligibility(arm.entry)
         if reason is not None:
             logger.error(

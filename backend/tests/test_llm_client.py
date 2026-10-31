@@ -1458,3 +1458,40 @@ class TestFirstChoice:
         assert answered_by() == _chain("gemini/a")[0]
         await client.chat_json("sys", "usr", SingleDayResponse, mock=True)
         assert answered_by() is None
+
+    @pytest.mark.parametrize("failure", [
+        GeminiClientError(400, {"error": {"message": "schema too complex"}}),
+        RuntimeError("instructor gave up re-asking"),  # a schema miss it could not repair
+    ])
+    @patch("app.llm.client.settings")
+    async def test_any_failure_of_a_first_choice_falls_back_and_benches_it(
+        self, mock_settings: MagicMock, failure: Exception
+    ) -> None:
+        """A non-fallback error ends the configured chain, but a first choice is
+        a model on trial: the chain behind it still answers."""
+        self._settings(mock_settings)
+        client = LLMClient()
+        expected = _mock_single_day()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(side_effect=[failure, (expected, None)])
+        client.gemini_client = mock_gemini
+
+        with first_choice(_chain("gemini/c")[0]):
+            assert await client.chat_json("sys", "usr", SingleDayResponse) == expected
+        assert answered_by() == _chain("gemini/a")[0]
+        assert ("text", LLMProvider.GEMINI, "c") in client._demoted_until
+
+    @patch("app.llm.client.settings")
+    async def test_without_a_first_choice_a_non_fallback_error_still_ends_the_chain(
+        self, mock_settings: MagicMock
+    ) -> None:
+        self._settings(mock_settings)
+        client = LLMClient()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=GeminiClientError(400, {"error": {"message": "bad request"}}),
+        )
+        client.gemini_client = mock_gemini
+        with pytest.raises(HTTPException):
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 1

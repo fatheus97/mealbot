@@ -4,14 +4,13 @@ creation and regeneration, and the generated_by stamp every meal carries."""
 
 import logging
 import random
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from pydantic import ValidationError
 
 import app.llm.experiment as experiment
-from app.core.config import ExperimentArm, LLMProvider, ModelEntry, Settings, settings
+from app.core.config import LLMProvider, ModelEntry, Settings, settings
 from app.core.meal_types import MealType
 from app.llm.client import _first_choice
 from app.models.plan_models import IngredientAmount, MealPlanRequest, PlannedMeal, SingleDayResponse
@@ -43,11 +42,10 @@ def _meal(name: str = "Arm Lunch") -> PlannedMeal:
 def arms(monkeypatch: pytest.MonkeyPatch) -> None:
     """FLASH 20 %, LITE 30 %, DEEPSEEK 10 %; FLASH and LITE (and DEEPSEEK, so only
     the disclosure gate stops it) approved."""
-    monkeypatch.setattr(settings, "llm_experiment", [
-        ExperimentArm(entry=FLASH, percent=20),
-        ExperimentArm(entry=LITE, percent=30),
-        ExperimentArm(entry=DEEPSEEK, percent=10),
-    ])
+    monkeypatch.setattr(
+        settings, "llm_experiment",
+        "gemini/gemini-2.5-flash=20,gemini/gemini-2.5-flash-lite=30,deepseek/deepseek-chat=10",
+    )
     monkeypatch.setattr(experiment, "EVAL_APPROVED", frozenset({FLASH.label, LITE.label, DEEPSEEK.label}))
 
 
@@ -55,26 +53,36 @@ def _roll(monkeypatch: pytest.MonkeyPatch, value: float) -> None:
     monkeypatch.setattr(random, "uniform", lambda a, b: value)
 
 
-class TestConfig:
-    def test_arms_parse(self) -> None:
-        parsed = _settings(" gemini/gemini-2.5-flash=20, gemini/gemini-2.5-flash-lite=12.5 ").experiment_arms
-        assert [(a.entry, a.percent) for a in parsed] == [(FLASH, 20), (LITE, 12.5)]
+class TestParse:
+    def test_arms_parse_with_or_without_spaces(self) -> None:
+        arms, problems = experiment.parse_arms(" gemini/gemini-2.5-flash=20, gemini / gemini-2.5-flash-lite = 12.5 ")
+        assert [(a.entry, a.percent) for a in arms] == [(FLASH, 20), (LITE, 12.5)] and problems == []
 
     def test_empty_is_off(self) -> None:
-        assert _settings("").experiment_arms == []
+        assert experiment.parse_arms("") == ([], [])
 
     @pytest.mark.parametrize("bad", [
         "gemini/gemini-2.5-flash",             # no percent
         "gemini-2.5-flash=20",                 # no provider
         "nope/model=20",                       # unknown provider
         "gemini/gemini-2.5-flash=0",           # an arm that never runs is a typo
-        "gemini/gemini-2.5-flash=abc",
-        "gemini/a=60,gemini/b=50",             # more than everyone
-        "gemini/a=10,gemini/a=10",             # the same model twice
+        "gemini/gemini-2.5-flash=20%",
     ])
-    def test_a_malformed_experiment_refuses_to_load(self, bad: str) -> None:
-        with pytest.raises(ValidationError):
-            _settings(bad)
+    def test_an_unreadable_entry_is_skipped_and_named(self, bad: str) -> None:
+        arms, problems = experiment.parse_arms(f"{bad},gemini/gemini-2.5-flash-lite=30")
+        assert [a.entry for a in arms] == [LITE]
+        assert len(problems) == 1 and bad in problems[0]
+
+    def test_the_same_model_twice_keeps_the_first(self) -> None:
+        arms, problems = experiment.parse_arms("gemini/gemini-2.5-flash=10,gemini/gemini-2.5-flash=40")
+        assert [(a.entry, a.percent) for a in arms] == [(FLASH, 10)] and len(problems) == 1
+
+    def test_more_than_everyone_turns_the_experiment_off(self) -> None:
+        arms, problems = experiment.parse_arms("gemini/gemini-2.5-flash=60,gemini/gemini-2.5-flash-lite=50")
+        assert arms == [] and "off" in problems[0]
+
+    def test_a_typo_never_stops_the_app_booting(self) -> None:
+        assert _settings("this is not an experiment").llm_experiment == "this is not an experiment"
 
 
 @pytest.mark.usefixtures("arms")
@@ -102,7 +110,7 @@ class TestPickArm:
         assert experiment.pick_arm() is None
 
     def test_off_means_control(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(settings, "llm_experiment", [])
+        monkeypatch.setattr(settings, "llm_experiment", "")
         _roll(monkeypatch, 0)
         assert experiment.pick_arm() is None
 
@@ -113,6 +121,14 @@ class TestPickArm:
         assert len(errors) == 1 and "deepseek/deepseek-chat" in errors[0] and "privacy" in errors[0]
         assert any("gemini/gemini-2.5-flash 20%" in r.getMessage() for r in caplog.records)
 
+    def test_startup_names_an_entry_it_could_not_read(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(settings, "llm_experiment", "gemini/gemini-2.5-flash=20%")
+        with caplog.at_level(logging.ERROR, logger="app.llm.experiment"):
+            experiment.check_experiment_arms()
+        assert any("gemini/gemini-2.5-flash=20%" in r.getMessage() for r in caplog.records)
+
 
 class TestTheArmReachesTheChain:
     """pick_arm runs once per generation request and its model leads the chain
@@ -121,7 +137,7 @@ class TestTheArmReachesTheChain:
     @patch("app.services.plan_service.pick_arm", return_value=LITE)
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_plan_creation(
-        self, mock_gen: AsyncMock, _pick: object, client: AsyncClient, auth_headers: dict[str, str]
+        self, mock_gen: AsyncMock, pick: MagicMock, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
         seen: list[ModelEntry | None] = []
 
@@ -133,14 +149,14 @@ class TestTheArmReachesTheChain:
         resp = await client.post("/api/plan?days=2", headers=auth_headers,
                                  json={"meals_per_day": 1, "people_count": 2})
         assert resp.status_code == 200
-        assert seen == [LITE, LITE]  # one roll, every day
-        assert _first_choice.get() is None  # and nothing leaks past the request
+        pick.assert_called_once()  # one roll for the plan...
+        assert seen == [LITE, LITE]  # ...that every day of it uses
 
     @patch("app.api.plan.pick_arm", return_value=FLASH)
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_regeneration(
-        self, mock_gen: AsyncMock, mock_partial: AsyncMock, _pick: object,
+        self, mock_gen: AsyncMock, mock_partial: AsyncMock, pick: MagicMock,
         client: AsyncClient, auth_headers: dict[str, str],
     ) -> None:
         mock_gen.return_value = SingleDayResponse(meals=[_meal()])
@@ -156,6 +172,7 @@ class TestTheArmReachesTheChain:
         resp = await client.post(f"/api/plan/{plan.json()['plan_id']}/regenerate",
                                  headers=auth_headers, json={"frozen_meals": []})
         assert resp.status_code == 200
+        pick.assert_called_once()
         assert seen == [FLASH]
 
 
