@@ -1,9 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TermsConsent } from "./TermsConsent";
+import { DEFAULT_LOCALE, useLocaleStore } from "../../store/useLocaleStore";
 
 describe("TermsConsent", () => {
+  afterEach(() => useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false }));
+
   it("is unticked unless told otherwise", () => {
     // A pre-ticked box is not consent. This is the one prop default that
     // carries legal weight, so it is pinned rather than assumed.
@@ -33,6 +36,17 @@ describe("TermsConsent", () => {
       "href",
       "/privacy",
     );
+  });
+
+  it("links the Czech editions in the Czech UI", () => {
+    // Both editions are equally authoritative (terms §13), so a Czech signup
+    // must point at the Czech contract, as the footer and the paywall do.
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    render(<TermsConsent checked={false} onChange={vi.fn()} />);
+    expect(screen.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
+      "/cs/terms",
+      "/cs/privacy",
+    ]);
   });
 
   it("opens them in a new tab, safely", () => {
