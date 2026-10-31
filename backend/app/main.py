@@ -1,11 +1,9 @@
 import asyncio
 import logging
-import sys
-import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
@@ -29,19 +27,15 @@ from app.core.csrf import csrf_middleware
 from app.core.errors import register_error_handlers
 from app.core.executors import shutdown_parse_executor, start_parse_executor
 from app.core.language_whitelist import SUPPORTED_LANGUAGES
+from app.core.log_config import configure_logging
 from app.core.rate_limit import limiter
+from app.core.request_context import RequestContextMiddleware, unhandled_error_response
 from app.core.security_headers import security_headers_middleware
 from app.llm.client import check_model_chain_keys
 from app.services.recipe_retriever import get_embedding_model
 
-# Configure the root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout) # Logs to Docker/Console
-    ]
-)
+# JSON lines on stdout, each tagged with its request id (app.core.log_config).
+configure_logging()
 
 # Grab a logger specific to this file
 logger = logging.getLogger(__name__)
@@ -78,26 +72,6 @@ app.add_middleware(SlowAPIMiddleware)
 app.middleware("http")(security_headers_middleware)
 app.middleware("http")(csrf_middleware)
 
-
-@app.middleware("http")
-async def log_request_latency(
-    request: Request,
-    call_next: Callable[[Request], Awaitable[Response]],
-) -> Response:
-    start_time = time.time()
-
-    response = await call_next(request)
-
-    process_time = time.time() - start_time
-
-    logger.info(
-        f"{request.method} {request.url.path} - "
-        f"Status: {response.status_code} - "
-        f"Latency: {process_time:.4f}s"
-    )
-
-    return response
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.allowed_origins.split(",")],
@@ -105,6 +79,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token"],
 )
+# Added last, so it is the outermost layer: CORS, CSRF and rate-limit
+# responses get a request id and a log line too.
+app.add_middleware(RequestContextMiddleware)
+app.add_exception_handler(Exception, unhandled_error_response)
 
 
 class HealthResponse(BaseModel):
