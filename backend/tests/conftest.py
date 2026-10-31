@@ -16,6 +16,7 @@ from app.core.rate_limit import limiter
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
+from app.services.fridge_service import _KITCHEN_LOCKED
 
 _BASE_TEST_DATABASE_URL = make_url(
     os.environ.get(
@@ -263,6 +264,9 @@ async def client(
     from app.main import app
 
     async def override_get_session() -> AsyncGenerator[AsyncSession]:
+        # Prod gives every request a fresh session; this harness shares one, so
+        # drop an earlier request's lock record or it would hide a missing lock.
+        db_session.info.pop(_KITCHEN_LOCKED, None)
         yield db_session
 
     async def override_get_current_user() -> User:
@@ -285,6 +289,9 @@ async def unauthed_client(
     from app.main import app
 
     async def override_get_session() -> AsyncGenerator[AsyncSession]:
+        # Prod gives every request a fresh session; this harness shares one, so
+        # drop an earlier request's lock record or it would hide a missing lock.
+        db_session.info.pop(_KITCHEN_LOCKED, None)
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
