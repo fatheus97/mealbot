@@ -19,6 +19,7 @@ from app.models.plan_models import IngredientAmount, LlmDayResponse, MealPlanReq
 from evals.graders import DIET_RULES, GRADERS, grade
 from evals.meal_plan_cases import CASES, stock
 from evals.run import (
+    Pacer,
     _rate_limit_delay,
     load_results,
     parse_model,
@@ -114,6 +115,23 @@ class TestContractGraders:
         assert checks(req, meal("rice", "plain flour"))["stock_only"] is False
         assert checks(req, meal("rice", "red bell pepper"))["stock_only"] is False  # a vegetable, bought
 
+    def test_fridge_use_matches_whole_words(self) -> None:
+        req = MealPlanRequest(meals_per_day=1, stock_items=[stock("egg", 300, urgent=True)])
+        [plant] = [c for c in grade(req, [meal("eggplant")]) if c.name == "fridge_use"]
+        [eggs] = [c for c in grade(req, [meal("eggs")]) if c.name == "fridge_use"]
+        assert (plant.score, eggs.score) == (0.0, 1.0)
+
+    def test_term_lists_read_the_english_name(self) -> None:
+        # Czech "paprika" is a bell pepper: bought, so not a free seasoning.
+        req = MealPlanRequest(stock_only=True, meals_per_day=1, language="Czech",
+                              stock_items=[stock("rýže", 500)])
+        pepper = IngredientAmount(name="paprika", name_en="red bell pepper", quantity_grams=150)
+        assert checks(req, meal("rýže", pepper))["stock_only"] is False
+        # and the English name still catches what the localized one hides
+        veg = MealPlanRequest(diet_types=[DietType.VEGETARIAN], meals_per_day=1, language="Czech")
+        bacon = IngredientAmount(name="slanina", name_en="bacon", quantity_grams=50)
+        assert checks(veg, meal(bacon))["diet"] is False
+
     def test_fridge_use_skips_an_urgent_allergen(self) -> None:
         req = MealPlanRequest(allergens=[Allergen.MILK], meals_per_day=1,
                               stock_items=[stock("milk", 500, urgent=True), stock("spinach", 200, urgent=True)])
@@ -178,6 +196,16 @@ class TestTheRunner:
         [reloaded] = load_results(saved)
         assert reloaded.checks == result.checks
 
+    async def test_a_report_keeps_saved_checks_for_an_answer_that_no_longer_parses(self, tmp_path: Path) -> None:
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        [result] = await run_suite([entry], CASES[:1], repeats=1, concurrency=1, mock=True)
+        old = asdict(result)
+        old["output"] = {"meals": "a shape from an older schema"}
+        saved = tmp_path / "run.json"
+        saved.write_text(json.dumps([old]), encoding="utf-8")
+        [reloaded] = load_results(saved)  # no crash, so the rest of a merge survives
+        assert reloaded.checks == result.checks
+
 
 class _QuotaError(Exception):
     code = 429
@@ -212,6 +240,23 @@ class TestRateLimits:
     def test_a_429_is_recognised_with_its_retry_delay(self) -> None:
         assert _rate_limit_delay(_QuotaError()) == 8.0
         assert _rate_limit_delay(ValueError("bad schema")) is None
+        assert _rate_limit_delay(ValueError("request id 4291 failed")) is None  # a 429 by text only
+        assert _rate_limit_delay(ValueError("Error code: 429 - rate limit")) == 30.0
+
+    async def test_a_spent_daily_quota_stops_the_model_calling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = 0
+
+        async def refused(*args: object, **kwargs: object) -> LlmDayResponse:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("chain gave up") from _DailyQuotaError()
+
+        monkeypatch.setattr(llm_client, "chat_json", refused)
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        pacer = Pacer(None)
+        first = await run_one(entry, CASES[0], 1, mock=True, pacer=pacer)
+        second = await run_one(entry, CASES[1], 1, mock=True, pacer=pacer)
+        assert first.rate_limited and second.rate_limited and calls == 1
 
     async def test_a_run_waits_out_a_429_and_then_counts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         real = llm_client.chat_json

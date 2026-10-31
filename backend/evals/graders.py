@@ -70,15 +70,24 @@ _HONEY_RE = _pattern(HONEY)
 
 
 def _names(ingredient: IngredientAmount) -> list[str]:
-    """Every name a term list can match: the localized one and the English one."""
+    """Every name the ingredient goes by: localized, English and canonical."""
     return [n.lower() for n in (ingredient.name, ingredient.name_en, ingredient.canonical_name) if n]
+
+
+def _english_names(ingredient: IngredientAmount) -> list[str]:
+    """The names an English term list may match: name_en when the model gave
+    one (the localized name only when it did not, i.e. an English plan).
+    Matching the localized name too misfires on a word that means something
+    else in English: Czech "paprika" is a bell pepper, not the spice."""
+    names = (ingredient.name_en or ingredient.name, ingredient.canonical_name)
+    return [n.lower() for n in names if n]
 
 
 def _hits(meals: Sequence[PlannedMeal], term_re: re.Pattern[str], safe: Sequence[str]) -> list[str]:
     found: list[str] = []
     for meal in meals:
         for ingredient in meal.ingredients:
-            for name in _names(ingredient):
+            for name in _english_names(ingredient):
                 if any(s in name for s in safe) or _MINCE_PLANT.search(name):
                     continue
                 if match := term_re.search(name):
@@ -208,7 +217,7 @@ def check_stock_only(req: MealPlanRequest, meals: Sequence[PlannedMeal]) -> Chec
     extra = sorted({
         i.name for m in meals for i in m.ingredients
         if not i.is_spice and i.name.strip().lower() not in allowed
-        and not any(_SEASONING_RE.search(n) for n in _names(i))
+        and not any(_SEASONING_RE.search(n) for n in _english_names(i))
     })
     return Check("stock_only", not extra, ", ".join(extra))
 
@@ -228,8 +237,9 @@ def check_fridge_use(req: MealPlanRequest, meals: Sequence[PlannedMeal]) -> Chec
               if s.need_to_use and not _is_declared_allergen(s.name, req.allergens)]
     if not urgent:
         return None
+    # Every name, the localized one included: the fridge is in the user's language.
     used_names = {n for m in meals for i in m.ingredients for n in _names(i)}
-    used = [s for s in urgent if any(s.name.lower() in n for n in used_names)]
+    used = [s for s in urgent if any(_pattern([s.name.lower()]).search(n) for n in used_names)]
     return Check("fridge_use", True, f"{len(used)} of {len(urgent)} urgent items",
                  score=len(used) / len(urgent))
 

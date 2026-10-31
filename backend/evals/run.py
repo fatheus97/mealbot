@@ -20,6 +20,7 @@ import asyncio
 import json
 import re
 import statistics
+import sys
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -27,7 +28,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from app.core.config import LLMProvider, ModelEntry, settings
 from app.llm.client import llm_client
@@ -96,12 +97,15 @@ def pinned(entry: ModelEntry) -> Iterator[None]:
 
 
 class Pacer:
-    """Start at most `rpm` calls a minute: free-tier keys refuse bursts (429)."""
+    """One model's call budget. Starts at most `rpm` calls a minute (free-tier
+    keys refuse bursts with a 429), and stops calling once a daily quota says
+    the key is spent for the day."""
 
     def __init__(self, rpm: float | None) -> None:
         self.interval = 60 / rpm if rpm else 0.0
         self.next_start = 0.0
         self.lock = asyncio.Lock()
+        self.exhausted = False
 
     async def wait(self) -> None:
         async with self.lock:
@@ -124,12 +128,18 @@ _RETRY_HINT = re.compile(r"retryDelay\W+(\d+)")
 _MAX_WAIT_SECONDS = 120.0
 
 
+#: How a 429 reads when the exception carries no status: Gemini's status name
+#: and the OpenAI SDK's prefix. A bare "429" is not enough ("request id 4291").
+_QUOTA_TEXT = ("RESOURCE_EXHAUSTED", "Error code: 429")
+
+
 def _rate_limit_delay(root: BaseException) -> float | None:
     """Seconds to wait if this is a quota refusal (HTTP 429), else None."""
     status = getattr(root, "code", None) or getattr(root, "status_code", None)
-    if status != 429 and "429" not in str(root)[:40]:
+    text = str(root)
+    if status != 429 and not any(t in text for t in _QUOTA_TEXT):
         return None
-    hint = _RETRY_HINT.search(str(root))
+    hint = _RETRY_HINT.search(text)
     return float(hint.group(1)) + 1 if hint else 30.0
 
 
@@ -145,6 +155,10 @@ async def run_one(
     result = RunResult(label(entry), case.id, repeat, ok=False)
     prompt = render_day_prompt(case.request, slot_layout=None, slot_portions=None)
     for attempt in range(max_waits + 1):
+        if pacer and pacer.exhausted:
+            result.rate_limited = True
+            result.error = "not sent: an earlier call found the key's daily quota spent"
+            return result
         if pacer:
             await pacer.wait()
         started = time.perf_counter()
@@ -159,6 +173,8 @@ async def run_one(
             if delay is not None and delay <= _MAX_WAIT_SECONDS and attempt < max_waits:
                 await asyncio.sleep(delay)
                 continue
+            if delay is not None and delay > _MAX_WAIT_SECONDS and pacer:
+                pacer.exhausted = True
             # The chain wraps provider errors in a user-facing "AI unavailable";
             # the root cause (402 no balance, 429, a schema miss) is the useful part.
             result.error = f"{type(exc).__name__}: {exc}"[:200]
@@ -320,10 +336,18 @@ def load_results(path: Path) -> list[RunResult]:
     since removed from the suite keeps the checks it was saved with."""
     results = _RESULTS.validate_json(path.read_bytes())
     cases = {c.id: c for c in CASES}
+    stale = 0
     for r in results:
         if r.ok and r.case_id in cases:
-            day = SingleDayResponse.model_validate(r.output)
+            try:
+                day = SingleDayResponse.model_validate(r.output)
+            except ValidationError:
+                stale += 1  # saved under an older schema: keep the checks it was saved with
+                continue
             r.checks = grade(cases[r.case_id].request, day.meals)
+    if stale:
+        print(f"warning: {path.name}: {stale} answer(s) no longer parse, kept their saved checks",
+              file=sys.stderr)
     return results
 
 

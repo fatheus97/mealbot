@@ -33,7 +33,7 @@ Output: a scorecard in the terminal. Every answer and every check are saved in `
   - stock-only plans using only fridge names;
   - the free-text avoid list.
 - **Fridge use:** share of urgent items used. A measurement, not a gate.
-- **Cost and speed:** seconds, tokens, and EUR where `app/services/llm_cost.py` has a rate for the model.
+- **Cost and speed:** seconds, tokens, and EUR where `app/services/llm_cost.py` has a rate for the model. Seconds are the whole call as production makes it, so they include instructor's re-asks after a schema miss (up to 3); with one model pinned there is no fallback or backoff in them.
 
 Each case is graded on the model's FIRST answer. Production rejects and regenerates a plan that fails its screen, which hides how often a model gets it wrong; that rate is the number being compared.
 
