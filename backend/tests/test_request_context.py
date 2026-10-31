@@ -8,8 +8,10 @@ import sys
 from collections.abc import AsyncGenerator
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
+from starlette.background import BackgroundTask
 
 from app.core.executors import run_in_parse_executor
 from app.core.log_config import JsonFormatter, configure_logging, request_id_var
@@ -17,6 +19,13 @@ from app.core.request_context import RequestContextMiddleware, unhandled_error_r
 
 HEX32 = re.compile(r"^[0-9a-f]{32}$")
 REQUEST_LOGGER = "app.core.request_context"
+
+
+@pytest.fixture(autouse=True)
+def _logging_configured() -> None:
+    # main.py installs the record factory at import; don't depend on some
+    # other test having imported it first. Idempotent.
+    configure_logging()
 
 
 def _request_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
@@ -36,6 +45,14 @@ def _mini_app() -> FastAPI:
     @app.get("/boom")
     async def boom() -> None:
         raise RuntimeError("kaboom")
+
+    @app.get("/background")
+    async def with_background() -> Response:
+        async def after() -> None:
+            await asyncio.sleep(0.3)
+            log.info("background done")
+
+        return JSONResponse({"ok": True}, background=BackgroundTask(after))
 
     @app.get("/slow/{name}")
     async def slow(name: str) -> dict[str, str]:
@@ -93,6 +110,21 @@ class TestTheMiddleware:
         resp = await mini.get("/log")
         [inside] = [r for r in caplog.records if r.getMessage() == "inside the request"]
         assert inside.__dict__["request_id"] == resp.headers["x-request-id"]
+
+    async def test_the_line_is_written_when_the_response_is_not_after_background_work(
+        self, mini: AsyncClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Starlette runs a BackgroundTask before the app returns. The client has
+        # its answer by then, so that time is not the request's.
+        caplog.set_level(logging.INFO)
+        resp = await mini.get("/background")
+        [line] = _request_lines(caplog)
+        assert line.__dict__["duration_ms"] < 200
+        order = [r.getMessage() for r in caplog.records if r.name in (REQUEST_LOGGER, "tests.mini")]
+        assert order.index(line.getMessage()) < order.index("background done")
+        # ...and the background work still carries the request's id.
+        [done] = [r for r in caplog.records if r.getMessage() == "background done"]
+        assert done.__dict__["request_id"] == resp.headers["x-request-id"]
 
     async def test_concurrent_requests_keep_their_own_ids(
         self, mini: AsyncClient, caplog: pytest.LogCaptureFixture

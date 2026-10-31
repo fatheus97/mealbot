@@ -43,17 +43,13 @@ class RequestContextMiddleware:
         request_id_var.set(request_id)
         status = 500  # what the client gets if the app raises before responding
         started = time.perf_counter()
+        logged = False
 
-        async def send_with_id(message: Message) -> None:
-            nonlocal status
-            if message["type"] == "http.response.start":
-                status = message["status"]
-                MutableHeaders(scope=message).append(REQUEST_ID_HEADER, request_id)
-            await send(message)
-
-        try:
-            await self.app(scope, receive, send_with_id)
-        finally:
+        def log_request() -> None:
+            nonlocal logged
+            if logged:
+                return
+            logged = True
             duration_ms = round((time.perf_counter() - started) * 1000, 1)
             client = scope.get("client")
             # The path only: a query string can hold an e-mail address (admin
@@ -72,6 +68,25 @@ class RequestContextMiddleware:
                     "client": client[0] if client else None,
                 },
             )
+
+        async def send_with_id(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                MutableHeaders(scope=message).append(REQUEST_ID_HEADER, request_id)
+            await send(message)
+            # Logged as the last of the body goes out, not when the app returns:
+            # Starlette runs BackgroundTasks (feedback triage, e-mail sends)
+            # before returning, which would bill their seconds to a response
+            # the client already has, and lose the line if the container
+            # stops mid-task.
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                log_request()
+
+        try:
+            await self.app(scope, receive, send_with_id)
+        finally:
+            log_request()  # a response that never finished: an exception, a dropped client
 
 
 async def unhandled_error_response(request: Request, exc: Exception) -> Response:
