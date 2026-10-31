@@ -337,6 +337,10 @@ class LLMClient:
                         elapsed,
                         self._DEMOTE_SECONDS,
                         e,
+                        # The catch is broad on purpose, so a bug in our own code
+                        # lands here too; the traceback keeps it from passing as
+                        # a flaky model.
+                        exc_info=True,
                     )
                     continue
                 if classification is None:

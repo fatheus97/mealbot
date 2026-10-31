@@ -20,7 +20,14 @@ roll and not only at startup:
   religious belief), so an arm on another provider would make that policy false.
 
 An arm failing a gate never runs and its share stays with the control; it is
-not handed to the other arms, so their exposure is exactly what was configured.
+not handed to the other arms, so each arm is ROLLED at exactly its configured
+share. Rolled is not answered: a failing arm falls back to the chain and is
+then benched (tried last) for the demotion window, so its answered share drops
+exactly while it is failing. Comparing models on the meals they answered alone
+would therefore measure survivors. Every roll is logged ("LLM experiment
+roll"), so attempts can be counted against generated_by stamps; group meals by
+their own generated_by, never by the arm a plan rolled, since one plan can mix
+models after a fallback.
 """
 
 import logging
@@ -96,13 +103,23 @@ def eligible_arms() -> list[ExperimentArm]:
 
 
 def pick_arm() -> ModelEntry | None:
-    """Roll for one generation: an arm's model to try first, or None for the control."""
+    """Roll for one generation: an arm's model to try first, or None for the control.
+
+    Logs every roll while an experiment runs (and nothing while it is off), so
+    arm attempts can be counted against the meals the arm actually answered.
+    """
+    arms = eligible_arms()
+    if not arms:
+        return None
     roll = random.uniform(0, 100)
-    for arm in eligible_arms():
+    picked: ModelEntry | None = None
+    for arm in arms:
         roll -= arm.percent
         if roll < 0:
-            return arm.entry
-    return None
+            picked = arm.entry
+            break
+    logger.info("LLM experiment roll: %s", picked.label if picked else "control")
+    return picked
 
 
 def check_experiment_arms() -> None:

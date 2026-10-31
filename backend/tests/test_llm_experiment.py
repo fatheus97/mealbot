@@ -109,10 +109,24 @@ class TestPickArm:
         _roll(monkeypatch, 35)
         assert experiment.pick_arm() is None
 
-    def test_off_means_control(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_every_roll_is_logged_so_attempts_can_be_counted(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # An arm benched after failures answers less than it is rolled, so the
+        # comparison needs the rolls themselves, not only the stamped meals.
+        with caplog.at_level(logging.INFO, logger="app.llm.experiment"):
+            for roll in (25, 80):
+                _roll(monkeypatch, roll)
+                experiment.pick_arm()
+        rolls = [r.getMessage() for r in caplog.records if "experiment roll" in r.getMessage()]
+        assert rolls == ["LLM experiment roll: gemini/gemini-2.5-flash-lite", "LLM experiment roll: control"]
+
+    def test_off_means_control(self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
         monkeypatch.setattr(settings, "llm_experiment", "")
         _roll(monkeypatch, 0)
-        assert experiment.pick_arm() is None
+        with caplog.at_level(logging.INFO, logger="app.llm.experiment"):
+            assert experiment.pick_arm() is None
+        assert caplog.records == []  # a dark experiment logs nothing per request
 
     def test_startup_names_every_arm_that_will_not_run(self, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.INFO, logger="app.llm.experiment"):
