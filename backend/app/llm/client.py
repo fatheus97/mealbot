@@ -802,6 +802,7 @@ class LLMClient:
             ]
         })
 
+
 def _provider_kwargs(entry: ModelEntry) -> dict[str, Any]:
     """Request arguments one provider needs and the others must not get.
 

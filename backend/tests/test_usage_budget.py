@@ -107,6 +107,18 @@ def test_a_retired_models_rows_keep_their_price() -> None:
     assert llm_cost.cost_of(1000, 3000, "anthropic", "claude-opus-5-5") > 5 * flash
 
 
+def test_every_eval_approved_model_has_a_rate() -> None:
+    # An approved model can serve users as an experiment arm; without a row it
+    # would be charged the fixed fallback rate, under-billing a dearer model.
+    # The startup check only logs, so the approval PR is where CI must catch it.
+    from app.llm.experiment import EVAL_APPROVED
+    unpriced = {
+        label for label in EVAL_APPROVED
+        if tuple(label.split("/", 1)) not in llm_cost.MODEL_COST_RATES
+    }
+    assert unpriced == set()
+
+
 def test_startup_names_a_chain_model_without_a_rate(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

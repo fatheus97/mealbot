@@ -90,6 +90,8 @@ def usage_from_completion(
                 total_tokens=_as_int(getattr(meta, "total_token_count", 0)),
             )
         usage = getattr(completion, "usage", None)
+        # Cache read/creation tokens are left out: no request sets cache_control.
+        # Count them (at their own rates) if prompt caching is ever turned on.
         if usage is not None and provider == "anthropic":
             prompt = _as_int(getattr(usage, "input_tokens", 0))
             output = _as_int(getattr(usage, "output_tokens", 0))
