@@ -525,8 +525,8 @@ export const en = {
   "meal.startCooking": "Start cooking",
   "meal.startCookingTitle": "Cook this recipe step by step",
   "meal.leftovers": "Leftovers",
-  "meal.leftoverStarTitle":
-    "Leftovers can't be saved to the cookbook — star the original meal instead",
+  "meal.leftoverFavoriteTitle":
+    "Leftovers can't be saved to the cookbook. Save the original meal instead.",
   // The source is an LLM-written meal NAME, so it cannot be inflected. Czech
   // quotes it as an appositive after "z jídla" rather than trying to decline
   // it — "z Guláš" would be wrong and "z Guláše" is unknowable from here.
@@ -823,7 +823,7 @@ export const en = {
   "cookbook.loadFailed": "Failed to load cookbook.",
   "cookbook.noMatches": "No recipes match your search.",
   "cookbook.empty": "Your cookbook is empty.",
-  "cookbook.emptyHint": "Star a recipe in the planner or Cook Now to keep it here.",
+  "cookbook.emptyHint": "Tap the heart on a recipe in the planner or Cook Now to keep it here.",
   "cookbook.ingredients": "Ingredients",
   "cookbook.steps": "Steps",
   "cookbook.removeTitle": "Remove from cookbook?",
@@ -840,6 +840,7 @@ export const en = {
   "cookbook.removeFromCookbook": "Remove from Cookbook",
   "cookbook.removeNamed": "Remove {name} from cookbook",
   "cookbook.removeLabel": "Remove from cookbook",
+  "cookbook.addLabel": "Add to cookbook",
 
   // ─── Planner heading ──────────────────────────────────────────────────────
   // Missed in the slice that translated the rest of this component: the

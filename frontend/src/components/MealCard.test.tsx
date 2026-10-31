@@ -119,17 +119,20 @@ describe("MealCard", () => {
       expect(props.onToggleFreeze).toHaveBeenCalledOnce();
     });
 
-    it("shows no favorite star without a persisted entry", () => {
+    it("shows no cookbook heart without a persisted entry", () => {
+      // The heart is a role=switch named "Add to cookbook"; querying a
+      // "favorite" BUTTON could never find it, so this used to pass vacuously.
       renderCard();
-      expect(screen.queryByRole("button", { name: /favorite/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("switch", { name: /cookbook/i })).not.toBeInTheDocument();
     });
   });
 
   describe("confirmed", () => {
-    it("swaps Freeze for Cook and shows the favorite star", () => {
+    it("swaps Freeze for Cook and shows the cookbook heart", () => {
       renderCard({ isConfirmed: true, entry: ENTRY });
       expect(screen.queryByRole("button", { name: /Freeze/ })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^Cook$/ })).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: "Add to cookbook" })).toBeInTheDocument();
     });
 
     it("disables the cook toggle while either direction is in flight", () => {
@@ -323,7 +326,7 @@ describe("MealCard — leftovers", () => {
   });
 
 
-  describe("cookbook star", () => {
+  describe("cookbook heart", () => {
     const LEFTOVER_MEAL: PlannedMeal = {
       name: "Leftovers: Chicken curry",
       meal_type: "light_lunch",
@@ -333,10 +336,10 @@ describe("MealCard — leftovers", () => {
       leftover_of: { day_index: 0, meal_index: 0 },
     };
 
-    it("disables the star on a leftover and explains why", () => {
+    it("disables the heart on a leftover and explains why", () => {
       // The backend 422s a favorite on a leftover (it would poison the global
       // RAG corpus with an ingredient-free "recipe"), and useFavoriteMeal has
-      // no onError — so an ENABLED star would be a control that silently never
+      // no onError — so an ENABLED heart would be a control that silently never
       // works. Every other gated affordance got an explicit !isLeftover; this
       // one was missed.
       renderCard({
@@ -345,12 +348,12 @@ describe("MealCard — leftovers", () => {
         isConfirmed: true,
         entry: ENTRY,
       });
-      const star = screen.getByRole("switch");
-      expect(star).toBeDisabled();
-      expect(star).toHaveAttribute("title", expect.stringContaining("star the original meal"));
+      const heart = screen.getByRole("switch");
+      expect(heart).toBeDisabled();
+      expect(heart).toHaveAttribute("title", expect.stringContaining("Save the original meal"));
     });
 
-    it("does not fire onFavoriteToggle when the leftover's star is clicked", async () => {
+    it("does not fire onFavoriteToggle when the leftover's heart is clicked", async () => {
       const { props } = renderCard({
         meal: LEFTOVER_MEAL,
         leftoverSource: "Sun Jul 19 · Hot dinner — Chicken curry",
@@ -361,15 +364,15 @@ describe("MealCard — leftovers", () => {
       expect(props.onFavoriteToggle).not.toHaveBeenCalled();
     });
 
-    it("leaves the star enabled on an ordinary meal", async () => {
+    it("leaves the heart enabled on an ordinary meal", async () => {
       const { props } = renderCard({ isConfirmed: true, entry: ENTRY });
-      const star = screen.getByRole("switch");
-      expect(star).toBeEnabled();
-      await userEvent.click(star);
+      const heart = screen.getByRole("switch");
+      expect(heart).toBeEnabled();
+      await userEvent.click(heart);
       expect(props.onFavoriteToggle).toHaveBeenCalledOnce();
     });
 
-    it("still disables the star while a favorite mutation is in flight", () => {
+    it("still disables the heart while a favorite mutation is in flight", () => {
       renderCard({ isConfirmed: true, entry: ENTRY, favoritePending: true });
       expect(screen.getByRole("switch")).toBeDisabled();
     });

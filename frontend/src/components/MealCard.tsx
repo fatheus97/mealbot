@@ -1,4 +1,4 @@
-import { FavoriteStar } from "./FavoriteStar";
+import { FavoriteHeart } from "./FavoriteHeart";
 import { InfoHint } from "./InfoHint";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
@@ -261,13 +261,13 @@ export function MealCard({
           // Disabling with an explanation is better than removing it: the star
           // is present on every other meal, so its absence would just look like
           // a bug.
-          <FavoriteStar
+          <FavoriteHeart
             isFavorite={entry.is_favorite}
             onToggle={onFavoriteToggle}
             disabled={favoritePending || isLeftover}
             title={
               isLeftover
-                ? t("meal.leftoverStarTitle")
+                ? t("meal.leftoverFavoriteTitle")
                 : undefined
             }
           />

@@ -363,8 +363,8 @@ export function useFavoriteMeal() {
   });
 }
 
-// Star a Cook Now recipe straight into the cookbook (creates the MealEntry).
-// Used when the user clicks ★ on a freshly generated recipe before any cook
+// Save a Cook Now recipe straight into the cookbook (creates the MealEntry).
+// Used when the user taps the heart on a freshly generated recipe before any cook
 // action — server creates a kind="cook_now" plan and a MealEntry with
 // is_favorite=True and cooked_at=NULL.
 export function useFavoriteRecipe() {

@@ -2,7 +2,7 @@
 
 AI meal planner built around a real constraint: **what is actually in your fridge**, and **what you cannot eat**.
 
-Two generation modes. **Plan Ahead** builds a multi-day plan and the shopping list that goes with it. **Cook Now** produces a single recipe for the meal you are about to start. Both read your fridge, your dietary restrictions and the meals you rated highly, and both return validated structured output rather than free text.
+Two generation modes. **Plan Ahead** builds a multi-day plan and the shopping list that goes with it. **Cook Now** produces a single recipe for the meal you are about to start. Both read your fridge, your dietary restrictions and the recipes you saved to your cookbook, and both return validated structured output rather than free text.
 
 Live at **[trymealbot.com](https://trymealbot.com)** — closed alpha, paid subscription, public registration currently disabled.
 

@@ -224,7 +224,7 @@ describe("CookbookModal", () => {
     render(<CookbookModal onClose={() => {}} />, { wrapper: createWrapper() });
 
     await waitFor(() => screen.getByText(/Your cookbook is empty/));
-    expect(screen.getByText(/Star a recipe in the planner/)).toBeInTheDocument();
+    expect(screen.getByText(/Tap the heart on a recipe in the planner/)).toBeInTheDocument();
   });
 
   it("opens a confirm dialog from the index ✕ and only deletes after confirm", async () => {

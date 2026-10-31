@@ -462,8 +462,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "meal.startCooking": "Začít vařit",
   "meal.startCookingTitle": "Vařit tento recept krok za krokem",
   "meal.leftovers": "Zbytky",
-  "meal.leftoverStarTitle":
-    "Zbytky nelze uložit do kuchařky — přidejte hvězdičku původnímu jídlu",
+  "meal.leftoverFavoriteTitle":
+    "Zbytky nelze uložit do kuchařky. Uložte místo nich původní jídlo.",
   // "z jídla „X“" — název jídla zůstává nesklonovaný v uvozovkách.
   "meal.leftoverFrom": "Využívá zbytky z jídla „{source}“ — není potřeba nic dokupovat.",
   "meal.leftoverFromUnknown": "Využívá zbytky z dřívějšího jídla — není potřeba nic dokupovat.",
@@ -765,7 +765,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "cookbook.loadFailed": "Kuchařku se nepodařilo načíst.",
   "cookbook.noMatches": "Vašemu hledání neodpovídá žádný recept.",
   "cookbook.empty": "Vaše kuchařka je prázdná.",
-  "cookbook.emptyHint": "Přidejte receptu hvězdičku v plánovači nebo v Uvařit hned a zůstane tady.",
+  "cookbook.emptyHint": "Klepněte na srdíčko u receptu v plánovači nebo v Uvařit hned a recept zůstane tady.",
   "cookbook.ingredients": "Suroviny",
   "cookbook.steps": "Postup",
   "cookbook.removeTitle": "Odebrat z kuchařky?",
@@ -779,6 +779,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "cookbook.removeFromCookbook": "Odebrat z kuchařky",
   "cookbook.removeNamed": "Odebrat {name} z kuchařky",
   "cookbook.removeLabel": "Odebrat z kuchařky",
+  "cookbook.addLabel": "Přidat do kuchařky",
 
   // ─── Planner heading ──────────────────────────────────────────────────────
   "planner.heading": "Plánovač jídel",
