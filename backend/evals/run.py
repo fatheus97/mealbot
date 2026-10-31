@@ -32,7 +32,7 @@ from pydantic import TypeAdapter
 from app.core.config import LLMProvider, ModelEntry, settings
 from app.llm.client import llm_client
 from app.llm.usage import capture_llm_usage
-from app.models.plan_models import LlmDayResponse
+from app.models.plan_models import LlmDayResponse, SingleDayResponse
 from app.services.llm_cost import MODEL_COST_RATES, cost_of
 from app.services.meal_planner import SYSTEM_PROMPT, render_day_prompt
 from evals.graders import SAFETY_CHECKS, Check, grade
@@ -311,8 +311,16 @@ _RESULTS = TypeAdapter(list[RunResult])
 
 
 def load_results(path: Path) -> list[RunResult]:
-    """A results JSON written by a run, back into RunResults (checks included)."""
-    return _RESULTS.validate_json(path.read_bytes())
+    """A results JSON written by a run, back into RunResults, re-graded with
+    today's graders: a grader fix then reaches answers already paid for. A case
+    since removed from the suite keeps the checks it was saved with."""
+    results = _RESULTS.validate_json(path.read_bytes())
+    cases = {c.id: c for c in CASES}
+    for r in results:
+        if r.ok and r.case_id in cases:
+            day = SingleDayResponse.model_validate(r.output)
+            r.checks = grade(cases[r.case_id].request, day.meals)
+    return results
 
 
 if __name__ == "__main__":

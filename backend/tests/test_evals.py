@@ -104,6 +104,16 @@ class TestContractGraders:
         assert checks(req, meal("rice", salt))["stock_only"] is True
         assert checks(req, meal("rice", "chicken"))["stock_only"] is False
 
+    def test_stock_only_reads_seasonings_by_name_since_the_default_prompt_untags_them(self) -> None:
+        # include_spices on (the default) tells the model is_spice=false for all.
+        req = MealPlanRequest(stock_only=True, meals_per_day=1, stock_items=[stock("rice", 500)])
+        untagged = [IngredientAmount(name=n, quantity_grams=5) for n in ("salt", "ground black pepper", "water")]
+        assert checks(req, meal("rice", *untagged))["stock_only"] is True
+        czech = IngredientAmount(name="mletá sladká paprika", name_en="sweet paprika", quantity_grams=2)
+        assert checks(req, meal("rice", czech))["stock_only"] is True
+        assert checks(req, meal("rice", "plain flour"))["stock_only"] is False
+        assert checks(req, meal("rice", "red bell pepper"))["stock_only"] is False  # a vegetable, bought
+
     def test_fridge_use_skips_an_urgent_allergen(self) -> None:
         req = MealPlanRequest(allergens=[Allergen.MILK], meals_per_day=1,
                               stock_items=[stock("milk", 500, urgent=True), stock("spinach", 200, urgent=True)])
@@ -157,6 +167,16 @@ class TestTheRunner:
         reloaded = load_results(saved)
         assert reloaded == results  # checks come back as Check objects, not dicts
         assert scorecard(reloaded) == scorecard(results)
+
+    async def test_a_report_regrades_saved_answers_with_todays_graders(self, tmp_path: Path) -> None:
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        [result] = await run_suite([entry], CASES[:1], repeats=1, concurrency=1, mock=True)
+        stale = asdict(result)
+        stale["checks"] = [{"name": "meal_count", "passed": False, "detail": "an old grader bug", "score": None}]
+        saved = tmp_path / "run.json"
+        saved.write_text(json.dumps([stale]), encoding="utf-8")
+        [reloaded] = load_results(saved)
+        assert reloaded.checks == result.checks
 
 
 class _QuotaError(Exception):

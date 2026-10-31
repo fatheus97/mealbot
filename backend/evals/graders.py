@@ -188,14 +188,28 @@ def check_language(req: MealPlanRequest, meals: Sequence[PlannedMeal]) -> Check 
     return None
 
 
+#: What a stock-only plan may use beyond the fridge: nothing anyone shops for.
+#: Matched by name, because with include_spices on (the default) the prompt
+#: tells the model to tag EVERY ingredient is_spice=false, so the tag says
+#: nothing. Narrow on purpose: "pepper" alone would pass a bell pepper.
+_SEASONING_RE = _pattern((
+    "water", "salt", "sea salt", "black pepper", "white pepper", "ground pepper", "peppercorn",
+    "paprika", "cumin", "caraway", "oregano", "marjoram", "thyme", "bay leaf", "bay leaves",
+    "nutmeg", "cinnamon", "turmeric", "allspice", "chili flakes", "chilli flakes", "curry powder",
+))
+
+
 def check_stock_only(req: MealPlanRequest, meals: Sequence[PlannedMeal]) -> Check | None:
-    """Stock-only: every non-spice ingredient uses an exact fridge name (the
-    prompt asks for the EXACT string)."""
+    """Stock-only: every ingredient is a fridge item (the prompt asks for its
+    EXACT name), a tagged spice, or a seasoning or water nobody buys."""
     if not req.stock_only:
         return None
     allowed = {s.name.strip().lower() for s in req.stock_items}
-    extra = sorted({i.name for m in meals for i in m.ingredients
-                    if not i.is_spice and i.name.strip().lower() not in allowed})
+    extra = sorted({
+        i.name for m in meals for i in m.ingredients
+        if not i.is_spice and i.name.strip().lower() not in allowed
+        and not any(_SEASONING_RE.search(n) for n in _names(i))
+    })
     return Check("stock_only", not extra, ", ".join(extra))
 
 
