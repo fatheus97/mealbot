@@ -29,6 +29,7 @@ lever that matters on a small box.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import threading
 from collections.abc import Callable
@@ -134,7 +135,10 @@ async def run_in_parse_executor[T](func: Callable[..., T], *args: object) -> T:
                 )
             start_parse_executor()
         assert _parse_executor is not None  # start_parse_executor guarantees it
-        future = loop.run_in_executor(_parse_executor, func, *args)
+        # Run in a copy of this context, as asyncio.to_thread does, so the
+        # parse thread's log lines keep the request's id (app.core.log_config).
+        context = contextvars.copy_context()
+        future = loop.run_in_executor(_parse_executor, context.run, func, *args)
     try:
         return await future
     except asyncio.CancelledError:
