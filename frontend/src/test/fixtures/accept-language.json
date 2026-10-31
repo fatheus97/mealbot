@@ -1,0 +1,21 @@
+{
+  "_comment": "One browser per case: its Accept-Language header and the navigator.languages list the same browser reports. 'czech' is whether it should get the Czech pages. Vitest holds detectLocale (src/store/useLocaleStore.ts) to it; the 'frontend security headers' CI job holds nginx's $lang_prefers_cs map (nginx.conf) to it.",
+  "cases": [
+    { "header": "cs-CZ,cs;q=0.9,en;q=0.8", "languages": ["cs-CZ", "cs", "en"], "czech": true },
+    { "header": "cs", "languages": ["cs"], "czech": true },
+    { "header": "CS-cz", "languages": ["CS-cz"], "czech": true },
+    { "header": "cs-Latn-CZ", "languages": ["cs-Latn-CZ"], "czech": true },
+    { "header": "sk-SK,sk;q=0.9,cs;q=0.8,en-US;q=0.7", "languages": ["sk-SK", "sk", "cs", "en-US"], "czech": true },
+    { "header": "sk", "languages": ["sk"], "czech": true },
+    { "header": "de-DE,de;q=0.9,cs;q=0.8", "languages": ["de-DE", "de", "cs"], "czech": true },
+    { "header": "de, cs;q=0.5", "languages": ["de", "cs"], "czech": true },
+    { "header": "pl-PL,sk-SK;q=0.9", "languages": ["pl-PL", "sk-SK"], "czech": true },
+    { "header": "en-US,en;q=0.9", "languages": ["en-US", "en"], "czech": false },
+    { "header": "en-GB,cs;q=0.9", "languages": ["en-GB", "cs"], "czech": false },
+    { "header": "en-GB,sk;q=0.9", "languages": ["en-GB", "sk"], "czech": false },
+    { "header": "ja-JP", "languages": ["ja-JP"], "czech": false },
+    { "header": "csb", "languages": ["csb"], "czech": false },
+    { "header": "skr,de", "languages": ["skr", "de"], "czech": false },
+    { "header": "", "languages": [], "czech": false }
+  ]
+}

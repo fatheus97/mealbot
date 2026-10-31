@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Honours a language the visitor chose (nginx handles the browser's),
+         first so a swap happens before anything else loads. External
+         because the CSP forbids inline scripts. -->
+    <script src="/lang-redirect.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Privacy Policy — Mealbot</title>
     <meta
@@ -429,7 +433,8 @@
         <p class="muted" style="font-size: 0.85rem;">
           Questions? <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> &middot;
           <a href="/terms">Terms of Service</a> &middot;
-          <a href="/">Back to Mealbot</a>
+          <a href="/">Back to Mealbot</a> &middot;
+          <a href="/cs/privacy" hreflang="cs" lang="cs">Čeština</a>
         </p>
       </footer>
     </main>

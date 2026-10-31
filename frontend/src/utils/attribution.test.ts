@@ -43,6 +43,23 @@ describe("captureAttribution", () => {
     expect(getStoredAttribution()).toEqual({ referrer: "https://news.example.com/post" });
   });
 
+  it("drops a referrer that is this site itself", () => {
+    // A move within the site (a footer link, a language link, the static
+    // pages' choice swap) names no acquisition source. Recording it would
+    // credit trymealbot.com with the signup.
+    setReferrer(`${window.location.origin}/cs?utm_source=fb`);
+    captureAttribution();
+    expect(getStoredAttribution()).toEqual({});
+  });
+
+  it("keeps a referrer from another site on the same host name but another port", () => {
+    const other = new URL(window.location.origin);
+    other.port = other.port === "8081" ? "8082" : "8081";
+    setReferrer(`${other.origin}/post`);
+    captureAttribution();
+    expect(getStoredAttribution()).toEqual({ referrer: `${other.origin}/post` });
+  });
+
   it("is first-touch: a second visit does not overwrite the first", () => {
     setUrl("?utm_source=google");
     captureAttribution();

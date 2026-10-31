@@ -1,4 +1,4 @@
-import { landingCopy } from "./copy";
+import { landingCopy, landingLocale } from "./copy";
 // The landing page's "Request access" form.
 //
 // Replaces the old mailto: link so requests land in a queue the admin can act
@@ -42,7 +42,8 @@ export async function submitAccessRequest(email: string, message: string): Promi
   try {
     resp = await fetch("/api/access-requests", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // The page's language, so the backend's reply matches it (see authApi.ts).
+      headers: { "Content-Type": "application/json", "Accept-Language": landingLocale() },
       body: JSON.stringify({ email, message }),
     });
   } catch {

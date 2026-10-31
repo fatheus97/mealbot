@@ -18,6 +18,13 @@ export type Locale = (typeof UI_LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = 'en';
 
+/**
+ * Browser languages we answer with another UI locale instead of the default:
+ * Slovak readers get Czech rather than English. public/lang-redirect.js keeps a
+ * copy for the static pages; langRedirect.test.ts holds the two together.
+ */
+export const LOCALE_ALIASES: Readonly<Partial<Record<string, Locale>>> = { sk: 'cs' };
+
 /** Endonyms — a language is named in itself, never in English. */
 export const LOCALE_NAMES: Record<Locale, string> = {
   en: 'English',
@@ -32,8 +39,9 @@ function isLocale(value: unknown): value is Locale {
  * Best UI locale for a fresh visitor, from the browser's language preferences.
  *
  * Matches on the PRIMARY SUBTAG only: "cs-CZ", "cs", and a hypothetical
- * "cs-Latn-CZ" all mean Czech. Walks `navigator.languages` in order so a user
- * whose first preference we do not translate still gets their second.
+ * "cs-Latn-CZ" all mean Czech, and an alias ("sk") counts as its target.
+ * Walks `navigator.languages` in order so a user whose first preference we do
+ * not translate still gets their second.
  *
  * Runs before any user record exists, which is the whole reason UI locale is
  * client-side state: the landing page, login and register screens have no
@@ -47,7 +55,8 @@ export function detectLocale(
   for (const tag of languages) {
     if (typeof tag !== 'string') continue;
     const primary = tag.toLowerCase().split('-')[0];
-    if (isLocale(primary)) return primary;
+    const locale = LOCALE_ALIASES[primary] ?? primary;
+    if (isLocale(locale)) return locale;
   }
   return DEFAULT_LOCALE;
 }

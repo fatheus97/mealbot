@@ -12,6 +12,10 @@
          Its English twin is the meaning reference; csRegister.test.ts and
          legalPages.test.ts are what keep the two in step. -->
     <meta charset="UTF-8" />
+    <!-- Honours a language the visitor chose (nginx handles the browser's),
+         first so a swap happens before anything else loads. External
+         because the CSP forbids inline scripts. -->
+    <script src="/lang-redirect.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Zásady ochrany osobních údajů — Mealbot</title>
     <meta
@@ -437,7 +441,8 @@
         <p class="muted" style="font-size: 0.85rem;">
           Máte dotazy? <a href="mailto:info@trymealbot.com">info@trymealbot.com</a> &middot;
           <a href="/cs/terms">Obchodní podmínky</a> &middot;
-          <a href="/cs">Zpět na Mealbot</a>
+          <a href="/cs">Zpět na Mealbot</a> &middot;
+          <a href="/privacy" hreflang="en" lang="en">English</a>
         </p>
       </footer>
     </main>

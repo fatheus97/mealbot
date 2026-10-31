@@ -2,6 +2,10 @@
 <html lang="cs">
   <head>
     <meta charset="UTF-8" />
+    <!-- Honours a language the visitor chose (nginx handles the browser's),
+         first so a swap happens before anything else loads. External
+         because the CSP forbids inline scripts. -->
+    <script src="/lang-redirect.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- index.css flips background-color under prefers-color-scheme: light
          (#242424 dark default -> #ffffff light); split into two
@@ -995,9 +999,9 @@
             <input type="checkbox" id="auth-accept-terms" name="accept_terms" />
             <span>
               Souhlasím s
-              <a href="/cs/terms" target="_blank" rel="noopener noreferrer">Obchodními podmínkami</a>
+              <a href="/cs/terms" target="_blank" rel="noopener">Obchodními podmínkami</a>
               a
-              <a href="/cs/privacy" target="_blank" rel="noopener noreferrer">Zásadami ochrany osobních údajů</a>.
+              <a href="/cs/privacy" target="_blank" rel="noopener">Zásadami ochrany osobních údajů</a>.
             </span>
           </label>
           <button type="submit" id="auth-submit" class="btn btn-primary">Přihlásit se</button>
