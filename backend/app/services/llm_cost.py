@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from app.core.config import settings
+from app.llm.experiment import parse_arms
 from app.models.db_models import LlmUsage
 
 logger = logging.getLogger(__name__)
@@ -86,10 +87,12 @@ _FALLBACK_RATE = MODEL_COST_RATES[("gemini", "gemini-2.5-flash")]
 
 
 def check_chain_rates() -> None:
-    """Log at startup every chain model without its own rate: it is charged
-    _FALLBACK_RATE, a Gemini Flash price, which under-bills a dearer model
-    against the usage cap and over-bills a cheaper one. Never raises."""
-    for entry in settings.model_chain:
+    """Log at startup every model that can serve users without its own rate:
+    the chain and the LLM_EXPERIMENT arms. It is charged _FALLBACK_RATE, a
+    Gemini Flash price, which under-bills a dearer model against the usage cap
+    and over-bills a cheaper one. Never raises."""
+    arms, _ = parse_arms(settings.llm_experiment)
+    for entry in [*settings.model_chain, *(arm.entry for arm in arms)]:
         if (entry.provider.value, entry.model) not in MODEL_COST_RATES:
             logger.warning(
                 "LLM model %s has no rate in app/services/llm_cost.py; its calls "

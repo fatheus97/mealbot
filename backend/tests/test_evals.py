@@ -9,7 +9,10 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+import httpx
 import pytest
+from anthropic import RateLimitError as AnthropicRateLimitError
+from openai import RateLimitError as OpenAIRateLimitError
 
 from app.core.config import LLMProvider, ModelEntry, settings
 from app.core.dietary import Allergen, DietType
@@ -22,6 +25,7 @@ from evals.run import (
     Pacer,
     RunResult,
     _rate_limit_delay,
+    _root,
     load_results,
     parse_model,
     pinned,
@@ -243,6 +247,26 @@ class TestRateLimits:
         assert _rate_limit_delay(ValueError("bad schema")) is None
         assert _rate_limit_delay(ValueError("request id 4291 failed")) is None  # a 429 by text only
         assert _rate_limit_delay(ValueError("Error code: 429 - rate limit")) == 30.0
+
+    @pytest.mark.parametrize("sdk_error", [AnthropicRateLimitError, OpenAIRateLimitError])
+    def test_an_sdk_429_raised_from_none_is_recognised(
+        self, sdk_error: type[AnthropicRateLimitError] | type[OpenAIRateLimitError]
+    ) -> None:
+        """The SDKs raise their typed 429 `from None` inside `except HTTPStatusError`.
+        httpx's error stays on as a hidden __context__ with no status attribute, so
+        following it lost every Anthropic and OpenAI 429."""
+        request = httpx.Request("POST", "https://api.example")
+        response = httpx.Response(429, request=request)
+        try:
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError:
+                raise sdk_error("Rate limited", response=response, body=None) from None
+        except sdk_error as caught:
+            gave_up = RuntimeError("chain gave up")
+            gave_up.__cause__ = caught
+        assert isinstance(_root(gave_up), sdk_error)
+        assert _rate_limit_delay(_root(gave_up)) == 30.0
 
     async def test_a_spent_daily_quota_stops_the_model_calling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls = 0

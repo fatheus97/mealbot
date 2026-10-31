@@ -1415,6 +1415,15 @@ class TestRealStackContract:
         assert _demoted(client) == {"slow"}
 
 
+@pytest.mark.parametrize("provider", list(LLMProvider))
+def test_every_provider_names_its_key(provider: LLMProvider) -> None:
+    """check_model_chain_keys and the evals' has_key both look keys up here; a
+    provider added without a row would KeyError the evals and log no key check."""
+    from app.core.config import Settings
+    from app.llm.client import _PROVIDER_KEY_ATTR
+    assert _PROVIDER_KEY_ATTR[provider] in Settings.model_fields
+
+
 class TestAnthropicStackContract:
     """The REAL instructor + anthropic SDK stack against a local fake Messages API.
 

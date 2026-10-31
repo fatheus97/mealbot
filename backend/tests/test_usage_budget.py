@@ -120,6 +120,20 @@ def test_startup_names_a_chain_model_without_a_rate(
     assert "gemini/gemini-9-unpriced" in record.getMessage()
 
 
+def test_startup_names_an_experiment_arm_without_a_rate(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # An arm leads the chain for its share of real generations, so it bills too.
+    monkeypatch.setattr(settings, "llm_models", [
+        ModelEntry(provider=LLMProvider.GEMINI, model="gemini-3.5-flash-lite"),
+    ])
+    monkeypatch.setattr(settings, "llm_experiment", "gemini/gemini-9-unpriced=10")
+    with caplog.at_level(logging.WARNING, logger="app.services.llm_cost"):
+        llm_cost.check_chain_rates()
+    [record] = caplog.records
+    assert "gemini/gemini-9-unpriced" in record.getMessage()
+
+
 def test_cost_negative_output_clamped_to_zero() -> None:
     rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
     cost = llm_cost.cost_of(1000, 500, "gemini", "gemini-2.5-flash")

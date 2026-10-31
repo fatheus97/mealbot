@@ -111,7 +111,12 @@ class Pacer:
 
 
 def _root(exc: BaseException) -> BaseException:
-    while (inner := exc.__cause__ or exc.__context__) is not None:
+    """The innermost exception of the chain Python itself would print.
+
+    A context hidden with `raise ... from None` is not followed: the OpenAI and
+    Anthropic SDKs raise their typed 429 that way over httpx's HTTPStatusError,
+    which carries no status attribute, so the 429 would be missed."""
+    while (inner := exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)) is not None:
         exc = inner
     return exc
 

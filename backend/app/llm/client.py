@@ -41,9 +41,9 @@ T = TypeVar('T', bound=BaseModel)
 
 MAX_LLM_RETRIES = 3
 
-# Anthropic requires an output cap on every request. A day of meals is ~3.5k
-# output tokens and adaptive thinking adds to that; 16k leaves room without
-# tripping the SDK's long-request guard, which wants streaming above ~21k.
+# Anthropic requires an output cap on every request. A day of meals is ~2k
+# output tokens (backend/evals runs) and adaptive thinking adds to that; 16k is
+# room to spare, never the binding limit (the 60 s deadline is).
 _ANTHROPIC_MAX_TOKENS = 16_000
 
 # Per-request HTTP deadline for every provider. google-genai ALSO sends it to
@@ -808,9 +808,9 @@ def _provider_kwargs(entry: ModelEntry) -> dict[str, Any]:
     Anthropic: an output cap is mandatory, and tool_choice stays "auto".
     instructor would otherwise FORCE its tool, which the current Claude models
     reject alongside their default thinking (Opus 5.5 and Sonnet 5.5 400 on a
-    forced tool_choice at all). With one tool on offer and the prompt asking for
-    it, Claude calls it; an answer that does not is a validation failure, which
-    instructor re-asks like any other.
+    forced tool_choice at all). With one tool on offer Claude calls it; an answer
+    that does not (the prompts ask for "JSON", not for a tool) is a validation
+    failure, which instructor re-asks like any other, and the evals count.
     """
     if entry.provider == LLMProvider.ANTHROPIC:
         return {"max_tokens": _ANTHROPIC_MAX_TOKENS, "tool_choice": {"type": "auto"}}
