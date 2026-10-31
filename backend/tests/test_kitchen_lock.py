@@ -347,13 +347,17 @@ class TestFavoriteEmbedsOutsideTheLock:
         plan_id = await _confirmed_plan(c)
         entry_id = (await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"]
 
+        unstarred: list[int] = []
+
         async def slow_embed(entry: MealEntry) -> None:
-            # Another request for the same user must get through right now.
+            # Another request for the same user must get through right now. An
+            # exception here is swallowed by the handler (a failed embed is not
+            # fatal), so the outcome is recorded and asserted outside.
             unstar = await asyncio.wait_for(
                 c.post(f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": False}),
                 timeout=5,
             )
-            assert unstar.status_code == 200, unstar.text
+            unstarred.append(unstar.status_code)
             entry.embedding = [0.1] * 384
 
         with patch("app.api.plan.embed_meal_entry", side_effect=slow_embed):
@@ -362,6 +366,7 @@ class TestFavoriteEmbedsOutsideTheLock:
             )
 
         assert r.status_code == 200, r.text
+        assert unstarred == [200]  # not blocked behind the favorite's embed
         async with AsyncSession(test_engine) as s:
             stored = await s.get(MealEntry, entry_id)
         assert stored is not None
