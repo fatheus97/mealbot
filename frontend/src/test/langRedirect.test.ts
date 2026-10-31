@@ -177,6 +177,32 @@ describe('the language links record the choice', () => {
     expect(visit('/')).toBe('/cs?lang=cs');
   });
 
+  it('carries the campaign tags over to the other language', () => {
+    visit('/', '?utm_source=fb&utm_campaign=x');
+    const link = document.createElement('a');
+    link.setAttribute('hreflang', 'cs');
+    link.setAttribute('href', '/cs');
+    // jsdom cannot navigate; the script's capture listener has run by then.
+    link.addEventListener('click', (event) => event.preventDefault());
+    document.body.appendChild(link);
+    link.click();
+    link.click(); // a second click must not append the query twice
+    link.remove();
+    expect(link.getAttribute('href')).toBe('/cs?utm_source=fb&utm_campaign=x');
+  });
+
+  it('leaves the link alone when there is no query string', () => {
+    visit('/');
+    const link = document.createElement('a');
+    link.setAttribute('hreflang', 'cs');
+    link.setAttribute('href', '/cs');
+    link.addEventListener('click', (event) => event.preventDefault());
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    expect(link.getAttribute('href')).toBe('/cs');
+  });
+
   it('ignores links to languages the app does not have', () => {
     visit('/');
     clickLink('de');

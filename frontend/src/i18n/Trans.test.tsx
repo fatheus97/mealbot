@@ -61,15 +61,17 @@ describe('TermsConsent in Czech', () => {
     );
   });
 
-  it('keeps the hrefs, which are language-independent', () => {
+  it('points the links at the Czech editions', () => {
+    // These hrefs were language-independent until the Czech legal pages
+    // shipped (#396); both editions are now equally authoritative.
     render(<TermsConsent checked={false} onChange={vi.fn()} />);
     expect(screen.getByRole('link', { name: 'Podmínkami služby' })).toHaveAttribute(
       'href',
-      '/terms',
+      '/cs/terms',
     );
     expect(
       screen.getByRole('link', { name: 'Zásadami ochrany osobních údajů' }),
-    ).toHaveAttribute('href', '/privacy');
+    ).toHaveAttribute('href', '/cs/privacy');
   });
 
   it('still labels the checkbox, so the whole sentence toggles it', () => {
