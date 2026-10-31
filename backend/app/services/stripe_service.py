@@ -410,6 +410,26 @@ async def retrieve_subscription(subscription_id: str) -> dict[str, Any]:
     return sub.to_dict()
 
 
+async def invoice_id_for_payment_intent(payment_intent_id: str) -> str | None:
+    """The invoice a PaymentIntent paid, or None when it paid none.
+
+    How a refund finds its sale. A Refund names only its charge and
+    PaymentIntent, and since API 2025-03-31 (basil) neither of those carries
+    ``invoice`` any more; the InvoicePayment that joins them is the link left.
+    Raises like every call here; the webhook turns that into a retry."""
+    _require_stripe()
+    page = await asyncio.to_thread(
+        stripe.InvoicePayment.list,
+        payment={"type": "payment_intent", "payment_intent": payment_intent_id},
+        limit=1,
+    )
+    for payment in page.to_dict().get("data", []):
+        invoice = payment.get("invoice")
+        if isinstance(invoice, str) and invoice:
+            return invoice
+    return None
+
+
 async def retrieve_customer(customer_id: str) -> dict[str, Any]:
     """Retrieve a Customer with ``invoice_settings.default_payment_method``
     expanded, as a native dict — the fallback fingerprint source when the

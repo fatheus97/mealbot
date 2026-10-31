@@ -77,6 +77,9 @@ describe("RevenuePanel", () => {
     render(<RevenuePanel stats={stats()} />);
     await user.click(screen.getByRole("button", { name: "About the revenue totals" }));
     expect(screen.getByRole("tooltip")).toHaveTextContent(/all-time sums of paid invoices/i);
+    // Refunds are netted (revenue_service._ledger); the hint must not claim otherwise.
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/net of their refunds/i);
+    expect(screen.getByRole("tooltip")).not.toHaveTextContent(/never subtracted/i);
     expect(screen.getByRole("tooltip")).toHaveTextContent(/czech billing addresses only/i);
   });
 

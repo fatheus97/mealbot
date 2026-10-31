@@ -1,8 +1,9 @@
 """Revenue ledger + VAT-threshold aggregation.
 
 Records each paid Stripe invoice as a SaleRecord (idempotent on the invoice id)
-and computes the running totals the admin dashboard needs to watch the two VAT
-thresholds relevant to a Czech OSVČ neplátce:
+and each refund of one as a SaleRefund (idempotent on the refund id), and
+computes the running totals, net of refunds, that the admin dashboard needs to
+watch the two VAT thresholds relevant to a Czech OSVČ neplátce:
 
 * **EU OSS €10k** — cumulative B2C sales to OTHER EU countries (excludes Czechia
   and all B2B). Crossing it means charging destination VAT via OSS.
@@ -17,7 +18,18 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import (
+    ColumnElement,
+    Integer,
+    Select,
+    Subquery,
+    func,
+    literal,
+    or_,
+    select,
+    union_all,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
@@ -29,9 +41,15 @@ from app.models.admin_schemas import (
     SaleRow,
     ThresholdProgress,
 )
-from app.models.db_models import SaleRecord, User
+from app.models.db_models import SaleRecord, SaleRefund, User
+from app.services import stripe_service
 
 logger = logging.getLogger(__name__)
+
+# Refund statuses under which no money went back, so the refund stops counting.
+# Both are terminal in Stripe (a retry is a NEW refund), so a row that reaches
+# one never leaves it, whatever order the events arrive in.
+REFUND_VOID_STATUSES: tuple[str, ...] = ("failed", "canceled")
 
 # EU member states (ISO-3166-1 alpha-2, upper). Used to classify a sale as
 # EU cross-border. Czechia is a member but is handled separately (it's the home
@@ -136,6 +154,123 @@ async def record_sale_from_invoice(
     return result.scalars().first() is not None
 
 
+async def record_refund(session: AsyncSession, refund: dict[str, Any]) -> bool:
+    """Record a Stripe Refund object against the sale it refunds, and mirror its
+    status. Returns True if a row exists for it afterwards (commit needed).
+
+    Idempotent on the refund id: the first event inserts, every later one (a
+    replay, ``refund.updated``, ``refund.failed``) only moves the status, so a
+    replay can never subtract twice, and it skips the Stripe lookup too.
+
+    A refund of a payment that paid no invoice has no sale here and is skipped.
+    Raises on a failed Stripe lookup: the caller must not ACK the event then, or
+    the refund is lost for good.
+    """
+    refund_id = refund.get("id")
+    if not isinstance(refund_id, str) or not refund_id:
+        return False
+    status = refund.get("status")
+    status = status if isinstance(status, str) else None
+
+    known = (
+        await session.execute(
+            select(col(SaleRefund.id)).where(col(SaleRefund.stripe_refund_id) == refund_id)
+        )
+    ).scalars().first()
+    if known is None:
+        amount = refund.get("amount")
+        currency = refund.get("currency")
+        payment_intent = refund.get("payment_intent")
+        if (
+            not isinstance(amount, int)
+            or amount <= 0
+            or not isinstance(currency, str)
+            or not currency
+            or not isinstance(payment_intent, str)
+            or not payment_intent
+        ):
+            logger.warning("refund_skipped_unusable refund=%s", refund_id)
+            return False
+        invoice_id = await stripe_service.invoice_id_for_payment_intent(payment_intent)
+        if invoice_id is None:
+            logger.warning("refund_skipped_no_invoice refund=%s", refund_id)
+            return False
+        created = refund.get("created")
+        occurred_at = (
+            datetime.fromtimestamp(created, tz=UTC)
+            if isinstance(created, int)
+            else datetime.now(UTC)
+        ).replace(tzinfo=None)
+        # ON CONFLICT: two deliveries of one refund can race past the lookup above.
+        await session.execute(
+            pg_insert(SaleRefund)
+            .values(
+                stripe_refund_id=refund_id,
+                stripe_invoice_id=invoice_id,
+                amount_cents=amount,
+                currency=currency.lower(),
+                status=status,
+                occurred_at=occurred_at,
+            )
+            .on_conflict_do_nothing(index_elements=["stripe_refund_id"])
+        )
+    if status is not None:
+        await session.execute(
+            update(SaleRefund)
+            .where(
+                col(SaleRefund.stripe_refund_id) == refund_id,
+                _refund_counts(),
+            )
+            .values(status=status)
+        )
+    return True
+
+
+def _refund_counts() -> ColumnElement[bool]:
+    """SQL condition: this refund row still nets out of revenue."""
+    return or_(
+        col(SaleRefund.status).is_(None),
+        col(SaleRefund.status).not_in(REFUND_VOID_STATUSES),
+    )
+
+
+def _ledger() -> Subquery:
+    """Every sale (+amount, one sale) and every counting refund of a recorded
+    sale (-amount, no sale), each at its OWN time, categorised by the sale.
+
+    So a refund nets out of its sale's country / B2B bucket, and lands in the
+    window it was made in, never the sale's: a VAT correction belongs to the
+    period of the refund. Inner join: a refund whose sale is not in the ledger
+    subtracts nothing, since that sale was never added. The currency is the
+    refund's own, so a non-EUR refund never touches the EUR sums.
+    """
+    sales: Select[tuple[str | None, bool, str, int, int, datetime]] = select(
+        col(SaleRecord.country).label("country"),
+        col(SaleRecord.is_business).label("is_business"),
+        col(SaleRecord.currency).label("currency"),
+        col(SaleRecord.amount_cents).label("amount"),
+        literal(1, Integer).label("sales"),
+        col(SaleRecord.occurred_at).label("occurred_at"),
+    )
+    refunds = (
+        select(
+            col(SaleRecord.country),
+            col(SaleRecord.is_business),
+            col(SaleRefund.currency),
+            -col(SaleRefund.amount_cents),
+            literal(0, Integer),
+            col(SaleRefund.occurred_at),
+        )
+        .select_from(SaleRefund)
+        .join(
+            SaleRecord,
+            col(SaleRecord.stripe_invoice_id) == col(SaleRefund.stripe_invoice_id),
+        )
+        .where(_refund_counts())
+    )
+    return union_all(sales, refunds).subquery()
+
+
 def _is_eu_cross_border_b2c(country: str | None, is_business: bool) -> bool:
     return (
         country is not None
@@ -158,6 +293,10 @@ async def compute_revenue_stats(
     * EU OSS €10k → the **current calendar year** of cross-border B2C sales.
     * CZ domestic 2M CZK → the **trailing 12 months** of total turnover.
 
+    Every sum is NET of refunds (see ``_ledger``): a refund subtracts in its
+    sale's buckets, and in the threshold windows by the date it was made.
+    ``sales_count`` still counts paid invoices, refunded or not.
+
     Sales are grouped by (country, is_business, currency) in SQL, then folded into
     the reporting categories in Python (sale volume is low — one row per paid
     invoice). Only EUR sales feed the monetary totals; other-currency sales are
@@ -168,18 +307,19 @@ async def compute_revenue_stats(
     ref = (now or datetime.now(UTC)).replace(tzinfo=None)
     year_start = datetime(ref.year, 1, 1)
     rolling_start = ref - timedelta(days=365)
+    ledger = _ledger()
     grouped = (
         await session.execute(
             select(
-                col(SaleRecord.country),
-                col(SaleRecord.is_business),
-                col(SaleRecord.currency),
-                func.coalesce(func.sum(col(SaleRecord.amount_cents)), 0),
-                func.count(),
+                ledger.c.country,
+                ledger.c.is_business,
+                ledger.c.currency,
+                func.coalesce(func.sum(ledger.c.amount), 0),
+                func.coalesce(func.sum(ledger.c.sales), 0),
             ).group_by(
-                col(SaleRecord.country),
-                col(SaleRecord.is_business),
-                col(SaleRecord.currency),
+                ledger.c.country,
+                ledger.c.is_business,
+                ledger.c.currency,
             )
         )
     ).all()
@@ -211,31 +351,39 @@ async def compute_revenue_stats(
     eu_threshold = settings.vat_eu_oss_threshold_eur
     cz_threshold = settings.vat_cz_domestic_threshold_czk
 
+    # Both windows are floored at 0: a window holding only the refund of an
+    # older sale nets negative, which is no progress toward a threshold.
     # EU OSS €10k — cross-border B2C to other EU countries, this calendar year.
-    eu_window_cents = int(
-        (
-            await session.execute(
-                select(func.coalesce(func.sum(col(SaleRecord.amount_cents)), 0)).where(
-                    col(SaleRecord.currency) == "eur",
-                    col(SaleRecord.is_business).is_(False),
-                    col(SaleRecord.country).in_(EU_COUNTRIES - {HOME_COUNTRY}),
-                    col(SaleRecord.occurred_at) >= year_start,
+    eu_window_cents = max(
+        0,
+        int(
+            (
+                await session.execute(
+                    select(func.coalesce(func.sum(ledger.c.amount), 0)).where(
+                        ledger.c.currency == "eur",
+                        ledger.c.is_business.is_(False),
+                        ledger.c.country.in_(EU_COUNTRIES - {HOME_COUNTRY}),
+                        ledger.c.occurred_at >= year_start,
+                    )
                 )
-            )
-        ).scalar_one()
+            ).scalar_one()
+        ),
     )
     # CZ domestic 2M CZK — trailing 12 months of ALL turnover, converted to CZK.
     # The exact obrat excludes OSS cross-border supplies, so summing all turnover
     # over-counts on purpose: an early warning is the safe error direction.
-    cz_window_cents = int(
-        (
-            await session.execute(
-                select(func.coalesce(func.sum(col(SaleRecord.amount_cents)), 0)).where(
-                    col(SaleRecord.currency) == "eur",
-                    col(SaleRecord.occurred_at) >= rolling_start,
+    cz_window_cents = max(
+        0,
+        int(
+            (
+                await session.execute(
+                    select(func.coalesce(func.sum(ledger.c.amount), 0)).where(
+                        ledger.c.currency == "eur",
+                        ledger.c.occurred_at >= rolling_start,
+                    )
                 )
-            )
-        ).scalar_one()
+            ).scalar_one()
+        ),
     )
 
     eu_current = eu_window_cents / 100
@@ -250,7 +398,8 @@ async def compute_revenue_stats(
             unit="EUR",
             pct=(eu_current / eu_threshold) if eu_threshold else 0.0,
             note=(
-                f"B2C sales to other EU countries in {ref.year} (excl. Czechia & B2B). "
+                f"B2C sales to other EU countries in {ref.year}, less refunds made in "
+                f"{ref.year} (excl. Czechia & B2B). "
                 "B2B = self-declared tax id, so this may under-count if a consumer entered one."
             ),
         ),
@@ -261,7 +410,10 @@ async def compute_revenue_stats(
             threshold=cz_threshold,
             unit="CZK",
             pct=(cz_current / cz_threshold) if cz_threshold else 0.0,
-            note=f"All turnover, last 12 months ≈CZK at {rate:g} CZK/EUR (conservative).",
+            note=(
+                "All turnover less refunds, last 12 months, "
+                f"≈CZK at {rate:g} CZK/EUR (conservative)."
+            ),
         ),
     ]
 
