@@ -61,6 +61,35 @@ _MAX_ALLERGEN_SCREEN_RETRIES = 2
 _RAG_MAX_ALLERGEN_SCREEN_RETRIES = 0
 
 
+def render_day_prompt(
+    req: MealPlanRequest,
+    *,
+    slot_layout: list[str] | None,
+    slot_portions: list[int] | None,
+    retrieved_meals: list[dict[str, object]] | None = None,
+) -> str:
+    """The user prompt for one day, exactly as production sends it.
+
+    One function for the standard and the RAG path, and for ``evals/``, which
+    grades models on this prompt and must never drift from it.
+    """
+    extra: dict[str, object] = {}
+    if retrieved_meals is not None:
+        extra["retrieved_meals"] = retrieved_meals
+    return _prompts_env.get_template("meal_plan.jinja").render(
+        **req.model_dump(),
+        dietary_context_lines=resolve_dietary_context(
+            req.diet_types, req.allergens,
+        ).prompt_lines(),
+        # Same predicate the screen uses, so the prompt can never ask for a
+        # field the screen doesn't require (or skip one it does).
+        needs_name_en=not is_english_language(req.language),
+        slot_layout=slot_layout,
+        slot_portions=slot_portions,
+        **extra,
+    )
+
+
 async def _generate_and_screen(
     *,
     template_name: str,
@@ -171,18 +200,7 @@ async def generate_single_day(
     surface-only mismatch. Callers that need stricter guarantees can fall back
     to the pre-Phase-3 meals_per_day path by passing ``slot_layout=None``.
     """
-    template = _prompts_env.get_template("meal_plan.jinja")
-    user_prompt = template.render(
-        **req.model_dump(),
-        dietary_context_lines=resolve_dietary_context(
-            req.diet_types, req.allergens,
-        ).prompt_lines(),
-        # Same predicate the screen uses, so the prompt can never ask for a
-        # field the screen doesn't require (or skip one it does).
-        needs_name_en=not is_english_language(req.language),
-        slot_layout=slot_layout,
-        slot_portions=slot_portions,
-    )
+    user_prompt = render_day_prompt(req, slot_layout=slot_layout, slot_portions=slot_portions)
 
     mock_context = {
         "stock_items": [item.name for item in req.stock_items],
@@ -377,18 +395,8 @@ async def generate_single_day_with_rag(
         )
         return None
 
-    template = _prompts_env.get_template("meal_plan.jinja")
-    user_prompt = template.render(
-        **req.model_dump(),
-        dietary_context_lines=resolve_dietary_context(
-            req.diet_types, req.allergens,
-        ).prompt_lines(),
-        # Same predicate the screen uses, so the prompt can never ask for a
-        # field the screen doesn't require (or skip one it does).
-        needs_name_en=not is_english_language(req.language),
-        retrieved_meals=retrieved_meals,
-        slot_layout=slot_layout,
-        slot_portions=slot_portions,
+    user_prompt = render_day_prompt(
+        req, slot_layout=slot_layout, slot_portions=slot_portions, retrieved_meals=retrieved_meals
     )
 
     logger.info("RAG: using %d retrieved meals for generation", len(retrieved_meals))
