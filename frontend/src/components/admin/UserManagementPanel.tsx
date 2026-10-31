@@ -347,7 +347,7 @@ export function UserManagementPanel() {
           Row actions
           <InfoHint
             label="About billing for Comp, Deactivate and Delete"
-            text="Comp, Deactivate and Delete never touch Stripe. A paying subscriber keeps being billed and, once deactivated or deleted, can't sign in to cancel."
+            text="Comp leaves billing alone. Deactivate stops the subscription renewing after the period already paid for; reactivating doesn't restart it, the user can resume it themselves. Delete cancels it at once, with no refund for the unused days. If billing can't be stopped, Deactivate and Delete change nothing and say why."
           />
           <span
             style={{
@@ -359,7 +359,7 @@ export function UserManagementPanel() {
           >
             <InfoHint
               label="About Reset onboarding"
-              text="After Reset onboarding they must redo setup on their next visit. The form starts from defaults (English, no country), so saving it overwrites their current preferences."
+              text="After Reset onboarding they must redo setup on their next visit. The form opens with their saved preferences, so saving it unchanged keeps them."
             />
           </span>
         </span>

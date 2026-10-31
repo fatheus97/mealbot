@@ -24,6 +24,7 @@ from app.models.db_models import (
     MealPlan,
     PantryStaple,
     SaleRecord,
+    SaleRefund,
     StockItem,
     User,
 )
@@ -82,6 +83,14 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
                 currency="eur",
                 country="CZ",
                 occurred_at=datetime.now(UTC),
+            ),
+            SaleRefund(
+                stripe_refund_id=f"re_export_{uid}",
+                stripe_invoice_id=f"in_export_{uid}",
+                amount_cents=200,
+                currency="eur",
+                status="succeeded",
+                occurred_at=datetime(2026, 8, 5),
             ),
         ]
     )
@@ -144,6 +153,17 @@ class TestExportContents:
         assert body["feedback_reports"][0]["message"] == "the button is upside down"
         assert body["invoices"][0]["amount_cents"] == 499
         assert body["invoices"][0]["currency"] == "eur"
+        # A refund has no user column; it is theirs through the invoice it refunds.
+        assert body["refunds"] == [
+            {
+                "stripe_refund_id": f"re_export_{test_user.id}",
+                "stripe_invoice_id": f"in_export_{test_user.id}",
+                "amount_cents": 200,
+                "currency": "eur",
+                "status": "succeeded",
+                "occurred_at": "2026-08-05T00:00:00",
+            }
+        ]
 
     async def test_names_what_it_leaves_out(
         self, client: AsyncClient, test_user: User
@@ -220,10 +240,20 @@ class TestExportLeaksNothing:
                     currency="eur",
                     occurred_at=datetime.now(UTC),
                 ),
+                # Reached only through the stranger's invoice id, so this is the
+                # row a sloppy refund SELECT (no invoice filter) would leak.
+                SaleRefund(
+                    stripe_refund_id="re_stranger",
+                    stripe_invoice_id="in_stranger",
+                    amount_cents=999,
+                    currency="eur",
+                    status="succeeded",
+                    occurred_at=datetime.now(UTC),
+                ),
             ]
         )
         await db_session.flush()
 
         _, raw = await _fetch(client)
-        for forbidden in ("not-yours", "stranger-staple", "in_stranger"):
+        for forbidden in ("not-yours", "stranger-staple", "in_stranger", "re_stranger"):
             assert forbidden not in raw, forbidden

@@ -19,7 +19,9 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 import stripe
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
 
 from app.core.config import settings
 from app.core.i18n import DEFAULT_LOCALE, Locale
@@ -286,6 +288,15 @@ async def create_checkout_session(
     _require_stripe()
     price_id = _price_id_for_plan(plan, locale)
     customer_id = await _ensure_customer(user, session)
+    # Wait out an account change already stopping this user's billing, then
+    # refuse if it locked them out or deleted them (see lock_billing).
+    assert user.id is not None  # a persisted user: _ensure_customer committed it
+    await lock_billing(session, user.id)
+    still_active = (
+        await session.execute(select(col(User.is_active)).where(col(User.id) == user.id))
+    ).scalar_one_or_none()
+    if not still_active:
+        raise RuntimeError(f"user {user.id} was deactivated or deleted while starting checkout")
     # Gate A of the trial-abuse guard: a repeat account (has_used_trial) gets NO
     # trial — subscription-mode Checkout then charges the first invoice at
     # completion instead of opening a free window. Gate B (cross-account card reuse)
@@ -399,6 +410,26 @@ async def retrieve_subscription(subscription_id: str) -> dict[str, Any]:
     return sub.to_dict()
 
 
+async def invoice_id_for_payment_intent(payment_intent_id: str) -> str | None:
+    """The invoice a PaymentIntent paid, or None when it paid none.
+
+    How a refund finds its sale. A Refund names only its charge and
+    PaymentIntent, and since API 2025-03-31 (basil) neither of those carries
+    ``invoice`` any more; the InvoicePayment that joins them is the link left.
+    Raises like every call here; the webhook turns that into a retry."""
+    _require_stripe()
+    page = await asyncio.to_thread(
+        stripe.InvoicePayment.list,
+        payment={"type": "payment_intent", "payment_intent": payment_intent_id},
+        limit=1,
+    )
+    for payment in page.to_dict().get("data", []):
+        invoice = payment.get("invoice")
+        if isinstance(invoice, str) and invoice:
+            return invoice
+    return None
+
+
 async def retrieve_customer(customer_id: str) -> dict[str, Any]:
     """Retrieve a Customer with ``invoice_settings.default_payment_method``
     expanded, as a native dict — the fallback fingerprint source when the
@@ -412,23 +443,233 @@ async def retrieve_customer(customer_id: str) -> dict[str, Any]:
     return customer.to_dict()
 
 
-async def cancel_subscription_now(subscription_id: str) -> None:
-    """Cancel a subscription immediately, for self-service account deletion.
+# A subscription in one of these statuses can never charge again.
+FINISHED_STATUSES = frozenset({"canceled", "incomplete_expired"})
 
-    Immediate, not ``cancel_at_period_end``: the account is about to stop
-    existing, so there is nothing left to keep access to for the rest of the
-    period. No proration/refund is requested — the paid period is simply
-    forfeited, which the Terms already say about cancellation.
+# First half of the (namespace, user_id) advisory-lock key, so it can't collide
+# with any other pg_advisory lock on the database. "BILL".
+_BILLING_LOCK_NAMESPACE = 0x42494C4C
 
-    Idempotent in the one way that matters: an already-canceled (or already
-    deleted) subscription raises ``InvalidRequestError``, which the caller
-    treats as "nothing to cancel" rather than an error. Every other
-    ``StripeError`` must propagate — the caller's whole reason for cancelling
-    BEFORE deleting is that the alternative is billing a customer whose account
-    is gone.
+
+async def lock_billing(session: AsyncSession, user_id: int) -> None:
+    """Serialize starting a Checkout with stopping this user's billing.
+
+    stop_billing expires the open Checkout sessions it can see. Without this
+    lock, a Checkout the user starts while an admin's Deactivate/Delete (or
+    their own delete) is in flight is created after that listing and before the
+    account change commits, stays open for 24 hours, and can start a
+    subscription on an account that is locked out or gone.
+
+    So both sides take it: the account change BEFORE reading the user's Stripe
+    ids, held to its commit; create_checkout_session after creating the
+    customer, held across Session.create, re-checking that the user is still
+    active. Whichever goes second sees the other's result. A transaction-scoped
+    Postgres advisory lock: it blocks only this user's other billing paths, not
+    webhooks or logins touching the same row.
     """
-    _require_stripe()
-    await asyncio.to_thread(stripe.Subscription.cancel, subscription_id)
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), CAST(:uid AS integer))"),
+        {"ns": _BILLING_LOCK_NAMESPACE, "uid": user_id},
+    )
+
+
+# How an account change stops billing: deletion cancels now (no account is left
+# to keep access to, the paid period is forfeited, as the Terms say of
+# cancellation); deactivation only stops renewal, because it is reversible.
+BillingStopMode = Literal["cancel_now", "end_at_period_end"]
+
+
+class BillingStopFailed(Exception):
+    """Billing could not be stopped, so the account change must NOT happen.
+
+    Deleting or locking out a customer whose subscription is still live leaves
+    them billed with no way into the billing portal to cancel. ``reason`` tells
+    the caller what would help:
+
+    - ``unreachable``: a Stripe/network error. Retrying may work.
+    - ``refused``: Stripe answered but would not stop something that can still
+      charge. Someone has to look at it in the Stripe dashboard.
+    - ``unconfigured``: no secret key on this deployment, but the user holds a
+      subscription the local mirror still shows as live.
+    """
+
+    def __init__(
+        self,
+        stripe_id: str | None,
+        reason: Literal["unreachable", "refused", "unconfigured"],
+    ) -> None:
+        super().__init__(f"{reason}: {stripe_id}")
+        self.stripe_id = stripe_id
+        self.reason = reason
+
+
+def _expire_checkout_sync(checkout_id: str) -> bool:
+    """Expire an open Checkout session; False if it closed on its own meanwhile."""
+    try:
+        stripe.checkout.Session.expire(checkout_id)
+    except stripe.InvalidRequestError as exc:
+        # Fine if it completed or expired meanwhile (a completion shows up in
+        # the subscription listing that runs after this). Not if it's still open.
+        if stripe.checkout.Session.retrieve(checkout_id).status == "open":
+            raise BillingStopFailed(checkout_id, "refused") from exc
+        return False
+    return True
+
+
+def _already_ending(sub: dict[str, Any]) -> bool:
+    """Set to end no later than its current period: nothing to stop for a deactivation.
+
+    The Customer Portal on flexible billing mode cancels by setting ``cancel_at``
+    to the period end and leaving ``cancel_at_period_end`` false, so both count.
+    A ``cancel_at`` beyond the period end still renews once, so it does not.
+    """
+    if sub.get("cancel_at_period_end"):
+        return True
+    cancel_at = sub.get("cancel_at")
+    period_end = _extract_period_end(sub)
+    return isinstance(cancel_at, int) and period_end is not None and cancel_at <= period_end
+
+
+def _stop_subscription_sync(sub: dict[str, Any], mode: BillingStopMode) -> str:
+    """Stop one live subscription; return what was done."""
+    sub_id = str(sub["id"])
+    try:
+        if mode == "cancel_now" or sub.get("status") == "incomplete":
+            # An incomplete subscription was never paid for, and Stripe allows
+            # no update on it but metadata, so cancelling is the only stop.
+            stripe.Subscription.cancel(sub_id)
+            return "cancelled"
+        if _already_ending(sub):
+            return "already_ending"  # read from Stripe just now, not the mirror
+        schedule = sub.get("schedule")
+        if schedule:
+            # Stripe rejects cancel_at_period_end on a schedule-managed
+            # subscription. Releasing the schedule drops the phases queued for
+            # after this period (e.g. a plan switch), which ending it makes moot.
+            # preserve_cancel_date: release would otherwise also drop a cancel
+            # date the schedule set, and a failed modify below would then leave
+            # a subscription renewing that was set to end.
+            stripe.SubscriptionSchedule.release(
+                schedule if isinstance(schedule, str) else str(schedule["id"]),
+                preserve_cancel_date=True,
+            )
+        stripe.Subscription.modify(sub_id, cancel_at_period_end=True)
+        return "renewal_stopped"
+    except stripe.InvalidRequestError as exc:
+        # Stripe refused. Walk away only from a subscription that has meanwhile
+        # finished, or (when stopping renewal) is already set to end.
+        current = stripe.Subscription.retrieve(sub_id).to_dict()
+        if current.get("status") in FINISHED_STATUSES:
+            return "already_gone"
+        if mode == "end_at_period_end" and _already_ending(current):
+            return "already_ending"
+        raise BillingStopFailed(sub_id, "refused") from exc
+
+
+def _stop_billing_sync(
+    customer_id: str | None, subscription_id: str | None, mode: BillingStopMode
+) -> list[str]:
+    """Everything ``stop_billing`` does at Stripe, in one thread hop."""
+    try:
+        if customer_id:
+            open_checkouts = [
+                str(c.id)
+                for c in stripe.checkout.Session.list(
+                    customer=customer_id, status="open", limit=100
+                ).auto_paging_iter()
+            ]
+        else:
+            open_checkouts = []
+    except stripe.InvalidRequestError as exc:
+        if exc.code != "resource_missing":
+            raise
+        # No such customer under this key: nothing on this Stripe account can
+        # be charging them. (A key from the wrong mode or account lands here
+        # too, but would break checkout and webhooks just as visibly.)
+        return ["not_found"]
+
+    done: list[str] = []
+    # Expire open Checkout sessions BEFORE listing subscriptions: one completed
+    # in between still shows up in the listing, while one left open could start
+    # a subscription on a locked-out or deleted account.
+    for checkout_id in open_checkouts:
+        if _expire_checkout_sync(checkout_id):
+            done.append(f"{checkout_id}=checkout_expired")
+
+    if customer_id:
+        # Every subscription on the customer, not just the mirrored id: a second
+        # one (two checkout tabs) or one whose webhook hasn't landed yet bills
+        # just the same.
+        try:
+            subs = [
+                s.to_dict()
+                for s in stripe.Subscription.list(
+                    customer=customer_id, status="all", limit=100
+                ).auto_paging_iter()
+            ]
+        except stripe.InvalidRequestError as exc:
+            # The same first-lookup rule as the Checkout listing above, in case
+            # that listing filtered an unknown customer to nothing instead of
+            # rejecting it.
+            if exc.code != "resource_missing":
+                raise
+            return [*done, "not_found"]
+    elif subscription_id:
+        # Can't arise through the app (the customer is created before Checkout),
+        # but a stored subscription must never be skipped.
+        subs = [stripe.Subscription.retrieve(subscription_id).to_dict()]
+    else:
+        subs = []
+    for sub in subs:
+        if sub.get("status") not in FINISHED_STATUSES:
+            done.append(f"{sub['id']}={_stop_subscription_sync(sub, mode)}")
+    return done
+
+
+async def stop_billing(user: User, mode: BillingStopMode) -> str:
+    """Stop everything Stripe could still charge ``user`` for, before an account
+    change that leaves them no way to stop it themselves.
+
+    Shared by self-service ``delete-account`` and the admin hard delete
+    (``cancel_now``), and admin deactivation (``end_at_period_end``: the period
+    already paid for is kept, a trial ends without converting, and reactivating
+    does NOT resume renewal, since that could override the user's own
+    cancellation; they can resume it in the billing portal). Stopping renewal
+    does not void an invoice already open for the current period, so a
+    ``past_due`` one may still be collected.
+
+    Stripe is the source of truth here, never the local mirror: the customer's
+    subscriptions are listed fresh, so a second subscription or one whose
+    webhook hasn't arrived is stopped too, and open Checkout sessions are
+    expired so none can start a new one afterwards.
+
+    Returns a short summary for the audit log ("none" when there was nothing to
+    stop). Raises ``BillingStopFailed`` when the caller must not proceed.
+    """
+    customer_id = user.stripe_customer_id
+    subscription_id = user.stripe_subscription_id
+    if not customer_id and not subscription_id:
+        return "none"  # never reached Checkout
+    if not settings.stripe_secret_key:
+        # Billing was dropped from this deployment. The mirror is all there is
+        # to go on, and anything it still shows as live could be charging.
+        if subscription_id and user.subscription_status not in FINISHED_STATUSES:
+            raise BillingStopFailed(subscription_id, "unconfigured")
+        return "none"
+    try:
+        _require_stripe()
+        done = await asyncio.to_thread(_stop_billing_sync, customer_id, subscription_id, mode)
+    except stripe.InvalidRequestError as exc:
+        # Raised outside the paths that judge a refusal themselves, so nothing
+        # here proves the subscription is stopped.
+        raise BillingStopFailed(subscription_id, "refused") from exc
+    except stripe.StripeError as exc:
+        raise BillingStopFailed(subscription_id, "unreachable") from exc
+    if "not_found" in done:
+        logger.warning("billing_stop_customer_not_found user_id=%s", user.id)
+    if f"{subscription_id}=renewal_stopped" in done or f"{subscription_id}=already_ending" in done:
+        user.cancel_at_period_end = True  # admin view is right before the webhook
+    return ",".join(done) or "none"
 
 
 async def end_trial_now(subscription_id: str) -> None:

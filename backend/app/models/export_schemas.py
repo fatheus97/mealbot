@@ -87,6 +87,19 @@ class ExportedInvoice(BaseModel):
     occurred_at: datetime
 
 
+class ExportedRefund(BaseModel):
+    """A refund of one of the invoices above, matched to it by
+    ``stripe_invoice_id``. ``status`` is Stripe's: "failed" or "canceled" means
+    no money went back."""
+
+    stripe_refund_id: str
+    stripe_invoice_id: str
+    amount_cents: int
+    currency: str
+    status: str | None
+    occurred_at: datetime
+
+
 class UserDataExport(BaseModel):
     """The whole export, as downloaded.
 
@@ -104,4 +117,5 @@ class UserDataExport(BaseModel):
     pantry_staples: list[str]
     feedback_reports: list[ExportedFeedback]
     invoices: list[ExportedInvoice]
+    refunds: list[ExportedRefund]
     excluded: list[str]

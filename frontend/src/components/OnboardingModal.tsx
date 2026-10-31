@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useUpdateUserProfile } from "../hooks/useServerState";
+import { useUpdateUserProfile, useUserProfile } from "../hooks/useServerState";
 import { PreferencesForm } from "./PreferencesForm";
 import { useI18n, type TranslationKey } from "../i18n";
+import { preferencesFromProfile } from "../utils/preferences";
 import type { PreferencesFormValues } from "./PreferencesForm";
 
 export function OnboardingModal() {
-  const { setOnboardingCompleted } = useAuth();
+  const { userId, setOnboardingCompleted } = useAuth();
   const { t } = useI18n();
+  // The form is seeded from the saved profile (see preferencesFromProfile for
+  // why defaults are wrong here) and waits for it: PreferencesForm reads
+  // initialValues once, on mount, so a form painted with defaults while the
+  // profile loads would keep them after it arrives.
+  const { data: profile, isError, refetch } = useUserProfile(userId);
   const mutation = useUpdateUserProfile();
   // The KEY, not the sentence: an error already translated cannot follow a
   // later language switch. See AuthBar for the same shape.
@@ -64,25 +70,39 @@ export function OnboardingModal() {
         <p style={{ color: "#666", marginTop: 0, marginBottom: "1.5rem" }}>
           {t("onboarding.subtitle")}
         </p>
-        <PreferencesForm
-          initialValues={{
-            country: "",
-            language: "English",
-            variability: "traditional",
-            measurement_system: "metric",
-            include_spices: true,
-            show_pieces: false,
-            track_snacks: true,
-            need_to_use_enabled: true,
-            // Opt-in: onboarding shows the checkbox unticked rather than enrolling a
-            // brand-new user into being asked a question they have no context for.
-            waste_tracking_enabled: false,
-            default_day_layout: [],
-          }}
-          onSubmit={handleSubmit}
-          submitLabel={t("onboarding.submit")}
-          loading={mutation.isPending}
-        />
+        {profile ? (
+          <PreferencesForm
+            initialValues={preferencesFromProfile(profile)}
+            onSubmit={handleSubmit}
+            submitLabel={t("onboarding.submit")}
+            loading={mutation.isPending}
+          />
+        ) : isError ? (
+          // No defaults form as a fallback: for a returning user that is the
+          // overwrite this component exists to prevent. The modal has no close,
+          // so a retry is the only way on.
+          <div>
+            <p role="alert" style={{ marginTop: 0, color: "#b91c1c", fontSize: "0.9rem" }}>
+              {t("onboarding.loadFailed")}
+            </p>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              style={{
+                padding: "0.4rem 0.75rem",
+                border: "1px solid #d1d5db",
+                borderRadius: 6,
+                background: "#f9fafb",
+                color: "#111827",
+                cursor: "pointer",
+              }}
+            >
+              {t("onboarding.retry")}
+            </button>
+          </div>
+        ) : (
+          <p>{t("settings.loading")}</p>
+        )}
         {saveError && (
           <p role="alert" style={{ marginTop: "0.75rem", marginBottom: 0, color: "#b91c1c", fontSize: "0.9rem" }}>
             {t(saveError)}

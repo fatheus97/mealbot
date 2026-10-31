@@ -75,6 +75,7 @@ from app.services import (
     feedback_ticket,
     feedback_triage,
     revenue_service,
+    stripe_service,
 )
 from app.services.access_request import count_pending, emails_with_accounts
 from app.services.admin_audit import record_admin_action
@@ -705,6 +706,27 @@ async def _revoke_sessions_and_bump(session: AsyncSession, user: User, now: date
     user.token_version += 1
 
 
+def _billing_stop_failed(exc: stripe_service.BillingStopFailed, verb: str) -> HTTPException:
+    """The 503 for an admin action refused because billing couldn't be stopped,
+    worded so the admin knows whether retrying can help."""
+    if exc.reason == "refused":
+        why = (
+            f"Stripe refused to stop {exc.stripe_id}. "
+            "Stop it in the Stripe dashboard, then try again."
+        )
+    elif exc.reason == "unconfigured":
+        why = (
+            "Stripe isn't configured on this server, but this user has a "
+            f"subscription ({exc.stripe_id}) that may still be live."
+        )
+    else:
+        why = "Stripe couldn't be reached. Try again shortly."
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"Billing wasn't stopped, so the account was not {verb}. {why}",
+    )
+
+
 async def _ensure_active_admin_remains(
     session: AsyncSession, target: User, detail: str
 ) -> None:
@@ -802,8 +824,15 @@ async def update_user(
       account (a footgun guard, distinct from the invariant above — it fires even
       when other admins exist).
     - Disabling (is_active True→False) triggers the instant+complete lockout
-      (revoke sessions + bump token_version).
+      (revoke sessions + bump token_version) and first stops the subscription
+      renewing (``stripe_service.stop_billing``): a locked-out user can't reach
+      the billing portal. If billing can't be stopped the request 503s with
+      nothing changed. Reactivating leaves billing alone.
     """
+    if body.is_active is False:
+        # Before reading the target: a Checkout they start meanwhile must either
+        # finish first (stop_billing then sees it) or see them locked out.
+        await stripe_service.lock_billing(session, user_id)
     target = await session.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -850,12 +879,22 @@ async def update_user(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="You cannot disable your own account.",
             )
+        active_detail = {"is_active": str(body.is_active)}
+        if body.is_active is False:
+            # Last step before any write, after every guard: a 503 here must
+            # leave nothing half-applied (the session is never committed).
+            try:
+                active_detail["billing"] = await stripe_service.stop_billing(
+                    target, "end_at_period_end"
+                )
+            except stripe_service.BillingStopFailed as exc:
+                logger.exception("admin_deactivate_billing_failed target_id=%s", target.id)
+                raise _billing_stop_failed(exc, "deactivated") from None
         target.is_active = body.is_active
         if body.is_active is False:
             await _revoke_sessions_and_bump(session, target, now)
         changes.append(
-            ("user.deactivate" if body.is_active is False else "user.reactivate",
-             {"is_active": str(body.is_active)})
+            ("user.deactivate" if body.is_active is False else "user.reactivate", active_detail)
         )
 
     if not changes:
@@ -989,7 +1028,12 @@ async def delete_user(
     Guards (in executed order): 404 missing; 400 demo account; 409 deleting the
     last active admin (atomic, see ``_ensure_active_admin_remains``, checked
     before the self-guard so the reject stays reachable); 409 deleting your own
-    account (self-guard).
+    account (self-guard); 503 if Stripe can't cancel the subscription.
+
+    Billing stops first, the same way self-service deletion does it
+    (``stripe_service.stop_billing``): cancelled immediately, the rest of the
+    paid period forfeited. Failing closed matters most here, because after the
+    delete nobody can reach that subscription from the app at all.
 
     Data handling — one ``DELETE FROM "user"``; the FKs decide the rest. Every FK
     into ``user.id`` declares an ``ondelete`` (the rule lives on the ``User``
@@ -1007,6 +1051,8 @@ async def delete_user(
     child FKs aren't null-updated by ORM relationship handling and the DB-level
     CASCADE / SET NULL actually fire.
     """
+    # Before reading the target: see lock_billing.
+    await stripe_service.lock_billing(session, user_id)
     target = await session.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -1026,13 +1072,19 @@ async def delete_user(
             detail="You cannot delete your own account.",
         )
 
+    try:
+        billing = await stripe_service.stop_billing(target, "cancel_now")
+    except stripe_service.BillingStopFailed as exc:
+        logger.exception("admin_delete_billing_failed target_id=%s", target.id)
+        raise _billing_stop_failed(exc, "deleted") from None
+
     # Audit FIRST so the email snapshot is captured before the row is gone.
     record_admin_action(
         session,
         actor=actor,
         action="user.delete",
         target=target,
-        detail={"email": target.email},
+        detail={"email": target.email, "billing": billing},
     )
 
     # Cascades every owned table (ON DELETE CASCADE) and anonymises SaleRecord +
