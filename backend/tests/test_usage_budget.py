@@ -87,8 +87,8 @@ def test_cost_unknown_model_falls_back_to_max_rate() -> None:
 
 def test_the_prod_chain_alias_has_its_own_rate() -> None:
     # gemini-flash-lite-latest has been in the prod chain since 2026-10-30.
-    # Without its own entry it is billed at the fallback (max) rate, which
-    # matches it only while no model costs more than 2.5 Flash.
+    # Without its own entry it is billed at the fallback rate (2.5 Flash's),
+    # which matches its price only by coincidence.
     rate = llm_cost.rate_for("gemini", "gemini-flash-lite-latest")
     assert rate is llm_cost.MODEL_COST_RATES[("gemini", "gemini-flash-lite-latest")]
 
@@ -98,6 +98,15 @@ def test_the_pinned_prod_primary_has_its_own_rate() -> None:
     # fallback rate it would be overcharged the moment a dearer model is added.
     rate = llm_cost.rate_for("gemini", "gemini-3.5-flash-lite")
     assert rate is llm_cost.MODEL_COST_RATES[("gemini", "gemini-3.5-flash-lite")]
+
+
+def test_a_retired_models_rows_keep_their_price() -> None:
+    # gemini-flash-latest served users until 2026-10-30 and has no row. Its rows
+    # still count toward this month's cap, so they must not be re-priced at the
+    # dearest model in the table (Opus, eval-only) just because it is there.
+    flash = llm_cost.cost_of(1000, 3000, "gemini", "gemini-2.5-flash")
+    assert llm_cost.cost_of(1000, 3000, "gemini", "gemini-flash-latest") == flash
+    assert llm_cost.cost_of(1000, 3000, "anthropic", "claude-opus-5-5") > 5 * flash
 
 
 def test_startup_names_a_chain_model_without_a_rate(

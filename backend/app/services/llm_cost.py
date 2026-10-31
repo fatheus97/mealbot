@@ -41,11 +41,10 @@ class ModelRate:
 # Keyed on (provider, model). Derived from published USD per-1M-token pricing
 # × _USD_EUR, expressed per single token. Gemini 2.5 Flash: $0.30/1M in, $2.50/1M
 # out; Flash-Lite: $0.10/1M in, $0.40/1M out (ai.google.dev/gemini-api/docs/pricing).
-# NOTE: a model missing here uses _FALLBACK_RATE, the dearest rate in the table,
-# which never undercounts but may over-restrict a cheaper model. So every model
-# in a chain needs its own row, and adding a DEARER model than today's dearest
-# raises the price charged for every unmapped one. The OpenAI and Claude rows
-# price backend/evals runs (list prices checked 2026-10-31); none is in a chain.
+# A model missing here is charged _FALLBACK_RATE (below), so every model in a
+# chain needs its own row; check_chain_rates logs any that has none. The OpenAI
+# and Claude rows price backend/evals runs (list prices checked 2026-10-31);
+# none of them is in a chain.
 MODEL_COST_RATES: dict[tuple[str, str], ModelRate] = {
     ("gemini", "gemini-2.5-flash"): ModelRate(
         0.30 * _USD_EUR / 1_000_000, 2.50 * _USD_EUR / 1_000_000
@@ -72,27 +71,29 @@ MODEL_COST_RATES: dict[tuple[str, str], ModelRate] = {
     # platform.claude.com/docs/en/about-claude/pricing, prompts under 100k tokens.
     ("anthropic", "claude-haiku-5-5"): ModelRate(0.10 * _USD_EUR / 1_000_000, 0.50 * _USD_EUR / 1_000_000),
     ("anthropic", "claude-sonnet-5-5"): ModelRate(2.00 * _USD_EUR / 1_000_000, 10.00 * _USD_EUR / 1_000_000),
-    # The dearest row, so it sets _FALLBACK_RATE: see the NOTE above.
     ("anthropic", "claude-opus-5-5"): ModelRate(4.00 * _USD_EUR / 1_000_000, 20.00 * _USD_EUR / 1_000_000),
 }
 
-# Unknown (provider, model) → the MOST EXPENSIVE known rate, so a model swap or
-# config drift never silently under-bills the cap (fail-safe on the cost side).
-_FALLBACK_RATE = ModelRate(
-    max(r.input_eur_per_token for r in MODEL_COST_RATES.values()),
-    max(r.output_eur_per_token for r in MODEL_COST_RATES.values()),
-)
+# A (provider, model) with no row: priced as 2.5 Flash, which was the table's
+# maximum until 2026-10-31, so rows already stored keep the price they had. A
+# FIXED rate, not the table's maximum: spend is recomputed
+# from stored rows on every check (compute_window_cost), and most unmapped rows
+# are retired models (gemini-flash-latest served users until 2026-10-30). Under
+# a table maximum, adding an eval-only Opus row would have re-priced those rows
+# at Opus rates, 8x, and capped users for usage they had already paid for. An
+# unmapped model now in a chain is check_chain_rates' job instead.
+_FALLBACK_RATE = MODEL_COST_RATES[("gemini", "gemini-2.5-flash")]
 
 
 def check_chain_rates() -> None:
-    """Log at startup every chain model without its own rate. It is charged
-    _FALLBACK_RATE, an Opus price, so its users would hit the usage cap many
-    times sooner than its real cost warrants. Never raises."""
+    """Log at startup every chain model without its own rate: it is charged
+    _FALLBACK_RATE, a Gemini Flash price, which under-bills a dearer model
+    against the usage cap and over-bills a cheaper one. Never raises."""
     for entry in settings.model_chain:
         if (entry.provider.value, entry.model) not in MODEL_COST_RATES:
             logger.warning(
                 "LLM model %s has no rate in app/services/llm_cost.py; its calls "
-                "are charged the dearest known rate against the usage cap.",
+                "are charged the 2.5 Flash rate against the usage cap.",
                 entry.label,
             )
 
