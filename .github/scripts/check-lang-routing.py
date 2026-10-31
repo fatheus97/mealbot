@@ -68,15 +68,21 @@ expect("Czech pages never redirect", "/cs", {"Accept-Language": "en-US"}, 200)
 expect("Czech legal pages never redirect", "/cs/terms", {"Accept-Language": "en-US"}, 200)
 expect("an emailed-token forward still wins", "/?invite=abc", CZECH, 302, "/app?invite=abc")
 
-# Every quantifier in the map is possessive. A header built to make a
-# backtracking regex explode must still answer at once.
+# Every quantifier in the map is possessive. Without that, this header does
+# not hang nginx: PCRE's match limit stops it after about 200 ms of CPU, on
+# every request, which is still a cheap way to tie up the workers. The
+# possessive map answers it in ~0 ms. The fastest of three tries is compared,
+# so one slow round trip on a busy runner cannot fail the job.
 hostile = {"Accept-Language": " x ," * 1900 + "en"}
-started = time.monotonic()
-expect("a crafted header", "/", hostile, 200)
-elapsed = time.monotonic() - started
-print(f"     ({elapsed * 1000:.0f} ms)")
-if elapsed > 1.0:
-    failures.append(f"a crafted Accept-Language took {elapsed:.2f}s: the map regex backtracks")
+timings = []
+for _ in range(3):
+    started = time.monotonic()
+    expect("a crafted header", "/", hostile, 200)
+    timings.append(time.monotonic() - started)
+fastest = min(timings)
+print(f"     (fastest of 3: {fastest * 1000:.0f} ms)")
+if fastest > 0.1:
+    failures.append(f"a crafted Accept-Language took {fastest * 1000:.0f} ms at best: the map regex backtracks")
 
 if failures:
     print(f"\n{len(failures)} language-routing check(s) failed:")
