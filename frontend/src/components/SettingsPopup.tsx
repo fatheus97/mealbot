@@ -8,6 +8,7 @@ import { FeedbackModal } from "./FeedbackModal";
 import { ChangeEmailModal } from "./auth/ChangeEmailModal";
 import { DeleteAccountModal } from "./auth/DeleteAccountModal";
 import { downloadMyData } from "../api";
+import { preferencesFromProfile } from "../utils/preferences";
 import { InfoHint } from "./InfoHint";
 import { useI18n, type TranslationKey } from "../i18n";
 
@@ -171,23 +172,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
 
       {profile && (
         <PreferencesForm
-          initialValues={{
-            country: profile.country ?? "",
-            language: profile.language,
-            variability: profile.variability,
-            measurement_system: profile.measurement_system ?? "metric",
-            include_spices: profile.include_spices,
-            // ?? false like the billing fields: a payload cached before this field
-            // existed would otherwise send undefined and look like a no-op save.
-            show_pieces: profile.show_pieces ?? false,
-            track_snacks: profile.track_snacks,
-            // ?? true (not false): the feature already exists and defaults on —
-            // a payload cached before this field existed should read as "still
-            // enabled", not silently opt the user out.
-            need_to_use_enabled: profile.need_to_use_enabled ?? true,
-            waste_tracking_enabled: profile.waste_tracking_enabled ?? false,
-            default_day_layout: profile.default_day_layout ?? [],
-          }}
+          initialValues={preferencesFromProfile(profile)}
           onSubmit={handleSubmit}
           submitLabel={t("settings.save")}
           loading={mutation.isPending}
