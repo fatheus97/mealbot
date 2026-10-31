@@ -84,6 +84,14 @@ def test_cost_unknown_model_falls_back_to_max_rate() -> None:
     assert cost > 0.0  # never free on config drift
 
 
+def test_the_prod_chain_alias_has_its_own_rate() -> None:
+    # gemini-flash-lite-latest has been in the prod chain since 2026-10-30.
+    # Without its own entry it is billed at the fallback (max) rate, which
+    # matches it only while no model costs more than 2.5 Flash.
+    rate = llm_cost.rate_for("gemini", "gemini-flash-lite-latest")
+    assert rate is llm_cost.MODEL_COST_RATES[("gemini", "gemini-flash-lite-latest")]
+
+
 def test_cost_negative_output_clamped_to_zero() -> None:
     rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
     cost = llm_cost.cost_of(1000, 500, "gemini", "gemini-2.5-flash")
