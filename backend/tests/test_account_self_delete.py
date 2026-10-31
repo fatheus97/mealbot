@@ -389,3 +389,54 @@ class TestSelfDeleteCancelsBilling:
         assert resp.status_code == 204
         assert fake.calls == []
         assert await _user_count(db_session, uid) == 0
+
+
+async def test_wrong_password_leaves_billing_alone(
+    unauthed_client: AsyncClient,
+    test_user: User,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Anyone holding a session cookie but not the password must not be able to
+    cancel the owner's subscription (paid period forfeited) on the way to a 401."""
+    test_user.stripe_customer_id = "cus_1"
+    test_user.stripe_subscription_id = "sub_1"
+    test_user.subscription_status = "active"
+    db_session.add(test_user)
+    await db_session.flush()
+    await _login(unauthed_client)
+
+    async def _must_not_run(user: User, mode: BillingStopMode) -> str:
+        raise AssertionError("billing stopped before the password check")
+
+    monkeypatch.setattr(stripe_service, "stop_billing", _must_not_run)
+
+    resp = await unauthed_client.post(ENDPOINT, json={"current_password": "NotThePassword1"})
+
+    assert resp.status_code == 401
+
+
+async def test_self_delete_locks_billing_before_stopping_it(
+    unauthed_client: AsyncClient,
+    test_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Checkout the user starts in another tab must either finish before the
+    stop lists open sessions, or see the account gone (see lock_billing)."""
+    await _login(unauthed_client)
+    order: list[str] = []
+
+    async def _lock(session: AsyncSession, user_id: int) -> None:
+        order.append("lock")
+
+    async def _stop(user: User, mode: BillingStopMode) -> str:
+        order.append("stop")
+        return "none"
+
+    monkeypatch.setattr(stripe_service, "lock_billing", _lock)
+    monkeypatch.setattr(stripe_service, "stop_billing", _stop)
+
+    resp = await unauthed_client.post(ENDPOINT, json={"current_password": TEST_PASSWORD})
+
+    assert resp.status_code == 204
+    assert order == ["lock", "stop"]

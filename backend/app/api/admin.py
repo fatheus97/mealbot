@@ -829,6 +829,10 @@ async def update_user(
       the billing portal. If billing can't be stopped the request 503s with
       nothing changed. Reactivating leaves billing alone.
     """
+    if body.is_active is False:
+        # Before reading the target: a Checkout they start meanwhile must either
+        # finish first (stop_billing then sees it) or see them locked out.
+        await stripe_service.lock_billing(session, user_id)
     target = await session.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -1047,6 +1051,8 @@ async def delete_user(
     child FKs aren't null-updated by ORM relationship handling and the DB-level
     CASCADE / SET NULL actually fire.
     """
+    # Before reading the target: see lock_billing.
+    await stripe_service.lock_billing(session, user_id)
     target = await session.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")

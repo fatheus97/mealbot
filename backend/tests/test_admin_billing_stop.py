@@ -12,9 +12,10 @@ its failure, and record its summary. A few tests run end to end through
 ``FakeStripe`` to prove the wiring.
 """
 import pytest
+import stripe
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, select
+from sqlmodel import col, select, update
 
 from app.core.config import settings
 from app.core.security import get_password_hash
@@ -291,3 +292,148 @@ class TestDelete:
         assert resp.status_code == 503
         assert "isn't configured" in resp.json()["detail"]
         assert await _user_exists(db_session, uid)
+
+
+class TestBillingStopsOnlyAfterTheGuards:
+    """A rejected request must not have stopped anyone's billing first."""
+
+    @pytest.mark.parametrize("case", ["missing", "demo", "self"])
+    async def test_rejected_delete_leaves_billing_alone(
+        self,
+        client: AsyncClient,
+        test_user: User,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        case: str,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        test_user.stripe_customer_id = "cus_admin"
+        test_user.stripe_subscription_id = "sub_admin"
+        if case == "missing":
+            target_id = 999_999
+        elif case == "demo":
+            demo = await _seed_payer(db_session, "demo-payer@example.com")
+            demo.is_demo = True
+            await db_session.flush()
+            target_id = demo.id  # type: ignore[assignment]
+        else:
+            target_id = test_user.id  # type: ignore[assignment]
+        monkeypatch.setattr(stripe_service, "stop_billing", _must_not_run)
+
+        resp = await client.delete(f"/api/admin/users/{target_id}")
+
+        assert resp.status_code in (400, 404, 409)
+
+    @pytest.mark.parametrize("case", ["missing", "demo", "self"])
+    async def test_rejected_deactivate_leaves_billing_alone(
+        self,
+        client: AsyncClient,
+        test_user: User,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        case: str,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        test_user.stripe_customer_id = "cus_admin"
+        test_user.stripe_subscription_id = "sub_admin"
+        if case == "missing":
+            target_id = 999_999
+        elif case == "demo":
+            demo = await _seed_payer(db_session, "demo-payer@example.com")
+            demo.is_demo = True
+            await db_session.flush()
+            target_id = demo.id  # type: ignore[assignment]
+        else:
+            target_id = test_user.id  # type: ignore[assignment]
+        monkeypatch.setattr(stripe_service, "stop_billing", _must_not_run)
+
+        resp = await client.patch(f"/api/admin/users/{target_id}", json={"is_active": False})
+
+        assert resp.status_code in (400, 404, 409)
+
+
+class TestBillingLockOrder:
+    """lock_billing must come before the Stripe ids are read and stop_billing runs,
+    so a Checkout started meanwhile is either seen or refused."""
+
+    @pytest.mark.parametrize("action", ["deactivate", "delete"])
+    async def test_admin_action_locks_before_stopping(
+        self,
+        client: AsyncClient,
+        test_user: User,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        action: str,
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        target = await _seed_payer(db_session, f"lock-{action}@example.com")
+        order: list[str] = []
+
+        async def _lock(session: AsyncSession, user_id: int) -> None:
+            order.append(f"lock:{user_id}")
+
+        async def _stop(user: User, mode: BillingStopMode) -> str:
+            order.append("stop")
+            return "none"
+
+        monkeypatch.setattr(stripe_service, "lock_billing", _lock)
+        monkeypatch.setattr(stripe_service, "stop_billing", _stop)
+
+        if action == "deactivate":
+            resp = await client.patch(f"/api/admin/users/{target.id}", json={"is_active": False})
+        else:
+            resp = await client.delete(f"/api/admin/users/{target.id}")
+
+        assert resp.status_code in (200, 204)
+        assert order == [f"lock:{target.id}", "stop"]
+
+
+class TestCheckoutWaitsForTheStop:
+    async def test_checkout_refuses_a_user_deactivated_meanwhile(
+        self, test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The account change committed while this request waited on the lock:
+        the fresh re-read sees it, and no Checkout session is created."""
+        fake_stripe.install(monkeypatch)
+        monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+        test_user.stripe_customer_id = "cus_existing"
+        await db_session.flush()
+        await db_session.execute(
+            update(User).where(col(User.id) == test_user.id).values(is_active=False)
+        )
+
+        def _must_not_create(**kwargs: object) -> object:
+            raise AssertionError("no Checkout for a locked-out user")
+
+        monkeypatch.setattr(stripe.checkout.Session, "create", _must_not_create)
+
+        with pytest.raises(RuntimeError, match="deactivated or deleted"):
+            await stripe_service.create_checkout_session(test_user, db_session)
+
+    async def test_checkout_takes_the_billing_lock_before_creating(
+        self, test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_stripe.install(monkeypatch)
+        monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+        test_user.stripe_customer_id = "cus_existing"
+        await db_session.flush()
+        order: list[str] = []
+        real_lock = stripe_service.lock_billing
+
+        async def _lock(session: AsyncSession, user_id: int) -> None:
+            order.append("lock")
+            await real_lock(session, user_id)
+
+        class _Session:
+            url = "https://checkout.stripe.test/s"
+
+        def _create(**kwargs: object) -> _Session:
+            order.append("create")
+            return _Session()
+
+        monkeypatch.setattr(stripe_service, "lock_billing", _lock)
+        monkeypatch.setattr(stripe.checkout.Session, "create", _create)
+
+        await stripe_service.create_checkout_session(test_user, db_session)
+
+        assert order == ["lock", "create"]

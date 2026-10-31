@@ -143,7 +143,21 @@ async def stripe_webhook(
                 select(User).where(col(User.stripe_customer_id) == str(customer_id))
             )
             user = result.scalars().first()
+            live = obj.get("status") not in stripe_service.FINISHED_STATUSES
+            if user is None and live:
+                # A live subscription with no account behind it: the stop that
+                # should have ended it was missed. Not cancelled from here (the
+                # Stripe account may bill other things), so make it loud.
+                logger.error(
+                    "billing_sync_orphan_subscription customer=%s sub=%s status=%s event=%s",
+                    customer_id, obj.get("id"), obj.get("status"), event_type,
+                )
             if user is not None:
+                if not user.is_active and live and not obj.get("cancel_at_period_end"):
+                    logger.error(
+                        "billing_sync_inactive_user_renewing user_id=%s sub=%s status=%s",
+                        user.id, obj.get("id"), obj.get("status"),
+                    )
                 applied = stripe_service.apply_subscription(
                     user, dict(obj), event_created=event_created
                 )

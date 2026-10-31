@@ -705,6 +705,13 @@ async def delete_account(
         )
 
     user_id = current_user.id
+    assert user_id is not None  # an authenticated, persisted user
+    # current_user was loaded before this lock; re-read what stop_billing goes
+    # by, so a Checkout that finished meanwhile is seen (see lock_billing).
+    await stripe_service.lock_billing(session, user_id)
+    await session.refresh(
+        current_user, ["stripe_customer_id", "stripe_subscription_id", "subscription_status"]
+    )
     try:
         billing = await stripe_service.stop_billing(current_user, "cancel_now")
     except stripe_service.BillingStopFailed:

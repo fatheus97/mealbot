@@ -169,7 +169,9 @@ class TestEndAtPeriodEnd:
         fake.add_sub("sub_1", schedule={"id": "sub_sched_1"})
         out = await stripe_service.stop_billing(_user(), "end_at_period_end")
         assert out == "sub_1=renewal_stopped"
-        assert ("SubscriptionSchedule.release", "sub_sched_1", {}) in fake.calls
+        assert (
+            "SubscriptionSchedule.release", "sub_sched_1", {"preserve_cancel_date": True}
+        ) in fake.calls
 
     async def test_incomplete_subscription_is_cancelled(self, fake: FakeStripe) -> None:
         """Stripe allows no cancel_at_period_end on it, and it was never paid."""
@@ -251,3 +253,70 @@ class TestNoStripeKey:
     )
     async def test_nothing_live_in_the_mirror_proceeds(self, sub: str | None, status: str) -> None:
         assert await stripe_service.stop_billing(_user(sub=sub, status=status), "cancel_now") == "none"
+
+
+PERIOD_END = 1_900_000_000
+
+
+class TestRound3:
+    """Cases the second review found uncovered."""
+
+    async def test_delete_cancels_now_even_when_already_set_to_end(
+        self, fake: FakeStripe
+    ) -> None:
+        """A past_due subscription the user cancelled in the portal still has an
+        invoice Stripe keeps retrying; only an immediate cancel stops that."""
+        fake.add_sub("sub_1", status="past_due", cancel_at_period_end=True)
+        assert await stripe_service.stop_billing(_user(), "cancel_now") == "sub_1=cancelled"
+        assert "Subscription.cancel" in fake.names()
+
+    async def test_portal_cancel_via_cancel_at_counts_as_already_ending(
+        self, fake: FakeStripe
+    ) -> None:
+        fake.add_sub("sub_1", cancel_at=PERIOD_END, current_period_end=PERIOD_END)
+        out = await stripe_service.stop_billing(_user(), "end_at_period_end")
+        assert out == "sub_1=already_ending"
+        assert "Subscription.modify" not in fake.names()
+
+    async def test_cancel_at_beyond_the_period_still_stops_renewal(
+        self, fake: FakeStripe
+    ) -> None:
+        fake.add_sub("sub_1", cancel_at=PERIOD_END + 86_400, current_period_end=PERIOD_END)
+        out = await stripe_service.stop_billing(_user(), "end_at_period_end")
+        assert out == "sub_1=renewal_stopped"
+
+    async def test_refused_but_already_ending_on_the_recheck(self, fake: FakeStripe) -> None:
+        fake.add_sub("sub_1")
+        fake.refuse_modify = True
+        fake.before["Subscription.modify"] = lambda s: fake.subs[s].update(
+            cancel_at_period_end=True
+        )
+        out = await stripe_service.stop_billing(_user(), "end_at_period_end")
+        assert out == "sub_1=already_ending"
+
+    async def test_unknown_customer_when_only_the_subscription_listing_says_so(
+        self, fake: FakeStripe
+    ) -> None:
+        fake.checkout_list_validates_customer = False
+        assert await stripe_service.stop_billing(_user(), "cancel_now") == "not_found"
+
+    @pytest.mark.parametrize(
+        ("call", "setup"),
+        [
+            ("Subscription.modify", "plain"),
+            ("SubscriptionSchedule.release", "schedule"),
+            ("checkout.Session.expire", "checkout"),
+            ("Subscription.retrieve", "refused"),
+        ],
+    )
+    async def test_network_errors_while_stopping_renewal_fail_closed(
+        self, fake: FakeStripe, call: str, setup: str
+    ) -> None:
+        fake.add_sub("sub_1", schedule="sub_sched_1" if setup == "schedule" else None)
+        if setup == "checkout":
+            fake.add_checkout("cs_1")
+        fake.refuse_modify = setup == "refused"
+        fake.fail[call] = stripe.APIConnectionError("stripe is down")  # type: ignore[no-untyped-call]
+        with pytest.raises(BillingStopFailed) as err:
+            await stripe_service.stop_billing(_user(), "end_at_period_end")
+        assert err.value.reason == "unreachable"

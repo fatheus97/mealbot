@@ -1140,3 +1140,51 @@ async def test_checkout_endpoint_forwards_the_accept_language_locale(
     resp = await client.post("/api/billing/checkout")
     assert resp.status_code == 200
     assert captured["locale"] == "en"
+
+
+@pytest.mark.parametrize(("status", "logged"), [("active", True), ("canceled", False)])
+async def test_webhook_logs_a_live_subscription_with_no_account(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    status: str,
+    logged: bool,
+) -> None:
+    """A live subscription whose customer maps to no user means a billing stop
+    was missed: it must be loud. The cancel that follows our own stop is not."""
+    event = _stripe_event({
+        "type": "customer.subscription.updated",
+        "data": {"object": {"id": "sub_orphan", "customer": "cus_gone", "status": status}},
+    })
+    monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: event)
+
+    resp = await client.post(
+        "/api/billing/webhook", content=b"{}", headers={"stripe-signature": "sig"}
+    )
+
+    assert resp.status_code == 200
+    assert ("billing_sync_orphan_subscription" in caplog.text) is logged
+
+
+async def test_webhook_logs_an_inactive_user_still_renewing(
+    client: AsyncClient,
+    test_user: User,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    test_user.stripe_customer_id = "cus_locked"
+    test_user.is_active = False
+    await db_session.flush()
+    event = _stripe_event({
+        "type": "customer.subscription.created",
+        "data": {"object": {"id": "sub_new", "customer": "cus_locked", "status": "active"}},
+    })
+    monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: event)
+
+    resp = await client.post(
+        "/api/billing/webhook", content=b"{}", headers={"stripe-signature": "sig"}
+    )
+
+    assert resp.status_code == 200
+    assert "billing_sync_inactive_user_renewing" in caplog.text

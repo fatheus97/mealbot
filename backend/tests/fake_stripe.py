@@ -62,6 +62,9 @@ class FakeStripe:
     refuse_modify: bool = False
     # Expiring this checkout is refused although it stays open.
     stuck_checkout: str | None = None
+    # False: an unknown customer's Checkout listing comes back empty instead of
+    # resource_missing (Stripe may filter rather than validate there).
+    checkout_list_validates_customer: bool = True
     # name -> hook run with the object id before that call acts: lets a test
     # change state "meanwhile" (a checkout completing, a sub being cancelled).
     before: dict[str, Callable[[str], None]] = field(default_factory=dict)
@@ -70,7 +73,8 @@ class FakeStripe:
         self.customers.add(customer)
         self.subs[sub_id] = {
             "id": sub_id, "customer": customer, "status": "active",
-            "cancel_at_period_end": False, "schedule": None, **kw,
+            "cancel_at_period_end": False, "cancel_at": None, "schedule": None,
+            "current_period_end": None, **kw,
         }
 
     def add_checkout(self, cs_id: str, customer: str = "cus_1", status: str = "open") -> None:
@@ -118,8 +122,10 @@ class FakeStripe:
         return _Obj(sub)
 
     # --- SubscriptionSchedule ---
-    def schedule_release(self, schedule_id: str) -> _Obj:
-        self._call("SubscriptionSchedule.release", schedule_id)
+    def schedule_release(self, schedule_id: str, *, preserve_cancel_date: bool) -> _Obj:
+        self._call(
+            "SubscriptionSchedule.release", schedule_id, preserve_cancel_date=preserve_cancel_date
+        )
         for sub in self.subs.values():
             sched = sub["schedule"]
             if (sched if isinstance(sched, str) or sched is None else sched["id"]) == schedule_id:
@@ -129,7 +135,7 @@ class FakeStripe:
     # --- checkout.Session ---
     def checkout_list(self, *, customer: str, status: str, limit: int) -> _Page:
         self._call("checkout.Session.list", customer, status=status, limit=limit)
-        if customer not in self.customers:
+        if customer not in self.customers and self.checkout_list_validates_customer:
             raise _refuse("No such customer", code="resource_missing")
         return _Page([
             _Obj(c) for c in self.checkouts.values()
@@ -156,6 +162,7 @@ def install(monkeypatch: pytest.MonkeyPatch) -> FakeStripe:
     # _require_stripe() assigns these module globals; let monkeypatch restore them.
     monkeypatch.setattr(stripe, "api_key", stripe.api_key)
     monkeypatch.setattr(stripe, "max_network_retries", stripe.max_network_retries)
+    monkeypatch.setattr(stripe, "default_http_client", stripe.default_http_client)
     monkeypatch.setattr(stripe.Subscription, "list", fake.sub_list)
     monkeypatch.setattr(stripe.Subscription, "retrieve", fake.sub_retrieve)
     monkeypatch.setattr(stripe.Subscription, "cancel", fake.sub_cancel)
