@@ -186,8 +186,28 @@ class _QuotaError(Exception):
         return "429 RESOURCE_EXHAUSTED {'retryDelay': '7s'}"
 
 
+class _DailyQuotaError(_QuotaError):
+    def __str__(self) -> str:
+        return "429 RESOURCE_EXHAUSTED requests per day {'retryDelay': '60022s'}"
+
+
 class TestRateLimits:
     """A quota refusal is the key's limit, not the model's failure."""
+
+    async def test_a_daily_quota_is_not_waited_out(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def refused(*args: object, **kwargs: object) -> LlmDayResponse:
+            raise RuntimeError("chain gave up") from _DailyQuotaError()
+
+        waits: list[float] = []
+
+        async def record_wait(seconds: float) -> None:
+            waits.append(seconds)
+
+        monkeypatch.setattr(llm_client, "chat_json", refused)
+        monkeypatch.setattr(asyncio, "sleep", record_wait)
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        result = await run_one(entry, CASES[0], 1, mock=True)
+        assert result.rate_limited and waits == []  # not 16 hours, four times
 
     def test_a_429_is_recognised_with_its_retry_delay(self) -> None:
         assert _rate_limit_delay(_QuotaError()) == 8.0

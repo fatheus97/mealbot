@@ -118,6 +118,10 @@ def _root(exc: BaseException) -> BaseException:
 
 
 _RETRY_HINT = re.compile(r"retryDelay\W+(\d+)")
+#: A longer retryDelay is a DAILY quota (free tier: 20 requests a day per model,
+#: retryDelay ~16 h): waiting it out would hang the run for days, so the call is
+#: recorded as rate-limited at once.
+_MAX_WAIT_SECONDS = 120.0
 
 
 def _rate_limit_delay(root: BaseException) -> float | None:
@@ -152,7 +156,7 @@ async def run_one(
         except Exception as exc:  # any failure of the model under test is a result, not a crash
             root = _root(exc)
             delay = _rate_limit_delay(root)
-            if delay is not None and attempt < max_waits:
+            if delay is not None and delay <= _MAX_WAIT_SECONDS and attempt < max_waits:
                 await asyncio.sleep(delay)
                 continue
             # The chain wraps provider errors in a user-facing "AI unavailable";
