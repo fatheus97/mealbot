@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { useI18n } from "../../i18n";
 import { Trans } from "../../i18n/Trans";
+import { legalHref } from "../../i18n/localeFormat";
 
 /**
  * The "I accept the Terms and Privacy Policy" checkbox shown at account creation.
@@ -11,6 +12,10 @@ import { Trans } from "../../i18n/Trans";
  * `terms_version`), so it has to be a real, unticked-by-default checkbox: a
  * pre-ticked box is not consent, and the server rejects a signup without it
  * (422) rather than defaulting the field.
+ *
+ * The links follow the UI language (`legalHref`), as the footer's and the
+ * paywall's do: both editions are equally authoritative (terms §13), and a
+ * Czech signup should not hand the reader the English contract.
  *
  * Both documents open in a NEW TAB. Navigating away from a half-filled signup
  * form to read the terms — and losing the form — is the reason nobody reads
@@ -34,7 +39,7 @@ export function TermsConsent({
   /** Distinct id when more than one instance can be mounted at once. */
   id?: string;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   return (
     <label htmlFor={id} style={wrap}>
@@ -55,12 +60,12 @@ export function TermsConsent({
           k="auth.acceptTerms"
           nodes={{
             terms: (
-              <a href="/terms" target="_blank" rel="noopener noreferrer" style={link}>
+              <a href={legalHref(locale, "terms")} target="_blank" rel="noopener noreferrer" style={link}>
                 {t("auth.acceptTerms.termsLink")}
               </a>
             ),
             privacy: (
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" style={link}>
+              <a href={legalHref(locale, "privacy")} target="_blank" rel="noopener noreferrer" style={link}>
                 {t("auth.acceptTerms.privacyLink")}
               </a>
             ),

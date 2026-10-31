@@ -8,7 +8,7 @@
 //
 // - records a click on a language link (a[hreflang]) as an explicit choice, in
 //   the record the app's locale store persists (src/store/useLocaleStore.ts),
-//   so one choice holds here and in the app;
+//   so one choice holds here and in the app, and carries the query string over;
 // - on a page in the other language, swaps to the chosen language's version,
 //   keeping the query string and anchor, and adding ?lang=<choice>.
 //
@@ -59,7 +59,13 @@
     (event) => {
       const link = event.target instanceof Element ? event.target.closest("a[hreflang]") : null;
       const locale = link?.getAttribute("hreflang");
-      if (isLocale(locale)) remember(locale);
+      if (!isLocale(locale)) return;
+      remember(locale);
+      // Switching language must not drop the campaign tags (utm_source and the
+      // rest). Done at click time so the href crawlers see stays the clean URL
+      // the hreflang tags name.
+      const href = link.getAttribute("href");
+      if (location.search && href && !href.includes("?")) link.setAttribute("href", href + location.search);
     },
     true,
   );
