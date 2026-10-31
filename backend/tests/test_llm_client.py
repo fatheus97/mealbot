@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry
 from app.core.errors import LocalizedHTTPException
-from app.llm.client import CallKind, LLMClient, check_model_chain_keys
+from app.llm.client import CallKind, LLMClient, answered_by, check_model_chain_keys, first_choice
 from app.llm.usage import capture_llm_usage
 from app.models.plan_models import SingleDayResponse
 
@@ -1390,3 +1390,108 @@ class TestRealStackContract:
         # instructor hands back a subclass of the response model, so compare fields.
         assert result.x == 1
         assert _demoted(client) == {"slow"}
+
+
+class TestFirstChoice:
+    """An experiment arm's model leads the chain; the chain stays behind it."""
+
+    @staticmethod
+    def _settings(mock_settings: MagicMock) -> None:
+        mock_settings.llm_mock = False
+        mock_settings.model_chain = _chain("gemini/a", "gemini/b")
+        mock_settings.gemini_api_key = "fake-key"
+        mock_settings.openai_api_key = None
+        mock_settings.deepseek_api_key = None
+
+    @patch("app.llm.client.settings")
+    def test_order(self, mock_settings: MagicMock) -> None:
+        self._settings(mock_settings)
+        client = LLMClient()
+        def order() -> list[str]:
+            return [e.model for e in client._attempt_order(0.0, "text")]
+
+        assert order() == ["a", "b"]
+        with first_choice(_chain("gemini/c")[0]):
+            assert order() == ["c", "a", "b"]
+        with first_choice(_chain("gemini/b")[0]):
+            assert order() == ["b", "a"]  # already in the chain: moved, not doubled
+        with first_choice(None):
+            assert order() == ["a", "b"]
+        assert order() == ["a", "b"]  # the block leaves nothing behind
+
+    @patch("app.llm.client.settings")
+    def test_a_demoted_first_choice_goes_last(self, mock_settings: MagicMock) -> None:
+        self._settings(mock_settings)
+        client = LLMClient()
+        client._demoted_until[("text", LLMProvider.GEMINI, "c")] = 100.0
+        with first_choice(_chain("gemini/c")[0]):
+            assert [e.model for e in client._attempt_order(0.0, "text")] == ["a", "b", "c"]
+
+    @patch("app.llm.client.settings")
+    async def test_a_failing_first_choice_falls_back_and_names_who_answered(
+        self, mock_settings: MagicMock
+    ) -> None:
+        self._settings(mock_settings)
+        client = LLMClient()
+        expected = _mock_single_day()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=[_quota_error_gemini(), (expected, None)],
+        )
+        client.gemini_client = mock_gemini
+
+        with first_choice(_chain("gemini/c")[0]):
+            result = await client.chat_json("sys", "usr", SingleDayResponse)
+        assert result == expected
+        calls = mock_gemini.chat.completions.create_with_completion.call_args_list
+        assert [c.kwargs["model"] for c in calls] == ["c", "a"]
+        assert answered_by() == _chain("gemini/a")[0]
+
+    @patch("app.llm.client.settings")
+    async def test_a_mock_answer_is_answered_by_nobody(self, mock_settings: MagicMock) -> None:
+        self._settings(mock_settings)
+        client = LLMClient()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(return_value=(_mock_single_day(), None))
+        client.gemini_client = mock_gemini
+        await client.chat_json("sys", "usr", SingleDayResponse)
+        assert answered_by() == _chain("gemini/a")[0]
+        await client.chat_json("sys", "usr", SingleDayResponse, mock=True)
+        assert answered_by() is None
+
+    @pytest.mark.parametrize("failure", [
+        GeminiClientError(400, {"error": {"message": "schema too complex"}}),
+        RuntimeError("instructor gave up re-asking"),  # a schema miss it could not repair
+    ])
+    @patch("app.llm.client.settings")
+    async def test_any_failure_of_a_first_choice_falls_back_and_benches_it(
+        self, mock_settings: MagicMock, failure: Exception
+    ) -> None:
+        """A non-fallback error ends the configured chain, but a first choice is
+        a model on trial: the chain behind it still answers."""
+        self._settings(mock_settings)
+        client = LLMClient()
+        expected = _mock_single_day()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(side_effect=[failure, (expected, None)])
+        client.gemini_client = mock_gemini
+
+        with first_choice(_chain("gemini/c")[0]):
+            assert await client.chat_json("sys", "usr", SingleDayResponse) == expected
+        assert answered_by() == _chain("gemini/a")[0]
+        assert ("text", LLMProvider.GEMINI, "c") in client._demoted_until
+
+    @patch("app.llm.client.settings")
+    async def test_without_a_first_choice_a_non_fallback_error_still_ends_the_chain(
+        self, mock_settings: MagicMock
+    ) -> None:
+        self._settings(mock_settings)
+        client = LLMClient()
+        mock_gemini = MagicMock()
+        mock_gemini.chat.completions.create_with_completion = AsyncMock(
+            side_effect=GeminiClientError(400, {"error": {"message": "bad request"}}),
+        )
+        client.gemini_client = mock_gemini
+        with pytest.raises(HTTPException):
+            await client.chat_json("sys", "usr", SingleDayResponse)
+        assert mock_gemini.chat.completions.create_with_completion.await_count == 1

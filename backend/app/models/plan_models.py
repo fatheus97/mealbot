@@ -744,6 +744,14 @@ class PlannedMeal(GeneratedMeal):
             "and consumes no additional ingredients."
         ),
     )
+    # The model that wrote this meal, "provider/model" as LLM_MODELS spells it.
+    # Stamped by the server right after generation (meal_planner), never by the
+    # LLM; it is what lets real use compare models (app/llm/experiment.py).
+    # None = written before this field existed, a mock answer, or a leftover
+    # (server-built). An edit keeps it: the edit is a correction OF that model's
+    # meal. Client-write paths (/recipe/cook, /recipe/favorite) take it from the
+    # server's own generation row, never from the client.
+    generated_by: str | None = Field(default=None, max_length=120)
 
     @property
     def is_leftover(self) -> bool:
@@ -838,10 +846,14 @@ class LlmDayResponse(BaseModel):
     """One day of a meal plan."""
     meals: list[GeneratedMeal]
 
-    def to_planned_day(self) -> SingleDayResponse:
-        """Widen raw model output into stored meals (leftover_of defaults None)."""
+    def to_planned_day(self, generated_by: str | None = None) -> SingleDayResponse:
+        """Widen raw model output into stored meals (leftover_of defaults None),
+        each stamped with the model that wrote it."""
         return SingleDayResponse(
-            meals=[PlannedMeal.model_validate(m.model_dump()) for m in self.meals]
+            meals=[
+                PlannedMeal.model_validate({**m.model_dump(), "generated_by": generated_by})
+                for m in self.meals
+            ]
         )
 
 
