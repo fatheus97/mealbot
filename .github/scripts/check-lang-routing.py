@@ -64,6 +64,8 @@ expect("from a look-alike host", "/", {**CZECH, "Referer": f"https://{BASE.hostn
 expect("from our Czech landing", "/", {**CZECH, "Referer": f"{SELF}/cs"}, 200)
 expect("from our English landing", "/privacy", {**CZECH, "Referer": f"{SELF}/"}, 200)
 expect("from our https origin", "/terms", {**CZECH, "Referer": f"https://{BASE.hostname}/cs/terms"}, 200)
+expect("a swap the script marked with ?lang= (no Referer needed)", "/?lang=en", CZECH, 200)
+expect("a marked swap to a legal page", "/privacy?utm_source=x&lang=en", CZECH, 200)
 expect("Czech pages never redirect", "/cs", {"Accept-Language": "en-US"}, 200)
 expect("Czech legal pages never redirect", "/cs/terms", {"Accept-Language": "en-US"}, 200)
 expect("an emailed-token forward still wins", "/?invite=abc", CZECH, 302, "/app?invite=abc")

@@ -10,12 +10,16 @@
 //   the record the app's locale store persists (src/store/useLocaleStore.ts),
 //   so one choice holds here and in the app;
 // - on a page in the other language, swaps to the chosen language's version,
-//   keeping the query string and anchor.
+//   keeping the query string and anchor, and adding ?lang=<choice>.
+//
+// That marker is what makes it loop-proof. nginx never redirects a request
+// carrying ?lang= (nor one coming from this site, but some browsers send no
+// Referer at all), and on a page already in the chosen language this script
+// does nothing. On arrival the marker is stripped from the address bar.
 //
 // Loaded render-blocking from <head> (the CSP forbids inline scripts), so the
-// swap happens before the wrong page paints. No loop: on a page already in the
-// chosen language it does nothing, and nginx never redirects a visitor coming
-// from this site. src/test/langRedirect.test.ts runs this file against the store.
+// swap happens before the wrong page paints. src/test/langRedirect.test.ts runs
+// this file against the store.
 (() => {
   const STORE_KEY = "mealbot-locale";
   const LOCALES = ["en", "cs"];
@@ -64,7 +68,15 @@
   const counterpart = COUNTERPART[path];
   const pageLocale = /^\/cs(\/|$)/.test(path) ? "cs" : "en";
   const choice = savedChoice();
+  const params = new URLSearchParams(location.search);
+  const marked = params.has("lang");
+  params.delete("lang");
   if (counterpart && choice && choice !== pageLocale) {
-    location.replace(counterpart + location.search + location.hash);
+    params.set("lang", choice);
+    location.replace(`${counterpart}?${params}${location.hash}`);
+  } else if (marked) {
+    // Not for bookmarks or sharing: the marker only has to reach nginx once.
+    const query = params.toString();
+    history.replaceState(history.state, "", `${location.pathname}${query ? `?${query}` : ""}${location.hash}`);
   }
 })();
