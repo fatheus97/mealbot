@@ -6,15 +6,20 @@ Each use of the model gets its own suite, because they fail differently. Only th
 ## Run
 
 ```bash
-docker compose run --rm backend python -m evals.run --model gemini:gemini-2.5-flash --model deepseek:deepseek-chat
+docker compose run --rm backend python -m evals.run --model gemini/gemini-2.5-flash --model deepseek/deepseek-chat
 ```
 
 | flag | |
 |---|---|
-| `--model provider:model` | repeatable; default is the configured `LLM_MODELS` chain |
+| `--model provider/model` | repeatable, spelled as in `LLM_MODELS`; default is that chain |
 | `--repeats N` | answers per case per model (default 3). Models answer differently each time, so one run of a case proves little |
 | `--case ID`, `--tag TAG` | a subset (tags: `allergen`, `diet`, `infant`, `fridge`, `avoid`, `shape`, `language`, `combo`) |
+| `--concurrency N` | parallel calls per model (default 4). Models run one after another |
+| `--rpm N` | start at most N calls a minute per model. A free-tier key refuses bursts (429); about 8 keeps it quiet |
 | `--mock` | the mock LLM: checks the harness, not a model |
+| `--report FILE...` | run nothing; merge saved results JSONs into one scorecard (models run at different times, side by side) |
+
+A 429 waits the provider's `retryDelay` and retries up to 4 times. A run still refused after that is marked rate-limited and left out of every rate: a quota limit is the key's, not the model's.
 
 Output: a scorecard in the terminal. Every answer and every check are saved in `results/` (git-ignored), for reading what a model actually wrote.
 

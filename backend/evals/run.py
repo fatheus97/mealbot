@@ -1,7 +1,7 @@
 """Run the meal-plan suite against models and print a scorecard.
 
     docker compose run --rm backend python -m evals.run \\
-        --model gemini:gemini-2.5-flash --model deepseek:deepseek-chat --repeats 3
+        --model gemini/gemini-2.5-flash --model deepseek/deepseek-chat --repeats 3
 
 Each case is sent ONCE per repeat, with production's exact prompt
 (``render_day_prompt``) and schema, and the raw answer is graded. Production's
@@ -10,7 +10,9 @@ it wrong, which is what is being measured. Every model runs alone (the chain
 is pinned to it), so nothing falls back to another model.
 
 Results (every answer, every check) land in evals/results/ as JSON for human
-review, next to the scorecard as Markdown. See evals/README.md.
+review, next to the scorecard as Markdown. ``--report`` merges saved runs
+into one scorecard, so models run at different times can be compared.
+See evals/README.md.
 """
 
 import argparse
@@ -24,6 +26,8 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+from pydantic import TypeAdapter
 
 from app.core.config import LLMProvider, ModelEntry, settings
 from app.llm.client import llm_client
@@ -57,16 +61,17 @@ class RunResult:
 
 
 def label(entry: ModelEntry) -> str:
-    return f"{entry.provider.value}:{entry.model}"
+    """"provider/model": the LLM_MODELS spelling, so a scorecard column pastes into config."""
+    return f"{entry.provider.value}/{entry.model}"
 
 
 def parse_model(spec: str) -> ModelEntry:
-    provider, _, model = spec.partition(":")
+    provider, _, model = spec.partition("/")
     try:
         return ModelEntry(provider=LLMProvider(provider), model=model.strip() or provider)
     except ValueError as exc:
         names = ", ".join(p.value for p in LLMProvider)
-        raise argparse.ArgumentTypeError(f"{spec!r}: expected <provider>:<model>, provider one of {names}") from exc
+        raise argparse.ArgumentTypeError(f"{spec!r}: expected <provider>/<model>, provider one of {names}") from exc
 
 
 def has_key(entry: ModelEntry) -> bool:
@@ -271,7 +276,7 @@ def select(case_ids: Sequence[str], tags: Sequence[str]) -> list[EvalCase]:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", action="append", type=parse_model, default=[],
-                        help="<provider>:<model>, repeatable (default: the configured LLM_MODELS chain)")
+                        help="<provider>/<model>, repeatable (default: the configured LLM_MODELS chain)")
     parser.add_argument("--repeats", type=int, default=3, help="answers per case per model (default 3)")
     parser.add_argument("--case", action="append", default=[], help="only this case id (repeatable)")
     parser.add_argument("--tag", action="append", default=[], help="only cases with this tag (repeatable)")
@@ -280,22 +285,34 @@ def main(argv: Sequence[str] | None = None) -> None:
                         help="start at most this many calls a minute (free-tier keys: about 8)")
     parser.add_argument("--mock", action="store_true", help="use the mock LLM: tests the harness, not a model")
     parser.add_argument("--out", type=Path, default=RESULTS_DIR, help="where results go (default evals/results)")
+    parser.add_argument("--report", type=Path, nargs="+", metavar="RESULTS_JSON",
+                        help="run nothing: merge these saved results into one scorecard")
     args = parser.parse_args(argv)
-
-    entries: list[ModelEntry] = args.model or list(settings.model_chain)
-    cases = select(args.case, args.tag)
-    print(f"{len(cases)} cases x {args.repeats} repeats x {len(entries)} models")
-    results = asyncio.run(run_suite(entries, cases, repeats=args.repeats, concurrency=args.concurrency,
-                                    mock=args.mock, rpm=args.rpm))
-    card = scorecard(results)
-    print(card)
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / f"meal_plan-{stamp}.json").write_text(
-        json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=1), encoding="utf-8")
+    if args.report:
+        results = [r for path in args.report for r in load_results(path)]
+    else:
+        entries: list[ModelEntry] = args.model or list(settings.model_chain)
+        cases = select(args.case, args.tag)
+        print(f"{len(cases)} cases x {args.repeats} repeats x {len(entries)} models")
+        results = asyncio.run(run_suite(entries, cases, repeats=args.repeats, concurrency=args.concurrency,
+                                        mock=args.mock, rpm=args.rpm))
+        (args.out / f"meal_plan-{stamp}.json").write_text(
+            json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=1), encoding="utf-8")
+    card = scorecard(results)
+    print(card)
     (args.out / f"meal_plan-{stamp}.md").write_text(card + "\n", encoding="utf-8")
-    print(f"\nresults: {args.out / f'meal_plan-{stamp}.json'}")
+    print(f"\nscorecard: {args.out / f'meal_plan-{stamp}.md'}")
+
+
+_RESULTS = TypeAdapter(list[RunResult])
+
+
+def load_results(path: Path) -> list[RunResult]:
+    """A results JSON written by a run, back into RunResults (checks included)."""
+    return _RESULTS.validate_json(path.read_bytes())
 
 
 if __name__ == "__main__":

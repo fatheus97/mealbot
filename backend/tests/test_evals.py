@@ -5,6 +5,9 @@ honest in CI without a network.
 """
 
 import asyncio
+import json
+from dataclasses import asdict
+from pathlib import Path
 
 import pytest
 
@@ -15,7 +18,15 @@ from app.llm.client import llm_client
 from app.models.plan_models import IngredientAmount, LlmDayResponse, MealPlanRequest, PlannedMeal
 from evals.graders import DIET_RULES, GRADERS, grade
 from evals.meal_plan_cases import CASES, stock
-from evals.run import _rate_limit_delay, parse_model, pinned, run_one, run_suite, scorecard
+from evals.run import (
+    _rate_limit_delay,
+    load_results,
+    parse_model,
+    pinned,
+    run_one,
+    run_suite,
+    scorecard,
+)
 
 
 def meal(*ingredients: str | IngredientAmount, steps: tuple[str, ...] = ("Cook it.",), name: str = "Dish") -> PlannedMeal:
@@ -121,7 +132,7 @@ class TestTheSuite:
 
 class TestTheRunner:
     def test_parse_model(self) -> None:
-        assert parse_model("gemini:gemini-2.5-flash") == ModelEntry(provider=LLMProvider.GEMINI, model="gemini-2.5-flash")
+        assert parse_model("gemini/gemini-2.5-flash") == ModelEntry(provider=LLMProvider.GEMINI, model="gemini-2.5-flash")
         with pytest.raises(Exception, match="provider"):
             parse_model("nope:model")
 
@@ -136,7 +147,16 @@ class TestTheRunner:
         results = await run_suite([entry], CASES[:3], repeats=1, concurrency=2, mock=True)
         assert len(results) == 3 and all(r.ok for r in results), [r.error for r in results]
         card = scorecard(results)
-        assert "gemini:mock" in card and "safety clean" in card
+        assert "gemini/mock" in card and "safety clean" in card
+
+    async def test_saved_results_reload_into_the_same_scorecard(self, tmp_path: Path) -> None:
+        entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")
+        results = await run_suite([entry], CASES[:2], repeats=1, concurrency=2, mock=True)
+        saved = tmp_path / "run.json"
+        saved.write_text(json.dumps([asdict(r) for r in results]), encoding="utf-8")
+        reloaded = load_results(saved)
+        assert reloaded == results  # checks come back as Check objects, not dicts
+        assert scorecard(reloaded) == scorecard(results)
 
 
 class _QuotaError(Exception):
