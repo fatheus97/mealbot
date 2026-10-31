@@ -1,6 +1,7 @@
 """Tests for LLM client: mock mode, quota detection, fallback chain."""
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from types import SimpleNamespace
@@ -22,6 +23,7 @@ from google.genai.errors import ClientError as GeminiClientError
 from google.genai.errors import ServerError as GeminiServerError
 from openai import APIStatusError as OpenAIAPIStatusError
 from openai import APITimeoutError as OpenAIAPITimeoutError
+from openai import AsyncOpenAI
 from openai import RateLimitError as OpenAIRateLimitError
 from pydantic import BaseModel
 
@@ -813,9 +815,9 @@ class TestClientUsageCapture:
     """The client→usage-bucket seam: a successful call must append normalized
     usage to the active capture bucket; mock-mode must record nothing.
 
-    Guards record_call_usage in _call_with_fallback — the fallback-chain tests
-    return completion=None (usage extraction yields None), so they never reach
-    it. Deleting that line keeps them green but fails these.
+    Guards record_call_usage in _call_with_fallback — the fallback-chain tests'
+    mocks never fire instructor's completion:response hook, so they record
+    nothing. Deleting that line keeps them green but fails these.
     """
 
     @patch("app.llm.client.settings")
@@ -835,9 +837,13 @@ class TestClientUsageCapture:
                 prompt_token_count=11, candidates_token_count=5, total_token_count=254
             )
         )
+        async def create_with_completion(**kwargs: Any) -> tuple[SingleDayResponse, object]:
+            kwargs["hooks"].emit_completion_response(completion)  # as instructor does per request
+            return expected, completion
+
         mock_gemini = MagicMock()
         mock_gemini.chat.completions.create_with_completion = AsyncMock(
-            return_value=(expected, completion)
+            side_effect=create_with_completion
         )
         client.gemini_client = mock_gemini
 
@@ -1541,6 +1547,144 @@ class TestAnthropicStackContract:
             "type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "aGVsbG8="},
         }
         assert user["content"][1] == {"type": "text", "text": "read this"}
+
+
+def _attempt_usage(n: int) -> tuple[int, int, int]:
+    """(prompt, completion, total) the fake reports for a model's n-th request.
+    Different per attempt, and total > prompt + completion as thinking models report."""
+    return 5 + 5 * n, 2 + n, 10 + 10 * n
+
+
+class TestReaskUsage:
+    """Recorded usage covers every instructor re-ask, once, for every provider.
+
+    instructor sums re-ask usage onto the returned `response.usage` for OpenAI
+    and Anthropic, but a google-genai response carries `usage_metadata`, which it
+    leaves alone: reading the returned completion recorded a re-asked Gemini call
+    as its last attempt only. The REAL SDK + instructor stacks run against one
+    local fake: a model's first answer is `{"x": "nope"}` (a validation error, so
+    instructor re-asks), later ones `{"x": 1}`; the model "bad" never answers right."""
+
+    @pytest.fixture
+    async def fake_llm(self) -> AsyncIterator[tuple[str, list[str]]]:
+        models: list[str] = []
+
+        async def handler(request: web.Request) -> web.Response:
+            body = await request.json()
+            # genai names the model in the path, the other two in the body.
+            model = body.get("model") or request.path.rsplit("/", 1)[-1].split(":")[0]
+            models.append(model)
+            n = models.count(model)
+            prompt, completion, total = _attempt_usage(n)
+            answer: dict[str, object] = {"x": "nope"} if n == 1 or model == "bad" else {"x": 1}
+            if ":generateContent" in request.path:
+                return web.json_response({
+                    "candidates": [{
+                        "content": {"role": "model", "parts": [{"text": json.dumps(answer)}]},
+                        "finishReason": "STOP",
+                    }],
+                    "usageMetadata": {
+                        "promptTokenCount": prompt, "candidatesTokenCount": completion, "totalTokenCount": total,
+                    },
+                })
+            if request.path.endswith("/chat/completions"):
+                return web.json_response({
+                    "id": f"chatcmpl-{n}", "object": "chat.completion", "created": 0, "model": model,
+                    "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {
+                        "role": "assistant", "content": None, "tool_calls": [{
+                            "id": f"call_{n}", "type": "function", "function": {
+                                "name": body["tools"][0]["function"]["name"], "arguments": json.dumps(answer),
+                            },
+                        }],
+                    }}],
+                    "usage": {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total},
+                })
+            return web.json_response({  # Anthropic Messages
+                "id": f"msg_{n}", "type": "message", "role": "assistant", "model": model,
+                "content": [{"type": "tool_use", "id": f"toolu_{n}", "name": body["tools"][0]["name"], "input": answer}],
+                "stop_reason": "tool_use", "stop_sequence": None,
+                "usage": {"input_tokens": prompt, "output_tokens": completion},
+            })
+
+        app = web.Application()
+        app.router.add_route("*", "/{tail:.*}", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        host, port = runner.addresses[0][:2]
+        try:
+            yield f"http://{host}:{port}", models
+        finally:
+            await runner.cleanup()
+
+    @pytest.fixture
+    async def client(
+        self, fake_llm: tuple[str, list[str]], monkeypatch: pytest.MonkeyPatch
+    ) -> AsyncIterator[LLMClient]:
+        settings = MagicMock()
+        settings.llm_mock = False
+        settings.gemini_api_key = None
+        settings.openai_api_key = None
+        settings.deepseek_api_key = None
+        settings.anthropic_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        url = fake_llm[0]
+        # max_retries=0: SDK-level retries would be requests the fake counts.
+        openai_sdk = AsyncOpenAI(api_key="fake-key", base_url=url, max_retries=0)
+        anthropic_sdk = AsyncAnthropic(api_key="fake-key", base_url=url, max_retries=0)
+        client = LLMClient()
+        client.gemini_client = instructor.from_genai(
+            genai.Client(api_key="fake-key", http_options=genai_types.HttpOptions(base_url=url)),
+            use_async=True,
+            mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
+        )
+        client.openai_client = instructor.from_openai(openai_sdk)
+        client.anthropic_client = instructor.from_anthropic(anthropic_sdk)
+        try:
+            yield client
+        finally:
+            await openai_sdk.close()
+            await anthropic_sdk.close()
+
+    @pytest.mark.parametrize(("provider", "expected"), [
+        # Two attempts: (10, 3, 20) + (15, 4, 30). Anthropic reports no total,
+        # so each attempt's total is its input + output: 13 + 19.
+        ("gemini", (25, 7, 50)),
+        ("openai", (25, 7, 50)),
+        ("anthropic", (25, 7, 32)),
+    ])
+    async def test_a_reasked_call_records_every_attempt_once(
+        self, client: LLMClient, fake_llm: tuple[str, list[str]], provider: str,
+        expected: tuple[int, int, int],
+    ) -> None:
+        _, models = fake_llm
+        with patch("app.llm.client.settings.model_chain", _chain(f"{provider}/m")):
+            with capture_llm_usage() as calls:
+                async with asyncio.timeout(10):
+                    result = await client.chat_json("sys", "usr", _Tiny)
+        assert result.x == 1
+        assert models == ["m", "m"]  # one re-ask, or this tests nothing
+        [usage] = calls
+        assert (usage.provider, usage.model) == (provider, "m")
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == expected
+
+    async def test_a_model_that_gave_up_still_records_what_it_used(
+        self, client: LLMClient, fake_llm: tuple[str, list[str]]
+    ) -> None:
+        """An experiment arm that never validates hands over to the chain; its
+        four answered requests were billed all the same."""
+        _, models = fake_llm
+        with patch("app.llm.client.settings.model_chain", _chain("gemini/good")):
+            with first_choice(_chain("gemini/bad")[0]), capture_llm_usage() as calls:
+                async with asyncio.timeout(10):
+                    result = await client.chat_json("sys", "usr", _Tiny)
+        assert result.x == 1
+        assert models == ["bad"] * 4 + ["good"] * 2
+        assert [(u.model, u.prompt_tokens, u.completion_tokens, u.total_tokens) for u in calls] == [
+            ("bad", 70, 18, 140),
+            ("good", 25, 7, 50),
+        ]
 
 
 class TestFirstChoice:

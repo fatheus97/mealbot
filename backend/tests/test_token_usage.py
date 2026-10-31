@@ -12,6 +12,7 @@ from app.llm.usage import (
     _as_int,
     capture_llm_usage,
     record_call_usage,
+    sum_usage,
     usage_from_completion,
 )
 from app.models.db_models import LlmUsage, User
@@ -157,6 +158,27 @@ class TestUsageExtraction:
         assert usage is not None
         assert usage.prompt_tokens == 0  # unparseable → 0
         assert usage.total_tokens == 10
+
+
+class TestSumUsage:
+    """One row per model over its instructor re-asks."""
+
+    def test_sums_each_count(self) -> None:
+        usage = sum_usage([_u(10, 3, 20), _u(15, 4, 30)])
+        assert usage is not None
+        assert (usage.provider, usage.model) == ("gemini", "gemini-2.5-flash")
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (25, 7, 50)
+
+    def test_no_requests_is_none(self) -> None:
+        assert sum_usage([]) is None
+
+    def test_the_sum_stays_clamped(self) -> None:
+        """Each count is clamped below int32, but four of them are not: an
+        unclamped sum would raise at flush and poison the caller's transaction."""
+        top = _u(_MAX_TOKEN_COUNT, _MAX_TOKEN_COUNT, _MAX_TOKEN_COUNT)
+        usage = sum_usage([top] * 4)
+        assert usage is not None
+        assert usage.prompt_tokens == usage.completion_tokens == usage.total_tokens == _MAX_TOKEN_COUNT
 
 
 class TestCaptureScope:
