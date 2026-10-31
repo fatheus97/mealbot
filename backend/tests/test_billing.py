@@ -418,6 +418,28 @@ async def test_checkout_returns_url(client: AsyncClient, monkeypatch: pytest.Mon
     assert resp.json()["url"] == "https://checkout.stripe.test/session/abc"
 
 
+async def test_checkout_refused_mid_request_logs_apart_from_an_outage(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Deactivated or deleted while the Checkout waited on the billing lock: same
+    502 for the client, but a log line an outage alert won't count."""
+    monkeypatch.setattr(settings, "billing_enabled", True)
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_id", "price_x")
+
+    async def _blocked(
+        user: User, session: AsyncSession, plan: str = "monthly", locale: str = "en"
+    ) -> str:
+        raise stripe_service.CheckoutBlocked("locked out meanwhile")
+
+    monkeypatch.setattr(stripe_service, "create_checkout_session", _blocked)
+    resp = await client.post("/api/billing/checkout")
+
+    assert resp.status_code == 502
+    assert "checkout_refused_account_changed" in caplog.text
+    assert "Checkout creation failed" not in caplog.text
+
+
 # --------------------------------------------------------------------------- #
 # Plan selection (monthly / annual) + annual detection — the reprice PR
 # --------------------------------------------------------------------------- #
@@ -1166,19 +1188,33 @@ async def test_webhook_logs_a_live_subscription_with_no_account(
     assert ("billing_sync_orphan_subscription" in caplog.text) is logged
 
 
+@pytest.mark.parametrize(
+    ("ending", "logged"),
+    [
+        ({}, True),
+        ({"cancel_at_period_end": True}, False),
+        # A Portal cancel on flexible billing: cancel_at at the period end.
+        ({"cancel_at": 1_900_000_000, "current_period_end": 1_900_000_000}, False),
+    ],
+    ids=["renewing", "cancel-at-period-end", "cancel-at"],
+)
 async def test_webhook_logs_an_inactive_user_still_renewing(
     client: AsyncClient,
     test_user: User,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    ending: dict[str, object],
+    logged: bool,
 ) -> None:
     test_user.stripe_customer_id = "cus_locked"
     test_user.is_active = False
     await db_session.flush()
     event = _stripe_event({
         "type": "customer.subscription.created",
-        "data": {"object": {"id": "sub_new", "customer": "cus_locked", "status": "active"}},
+        "data": {
+            "object": {"id": "sub_new", "customer": "cus_locked", "status": "active", **ending}
+        },
     })
     monkeypatch.setattr(stripe_service, "construct_event", lambda p, s: event)
 
@@ -1187,4 +1223,4 @@ async def test_webhook_logs_an_inactive_user_still_renewing(
     )
 
     assert resp.status_code == 200
-    assert "billing_sync_inactive_user_renewing" in caplog.text
+    assert ("billing_sync_inactive_user_renewing" in caplog.text) is logged

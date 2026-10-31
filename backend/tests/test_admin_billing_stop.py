@@ -407,7 +407,7 @@ class TestCheckoutWaitsForTheStop:
 
         monkeypatch.setattr(stripe.checkout.Session, "create", _must_not_create)
 
-        with pytest.raises(RuntimeError, match="deactivated or deleted"):
+        with pytest.raises(stripe_service.CheckoutBlocked):
             await stripe_service.create_checkout_session(test_user, db_session)
 
     async def test_checkout_takes_the_billing_lock_before_creating(

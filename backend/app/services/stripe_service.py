@@ -296,7 +296,7 @@ async def create_checkout_session(
         await session.execute(select(col(User.is_active)).where(col(User.id) == user.id))
     ).scalar_one_or_none()
     if not still_active:
-        raise RuntimeError(f"user {user.id} was deactivated or deleted while starting checkout")
+        raise CheckoutBlocked(f"user {user.id} was deactivated or deleted while starting checkout")
     # Gate A of the trial-abuse guard: a repeat account (has_used_trial) gets NO
     # trial — subscription-mode Checkout then charges the first invoice at
     # completion instead of opening a free window. Gate B (cross-account card reuse)
@@ -451,6 +451,14 @@ FINISHED_STATUSES = frozenset({"canceled", "incomplete_expired"})
 _BILLING_LOCK_NAMESPACE = 0x42494C4C
 
 
+class CheckoutBlocked(Exception):
+    """The user was deactivated or deleted while their Checkout was starting.
+
+    Typed so the log can tell this apart from a Stripe outage; the client gets
+    the same "checkout failed" either way, since a locked-out user can't act on it.
+    """
+
+
 async def lock_billing(session: AsyncSession, user_id: int) -> None:
     """Serialize starting a Checkout with stopping this user's billing.
 
@@ -516,7 +524,7 @@ def _expire_checkout_sync(checkout_id: str) -> bool:
     return True
 
 
-def _already_ending(sub: dict[str, Any]) -> bool:
+def subscription_already_ending(sub: dict[str, Any]) -> bool:
     """Set to end no later than its current period: nothing to stop for a deactivation.
 
     The Customer Portal on flexible billing mode cancels by setting ``cancel_at``
@@ -539,7 +547,7 @@ def _stop_subscription_sync(sub: dict[str, Any], mode: BillingStopMode) -> str:
             # no update on it but metadata, so cancelling is the only stop.
             stripe.Subscription.cancel(sub_id)
             return "cancelled"
-        if _already_ending(sub):
+        if subscription_already_ending(sub):
             return "already_ending"  # read from Stripe just now, not the mirror
         schedule = sub.get("schedule")
         if schedule:
@@ -561,7 +569,7 @@ def _stop_subscription_sync(sub: dict[str, Any], mode: BillingStopMode) -> str:
         current = stripe.Subscription.retrieve(sub_id).to_dict()
         if current.get("status") in FINISHED_STATUSES:
             return "already_gone"
-        if mode == "end_at_period_end" and _already_ending(current):
+        if mode == "end_at_period_end" and subscription_already_ending(current):
             return "already_ending"
         raise BillingStopFailed(sub_id, "refused") from exc
 
