@@ -95,7 +95,14 @@ async def run_one(entry: ModelEntry, case: EvalCase, repeat: int, *, mock: bool)
             raw = await llm_client.chat_json(SYSTEM_PROMPT, prompt, LlmDayResponse, mock=mock)
         day = raw.to_planned_day()
     except Exception as exc:  # any failure of the model under test is a result, not a crash
-        result.error = f"{type(exc).__name__}: {exc}"[:500]
+        # The chain wraps provider errors in a user-facing "AI unavailable";
+        # the root cause (402 no balance, 429, a schema miss) is the useful part.
+        root: BaseException = exc
+        while (inner := root.__cause__ or root.__context__) is not None:
+            root = inner
+        result.error = f"{type(exc).__name__}: {exc}"[:200]
+        if root is not exc:
+            result.error += f" <- {type(root).__name__}: {root}"[:300]
         result.seconds = time.perf_counter() - started
         return result
     result.seconds = time.perf_counter() - started
