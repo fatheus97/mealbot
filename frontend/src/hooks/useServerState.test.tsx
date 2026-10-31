@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { stubLocationReload } from '../test/location';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan } from './useServerState';
@@ -33,16 +34,7 @@ function createWrapper() {
 }
 
 beforeEach(() => {
-  vi.stubGlobal(
-    'location',
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(window.location),
-        reload: { configurable: true, value: vi.fn() },
-      },
-    ),
-  );
+  stubLocationReload();
 });
 
 describe('useFridge', () => {
