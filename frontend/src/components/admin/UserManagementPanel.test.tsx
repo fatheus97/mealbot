@@ -149,7 +149,11 @@ describe("UserManagementPanel", () => {
     const billing = screen.getAllByRole("button", { name: "About billing for Comp, Deactivate and Delete" });
     expect(billing).toHaveLength(1);
     await user.click(billing[0]);
-    expect(screen.getByRole("tooltip")).toHaveTextContent(/never touch stripe/i);
+    const tip = screen.getByRole("tooltip");
+    expect(tip).toHaveTextContent(/comp leaves billing alone/i);
+    expect(tip).toHaveTextContent(/deactivate stops the subscription renewing/i);
+    expect(tip).toHaveTextContent(/delete cancels it at once/i);
+    expect(tip).toHaveTextContent(/if billing can't be stopped, deactivate and delete change nothing/i);
 
     const reset = screen.getAllByRole("button", { name: "About Reset onboarding" });
     expect(reset).toHaveLength(1);
