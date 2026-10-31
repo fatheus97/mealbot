@@ -511,6 +511,15 @@ class BillingStopFailed(Exception):
         self.reason = reason
 
 
+def _recheck_failed(stripe_id: str, exc: stripe.StripeError) -> BillingStopFailed:
+    """A recheck that itself fails proves nothing: fail closed, naming the object
+    that was being rechecked rather than whatever the caller started from."""
+    reason: Literal["refused", "unreachable"] = (
+        "refused" if isinstance(exc, stripe.InvalidRequestError) else "unreachable"
+    )
+    return BillingStopFailed(stripe_id, reason)
+
+
 def _expire_checkout_sync(checkout_id: str) -> bool:
     """Expire an open Checkout session; False if it closed on its own meanwhile."""
     try:
@@ -518,7 +527,11 @@ def _expire_checkout_sync(checkout_id: str) -> bool:
     except stripe.InvalidRequestError as exc:
         # Fine if it completed or expired meanwhile (a completion shows up in
         # the subscription listing that runs after this). Not if it's still open.
-        if stripe.checkout.Session.retrieve(checkout_id).status == "open":
+        try:
+            still_open = stripe.checkout.Session.retrieve(checkout_id).status == "open"
+        except stripe.StripeError as recheck_exc:
+            raise _recheck_failed(checkout_id, recheck_exc) from recheck_exc
+        if still_open:
             raise BillingStopFailed(checkout_id, "refused") from exc
         return False
     return True
@@ -566,7 +579,10 @@ def _stop_subscription_sync(sub: dict[str, Any], mode: BillingStopMode) -> str:
     except stripe.InvalidRequestError as exc:
         # Stripe refused. Walk away only from a subscription that has meanwhile
         # finished, or (when stopping renewal) is already set to end.
-        current = stripe.Subscription.retrieve(sub_id).to_dict()
+        try:
+            current = stripe.Subscription.retrieve(sub_id).to_dict()
+        except stripe.StripeError as recheck_exc:
+            raise _recheck_failed(sub_id, recheck_exc) from recheck_exc
         if current.get("status") in FINISHED_STATUSES:
             return "already_gone"
         if mode == "end_at_period_end" and subscription_already_ending(current):
