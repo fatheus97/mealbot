@@ -112,7 +112,7 @@ Shipped and verified in the codebase:
   (`MachineCorrection`) across plan generation, meal edits, regeneration, Cook
   Now, and receipt-scan merges — the raw data for "learn from edits". *Not yet
   consumed* in generation (see Full release → user edits as feedback).
-- **Cookbook**: favorite-star (both modes), open-book popup UI + floating icon,
+- **Cookbook**: favorite heart (both modes; was a star until 2026-10-31), open-book popup UI + floating icon,
   RAG over favorites (all-MiniLM-L6-v2 + pgvector HNSW), auto-switch to
   cookbook-only retrieval at 100+ favorites.
 - **Fridge**: inventory with expiration + need-to-use flags, receipt OCR scan,

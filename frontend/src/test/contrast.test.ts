@@ -24,7 +24,7 @@ import { PAGE_TEXT, MUTED_PAGE_OPACITY, type ThemeName } from '../constants/them
 import { colors as adminColors } from '../components/admin/theme';
 import { AUTHBAR_SURFACE, LINK_ON_AUTHBAR } from '../components/AuthBar';
 import { DISABLED_TEXT, DISABLED_SURFACE } from '../components/DayLayoutEditor';
-import { FAVORITE_SAVED, FAVORITE_UNSAVED } from '../components/FavoriteStar';
+import { FAVORITE_SAVED, FAVORITE_UNSAVED } from '../components/FavoriteHeart';
 import {
   OUT_OF_MONTH_SURFACE,
   OUT_OF_MONTH_DAY,
@@ -617,12 +617,16 @@ describe('the scans accept both quote styles', () => {
   });
 });
 
-describe('the favourite star', () => {
+describe('the favourite heart (formerly a star)', () => {
   // An icon-only toggle: the glyph IS the control, so WCAG 1.4.11 wants 3:1.
-  // It shipped at 1.41:1 unsaved and 2.06:1 saved, on the two PINNED light
-  // surfaces it renders on. Only the unsaved state was ever on screen during a
-  // sweep — the saved one is a click away, the classic one-state blind spot.
-  const surfaces = ['#f9fafb', '#f9f9f9'];
+  // As a star it shipped at 1.41:1 unsaved and 2.06:1 saved, on the two PINNED
+  // light surfaces it renders on. Only the unsaved state was ever on screen
+  // during a sweep — the saved one is a click away, the classic one-state blind
+  // spot. MealCard's cooked tint (#f0fdf4) sits behind it too. The leftover
+  // tint (#f5f3ff) is left out on purpose: the heart is ALWAYS disabled on a
+  // leftover, and WCAG 1.4.3 / 1.4.11 exempt inactive controls (unsaved grey is
+  // 4.4:1 there, so do not enable it on leftovers without revisiting this).
+  const surfaces = ['#f9fafb', '#f9f9f9', '#f0fdf4'];
   for (const bg of surfaces) {
     it(`both states clear AA on ${bg}`, () => {
       expect(checkText(FAVORITE_SAVED, bg, 22.4)).toMatchObject({ passes: true });
@@ -636,9 +640,10 @@ describe('the favourite star', () => {
   });
 
   it('does not rely on the two states differing from each other', () => {
-    // They are 1.04:1 apart — essentially the same luminance. That is FINE only
-    // because the glyph changes shape too; if someone ever unifies the glyph,
-    // this assertion is the reminder that colour alone cannot carry the state.
+    // They are about 1.3:1 apart, close in luminance. That is FINE only because
+    // the heart changes shape too (filled vs outline); if someone ever unifies
+    // the shape, this assertion is the reminder that colour alone cannot carry
+    // the state.
     expect(contrastRatio(FAVORITE_SAVED, FAVORITE_UNSAVED)).toBeLessThan(1.5);
   });
 });
