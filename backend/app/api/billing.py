@@ -78,6 +78,11 @@ async def create_checkout(
         url = await stripe_service.create_checkout_session(
             current_user, session, body.plan, _checkout_locale(request)
         )
+    except stripe_service.CheckoutBlocked:
+        # Not an outage: an admin locked the account out, or it was deleted,
+        # while this request waited on the billing lock.
+        logger.warning("checkout_refused_account_changed user_id=%s", current_user.id)
+        raise LocalizedHTTPException(502, "billing_checkout_failed") from None
     except Exception:
         logger.exception("Checkout creation failed for user %s", current_user.id)
         raise LocalizedHTTPException(502, "billing_checkout_failed") from None
@@ -158,7 +163,11 @@ async def stripe_webhook(
                     customer_id, obj.get("id"), obj.get("status"), event_type,
                 )
             if user is not None:
-                if not user.is_active and live and not obj.get("cancel_at_period_end"):
+                if (
+                    not user.is_active
+                    and live
+                    and not stripe_service.subscription_already_ending(dict(obj))
+                ):
                     logger.error(
                         "billing_sync_inactive_user_renewing user_id=%s sub=%s status=%s",
                         user.id, obj.get("id"), obj.get("status"),
