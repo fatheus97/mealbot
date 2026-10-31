@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { stubLocationReload } from "../test/location";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -8,16 +9,7 @@ function ThrowingChild(): never {
 }
 
 beforeEach(() => {
-  vi.stubGlobal(
-    "location",
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(window.location),
-        reload: { configurable: true, value: vi.fn() },
-      },
-    ),
-  );
+  stubLocationReload();
   // Suppress React error boundary console output in test
   vi.spyOn(console, "error").mockImplementation(() => {});
 });

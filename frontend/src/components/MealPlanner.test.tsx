@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { stubLocationReload } from '../test/location';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -62,16 +63,7 @@ const okEmpty = () =>
   }) as unknown as Response;
 
 beforeEach(() => {
-  vi.stubGlobal(
-    'location',
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(window.location),
-        reload: { configurable: true, value: vi.fn() },
-      },
-    ),
-  );
+  stubLocationReload();
   mockedAuthFetch.mockImplementation((url: string) => {
     if (url === '/config') return Promise.resolve(okEmpty());
     return Promise.reject(new Error(`Unexpected authFetch: ${url}`));

@@ -192,8 +192,15 @@ describe.skipIf(!built)("terms of service (built dist/terms.html)", () => {
       const dark = html.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
       const light =
         html.match(/prefers-color-scheme:\s*light\s*\)\s*\{\s*:root\s*\{([^}]*)\}/)?.[1] ?? "";
+      // lightningcss adds its own --lightningcss-light/-dark toggles (for its
+      // light-dark() polyfill) to the base and dark blocks. They are build
+      // output, not theme colours, so the pairing rule does not apply.
       const names = (block: string) =>
-        new Set([...block.matchAll(/(--[a-z-]+)\s*:/g)].map((m) => m[1]));
+        new Set(
+          [...block.matchAll(/(--[a-z-]+)\s*:/g)]
+            .map((m) => m[1])
+            .filter((v) => !v.startsWith("--lightningcss-")),
+        );
       const darkVars = names(dark);
       expect(darkVars.size).toBeGreaterThan(5);
       expect([...darkVars].filter((v) => !names(light).has(v))).toEqual([]);
