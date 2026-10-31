@@ -14,7 +14,7 @@ import {
 import { IngredientChipInput } from "./IngredientChipInput";
 import { InfoHint } from "./InfoHint";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
-import { FavoriteStar } from "./FavoriteStar";
+import { FavoriteHeart } from "./FavoriteHeart";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
@@ -213,9 +213,10 @@ export function CookNowForm() {
         { onSuccess: (entry) => setSavedEntry({ id: entry.id, isFavorite: true }) },
       );
     } else if (savedEntry) {
-      // Clear savedEntry entirely (not just isFavorite:false): the DELETE
-      // removed the MealEntry row, so there's nothing to diverge from — this
-      // restores the Edit affordance and lets a re-star create a fresh row.
+      // Clear savedEntry entirely (not just isFavorite:false). The DELETE only
+      // clears is_favorite (the row stays, see api/cookbook.py), but this card
+      // no longer has anything to diverge from: clearing restores the Edit
+      // affordance, and saving again creates a fresh row.
       removeFromCookbookMutation.mutate(savedEntry.id, {
         onSuccess: () => setSavedEntry(null),
       });
@@ -397,7 +398,7 @@ export function CookNowForm() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", flex: 1 }}>
               <div style={{ paddingTop: "1.4rem" }}>
-                <FavoriteStar
+                <FavoriteHeart
                   isFavorite={isFavorited}
                   onToggle={handleFavoriteToggle}
                   disabled={favoritePending}
