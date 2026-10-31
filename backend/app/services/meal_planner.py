@@ -10,7 +10,7 @@ from jinja2.sandbox import SandboxedEnvironment
 from app.core.config import settings
 from app.core.dietary import Allergen, DietType
 from app.core.dietary_reference import resolve_dietary_context
-from app.llm.client import llm_client
+from app.llm.client import answered_by, llm_client
 from app.models.plan_models import (
     LlmDayResponse,
     MealPlanRequest,
@@ -130,7 +130,8 @@ async def _generate_and_screen(
             mock_context=mock_context,
             mock=mock,
         )
-        response = raw.to_planned_day()
+        model = answered_by()
+        response = raw.to_planned_day(generated_by=model.label if model else None)
         # The mock LLM is DETERMINISTIC per day, so screening + regenerating it
         # would loop to a guaranteed fail-closed on any canned meal that happens
         # to contain a declared allergen. Mock output is demo/dev content, not a

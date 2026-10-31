@@ -14,6 +14,11 @@ class ModelEntry(BaseModel):
     provider: LLMProvider
     model: str
 
+    @property
+    def label(self) -> str:
+        """"provider/model", the LLM_MODELS spelling."""
+        return f"{self.provider.value}/{self.model}"
+
 
 # Values that mean "not configured". The .env.example ships literal placeholders
 # (your_key_here); an operator who copies it without editing leaves a truthy-but-
@@ -54,6 +59,16 @@ class Settings(BaseSettings):
         ModelEntry(provider=LLMProvider.GEMINI, model="gemini-2.5-flash"),
         ModelEntry(provider=LLMProvider.GEMINI, model="gemini-2.5-flash-lite"),
     ]
+
+    # Model experiment, OFF when empty: "provider/model=percent,...". That
+    # percent of meal-plan generations (create and regenerate) try the model
+    # first, with the LLM_MODELS chain behind it as fallback; the rest run the
+    # chain as usual (the control). An arm runs only if its model is in
+    # EVAL_APPROVED and its provider in DISCLOSED_PROVIDERS (app/llm/experiment.py,
+    # app/llm/client.py); any other arm is logged at startup and never rolled.
+    # Kept a raw string, parsed by app/llm/experiment.py: a typo in an optional
+    # experiment is logged and skipped there, never a reason to refuse boot.
+    llm_experiment: str = ""
 
     # API keys (still per-provider)
     openai_api_key: str | None = None

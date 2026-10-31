@@ -11,6 +11,7 @@ on favorite) works for free.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -26,7 +27,7 @@ from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
-from app.models.db_models import MealPlan, User
+from app.models.db_models import MachineGeneration, MealPlan, User
 from app.models.plan_models import (
     ConsumedBatch,
     CookRecipeRequest,
@@ -100,6 +101,22 @@ def _recipe_was_edited(stored_output_json: str, submitted_json: str) -> bool:
         )
         return stored_output_json != submitted_json
     return stored.model_dump_json() != submitted_json
+
+
+def _stamp_from_generation(recipe: PlannedMeal, gen: MachineGeneration | None) -> None:
+    """Set recipe.generated_by from the server's own record of the generation.
+
+    The field is server-assigned, so the client's copy is never kept: it would
+    let a user attribute any recipe to any model. Plain nulling is wrong too: the
+    stored generation carries the stamp, so _recipe_was_edited would see every
+    untouched recipe as edited and write a phantom correction.
+    """
+    recipe.generated_by = None
+    if gen is None:
+        return
+    # An unreadable row has no known author, which None already says.
+    with contextlib.suppress(ValidationError):
+        recipe.generated_by = PlannedMeal.model_validate_json(gen.output_json).generated_by
 
 
 def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest:
@@ -295,6 +312,10 @@ async def cook_recipe(
     # there's no user-actionable error here, and the field isn't part of the
     # documented request shape.
     payload.recipe.leftover_of = None
+    gen = await resolve_owned_generation(
+        session, payload.generation_id, current_user.id, surface="single_recipe"
+    )
+    _stamp_from_generation(payload.recipe, gen)
 
     # Build a 1-day / 1-meal SingleDayResponse + MealPlanResponse so we can
     # reuse persist_meal_entries verbatim.
@@ -325,9 +346,6 @@ async def cook_recipe(
     # Telemetry: if the user edited the generated recipe before cooking, record
     # the delta against its (owner-checked) generation. An unedited cook leaves
     # the generation row with no linked correction — the accept-as-is signal.
-    gen = await resolve_owned_generation(
-        session, payload.generation_id, current_user.id, surface="single_recipe"
-    )
     if gen is not None:
         # Schema-tolerant compare — see _recipe_was_edited. The RECORDED blobs
         # stay raw on both sides (fidelity for the training corpus); only the
@@ -410,9 +428,12 @@ async def favorite_recipe(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
 
-    # Server-assigned field; strip it on this client-write path too (same
-    # reasoning as /recipe/cook).
+    # Server-assigned fields; same handling as /recipe/cook.
     payload.recipe.leftover_of = None
+    gen = await resolve_owned_generation(
+        session, payload.generation_id, current_user.id, surface="single_recipe"
+    )
+    _stamp_from_generation(payload.recipe, gen)
 
     day = SingleDayResponse(meals=[payload.recipe])
     plan_obj = MealPlanResponse(
@@ -438,9 +459,6 @@ async def favorite_recipe(
 
     # Telemetry: capture edits made before starring (same delta as /cook, its
     # own surface so cook vs save-only intent stays distinguishable).
-    gen = await resolve_owned_generation(
-        session, payload.generation_id, current_user.id, surface="single_recipe"
-    )
     if gen is not None:
         # Schema-tolerant compare — see _recipe_was_edited.
         after_json = payload.recipe.model_dump_json()

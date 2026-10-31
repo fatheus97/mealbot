@@ -10,13 +10,14 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.meal_types import MealType
 from app.core.security import get_password_hash
-from app.models.db_models import MachineCorrection, MachineGeneration, User
+from app.models.db_models import MachineCorrection, MachineGeneration, MealEntry, User
 from app.models.plan_models import IngredientAmount, PlannedMeal, SingleDayResponse
 from app.services.telemetry import record_generation, resolve_owned_generation
 
@@ -525,3 +526,76 @@ class TestGuardedCommitDegrade:
         body = resp.json()
         assert body["generation_id"] is None
         assert body["recipe"]["name"] == "Cook-Now Soup"
+
+
+class TestGeneratedByStamp:
+    """generated_by is server-assigned. /cook and /favorite take it from the
+    user's own generation row: a client can neither forge it, nor (by dropping
+    it) make an untouched recipe compare as edited and write a phantom
+    correction against a stamped generation."""
+
+    STAMP = "gemini/gemini-2.5-flash-lite"
+
+    async def _stamped_generation(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> dict[str, Any]:
+        await client.put(
+            "/api/fridge",
+            headers=auth_headers,
+            json=[{"name": "chicken", "quantity_grams": 500},
+                  {"name": "carrot", "quantity_grams": 300}],
+        )
+        recipe = _fake_recipe()
+        recipe.generated_by = self.STAMP
+        mock_gen.return_value = SingleDayResponse(meals=[recipe])
+        body = await _generate(client, auth_headers)
+        assert body["recipe"]["generated_by"] == self.STAMP
+        return body
+
+    async def _saved(self, db_session: AsyncSession, test_user: User) -> tuple[str | None, int]:
+        await db_session.commit()
+        entry = (
+            await db_session.execute(select(MealEntry).where(MealEntry.user_id == test_user.id))
+        ).scalar_one()
+        corrections = (
+            await db_session.execute(
+                select(MachineCorrection).where(MachineCorrection.user_id == test_user.id)
+            )
+        ).scalars().all()
+        return PlannedMeal.model_validate_json(entry.meal_json).generated_by, len(corrections)
+
+    @pytest.mark.parametrize("sent", ["openai/forged", None])
+    @pytest.mark.parametrize("route", ["/api/recipe/cook", "/api/recipe/favorite"])
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_the_stamp_comes_from_the_generation(
+        self,
+        mock_gen: AsyncMock,
+        route: str,
+        sent: str | None,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        body = await self._stamped_generation(mock_gen, client, auth_headers)
+        recipe = {**body["recipe"], "generated_by": sent}
+        resp = await client.post(route, headers=auth_headers, json=_cook_body(recipe, body["generation_id"]))
+        assert resp.status_code == 200
+        assert await self._saved(db_session, test_user) == (self.STAMP, 0)
+
+    @patch("app.api.recipe.generate_single_day", new_callable=AsyncMock)
+    async def test_no_generation_means_no_author(
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        body = await self._stamped_generation(mock_gen, client, auth_headers)
+        resp = await client.post(
+            "/api/recipe/cook", headers=auth_headers, json=_cook_body(body["recipe"], None)
+        )
+        assert resp.status_code == 200
+        stamp, _ = await self._saved(db_session, test_user)
+        assert stamp is None

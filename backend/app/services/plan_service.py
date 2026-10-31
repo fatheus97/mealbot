@@ -24,6 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.llm.client import first_choice
+from app.llm.experiment import pick_arm
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import (
     ConsumedBatch,
@@ -652,6 +654,9 @@ async def generate_plan_days(
     # The real dishes that materialisation overwrote, so a link repaired away
     # afterwards can be undone rather than leaving a content-free ghost.
     displaced: dict[tuple[int, int], PlannedMeal] = {}
+    # One roll per plan, so every day of it comes from the same model (unless
+    # that model fails and the chain takes over). See app/llm/experiment.py.
+    arm = pick_arm()
 
     for day_index in range(1, days + 1):
         day_req = payload.model_copy()
@@ -668,31 +673,32 @@ async def generate_plan_days(
         )
 
         try:
-            single_day: SingleDayResponse | None = None
-            if settings.use_rag:
-                try:
-                    single_day = await generate_single_day_with_rag(
-                        day_req, session, user.id, mock=user.is_demo,
+            with first_choice(arm):
+                single_day: SingleDayResponse | None = None
+                if settings.use_rag:
+                    try:
+                        single_day = await generate_single_day_with_rag(
+                            day_req, session, user.id, mock=user.is_demo,
+                            slot_layout=slot_layout, slot_portions=slot_portions,
+                        )
+                    except ScreenError:
+                        # RAG couldn't clear the allergen screen — fall back to a
+                        # fresh standard generation (no RAG examples to suggest the
+                        # allergen), which is itself screened. Only if THAT also
+                        # exhausts do we fail closed, so a satisfiable allergic
+                        # request isn't hard-failed just because RAG got unlucky.
+                        logger.warning(
+                            "Day %d: RAG hit allergen-screen exhaustion — falling "
+                            "back to the standard pipeline", day_index,
+                        )
+                        single_day = None
+                    if single_day:
+                        logger.info("Day %d: used RAG pipeline", day_index)
+                if single_day is None:
+                    single_day = await generate_single_day(
+                        day_req, day_index=day_index, mock=user.is_demo,
                         slot_layout=slot_layout, slot_portions=slot_portions,
                     )
-                except ScreenError:
-                    # RAG couldn't clear the allergen screen — fall back to a
-                    # fresh standard generation (no RAG examples to suggest the
-                    # allergen), which is itself screened. Only if THAT also
-                    # exhausts do we fail closed, so a satisfiable allergic
-                    # request isn't hard-failed just because RAG got unlucky.
-                    logger.warning(
-                        "Day %d: RAG hit allergen-screen exhaustion — falling "
-                        "back to the standard pipeline", day_index,
-                    )
-                    single_day = None
-                if single_day:
-                    logger.info("Day %d: used RAG pipeline", day_index)
-            if single_day is None:
-                single_day = await generate_single_day(
-                    day_req, day_index=day_index, mock=user.is_demo,
-                    slot_layout=slot_layout, slot_portions=slot_portions,
-                )
         except HTTPException:
             raise
         except ScreenError:
