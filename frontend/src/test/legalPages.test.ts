@@ -223,8 +223,20 @@ describe.skipIf(!hasBuild)("legal pages", () => {
       const b = html[`dist/cs/${doc}.html`];
       // The cross-link between the two Czech documents, and the back link.
       expect(b).toMatch(/href="\/cs\/(privacy|terms)"/);
-      expect(b).not.toMatch(/href="\/(privacy|terms)"/);
+      // The one deliberate English link is the language switch, which names
+      // its language with hreflang. Anything else is a slip back into English.
+      const withoutSwitch = b.replace(`<a href="/${doc}" hreflang="en" lang="en">English</a>`, "");
+      expect(withoutSwitch).not.toMatch(/href="\/(privacy|terms)"/);
       expect(b).toContain('href="/cs"');
+    }
+  });
+
+  it("each edition offers a visible link to the other one", () => {
+    // A visitor the server sent to the Czech edition must be able to get the
+    // English one (and back): both are equally authoritative (terms §13).
+    for (const doc of ["privacy", "terms"] as const) {
+      expect(html[`dist/cs/${doc}.html`]).toContain(`<a href="/${doc}" hreflang="en" lang="en">English</a>`);
+      expect(html[`dist/${doc}.html`]).toContain(`<a href="/cs/${doc}" hreflang="cs" lang="cs">Čeština</a>`);
     }
   });
 });

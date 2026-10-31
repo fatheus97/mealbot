@@ -62,6 +62,21 @@ function clean(value: string | null, cap: number): string | undefined {
 }
 
 /**
+ * The referrer, unless it is this site itself. A same-origin referrer means the
+ * visitor moved within the site (a footer link, a language link, the static
+ * pages' choice swap), so it names no acquisition source: recording it would
+ * credit trymealbot.com with the signup.
+ */
+function externalReferrer(): string | null {
+  if (!document.referrer) return null;
+  try {
+    return new URL(document.referrer).origin === window.location.origin ? null : document.referrer;
+  } catch {
+    return document.referrer;
+  }
+}
+
+/**
  * Read the current URL's UTM params + referrer and, if anything is present AND
  * nothing is captured yet, keep it. Safe to call on every load — a no-op once
  * something is held (first-touch) or when there's nothing to capture (direct
@@ -85,7 +100,7 @@ export function captureAttribution(): void {
   const source = clean(params.get("utm_source"), UTM_CAP);
   const medium = clean(params.get("utm_medium"), UTM_CAP);
   const campaign = clean(params.get("utm_campaign"), UTM_CAP);
-  const referrer = clean(document.referrer || null, REFERRER_CAP);
+  const referrer = clean(externalReferrer(), REFERRER_CAP);
   if (source) next.utm_source = source;
   if (medium) next.utm_medium = medium;
   if (campaign) next.utm_campaign = campaign;

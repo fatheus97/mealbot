@@ -236,6 +236,14 @@ jobs:
           fi
           echo "access log kept the secrets out"
 
+      - name: Language routing matches the shared browser cases
+        # Who gets the Czech pages is decided twice: by nginx on a visitor's
+        # first request (an HTTP redirect, so their Referer survives) and by the
+        # app's detectLocale() once it runs. Both are held to one fixture,
+        # frontend/src/test/fixtures/accept-language.json; Vitest checks the
+        # app half, this checks the real production config.
+        run: python3 .github/scripts/check-lang-routing.py http://localhost:8080
+
       - name: Dump nginx logs on failure
         if: failure()
         run: docker logs frontend-headers-test

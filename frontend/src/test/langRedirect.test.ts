@@ -4,27 +4,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_LOCALE, detectLocale, useLocaleStore } from '../store/useLocaleStore';
 
 // public/lang-redirect.js is served as-is (a render-blocking classic script, not
-// bundled), so it cannot import detectLocale or the store. These tests run the
-// real file and hold it to both, so the copy cannot drift.
+// bundled), so it cannot import the store. These tests run the real file and
+// hold it to the store's own record, so the two cannot drift.
 const SCRIPT = readFileSync(resolve(process.cwd(), 'public/lang-redirect.js'), 'utf8');
-const ORIGIN = 'https://trymealbot.com';
 const realLocation = window.location;
-const realNavigator = window.navigator;
 
-interface Visit {
-  path: string;
-  languages?: readonly unknown[];
-  referrer?: string;
-  search?: string;
-  hash?: string;
+interface AcceptLanguageCase {
+  header: string;
+  languages: string[];
+  czech: boolean;
 }
+const fixture = JSON.parse(
+  readFileSync(resolve(process.cwd(), 'src/test/fixtures/accept-language.json'), 'utf8'),
+) as { cases: AcceptLanguageCase[] };
 
-/** Run the script as a page load would; returns where it redirected, or null. */
-function visit({ path, languages = ['en-US'], referrer = '', search = '', hash = '' }: Visit): string | null {
+/** Run the script as a page load would; returns where it went, or null. */
+function visit(path: string, search = '', hash = ''): string | null {
   const replace = vi.fn();
-  vi.stubGlobal('location', { origin: ORIGIN, pathname: path, search, hash, replace });
-  vi.stubGlobal('navigator', { languages, language: languages[0] });
-  Object.defineProperty(document, 'referrer', { configurable: true, value: referrer });
+  vi.stubGlobal('location', { pathname: path, search, hash, replace });
   new Function(SCRIPT)();
   return replace.mock.calls.length ? (replace.mock.calls[0][0] as string) : null;
 }
@@ -38,6 +35,8 @@ function clickLink(hreflang: string, inner = false): void {
   link.remove();
 }
 
+const choose = (locale: 'en' | 'cs') => useLocaleStore.getState().setLocale(locale);
+
 beforeEach(() => {
   // setState persists, so reset the store BEFORE emptying storage.
   useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
@@ -46,122 +45,124 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.stubGlobal('location', realLocation);
-  vi.stubGlobal('navigator', realNavigator);
-  Reflect.deleteProperty(document, 'referrer');
 });
 
-describe('lang-redirect.js agrees with detectLocale', () => {
-  const CASES: readonly (readonly unknown[])[] = [
-    ['cs-CZ'], ['CS'], ['cs-Latn-CZ'], ['sk-SK'], ['sk'], ['en-US'], ['en-GB', 'sk'],
-    ['de-DE', 'cs'], ['pl-PL', 'sk-SK'], ['ja-JP'], [], [undefined, 'cs'],
-  ];
-  it.each(CASES.map((langs) => [JSON.stringify(langs), langs]))(
-    'browser %s',
-    (_, langs) => {
-      const czech = detectLocale(langs as readonly string[]) === 'cs';
-      expect(visit({ path: '/', languages: langs })).toBe(czech ? '/cs' : null);
+describe('browser language (decided by nginx, which this fixture also drives)', () => {
+  it.each(fixture.cases.map((c) => [c.header || '(none)', c] as const))(
+    'detectLocale agrees with the shared case for %s',
+    (_, c) => {
+      expect(detectLocale(c.languages)).toBe(c.czech ? 'cs' : 'en');
     },
   );
 
-  it('sends Slovak browsers to Czech', () => {
-    expect(visit({ path: '/', languages: ['sk-SK', 'en-US'] })).toBe('/cs');
+  it('each case lists its header tags as navigator.languages would', () => {
+    for (const c of fixture.cases) {
+      const tags = c.header
+        .split(',')
+        .map((part) => part.split(';')[0].trim())
+        .filter(Boolean);
+      expect(c.languages).toEqual(tags);
+    }
+  });
+
+  it('the script never redirects on the browser language alone', () => {
+    for (const path of ['/', '/privacy', '/terms', '/cs', '/cs/privacy', '/cs/terms']) {
+      expect(visit(path)).toBeNull();
+    }
   });
 });
 
-describe('where it redirects', () => {
+describe('a choice the visitor made', () => {
   it.each([
     ['/', '/cs'],
     ['/index.html', '/cs'],
     ['/privacy', '/cs/privacy'],
     ['/privacy.html', '/cs/privacy'],
-    ['/terms', '/cs/terms'],
     ['/terms/', '/cs/terms'],
-  ])('%s -> %s for a Czech browser', (path, target) => {
-    expect(visit({ path, languages: ['cs-CZ'] })).toBe(target);
+  ])('Czech: %s -> %s', (path, target) => {
+    choose('cs');
+    expect(visit(path)).toBe(target);
+  });
+
+  it.each([
+    ['/cs', '/'],
+    ['/cs/', '/'],
+    ['/cs/index.html', '/'],
+    ['/cs/privacy', '/privacy'],
+    ['/cs/terms.html', '/terms'],
+  ])('English: %s -> %s', (path, target) => {
+    choose('en');
+    expect(visit(path)).toBe(target);
+  });
+
+  it('stays put on a page already in the chosen language, so it cannot loop', () => {
+    choose('cs');
+    expect(visit('/cs')).toBeNull();
+    expect(visit('/cs/terms')).toBeNull();
+    choose('en');
+    expect(visit('/')).toBeNull();
+    expect(visit('/privacy')).toBeNull();
   });
 
   it('keeps the query string and anchor, so campaign tags survive', () => {
-    expect(
-      visit({ path: '/', languages: ['cs'], search: '?utm_source=fb&utm_campaign=x', hash: '#pricing' }),
-    ).toBe('/cs?utm_source=fb&utm_campaign=x#pricing');
+    choose('cs');
+    expect(visit('/', '?utm_source=fb&utm_campaign=x', '#pricing')).toBe(
+      '/cs?utm_source=fb&utm_campaign=x#pricing',
+    );
   });
 
-  it.each(['/cs', '/cs/', '/cs/privacy', '/cs/terms', '/app', '/app/plans', '/reset-password'])(
-    'never redirects from %s',
-    (path) => {
-      expect(visit({ path, languages: ['cs-CZ'] })).toBeNull();
-    },
-  );
-
-  it('leaves an English browser on the English page', () => {
-    expect(visit({ path: '/', languages: ['en-US', 'de'] })).toBeNull();
-  });
-});
-
-describe('a choice the visitor made wins over the browser', () => {
-  it('English picked in the app keeps a Czech browser on the English landing', () => {
-    useLocaleStore.getState().setLocale('en');
-    expect(visit({ path: '/', languages: ['cs-CZ'] })).toBeNull();
+  it('leaves pages with no counterpart alone', () => {
+    choose('cs');
+    for (const path of ['/app', '/app/plans', '/reset-password', '/csv']) {
+      expect(visit(path)).toBeNull();
+    }
   });
 
-  it('Czech picked in the app sends an English browser to /cs', () => {
-    useLocaleStore.getState().setLocale('cs');
-    expect(visit({ path: '/', languages: ['en-US'] })).toBe('/cs');
-  });
-
-  it('a detected (not chosen) locale in storage does not count as a choice', () => {
+  it('a detected (not chosen) locale in storage is not a choice', () => {
     localStorage.setItem('mealbot-locale', JSON.stringify({ state: { locale: 'cs', explicit: false }, version: 1 }));
-    expect(visit({ path: '/', languages: ['en-US'] })).toBeNull();
+    expect(visit('/')).toBeNull();
   });
 
-  it('an unreadable record falls back to detection instead of throwing', () => {
+  it('an unreadable record is ignored rather than thrown on', () => {
     localStorage.setItem('mealbot-locale', '{not json');
-    expect(visit({ path: '/', languages: ['cs'] })).toBe('/cs');
-  });
-
-  it('a visitor arriving from one of our Czech pages is not bounced back', () => {
-    // Covers a browser that blocks storage: the click below could not be saved.
-    expect(visit({ path: '/', languages: ['cs'], referrer: `${ORIGIN}/cs` })).toBeNull();
-    expect(visit({ path: '/privacy', languages: ['cs'], referrer: `${ORIGIN}/cs/terms` })).toBeNull();
-  });
-
-  it('a referrer that is not one of our Czech pages does not stop the redirect', () => {
-    expect(visit({ path: '/', languages: ['cs'], referrer: 'https://example.com/cs' })).toBe('/cs');
-    expect(visit({ path: '/', languages: ['cs'], referrer: `${ORIGIN}/csv-export` })).toBe('/cs');
-    expect(visit({ path: '/', languages: ['cs'], referrer: `${ORIGIN}/` })).toBe('/cs');
+    expect(visit('/')).toBeNull();
   });
 });
 
-describe('the language link records the choice', () => {
+describe('the language links record the choice', () => {
   it('in the record the app store reads back', async () => {
-    visit({ path: '/', languages: ['en-US'] });
+    visit('/');
     clickLink('cs');
     await useLocaleStore.persist.rehydrate();
     expect(useLocaleStore.getState()).toMatchObject({ locale: 'cs', explicit: true });
   });
 
-  it('so English clicked on /cs keeps a Czech browser on / next time', () => {
-    visit({ path: '/cs', languages: ['cs'] });
+  it('so the next visit lands in that language', () => {
+    visit('/cs');
     clickLink('en');
-    expect(visit({ path: '/', languages: ['cs'] })).toBeNull();
+    expect(visit('/cs/privacy')).toBe('/privacy');
   });
 
   it('when the click lands on an element inside the link', () => {
-    visit({ path: '/', languages: ['en'] });
+    visit('/');
     clickLink('cs', true);
-    expect(visit({ path: '/', languages: ['en'] })).toBe('/cs');
+    expect(visit('/')).toBe('/cs');
   });
 
   it('ignores links to languages the app does not have', () => {
-    visit({ path: '/', languages: ['en'] });
+    visit('/');
     clickLink('de');
     expect(localStorage.getItem('mealbot-locale')).toBeNull();
   });
 
-  it('a browser that blocks storage still gets detection, and clicks do not throw', () => {
+  it('a browser that blocks storage gets no swap, and clicks do not throw', () => {
     const blocked = {
-      getItem: () => { throw new Error('SecurityError'); },
-      setItem: () => { throw new Error('SecurityError'); },
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {
+        throw new Error('SecurityError');
+      },
     };
     const realStorage = localStorage;
     // A listener's exception never reaches dispatchEvent; jsdom reports it on
@@ -171,7 +172,7 @@ describe('the language link records the choice', () => {
     window.addEventListener('error', onError);
     vi.stubGlobal('localStorage', blocked);
     try {
-      expect(visit({ path: '/', languages: ['cs'] })).toBe('/cs');
+      expect(visit('/cs')).toBeNull();
       clickLink('en');
       expect(uncaught).toEqual([]);
     } finally {

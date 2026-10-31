@@ -1,21 +1,32 @@
-// Language routing for the static pages: a visitor whose browser prefers Czech
-// (or Slovak) is sent from an English page to its Czech counterpart, and a
-// language picked on the page's own language link is remembered.
+// Honours a language the visitor CHOSE, on the six static pages.
 //
-// Loaded render-blocking from <head>: the CSP forbids inline scripts, and the
-// landing's deferred module would only redirect after the English page painted.
-// It runs on the English landing, privacy and terms pages (redirect + link) and
-// on the Czech landing (link only). Czech pages never redirect, so no loop.
+// Choosing from the browser's languages is nginx's job ($lang_to_czech in
+// nginx.conf): an HTTP redirect keeps the visitor's original Referer, which a
+// script navigation loses. nginx cannot see a choice, though. It lives in
+// localStorage, and the site sets no cookie for it, because the privacy policy
+// promises no cookies to anyone who never signs in. So this script:
 //
-// It mirrors detectLocale() in src/store/useLocaleStore.ts and reads and writes
-// that store's persisted record, so one choice holds here and in the app.
-// src/test/langRedirect.test.ts runs this file against both.
+// - records a click on a language link (a[hreflang]) as an explicit choice, in
+//   the record the app's locale store persists (src/store/useLocaleStore.ts),
+//   so one choice holds here and in the app;
+// - on a page in the other language, swaps to the chosen language's version,
+//   keeping the query string and anchor.
+//
+// Loaded render-blocking from <head> (the CSP forbids inline scripts), so the
+// swap happens before the wrong page paints. No loop: on a page already in the
+// chosen language it does nothing, and nginx never redirects a visitor coming
+// from this site. src/test/langRedirect.test.ts runs this file against the store.
 (() => {
   const STORE_KEY = "mealbot-locale";
   const LOCALES = ["en", "cs"];
-  // Slovak readers get Czech rather than English.
-  const ALIASES = { sk: "cs" };
-  const CZECH_PAGE = { "/": "/cs", "/privacy": "/cs/privacy", "/terms": "/cs/terms" };
+  const COUNTERPART = {
+    "/": "/cs",
+    "/cs": "/",
+    "/privacy": "/cs/privacy",
+    "/cs/privacy": "/privacy",
+    "/terms": "/cs/terms",
+    "/cs/terms": "/terms",
+  };
 
   const isLocale = (value) => LOCALES.includes(value);
 
@@ -35,27 +46,7 @@
         JSON.stringify({ state: { locale, explicit: true }, version: 1 }),
       );
     } catch {
-      // Storage blocked: the referrer check below still stops a bounce-back.
-    }
-  }
-
-  function detect(languages) {
-    for (const tag of languages) {
-      if (typeof tag !== "string") continue;
-      const primary = tag.toLowerCase().split("-")[0];
-      const locale = ALIASES[primary] ?? primary;
-      if (isLocale(locale)) return locale;
-    }
-    return "en";
-  }
-
-  // Arriving from one of our Czech pages means the visitor chose English.
-  function cameFromCzechPage() {
-    try {
-      const from = new URL(document.referrer);
-      return from.origin === location.origin && /^\/cs(\/|$)/.test(from.pathname);
-    } catch {
-      return false;
+      // Storage blocked: nginx still never bounces a visitor moving within the site.
     }
   }
 
@@ -70,8 +61,10 @@
   );
 
   const path = location.pathname.replace(/\.html$/, "").replace(/\/index$/, "/").replace(/(.)\/$/, "$1");
-  const czech = CZECH_PAGE[path];
-  if (!czech || cameFromCzechPage()) return;
-  const locale = savedChoice() ?? detect(navigator.languages ?? [navigator.language]);
-  if (locale === "cs") location.replace(czech + location.search + location.hash);
+  const counterpart = COUNTERPART[path];
+  const pageLocale = /^\/cs(\/|$)/.test(path) ? "cs" : "en";
+  const choice = savedChoice();
+  if (counterpart && choice && choice !== pageLocale) {
+    location.replace(counterpart + location.search + location.hash);
+  }
 })();
