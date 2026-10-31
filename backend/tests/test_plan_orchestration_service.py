@@ -24,6 +24,7 @@ from app.models.plan_models import (
     PlannedMeal,
     SingleDayResponse,
 )
+from app.services.fridge_service import lock_kitchen
 from app.services.leftovers import LeftoverAssignment
 from app.services.plan_service import (
     PlanReopenShortageError,
@@ -116,6 +117,7 @@ class TestConfirmPlanFridge:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
 
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
         await db_session.commit()
 
@@ -137,9 +139,11 @@ class TestUnconfirmPlanFridge:
     ) -> None:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
         await db_session.commit()
 
+        await lock_kitchen(db_session, test_user.id)
         await unconfirm_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
 
@@ -156,6 +160,7 @@ class TestFinishPlanFridge:
     ) -> None:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
         await db_session.commit()
 
@@ -165,6 +170,7 @@ class TestFinishPlanFridge:
         db_session.add(entries[0])
         await db_session.commit()
 
+        await lock_kitchen(db_session, test_user.id)
         returned = await finish_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
 
@@ -185,7 +191,9 @@ class TestReopenPlanFridge:
         stays finished. This is what keeps reopen atomic."""
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
+        await lock_kitchen(db_session, test_user.id)
         await finish_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
         # Nothing was cooked, so finish restored the fridge to 500/400. Now starve
@@ -202,6 +210,7 @@ class TestReopenPlanFridge:
         await db_session.commit()
 
         with pytest.raises(PlanReopenShortageError) as exc:
+            await lock_kitchen(db_session, test_user.id)
             await reopen_plan_fridge(db_session, test_user.id, plan)
 
         assert exc.value.ingredient_name == "pasta"
@@ -222,11 +231,14 @@ class TestReopenPlanFridge:
     ) -> None:
         assert test_user.id is not None
         plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
+        await lock_kitchen(db_session, test_user.id)
         await finish_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
         # Fridge restored to 500/400 by finish; reopen must re-debit both meals.
 
+        await lock_kitchen(db_session, test_user.id)
         await reopen_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
 
@@ -320,6 +332,7 @@ class TestLeftoverFridgeAccounting:
         assert test_user.id is not None
         plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
 
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
@@ -334,6 +347,7 @@ class TestLeftoverFridgeAccounting:
         credit from meal_json and so INVENTS food that was never debited."""
         assert test_user.id is not None
         plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
@@ -354,6 +368,7 @@ class TestLeftoverFridgeAccounting:
         physically exist — food materializing out of nothing."""
         assert test_user.id is not None
         plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
@@ -363,6 +378,7 @@ class TestLeftoverFridgeAccounting:
         db_session.add(source)
         await db_session.commit()
 
+        await lock_kitchen(db_session, test_user.id)
         returned = await finish_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
 
@@ -379,6 +395,7 @@ class TestLeftoverFridgeAccounting:
         debit exactly once; the cooked leftover contributes nothing."""
         assert test_user.id is not None
         plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
@@ -388,6 +405,7 @@ class TestLeftoverFridgeAccounting:
         db_session.add(leftover)
         await db_session.commit()
 
+        await lock_kitchen(db_session, test_user.id)
         returned = await finish_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
 
@@ -403,7 +421,9 @@ class TestLeftoverFridgeAccounting:
         blocked on a finished plan, the user would have no escape via the UI."""
         assert test_user.id is not None
         plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
+        await lock_kitchen(db_session, test_user.id)
         await finish_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
 
@@ -421,6 +441,7 @@ class TestLeftoverFridgeAccounting:
         db_session.add(rice)
         await db_session.commit()
 
+        await lock_kitchen(db_session, test_user.id)
         await reopen_plan_fridge(db_session, test_user.id, plan)  # must not raise
         await db_session.commit()
 
@@ -441,9 +462,11 @@ class TestLeftoverFridgeAccounting:
         whatever the snapshot says. The asymmetric tests above are what bite."""
         assert test_user.id is not None
         plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
+        await lock_kitchen(db_session, test_user.id)
         await unconfirm_plan_fridge(db_session, test_user.id, plan)
         await db_session.commit()
 
@@ -511,6 +534,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
         db_session.add(plan)
         await db_session.flush()
 
+        await lock_kitchen(db_session, test_user.id)
         await confirm_plan_fridge(db_session, test_user.id, plan, plan_obj)
         await db_session.commit()
 

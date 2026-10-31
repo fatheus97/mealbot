@@ -27,6 +27,7 @@ from app.models.plan_models import (
 )
 from app.services.fridge_service import (
     get_fridge_items,
+    lock_kitchen,
     merge_into_fridge_buckets,
     record_waste_entries,
     replace_fridge_items,
@@ -112,6 +113,8 @@ async def put_fridge(
             count_given=str(len(payload)),
             maximum=str(MAX_FRIDGE_ITEMS),
         )
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    await lock_kitchen(session, current_user.id)
     return await replace_fridge_items(
         session, current_user.id, payload, need_to_use_enabled=current_user.need_to_use_enabled
     )
@@ -334,6 +337,8 @@ async def merge_fridge_items(
             count_given=str(len(payload)),
             maximum=str(MAX_FRIDGE_ITEMS),
         )
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    await lock_kitchen(session, current_user.id)
     existing = await get_fridge_items(session, current_user.id)
 
     # Telemetry: if the user edited the scan before merging, record the delta

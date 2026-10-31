@@ -8,7 +8,9 @@ functions; tests import the pure helpers directly.
 from collections.abc import Iterable
 from datetime import date, timedelta
 
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session, SessionTransaction
 from sqlmodel import delete, select
 
 from app.models.db_models import StockItem, WasteRecord
@@ -24,12 +26,53 @@ __all__ = [
     "flatten_fridge_batches",
     "get_fridge_items",
     "group_and_sort_fridge",
+    "lock_kitchen",
     "merge_into_fridge_buckets",
     "record_waste_entries",
     "replace_fridge_items",
     "restore_consumed_batches",
     "subtract_ingredients_from_fridge",
 ]
+
+# First half of the (namespace, user_id) advisory-lock key, so this lock can't
+# collide with any other pg_advisory lock taken on the same database. "KTCH".
+_KITCHEN_LOCK_NAMESPACE = 0x4B544348
+# session.info key recording which user's kitchen THIS transaction has locked.
+_KITCHEN_LOCKED = "kitchen_locked_user_id"
+
+
+async def lock_kitchen(session: AsyncSession, user_id: int) -> None:
+    """Serialize this user's fridge and plan-state writes. Call it FIRST.
+
+    replace_fridge_items rewrites the whole fridge (delete every row, insert the
+    new list), and every caller computes that list from an earlier read. Two such
+    transactions for one user, interleaved, either lose one write or, each DELETE
+    missing the other's fresh INSERTs, keep both lists: the food doubles. Two
+    concurrent Finishes of one plan did exactly that, and so can any two writers
+    (Finish plan A + Finish plan B, Merge + Confirm).
+
+    Plan endpoints that write state the fridge accounting reads take it too:
+    Finish/Delete/Unconfirm act on the meals they read as uncooked and
+    unfavourited, so a Cook or Favorite landing between that read and the commit
+    would get its food returned or its cookbook entry deleted.
+
+    A transaction-scoped Postgres advisory lock, released at commit/rollback. It
+    protects only what is read AFTER it, so take it before loading the plan or
+    the fridge, not just before writing. Never hold it across an LLM call.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), CAST(:uid AS integer))"),
+        {"ns": _KITCHEN_LOCK_NAMESPACE, "uid": user_id},
+    )
+    session.info[_KITCHEN_LOCKED] = user_id
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _forget_kitchen_lock(session: Session, transaction: SessionTransaction) -> None:
+    # The advisory lock ends with the database transaction; so does our record
+    # of holding it. A savepoint ending (transaction.parent set) releases nothing.
+    if transaction.parent is None:
+        session.info.pop(_KITCHEN_LOCKED, None)
 
 
 def record_waste_entries(
@@ -178,7 +221,15 @@ async def replace_fridge_items(
     genuinely predates this field) — same OR-combine safety net as before.
     A key with no existing match by either (a genuinely new item) has no
     stored value to preserve, so it falls back to False.
+
+    The caller must hold ``lock_kitchen`` for ``user_id`` in this transaction,
+    taken before it read whatever ``items`` was computed from. Writing without
+    it raises: an unlocked whole-fridge rewrite races every other writer.
     """
+    if session.info.get(_KITCHEN_LOCKED) != user_id:
+        raise RuntimeError(
+            f"replace_fridge_items(user_id={user_id}) without lock_kitchen() in this transaction"
+        )
     if not need_to_use_enabled:
         existing = (
             await session.execute(select(StockItem).where(StockItem.user_id == user_id))

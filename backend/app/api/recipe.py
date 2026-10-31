@@ -47,6 +47,7 @@ from app.services.fridge_service import (
     flatten_fridge_batches,
     get_fridge_items,
     group_and_sort_fridge,
+    lock_kitchen,
     replace_fridge_items,
 )
 from app.services.meal_planner import generate_single_day
@@ -267,6 +268,8 @@ async def cook_recipe(
     """
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    await lock_kitchen(session, current_user.id)
 
     # TRUST BOUNDARY: payload.recipe is fully client-controlled — name,
     # ingredients, quantities, steps AND meal_type are taken at face value. The

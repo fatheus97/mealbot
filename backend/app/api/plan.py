@@ -55,6 +55,7 @@ from app.services.allergen_screen import (
 )
 from app.services.fridge_service import (
     get_fridge_items,
+    lock_kitchen,
 )
 from app.services.leftovers import (
     expand_leftover_groups,
@@ -388,6 +389,9 @@ async def delete_plan(
     deliberate to avoid surprising data loss now that the cookbook is a
     visible UI surface.
     """
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise LocalizedHTTPException(404, "plan_not_found")
@@ -411,7 +415,6 @@ async def delete_plan(
     # DELETE fail (StaleDataError, rolled back) instead of restoring the same
     # food again.
     if plan.confirmed_at is not None and plan.finished_at is None:
-        assert current_user.id is not None  # narrowed by the ownership check above
         await finish_plan_fridge(session, current_user.id, plan)
 
     # Delete meal entries first (no cascade in SQLModel by default)
@@ -906,6 +909,10 @@ async def confirm_plan(
     # rolls back the whole transaction — no partial fridge mutation survives.
     # Do not introduce an intermediate session.commit() in this handler.
 
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
+
     # Load plan & ownership check
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
@@ -930,7 +937,6 @@ async def confirm_plan(
 
     # FIFO-debit + persist entries + mark confirmed. All staged; the single
     # commit below is the atomicity boundary (see the contract comment above).
-    assert current_user.id is not None  # narrowed by the ownership check above
     await confirm_plan_fridge(session, current_user.id, plan, plan_obj)
     await session.commit()
 
@@ -953,6 +959,9 @@ async def unconfirm_plan(
     Blocks if any meal has cooked_at set; the user must uncook first so
     cooking history is never silently destroyed.
     """
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise LocalizedHTTPException(404, "plan_not_found")
@@ -992,7 +1001,6 @@ async def unconfirm_plan(
 
     # Restore each entry's snapshot debit, delete entries, clear confirmed_at
     # (staged; the commit below is the atomicity boundary).
-    assert current_user.id is not None  # narrowed by the ownership check above
     await unconfirm_plan_fridge(session, current_user.id, plan)
     await session.commit()
 
@@ -1010,6 +1018,9 @@ async def cook_meal(
     session: AsyncSession = Depends(get_session),
 ) -> MealEntrySummary:
     """Mark a single meal as cooked (cosmetic only — no fridge changes). Idempotent."""
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     entry = await session.get(MealEntry, meal_entry_id)
     if (
         not entry
@@ -1054,6 +1065,9 @@ async def favorite_meal(
     haven't cooked yet (intent to keep), and uncooking no longer wipes a
     favorite (history vs. preference are orthogonal).
     """
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     entry = await session.get(MealEntry, meal_entry_id)
     if (
         not entry
@@ -1110,6 +1124,9 @@ async def uncook_meal(
     session: AsyncSession = Depends(get_session),
 ) -> MealEntrySummary:
     """Unmark a meal as cooked (cosmetic only — no fridge changes). Idempotent."""
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     entry = await session.get(MealEntry, meal_entry_id)
     if (
         not entry
@@ -1443,6 +1460,9 @@ async def finish_plan(
     session: AsyncSession = Depends(get_session),
 ) -> FinishPlanResponse:
     """Finish a plan: return ingredients for uncooked meals to fridge."""
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise LocalizedHTTPException(404, "plan_not_found")
@@ -1466,7 +1486,6 @@ async def finish_plan(
         )
 
     # Restore uncooked meals' ingredients + mark finished (staged; atomic).
-    assert current_user.id is not None  # narrowed by the ownership check above
     returned_meals = await finish_plan_fridge(session, current_user.id, plan)
     await session.commit()
 
@@ -1495,6 +1514,9 @@ async def reopen_plan(
     cannot be fully re-debited from current stock — the user must restock
     or accept the finish as final.
     """
+    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
+    assert current_user.id is not None  # every authenticated user has one
+    await lock_kitchen(session, current_user.id)
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise LocalizedHTTPException(404, "plan_not_found")
@@ -1504,7 +1526,6 @@ async def reopen_plan(
 
     # Re-debit uncooked meals against current stock, rewrite snapshots, clear
     # finished_at (staged; atomic). A shortage aborts before any fridge write.
-    assert current_user.id is not None  # narrowed by the ownership check above
     try:
         await reopen_plan_fridge(session, current_user.id, plan)
     except PlanReopenShortageError as exc:

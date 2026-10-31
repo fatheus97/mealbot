@@ -466,6 +466,7 @@ class TestFIFOSubtraction:
         """FIFO: subtracting should consume from earliest-expiring batch first."""
         from app.models.plan_models import IngredientAmount, StockItemDTO
         from app.services.fridge_service import (
+            lock_kitchen,
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
@@ -476,8 +477,10 @@ class TestFIFOSubtraction:
             StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 13)),
             StockItemDTO(name="milk", quantity_grams=500, expiration_date=date(2026, 3, 20)),
         ]
+        await lock_kitchen(db_session, user_id)
         await replace_fridge_items(db_session, user_id, items)
 
+        await lock_kitchen(db_session, user_id)
         result = await subtract_ingredients_from_fridge(
             db_session, user_id,
             [IngredientAmount(name="milk", quantity_grams=150)],
@@ -496,6 +499,7 @@ class TestFIFOSubtraction:
         """FIFO: when first batch is exhausted, overflow to next batch."""
         from app.models.plan_models import IngredientAmount, StockItemDTO
         from app.services.fridge_service import (
+            lock_kitchen,
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
@@ -506,8 +510,10 @@ class TestFIFOSubtraction:
             StockItemDTO(name="milk", quantity_grams=100, expiration_date=date(2026, 3, 13)),
             StockItemDTO(name="milk", quantity_grams=500, expiration_date=date(2026, 3, 20)),
         ]
+        await lock_kitchen(db_session, user_id)
         await replace_fridge_items(db_session, user_id, items)
 
+        await lock_kitchen(db_session, user_id)
         result = await subtract_ingredients_from_fridge(
             db_session, user_id,
             [IngredientAmount(name="milk", quantity_grams=250)],
@@ -523,6 +529,7 @@ class TestFIFOSubtraction:
         """FIFO: same expiration date → smaller batch consumed first."""
         from app.models.plan_models import IngredientAmount, StockItemDTO
         from app.services.fridge_service import (
+            lock_kitchen,
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
@@ -534,9 +541,11 @@ class TestFIFOSubtraction:
             StockItemDTO(name="milk", quantity_grams=300, expiration_date=date(2026, 3, 15)),
             StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 15)),
         ]
+        await lock_kitchen(db_session, user_id)
         await replace_fridge_items(db_session, user_id, items)
 
         # Deduct 250: should exhaust smaller batch (200) first, then take 50 from larger (300 → 250)
+        await lock_kitchen(db_session, user_id)
         result = await subtract_ingredients_from_fridge(
             db_session, user_id,
             [IngredientAmount(name="milk", quantity_grams=250)],
@@ -551,6 +560,7 @@ class TestFIFOSubtraction:
         """FIFO: partial deduction from same-date batches takes from smaller batch."""
         from app.models.plan_models import IngredientAmount, StockItemDTO
         from app.services.fridge_service import (
+            lock_kitchen,
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
@@ -562,9 +572,11 @@ class TestFIFOSubtraction:
             StockItemDTO(name="milk", quantity_grams=300, expiration_date=date(2026, 3, 15)),
             StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 15)),
         ]
+        await lock_kitchen(db_session, user_id)
         await replace_fridge_items(db_session, user_id, items)
 
         # Deduct 100: should reduce smaller batch (200 → 100), larger untouched (300)
+        await lock_kitchen(db_session, user_id)
         result = await subtract_ingredients_from_fridge(
             db_session, user_id,
             [IngredientAmount(name="milk", quantity_grams=100)],
