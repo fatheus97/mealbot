@@ -262,6 +262,8 @@ export function useDeletePlan() {
       // A delete removes the plan from calendar eligibility too — refresh it
       // (belt-and-suspenders with usePlanCalendar's staleTime:0).
       queryClient.invalidateQueries({ queryKey: ['planCalendar'] });
+      // Deleting an unfinished plan returns its uncooked meals' food.
+      queryClient.invalidateQueries({ queryKey: ['fridge'] });
       return queryClient.invalidateQueries({ queryKey: ['planList'] });
     },
   });

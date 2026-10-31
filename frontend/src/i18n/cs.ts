@@ -727,8 +727,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "plans.deleteTitle": "Smazat tento jídelníček?",
   "plans.deleteBody":
     "Tímto trvale smažete jídelníček na {days} dní po {meals} jídlech z {date}. Akci nelze vrátit zpět.",
-  "plans.deleteKeepsFood":
-    "Smazáním se do lednice nic nevrátí. Pokud chcete zpět suroviny odečtené pro neuvařená jídla, jídelníček nejprve dokončete.",
+  "plans.deleteReturnsFood":
+    "Suroviny odečtené pro jídla, která nejsou označená jako uvařená, se vrátí do lednice.",
   "plans.openFailed": "Jídelníček se nepodařilo otevřít. Zkuste to prosím znovu.",
   "plans.deleteFailed": "Jídelníček se nepodařilo smazat.",
   "plans.dateFailed": "Datum jídelníčku se nepodařilo změnit. Zkuste to prosím znovu.",
