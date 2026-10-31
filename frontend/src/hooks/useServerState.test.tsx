@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, usePlanCalendar, useReschedulePlan } from './useServerState';
+import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan } from './useServerState';
 import type { ReactNode } from 'react';
 
 // Mock the api module
@@ -333,6 +333,21 @@ describe('useConfirmPlan', () => {
       method: 'POST',
       body: JSON.stringify({ start_date: null }),
     });
+  });
+});
+
+describe('useDeletePlan', () => {
+  it('refetches the fridge, since deleting an unfinished plan returns food to it', async () => {
+    mockedAuthFetch.mockResolvedValueOnce({ ok: true, status: 204 });
+    const { wrapper, queryClient } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useDeletePlan(), { wrapper });
+    result.current.mutate(5);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/5', { method: 'DELETE' });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['fridge'] });
   });
 });
 
