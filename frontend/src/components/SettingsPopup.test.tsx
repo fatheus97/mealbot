@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { stubLocationReload } from '../test/location';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -90,16 +91,7 @@ function loginUser() {
 beforeEach(() => {
   mockedAuthFetch.mockReset();
   stubAuthFetch();
-  vi.stubGlobal(
-    'location',
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(window.location),
-        reload: { configurable: true, value: vi.fn() },
-      },
-    ),
-  );
+  stubLocationReload();
 });
 
 describe('SettingsPopup', () => {
