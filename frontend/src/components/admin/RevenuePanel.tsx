@@ -90,7 +90,7 @@ export function RevenuePanel({ stats }: { stats: RevenueStats }) {
             the icon, so a row-start icon would push it off the left edge. */}
         <InfoHint
           label="About the revenue totals"
-          text="All-time sums of paid invoices, with refunds never subtracted. 'CZ domestic' here is Czech billing addresses only, unlike the 12-month all-country bar above."
+          text="All-time sums of paid invoices, net of their refunds. The bars above subtract a refund in the period it was made, not the sale's. 'CZ domestic' here is Czech billing addresses only, unlike the 12-month all-country bar above."
         />
         {stats.non_eur_sales_count > 0 && (
           <span style={{ color: "#b45309" }}>

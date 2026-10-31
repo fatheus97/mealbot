@@ -1,12 +1,12 @@
 """Assemble a user's self-service data export.
 
-Six SELECTs and no joins — each table is fetched flat and the export nests
+Seven SELECTs and no joins — each table is fetched flat and the export nests
 nothing, so `meals` carries `plan_id` and the reader can reassemble. A join would
 duplicate every plan blob once per meal, and plan blobs are the biggest thing
 here by an order of magnitude.
 
 Separate from the API layer so the shape is testable without HTTP, and so
-`api/user.py` does not grow six queries.
+`api/user.py` does not grow seven queries.
 """
 import json
 import logging
@@ -22,6 +22,7 @@ from app.models.db_models import (
     MealPlan,
     PantryStaple,
     SaleRecord,
+    SaleRefund,
     StockItem,
     User,
 )
@@ -31,6 +32,7 @@ from app.models.export_schemas import (
     ExportedInvoice,
     ExportedMeal,
     ExportedPlan,
+    ExportedRefund,
     UserDataExport,
 )
 from app.models.user_schemas import UserRead
@@ -117,6 +119,15 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
             .order_by(col(SaleRecord.occurred_at))
         )
     ).scalars().all()
+    # A refund has no user column: it is this user's through its sale, so it is
+    # selected by the invoice ids just read, never by anything else.
+    refunds = (
+        await session.execute(
+            select(SaleRefund)
+            .where(col(SaleRefund.stripe_invoice_id).in_([s.stripe_invoice_id for s in sales]))
+            .order_by(col(SaleRefund.occurred_at))
+        )
+    ).scalars().all()
 
     return UserDataExport(
         exported_at=datetime.now(UTC),
@@ -184,6 +195,17 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
                 occurred_at=s.occurred_at,
             )
             for s in sales
+        ],
+        refunds=[
+            ExportedRefund(
+                stripe_refund_id=r.stripe_refund_id,
+                stripe_invoice_id=r.stripe_invoice_id,
+                amount_cents=r.amount_cents,
+                currency=r.currency,
+                status=r.status,
+                occurred_at=r.occurred_at,
+            )
+            for r in refunds
         ],
         excluded=list(_EXCLUDED),
     )

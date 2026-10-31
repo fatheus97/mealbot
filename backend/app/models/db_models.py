@@ -1012,6 +1012,37 @@ class SaleRecord(SQLModel, table=True):
     )
 
 
+class SaleRefund(SQLModel, table=True):
+    """One Stripe refund of a sale, captured from the ``refund.*`` webhooks, so
+    the revenue totals and VAT bars net it out (see revenue_service).
+
+    It nets against its ``SaleRecord`` by ``stripe_invoice_id``, joined at READ
+    time and not by FK, so webhook order does not matter: a refund that lands
+    before its ``invoice.paid`` counts once the sale arrives.
+
+    No user or customer column on purpose: the person hangs off the sale, so the
+    sale's anonymisation (``user_id`` ON DELETE SET NULL) covers this row too,
+    and the row outlives the account like the sale does.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    # Idempotency key: one row per Stripe refund, so a replay never nets twice.
+    stripe_refund_id: str = Field(
+        sa_column=Column(String, unique=True, index=True, nullable=False)
+    )
+    stripe_invoice_id: str = Field(index=True, nullable=False)
+    # Refunded amount in the currency's minor unit, positive, as Stripe reports it.
+    amount_cents: int = Field(nullable=False)
+    # ISO-4217 lowercase, the refund's own (its amount is in it).
+    currency: str = Field(nullable=False)
+    # Stripe's refund status, mirrored from the latest event. "failed" and
+    # "canceled" mean no money went back, so such a row stops counting.
+    status: str | None = Field(default=None)
+    # When the refund was made (Stripe's ``created``), UTC-naive. A refund counts
+    # in THIS period, not the sale's: that is how a VAT correction lands.
+    occurred_at: datetime = Field(index=True, nullable=False)
+
+
 class FeedbackReport(SQLModel, table=True):
     """One user-submitted bug report / feature request.
 
