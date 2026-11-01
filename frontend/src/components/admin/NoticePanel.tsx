@@ -113,7 +113,9 @@ export function NoticePanel() {
           type="button"
           onClick={() => setConfirming(true)}
           disabled={blocker !== null || sendMut.isPending}
-          style={primaryBtn}
+          // Visibly inert when blocked: the reason sits right beside it, and a
+          // full-strength accent button reads as clickable.
+          style={blocker ? { ...primaryBtn, opacity: 0.5, cursor: "not-allowed" } : primaryBtn}
         >
           Send to {willQueue} {willQueue === 1 ? "user" : "users"}
         </button>
