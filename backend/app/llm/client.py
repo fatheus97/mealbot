@@ -123,15 +123,7 @@ class LLMClient:
                 AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=_HTTP_TIMEOUT_SECONDS)
             )
         if settings.gemini_api_key:
-            # Instructor seamlessly wraps the new google-genai client
-            self.gemini_client = instructor.from_genai(
-                genai.Client(
-                    api_key=settings.gemini_api_key,
-                    http_options=HttpOptionsDict(timeout=int(_HTTP_TIMEOUT_SECONDS * 1000)),
-                ),
-                use_async=True,
-                mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
-            )
+            self.gemini_client = gemini_instructor(settings.gemini_api_key)
 
     def _get_client(self, provider: LLMProvider) -> instructor.AsyncInstructor:
         if provider == LLMProvider.GEMINI:
@@ -861,6 +853,30 @@ def _provider_kwargs(entry: ModelEntry) -> dict[str, Any]:
     if entry.provider == LLMProvider.OPENAI:
         return {"store": False}
     return {}
+
+
+def gemini_instructor(
+    api_key: str,
+    timeout_ms: int = int(_HTTP_TIMEOUT_SECONDS * 1000),
+    base_url: str | None = None,
+) -> instructor.AsyncInstructor:
+    """Gemini through google-genai (instructor GENAI_STRUCTURED_OUTPUTS), with
+    store=false on every request, as for OpenAI.
+
+    While a project's logging is on, AI Studio stores each GenerateContent
+    request for its logs page (55 days by default), and the per-request flag
+    wins over that setting. It rides in the client's extra_body because
+    instructor builds the request config itself and keeps only a few fields of
+    the caller's config; store is not one of them, so passing it there would
+    vanish without a word. ``base_url`` is for tests."""
+    options = HttpOptionsDict(timeout=timeout_ms, extra_body={"store": False})
+    if base_url is not None:
+        options["base_url"] = base_url
+    return instructor.from_genai(
+        genai.Client(api_key=api_key, http_options=options),
+        use_async=True,
+        mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
+    )
 
 
 def openai_instructor(sdk: AsyncOpenAI) -> instructor.AsyncInstructor:
