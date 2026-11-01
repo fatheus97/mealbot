@@ -139,13 +139,20 @@ def usage_from_completion(
         # cache reads (billed below the input price) and cache writes (above
         # it); app.services.llm_cost prices OpenAI input at the write price, so
         # the total over-estimates, which fails safe.
+        # The total is never below input + output: the cost is priced off
+        # total - prompt, so a missing total would make the output free.
         if usage is not None and provider == "openai":
+            prompt = _as_int(getattr(usage, "input_tokens", 0))
+            output = _as_int(getattr(usage, "output_tokens", 0))
             return LlmCallUsage(
                 provider=provider,
                 model=model,
-                prompt_tokens=_as_int(getattr(usage, "input_tokens", 0)),
-                completion_tokens=_as_int(getattr(usage, "output_tokens", 0)),
-                total_tokens=_as_int(getattr(usage, "total_tokens", 0)),
+                prompt_tokens=prompt,
+                completion_tokens=output,
+                total_tokens=max(
+                    _as_int(getattr(usage, "total_tokens", 0)),
+                    min(prompt + output, _MAX_TOKEN_COUNT),
+                ),
             )
         if usage is not None:  # chat completions (DeepSeek)
             return LlmCallUsage(
