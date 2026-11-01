@@ -2,12 +2,17 @@ import { useState, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useI18n } from "../i18n";
 import { formatDate } from "../i18n/localeFormat";
+import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 
 /**
  * The Settings row for the diet/allergy consent: when it was given, and a
  * one-step-plus-confirm way to withdraw it, as easy as giving it (GDPR
- * Art. 7(3)). Shown to demo sessions too, unlike export/delete: a demo user
- * can consent, so they must be able to withdraw.
+ * Art. 7(3)). Withdrawal is offered for ANY consent on record, including one
+ * to an older consent text the server no longer counts as current. Without a
+ * consent it offers the same checkbox as the forms, so consenting never
+ * depends on what the planner form happens to hold. Shown to demo sessions
+ * too, unlike export/delete: a demo user can consent, so they must be able to
+ * withdraw.
  *
  * The confirm REPLACES the button in place instead of opening below it, so
  * nothing the user might click moves (CLS, .claude/rules/frontend.md).
@@ -18,6 +23,7 @@ import { formatDate } from "../i18n/localeFormat";
 export function HealthConsentSettings() {
   const { t, locale } = useI18n();
   const { healthConsent, healthConsentAt, withdrawHealthConsent } = useAuth();
+  const onRecord = healthConsent || healthConsentAt !== null;
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,18 +47,19 @@ export function HealthConsentSettings() {
         {t("settings.healthConsent.title")}
       </div>
       <p style={{ fontSize: 13, color: "#111827", margin: "0 0 0.5rem" }}>
-        {healthConsent
+        {onRecord
           ? healthConsentAt
             ? t("settings.healthConsent.givenOn", { date: formatDate(healthConsentAt, locale) })
             : t("settings.healthConsent.given")
           : t("settings.healthConsent.none")}
       </p>
-      {healthConsent && !confirming && (
+      {!healthConsent && <HealthConsentCheckbox active id="health-consent-settings" lightSurface />}
+      {onRecord && !confirming && (
         <button type="button" onClick={() => setConfirming(true)} style={secondary}>
           {t("settings.healthConsent.withdraw")}
         </button>
       )}
-      {healthConsent && confirming && (
+      {onRecord && confirming && (
         <div>
           <p style={{ fontSize: 13, color: "#111827", margin: "0 0 0.5rem" }}>
             {t("settings.healthConsent.confirm")}

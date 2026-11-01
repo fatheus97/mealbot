@@ -39,6 +39,26 @@ describe("402 paywall handling", () => {
   });
 });
 
+describe("403 gate handling", () => {
+  it("dispatches mealbot:forbidden so the profile (and its consent) is re-read", async () => {
+    // A tab that still believes in a consent withdrawn elsewhere would hide the
+    // checkbox while the server keeps refusing; AuthContext refreshes on this.
+    mockFetch({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ detail: "give your consent first" }),
+    });
+    const onForbidden = vi.fn();
+    window.addEventListener("mealbot:forbidden", onForbidden);
+    try {
+      await expect(generateRecipe(recipeReq)).rejects.toThrow("give your consent first");
+      expect(onForbidden).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("mealbot:forbidden", onForbidden);
+    }
+  });
+});
+
 describe("generateRecipe error surfacing", () => {
   it("surfaces the backend fail-closed allergen detail on 422 (not the raw body)", async () => {
     mockFetch({

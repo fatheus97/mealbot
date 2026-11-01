@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { usePlanList, useDeletePlan, useReschedulePlan, useRepeatPlan } from "../hooks/useServerState";
+import {
+  PlanActionRefusedError,
+  usePlanList,
+  useDeletePlan,
+  useReschedulePlan,
+  useRepeatPlan,
+} from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
@@ -86,7 +92,8 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
       });
     } catch (err) {
       console.error("Failed to repeat plan:", err);
-      setRepeatError(t("plans.repeatFailed"));
+      // "Try again" cannot fix a refusal; its own message says what will.
+      setRepeatError(err instanceof PlanActionRefusedError ? err.message : t("plans.repeatFailed"));
     } finally {
       setRepeatingPlanId(null);
     }

@@ -66,13 +66,28 @@ describe("HealthConsentSettings", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't withdraw/i);
   });
 
-  it("offers nothing to withdraw without consent", () => {
+  it("offers the consent itself, and nothing to withdraw, without consent", async () => {
+    // Consenting must not depend on what the planner form happens to hold.
+    const grantHealthConsent = vi.fn().mockResolvedValue(undefined);
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(
-      authState({ healthConsent: false, healthConsentAt: null }),
+      authState({ healthConsent: false, healthConsentAt: null, grantHealthConsent }),
     );
     renderWithProviders(<HealthConsentSettings />);
     expect(screen.getByText(/haven't consented/i)).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
+    await userEvent.setup().click(screen.getByRole("checkbox", { name: /i consent/i }));
+    expect(grantHealthConsent).toHaveBeenCalledTimes(1);
+  });
+
+  it("still offers withdrawal of a consent to an older text", () => {
+    // After a consent-text bump the server no longer counts it as current, but
+    // the data given under it is still stored: withdrawing must stay one click.
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(
+      authState({ healthConsent: false, healthConsentAt: "2026-11-01T10:00:00" }),
+    );
+    renderWithProviders(<HealthConsentSettings />);
+    expect(screen.getByRole("button", { name: "Withdraw consent" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /i consent/i })).toBeInTheDocument();
   });
 
   it("speaks Czech in a Czech UI", () => {

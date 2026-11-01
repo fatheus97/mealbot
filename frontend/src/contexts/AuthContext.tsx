@@ -115,7 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTermsUpdate(profile.terms_update ?? null);
     const consent = Boolean(profile.health_consent);
     setHealthConsent(consent);
-    setHealthConsentAt(consent ? (profile.health_consent_at ?? null) : null);
+    // The consent on record, current or not: Settings offers to withdraw it.
+    setHealthConsentAt(profile.health_consent_at ?? null);
     window.localStorage.setItem("mealbot_health_consent", String(consent));
     // The landing page's login/register/demo modals write these same hints
     // before handing off to /app — see auth/sessionHints.ts for why that
@@ -375,6 +376,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener("mealbot:logout", handleForceLogout);
     return () => window.removeEventListener("mealbot:logout", handleForceLogout);
   }, [clearLocal]);
+
+  // A gate refused something (api.ts, authFetch): the consent or verification
+  // state this tab shows may be out of date, so re-read it from the server.
+  useEffect(() => {
+    const onForbidden = () => {
+      if (userId !== null) void refreshProfile();
+    };
+    window.addEventListener("mealbot:forbidden", onForbidden);
+    return () => window.removeEventListener("mealbot:forbidden", onForbidden);
+  }, [userId, refreshProfile]);
 
   return (
     <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, termsUpdate, acceptTerms, healthConsent, healthConsentAt, grantHealthConsent, withdrawHealthConsent, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>

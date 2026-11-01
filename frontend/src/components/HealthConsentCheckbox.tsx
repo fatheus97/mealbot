@@ -22,11 +22,14 @@ import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
  * forms), so the text inherits the adaptive colour and the link only adds an
  * underline; the one coloured line, the error, picks its colour per scheme.
  */
-export function HealthConsentCheckbox({ active, id = "health-consent" }: {
+export function HealthConsentCheckbox({ active, id = "health-consent", lightSurface = false }: {
   /** Whether the form currently carries diets, allergens or ingredients to avoid. */
   active: boolean;
   /** Distinct id when two forms can be mounted at once. */
   id?: string;
+  /** Rendered on an explicit light surface (Settings) rather than the adaptive
+   *  page: the error then keeps its light-theme colour in dark mode too. */
+  lightSurface?: boolean;
 }) {
   const { t, locale } = useI18n();
   const { healthConsent, grantHealthConsent } = useAuth();
@@ -79,7 +82,10 @@ export function HealthConsentCheckbox({ active, id = "health-consent" }: {
         {t("healthConsent.note")}
       </p>
       {error && (
-        <p role="alert" style={{ color: PAGE_TEXT.error[scheme], fontSize: 13, margin: "0.35rem 0 0 1.6rem" }}>
+        <p
+          role="alert"
+          style={{ color: PAGE_TEXT.error[lightSurface ? "light" : scheme], fontSize: 13, margin: "0.35rem 0 0 1.6rem" }}
+        >
           {error}
         </p>
       )}

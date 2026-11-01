@@ -182,7 +182,9 @@
         Your cooking preferences (country, language, units, whether to include spices), your
         fridge contents and pantry staples, your meal plans and recipes, and when you marked a
         meal as cooked. Free-text fields you fill in — taste preferences, ingredients to avoid,
-        notes — are stored as you wrote them.
+        notes — are stored as you wrote them. Please put health details only in the diet,
+        allergy and ingredients-to-avoid fields, which your consent covers (see below), not in
+        taste preferences, notes or fridge items.
       </p>
 
       <h3>Dietary restrictions and allergies</h3>
@@ -377,12 +379,16 @@
               <td>Your explicit consent (Art. 9(2)(a) and Art. 6(1)(a)), which you can withdraw in Settings at any time</td>
             </tr>
             <tr>
-              <td>Invoice records</td>
+              <td>Invoice records, and your customer record at Stripe</td>
               <td>Our obligations under tax and accounting law (Art. 6(1)(c))</td>
             </tr>
             <tr>
-              <td>The admin log entry when we delete an account on your behalf</td>
-              <td>Our obligation to be able to show we handled your request (Art. 6(1)(c))</td>
+              <td>The record of your consent and of its withdrawal</td>
+              <td>Our obligation to be able to show that you consented (Art. 6(1)(c) with Art. 7(1))</td>
+            </tr>
+            <tr>
+              <td>The admin log of actions we take on accounts, such as deleting one on your behalf</td>
+              <td>Our legitimate interest in being able to show what we did and to defend legal claims (Art. 6(1)(f))</td>
             </tr>
             <tr>
               <td>Access requests from the landing page</td>
@@ -458,6 +464,7 @@
             <tr><td>Database backups</td><td>14 days</td></tr>
             <tr><td>Your account and everything in it</td><td>Until the account is deleted</td></tr>
             <tr><td>The copy of AI requests, and the record of your consent</td><td>Until the account is deleted</td></tr>
+            <tr><td>The admin log of actions we take on accounts</td><td>No fixed end date, so we can show what we did</td></tr>
             <tr><td>Invoice records (VAT)</td><td>Kept after deletion, as tax law requires</td></tr>
           </tbody>
         </table>
@@ -499,10 +506,10 @@
             <strong>Deletion is not absolute.</strong> Your invoice records are kept, with your
             account no longer attached, because tax law requires it; your customer record at
             Stripe and any bug report already filed with our issue tracker are not removed
-            automatically; and you will remain in database backups for up to 14 days. When
-            <em>we</em> delete an account on your behalf, your email address also stays in our
-            internal admin log as the record that we did — deleting it yourself writes no such
-            entry.
+            automatically; and you will remain in database backups for up to 14 days. Any action
+            we have taken on your account, such as deleting it on your behalf, stays in our
+            internal admin log with your email address as the record that we did; deleting the
+            account yourself adds no such entry.
           </li>
         </ul>
       </div>

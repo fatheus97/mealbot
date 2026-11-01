@@ -148,6 +148,15 @@ export async function authFetch(
     window.dispatchEvent(new Event("mealbot:paywall"));
   }
 
+  // 403 = a gate refused: email not confirmed, or no current consent for diet
+  // data. The profile this tab holds may be stale (consent withdrawn on another
+  // device, a newer consent text deployed), which would leave the consent
+  // checkbox hidden while the server keeps refusing. AuthContext re-reads the
+  // profile on this event, so the UI catches up with whatever the server said.
+  if (response.status === 403) {
+    window.dispatchEvent(new Event("mealbot:forbidden"));
+  }
+
   return response;
 }
 
@@ -293,8 +302,7 @@ export async function cookRecipe(
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Recipe cook failed: ${res.status} - ${txt}`);
+    throw new Error(await extractErrorDetail(res, "Recipe cook failed"));
   }
   return res.json();
 }

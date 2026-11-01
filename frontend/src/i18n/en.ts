@@ -191,7 +191,7 @@ export const en = {
   // The label IS the consent text: changing what it says about recipients or
   // purpose means bumping HEALTH_CONSENT_VERSION (src/legal.ts + backend).
   "healthConsent.label":
-    "I consent to Mealbot using the diets, allergies and ingredients to avoid that I enter to generate my meal plans, and to sending them to Google and OpenAI for that purpose (OpenAI may process them in the US). This information can reveal my health or religion. I can withdraw this consent at any time in Settings. More in the {privacy}.",
+    "I consent to Mealbot using the diets, allergies and ingredients to avoid that I enter to generate my meal plans and recipes, and to sending them to Google and OpenAI for that purpose (both may process them outside the EU, including in the US). This information can reveal my health or religion. I can withdraw this consent at any time in Settings. More in the {privacy}.",
   "healthConsent.privacyLink": "Privacy Policy",
   "healthConsent.note":
     "Only enter other people's needs if they agree, or if you are their parent or guardian. Without this consent you can still generate plans, just without these restrictions.",
@@ -270,7 +270,7 @@ export const en = {
   "settings.healthConsent.given":
     "You consented to Mealbot processing your diets, allergies and ingredients to avoid.",
   "settings.healthConsent.none":
-    "You haven't consented to Mealbot processing diets, allergies or ingredients to avoid. Mealbot asks when you add them.",
+    "You haven't consented to Mealbot processing diets, allergies or ingredients to avoid. Mealbot asks when you add them, or you can consent here.",
   "settings.healthConsent.withdraw": "Withdraw consent",
   "settings.healthConsent.confirm":
     "Withdrawing removes your diets, allergies and ingredients to avoid from your saved plans, and saved plans will no longer be checked against your allergies. Withdraw your consent?",
