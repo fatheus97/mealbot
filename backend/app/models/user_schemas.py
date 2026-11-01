@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from sqlmodel import SQLModel
 
+from app.core.i18n import Locale
+from app.core.legal import CHANGE_SUMMARY, MATERIAL_CHANGE_VERSION, terms_notice_due
 from app.core.meal_types import MealType
 
 if TYPE_CHECKING:
@@ -229,6 +231,29 @@ class AccountDeleteRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
 
 
+class TermsUpdate(BaseModel):
+    """A material change to the legal documents that this user has not accepted.
+
+    Carries the summary in EVERY locale rather than one: the SPA's UI language is
+    its own choice (``useLocaleStore``), not ``User.language``, which is the
+    recipe language, so the server cannot pick the right one here.
+    """
+
+    version: str
+    summary: dict[Locale, str]
+
+
+class TermsAcceptRequest(BaseModel):
+    """Body for POST /users/terms/accept: the version the banner SHOWED.
+
+    The server records its own TERMS_VERSION and its own clock, never anything
+    from here; this field only lets it refuse a tab that was loaded before a
+    deploy and is showing a summary the server no longer stands behind.
+    """
+
+    version: str = Field(min_length=1, max_length=32)
+
+
 class UserRead(UserBase):
     id: int
     country: str | None = None
@@ -259,6 +284,10 @@ class UserRead(UserBase):
     # drives the paywall UI — so the 403 from require_verified_email stays a
     # backstop rather than the thing the UI has to react to.
     email_verified: bool = True
+    # Set while the user has not accepted the latest MATERIAL change to the
+    # Terms/Privacy Policy (app.core.legal); drives the SPA's TermsUpdateBanner.
+    # None for demo sessions, which never consented and are gone within the hour.
+    terms_update: TermsUpdate | None = None
 
 
 def user_to_read(
@@ -298,6 +327,11 @@ def user_to_read(
         # Demo accounts have a server-generated address with no inbox to
         # confirm, so they read as verified rather than being nagged.
         email_verified=u.is_demo or u.email_verified_at is not None,
+        terms_update=(
+            TermsUpdate(version=MATERIAL_CHANGE_VERSION, summary=dict(CHANGE_SUMMARY))
+            if not u.is_demo and terms_notice_due(u.terms_version)
+            else None
+        ),
     )
 
 class UserUpdate(SQLModel):

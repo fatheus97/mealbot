@@ -105,6 +105,7 @@ ErrorKey = Literal[
     "user_country_unsupported",
     "user_language_length",  # $max
     "user_language_unsupported",
+    "user_terms_version_stale",
     # ── Billing (app/api/billing.py) ───────────────────────────────────────
     "billing_unavailable",
     "billing_demo_cannot_subscribe",
@@ -251,6 +252,10 @@ _EN: Final[dict[str, str]] = {
     "user_language_length": "Invalid language: must be 1-$max characters",
     "user_language_unsupported": (
         "Unsupported language. Pick one of the supported options."
+    ),
+    "user_terms_version_stale": (
+        "The Terms or Privacy Policy changed again while this page was open. "
+        "Please read the latest version."
     ),
     "billing_unavailable": "Billing is not available.",
     "billing_demo_cannot_subscribe": "Demo accounts cannot subscribe.",
@@ -437,6 +442,10 @@ _CS: Final[dict[str, str]] = {
     "user_language_length": "Neplatný jazyk: musí mít 1 až $max znaků",
     "user_language_unsupported": (
         "Nepodporovaný jazyk. Vyberte prosím z nabízených možností."
+    ),
+    "user_terms_version_stale": (
+        "Obchodní podmínky nebo zásady ochrany osobních údajů se mezitím znovu "
+        "změnily. Přečtěte si prosím aktuální verzi."
     ),
     "billing_unavailable": "Platby nejsou k dispozici.",
     "billing_demo_cannot_subscribe": "Demo účty si nemohou pořídit předplatné.",

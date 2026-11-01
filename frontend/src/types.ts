@@ -1,6 +1,7 @@
 // src/types.ts
 
 import type { MealType } from "./constants/mealTypes";
+import type { Locale } from "./store/useLocaleStore";
 import type { Allergen, DietType } from "./constants/dietary";
 
 export type { MealType } from "./constants/mealTypes";
@@ -318,6 +319,40 @@ export interface AuthLoginResponse {
   // to the 402. Optional so a pre-verification cached payload (or a test mock
   // without the field) degrades to "verified" rather than nagging wrongly.
   email_verified?: boolean;
+  // Set while the user has not accepted the latest MATERIAL change to the
+  // Terms / Privacy Policy; drives TermsUpdateBanner. Optional for the same
+  // reason as email_verified: an older payload or a mock reads as "nothing due".
+  terms_update?: TermsUpdate | null;
+}
+
+/** A legal change the user has not accepted yet (server: UserRead.terms_update).
+ *  The summary comes in every UI locale, because the server cannot know which
+ *  one this tab shows (that is the SPA's choice, not User.language). Partial
+ *  because the render hint it may be seeded from is only shape-checked. */
+export interface TermsUpdate {
+  version: string;
+  summary: Partial<Record<Locale, string>>;
+}
+
+/** Admin "Notices" tab: the policy-change email dry run (GET /admin/policy-notice). */
+export interface PolicyNoticePreview {
+  campaign: string;
+  counts: {
+    eligible: number;
+    sent: number;
+    unconfirmed: number;
+    accepted_in_app: number;
+    excluded: number;
+  };
+  daily_limit: number;
+  sent_last_24h: number;
+  email_configured: boolean;
+  previews: { locale: string; subject: string; html: string }[];
+}
+
+export interface PolicyNoticeSendResponse {
+  campaign: string;
+  queued: number;
 }
 
 /** Subscription plan the user can pick at checkout. */
@@ -353,6 +388,12 @@ export interface AuthState {
   // true so a slow /users call never flashes a "confirm your email" nag at
   // someone who already has.
   emailVerified: boolean;
+  // The legal change awaiting this user's "I agree", or null when none is due.
+  termsUpdate: TermsUpdate | null;
+  // Record agreement to `termsUpdate.version`. Rejects with
+  // TermsVersionStaleError when the server has moved on (the profile is
+  // refreshed first, so the banner already shows the newer summary).
+  acceptTerms: (version: string) => Promise<void>;
   // Re-send the confirmation link to the caller's own address. Always resolves
   // (the endpoint is 204 even when already verified or inside the cooldown).
   resendVerification: () => Promise<void>;

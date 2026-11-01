@@ -11,7 +11,10 @@ import type {
   AdminUserRoleFilter,
   AdminUserStatusFilter,
   AdminUserUpdate,
+  AuthLoginResponse,
   BillingPlan,
+  PolicyNoticePreview,
+  PolicyNoticeSendResponse,
   CookRecipeRequest,
   FeedbackCreateRequest,
   FeedbackModerationStatus,
@@ -504,6 +507,27 @@ export async function revokeInvite(id: number): Promise<InviteListItem> {
   return res.json();
 }
 
+// --- Policy-change notice email (admin "Notices" tab) ---
+
+export async function fetchPolicyNotice(): Promise<PolicyNoticePreview> {
+  const res = await authFetch("/admin/policy-notice");
+  if (!res.ok) throw new Error(`Policy notice preview failed: ${res.status}`);
+  return res.json();
+}
+
+/** Queue the notice. `confirmRecipients` is the eligible count the admin was
+ *  shown; the server refuses (409, with the reason) if it no longer matches. */
+export async function sendPolicyNotice(
+  confirmRecipients: number,
+): Promise<PolicyNoticeSendResponse> {
+  const res = await authFetch("/admin/policy-notice/send", {
+    method: "POST",
+    body: JSON.stringify({ confirm_recipients: confirmRecipients }),
+  });
+  if (!res.ok) throw new Error(await adminErrorDetail(res, "Could not send the notice"));
+  return res.json();
+}
+
 // --- Email confirmation ---
 
 /**
@@ -525,6 +549,27 @@ export async function verifyEmail(token: string): Promise<void> {
 }
 
 /** Re-send the confirmation link to the CURRENT user's own address. */
+/** The banner showed a version the server no longer asks for (a deploy landed
+ *  while the tab was open). Nothing was recorded. */
+export class TermsVersionStaleError extends Error {}
+
+/**
+ * Record "I agree" for the legal change the banner showed.
+ *
+ * Sends only the version; the server stamps its own clock and version. A 409
+ * means that version is stale, which the caller handles by re-reading the
+ * profile; anything else is a plain failure to retry.
+ */
+export async function acceptTermsVersion(version: string): Promise<AuthLoginResponse> {
+  const res = await authFetch("/users/terms/accept", {
+    method: "POST",
+    body: JSON.stringify({ version }),
+  });
+  if (res.status === 409) throw new TermsVersionStaleError();
+  if (!res.ok) throw new Error("Could not record your agreement.");
+  return (await res.json()) as AuthLoginResponse;
+}
+
 export async function resendVerificationEmail(): Promise<void> {
   const res = await authFetch("/auth/resend-verification", { method: "POST" });
   if (!res.ok) throw new Error("Could not resend the confirmation email.");

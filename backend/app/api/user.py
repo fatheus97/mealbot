@@ -22,7 +22,7 @@ from app.core.country_whitelist import normalize_country
 from app.core.email_normalize import normalize_email
 from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
-from app.core.legal import TERMS_VERSION
+from app.core.legal import MATERIAL_CHANGE_VERSION, TERMS_VERSION
 from app.core.meal_types import MealType
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import get_password_hash
@@ -31,6 +31,7 @@ from app.models.db_models import User
 from app.models.user_schemas import (
     InviteRedeem,
     MessageResponse,
+    TermsAcceptRequest,
     UserCreate,
     UserRead,
     UserUpdate,
@@ -214,6 +215,43 @@ async def get_user(
     """
         Returns the profile of the user identified by the JWT.
     """
+    return _to_read(current_user)
+
+
+# //api/users/terms/accept
+@router.post("/terms/accept", response_model=UserRead)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def accept_terms(
+    request: Request,
+    body: TermsAcceptRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserRead:
+    """Record that the user accepted the current Terms and Privacy Policy.
+
+    The "I agree" on TermsUpdateBanner. Same rule as register_user: the server
+    stamps its OWN clock and its OWN TERMS_VERSION. The body's ``version`` is
+    only compared, so a tab opened before a deploy, still showing the previous
+    change's summary, gets a 409 instead of filing agreement to a text it never
+    displayed. The SPA then refetches the profile and shows the current one.
+
+    ponytail: overwrites the registration record, so the two columns mean
+    "latest acceptance" and earlier versions are not kept. Add an append-only
+    acceptance table if a dispute ever needs the history.
+    """
+    if body.version != MATERIAL_CHANGE_VERSION:
+        raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "user_terms_version_stale")
+    # Already on this exact version: keep the original timestamp (a double click
+    # or a second tab must not move the record). Demo sessions never consented
+    # to anything and are deleted within the hour, so there is nothing to record.
+    if not current_user.is_demo and current_user.terms_version != TERMS_VERSION:
+        current_user.terms_accepted_at = datetime.now(UTC)
+        current_user.terms_version = TERMS_VERSION
+        session.add(current_user)
+        await session.commit()
+        logger.info(
+            "terms_accepted user_id=%s version=%s", current_user.id, TERMS_VERSION
+        )
     return _to_read(current_user)
 
 

@@ -201,6 +201,23 @@ export const en = {
   "verify.wrongAddress": "Wrong address?",
   "verify.resendFailed": "Couldn't resend just now — please try again in a minute.",
 
+  // ─── Policy-change banner (TermsUpdateBanner) ─────────────────────────────
+  // The summary itself comes from the server (app.core.legal.CHANGE_SUMMARY),
+  // which the notice email shares. The link labels are namespaced under the
+  // sentence that holds them, so Czech can inflect them for it.
+  "termsUpdate.title": "We've changed our Privacy Policy and Terms",
+  "termsUpdate.readFull": "Read the full {privacy} and {terms}.",
+  "termsUpdate.readFull.privacy": "Privacy Policy",
+  "termsUpdate.readFull.terms": "Terms of Service",
+  "termsUpdate.continuing": "If you keep using Mealbot, the updated terms apply to you.",
+  "termsUpdate.disagree":
+    "If you don't agree with them, you can cancel your subscription or delete your account at any time.",
+  "termsUpdate.agree": "I agree",
+  "termsUpdate.saving": "Saving…",
+  "termsUpdate.failed": "Couldn't save that. Please try again.",
+  "termsUpdate.stale":
+    "The documents changed again while this page was open. Please read the updated summary.",
+
   // ─── Confirmation-link toast (VerifyEmailHandler) ─────────────────────────
   // Missed entirely by the sweep that translated the rest of auth: the
   // component had no `t()` at all, so `untranslatedEnglishIn` had nothing to

@@ -296,6 +296,12 @@ class Settings(BaseSettings):
     # the FÚ 25th deadline for self-assessing VAT on Stripe's foreign-service fees.
     # Bounded to 1..25 so the reminder can never fire after the 25th it references.
     vat_reminder_day: int = Field(default=20, ge=1, le=25)
+    # Cap on bulk notice emails (services/policy_notice) per rolling 24 hours.
+    # The Resend key is SHARED with password-reset and verification mail, and
+    # Resend's free tier allows 100 a day, so a campaign that used them all
+    # would silently take down account recovery. 50 leaves half for that mail;
+    # raise it only together with the Resend plan.
+    campaign_daily_send_limit: int = Field(default=50, ge=0, le=10_000)
 
     # --- Password reset ---
     # A reset link sits in an inbox, so its lifetime is the window in which

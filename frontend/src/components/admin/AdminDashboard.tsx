@@ -8,6 +8,7 @@ import { RevenuePanel } from "./RevenuePanel";
 import { UserManagementPanel } from "./UserManagementPanel";
 import { InvitePanel } from "./InvitePanel";
 import { FeedbackPanel } from "./FeedbackPanel";
+import { NoticePanel } from "./NoticePanel";
 import { FunnelPanel } from "./FunnelPanel";
 import { Tabs } from "./Tabs";
 import { tabButtonId, tabPanelId, type TabDef } from "./tabIds";
@@ -36,7 +37,7 @@ function fmtDay(iso: string): string {
   return `${MONTHS[Number(parts[1])] ?? parts[1]} ${Number(parts[2])}`;
 }
 
-type TabId = "overview" | "revenue" | "generation" | "users" | "invites" | "feedback";
+type TabId = "overview" | "revenue" | "generation" | "users" | "invites" | "feedback" | "notices";
 
 const ADMIN_TABS: TabDef[] = [
   { id: "overview", label: "Overview" },
@@ -45,6 +46,7 @@ const ADMIN_TABS: TabDef[] = [
   { id: "users", label: "User Management" },
   { id: "invites", label: "Invites" },
   { id: "feedback", label: "Feedback" },
+  { id: "notices", label: "Notices" },
 ];
 
 const ID_BASE = "admin";
@@ -410,6 +412,10 @@ export function AdminDashboard({ onExit }: { onExit: () => void }) {
 
         <TabPanel id="feedback" active={tab === "feedback"}>
           <FeedbackPanel />
+        </TabPanel>
+
+        <TabPanel id="notices" active={tab === "notices"}>
+          <NoticePanel />
         </TabPanel>
       </div>
     </div>

@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Boolean, Index, text
+from sqlalchemy import BigInteger, Boolean, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlmodel import Column, Field, Relationship, SQLModel, String
@@ -1156,3 +1156,38 @@ class BillingAlert(SQLModel, table=True):
     sent_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
+
+
+class EmailCampaignSend(SQLModel, table=True):
+    """One user's copy of one bulk notice email (``services/policy_notice``).
+
+    The row is the idempotency key, and it is written BEFORE the send: the
+    UNIQUE (campaign, user_id) constraint makes the claim atomic, so a re-run, a
+    second admin, or the CLI racing the admin button can never mail anyone twice.
+    ``sent_at`` stays NULL until Resend accepts the message; a failed send
+    deletes its claim so the next run retries it. A process that dies between
+    claim and send leaves a NULL row that is counted as "unconfirmed" and never
+    retried automatically: that mail may or may not have gone out, and a
+    duplicate is the outcome this table exists to rule out.
+
+    Same claim ledger idea as BillingAlert, but per user, and claim-first because
+    the recipient here is a customer rather than the operator.
+
+    ``ondelete="CASCADE"``: an erased account takes its send history with it
+    (and a bare user FK is what wedged the demo sweep in #337).
+    """
+
+    # Mirrors uq_emailcampaignsend_campaign_user in migration email_campaign_01.
+    __table_args__ = (
+        UniqueConstraint("campaign", "user_id", name="uq_emailcampaignsend_campaign_user"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    # e.g. "policy-2026-11-01" (policy_notice.campaign_id).
+    campaign: str = Field(nullable=False, max_length=64)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    claimed_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
+    # NULL = claimed but not confirmed sent (in flight, or the process died).
+    sent_at: datetime | None = Field(default=None)

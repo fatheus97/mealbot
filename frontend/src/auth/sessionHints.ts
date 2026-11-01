@@ -31,6 +31,7 @@ export interface SessionProfile {
   is_subscribed?: boolean;
   is_comped?: boolean;
   email_verified?: boolean;
+  terms_update?: { version: string; summary: Record<string, string> } | null;
 }
 
 /** Every key this module owns. Exported so `clearSessionHints` and tests can
@@ -47,6 +48,7 @@ export const SESSION_HINT_KEYS = [
   "mealbot_is_subscribed",
   "mealbot_is_comped",
   "mealbot_email_verified",
+  "mealbot_terms_update",
 ] as const;
 
 /** Write `value` when truthy, otherwise remove the key — so a stale hint from
@@ -87,6 +89,42 @@ export function storeSessionHints(profile: SessionProfile, demoFlag: boolean): v
   // after first paint and shoves the whole page down for every unverified user
   // on every load (the recurring CLS bug in .claude/rules/frontend.md).
   setOrRemove("mealbot_email_verified", profile.email_verified === false ? "false" : null);
+  // The whole notice, not a flag: TermsUpdateBanner sits in flow at the top of
+  // the page, so it must paint WITH its text on first render or it shoves the
+  // page down a round-trip later (same CLS reason as above). Only written while
+  // a change is due, so an absent key means "nothing to show".
+  setOrRemove(
+    "mealbot_terms_update",
+    profile.terms_update ? JSON.stringify(profile.terms_update) : null,
+  );
+}
+
+/** The hinted notice, or null when absent or not the shape the writer above
+ *  stores (a hand-edited or older entry must not crash the app shell). */
+export function readTermsUpdateHint(): {
+  version: string;
+  summary: Record<string, string>;
+} | null {
+  const raw = window.localStorage.getItem("mealbot_terms_update");
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "version" in parsed &&
+      "summary" in parsed &&
+      typeof parsed.version === "string" &&
+      typeof parsed.summary === "object" &&
+      parsed.summary !== null &&
+      Object.values(parsed.summary).every((v) => typeof v === "string")
+    ) {
+      return { version: parsed.version, summary: parsed.summary as Record<string, string> };
+    }
+  } catch {
+    // Unparseable: treat as absent. The /users reconcile rewrites it anyway.
+  }
+  return null;
 }
 
 /** Drop every hint (logout / account switch). Iterates SESSION_HINT_KEYS so a

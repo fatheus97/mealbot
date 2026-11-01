@@ -171,6 +171,22 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "verify.wrongAddress": "Špatná adresa?",
   "verify.resendFailed": "Odeslání se teď nepovedlo — zkuste to prosím za minutu.",
 
+  // ─── Policy-change banner (TermsUpdateBanner) ─────────────────────────────
+  "termsUpdate.title": "Změnili jsme zásady ochrany osobních údajů a obchodní podmínky",
+  // Genitive, to follow "celé znění": the labels are inflected for this sentence.
+  "termsUpdate.readFull": "Přečtěte si celé znění {privacy} a {terms}.",
+  "termsUpdate.readFull.privacy": "zásad ochrany osobních údajů",
+  "termsUpdate.readFull.terms": "obchodních podmínek",
+  "termsUpdate.continuing":
+    "Pokud budete Mealbot používat dál, platí pro vás aktualizované podmínky.",
+  "termsUpdate.disagree":
+    "Pokud s nimi nesouhlasíte, můžete kdykoli zrušit předplatné nebo smazat svůj účet.",
+  "termsUpdate.agree": "Souhlasím",
+  "termsUpdate.saving": "Ukládání…",
+  "termsUpdate.failed": "Uložení se nepovedlo. Zkuste to prosím znovu.",
+  "termsUpdate.stale":
+    "Dokumenty se mezitím znovu změnily. Přečtěte si prosím aktualizované shrnutí.",
+
   // ─── Confirmation-link toast (VerifyEmailHandler) ─────────────────────────
   "verifyToast.confirmed": "✅ E-mail potvrzen — máte hotovo.",
   "verifyToast.alreadyUsed": "✅ Tento odkaz už byl použit — váš e-mail je potvrzený.",

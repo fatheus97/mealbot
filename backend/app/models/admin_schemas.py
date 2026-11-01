@@ -300,3 +300,58 @@ class AdminUserUpdate(BaseModel):
     is_active: bool | None = None
     is_admin: bool | None = None
     is_comped: bool | None = None
+
+
+# ── Policy-change notice email (services/policy_notice) ─────────────────────
+
+
+class PolicyNoticeEmail(BaseModel):
+    """The notice as one locale's recipients will get it, for the dry run."""
+
+    locale: str
+    subject: str
+    html: str
+
+
+class PolicyNoticeCounts(BaseModel):
+    """Where every non-demo account stands for the current campaign."""
+
+    # Will get the email on the next send.
+    eligible: int
+    # Resend accepted it.
+    sent: int
+    # Claimed but never confirmed: the run died mid-send. Not retried, because
+    # the mail may have gone out and a duplicate is the one thing to avoid.
+    unconfirmed: int
+    # Already clicked "I agree" on the in-app banner, so already informed.
+    accepted_in_app: int
+    # Deactivated, or the address was never confirmed (it may be a typo, and
+    # nobody unverified can generate plans, so the change does not reach them).
+    excluded: int
+
+
+class PolicyNoticePreview(BaseModel):
+    campaign: str
+    counts: PolicyNoticeCounts
+    daily_limit: int
+    sent_last_24h: int
+    # False when RESEND_API_KEY is unset: sending would fail every address.
+    email_configured: bool
+    previews: list[PolicyNoticeEmail]
+
+
+class PolicyNoticeSendRequest(BaseModel):
+    """The admin's confirmation: the eligible count they were SHOWN.
+
+    The server recounts and refuses on a mismatch, so a send can only ever go to
+    the audience the admin actually looked at.
+    """
+
+    confirm_recipients: int = Field(ge=1, le=100_000)
+
+
+class PolicyNoticeSendResponse(BaseModel):
+    campaign: str
+    # How many sends were queued (capped by the daily limit). They run in the
+    # background, one per second; reload the preview to watch "sent" climb.
+    queued: int
