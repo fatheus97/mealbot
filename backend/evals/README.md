@@ -41,6 +41,6 @@ Not measured here: whether the food is good. That needs people; a blind A/B rati
 
 ## Rules
 
-- **Cases are synthetic, always.** Suites go to whichever provider is being evaluated, and the privacy policy names only Google for user data. Never paste a real user's request, plan or receipt into a suite.
+- **Cases are synthetic, always.** Suites go to whichever provider is being evaluated, and the privacy policy names only Google and OpenAI for user data. Never paste a real user's request, plan or receipt into a suite.
 - Add a case for every failure seen in the wild, rewritten without user data.
 - A model goes to users only after it passes this suite: 100% safety clean, and no worse on the rest than the model it replaces.

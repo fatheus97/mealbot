@@ -976,9 +976,10 @@ def check_model_chain_keys() -> None:
 
 #: Providers the published privacy policy names as recipients of user content.
 #: frontend/privacy.html tells users their dietary restrictions and allergies —
-#: health data, and for halal/kosher religious belief — go to Google and to
-#: nobody else. That page is a public promise; this set is the code's copy of it.
-DISCLOSED_PROVIDERS = frozenset({LLMProvider.GEMINI})
+#: health data, and for halal/kosher religious belief — go to Google and, some of
+#: the time, to OpenAI, and to nobody else. That page is a public promise; this
+#: set is the code's copy of it. OpenAI joined it with the policy of 2026-11-01.
+DISCLOSED_PROVIDERS = frozenset({LLMProvider.GEMINI, LLMProvider.OPENAI})
 
 
 def _warn_if_chain_contradicts_privacy_policy(chain: list[ModelEntry]) -> None:
@@ -1009,10 +1010,11 @@ def _warn_if_chain_contradicts_privacy_policy(chain: list[ModelEntry]) -> None:
         return
     logger.error(
         "LLM_MODELS routes user content to UNDISCLOSED provider(s): %s. "
-        "frontend/privacy.html tells users their dietary restrictions and "
-        "allergies go to Google only. Every chain entry receives that data, so "
-        "the published policy is now inaccurate — update it (and this module's "
-        "DISCLOSED_PROVIDERS) or remove the provider from LLM_MODELS.",
+        "frontend/privacy.html names every company that receives users' dietary "
+        "restrictions and allergies, and this one is not among them. Every chain "
+        "entry receives that data, so the published policy is now inaccurate — "
+        "update it (and this module's DISCLOSED_PROVIDERS) or remove the "
+        "provider from LLM_MODELS.",
         ", ".join(undisclosed),
     )
 
