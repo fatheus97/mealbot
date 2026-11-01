@@ -254,7 +254,7 @@
       <div class="note">
         <p>
           Abychom sestavili jídelníček, odesíláme váš požadavek do <strong>Gemini API společnosti Google</strong>
-          a někdy místo toho do <strong>API společnosti OpenAI</strong>. Tento
+          a někdy do <strong>API společnosti OpenAI</strong>. Tento
           požadavek obsahuje vaše <strong>deklarované alergeny, vaše typy stravy</strong> (včetně
           halal, košer, diabetické, low-FODMAP a dětské stravy), volný text se surovinami,
           kterým se chcete vyhnout, chuťové preference, velikost domácnosti a obsah
@@ -266,9 +266,11 @@
         </p>
       </div>
       <p>
-        Společnosti OpenAI požadavek pošleme, když služba společnosti Google selže nebo odpovídá příliš pomalu.
-        Část požadavků můžeme také poslat nejdřív společnosti OpenAI, abychom porovnali, která
-        z obou služeb sestavuje lepší jídelníčky.
+        Společnosti OpenAI požadavek pošleme, když služba společnosti Google selže nebo neodpoví
+        včas. V takovém případě ho už mohla dostat i společnost Google. Několik minut poté,
+        co Google neodpoví včas, mohou nové požadavky jít nejdřív společnosti OpenAI. Část
+        požadavků můžeme také poslat nejdřív společnosti OpenAI, abychom porovnali, která z obou
+        služeb sestavuje lepší jídelníčky.
       </p>
       <p>
         Totéž platí pro fotografii účtenky, pokud použijete skener (odesílá se obrázek), a pro
@@ -281,10 +283,13 @@
       </p>
       <p class="muted">
         Google i OpenAI pro nás tyto údaje zpracovávají jako zpracovatelé na základě svých smluv
-        o zpracování osobních údajů. Ani jedna z nich je nesmí použít k trénování svých modelů.
-        Vylučují to podmínky placeného Gemini API společnosti Google i podmínky API společnosti
-        OpenAI a sdílení údajů se společností OpenAI jsme nezapnuli. Kvůli odhalování zneužití si
-        obě požadavky po omezenou dobu uchovávají: OpenAI nejvýše 30 dní, Google 55 dní. Pokud si
+        o zpracování osobních údajů. Podmínky API, která používáme (placené Gemini API společnosti
+        Google a API společnosti OpenAI), oběma společnostem zakazují používat tyto údaje ke
+        zlepšování svých produktů nebo k trénování svých modelů. Sdílení údajů se společností
+        OpenAI jsme navíc nezapnuli. Jedinou výjimkou je kopie, kterou si každá z nich po omezenou
+        dobu uchovává kvůli odhalování zneužití: Google ji smí použít také k trénování svých filtrů
+        proti zneužití. OpenAI tuto kopii uchovává nejvýše 30 dní, déle jen tehdy, když to
+        vyžaduje zákon nebo ochrana před újmou. Google ji uchovává 55 dní. Pokud si
         takové zpracování nepřejete, poctivá odpověď zní, že Mealbot bez těchto údajů jídelníček
         vygenerovat nedokáže.
       </p>
@@ -341,7 +346,11 @@
       <p class="muted">
         Naše servery běží u společnosti Hetzner Online GmbH v <strong>německém Norimberku</strong>, takže
         vaše údaje jsou uloženy v EU. Google, OpenAI, Stripe, Resend a GitHub mohou údaje zpracovávat
-        mimo EU podle svých vlastních podmínek.
+        mimo EU podle svých vlastních podmínek. OpenAI je může zpracovávat ve Spojených státech,
+        a to na základě standardních smluvních doložek EU nebo rozhodnutí Evropské komise
+        o odpovídající ochraně, jak stanoví náš
+        <a href="https://openai.com/policies/data-processing-addendum/" rel="noopener">dodatek
+        o zpracování údajů</a> s touto společností.
       </p>
 
       <h2>Cookies</h2>

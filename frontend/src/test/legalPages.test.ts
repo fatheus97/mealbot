@@ -124,8 +124,8 @@ describe.skipIf(!hasBuild)("legal pages", () => {
   it("both privacy editions state what the AI providers may do with the data", () => {
     // Since 2026-11-01 a request can go to OpenAI as well as Google. These are
     // the sentences that make that acceptable to a reader: who receives the
-    // content and not the identity, the processor role, the training ban and
-    // the retention limits. Pinned in BOTH editions: the parity test above
+    // content and not the identity, the processor role, the training ban, the
+    // retention limits and the transfer safeguard. Pinned in BOTH editions: the parity test above
     // compares names and figures only, so a paragraph deleted from one edition
     // could otherwise go unnoticed. The 30 days hold because OpenAI requests
     // send store=false (backend/app/llm/client.py, _provider_kwargs).
@@ -135,18 +135,22 @@ describe.skipIf(!hasBuild)("legal pages", () => {
     for (const phrase of [
       "Google and OpenAI receive the content, not who you are",
       "Google and OpenAI act as our processors",
-      "Neither may use it to train its models",
+      "forbid both from using it to improve their products or train their models",
       "we have not opted in to sharing data with OpenAI",
-      "OpenAI for up to 30 days, Google for 55 days",
+      "OpenAI keeps that copy for up to 30 days",
+      "Google keeps it for 55 days",
+      "under the EU Standard Contractual Clauses",
     ]) {
       expect(en, phrase).toMatch(ws(phrase));
     }
     for (const phrase of [
       "Google i OpenAI dostávají obsah, ne to, kdo jste",
       "zpracovávají jako zpracovatelé",
-      "Ani jedna z nich je nesmí použít k trénování svých modelů",
-      "sdílení údajů se společností OpenAI jsme nezapnuli",
-      "OpenAI nejvýše 30 dní, Google 55 dní",
+      "zakazují používat tyto údaje ke zlepšování svých produktů nebo k trénování svých modelů",
+      "Sdílení údajů se společností OpenAI jsme navíc nezapnuli",
+      "OpenAI tuto kopii uchovává nejvýše 30 dní",
+      "Google ji uchovává 55 dní",
+      "na základě standardních smluvních doložek EU",
     ]) {
       expect(cs, phrase).toMatch(ws(phrase));
     }
