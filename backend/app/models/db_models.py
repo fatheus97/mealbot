@@ -164,6 +164,15 @@ class User(SQLModel, table=True):
     terms_accepted_at: datetime | None = Field(default=None)
     terms_version: str | None = Field(default=None, max_length=32)
 
+    # The user's CURRENT explicit consent (GDPR Art. 9(2)(a)) to process diets,
+    # allergens and ingredients to avoid, and which consent text they were shown
+    # (app.core.legal.HEALTH_CONSENT_VERSION). Both NULL = no consent, which is
+    # every account until its owner ticks the box: never backfilled, for the
+    # same reason as terms_accepted_at. Withdrawal sets both back to NULL; the
+    # history (who granted and withdrew what, when) is HealthConsentEvent.
+    health_consent_at: datetime | None = Field(default=None)
+    health_consent_version: str | None = Field(default=None, max_length=32)
+
     # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
     # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
     # source of truth. ---
@@ -1136,6 +1145,29 @@ class FeedbackReport(SQLModel, table=True):
     # when ticketing is unconfigured or the create failed (retryable). Never the raw
     # issue body — just the link.
     ticket_url: str | None = Field(default=None)
+
+
+class HealthConsentEvent(SQLModel, table=True):
+    """Append-only record of each grant and withdrawal of the health-data
+    consent (see User.health_consent_at).
+
+    GDPR Art. 7(1) puts the burden of proof on us: we must be able to show that
+    a person consented, to which text, and when. The User columns only hold the
+    current state and are cleared on withdrawal, which would erase the evidence
+    for everything processed before it. CASCADE on user deletion: once the
+    account and all its data are gone there is nothing left to justify.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    granted: bool = Field(nullable=False)  # False = withdrawn
+    # The consent text version shown (grant) or held at withdrawal.
+    version: str = Field(max_length=32, nullable=False)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), nullable=False
+    )
 
 
 class BillingAlert(SQLModel, table=True):

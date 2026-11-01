@@ -254,6 +254,14 @@ class TermsAcceptRequest(BaseModel):
     version: str = Field(min_length=1, max_length=32)
 
 
+class HealthConsentRequest(BaseModel):
+    """Body for POST /users/health-consent: the consent text version the SPA
+    SHOWED next to the checkbox. Compared, never stored: the server records its
+    own HEALTH_CONSENT_VERSION, and a mismatch is a 409, not a consent."""
+
+    version: str = Field(min_length=1, max_length=32)
+
+
 class UserRead(UserBase):
     id: int
     country: str | None = None
@@ -288,6 +296,12 @@ class UserRead(UserBase):
     # Terms/Privacy Policy (app.core.legal); drives the SPA's TermsUpdateBanner.
     # None for demo sessions, which never consented and are gone within the hour.
     terms_update: TermsUpdate | None = None
+    # Explicit consent to process diets, allergens and ingredients to avoid
+    # (app.services.health_consent), to the CURRENT consent text. Drives the
+    # checkbox next to Generate and the withdraw control in Settings, so the
+    # 403 from require_health_consent stays a backstop.
+    health_consent: bool = False
+    health_consent_at: datetime | None = None
 
 
 def user_to_read(
@@ -301,6 +315,7 @@ def user_to_read(
     # Local import: keeps the schemas layer free of a module-load dependency on
     # the services layer, and is_entitled is the one source of truth for the
     # entitlement rule (billing-off / admin / demo bypass all live there).
+    from app.services.health_consent import has_health_consent
     from app.services.stripe_service import is_entitled
 
     return UserRead(
@@ -332,6 +347,8 @@ def user_to_read(
             if not u.is_demo and terms_notice_due(u.terms_version)
             else None
         ),
+        health_consent=has_health_consent(u),
+        health_consent_at=u.health_consent_at if has_health_consent(u) else None,
     )
 
 class UserUpdate(SQLModel):

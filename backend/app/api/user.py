@@ -29,6 +29,7 @@ from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
 from app.models.user_schemas import (
+    HealthConsentRequest,
     InviteRedeem,
     MessageResponse,
     TermsAcceptRequest,
@@ -37,7 +38,7 @@ from app.models.user_schemas import (
     UserUpdate,
     user_to_read,
 )
-from app.services import email_verification
+from app.services import email_verification, health_consent
 from app.services.data_export import build_export
 from app.services.invite import find_redeemable_invite
 
@@ -252,6 +253,42 @@ async def accept_terms(
         logger.info(
             "terms_accepted user_id=%s version=%s", current_user.id, TERMS_VERSION
         )
+    return _to_read(current_user)
+
+
+# //api/users/health-consent
+@router.post("/health-consent", response_model=UserRead)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def grant_health_consent(
+    request: Request,
+    body: HealthConsentRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserRead:
+    """Record explicit consent (GDPR Art. 9(2)(a)) to process the user's diets,
+    allergens and ingredients to avoid: the checkbox next to Generate.
+
+    Its own endpoint, never a side effect of a generate call or of accepting
+    the Terms, so the record exists only where the person ticked that box. The
+    server stamps its own clock and version; ``body.version`` is only compared
+    (409 when the tab shows an older text). Rules in app.services.health_consent.
+    """
+    await health_consent.grant(session, current_user, body.version)
+    return _to_read(current_user)
+
+
+@router.delete("/health-consent", response_model=UserRead)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def withdraw_health_consent(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserRead:
+    """Withdraw the consent: one click in Settings, as easy as giving it
+    (Art. 7(3)). Removes diets, allergens and ingredients to avoid from the
+    user's saved plans; until consent is given again, requests carrying them
+    are refused."""
+    await health_consent.withdraw(session, current_user)
     return _to_read(current_user)
 
 

@@ -59,6 +59,7 @@ from app.services.fridge_service import (
     get_fridge_items,
     lock_kitchen,
 )
+from app.services.health_consent import require_health_consent
 from app.services.leftovers import (
     expand_leftover_groups,
     leftover_dependents,
@@ -471,6 +472,8 @@ async def plan_meals_for_user(
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:
+    # Before the request is stored or reaches an LLM (app.services.health_consent).
+    require_health_consent(current_user, payload)
 
     # Defense-in-depth: even though PATCH /api/users whitelists both fields,
     # legacy rows (pre-whitelist) may hold arbitrary values. Normalize here
@@ -612,6 +615,9 @@ async def regenerate_plan(
     except ValidationError as exc:
         logger.exception("Failed to parse stored data for plan %d", plan_id)
         raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
+    # The stored request goes back to the LLM, so it needs the same consent as
+    # a new one (a withdrawal has already emptied it; see health_consent).
+    require_health_consent(current_user, original_req)
 
     # Plans stored before the whitelists landed can carry arbitrary strings.
     # Normalize before templating into the system prompt, same as

@@ -42,6 +42,7 @@ from app.models.plan_models import (
     ShoppingListItem,
     StockItemDTO,
 )
+from app.services.health_consent import require_health_consent
 from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan
 
@@ -94,6 +95,9 @@ async def repeat_plan(
             "plan_repeat_unparsable plan_id=%s user_id=%s", source.id, user.id
         )
         raise PlanRepeatError(str(exc)) from exc
+    # The copy stores the source's diets and allergens again: the same consent
+    # rule as generating them (app.services.health_consent).
+    require_health_consent(user, request)
 
     # Today's fridge, in the same shape generation uses. `need_to_use` is masked
     # by the user's master toggle exactly as generate_plan_days masks it, so the

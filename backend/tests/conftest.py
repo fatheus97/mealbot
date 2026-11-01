@@ -12,6 +12,7 @@ from sqlmodel import SQLModel
 
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.rate_limit import limiter
 from app.core.security import get_password_hash
 from app.db import get_session
@@ -238,6 +239,12 @@ async def test_user(db_session: AsyncSession) -> User:
         # exists to prevent, just in miniature. Tests that care about the
         # UNVERIFIED state set email_verified_at=None explicitly.
         email_verified_at=datetime.now(UTC),
+        # Consented to diet/allergy processing by default, for the same reason:
+        # plenty of generation tests send allergens or diets, and without this
+        # every one of them would 403 on require_health_consent. Tests about
+        # the consent itself (test_health_consent.py) clear both fields.
+        health_consent_at=datetime.now(UTC),
+        health_consent_version=HEALTH_CONSENT_VERSION,
     )
     db_session.add(user)
     await db_session.flush()

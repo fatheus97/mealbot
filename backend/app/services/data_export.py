@@ -18,6 +18,7 @@ from sqlmodel import col, select
 
 from app.models.db_models import (
     FeedbackReport,
+    HealthConsentEvent,
     MealEntry,
     MealPlan,
     PantryStaple,
@@ -27,6 +28,7 @@ from app.models.db_models import (
     User,
 )
 from app.models.export_schemas import (
+    ExportedConsentEvent,
     ExportedFeedback,
     ExportedFridgeItem,
     ExportedInvoice,
@@ -45,8 +47,10 @@ logger = logging.getLogger(__name__)
 _EXCLUDED = [
     "Password (stored only as a bcrypt hash — it cannot be exported, by design).",
     "Login sessions and reset/verification tokens (stored only as SHA-256 hashes).",
-    "Model-performance telemetry: which generated fields you edited, and the "
-    "token/cost accounting for your generations. Ask us if you want it.",
+    "Model-performance telemetry: copies of what was sent to the AI (without "
+    "your diets, allergies or ingredients to avoid) and what it returned, which "
+    "generated fields you edited, and the token/cost accounting for your "
+    "generations. Ask us if you want it.",
     "Advisory AI triage notes on your feedback reports, and which admin "
     "reviewed them — internal moderation state about the report, not your data.",
 ]
@@ -128,6 +132,13 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
             .order_by(col(SaleRefund.occurred_at))
         )
     ).scalars().all()
+    consent_events = (
+        await session.execute(
+            select(HealthConsentEvent)
+            .where(col(HealthConsentEvent.user_id) == user_id)
+            .order_by(col(HealthConsentEvent.created_at), col(HealthConsentEvent.id))
+        )
+    ).scalars().all()
 
     return UserDataExport(
         exported_at=datetime.now(UTC),
@@ -206,6 +217,10 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
                 occurred_at=r.occurred_at,
             )
             for r in refunds
+        ],
+        health_consent_history=[
+            ExportedConsentEvent(granted=e.granted, version=e.version, created_at=e.created_at)
+            for e in consent_events
         ],
         excluded=list(_EXCLUDED),
     )
