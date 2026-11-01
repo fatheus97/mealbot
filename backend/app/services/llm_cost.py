@@ -45,7 +45,7 @@ class ModelRate:
 # A model missing here is charged _FALLBACK_RATE (below), so every model in a
 # chain needs its own row; check_chain_rates logs any that has none. The OpenAI
 # and Claude rows price backend/evals runs (list prices checked 2026-10-31);
-# none of them is in a chain.
+# gpt-6-luna is also the planned fallback for prod.
 MODEL_COST_RATES: dict[tuple[str, str], ModelRate] = {
     ("gemini", "gemini-2.5-flash"): ModelRate(
         0.30 * _USD_EUR / 1_000_000, 2.50 * _USD_EUR / 1_000_000
@@ -64,7 +64,12 @@ MODEL_COST_RATES: dict[tuple[str, str], ModelRate] = {
     ("gemini", "gemini-3.5-flash-lite"): ModelRate(
         0.30 * _USD_EUR / 1_000_000, 2.50 * _USD_EUR / 1_000_000
     ),
-    # developers.openai.com/api/docs/pricing (Standard tier).
+    # developers.openai.com/api/docs/pricing (Standard tier). The gpt-6 rows were
+    # checked 2026-11-01 at the "short" context price (input up to 272K tokens;
+    # a day of meals is ~2.5K). Output includes reasoning tokens.
+    ("openai", "gpt-6-luna"): ModelRate(0.10 * _USD_EUR / 1_000_000, 0.50 * _USD_EUR / 1_000_000),
+    ("openai", "gpt-6.1-terra"): ModelRate(1.00 * _USD_EUR / 1_000_000, 5.00 * _USD_EUR / 1_000_000),
+    ("openai", "gpt-6.1-sol"): ModelRate(2.00 * _USD_EUR / 1_000_000, 10.00 * _USD_EUR / 1_000_000),
     ("openai", "gpt-5.6-luna"): ModelRate(0.20 * _USD_EUR / 1_000_000, 1.20 * _USD_EUR / 1_000_000),
     ("openai", "gpt-5.4-nano"): ModelRate(0.20 * _USD_EUR / 1_000_000, 1.25 * _USD_EUR / 1_000_000),
     ("openai", "gpt-5-mini"): ModelRate(0.25 * _USD_EUR / 1_000_000, 2.00 * _USD_EUR / 1_000_000),
