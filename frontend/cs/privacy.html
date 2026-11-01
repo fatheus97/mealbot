@@ -148,7 +148,7 @@
       <a class="back" href="/cs">&larr; Zpět na Mealbot</a>
 
       <h1>Zásady ochrany osobních údajů</h1>
-      <p class="muted">Poslední aktualizace: <time datetime="2026-08-08">8. srpna 2026</time></p>
+      <p class="muted">Poslední aktualizace: <time datetime="2026-11-01">1. listopadu 2026</time></p>
 
       <p>
         Popisujeme zde, co Mealbot s vašimi údaji skutečně dělá. Psali jsme to podle
@@ -160,7 +160,7 @@
           <strong>Stručně.</strong> Používáme tři cookies a všechny jsou nezbytné k tomu, abyste
           zůstali přihlášeni. Nemáme žádnou analytiku, žádnou reklamu ani žádné
           sledovací nástroje třetích stran. Údaje o vaší platební kartě nikdy nevidíme. Vaše <strong>dietní omezení a
-          alergie však předáváme společnosti Google</strong>, abychom vám vygenerovali jídelníčky. Na tom
+          alergie však předáváme společnosti Google a někdy také společnosti OpenAI</strong>, abychom vám vygenerovali jídelníčky. Na tom
           celý produkt stojí a je to nejdůležitější informace na této stránce.
         </p>
       </div>
@@ -250,10 +250,11 @@
         jídelníčků a nikdy neobsahují přihlašovací odkazy ani odkazy pro obnovu hesla.
       </p>
 
-      <h2>Vaše údaje o stravě předáváme společnosti Google</h2>
+      <h2>Vaše údaje o stravě předáváme společnosti Google a někdy také OpenAI</h2>
       <div class="note">
         <p>
-          Abychom sestavili jídelníček, odesíláme váš požadavek do <strong>Gemini API společnosti Google</strong>. Tento
+          Abychom sestavili jídelníček, odesíláme váš požadavek do <strong>Gemini API společnosti Google</strong>
+          a někdy místo toho do <strong>API společnosti OpenAI</strong>. Tento
           požadavek obsahuje vaše <strong>deklarované alergeny, vaše typy stravy</strong> (včetně
           halal, košer, diabetické, low-FODMAP a dětské stravy), volný text se surovinami,
           kterým se chcete vyhnout, chuťové preference, velikost domácnosti a obsah
@@ -261,9 +262,14 @@
         </p>
         <p>
           <strong>Nepředáváme vaši e-mailovou adresu, jméno ani žádný identifikátor účtu.</strong>
-          Google dostává obsah, ne to, kdo jste.
+          Google i OpenAI dostávají obsah, ne to, kdo jste.
         </p>
       </div>
+      <p>
+        Společnosti OpenAI požadavek pošleme, když služba společnosti Google selže nebo odpovídá příliš pomalu.
+        Část požadavků můžeme také poslat nejdřív společnosti OpenAI, abychom porovnali, která
+        z obou služeb sestavuje lepší jídelníčky.
+      </p>
       <p>
         Totéž platí pro fotografii účtenky, pokud použijete skener (odesílá se obrázek), a pro
         zpětnou vazbu, kterou odešlete (odesílá se text, aby se automaticky zařadil do kategorie).
@@ -274,8 +280,12 @@
         náhrada za čtení etiket.
       </p>
       <p class="muted">
-        Používáme standardní API společnosti Google. Pokud si takové zpracování nepřejete,
-        poctivá odpověď zní, že Mealbot bez těchto údajů jídelníček
+        Google i OpenAI pro nás tyto údaje zpracovávají jako zpracovatelé na základě svých smluv
+        o zpracování osobních údajů. Ani jedna z nich je nesmí použít k trénování svých modelů.
+        Vylučují to podmínky placeného Gemini API společnosti Google i podmínky API společnosti
+        OpenAI a sdílení údajů se společností OpenAI jsme nezapnuli. Kvůli odhalování zneužití si
+        obě požadavky po omezenou dobu uchovávají: OpenAI nejvýše 30 dní, Google 55 dní. Pokud si
+        takové zpracování nepřejete, poctivá odpověď zní, že Mealbot bez těchto údajů jídelníček
         vygenerovat nedokáže.
       </p>
 
@@ -289,6 +299,11 @@
             <tr>
               <td>Google (Gemini API)</td>
               <td>Váš požadavek na jídelníček včetně dietních omezení, obsahu lednice, fotografií účtenek a textu zpětné vazby. Žádné údaje o totožnosti.</td>
+              <td>Generování jídelníčků a receptů</td>
+            </tr>
+            <tr>
+              <td>OpenAI (API)</td>
+              <td>Totéž co Google, u požadavků, které posíláme společnosti OpenAI (viz výše). Žádné údaje o totožnosti.</td>
               <td>Generování jídelníčků a receptů</td>
             </tr>
             <tr>
@@ -325,7 +340,7 @@
       </p>
       <p class="muted">
         Naše servery běží u společnosti Hetzner Online GmbH v <strong>německém Norimberku</strong>, takže
-        vaše údaje jsou uloženy v EU. Google, Stripe, Resend a GitHub mohou údaje zpracovávat
+        vaše údaje jsou uloženy v EU. Google, OpenAI, Stripe, Resend a GitHub mohou údaje zpracovávat
         mimo EU podle svých vlastních podmínek.
       </p>
 

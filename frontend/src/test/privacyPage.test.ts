@@ -34,6 +34,16 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
       expect(html).toMatch(/Google/);
     });
 
+    it("names OpenAI as the other recipient of the same data", () => {
+      // Since 2026-11-01 a request can go to OpenAI instead (a fallback when
+      // Google fails, or an experiment). DISCLOSED_PROVIDERS in
+      // backend/app/llm/client.py lets an OpenAI model into LLM_MODELS on the
+      // strength of this sentence, so losing it would make the chain send
+      // health data to a company the page no longer names.
+      expect(html).toMatch(/OpenAI's API/);
+      expect(html).toMatch(/Google and OpenAI receive the content, not who you are/);
+    });
+
     it("states that no account identifier goes with it", () => {
       // The mitigating half of the same fact — the content is pseudonymous at
       // the provider. Keeping one without the other misrepresents the risk.
@@ -41,7 +51,7 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
     });
 
     it("names every third party that receives data", () => {
-      for (const party of ["Google", "Stripe", "Resend", "GitHub", "Hetzner", "Cloudflare"]) {
+      for (const party of ["Google", "OpenAI", "Stripe", "Resend", "GitHub", "Hetzner", "Cloudflare"]) {
         expect(html).toContain(party);
       }
     });

@@ -143,7 +143,7 @@ describe.skipIf(!hasBuild)("legal pages", () => {
     // to the guard.
     const norm = (s: string) => s.replace(/(\d),(\d\d)\b/g, "$1.$2");
     const PINNED = [
-      "Stripe", "Resend", "Hetzner", "Google", "Gemini", "GitHub",
+      "Stripe", "Resend", "Hetzner", "Google", "Gemini", "GitHub", "OpenAI",
       "22059946", "info@trymealbot.com",
     ];
 
