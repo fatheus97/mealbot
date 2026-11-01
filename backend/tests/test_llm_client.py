@@ -29,7 +29,14 @@ from pydantic import BaseModel
 
 from app.core.config import LLMProvider, ModelEntry
 from app.core.errors import LocalizedHTTPException
-from app.llm.client import CallKind, LLMClient, answered_by, check_model_chain_keys, first_choice
+from app.llm.client import (
+    CallKind,
+    LLMClient,
+    answered_by,
+    check_model_chain_keys,
+    first_choice,
+    openai_instructor,
+)
 from app.llm.usage import capture_llm_usage
 from app.models.plan_models import SingleDayResponse
 
@@ -1540,6 +1547,195 @@ class TestAnthropicStackContract:
         assert user["content"][1] == {"type": "text", "text": "read this"}
 
 
+def _responses_answer(
+    model: str, tool: str, answer: dict[str, object], usage: tuple[int, int, int]
+) -> dict[str, object]:
+    """A Responses API reply that calls `tool` with `answer`, as OpenAI sends it."""
+    prompt, completion, total = usage
+    return {
+        "id": "resp_1", "object": "response", "created_at": 0, "status": "completed", "model": model,
+        "output": [
+            {"type": "reasoning", "id": "rs_1", "summary": []},
+            {
+                "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": tool,
+                "arguments": json.dumps(answer), "status": "completed",
+            },
+        ],
+        "parallel_tool_calls": True, "tool_choice": "auto", "tools": [],
+        "usage": {
+            "input_tokens": prompt, "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": completion, "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": total,
+        },
+    }
+
+
+class TestOpenAIResponsesStackContract:
+    """The REAL instructor + openai SDK stack, as LLMClient builds it
+    (openai_instructor), against a local fake Responses API.
+
+    OpenAI goes through /v1/responses, not chat completions: the request must
+    carry the prompts as `input`, our one function tool forced, store=false, and
+    no reasoning override (luna passed the evals at its default); the answer must
+    come back parsed with its token usage, read from the Responses shape."""
+
+    @pytest.fixture
+    async def fake_openai(self) -> AsyncIterator[tuple[str, list[tuple[str, dict[str, Any]]]]]:
+        seen: list[tuple[str, dict[str, Any]]] = []
+
+        async def handler(request: web.Request) -> web.Response:
+            body = await request.json()
+            seen.append((request.path, body))
+            if body["model"] == "busy":
+                return web.json_response(
+                    {"error": {"type": "server_error", "message": "Overloaded", "code": None}}, status=503,
+                )
+            if body["model"] == "filtered":
+                return web.json_response({
+                    **_responses_answer(body["model"], "unused", {}, (11, 0, 11)),
+                    "status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "output": [],
+                })
+            return web.json_response(_responses_answer(body["model"], body["tools"][0]["name"], {"x": 1}, (11, 7, 18)))
+
+        app = web.Application()
+        app.router.add_route("*", "/{tail:.*}", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        host, port = runner.addresses[0][:2]
+        try:
+            yield f"http://{host}:{port}", seen
+        finally:
+            await runner.cleanup()
+
+    @pytest.fixture
+    async def sdk(self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]]) -> AsyncIterator[AsyncOpenAI]:
+        # max_retries=0: the SDK's own 503 retries would only slow the test down.
+        client = AsyncOpenAI(api_key="fake-key", base_url=fake_openai[0], max_retries=0)
+        try:
+            yield client
+        finally:
+            await client.close()
+
+    def _client(self, monkeypatch: pytest.MonkeyPatch, sdk: AsyncOpenAI, *chain: str) -> LLMClient:
+        settings = MagicMock()
+        settings.llm_mock = False
+        settings.model_chain = _chain(*chain)
+        settings.gemini_api_key = None
+        settings.openai_api_key = None
+        settings.deepseek_api_key = None
+        settings.anthropic_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        client = LLMClient()
+        client.openai_client = openai_instructor(sdk)
+        return client
+
+    async def test_a_tool_answer_parses_with_its_usage(
+        self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _, seen = fake_openai
+        client = self._client(monkeypatch, sdk, "openai/gpt-6-luna")
+        with capture_llm_usage() as calls:
+            async with asyncio.timeout(10):
+                result = await client.chat_json("sys prompt", "usr", _Tiny)
+        assert result.x == 1
+        assert answered_by() == _chain("openai/gpt-6-luna")[0]
+        [(path, body)] = seen
+        assert path.endswith("/responses")
+        assert body["input"] == [
+            {"role": "system", "content": "sys prompt"},
+            {"role": "user", "content": "usr"},
+        ]
+        [tool] = body["tools"]
+        assert tool["type"] == "function"
+        assert body["tool_choice"] == {"type": "function", "name": tool["name"]}
+        assert body["store"] is False
+        assert "reasoning" not in body
+        [usage] = calls
+        assert (usage.provider, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
+            "openai", 11, 7, 18,
+        )
+
+    @patch("app.llm.client.asyncio.sleep", new_callable=AsyncMock)
+    async def test_overloaded_falls_back(
+        self, _sleep: AsyncMock, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]],
+        sdk: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A 503 from the Responses endpoint is load, like on chat completions: next model."""
+        _, seen = fake_openai
+        client = self._client(monkeypatch, sdk, "openai/busy", "openai/gpt-6-luna")
+        async with asyncio.timeout(10):
+            result = await client.chat_json("sys", "usr", _Tiny)
+        assert result.x == 1
+        assert [b["model"] for _, b in seen] == ["busy", "gpt-6-luna"]
+
+    async def test_a_reply_without_a_tool_call_is_logged_with_its_reason(
+        self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,
+        monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """instructor fails such a reply on a missing 'choices' (re-asked or
+        not, depending on the instructor release); the reason it came back empty is
+        logged beside it, and every billed request is counted."""
+        _, seen = fake_openai
+        client = self._client(monkeypatch, sdk, "openai/filtered")
+        with caplog.at_level(logging.WARNING, logger="app.llm.client"), capture_llm_usage() as calls:
+            async with asyncio.timeout(10):
+                with pytest.raises(LocalizedHTTPException):
+                    await client.chat_json("sys", "usr", _Tiny)
+        assert any(
+            "OpenAI filtered answered without a usable tool call: status=incomplete reason=content_filter"
+            in r.getMessage()
+            for r in caplog.records
+        )
+        [usage] = calls  # the empty replies were still billed, each one
+        assert seen  # one request, or one per re-ask
+        assert usage.prompt_tokens == 11 * len(seen)
+
+    async def test_a_tool_answer_logs_no_warning(
+        self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,
+        monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = self._client(monkeypatch, sdk, "openai/gpt-6-luna")
+        with caplog.at_level(logging.WARNING, logger="app.llm.client"):
+            async with asyncio.timeout(10):
+                await client.chat_json("sys", "usr", _Tiny)
+        assert not [r for r in caplog.records if "tool call" in r.getMessage()]
+
+    def test_the_client_built_from_a_key_uses_the_responses_api(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The contract tests inject openai_instructor(sdk); this pins that
+        LLMClient's own construction uses it too."""
+        settings = MagicMock()
+        settings.openai_api_key = "fake-key"
+        settings.gemini_api_key = None
+        settings.deepseek_api_key = None
+        settings.anthropic_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        client = LLMClient()
+        assert client.openai_client is not None
+        assert client.openai_client.mode is instructor.Mode.RESPONSES_TOOLS
+
+    async def test_an_image_goes_as_a_responses_input_image(
+        self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _, seen = fake_openai
+        client = self._client(monkeypatch, sdk, "openai/gpt-6-luna")
+        async with asyncio.timeout(10):
+            await client.chat_vision_json("sys", "read this", "aGVsbG8=", "image/jpeg", _Tiny)
+        [(_, body)] = seen
+        system, user = body["input"]
+        assert system == {"role": "system", "content": "sys"}
+        assert user["content"] == [
+            {"type": "input_text", "text": "read this"},
+            {"type": "input_image", "image_url": "data:image/jpeg;base64,aGVsbG8=", "detail": "auto"},
+        ]
+        assert body["store"] is False
+
+
 def _attempt_usage(n: int) -> tuple[int, int, int]:
     """(prompt, completion, total) the fake reports for a model's n-th request.
     Different per attempt, and total > prompt + completion as thinking models report."""
@@ -1578,18 +1774,10 @@ class TestReaskUsage:
                         "promptTokenCount": prompt, "candidatesTokenCount": completion, "totalTokenCount": total,
                     },
                 })
-            if request.path.endswith("/chat/completions"):
-                return web.json_response({
-                    "id": f"chatcmpl-{n}", "object": "chat.completion", "created": 0, "model": model,
-                    "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {
-                        "role": "assistant", "content": None, "tool_calls": [{
-                            "id": f"call_{n}", "type": "function", "function": {
-                                "name": body["tools"][0]["function"]["name"], "arguments": json.dumps(answer),
-                            },
-                        }],
-                    }}],
-                    "usage": {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total},
-                })
+            if request.path.endswith("/responses"):
+                return web.json_response(_responses_answer(
+                    model, body["tools"][0]["name"], answer, (prompt, completion, total),
+                ))
             return web.json_response({  # Anthropic Messages
                 "id": f"msg_{n}", "type": "message", "role": "assistant", "model": model,
                 "content": [{"type": "tool_use", "id": f"toolu_{n}", "name": body["tools"][0]["name"], "input": answer}],
@@ -1630,7 +1818,7 @@ class TestReaskUsage:
             use_async=True,
             mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
         )
-        client.openai_client = instructor.from_openai(openai_sdk)
+        client.openai_client = openai_instructor(openai_sdk)
         client.anthropic_client = instructor.from_anthropic(anthropic_sdk)
         try:
             yield client

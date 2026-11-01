@@ -112,13 +112,29 @@ class TestUsageExtraction:
         assert usage is not None
         assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (10, 25, 35)
 
-    def test_openai_shape(self) -> None:
+    def test_openai_responses_shape(self) -> None:
+        # OpenAI goes through the Responses API; output includes reasoning.
+        completion = SimpleNamespace(
+            usage=SimpleNamespace(input_tokens=10, output_tokens=20, total_tokens=30)
+        )
+        usage = usage_from_completion("openai", "gpt-6-luna", completion)
+        assert usage is not None
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (10, 20, 30)
+
+    def test_openai_responses_missing_total_is_input_plus_output(self) -> None:
+        # cost_of prices output as total - prompt; a total of 0 would be free output.
+        completion = SimpleNamespace(usage=SimpleNamespace(input_tokens=10, output_tokens=20))
+        usage = usage_from_completion("openai", "gpt-6-luna", completion)
+        assert usage is not None
+        assert usage.total_tokens == 30
+
+    def test_chat_completions_shape(self) -> None:
         completion = SimpleNamespace(
             usage=SimpleNamespace(
                 prompt_tokens=10, completion_tokens=20, total_tokens=30
             )
         )
-        usage = usage_from_completion("openai", "gpt-4o-mini", completion)
+        usage = usage_from_completion("deepseek", "deepseek-chat", completion)
         assert usage is not None
         assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
             10,

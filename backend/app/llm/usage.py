@@ -98,11 +98,13 @@ def usage_from_completion(
 ) -> LlmCallUsage | None:
     """Normalize the raw provider completion into an ``LlmCallUsage``.
 
-    Handles the three shapes we use:
+    Handles the four shapes we use:
     * google-genai: ``completion.usage_metadata.{prompt,candidates,total}_token_count``
     * Anthropic: ``completion.usage.{input,output}_tokens``, no total; output
       includes thinking, so total = input + output
-    * OpenAI-compatible (OpenAI / DeepSeek): ``completion.usage.{prompt,completion,total}_tokens``
+    * OpenAI Responses API: ``completion.usage.{input,output,total}_tokens``;
+      output includes reasoning, billed at the output rate
+    * chat completions (DeepSeek): ``completion.usage.{prompt,completion,total}_tokens``
 
     Returns ``None`` (never raises) when the completion carries no usage we can
     read. ``total`` is taken verbatim from the provider — it may exceed
@@ -131,7 +133,28 @@ def usage_from_completion(
                 completion_tokens=output,
                 total_tokens=min(prompt + output, _MAX_TOKEN_COUNT),
             )
-        if usage is not None:  # OpenAI-compatible
+        # OpenAI goes through the Responses API (app.llm.client.openai_instructor).
+        # Reading it as chat completions would find no prompt_tokens and record
+        # zero, i.e. free calls against the usage cap. input_tokens includes
+        # cache reads (billed below the input price) and cache writes (above
+        # it); app.services.llm_cost prices OpenAI input at the write price, so
+        # the total over-estimates, which fails safe.
+        # The total is never below input + output: the cost is priced off
+        # total - prompt, so a missing total would make the output free.
+        if usage is not None and provider == "openai":
+            prompt = _as_int(getattr(usage, "input_tokens", 0))
+            output = _as_int(getattr(usage, "output_tokens", 0))
+            return LlmCallUsage(
+                provider=provider,
+                model=model,
+                prompt_tokens=prompt,
+                completion_tokens=output,
+                total_tokens=max(
+                    _as_int(getattr(usage, "total_tokens", 0)),
+                    min(prompt + output, _MAX_TOKEN_COUNT),
+                ),
+            )
+        if usage is not None:  # chat completions (DeepSeek)
             return LlmCallUsage(
                 provider=provider,
                 model=model,

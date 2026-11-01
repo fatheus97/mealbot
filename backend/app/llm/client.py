@@ -107,7 +107,7 @@ class LLMClient:
         self._demoted_until: dict[tuple[CallKind, LLMProvider, str], float] = {}
 
         if settings.openai_api_key:
-            self.openai_client = instructor.from_openai(
+            self.openai_client = openai_instructor(
                 AsyncOpenAI(api_key=settings.openai_api_key, timeout=_HTTP_TIMEOUT_SECONDS)
             )
         if settings.deepseek_api_key:
@@ -313,6 +313,11 @@ class LLMClient:
                         append_response_usage, entry.provider.value, entry.model, attempts
                     ),
                 )
+                if entry.provider == LLMProvider.OPENAI:
+                    hooks.on(
+                        "completion:response",
+                        functools.partial(_warn_if_no_tool_call, entry.model),
+                    )
                 try:
                     async with cut:
                         result, _ = await client.chat.completions.create_with_completion(
@@ -523,7 +528,27 @@ class LLMClient:
                     ],
                     **_provider_kwargs(entry),
                 }
-            if entry.provider in (LLMProvider.OPENAI, LLMProvider.DEEPSEEK):
+            if entry.provider == LLMProvider.OPENAI:
+                # Responses API input parts (see openai_instructor), not the
+                # chat-completions "text" / "image_url" shapes below.
+                return {
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": user_prompt},
+                                {
+                                    "type": "input_image",
+                                    "image_url": f"data:{image_media_type};base64,{image_base64}",
+                                    "detail": "auto",
+                                },
+                            ],
+                        },
+                    ],
+                    **_provider_kwargs(entry),
+                }
+            if entry.provider == LLMProvider.DEEPSEEK:
                 return {
                     "messages": [
                         ChatCompletionSystemMessageParam(role="system", content=system_prompt),
@@ -826,10 +851,60 @@ def _provider_kwargs(entry: ModelEntry) -> dict[str, Any]:
     forced tool_choice at all). With one tool on offer Claude calls it; an answer
     that does not (the prompts ask for "JSON", not for a tool) is a validation
     failure, which instructor re-asks like any other, and the evals count.
+
+    OpenAI: store=False. The Responses API keeps every response for later
+    retrieval unless told not to (chat completions did not), and nothing here
+    reads one back, so the user's request would sit at OpenAI for nothing.
     """
     if entry.provider == LLMProvider.ANTHROPIC:
         return {"max_tokens": _ANTHROPIC_MAX_TOKENS, "tool_choice": {"type": "auto"}}
+    if entry.provider == LLMProvider.OPENAI:
+        return {"store": False}
     return {}
+
+
+def openai_instructor(sdk: AsyncOpenAI) -> instructor.AsyncInstructor:
+    """OpenAI through the Responses API (instructor RESPONSES_TOOLS).
+
+    Chat completions refuses function tools on the current reasoning models
+    (gpt-5.6 and gpt-6) unless reasoning is off, and gpt-6.1 takes tools only
+    here. Reasoning off is not an option: gpt-6-luna without it put cheddar and
+    milk in a milk-allergy plan in the evals (2026-10-31), and with it was
+    clean. So reasoning stays at the model's default, which is what passed."""
+    return instructor.from_openai(sdk, mode=instructor.Mode.RESPONSES_TOOLS)
+
+
+def _warn_if_no_tool_call(model: str, response: object) -> None:
+    """instructor ``completion:response`` hook for OpenAI: log why a Responses
+    reply carries no usable tool call.
+
+    On such a reply (cut by the content filter or the output limit, a refusal,
+    plain text) instructor falls through to its chat-completions parser, which
+    fails on the missing `choices`: an AttributeError in 1.15.4, a re-asked
+    "No choices in OpenAI response" in 1.17 (what CI installs). Either is
+    all the chain's log would otherwise show; the status, the incomplete reason
+    and any refusal exist only on the reply."""
+    status = getattr(response, "status", None)
+    output = getattr(response, "output", None) or []
+    if status == "completed" and any(
+        getattr(item, "type", None) == "function_call" and getattr(item, "arguments", None)
+        for item in output
+    ):
+        return
+    refusals = [
+        str(getattr(part, "refusal", ""))
+        for item in output
+        if getattr(item, "type", None) == "message"
+        for part in getattr(item, "content", None) or []
+        if getattr(part, "type", None) == "refusal"
+    ]
+    logger.warning(
+        "OpenAI %s answered without a usable tool call: status=%s reason=%s refusal=%.200r",
+        model,
+        status,
+        getattr(getattr(response, "incomplete_details", None), "reason", None),
+        " ".join(refusals),
+    )
 
 
 # Maps each provider to the Settings attribute holding its (already
