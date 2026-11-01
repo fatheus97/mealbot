@@ -19,6 +19,7 @@ import { PaywallModal } from "./components/billing/PaywallModal";
 import { BillingReturnHandler } from "./components/billing/BillingReturnHandler";
 import { ResetPasswordModal } from "./components/ResetPasswordModal";
 import { EmailVerificationBanner } from "./components/auth/EmailVerificationBanner";
+import { TermsUpdateBanner } from "./components/auth/TermsUpdateBanner";
 import { VerifyEmailHandler } from "./components/auth/VerifyEmailHandler";
 import { InviteRegisterModal } from "./components/InviteRegisterModal";
 import type { MealPlanResponse, MealPlanSummary } from "./types";
@@ -80,6 +81,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
       </div>
       <AuthBar />
       <EmailVerificationBanner />
+      <TermsUpdateBanner />
       {userId && <SubscriptionBanner />}
       <Fridge />
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />

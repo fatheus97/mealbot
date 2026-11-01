@@ -11,7 +11,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import ColumnElement, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
@@ -41,6 +41,9 @@ from app.models.admin_schemas import (
     InviteListResponse,
     InviteRead,
     OverviewStats,
+    PolicyNoticePreview,
+    PolicyNoticeSendRequest,
+    PolicyNoticeSendResponse,
     ProviderUsageAgg,
     RevenueStats,
     SurfaceCount,
@@ -74,6 +77,7 @@ from app.services import (
     feedback_notify,
     feedback_ticket,
     feedback_triage,
+    policy_notice,
     revenue_service,
     stripe_service,
 )
@@ -1700,3 +1704,58 @@ async def delete_access_request(
         detail={"access_request_id": str(request_id)},
     )
     await session.commit()
+
+
+# ─── Policy-change notice email ─────────────────────────────────────────────
+# The email the Privacy Policy and Terms §12 promise on a material change. All
+# the rules (who, at most once, inside the Resend quota) live in
+# services/policy_notice so the CLI (app/scripts/send_policy_notice.py) gets the
+# exact same ones.
+
+
+@router.get("/policy-notice", response_model=PolicyNoticePreview)
+async def policy_notice_preview(
+    session: AsyncSession = Depends(get_session),
+) -> PolicyNoticePreview:
+    """Dry run: recipient counts, remaining quota, and the email in each locale.
+    Sends and writes nothing."""
+    return await policy_notice.preview(session)
+
+
+@router.post(
+    "/policy-notice/send",
+    response_model=PolicyNoticeSendResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def policy_notice_send(
+    body: PolicyNoticeSendRequest,
+    background_tasks: BackgroundTasks,
+    actor: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> PolicyNoticeSendResponse:
+    """Queue the notice for everyone the preview counted as eligible.
+
+    ``confirm_recipients`` must equal the eligible count the server computes
+    now, so the send can only reach the audience the admin reviewed (409
+    otherwise). The sends run in the background at one per second, because a
+    full day's quota would outlast the proxy's request timeout; reload the
+    preview to follow them. Re-sending is safe: each (campaign, user) is mailed
+    at most once.
+    """
+    try:
+        user_ids = await policy_notice.check_send(session, body.confirm_recipients)
+    except policy_notice.SendRefused as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+
+    campaign = policy_notice.campaign_id()
+    # Audit BEFORE queueing, committed on its own: the sends happen outside this
+    # transaction, so the record of who started them must not depend on them.
+    record_admin_action(
+        session,
+        actor=actor,
+        action="policy_notice.send",
+        detail={"campaign": campaign, "queued": str(len(user_ids))},
+    )
+    await session.commit()
+    background_tasks.add_task(policy_notice.run_send, user_ids)
+    return PolicyNoticeSendResponse(campaign=campaign, queued=len(user_ids))

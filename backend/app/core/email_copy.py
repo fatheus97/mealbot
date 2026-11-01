@@ -1,7 +1,7 @@
 """Transactional email copy, per locale.
 
-Four emails go to users: confirm-your-address, reset-your-password, your-address-
-was-changed, and the feedback-credit thank-you. Everything else Resend sends is
+Five emails go to users: confirm-your-address, reset-your-password, your-address-
+was-changed, the feedback-credit thank-you, and the policy-change notice. Everything else Resend sends is
 an OPERATOR alert (``billing_alerts``, ``disk_alert``) and stays English —
 there is one operator and he reads English.
 
@@ -52,6 +52,11 @@ class EmailCopy(TypedDict):
 
     credit_subject: str
     credit_body: str  # $credit_eur, $max_eur
+
+    # The bulk notice for a material change to the legal documents
+    # (services/policy_notice). $summary is app.core.legal.CHANGE_SUMMARY.
+    policy_notice_subject: str
+    policy_notice_body: str  # $summary, $privacy_link, $terms_link
 
 
 #: Hardcoded in the copy rather than derived, matching the pre-existing English.
@@ -106,6 +111,20 @@ _EN: Final[EmailCopy] = {
         "<strong>&euro;$max_eur off per month</strong> for accepted reports.</p>"
         "<p>&mdash; The Mealbot team</p>"
         "</div>"
+    ),
+    "policy_notice_subject": "We've changed Mealbot's Privacy Policy and Terms",
+    "policy_notice_body": (
+        "<p>Hi,</p>"
+        "<p>We've changed Mealbot's Privacy Policy and Terms of Service.</p>"
+        "<p>$summary</p>"
+        '<p>You can read the full <a href="$privacy_link">Privacy Policy</a> and '
+        '<a href="$terms_link">Terms of Service</a> on our website.</p>'
+        "<p>If you keep using Mealbot, the updated terms apply to you. If you "
+        "don't agree with them, you can cancel your subscription or delete your "
+        "account at any time.</p>"
+        "<p>You're getting this email because you have a Mealbot account. It is "
+        "a notice about your account, not marketing.</p>"
+        "<p>The Mealbot team</p>"
     ),
 }
 
@@ -162,6 +181,23 @@ _CS: Final[EmailCopy] = {
         "můžete získat až <strong>&euro;$max_eur měsíčně</strong>.</p>"
         "<p>&mdash; Tým Mealbot</p>"
         "</div>"
+    ),
+    "policy_notice_subject": (
+        "Změnili jsme zásady ochrany osobních údajů a obchodní podmínky Mealbotu"
+    ),
+    "policy_notice_body": (
+        "<p>Dobrý den,</p>"
+        "<p>Změnili jsme zásady ochrany osobních údajů a obchodní podmínky "
+        "Mealbotu.</p>"
+        "<p>$summary</p>"
+        '<p>Celé znění <a href="$privacy_link">zásad ochrany osobních údajů</a> '
+        'a <a href="$terms_link">obchodních podmínek</a> najdete na našem webu.</p>'
+        "<p>Pokud budete Mealbot používat dál, platí pro vás aktualizované "
+        "podmínky. Pokud s nimi nesouhlasíte, můžete kdykoli zrušit předplatné "
+        "nebo smazat svůj účet.</p>"
+        "<p>Tento e-mail dostáváte, protože máte účet v Mealbotu. Jde o "
+        "oznámení k vašemu účtu, ne o reklamu.</p>"
+        "<p>Tým Mealbot</p>"
     ),
 }
 

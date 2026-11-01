@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { clearSessionHints, storeSessionHints, SESSION_HINT_KEYS } from "./sessionHints";
+import {
+  clearSessionHints,
+  readTermsUpdateHint,
+  storeSessionHints,
+  SESSION_HINT_KEYS,
+} from "./sessionHints";
 
 const FULL = {
   id: 7,
@@ -61,8 +66,28 @@ describe("sessionHints", () => {
     expect(localStorage.getItem("mealbot_user_id")).toBe("2");
   });
 
+  it("round-trips a due terms notice and drops it once none is due", () => {
+    const update = { version: "2026-11-01", summary: { en: "E", cs: "C" } };
+    storeSessionHints({ ...FULL, terms_update: update }, false);
+    expect(readTermsUpdateHint()).toEqual(update);
+
+    storeSessionHints({ ...FULL, terms_update: null }, false);
+    expect(localStorage.getItem("mealbot_terms_update")).toBeNull();
+    expect(readTermsUpdateHint()).toBeNull();
+  });
+
+  it.each([
+    ["unparseable", "{not json"],
+    ["missing summary", JSON.stringify({ version: "v" })],
+    ["non-string summary value", JSON.stringify({ version: "v", summary: { en: 1 } })],
+    ["a bare string", JSON.stringify("v")],
+  ])("reads a %s terms hint as absent instead of crashing", (_name, raw) => {
+    localStorage.setItem("mealbot_terms_update", raw);
+    expect(readTermsUpdateHint()).toBeNull();
+  });
+
   it("clearSessionHints removes every key the writer can set", () => {
-    storeSessionHints(FULL, true);
+    storeSessionHints({ ...FULL, terms_update: { version: "v", summary: { en: "E" } } }, true);
     clearSessionHints();
     for (const key of SESSION_HINT_KEYS) {
       expect(localStorage.getItem(key)).toBeNull();

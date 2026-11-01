@@ -1,11 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { AuthLoginResponse, AuthState } from "../types";
-import { authFetch, redeemInvite, resendVerificationEmail } from "../api.ts";
+import type { AuthLoginResponse, AuthState, TermsUpdate } from "../types";
+import {
+  acceptTermsVersion,
+  authFetch,
+  redeemInvite,
+  resendVerificationEmail,
+  TermsVersionStaleError,
+} from "../api.ts";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError, LoginFailedError } from "./authErrors";
 import { captureAttribution, getStoredAttribution } from "../utils/attribution";
-import { clearSessionHints, storeSessionHints } from "../auth/sessionHints";
+import { clearSessionHints, readTermsUpdateHint, storeSessionHints } from "../auth/sessionHints";
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
@@ -61,6 +67,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [emailVerified, setEmailVerified] = useState<boolean>(
     () => window.localStorage.getItem("mealbot_email_verified") !== "false"
   );
+  // Seeded from the render hint for the same CLS reason as emailVerified; see
+  // storeSessionHints. A missing locale in a hinted summary falls back to
+  // English in the banner, and /users replaces the hint a round-trip later.
+  const [termsUpdate, setTermsUpdate] = useState<TermsUpdate | null>(readTermsUpdateHint);
   // null = /config not yet resolved; boolean = resolved value. Using null
   // as the unresolved sentinel lets the UI avoid a flash of the wrong
   // copy (e.g. rendering the "closed alpha" notice for the 50-200ms
@@ -91,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // `?? true` so a payload predating this field (or a test mock without it)
     // reads as verified rather than nagging someone who has nothing to do.
     setEmailVerified(profile.email_verified ?? true);
+    setTermsUpdate(profile.terms_update ?? null);
     // The landing page's login/register/demo modals write these same hints
     // before handing off to /app — see auth/sessionHints.ts for why that
     // matters (this provider's bootstrap only reconciles when a hint exists).
@@ -111,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsSubscribed(false);
     setIsComped(false);
     setEmailVerified(true);
+    setTermsUpdate(null);
     clearSessionHints();
 
     // Prevent cross-account leakage: drop cached server data and reset
@@ -201,6 +213,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Transient failure — leave the current (hinted) state in place.
     }
   }, [applyProfile]);
+
+  const acceptTerms = useCallback(
+    async (version: string): Promise<void> => {
+      try {
+        const profile = await acceptTermsVersion(version);
+        applyProfile(profile, Boolean(profile.is_demo));
+      } catch (err) {
+        // Stale: the server wants a newer version. Re-read the profile so the
+        // banner shows the summary actually being asked about, then let the
+        // banner say why it changed under the user's cursor.
+        if (err instanceof TermsVersionStaleError) await refreshProfile();
+        throw err;
+      }
+    },
+    [applyProfile, refreshProfile],
+  );
 
   const setOnboardingCompleted = (value: boolean) => {
     setOnboardingCompletedState(value);
@@ -313,7 +341,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, termsUpdate, acceptTerms, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
