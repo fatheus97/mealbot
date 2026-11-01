@@ -1684,8 +1684,10 @@ class TestOpenAIResponsesStackContract:
         self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,
         monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """instructor fails such a reply with a bare AttributeError ('Response'
-        has no 'choices'); the reason it came back empty is logged beside it."""
+        """instructor fails such a reply on a missing 'choices' (re-asked or
+        not, depending on the instructor release); the reason it came back empty is
+        logged beside it, and every billed request is counted."""
+        _, seen = fake_openai
         client = self._client(monkeypatch, sdk, "openai/filtered")
         with caplog.at_level(logging.WARNING, logger="app.llm.client"), capture_llm_usage() as calls:
             async with asyncio.timeout(10):
@@ -1696,8 +1698,9 @@ class TestOpenAIResponsesStackContract:
             in r.getMessage()
             for r in caplog.records
         )
-        [usage] = calls  # the empty reply was still billed
-        assert usage.prompt_tokens == 11
+        [usage] = calls  # the empty replies were still billed, each one
+        assert seen  # one request, or one per re-ask
+        assert usage.prompt_tokens == 11 * len(seen)
 
     async def test_a_tool_answer_logs_no_warning(
         self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,

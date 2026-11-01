@@ -879,10 +879,11 @@ def _warn_if_no_tool_call(model: str, response: object) -> None:
     reply carries no usable tool call.
 
     On such a reply (cut by the content filter or the output limit, a refusal,
-    plain text) instructor 1.15 falls through to its chat-completions parser
-    and fails with AttributeError "'Response' object has no attribute
-    'choices'", which is all the chain's log would otherwise show. The status,
-    the incomplete reason and any refusal exist only on the reply."""
+    plain text) instructor falls through to its chat-completions parser, which
+    fails on the missing `choices`: an AttributeError in 1.15.4, a re-asked
+    "No choices in OpenAI response" in 1.17 (what CI installs). Either is
+    all the chain's log would otherwise show; the status, the incomplete reason
+    and any refusal exist only on the reply."""
     status = getattr(response, "status", None)
     output = getattr(response, "output", None) or []
     if status == "completed" and any(
