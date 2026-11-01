@@ -75,7 +75,9 @@ export function NoticePanel() {
       <p style={{ margin: "0 0 1rem", color: colors.textMuted, fontSize: 13, maxWidth: 640 }}>
         The email the Privacy Policy and Terms promise when a change is material. Campaign{" "}
         <code>{data.campaign}</code>. Each account gets it at most once, and users who already
-        clicked "I agree" on the in-app banner are skipped.
+        clicked "I agree" on the in-app banner are skipped. Sends run in the background on the
+        server, so a deploy (every merge to main) stops the rest of a run; sending again picks
+        them up.
       </p>
 
       <div

@@ -273,9 +273,20 @@ async def _send_one(session: AsyncSession, campaign: str, user_id: int) -> _Outc
         address, email.subject, email.html, idempotency_key=f"{campaign}/{user_id}"
     )
     if outcome == "sent":
-        claim.sent_at = datetime.now(UTC)
-        session.add(claim)
-        await session.commit()
+        try:
+            claim.sent_at = datetime.now(UTC)
+            session.add(claim)
+            await session.commit()
+        except Exception:
+            # Delivered, but recording it failed. The claim is still NULL, which
+            # reads as "unconfirmed": true, and never retried. Carry on, so one
+            # DB blip does not drop everyone after this user from the run.
+            logger.exception(
+                "policy_notice_confirm_failed campaign=%s user_id=%s", campaign, user_id
+            )
+            with contextlib.suppress(Exception):
+                await session.rollback()
+            return "unconfirmed"
         return "sent"
     if outcome == "rejected":
         # Certainly not delivered: release so a later run retries this user.
