@@ -117,7 +117,7 @@ All routes are under `/api`. Interactive docs at `/docs`.
 |------|--------|
 | **Public** | `GET,HEAD /health` · `GET /config` · `GET /countries` · `GET /languages` |
 | **Auth** | `POST /users/register` · `/auth/login` · `/auth/logout` · `/auth/logout-all` · `/auth/refresh` · `/auth/password` · `/auth/forgot-password` · `/auth/reset-password` · `/auth/verify-email` · `/auth/resend-verification` · `/auth/demo` |
-| **Profile** | `GET,PATCH /users` — country, language, units, display and generation preferences |
+| **Profile** | `GET,PATCH /users` — country, language, units, display and generation preferences · `POST /users/terms/accept` — record agreement to a changed Privacy Policy and Terms |
 | **Fridge** | `GET,PUT /fridge` · `POST /fridge/scan` · `POST /fridge/merge` |
 | **Staples** | `GET,PUT /staples` |
 | **Plan Ahead** | `GET,POST /plan` · `GET,PATCH,DELETE /plan/{id}` · `/plan/calendar` · `/plan/{id}/regenerate` · `/confirm` · `/unconfirm` · `/finish` · `/reopen` · `/plan/{id}/meals` · `/meals/{id}/cook` · `/uncook` · `/favorite` |
@@ -128,7 +128,7 @@ All routes are under `/api`. Interactive docs at `/docs`.
 | **Billing** | `POST /billing/checkout` · `/billing/portal` · `/billing/webhook` |
 | **Feedback** | `POST /feedback` |
 | **Access requests** | `POST /access-requests` |
-| **Admin** | `/admin/stats/{overview,usage,usage/by-user,activity,revenue,funnel}` · `/admin/users` · `/admin/invites` · `/admin/feedback` · `/admin/access-requests` |
+| **Admin** | `/admin/stats/{overview,usage,usage/by-user,activity,revenue,funnel}` · `/admin/users` · `/admin/invites` · `/admin/feedback` · `/admin/access-requests` · `/admin/policy-notice` (+ `/send`) |
 
 ---
 
