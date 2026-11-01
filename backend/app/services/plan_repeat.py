@@ -42,7 +42,7 @@ from app.models.plan_models import (
     ShoppingListItem,
     StockItemDTO,
 )
-from app.services.health_consent import require_health_consent
+from app.services.health_consent import request_json_to_store, require_health_consent
 from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan
 
@@ -145,7 +145,9 @@ async def repeat_plan(
         people_count=source.people_count,
         start_date=start_date,
         kind=source.kind,
-        request_json=request.model_dump_json(),
+        # The caller holds lock_kitchen; without the diet fields if consent
+        # was withdrawn after the check above.
+        request_json=await request_json_to_store(session, user, request),
         response_json=response.model_dump_json(),
         # confirmed_at / finished_at / stock_after_json stay at their defaults.
         # A copy is a plan you have not shopped for, cooked or finished, however

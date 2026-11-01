@@ -256,6 +256,21 @@ class TestWithdraw:
         assert gen.request_json is not None
         assert json.loads(gen.request_json) == {"people_count": 2}
 
+    async def test_takes_the_kitchen_lock_before_reading_plans(
+        self, client: AsyncClient, test_user: User
+    ) -> None:
+        # Every save of a request (plan, Cook Now, repeat) holds lock_kitchen
+        # and re-reads consent under it; withdrawal holding it too is what
+        # stops a concurrent save from slipping its diet fields past the clear.
+        with patch(
+            "app.services.health_consent.lock_kitchen", new_callable=AsyncMock
+        ) as lock:
+            resp = await client.delete("/api/users/health-consent")
+        assert resp.status_code == 200
+        lock.assert_awaited_once()
+        assert lock.await_args is not None
+        assert lock.await_args.args[1] == test_user.id
+
     async def test_without_consent_logs_no_withdrawal(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
     ) -> None:

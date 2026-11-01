@@ -346,6 +346,10 @@ async def repeat_plan_endpoint(
     real generation still sweeps, so repeats do not accumulate forever — a
     repeat you never confirm has exactly the lifetime any unconfirmed plan has.
     """
+    # Before any read: the copy stores the source's request, so it serializes
+    # with a consent withdrawal like every other save (see repeat_plan).
+    assert current_user.id is not None
+    await lock_kitchen(session, current_user.id)
     plan = await session.get(MealPlan, plan_id)
     if not plan or plan.user_id != current_user.id:
         raise LocalizedHTTPException(404, "plan_not_found")
@@ -544,6 +548,9 @@ async def plan_meals_for_user(
 
     # Clean up old unconfirmed plans before saving a new one
     assert current_user.id is not None
+    # After the LLM, before the first write: serializes this save with a
+    # consent withdrawal (request_json_to_store below relies on it).
+    await lock_kitchen(session, current_user.id)
     await clear_unconfirmed_plans(session, current_user.id)
 
     # Save MealPlan to DB (no MealEntry rows yet — created on confirm)

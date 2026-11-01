@@ -42,6 +42,7 @@ from app.core.dietary import Allergen, DietType
 from app.core.errors import LocalizedHTTPException
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.models.db_models import HealthConsentEvent, MachineGeneration, MealPlan, User
+from app.services.fridge_service import lock_kitchen
 
 logger = logging.getLogger(__name__)
 
@@ -162,9 +163,9 @@ async def request_json_to_store(
     minutes after its consent check; if the user withdrew meanwhile, the plan
     is saved without the fields (and marked), as withdrawal promises.
 
-    ponytail: a withdrawal landing between this read and the commit still
-    slips through; that window is the commit itself. Re-check under
-    lock_kitchen in both places if it ever matters."""
+    The caller must hold lock_kitchen, which withdraw() takes too, so the two
+    never interleave: a withdrawal committed first is seen by this read, and
+    one that waited for the lock clears this plan along with the rest."""
     dumped = request.model_dump_json()
     if await _consent_now(session, user):
         return dumped
@@ -195,8 +196,12 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     them) telemetry rows. Returns how many plans changed. Commits. A
     generation still running saves its plan without them
     (request_json_to_store).
+
+    Takes lock_kitchen first, like every save of a request, so a plan saved
+    concurrently is either seen and cleared here or sees the withdrawal.
     """
     assert user.id is not None
+    await lock_kitchen(session, user.id)
     previous = user.health_consent_version
     plans = (
         await session.execute(select(MealPlan).where(col(MealPlan.user_id) == user.id))
