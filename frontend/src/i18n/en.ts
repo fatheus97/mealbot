@@ -187,6 +187,17 @@ export const en = {
   "auth.acceptTerms.termsLink": "Terms of Service",
   "auth.acceptTerms.privacyLink": "Privacy Policy",
 
+  // ─── Diet/allergy consent (HealthConsentCheckbox, GDPR Art. 9) ────────────
+  // The label IS the consent text: changing what it says about recipients or
+  // purpose means bumping HEALTH_CONSENT_VERSION (src/legal.ts + backend).
+  "healthConsent.label":
+    "I consent to Mealbot using the diets, allergies and ingredients to avoid that I enter to generate my meal plans and recipes, and to sending them to Google and OpenAI for that purpose (both may process them outside the EU, including in the US). This information can reveal my health or religion. I can withdraw this consent at any time in Settings. More in the {privacy}.",
+  "healthConsent.privacyLink": "Privacy Policy",
+  "healthConsent.note":
+    "Only enter other people's needs if they agree, or if you are their parent or guardian. Without this consent you can still generate plans, just without these restrictions.",
+  "healthConsent.failed": "Couldn't save your consent. Please try again.",
+  "healthConsent.stale": "The consent text changed in the meantime. Please reload the page.",
+
   "auth.closedAlpha": "This is a closed alpha. For access, contact {supportEmail}.",
 
   // ─── Email verification banner ────────────────────────────────────────────
@@ -253,6 +264,20 @@ export const en = {
   "settings.changeEmailHint":
     "Until you confirm the new address, new plans, recipes and scans are paused. Your other devices are also signed out.",
   "settings.yourData": "Your data",
+  "settings.healthConsent.title": "Diets and allergies",
+  "settings.healthConsent.givenOn":
+    "On {date} you consented to Mealbot processing your diets, allergies and ingredients to avoid.",
+  "settings.healthConsent.given":
+    "You consented to Mealbot processing your diets, allergies and ingredients to avoid.",
+  "settings.healthConsent.none":
+    "You haven't consented to Mealbot processing diets, allergies or ingredients to avoid. Mealbot asks when you add them, or you can consent here.",
+  "settings.healthConsent.withdraw": "Withdraw consent",
+  "settings.healthConsent.confirm":
+    "Withdrawing removes your diets, allergies and ingredients to avoid from your saved plans, and saved plans will no longer be checked against your allergies. Withdraw your consent?",
+  "settings.healthConsent.confirmButton": "Withdraw",
+  "settings.healthConsent.withdrawing": "Withdrawing…",
+  "settings.healthConsent.cancel": "Cancel",
+  "settings.healthConsent.failed": "Couldn't withdraw your consent. Please try again.",
   "settings.exportData": "⬇️ Download my data",
   "settings.exporting": "Preparing…",
   "settings.exportFailed": "Could not prepare your data export",

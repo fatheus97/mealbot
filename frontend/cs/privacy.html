@@ -161,7 +161,8 @@
           zůstali přihlášeni. Nemáme žádnou analytiku, žádnou reklamu ani žádné
           sledovací nástroje třetích stran. Údaje o vaší platební kartě nikdy nevidíme. Vaše <strong>dietní omezení a
           alergie však předáváme společnosti Google a někdy také společnosti OpenAI</strong>, abychom vám vygenerovali jídelníčky. Na tom
-          celý produkt stojí a je to nejdůležitější informace na této stránce.
+          celý produkt stojí a je to nejdůležitější informace na této stránce. Používáme je až
+          poté, co k tomu dáte výslovný souhlas, a ten můžete v Nastavení odvolat.
         </p>
       </div>
 
@@ -191,7 +192,10 @@
         Vaše předvolby vaření (země, jazyk, jednotky, zda zahrnovat koření), obsah vaší
         lednice a zásoby ve spíži, vaše jídelníčky a recepty a to, kdy jste jídlo označili jako
         uvařené. Textová pole, která vyplníte (chuťové preference, suroviny, kterým se chcete
-        vyhnout, poznámky), ukládáme přesně tak, jak jste je napsali.
+        vyhnout, poznámky), ukládáme přesně tak, jak jste je napsali. Údaje o zdraví prosím
+        uvádějte jen v polích pro typy stravy, alergie a suroviny, kterým se chcete vyhnout, na
+        která se vztahuje váš souhlas (viz níže), nikoli v chuťových preferencích, poznámkách ani
+        v položkách lednice.
       </p>
 
       <h3>Dietní omezení a alergie</h3>
@@ -199,6 +203,20 @@
         Jsou to údaje o zdravotním stavu a v některých případech (halal, košer) mohou vypovídat o
         náboženském vyznání. Zacházíme s nimi jako s nejcitlivějšími údaji, které uchováváme. Níže se
         jim věnujeme zvlášť, a to kvůli tomu, kam se předávají.
+      </p>
+      <p>
+        Vaše typy stravy, alergie a suroviny, kterým se chcete vyhnout, používáme jen s vaším
+        <strong>výslovným souhlasem</strong>. Dáváte ho samostatným, předem nezaškrtnutým políčkem,
+        které se objeví, jakmile některý z těchto údajů poprvé zadáte, a to dřív, než se cokoli
+        odešle. Uvádět je nemusíte. Bez nich a bez vašeho souhlasu Mealbot jídelníčky generuje dál,
+        jen k nim nemůže přihlédnout. Souhlas můžete kdykoli odvolat v Nastavení; z vašich uložených
+        jídelníčků je pak odstraníme.
+      </p>
+      <p>
+        Pokud plánujete jídlo pro další lidi, například pro domácnost nebo dítě, zadávejte jejich
+        typy stravy a alergie jen s jejich souhlasem, nebo pokud jste jejich rodič či zákonný
+        zástupce. Ukládáme je jako součást vašich jídelníčků, bez jmen. Svá práva mohou tito lidé
+        uplatnit prostřednictvím vás, nebo nám mohou napsat e-mail.
       </p>
 
       <h3>Platba</h3>
@@ -222,7 +240,9 @@
       <p>
         Pokud nám zašlete zpětnou vazbu, uložíme vaši zprávu. Pokud si vyžádáte přístup z úvodní
         stránky v době, kdy jsou registrace zavřené, uložíme e-mailovou adresu a zprávu, kterou
-        odešlete, a to včetně jakýchkoli údajů o stravě, které se tam rozhodnete uvést.
+        odešlete, a to včetně jakýchkoli údajů o stravě, které se tam rozhodnete uvést. Do zpětné
+        vazby ani do žádosti o přístup prosím neuvádějte údaje o zdraví; pokud je uvedete,
+        použijeme je jen k vyřízení vaší zprávy.
       </p>
 
       <h3>Technické údaje</h3>
@@ -233,9 +253,9 @@
       </p>
       <p>
         Uchováváme také kopii toho, co jsme AI poslali a co nám vrátila, spolu s vašimi případnými úpravami
-        jejího výstupu, abychom viděli, kde AI chybuje. Tato kopie obsahuje vaše dietní
-        omezení. Zatím se z toho nelze odhlásit; pokud je to pro vás důležité,
-        napište nám.
+        jejího výstupu, abychom viděli, kde AI chybuje. Tato kopie neobsahuje vaše typy stravy,
+        alergie ani suroviny, kterým se chcete vyhnout: před uložením je odstraníme. V aplikaci ji
+        nelze vypnout, ale můžete proti ní vznést námitku (viz níže).
       </p>
       <p>
         Náš webový server zapisuje standardní access logy, ve kterých je vaše IP adresa, vyžádaná
@@ -290,8 +310,8 @@
         dobu uchovává kvůli odhalování zneužití: Google ji smí použít také k trénování svých filtrů
         proti zneužití. OpenAI tuto kopii uchovává nejvýše 30 dní, déle jen tehdy, když to
         vyžaduje zákon nebo ochrana před újmou. Google ji uchovává 55 dní. Pokud si
-        takové zpracování nepřejete, poctivá odpověď zní, že Mealbot bez těchto údajů jídelníček
-        vygenerovat nedokáže.
+        takové zpracování nepřejete, souhlas nedávejte: Mealbot pak jídelníčky generuje bez vašich
+        typů stravy, alergií a surovin, kterým se chcete vyhnout, a nemůže k nim tedy přihlédnout.
       </p>
 
       <h2>Kdo další dostává vaše údaje</h2>
@@ -346,11 +366,78 @@
       <p class="muted">
         Naše servery běží u společnosti Hetzner Online GmbH v <strong>německém Norimberku</strong>, takže
         vaše údaje jsou uloženy v EU. Google, OpenAI, Stripe, Resend a GitHub mohou údaje zpracovávat
-        mimo EU podle svých vlastních podmínek. OpenAI je může zpracovávat ve Spojených státech,
+        mimo EU. V takovém případě se předání opírá o rozhodnutí Evropské komise o odpovídající
+        ochraně pro rámec EU-US Data Privacy Framework, je-li společnost v tomto rámci
+        certifikována, nebo o standardní smluvní doložky EU v jejích podmínkách zpracování údajů.
+        OpenAI je může zpracovávat ve Spojených státech,
         a to na základě standardních smluvních doložek EU nebo rozhodnutí Evropské komise
         o odpovídající ochraně, jak stanoví náš
         <a href="https://openai.com/policies/data-processing-addendum/" rel="noopener">dodatek
         o zpracování údajů</a> s touto společností.
+      </p>
+
+      <h2>Na jakém právním základě vaše údaje používáme</h2>
+      <p>
+        GDPR vyžaduje pro každé použití údajů právní základ. Naše jsou tyto:
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Co děláme</th><th>Právní základ</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Provoz vašeho účtu, přihlašování, vaše předplatné, generování jídelníčků a receptů a e-maily týkající se vašeho účtu</td>
+              <td>Naše smlouva s vámi (čl. 6 odst. 1 písm. b) GDPR)</td>
+            </tr>
+            <tr>
+              <td>Používání vašich typů stravy, alergií a surovin, kterým se chcete vyhnout, včetně jejich předávání společnostem Google a OpenAI</td>
+              <td>Váš výslovný souhlas (čl. 9 odst. 2 písm. a) a čl. 6 odst. 1 písm. a)), který můžete kdykoli odvolat v Nastavení</td>
+            </tr>
+            <tr>
+              <td>Záznamy o fakturách a váš zákaznický záznam u Stripe</td>
+              <td>Naše povinnosti podle daňových a účetních předpisů (čl. 6 odst. 1 písm. c))</td>
+            </tr>
+            <tr>
+              <td>Záznam o vašem souhlasu a o jeho odvolání</td>
+              <td>Naše povinnost doložit, že jste souhlas udělili (čl. 6 odst. 1 písm. c) ve spojení s čl. 7 odst. 1)</td>
+            </tr>
+            <tr>
+              <td>Administrátorský log úkonů, které provádíme s účty, například když účet smažeme za vás</td>
+              <td>Náš oprávněný zájem na tom, abychom mohli doložit, co jsme udělali, a hájit se v případných sporech (čl. 6 odst. 1 písm. f))</td>
+            </tr>
+            <tr>
+              <td>Žádosti o přístup z úvodní stránky</td>
+              <td>Kroky před uzavřením smlouvy, o které nás žádáte (čl. 6 odst. 1 písm. b))</td>
+            </tr>
+            <tr>
+              <td>Kopie požadavků na AI a vašich úprav jejího výstupu</td>
+              <td>Náš oprávněný zájem na hledání a opravě chyb AI (čl. 6 odst. 1 písm. f))</td>
+            </tr>
+            <tr>
+              <td>Otisk platební karty</td>
+              <td>Náš oprávněný zájem zabránit tomu, aby jedna karta otevírala neomezeně mnoho zkušebních období (čl. 6 odst. 1 písm. f))</td>
+            </tr>
+            <tr>
+              <td>Přihlašovací relace, access logy, zálohy databáze a počty AI tokenů</td>
+              <td>Náš oprávněný zájem na zabezpečení a dostupnosti Mealbotu a na prevenci zneužití (čl. 6 odst. 1 písm. f))</td>
+            </tr>
+            <tr>
+              <td>Zpětná vazba a její automatické zařazení do kategorie</td>
+              <td>Náš oprávněný zájem vyřizovat vaše hlášení a zlepšovat Mealbot (čl. 6 odst. 1 písm. f))</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Abyste mohli mít účet, musíte nám sdělit e-mailovou adresu a heslo. Typy stravy, alergie
+        a suroviny, kterým se chcete vyhnout, uvádět nemusíte.
+      </p>
+      <p>
+        Nečiníme o vás žádná rozhodnutí založená výhradně na automatizovaném zpracování, která by
+        pro vás měla právní nebo podobně závažné účinky (čl. 22). Limit férového užívání a kontrola
+        zkušebního období se uplatňují automaticky; pokud si myslíte, že byly ve vašem případě
+        uplatněny chybně, napište nám a posoudí to člověk.
       </p>
 
       <h2>Cookies</h2>
@@ -392,12 +479,19 @@
             <tr><td>Demo účty a jejich data</td><td>Přibližně 2 hodiny</td></tr>
             <tr><td>Zálohy databáze</td><td>14 dní</td></tr>
             <tr><td>Váš účet a vše v něm</td><td>Dokud není účet smazán</td></tr>
+            <tr><td>Kopie požadavků na AI a záznam o vašem souhlasu</td><td>Dokud není účet smazán</td></tr>
+            <tr><td>Administrátorský log úkonů, které provádíme s účty</td><td>Bez pevně stanoveného konce, abychom mohli doložit, co jsme udělali</td></tr>
             <tr><td>Faktury (DPH)</td><td>Uchovávány i po smazání, jak vyžadují daňové předpisy</td></tr>
           </tbody>
         </table>
       </div>
 
       <h2>Vaše práva a co pro vás dokážeme zajistit</h2>
+      <p>
+        Máte právo na přístup ke svým údajům, na jejich opravu nebo smazání, na omezení jejich
+        zpracování, na jejich přenositelnost a právo vznést námitku. Pokud údaje zpracováváme na
+        základě vašeho souhlasu, můžete ho kdykoli odvolat; na zpracování před odvoláním to nemá vliv.
+      </p>
       <p>
         Tři z nich uplatníte sami v Nastavení, aniž byste nás museli žádat: změnit e-mailovou
         adresu, stáhnout si svoje data a smazat účet. S opravou údajů nebo s omezením jejich
@@ -426,12 +520,22 @@
             <strong>Smazání není úplné.</strong> Záznamy o fakturách uchováváme, už bez vazby
             na váš účet, protože nám to ukládá daňový zákon; váš zákaznický záznam u Stripe
             a jakékoli hlášení chyby, které už doputovalo do našeho issue trackeru, se
-            automaticky neodstraňují; a v zálohách databáze zůstanete až 14 dní. Když účet
-            smažeme <em>my</em> za vás, zůstane vaše e-mailová adresa navíc v našem interním
-            administrátorském logu jako záznam, že jsme to udělali; když si účet smažete sami,
-            žádný takový záznam nevzniká.
+            automaticky neodstraňují; a v zálohách databáze zůstanete až 14 dní. Každý úkon,
+            který jsme s vaším účtem provedli, například jeho smazání za vás, zůstává i s vaší
+            e-mailovou adresou v našem interním administrátorském logu jako záznam, že jsme ho
+            provedli; když si účet smažete sami, žádný takový záznam nevzniká.
           </li>
         </ul>
+      </div>
+      <div class="note">
+        <p>
+          <strong>Vaše právo vznést námitku.</strong> Pokud údaje zpracováváme na základě našeho
+          oprávněného zájmu (viz „Na jakém právním základě vaše údaje používáme“), můžete proti tomu
+          z důvodů týkajících se vaší konkrétní situace kdykoli vznést námitku e-mailem na
+          <a href="mailto:info@trymealbot.com">info@trymealbot.com</a>. Zpracování pak ukončíme,
+          ledaže máme závažné oprávněné důvody, které převažují nad vašimi zájmy, nebo údaje
+          potřebujeme k určení, výkonu nebo obhajobě právních nároků.
+        </p>
       </div>
       <p>
         Se stížností se také můžete obrátit na <a href="https://uoou.gov.cz" rel="noopener">Úřad pro ochranu osobních údajů</a>.

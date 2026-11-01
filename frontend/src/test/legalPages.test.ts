@@ -156,6 +156,36 @@ describe.skipIf(!hasBuild)("legal pages", () => {
     }
   });
 
+  it("both privacy editions state the legal basis, the consent and the right to object", () => {
+    // GDPR Art. 13(1)(c) and Art. 9(2)(a): the policy named no legal basis at
+    // all until 2026-11-01, and diet/allergy data needs explicit consent, which
+    // the app now collects (app/services/health_consent.py). Art. 21(4) wants
+    // the right to object brought to attention separately. The telemetry
+    // sentence is a promise the code keeps (telemetry.record_generation strips
+    // the fields), so it is pinned too. Same both-editions reason as above.
+    const ws = (s: string) => new RegExp(s.split(" ").join(String.raw`\s+`));
+    const en = html["dist/privacy.html"];
+    const cs = html["dist/cs/privacy.html"];
+    for (const phrase of [
+      "Why we are allowed to use your data",
+      "Your explicit consent",
+      "you can withdraw your consent at any time in Settings",
+      "Your right to object",
+      "This copy leaves out your diets, allergies and ingredients to avoid",
+    ]) {
+      expect(en, phrase).toMatch(new RegExp(ws(phrase).source, "i"));
+    }
+    for (const phrase of [
+      "Na jakém právním základě vaše údaje používáme",
+      "Váš výslovný souhlas",
+      "Souhlas můžete kdykoli odvolat v Nastavení",
+      "Vaše právo vznést námitku",
+      "Tato kopie neobsahuje vaše typy stravy, alergie ani suroviny, kterým se chcete vyhnout",
+    ]) {
+      expect(cs, phrase).toMatch(ws(phrase));
+    }
+  });
+
   it("both editions of the Terms carry the equal-authority clause", () => {
     // The clause is what makes shipping a translation safe at all: neither
     // version is subordinate, and a discrepancy resolves in the reader's

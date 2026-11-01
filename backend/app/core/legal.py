@@ -28,6 +28,16 @@ from app.core.i18n import Locale
 #: frontend/privacy.html — pinned by tests/test_legal_version.py.
 TERMS_VERSION = "2026-11-01"
 
+#: The version of the explicit consent (GDPR Art. 9(2)(a)) to process diets,
+#: allergens and ingredients to avoid: the sentence the SPA shows next to the
+#: checkbox (``healthConsent.label`` in frontend/src/i18n). Separate from
+#: TERMS_VERSION because accepting the Terms is not this consent and must never
+#: count as it. A consent is valid only for THIS version, so bumping it (for a
+#: new recipient or purpose the sentence has to name) asks everyone again.
+#: The SPA sends the version it displayed; the CI "legal version" job pins the
+#: frontend copy (frontend/src/legal.ts) to this one.
+HEALTH_CONSENT_VERSION: Final = "2026-11-01"
+
 #: The newest version whose change is MATERIAL: the kind the Privacy Policy
 #: ("Changes") and Terms §12 promise to tell users about. A user whose recorded
 #: ``terms_version`` is older sees the in-app notice, and the notice email

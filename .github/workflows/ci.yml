@@ -321,6 +321,28 @@ jobs:
           fi
           exit "$failed"
 
+      - name: HEALTH_CONSENT_VERSION matches the SPA's copy
+        # The sentence the user ticks lives in the SPA bundle and
+        # frontend/src/legal.ts names its version; the server records consent
+        # only against its own constant and answers 409 to any other value. Out
+        # of sync, every attempt to consent fails, so diet and allergy data can
+        # no longer be used at all. Same cross-tree reason as the step above for
+        # living here and not in pytest or Vitest.
+        run: |
+          set -uo pipefail
+          backend="$(sed -n 's/.*HEALTH_CONSENT_VERSION: *Final *= *"\([0-9-]*\)".*/\1/p' \
+            backend/app/core/legal.py | head -1)"
+          frontend="$(sed -n 's/.*HEALTH_CONSENT_VERSION *= *"\([0-9-]*\)".*/\1/p' \
+            frontend/src/legal.ts | head -1)"
+          if [ -z "$backend" ] || [ -z "$frontend" ]; then
+            echo "::error::could not read HEALTH_CONSENT_VERSION (backend='${backend}', frontend='${frontend}')"
+            exit 1
+          fi
+          if [ "$backend" != "$frontend" ]; then
+            echo "::error::HEALTH_CONSENT_VERSION is ${backend} in backend/app/core/legal.py but ${frontend} in frontend/src/legal.ts"
+            exit 1
+          fi
+
   # The set of translated locales is declared twice — once for the UI
   # (frontend/src/store/useLocaleStore.ts) and once for email
   # (backend/app/core/i18n.py) — because neither side can import the other.

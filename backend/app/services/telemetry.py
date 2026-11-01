@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from app.models.db_models import MachineCorrection, MachineGeneration
+from app.services.health_consent import strip_health_fields
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,11 @@ def record_generation(
 
     Returns the unflushed row so the caller can obtain its id after a flush and
     link corrections to it, or ``None`` if construction failed. Never raises.
+
+    ``request_json`` is stored WITHOUT diets, allergens and ingredients to
+    avoid. The user's consent covers generating their plan, not this copy,
+    which serves a different purpose (finding where the model goes wrong); see
+    app.services.health_consent.
     """
     try:
         if surface not in GENERATION_SURFACES:
@@ -63,7 +69,7 @@ def record_generation(
             user_id=user_id,
             surface=surface,
             output_json=output_json,
-            request_json=request_json,
+            request_json=strip_health_fields(request_json),
             meal_plan_id=meal_plan_id,
         )
         session.add(row)

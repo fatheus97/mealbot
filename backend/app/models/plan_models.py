@@ -349,6 +349,12 @@ class MealPlanRequest(BaseModel):
         max_length=_MAX_ALLERGENS,
         description="EU-14 major allergens the user must avoid (hard constraint).",
     )
+    # Server-set: True once diets, allergens and ingredients to avoid were
+    # removed from this STORED request (consent withdrawn or never given; see
+    # app.services.health_consent). Regenerating such a plan would ask the
+    # model for meals with no allergy constraints, so regenerate refuses it.
+    # A client setting it only blocks regenerating its own new plan.
+    health_data_removed: bool = False
     meals_per_day: int = Field(
         ge=1,
         le=6,

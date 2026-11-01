@@ -24,6 +24,7 @@ import {
   type MealType,
 } from "../constants/mealTypes";
 import { DietarySelector } from "./DietarySelector";
+import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 import { useI18n, useMealTypeLabel } from "../i18n";
 import type {
   Allergen,
@@ -54,7 +55,7 @@ export function CookNowForm() {
   // <label>, or the label would address two controls (see MealPlanner).
   const avoidId = useId();
   const mealTypeLabel = useMealTypeLabel();
-  const { userId } = useAuth();
+  const { userId, healthConsent } = useAuth();
   const isMobile = useIsMobile();
   // The intro line and the generate-failure alert sit on the ADAPTIVE page
   // background — this form pins no surface of its own until the recipe card.
@@ -117,6 +118,9 @@ export function CookNowForm() {
     input.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 
   const tasteCount = parseList(tastePreferences).length;
+  // Same consent rule as the planner (HealthConsentCheckbox).
+  const carriesHealthData =
+    dietTypes.length > 0 || allergens.length > 0 || avoidIngredients.length > 0;
 
   const buildRequest = (): SingleRecipeRequest => ({
     meal_type: mealType,
@@ -350,10 +354,11 @@ export function CookNowForm() {
         </label>
       </div>
 
+      <HealthConsentCheckbox active={carriesHealthData} id="health-consent-cook" />
       <button
         type="button"
         onClick={handleGenerate}
-        disabled={generateMutation.isPending}
+        disabled={generateMutation.isPending || (carriesHealthData && !healthConsent)}
         style={{
           alignSelf: "flex-start",
           padding: "0.5rem 1.5rem",

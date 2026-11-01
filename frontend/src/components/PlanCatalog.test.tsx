@@ -506,6 +506,23 @@ describe("PlanCatalog — repeat this week", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't repeat/i);
   });
+
+  it("shows the server's reason for a refusal instead of 'try again'", async () => {
+    // A 403 (no consent for the plan's diets) cannot be fixed by retrying; the
+    // server's localized detail says what will.
+    loginUser();
+    const detail = "To use your diets, allergies or ingredients to avoid, first give your consent.";
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.endsWith("/repeat"))
+        return Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ detail }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([SAMPLE_PLAN]) });
+    });
+
+    render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+    await userEvent.click(await screen.findByRole("button", { name: /repeat/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
+  });
 });
 
 describe("PlanCatalog — repeating an unscheduled plan", () => {

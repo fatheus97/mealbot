@@ -77,6 +77,10 @@ ErrorKey = Literal[
     # ── Account gates (app/api/deps.py) ────────────────────────────────────
     "gate_confirm_email",
     "gate_subscription_required",
+    # ── Health-data consent (app/services/health_consent.py) ───────────────
+    "health_consent_required",
+    "health_consent_version_stale",
+    "plan_health_data_removed",
     # ── Meal plans (app/api/plan.py) ───────────────────────────────────────
     "plan_not_found",
     "plan_data_unreadable",
@@ -193,6 +197,20 @@ _EN: Final[dict[str, str]] = {
     "gate_confirm_email": "Please confirm your email address to use this feature.",
     "gate_subscription_required": (
         "An active subscription is required for this feature."
+    ),
+    "health_consent_required": (
+        "To use your diets, allergies or ingredients to avoid, first give your "
+        "consent: tick the box above the Generate button, or give it in Settings "
+        "under Diets and allergies. Or remove them and continue without them."
+    ),
+    "health_consent_version_stale": (
+        "The consent text changed while this page was open. Please reload the "
+        "page and read it again."
+    ),
+    "plan_health_data_removed": (
+        "This plan's diets, allergies and ingredients to avoid were removed, so "
+        "regenerating it could not take them into account. Create a new plan "
+        "instead."
     ),
     "plan_not_found": "Plan not found",
     "plan_data_unreadable": "Stored plan data could not be loaded.",
@@ -360,6 +378,21 @@ _CS: Final[dict[str, str]] = {
         "Pro použití této funkce prosím potvrďte svou e-mailovou adresu."
     ),
     "gate_subscription_required": "Tato funkce vyžaduje aktivní předplatné.",
+    "health_consent_required": (
+        "Abychom mohli použít vaše typy stravy, alergie nebo suroviny, kterým se "
+        "chcete vyhnout, udělte nejdříve souhlas: zaškrtněte políčko nad "
+        "tlačítkem pro generování, nebo ho udělte v Nastavení v části Strava "
+        "a alergie. Případně je odeberte a pokračujte bez nich."
+    ),
+    "health_consent_version_stale": (
+        "Text souhlasu se mezitím změnil. Obnovte prosím stránku a přečtěte si "
+        "ho znovu."
+    ),
+    "plan_health_data_removed": (
+        "Z tohoto jídelníčku byly odstraněny typy stravy, alergie a suroviny, "
+        "kterým se chcete vyhnout, takže by k nim nové generování nemohlo "
+        "přihlédnout. Vytvořte místo toho nový jídelníček."
+    ),
     "plan_not_found": "Jídelníček nenalezen",
     "plan_data_unreadable": "Uložená data jídelníčku se nepodařilo načíst.",
     "plan_data_inconsistent": (

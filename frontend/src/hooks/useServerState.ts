@@ -214,6 +214,11 @@ export function useReschedulePlan() {
 // catalog (that list is confirmed-only) until the user confirms it. The caller
 // is responsible for saying so; a silent success on a screen where nothing
 // visibly changes reads as a no-op.
+/** A plan action the server refused for a reason the user can act on (a 403
+ *  gate, such as missing consent for diet data); its message is the server's
+ *  localized explanation, safe to show as is. */
+export class PlanActionRefusedError extends Error {}
+
 export function useRepeatPlan() {
   return useMutation({
     mutationFn: async ({ planId, startDate }: { planId: number; startDate: string | null }): Promise<MealPlanResponse> => {
@@ -221,6 +226,9 @@ export function useRepeatPlan() {
         method: "POST",
         body: JSON.stringify({ start_date: startDate }),
       });
+      if (res.status === 403) {
+        throw new PlanActionRefusedError(await extractErrorDetail(res, "Repeat failed"));
+      }
       if (!res.ok) throw new Error(`Repeat failed: ${res.status}`);
       return res.json();
     },

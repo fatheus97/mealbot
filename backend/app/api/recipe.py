@@ -51,6 +51,7 @@ from app.services.fridge_service import (
     lock_kitchen,
     replace_fridge_items,
 )
+from app.services.health_consent import request_json_to_store, require_health_consent
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
 from app.services.recipe_retriever import embed_meal_entry
@@ -195,6 +196,8 @@ async def generate_recipe(
     """
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    # Before the request reaches an LLM (app.services.health_consent).
+    require_health_consent(current_user, payload)
 
     plan_req = _build_plan_request(payload, current_user)
     # Pre-load the fridge so the LLM can use available stock. Unlike the plan
@@ -285,6 +288,8 @@ async def cook_recipe(
     """
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    # The cooked recipe is saved with its request, diets and allergens included.
+    require_health_consent(current_user, payload)
     # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
     await lock_kitchen(session, current_user.id)
 
@@ -333,8 +338,9 @@ async def cook_recipe(
         meals_per_day=1,
         people_count=payload.people_count,
         kind="cook_now",
-        # Store the original request+response for history parity with /plan.
-        request_json=payload.model_dump_json(),
+        # Store the original request+response for history parity with /plan,
+        # without the diet fields if consent was withdrawn since the check above.
+        request_json=await request_json_to_store(session, current_user, payload),
         response_json=plan_obj.model_dump_json(),
         confirmed_at=datetime.now(UTC),
     )
