@@ -53,6 +53,18 @@ _ANTHROPIC_MAX_TOKENS = 16_000
 # hanging (gemini-flash-latest 504'd at 179 s with a 180 s deadline, 2026-10-29).
 _HTTP_TIMEOUT_SECONDS = 60.0
 
+# Every adjustable Gemini harm category, off. Why: _provider_kwargs.
+_GEMINI_SAFETY_OFF = tuple(
+    genai_types.SafetySetting(category=category, threshold=genai_types.HarmBlockThreshold.OFF)
+    for category in (
+        genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        genai_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        genai_types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+    )
+)
+
 # What a chain call sends: text only (chat_json) or a user-supplied image
 # (chat_vision_json). Model demotions are tracked per kind.
 CallKind = Literal["text", "vision"]
@@ -575,11 +587,7 @@ class LLMClient:
                         ],
                     ),
                 ],
-                # Intentional no-op: an EMPTY list means "no explicit override",
-                # so Google's built-in safety filtering on the user-uploaded
-                # image stays ACTIVE. This is NOT a BLOCK_NONE override — do not
-                # populate this with BLOCK_NONE entries or you disable filtering.
-                "safety_settings": [],
+                **_provider_kwargs(entry),
             }
 
         return await self._call_with_fallback(build_kwargs, response_model, "vision")
@@ -847,11 +855,21 @@ def _provider_kwargs(entry: ModelEntry) -> dict[str, Any]:
     OpenAI: store=False. The Responses API keeps every response for later
     retrieval unless told not to (chat completions did not), and nothing here
     reads one back, so the user's request would sit at OpenAI for nothing.
+
+    Gemini: the adjustable safety filters are off, text and vision alike
+    (owner's decision, 2026-11-01). Google's own default for 2.5 and later
+    models is off as well, and instructor sends OFF for any call that names no
+    settings; stating it here keeps either from changing it unseen. A false
+    block on cooking language (raw fish, knives, alcohol) would fail a user's
+    plan, and the output reaches only the user who asked. Google's
+    non-adjustable protections, such as child safety, apply regardless.
     """
     if entry.provider == LLMProvider.ANTHROPIC:
         return {"max_tokens": _ANTHROPIC_MAX_TOKENS, "tool_choice": {"type": "auto"}}
     if entry.provider == LLMProvider.OPENAI:
         return {"store": False}
+    if entry.provider == LLMProvider.GEMINI:
+        return {"safety_settings": list(_GEMINI_SAFETY_OFF)}
     return {}
 
 

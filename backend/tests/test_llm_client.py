@@ -1399,6 +1399,22 @@ class TestRealStackContract:
             await client.chat_vision_json("sys", "read this", "aGVsbG8=", "image/jpeg", _Tiny)
         assert [b.get("store") for b in self.bodies] == [False, False]
 
+    async def test_safety_filters_are_off_on_every_request(
+        self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The owner's setting, on the wire for text and vision. The text half is
+        regression cover: instructor sends the same OFF list when a call names
+        none. The vision half failed before (it sent [], Google's default)."""
+        client = self._client(monkeypatch, fake_gemini, timeout_ms=5000)
+        async with asyncio.timeout(10):
+            await client.chat_json("sys", "usr", _Tiny)
+            await client.chat_vision_json("sys", "read this", "aGVsbG8=", "image/jpeg", _Tiny)
+        off = [
+            {"category": f"HARM_CATEGORY_{c}", "threshold": "OFF"}
+            for c in ("HARASSMENT", "HATE_SPEECH", "SEXUALLY_EXPLICIT", "DANGEROUS_CONTENT", "CIVIC_INTEGRITY")
+        ]
+        assert [b.get("safetySettings") for b in self.bodies] == [off, off]
+
     def test_the_client_built_from_a_key_opts_out_too(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
