@@ -298,8 +298,9 @@ class UserRead(UserBase):
     terms_update: TermsUpdate | None = None
     # Explicit consent to process diets, allergens and ingredients to avoid
     # (app.services.health_consent), to the CURRENT consent text. Drives the
-    # checkbox next to Generate and the withdraw control in Settings, so the
-    # 403 from require_health_consent stays a backstop.
+    # checkbox next to Generate, so the 403 from require_health_consent stays a
+    # backstop. ``health_consent_at`` is the consent on record, current or not:
+    # Settings offers to withdraw whatever is recorded.
     health_consent: bool = False
     health_consent_at: datetime | None = None
 
@@ -348,7 +349,9 @@ def user_to_read(
             else None
         ),
         health_consent=has_health_consent(u),
-        health_consent_at=u.health_consent_at if has_health_consent(u) else None,
+        # Raw, even for an older consent text: Settings must offer withdrawal
+        # of any consent on record, not only of a current one.
+        health_consent_at=u.health_consent_at,
     )
 
 class UserUpdate(SQLModel):

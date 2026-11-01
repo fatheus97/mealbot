@@ -12,13 +12,20 @@ consent (Art. 9(2)(a)), so:
 * every grant and withdrawal is recorded (User columns for the current state,
   HealthConsentEvent for the history);
 * withdrawing removes the fields from the user's saved plans, because nothing
-  else lets us keep them;
+  else lets us keep them, and a plan saved after the withdrawal (its generation
+  was already running) is stored without them;
+* a plan whose fields were removed is marked (``health_data_removed``) and can
+  no longer be regenerated: the model would get no allergy constraints;
 * the model-performance copy (app.services.telemetry) never keeps them: it is a
   different purpose, which this consent does not cover.
 
-``taste_preferences`` and fridge contents are deliberately not covered: they are
-not health data as asked for, and gating them would put the consent in front of
-every user. The privacy policy asks people not to put health details there.
+"Balanced" is not a diet for this purpose: it was the default every plan got
+before the diet selector became multi-select (#296), so it reveals nothing.
+
+``taste_preferences``, the Cook Now note and fridge contents are deliberately
+not covered: they are not health data as asked for, and gating them would put
+the consent in front of every user. The privacy policy ("What you create in the
+app") asks people to put health details in the diet and allergy fields instead.
 """
 
 import json
@@ -27,6 +34,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from fastapi import status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -53,10 +61,22 @@ class CarriesHealthFields(Protocol):
 
 def carries_health_data(request: CarriesHealthFields) -> bool:
     return bool(
-        request.diet_type
-        or request.diet_types
+        (request.diet_type is not None and request.diet_type != DietType.BALANCED)
+        or any(diet != DietType.BALANCED for diet in request.diet_types)
         or request.allergens
         or request.avoid_ingredients
+    )
+
+
+def _blob_carries(data: dict[str, object]) -> bool:
+    """carries_health_data for a stored request blob, read without validating
+    it (an old blob may predate a schema change)."""
+    diets = data.get("diet_types")
+    return bool(
+        data.get("diet_type") not in (None, DietType.BALANCED.value)
+        or (isinstance(diets, list) and any(d != DietType.BALANCED.value for d in diets))
+        or data.get("allergens")
+        or data.get("avoid_ingredients")
     )
 
 
@@ -98,20 +118,57 @@ def strip_health_fields(request_json: str | None) -> str | None:
 
 
 def _cleared(request_json: str) -> str | None:
-    """A saved plan's request with the fields emptied, not removed: the blob
-    must still validate as a request so regenerate and repeat keep working.
-    None when it has nothing to clear (or is not a JSON object)."""
+    """A saved plan's request with the fields emptied, not removed, so the blob
+    still validates as a request, and marked ``health_data_removed`` so the plan
+    is never regenerated without its allergy constraints. None when it has
+    nothing to clear (or is not a JSON object).
+
+    alembic health_data_consent_01 holds a frozen copy of this rule."""
     try:
         data = json.loads(request_json)
     except ValueError:
         return None
-    if not isinstance(data, dict) or not any(data.get(key) for key in HEALTH_FIELDS):
+    if not isinstance(data, dict) or not _blob_carries(data):
         return None
     data["diet_type"] = None
     data["diet_types"] = []
     data["allergens"] = []
     data["avoid_ingredients"] = []
+    data["health_data_removed"] = True
     return json.dumps(data)
+
+
+async def _consent_now(session: AsyncSession, user: User) -> bool:
+    """has_health_consent on the row as committed NOW, not on ``user`` as it
+    was loaded at the start of the request."""
+    row = (
+        await session.execute(
+            select(col(User.health_consent_at), col(User.health_consent_version)).where(
+                col(User.id) == user.id
+            )
+        )
+    ).one_or_none()
+    return (
+        row is not None
+        and row[0] is not None
+        and row[1] == HEALTH_CONSENT_VERSION
+    )
+
+
+async def request_json_to_store(
+    session: AsyncSession, user: User, request: BaseModel
+) -> str:
+    """The request as it may be saved with a plan. A generation can run for
+    minutes after its consent check; if the user withdrew meanwhile, the plan
+    is saved without the fields (and marked), as withdrawal promises.
+
+    ponytail: a withdrawal landing between this read and the commit still
+    slips through; that window is the commit itself. Re-check under
+    lock_kitchen in both places if it ever matters."""
+    dumped = request.model_dump_json()
+    if await _consent_now(session, user):
+        return dumped
+    return _cleared(dumped) or dumped
 
 
 async def grant(session: AsyncSession, user: User, version: str) -> None:
@@ -135,11 +192,9 @@ async def grant(session: AsyncSession, user: User, version: str) -> None:
 async def withdraw(session: AsyncSession, user: User) -> int:
     """Withdraw consent and remove the covered fields from everything stored
     for this user: saved plans, and (defensively, the write path already strips
-    them) telemetry rows. Returns how many plans changed. Commits.
-
-    ponytail: a generation already past its consent check when this runs can
-    still save its plan with the fields a few seconds later. Re-check consent
-    under lock_kitchen at save time if that window ever matters.
+    them) telemetry rows. Returns how many plans changed. Commits. A
+    generation still running saves its plan without them
+    (request_json_to_store).
     """
     assert user.id is not None
     previous = user.health_consent_version

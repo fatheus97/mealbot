@@ -9,8 +9,11 @@ The rules under test, from app.services.health_consent:
 * withdrawal empties the fields in saved plans and telemetry;
 * the telemetry copy never stores them.
 """
+import importlib.util
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import ModuleType
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -24,8 +27,10 @@ from app.models.db_models import HealthConsentEvent, MachineGeneration, MealPlan
 from app.models.plan_models import MealPlanRequest
 from app.services.health_consent import (
     HEALTH_FIELDS,
+    _cleared,
     carries_health_data,
     has_health_consent,
+    request_json_to_store,
     strip_health_fields,
 )
 from app.services.telemetry import record_generation
@@ -84,6 +89,10 @@ class TestRules:
             pytest.param({"diet_types": ["vegan"]}, True, id="diet"),
             pytest.param({"diet_type": "halal"}, True, id="legacy-diet"),
             pytest.param({"avoid_ingredients": ["peanuts"]}, True, id="avoid"),
+            # The pre-#296 default every old plan carries, not a chosen diet.
+            pytest.param({"diet_type": "balanced"}, False, id="legacy-balanced"),
+            pytest.param({"diet_types": ["balanced"]}, False, id="balanced"),
+            pytest.param({"diet_types": ["balanced", "vegan"]}, True, id="balanced-and-vegan"),
         ],
     )
     def test_carries_health_data(self, fields: dict[str, object], carries: bool) -> None:
@@ -136,14 +145,16 @@ class TestProfile:
         assert body["health_consent"] is False
         assert body["health_consent_at"] is None
 
-    async def test_an_older_text_reads_as_no_consent(
+    async def test_an_older_text_reads_as_no_consent_but_stays_on_record(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
     ) -> None:
+        # Not current, so the checkbox asks again; still on record, so Settings
+        # can offer to withdraw it (Art. 7(3)) without consenting anew first.
         test_user.health_consent_version = "2000-01-01"
         await db_session.flush()
         body = (await client.get("/api/users")).json()
         assert body["health_consent"] is False
-        assert body["health_consent_at"] is None
+        assert body["health_consent_at"] is not None
 
 
 class TestGrant:
@@ -218,9 +229,11 @@ class TestWithdraw:
         await db_session.refresh(plan)
         assert test_user.health_consent_at is None
         assert test_user.health_consent_version is None
-        # Still a valid request, so regenerate and repeat keep working.
+        # Still a valid request, so repeat keeps working; marked, so regenerate
+        # refuses it.
         cleared = MealPlanRequest.model_validate_json(plan.request_json)
         assert not carries_health_data(cleared)
+        assert cleared.health_data_removed is True
         assert cleared.taste_preferences == ["italian"]
         events = await _events(db_session, test_user)
         assert [(e.granted, e.version) for e in events] == [(False, HEALTH_CONSENT_VERSION)]
@@ -350,6 +363,110 @@ class TestGenerationIsRefusedWithoutConsent:
             "/api/plan?days=1", json={"meals_per_day": 1, "allergens": ["milk"]}
         )
         assert resp.status_code == 403
+
+
+class TestRemovedHealthData:
+    @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
+    async def test_a_cleared_plan_is_never_regenerated(
+        self, mock_gen: AsyncMock, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # Its allergens are gone, so new meals could not be screened for them,
+        # even for a user who has consented again since.
+        plan = await _plan(db_session, test_user, {"allergens": ["milk"]})
+        await client.delete("/api/users/health-consent")
+        await client.post("/api/users/health-consent", json={"version": HEALTH_CONSENT_VERSION})
+        resp = await client.post(f"/api/plan/{plan.id}/regenerate", json={"frozen_meals": []})
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == ERROR_COPY["en"]["plan_health_data_removed"]
+        mock_gen.assert_not_awaited()
+
+    async def test_a_cleared_plan_can_still_be_repeated_and_stays_marked(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        plan = await _plan(db_session, test_user, {"allergens": ["milk"]}, confirmed=True)
+        await client.delete("/api/users/health-consent")
+        resp = await client.post(f"/api/plan/{plan.id}/repeat", json={"start_date": "2026-08-10"})
+        assert resp.status_code == 200
+        copy = await db_session.get(MealPlan, resp.json()["plan_id"])
+        assert copy is not None
+        assert MealPlanRequest.model_validate_json(copy.request_json).health_data_removed
+
+    async def test_withdrawal_mid_generation_saves_the_plan_without_them(
+        self, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # The consent check ran at the start of the request with consent; it is
+        # gone by the time the plan is saved.
+        request = MealPlanRequest.model_validate({"meals_per_day": 1, "allergens": ["milk"]})
+        assert json.loads(await request_json_to_store(db_session, test_user, request))["allergens"]
+        test_user.health_consent_at = None
+        test_user.health_consent_version = None
+        await db_session.flush()
+        stored = MealPlanRequest.model_validate_json(
+            await request_json_to_store(db_session, test_user, request)
+        )
+        assert not carries_health_data(stored)
+        assert stored.health_data_removed
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_edit_screen_uses_stored_allergens_only_under_current_consent(
+        self, mock_gen: AsyncMock, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        from tests.test_meal_edit_api import _fake_day as edit_fake_day
+
+        mock_gen.return_value = edit_fake_day()
+        resp = await client.post(
+            "/api/plan?days=1", json={"meals_per_day": 1, "people_count": 2, "allergens": ["milk"]}
+        )
+        plan_id = resp.json()["plan_id"]
+        edit = {
+            "name": "Creamy Pasta",
+            "ingredients": [{"name": "double cream", "quantity_grams": 100}],
+            "steps": ["Stir"],
+            "total_time_minutes": 10,
+        }
+        warned = await client.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=edit)
+        assert [w["allergen"] for w in warned.json()["allergen_warnings"]] == ["milk"]
+        # A consent to an older text (e.g. after a version bump) is not current.
+        test_user.health_consent_version = "2000-01-01"
+        await db_session.flush()
+        silent = await client.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=edit)
+        assert silent.status_code == 200
+        assert silent.json()["allergen_warnings"] == []
+
+
+def _migration() -> ModuleType:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "health_data_consent_01_record_health_consent.py"
+    )
+    spec = importlib.util.spec_from_file_location("_mig_health_data_consent_01", path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestMigrationFrozenCopies:
+    """The migration embeds frozen copies of the clearing and stripping rules;
+    if the live ones change without it, existing rows get stale treatment."""
+
+    @pytest.mark.parametrize(
+        "blob",
+        [
+            {"allergens": ["milk"], "people_count": 2},
+            {"diet_type": "balanced", "diet_types": ["balanced"], "people_count": 2},
+            {"diet_types": ["halal"], "avoid_ingredients": ["pork"]},
+            {"people_count": 2},
+        ],
+    )
+    def test_clear_matches_the_live_rule(self, blob: dict[str, object]) -> None:
+        raw = json.dumps(blob)
+        assert _migration()._clear(raw) == _cleared(raw)
+
+    def test_fields_match_the_live_set(self) -> None:
+        assert tuple(_migration()._HEALTH_FIELDS) == HEALTH_FIELDS
 
 
 class TestTelemetryNeverKeepsTheFields:

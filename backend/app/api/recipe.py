@@ -51,7 +51,7 @@ from app.services.fridge_service import (
     lock_kitchen,
     replace_fridge_items,
 )
-from app.services.health_consent import require_health_consent
+from app.services.health_consent import request_json_to_store, require_health_consent
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
 from app.services.recipe_retriever import embed_meal_entry
@@ -338,8 +338,9 @@ async def cook_recipe(
         meals_per_day=1,
         people_count=payload.people_count,
         kind="cook_now",
-        # Store the original request+response for history parity with /plan.
-        request_json=payload.model_dump_json(),
+        # Store the original request+response for history parity with /plan,
+        # without the diet fields if consent was withdrawn since the check above.
+        request_json=await request_json_to_store(session, current_user, payload),
         response_json=plan_obj.model_dump_json(),
         confirmed_at=datetime.now(UTC),
     )
