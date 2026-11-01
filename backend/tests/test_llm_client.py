@@ -1402,9 +1402,12 @@ class TestRealStackContract:
     async def test_safety_filters_are_off_on_every_request(
         self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The owner's setting, on the wire for text and vision. The text half is
-        regression cover: instructor sends the same OFF list when a call names
-        none. The vision half failed before (it sent [], Google's default)."""
+        """The owner's setting, on the wire for text and vision. Against the code
+        before the pin this fails on vision, which sent [] (Google's default).
+        Deleting only the pin stays green today, because instructor fills in the
+        same OFF list when a call names none. What this guards is the wire: it
+        fails as soon as a request stops carrying the OFF list, whatever the
+        cause."""
         client = self._client(monkeypatch, fake_gemini, timeout_ms=5000)
         async with asyncio.timeout(10):
             await client.chat_json("sys", "usr", _Tiny)
