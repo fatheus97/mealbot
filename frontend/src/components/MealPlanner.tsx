@@ -14,6 +14,7 @@ import { DayLayoutEditor } from "./DayLayoutEditor";
 import { useI18n } from "../i18n";
 import { CookNowForm } from "./CookNowForm";
 import { DietarySelector } from "./DietarySelector";
+import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 import { InfoHint } from "./InfoHint";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { type MealType } from "../constants/mealTypes";
@@ -91,7 +92,7 @@ interface MealPlannerProps {
 }
 
 export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
-  const { userId } = useAuth();
+  const { userId, healthConsent } = useAuth();
   const { t, locale } = useI18n();
   const showPieces = useShowPieces();
   const isMobile = useIsMobile();
@@ -286,6 +287,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     input.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 
   const tasteCount = parseList(tastePreferences).length;
+  // Diets, allergens and ingredients to avoid need explicit consent before
+  // they are sent (HealthConsentCheckbox; the server 403s without it).
+  const carriesHealthData =
+    dietTypes.length > 0 || allergens.length > 0 || parseList(avoidIngredients).length > 0;
 
   const handleGenerate = () => {
     if (!userId) return;
@@ -841,7 +846,12 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         />
       </div>
 
-      <button onClick={handleGenerate} disabled={generatePlanMutation.isPending} style={{ padding: "0.5rem 2rem", fontSize: "1.1rem" }}>
+      <HealthConsentCheckbox active={carriesHealthData} />
+      <button
+        onClick={handleGenerate}
+        disabled={generatePlanMutation.isPending || (carriesHealthData && !healthConsent)}
+        style={{ padding: "0.5rem 2rem", fontSize: "1.1rem" }}
+      >
         {generatePlanMutation.isPending ? t("planner.generating") : t("planner.generate")}
       </button>
 

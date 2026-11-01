@@ -323,6 +323,12 @@ export interface AuthLoginResponse {
   // Terms / Privacy Policy; drives TermsUpdateBanner. Optional for the same
   // reason as email_verified: an older payload or a mock reads as "nothing due".
   terms_update?: TermsUpdate | null;
+  // Explicit consent to process diets, allergens and ingredients to avoid
+  // (server: UserRead.health_consent), to the CURRENT consent text. Optional
+  // so an older payload or a mock reads as "no consent": the checkbox then
+  // asks, and the server's 403 is the backstop either way.
+  health_consent?: boolean;
+  health_consent_at?: string | null;
 }
 
 /** A legal change the user has not accepted yet (server: UserRead.terms_update).
@@ -394,6 +400,17 @@ export interface AuthState {
   // TermsVersionStaleError when the server has moved on (the profile is
   // refreshed first, so the banner already shows the newer summary).
   acceptTerms: (version: string) => Promise<void>;
+  // Explicit consent (GDPR Art. 9) to process diets, allergens and ingredients
+  // to avoid. False until the profile says otherwise: the checkbox asking for
+  // it is the safe thing to show while unsure.
+  healthConsent: boolean;
+  healthConsentAt: string | null;
+  // Record consent to HEALTH_CONSENT_VERSION. Rejects with
+  // HealthConsentStaleError when the server wants a newer text (the profile is
+  // refreshed first).
+  grantHealthConsent: () => Promise<void>;
+  // Withdraw it; the server empties those fields in saved plans.
+  withdrawHealthConsent: () => Promise<void>;
   // Re-send the confirmation link to the caller's own address. Always resolves
   // (the endpoint is 204 even when already verified or inside the cooldown).
   resendVerification: () => Promise<void>;

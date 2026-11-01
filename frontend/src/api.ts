@@ -570,6 +570,32 @@ export async function acceptTermsVersion(version: string): Promise<AuthLoginResp
   return (await res.json()) as AuthLoginResponse;
 }
 
+/** The consent checkbox showed a text the server no longer asks for (a deploy
+ *  landed while the tab was open). Nothing was recorded. */
+export class HealthConsentStaleError extends Error {}
+
+/**
+ * Record explicit consent to process diets, allergens and ingredients to avoid.
+ * Sends only the version of the sentence the checkbox showed; the server stamps
+ * its own clock and version and answers 409 when that text is out of date.
+ */
+export async function grantHealthConsentRequest(version: string): Promise<AuthLoginResponse> {
+  const res = await authFetch("/users/health-consent", {
+    method: "POST",
+    body: JSON.stringify({ version }),
+  });
+  if (res.status === 409) throw new HealthConsentStaleError();
+  if (!res.ok) throw new Error(await extractErrorDetail(res, "Could not record your consent."));
+  return (await res.json()) as AuthLoginResponse;
+}
+
+/** Withdraw that consent. The server also empties those fields in saved plans. */
+export async function withdrawHealthConsentRequest(): Promise<AuthLoginResponse> {
+  const res = await authFetch("/users/health-consent", { method: "DELETE" });
+  if (!res.ok) throw new Error(await extractErrorDetail(res, "Could not withdraw your consent."));
+  return (await res.json()) as AuthLoginResponse;
+}
+
 export async function resendVerificationEmail(): Promise<void> {
   const res = await authFetch("/auth/resend-verification", { method: "POST" });
   if (!res.ok) throw new Error("Could not resend the confirmation email.");

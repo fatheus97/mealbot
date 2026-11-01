@@ -434,6 +434,9 @@ describe('MealPlanner', () => {
     // assembled into the POST /plan body so the backend allergen screen sees
     // them. buildRequest is the link the isolated store/component tests miss.
     loginUser();
+    // Diets, allergens and avoid-chips are only sent after the consent
+    // (HealthConsentCheckbox), so this runs as a consenting user.
+    localStorage.setItem('mealbot_health_consent', 'true');
     // mockedAuthFetch.mock.calls accumulates across tests in this file (the
     // beforeEach only re-sets the implementation, never the call history), so
     // reset it here — otherwise the find('/plan?') below would match an EARLIER
@@ -489,6 +492,9 @@ describe('MealPlanner', () => {
     // chip list (string[]) round-trips through a PERSISTED store STRING (join on
     // write, parseList on read). Verify both add and remove land in avoid_ingredients.
     loginUser();
+    // Diets, allergens and avoid-chips are only sent after the consent
+    // (HealthConsentCheckbox), so this runs as a consenting user.
+    localStorage.setItem('mealbot_health_consent', 'true');
     mockedAuthFetch.mockReset();
     usePreferencesStore.setState({ avoidIngredients: '' });
 

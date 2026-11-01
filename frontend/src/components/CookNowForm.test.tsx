@@ -340,6 +340,9 @@ describe('CookNowForm', () => {
     // Ticket #2 (mealbot-tickets): the avoid field now uses the same chip input as
     // "ingredients to feature". Each committed chip must land in avoid_ingredients.
     loginUser();
+    // Diets, allergens and avoid-chips are only sent after the consent
+    // (HealthConsentCheckbox), so this runs as a consenting user.
+    localStorage.setItem('mealbot_health_consent', 'true');
     mockedGenerate.mockResolvedValueOnce({
       recipe: {
         name: 'Bowl',
@@ -370,6 +373,9 @@ describe('CookNowForm', () => {
     // backend's deterministic allergen screen actually sees it. buildRequest is
     // the one link the isolated component/store tests don't cover.
     loginUser();
+    // Diets, allergens and avoid-chips are only sent after the consent
+    // (HealthConsentCheckbox), so this runs as a consenting user.
+    localStorage.setItem('mealbot_health_consent', 'true');
     mockedGenerate.mockResolvedValueOnce({
       recipe: {
         name: 'Veg Bowl',
@@ -393,6 +399,25 @@ describe('CookNowForm', () => {
     expect(call.allergens).toEqual(['peanuts']);
     // The multi-select UI no longer sends the legacy scalar — backend reconciles.
     expect(call.diet_type).toBeUndefined();
+  });
+
+  it('asks for consent and holds Generate while a diet is picked without it', async () => {
+    // GDPR Art. 9: diets and allergens go out only after the explicit consent.
+    // The server 403s anyway; this is the proactive half. No diet, no question.
+    loginUser();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+    const generate = screen.getByRole('button', { name: /generate recipe/i });
+    expect(screen.queryByRole('checkbox', { name: /i consent/i })).toBeNull();
+    expect(generate).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'Halal' }));
+    expect(screen.getByRole('checkbox', { name: /i consent/i })).not.toBeChecked();
+    expect(generate).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Halal' }));
+    expect(screen.queryByRole('checkbox', { name: /i consent/i })).toBeNull();
+    expect(generate).toBeEnabled();
   });
 
   it('surfaces generation errors inline without clearing the form', async () => {

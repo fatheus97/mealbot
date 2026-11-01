@@ -4,10 +4,14 @@ import type { AuthLoginResponse, AuthState, TermsUpdate } from "../types";
 import {
   acceptTermsVersion,
   authFetch,
+  grantHealthConsentRequest,
+  HealthConsentStaleError,
   redeemInvite,
   resendVerificationEmail,
   TermsVersionStaleError,
+  withdrawHealthConsentRequest,
 } from "../api.ts";
+import { HEALTH_CONSENT_VERSION } from "../legal";
 import { usePreferencesStore } from "../store/usePreferencesStore";
 import { AutoLoginAfterRegisterError, LoginFailedError } from "./authErrors";
 import { captureAttribution, getStoredAttribution } from "../utils/attribution";
@@ -71,6 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // storeSessionHints. A missing locale in a hinted summary falls back to
   // English in the banner, and /users replaces the hint a round-trip later.
   const [termsUpdate, setTermsUpdate] = useState<TermsUpdate | null>(readTermsUpdateHint);
+  // Seeded from a hint like showPieces, so a consenting user does not see the
+  // consent checkbox flash under their diet chips for a round-trip (CLS).
+  // Without the hint it starts false: asking is the safe default.
+  const [healthConsent, setHealthConsent] = useState<boolean>(
+    () => window.localStorage.getItem("mealbot_health_consent") === "true"
+  );
+  const [healthConsentAt, setHealthConsentAt] = useState<string | null>(null);
   // null = /config not yet resolved; boolean = resolved value. Using null
   // as the unresolved sentinel lets the UI avoid a flash of the wrong
   // copy (e.g. rendering the "closed alpha" notice for the 50-200ms
@@ -102,6 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // reads as verified rather than nagging someone who has nothing to do.
     setEmailVerified(profile.email_verified ?? true);
     setTermsUpdate(profile.terms_update ?? null);
+    const consent = Boolean(profile.health_consent);
+    setHealthConsent(consent);
+    setHealthConsentAt(consent ? (profile.health_consent_at ?? null) : null);
+    window.localStorage.setItem("mealbot_health_consent", String(consent));
     // The landing page's login/register/demo modals write these same hints
     // before handing off to /app — see auth/sessionHints.ts for why that
     // matters (this provider's bootstrap only reconciles when a hint exists).
@@ -123,6 +138,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsComped(false);
     setEmailVerified(true);
     setTermsUpdate(null);
+    setHealthConsent(false);
+    setHealthConsentAt(null);
+    window.localStorage.removeItem("mealbot_health_consent");
     clearSessionHints();
 
     // Prevent cross-account leakage: drop cached server data and reset
@@ -229,6 +247,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [applyProfile, refreshProfile],
   );
+
+  const grantHealthConsent = useCallback(async (): Promise<void> => {
+    try {
+      const profile = await grantHealthConsentRequest(HEALTH_CONSENT_VERSION);
+      applyProfile(profile, Boolean(profile.is_demo));
+    } catch (err) {
+      if (err instanceof HealthConsentStaleError) await refreshProfile();
+      throw err;
+    }
+  }, [applyProfile, refreshProfile]);
+
+  const withdrawHealthConsent = useCallback(async (): Promise<void> => {
+    const profile = await withdrawHealthConsentRequest();
+    applyProfile(profile, Boolean(profile.is_demo));
+    // Saved plans just lost their diets and allergens on the server; drop the
+    // cached copies so nothing on screen still claims them.
+    await queryClient.invalidateQueries();
+  }, [applyProfile, queryClient]);
 
   const setOnboardingCompleted = (value: boolean) => {
     setOnboardingCompletedState(value);
@@ -341,7 +377,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocal]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, termsUpdate, acceptTerms, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, termsUpdate, acceptTerms, healthConsent, healthConsentAt, grantHealthConsent, withdrawHealthConsent, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

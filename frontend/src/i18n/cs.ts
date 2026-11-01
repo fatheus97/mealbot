@@ -156,6 +156,15 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.acceptTerms.termsLink": "Podmínkami služby",
   "auth.acceptTerms.privacyLink": "Zásadami ochrany osobních údajů",
 
+  // ─── Souhlas se zpracováním údajů o stravě (HealthConsentCheckbox) ────────
+  "healthConsent.label":
+    "Souhlasím, aby Mealbot údaje, které zadám (typy stravy, alergie a suroviny, kterým se chci vyhnout), používal ke generování mých jídelníčků a za tímto účelem je předával společnostem Google a OpenAI (OpenAI je může zpracovávat v USA). Tyto údaje mohou vypovídat o mém zdraví nebo náboženském vyznání. Souhlas mohu kdykoli odvolat v Nastavení. Více v {privacy}.",
+  "healthConsent.privacyLink": "Zásadách ochrany osobních údajů",
+  "healthConsent.note":
+    "Potřeby jiných lidí zadávejte jen s jejich souhlasem, nebo pokud jste jejich rodič či zákonný zástupce. Bez tohoto souhlasu můžete jídelníčky generovat dál, jen bez těchto omezení.",
+  "healthConsent.failed": "Souhlas se nepodařilo uložit. Zkuste to prosím znovu.",
+  "healthConsent.stale": "Text souhlasu se mezitím změnil. Obnovte prosím stránku.",
+
   "auth.closedAlpha": "Toto je uzavřená alfa verze. O přístup si napište na {supportEmail}.",
 
   // ─── Email verification banner ────────────────────────────────────────────
@@ -216,6 +225,20 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "settings.changeEmailHint":
     "Dokud novou adresu nepotvrdíte, nemůžete vytvářet nové jídelníčky a recepty ani skenovat. Na ostatních zařízeních vás navíc odhlásíme.",
   "settings.yourData": "Vaše data",
+  "settings.healthConsent.title": "Strava a alergie",
+  "settings.healthConsent.givenOn":
+    "Dne {date} jste souhlasili se zpracováním svých typů stravy, alergií a surovin, kterým se chcete vyhnout.",
+  "settings.healthConsent.given":
+    "Souhlasili jste se zpracováním svých typů stravy, alergií a surovin, kterým se chcete vyhnout.",
+  "settings.healthConsent.none":
+    "Se zpracováním typů stravy, alergií ani surovin, kterým se chcete vyhnout, jste zatím nesouhlasili. Mealbot se zeptá, až je přidáte.",
+  "settings.healthConsent.withdraw": "Odvolat souhlas",
+  "settings.healthConsent.confirm":
+    "Odvoláním souhlasu se z vašich uložených jídelníčků odstraní typy stravy, alergie a suroviny, kterým se chcete vyhnout, a uložené jídelníčky se už nebudou kontrolovat proti vašim alergiím. Chcete souhlas odvolat?",
+  "settings.healthConsent.confirmButton": "Odvolat",
+  "settings.healthConsent.withdrawing": "Odvolávám…",
+  "settings.healthConsent.cancel": "Zrušit",
+  "settings.healthConsent.failed": "Souhlas se nepodařilo odvolat. Zkuste to prosím znovu.",
   "settings.exportData": "⬇️ Stáhnout moje data",
   "settings.exporting": "Připravujeme…",
   "settings.exportFailed": "Export dat se nepodařilo připravit",
