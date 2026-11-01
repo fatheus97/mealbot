@@ -176,12 +176,18 @@ async def grant(session: AsyncSession, user: User, version: str) -> None:
     """Record consent to ``version``, which must be the current text: a tab
     loaded before a deploy that changed it gets 409 instead of filing consent
     to a sentence it never showed. Granting the same version twice keeps the
-    first timestamp. Commits."""
+    first timestamp. Commits.
+
+    Serialized with withdraw() on lock_kitchen and decided on a fresh read of
+    the user: two requests at once log one event, and the history's last
+    entry always matches the account."""
     if version != HEALTH_CONSENT_VERSION:
         raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "health_consent_version_stale")
+    assert user.id is not None
+    await lock_kitchen(session, user.id)
+    await session.refresh(user)
     if has_health_consent(user):
         return
-    assert user.id is not None
     user.health_consent_at = datetime.now(UTC)
     user.health_consent_version = HEALTH_CONSENT_VERSION
     session.add(user)
@@ -198,10 +204,14 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     (request_json_to_store).
 
     Takes lock_kitchen first, like every save of a request, so a plan saved
-    concurrently is either seen and cleared here or sees the withdrawal.
+    concurrently is either seen and cleared here or sees the withdrawal. The
+    user is re-read under it: the copy loaded with the request may predate a
+    grant or withdrawal that just committed, and deciding on it would log a
+    second withdrawal or none at all.
     """
     assert user.id is not None
     await lock_kitchen(session, user.id)
+    await session.refresh(user)
     previous = user.health_consent_version
     plans = (
         await session.execute(select(MealPlan).where(col(MealPlan.user_id) == user.id))

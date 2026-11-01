@@ -11,20 +11,26 @@ The rules under test, from app.services.health_consent:
 """
 import importlib.util
 import json
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, select
+from fastapi import Depends
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlmodel import col, delete, select
 
+from app.api.deps import get_current_user
 from app.core.error_copy import ERROR_COPY
 from app.core.legal import HEALTH_CONSENT_VERSION
+from app.core.security import get_password_hash
+from app.db import get_session
 from app.models.db_models import HealthConsentEvent, MachineGeneration, MealPlan, User
 from app.models.plan_models import MealPlanRequest
+from app.services import fridge_service
 from app.services.health_consent import (
     HEALTH_FIELDS,
     _cleared,
@@ -34,6 +40,8 @@ from app.services.health_consent import (
     strip_health_fields,
 )
 from app.services.telemetry import record_generation
+from tests.conftest import TEST_PASSWORD
+from tests.test_kitchen_lock import Rendezvous, _held, _race
 from tests.test_plan_repeat import _response_json
 
 REFUSED = ERROR_COPY["en"]["health_consent_required"]
@@ -516,3 +524,92 @@ class TestExport:
         body = (await client.get("/api/users/export")).json()
         assert [e["granted"] for e in body["health_consent_history"]] == [True, False]
         assert body["profile"]["health_consent"] is False
+
+
+async def _history(engine: AsyncEngine, uid: int) -> list[bool]:
+    async with AsyncSession(engine) as s:
+        rows = await s.execute(
+            select(col(HealthConsentEvent.granted))
+            .where(col(HealthConsentEvent.user_id) == uid)
+            .order_by(col(HealthConsentEvent.id))
+        )
+        return list(rows.scalars().all())
+
+
+@pytest.fixture
+async def consent_race(
+    test_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> AsyncGenerator[tuple[AsyncClient, Rendezvous, int]]:
+    """A committed, consenting user; an app whose every request gets its own
+    connection and its own copy of the user, loaded before the endpoint runs as
+    get_current_user does; and a rendezvous just before grant or withdraw takes
+    the kitchen lock, so both requests have loaded the user before either
+    commits (test_kitchen_lock explains the harness)."""
+    from app.main import app
+
+    async with AsyncSession(test_engine, expire_on_commit=False) as s:
+        user = User(
+            email=f"consent-{abs(hash(request.node.name))}@example.com",
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            email_verified_at=datetime.now(UTC),
+            health_consent_at=datetime.now(UTC),
+            health_consent_version=HEALTH_CONSENT_VERSION,
+        )
+        s.add(user)
+        await s.commit()
+    uid = user.id
+    assert uid is not None
+
+    async def own_connection() -> AsyncGenerator[AsyncSession]:
+        async with AsyncSession(test_engine, expire_on_commit=False) as s:
+            yield s
+
+    async def as_user(session: AsyncSession = Depends(get_session)) -> User:
+        loaded = await session.get(User, uid)
+        assert loaded is not None
+        return loaded
+
+    rv = Rendezvous()
+    try:
+        monkeypatch.setattr(
+            "app.services.health_consent.lock_kitchen", _held(rv, fridge_service.lock_kitchen)
+        )
+        app.dependency_overrides[get_session] = own_connection
+        app.dependency_overrides[get_current_user] = as_user
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            yield c, rv, uid
+    finally:
+        app.dependency_overrides.clear()
+        # Real commits outlive the test: remove the user (cascades the history).
+        async with AsyncSession(test_engine) as s:
+            await s.execute(delete(User).where(col(User.id) == uid))
+            await s.commit()
+
+
+class TestConcurrentRequests:
+    """Two clicks at once must leave one entry in the consent history, which is
+    the record Art. 7(1) asks for."""
+
+    async def test_two_withdrawals_log_one(
+        self, consent_race: tuple[AsyncClient, Rendezvous, int], test_engine: AsyncEngine
+    ) -> None:
+        c, rv, uid = consent_race
+        statuses = await _race(
+            rv, c.delete("/api/users/health-consent"), c.delete("/api/users/health-consent")
+        )
+        assert statuses == [200, 200]
+        assert await _history(test_engine, uid) == [False]
+
+    async def test_two_grants_log_one(
+        self, consent_race: tuple[AsyncClient, Rendezvous, int], test_engine: AsyncEngine
+    ) -> None:
+        c, rv, uid = consent_race
+        assert (await c.delete("/api/users/health-consent")).status_code == 200
+        grant = {"version": HEALTH_CONSENT_VERSION}
+        statuses = await _race(
+            rv,
+            c.post("/api/users/health-consent", json=grant),
+            c.post("/api/users/health-consent", json=grant),
+        )
+        assert statuses == [200, 200]
+        assert await _history(test_engine, uid) == [False, True]
