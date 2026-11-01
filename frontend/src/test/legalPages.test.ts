@@ -121,6 +121,37 @@ describe.skipIf(!hasBuild)("legal pages", () => {
     }
   });
 
+  it("both privacy editions state what the AI providers may do with the data", () => {
+    // Since 2026-11-01 a request can go to OpenAI as well as Google. These are
+    // the sentences that make that acceptable to a reader: who receives the
+    // content and not the identity, the processor role, the training ban and
+    // the retention limits. Pinned in BOTH editions: the parity test above
+    // compares names and figures only, so a paragraph deleted from one edition
+    // could otherwise go unnoticed. The 30 days hold because OpenAI requests
+    // send store=false (backend/app/llm/client.py, _provider_kwargs).
+    const ws = (s: string) => new RegExp(s.split(" ").join(String.raw`\s+`));
+    const en = html["dist/privacy.html"];
+    const cs = html["dist/cs/privacy.html"];
+    for (const phrase of [
+      "Google and OpenAI receive the content, not who you are",
+      "Google and OpenAI act as our processors",
+      "Neither may use it to train its models",
+      "we have not opted in to sharing data with OpenAI",
+      "OpenAI for up to 30 days, Google for 55 days",
+    ]) {
+      expect(en, phrase).toMatch(ws(phrase));
+    }
+    for (const phrase of [
+      "Google i OpenAI dostávají obsah, ne to, kdo jste",
+      "zpracovávají jako zpracovatelé",
+      "Ani jedna z nich je nesmí použít k trénování svých modelů",
+      "sdílení údajů se společností OpenAI jsme nezapnuli",
+      "OpenAI nejvýše 30 dní, Google 55 dní",
+    ]) {
+      expect(cs, phrase).toMatch(ws(phrase));
+    }
+  });
+
   it("both editions of the Terms carry the equal-authority clause", () => {
     // The clause is what makes shipping a translation safe at all: neither
     // version is subordinate, and a discrepancy resolves in the reader's
