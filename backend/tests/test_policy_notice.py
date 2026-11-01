@@ -236,6 +236,34 @@ class TestRunSend:
         with pytest.raises(policy_notice.SendRefused, match="Nobody"):
             await policy_notice.check_send(db_session, 1)
 
+    async def test_a_lost_confirmation_does_not_stop_the_run(
+        self, db_session: AsyncSession, mail: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Resend took the first mail but recording sent_at failed. That user is
+        # unconfirmed (true, never retried) and the run goes on to the next one.
+        await _user(db_session, "a@example.com")
+        await _user(db_session, "b@example.com")
+        ids = await policy_notice.check_send(db_session, 2)
+
+        real_commit = db_session.commit
+        calls = 0
+
+        async def _commit() -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:  # 1 = first claim, 2 = its sent_at
+                raise RuntimeError("database blip")
+            await real_commit()
+
+        monkeypatch.setattr(db_session, "commit", _commit)
+        # The fake failure never touched the real transaction, so there is
+        # nothing to roll back (and this harness's rollback would unwind setup).
+        monkeypatch.setattr(db_session, "rollback", AsyncMock())
+
+        result = await policy_notice.run_send(ids)
+        assert result.model_dump() == {"sent": 1, "failed": 0, "unconfirmed": 1, "skipped": 0}
+        assert mail.await_count == 2
+
     async def test_sends_an_idempotency_key_per_campaign_and_user(
         self, db_session: AsyncSession, mail: AsyncMock
     ) -> None:
