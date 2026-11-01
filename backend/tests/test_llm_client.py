@@ -17,8 +17,6 @@ from anthropic import APITimeoutError as AnthropicAPITimeoutError
 from anthropic import AsyncAnthropic
 from anthropic import RateLimitError as AnthropicRateLimitError
 from fastapi import HTTPException
-from google import genai
-from google.genai import types as genai_types
 from google.genai.errors import ClientError as GeminiClientError
 from google.genai.errors import ServerError as GeminiServerError
 from openai import APIStatusError as OpenAIAPIStatusError
@@ -35,6 +33,7 @@ from app.llm.client import (
     answered_by,
     check_model_chain_keys,
     first_choice,
+    gemini_instructor,
     openai_instructor,
 )
 from app.llm.usage import capture_llm_usage
@@ -1356,7 +1355,7 @@ class TestRealStackContract:
     @pytest.fixture
     async def fake_gemini(self) -> AsyncIterator[str]:
         async def handler(request: web.Request) -> web.Response:
-            await request.read()
+            self.bodies.append(await request.json())
             if "models/slow:" in request.path:
                 await asyncio.sleep(1.5)
             return web.json_response({
@@ -1371,6 +1370,7 @@ class TestRealStackContract:
         site = web.TCPSite(runner, "127.0.0.1", 0)
         await site.start()
         host, port = runner.addresses[0][:2]
+        self.bodies: list[dict[str, Any]] = []
         try:
             yield f"http://{host}:{port}"
         finally:
@@ -1385,15 +1385,35 @@ class TestRealStackContract:
         settings.deepseek_api_key = None
         monkeypatch.setattr("app.llm.client.settings", settings)
         client = LLMClient()
-        client.gemini_client = instructor.from_genai(
-            genai.Client(
-                api_key="fake-key",
-                http_options=genai_types.HttpOptions(base_url=base_url, timeout=timeout_ms),
-            ),
-            use_async=True,
-            mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
-        )
+        client.gemini_client = gemini_instructor("fake-key", timeout_ms=timeout_ms, base_url=base_url)
         return client
+
+    async def test_every_request_opts_out_of_ai_studio_logging(
+        self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """store=false reaches the wire, text and vision alike: instructor
+        rebuilds the request config and would drop it from there."""
+        client = self._client(monkeypatch, fake_gemini, timeout_ms=5000)
+        async with asyncio.timeout(10):
+            await client.chat_json("sys", "usr", _Tiny)
+            await client.chat_vision_json("sys", "read this", "aGVsbG8=", "image/jpeg", _Tiny)
+        assert [b.get("store") for b in self.bodies] == [False, False]
+
+    def test_the_client_built_from_a_key_opts_out_too(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The contract tests build through gemini_instructor; this pins that
+        LLMClient's own construction does too."""
+        settings = MagicMock()
+        settings.gemini_api_key = "fake-key"
+        settings.openai_api_key = None
+        settings.deepseek_api_key = None
+        settings.anthropic_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        built = MagicMock(wraps=gemini_instructor)
+        monkeypatch.setattr("app.llm.client.gemini_instructor", built)
+        LLMClient()
+        built.assert_called_once_with("fake-key")
 
     async def test_sdk_timeout_falls_back(
         self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
@@ -1813,11 +1833,7 @@ class TestReaskUsage:
         openai_sdk = AsyncOpenAI(api_key="fake-key", base_url=url, max_retries=0)
         anthropic_sdk = AsyncAnthropic(api_key="fake-key", base_url=url, max_retries=0)
         client = LLMClient()
-        client.gemini_client = instructor.from_genai(
-            genai.Client(api_key="fake-key", http_options=genai_types.HttpOptions(base_url=url)),
-            use_async=True,
-            mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS,
-        )
+        client.gemini_client = gemini_instructor("fake-key", base_url=url)
         client.openai_client = openai_instructor(openai_sdk)
         client.anthropic_client = instructor.from_anthropic(anthropic_sdk)
         try:
