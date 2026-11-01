@@ -30,8 +30,8 @@ CAMPAIGN = f"policy-{MATERIAL_CHANGE_VERSION}"
 def mail(monkeypatch: pytest.MonkeyPatch, db_session: AsyncSession) -> AsyncMock:
     """Capture outbound mail, configure Resend, drop the pacing, and bind the
     run's own session to the test transaction."""
-    mock = AsyncMock(return_value=True)
-    monkeypatch.setattr(policy_notice, "send_transactional", mock)
+    mock = AsyncMock(return_value="sent")
+    monkeypatch.setattr(policy_notice, "send_campaign_email", mock)
     monkeypatch.setattr(policy_notice, "transactional_configured", lambda: True)
     monkeypatch.setattr(policy_notice, "PACE_SECONDS", 0.0)
 
@@ -177,7 +177,7 @@ class TestRunSend:
         ids = await policy_notice.check_send(db_session, 2)
         result = await policy_notice.run_send(ids)
 
-        assert result.model_dump() == {"sent": 2, "failed": 0, "skipped": 0}
+        assert result.model_dump() == {"sent": 2, "failed": 0, "unconfirmed": 0, "skipped": 0}
         subjects = {call.args[0]: call.args[1] for call in mail.await_args_list}
         assert subjects == {
             en.email: COPY["en"]["policy_notice_subject"],
@@ -197,17 +197,17 @@ class TestRunSend:
         # The same ids again (a double-clicked button, the CLI racing the admin
         # tab): every claim already exists, so nothing goes out.
         again = await policy_notice.run_send(ids)
-        assert again.model_dump() == {"sent": 0, "failed": 0, "skipped": 1}
-        # (The address is a literal: the losing claim's rollback expires `user`.)
+        assert again.model_dump() == {"sent": 0, "failed": 0, "unconfirmed": 0, "skipped": 1}
+        # (The address is a literal: the losing claim's rollback expires `user`.
+        # That rollback also unwinds this harness's savepoints, so the DB state
+        # after it says nothing; the mail mock is the evidence.)
         assert _recipients(mail) == ["a@example.com"]
-        with pytest.raises(policy_notice.SendRefused, match="Nobody"):
-            await policy_notice.check_send(db_session, 1)
 
-    async def test_a_failed_send_releases_its_claim(
+    async def test_a_rejected_send_releases_its_claim(
         self, db_session: AsyncSession, mail: AsyncMock
     ) -> None:
         await _user(db_session, "a@example.com")
-        mail.return_value = False
+        mail.return_value = "rejected"
         ids = await policy_notice.check_send(db_session, 1)
 
         result = await policy_notice.run_send(ids)
@@ -215,9 +215,52 @@ class TestRunSend:
         assert await _rows(db_session) == []
 
         # ...so the next run retries the same user.
-        mail.return_value = True
+        mail.return_value = "sent"
         retry = await policy_notice.run_send(await policy_notice.check_send(db_session, 1))
         assert retry.sent == 1
+
+    async def test_a_maybe_delivered_send_keeps_its_claim(
+        self, db_session: AsyncSession, mail: AsyncMock
+    ) -> None:
+        # A timeout or 5xx can arrive after Resend accepted the mail. Releasing
+        # the claim would let the next run send a second copy.
+        user = await _user(db_session, "a@example.com")
+        user_id = user.id
+        mail.return_value = "unknown"
+        result = await policy_notice.run_send(await policy_notice.check_send(db_session, 1))
+
+        assert result.unconfirmed == 1
+        rows = await _rows(db_session)
+        assert [(r.user_id, r.sent_at) for r in rows] == [(user_id, None)]
+        assert (await policy_notice.preview(db_session)).counts.unconfirmed == 1
+        with pytest.raises(policy_notice.SendRefused, match="Nobody"):
+            await policy_notice.check_send(db_session, 1)
+
+    async def test_sends_an_idempotency_key_per_campaign_and_user(
+        self, db_session: AsyncSession, mail: AsyncMock
+    ) -> None:
+        user = await _user(db_session, "a@example.com")
+        user_id = user.id
+        await policy_notice.run_send(await policy_notice.check_send(db_session, 1))
+        assert mail.await_args is not None
+        assert mail.await_args.kwargs["idempotency_key"] == f"{CAMPAIGN}/{user_id}"
+
+    async def test_a_failure_before_sending_releases_the_claim(
+        self, db_session: AsyncSession, mail: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Nothing went out, so the user must not be stranded as "unconfirmed".
+        await _user(db_session, "a@example.com")
+        ids = await policy_notice.check_send(db_session, 1)
+
+        def _boom(locale: object) -> object:
+            raise RuntimeError("render failed")
+
+        monkeypatch.setattr(policy_notice, "render_notice", _boom)
+        result = await policy_notice.run_send(ids)
+
+        assert result.sent == 0
+        mail.assert_not_awaited()
+        assert await _rows(db_session) == []
 
     async def test_skips_who_accepted_in_the_app_meanwhile(
         self, db_session: AsyncSession, mail: AsyncMock

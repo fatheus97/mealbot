@@ -14,7 +14,11 @@ unverified account cannot generate plans, so the change does not reach it.
 Rules, all enforced here rather than in the two callers (admin API, CLI):
 
 * **At most once per (campaign, user).** ``EmailCampaignSend`` is claimed
-  before each send; its unique constraint makes the claim atomic.
+  before each send; its unique constraint makes the claim atomic. A claim is
+  released only when Resend certainly did not take the message; a send whose
+  fate is unknown (timeout, 5xx) stays claimed as "unconfirmed". Each send
+  also carries ``Idempotency-Key: <campaign>/<user_id>``, so Resend itself drops
+  a repeat within 24 hours.
 * **Only to the audience the operator looked at.** ``check_send`` recounts and
   refuses unless the count matches the one the operator confirmed.
 * **Inside the shared Resend quota.** ``settings.campaign_daily_send_limit`` per
@@ -28,13 +32,14 @@ Locale: ``User.language`` via ``locale_for_language``, like every other email
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import html
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Final, Literal
 
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import delete, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -50,7 +55,7 @@ from app.models.admin_schemas import (
     PolicyNoticePreview,
 )
 from app.models.db_models import EmailCampaignSend, User
-from app.services.email_service import send_transactional, transactional_configured
+from app.services.email_service import send_campaign_email, transactional_configured
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +79,10 @@ class SendRefused(Exception):
 
 class SendResult(BaseModel):
     sent: int = 0
+    # Resend certainly did not take it; the claim is released for a re-run.
     failed: int = 0
+    # Resend may have taken it (timeout, 5xx); the claim stays, never retried.
+    unconfirmed: int = 0
     # Someone else claimed it first, or the user stopped being eligible (accepted
     # in the app, was deactivated, ...) between the check and their turn.
     skipped: int = 0
@@ -204,8 +212,31 @@ async def check_send(session: AsyncSession, confirm_recipients: int) -> list[int
     return eligible[:budget]
 
 
-async def _send_one(session: AsyncSession, campaign: str, user_id: int) -> str:
-    """Claim, send, confirm one user. Returns "sent", "failed" or "skipped"."""
+_Outcome = Literal["sent", "failed", "unconfirmed", "skipped"]
+
+
+async def _release(session: AsyncSession, campaign: str, user_id: int) -> None:
+    """Delete an unsent claim with a statement rather than through the ORM object,
+    so it works after a rollback has expired that object. Best effort: if the DB
+    is down too, the claim stays "unconfirmed", which errs toward not mailing
+    twice."""
+    try:
+        await session.execute(
+            delete(EmailCampaignSend).where(
+                col(EmailCampaignSend.campaign) == campaign,
+                col(EmailCampaignSend.user_id) == user_id,
+                col(EmailCampaignSend.sent_at).is_(None),
+            )
+        )
+        await session.commit()
+    except Exception:
+        logger.exception("policy_notice_release_failed user_id=%s", user_id)
+        with contextlib.suppress(Exception):
+            await session.rollback()
+
+
+async def _send_one(session: AsyncSession, campaign: str, user_id: int) -> _Outcome:
+    """Claim, send, confirm one user."""
     claim = EmailCampaignSend(campaign=campaign, user_id=user_id)
     session.add(claim)
     try:
@@ -216,30 +247,44 @@ async def _send_one(session: AsyncSession, campaign: str, user_id: int) -> str:
         return "skipped"
 
     # Re-read AFTER the claim: the user may have accepted in the app, changed
-    # address, or been deactivated since check_send listed them.
-    user = await session.get(User, user_id, populate_existing=True)
-    if (
-        user is None
-        or user.is_demo
-        or not _reachable(user)
-        or not terms_notice_due(user.terms_version)
-    ):
-        await session.delete(claim)
-        await session.commit()
-        return "skipped"
+    # address, or been deactivated since check_send listed them. Nothing has
+    # been sent yet, so any failure here releases the claim rather than leaving
+    # a user who certainly got nothing stuck as "unconfirmed".
+    try:
+        user = await session.get(User, user_id, populate_existing=True)
+        if (
+            user is None
+            or user.is_demo
+            or not _reachable(user)
+            or not terms_notice_due(user.terms_version)
+        ):
+            await _release(session, campaign, user_id)
+            return "skipped"
+        email = render_notice(locale_for_language(user.language))
+        address = user.email
+    except Exception:
+        # The session may be mid-failure; reset it before the release statement.
+        with contextlib.suppress(Exception):
+            await session.rollback()
+        await _release(session, campaign, user_id)
+        raise
 
-    email = render_notice(locale_for_language(user.language))
-    if await send_transactional(user.email, email.subject, email.html):
+    outcome = await send_campaign_email(
+        address, email.subject, email.html, idempotency_key=f"{campaign}/{user_id}"
+    )
+    if outcome == "sent":
         claim.sent_at = datetime.now(UTC)
         session.add(claim)
         await session.commit()
         return "sent"
-
-    # Resend refused or was unreachable: release the claim so a later run
-    # retries this user. send_transactional already logged the status code.
-    await session.delete(claim)
-    await session.commit()
-    return "failed"
+    if outcome == "rejected":
+        # Certainly not delivered: release so a later run retries this user.
+        await _release(session, campaign, user_id)
+        return "failed"
+    # Maybe delivered. Keep the claim: the preview counts it as unconfirmed,
+    # and a duplicate is the one outcome this module exists to prevent.
+    logger.warning("policy_notice_unconfirmed campaign=%s user_id=%s", campaign, user_id)
+    return "unconfirmed"
 
 
 async def run_send(user_ids: list[int]) -> SendResult:
@@ -258,6 +303,8 @@ async def run_send(user_ids: list[int]) -> SendResult:
                     result.sent += 1
                 elif outcome == "failed":
                     result.failed += 1
+                elif outcome == "unconfirmed":
+                    result.unconfirmed += 1
                 else:
                     result.skipped += 1
     except Exception:
@@ -266,7 +313,7 @@ async def run_send(user_ids: list[int]) -> SendResult:
         # is left to receive the exception.
         logger.exception("policy_notice_run_failed campaign=%s", campaign)
     logger.info(
-        "policy_notice_run campaign=%s sent=%s failed=%s skipped=%s",
-        campaign, result.sent, result.failed, result.skipped,
+        "policy_notice_run campaign=%s sent=%s failed=%s unconfirmed=%s skipped=%s",
+        campaign, result.sent, result.failed, result.unconfirmed, result.skipped,
     )
     return result

@@ -18,6 +18,7 @@ def _install_fake_httpx(
     *,
     status_code: int = 200,
     raises: bool = False,
+    exc: httpx.HTTPError | None = None,
     captured: dict[str, Any] | None = None,
 ) -> None:
     class _FakeResp:
@@ -49,6 +50,8 @@ def _install_fake_httpx(
                 captured["json"] = json
             if raises:
                 raise httpx.ConnectError("boom")
+            if exc is not None:
+                raise exc
             return _FakeResp()
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
@@ -163,3 +166,67 @@ def test_alerts_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     assert email_service.alerts_configured() is True
     monkeypatch.setattr(settings, "alert_email_to", None)
     assert email_service.alerts_configured() is False
+
+
+# -- send_campaign_email: the bulk notice needs sent / rejected / unknown -----
+# A bool cannot say "maybe": a read timeout or a 5xx can come back after Resend
+# accepted the message, and policy_notice must not release (and so re-send) a
+# claim in that case.
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [
+        pytest.param(200, "sent", id="2xx"),
+        pytest.param(422, "rejected", id="validation"),
+        pytest.param(429, "rejected", id="rate-limited"),
+        pytest.param(409, "unknown", id="idempotency-conflict"),
+        pytest.param(502, "unknown", id="5xx"),
+    ],
+)
+async def test_campaign_outcome_by_status(
+    monkeypatch: pytest.MonkeyPatch, status_code: int, expected: str
+) -> None:
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    _install_fake_httpx(monkeypatch, status_code=status_code)
+    outcome = await email_service.send_campaign_email(
+        "u@example.com", "Subject", "<p>x</p>", idempotency_key="k"
+    )
+    assert outcome == expected
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        pytest.param(httpx.ConnectError("refused"), "rejected", id="never-connected"),
+        pytest.param(httpx.ReadTimeout("slow"), "unknown", id="timeout-after-sending"),
+        pytest.param(httpx.RemoteProtocolError("dropped"), "unknown", id="connection-dropped"),
+    ],
+)
+async def test_campaign_outcome_by_transport_error(
+    monkeypatch: pytest.MonkeyPatch, exc: httpx.HTTPError, expected: str
+) -> None:
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    _install_fake_httpx(monkeypatch, exc=exc)
+    outcome = await email_service.send_campaign_email(
+        "u@example.com", "Subject", "<p>x</p>", idempotency_key="k"
+    )
+    assert outcome == expected
+
+
+async def test_campaign_sends_the_idempotency_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    captured: dict[str, Any] = {}
+    _install_fake_httpx(monkeypatch, captured=captured)
+    await email_service.send_campaign_email(
+        "u@example.com", "Subject", "<p>x</p>", idempotency_key="policy-2026-11-01/7"
+    )
+    assert captured["headers"]["Idempotency-Key"] == "policy-2026-11-01/7"
+
+
+async def test_campaign_unconfigured_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "resend_api_key", None)
+    outcome = await email_service.send_campaign_email(
+        "u@example.com", "Subject", "<p>x</p>", idempotency_key="k"
+    )
+    assert outcome == "rejected"

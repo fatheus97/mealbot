@@ -9,7 +9,8 @@ Send, confirming the eligible count the dry run printed:
 Same rules as the admin "Notices" tab, because both call the same service: each
 (campaign, user) is mailed at most once, the count must match, and the daily
 quota applies. Unlike the admin button this runs in the foreground, so it takes
-about a second per recipient. Exit codes: 0 done, 1 refused, 2 some sends failed.
+about a second per recipient. Exit codes: 0 done, 1 refused, 2 some sends failed
+or are unconfirmed (Resend may have taken them; they are never retried).
 """
 import argparse
 import asyncio
@@ -47,8 +48,11 @@ async def send(confirm: int) -> int:
             return 1
     print(f"Sending to {len(user_ids)} users, one per {policy_notice.PACE_SECONDS:g}s...")
     result = await policy_notice.run_send(user_ids)
-    print(f"Sent: {result.sent}  failed: {result.failed}  skipped: {result.skipped}")
-    return 2 if result.failed else 0
+    print(
+        f"Sent: {result.sent}  failed: {result.failed}  "
+        f"unconfirmed: {result.unconfirmed}  skipped: {result.skipped}"
+    )
+    return 2 if result.failed or result.unconfirmed else 0
 
 
 def main() -> None:
