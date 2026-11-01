@@ -135,9 +135,10 @@ def usage_from_completion(
             )
         # OpenAI goes through the Responses API (app.llm.client.openai_instructor).
         # Reading it as chat completions would find no prompt_tokens and record
-        # zero, i.e. free calls against the usage cap. Cached input is billed
-        # below the input rate and counted at the full one here: the cap
-        # over-estimates, which fails safe.
+        # zero, i.e. free calls against the usage cap. input_tokens includes
+        # cache reads (billed below the input price) and cache writes (above
+        # it); app.services.llm_cost prices OpenAI input at the write price, so
+        # the total over-estimates, which fails safe.
         if usage is not None and provider == "openai":
             return LlmCallUsage(
                 provider=provider,

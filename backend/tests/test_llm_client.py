@@ -1599,6 +1599,11 @@ class TestOpenAIResponsesStackContract:
                 return web.json_response(
                     {"error": {"type": "server_error", "message": "Overloaded", "code": None}}, status=503,
                 )
+            if body["model"] == "filtered":
+                return web.json_response({
+                    **_responses_answer(body["model"], "unused", {}, (11, 0, 11)),
+                    "status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "output": [],
+                })
             return web.json_response(_responses_answer(body["model"], body["tools"][0]["name"], {"x": 1}, (11, 7, 18)))
 
         app = web.Application()
@@ -1674,6 +1679,50 @@ class TestOpenAIResponsesStackContract:
             result = await client.chat_json("sys", "usr", _Tiny)
         assert result.x == 1
         assert [b["model"] for _, b in seen] == ["busy", "gpt-6-luna"]
+
+    async def test_a_reply_without_a_tool_call_is_logged_with_its_reason(
+        self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,
+        monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """instructor fails such a reply with a bare AttributeError ('Response'
+        has no 'choices'); the reason it came back empty is logged beside it."""
+        client = self._client(monkeypatch, sdk, "openai/filtered")
+        with caplog.at_level(logging.WARNING, logger="app.llm.client"), capture_llm_usage() as calls:
+            async with asyncio.timeout(10):
+                with pytest.raises(LocalizedHTTPException):
+                    await client.chat_json("sys", "usr", _Tiny)
+        assert any(
+            "OpenAI filtered answered without a usable tool call: status=incomplete reason=content_filter"
+            in r.getMessage()
+            for r in caplog.records
+        )
+        [usage] = calls  # the empty reply was still billed
+        assert usage.prompt_tokens == 11
+
+    async def test_a_tool_answer_logs_no_warning(
+        self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,
+        monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = self._client(monkeypatch, sdk, "openai/gpt-6-luna")
+        with caplog.at_level(logging.WARNING, logger="app.llm.client"):
+            async with asyncio.timeout(10):
+                await client.chat_json("sys", "usr", _Tiny)
+        assert not [r for r in caplog.records if "tool call" in r.getMessage()]
+
+    def test_the_client_built_from_a_key_uses_the_responses_api(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The contract tests inject openai_instructor(sdk); this pins that
+        LLMClient's own construction uses it too."""
+        settings = MagicMock()
+        settings.openai_api_key = "fake-key"
+        settings.gemini_api_key = None
+        settings.deepseek_api_key = None
+        settings.anthropic_api_key = None
+        monkeypatch.setattr("app.llm.client.settings", settings)
+        client = LLMClient()
+        assert client.openai_client is not None
+        assert client.openai_client.mode is instructor.Mode.RESPONSES_TOOLS
 
     async def test_an_image_goes_as_a_responses_input_image(
         self, fake_openai: tuple[str, list[tuple[str, dict[str, Any]]]], sdk: AsyncOpenAI,

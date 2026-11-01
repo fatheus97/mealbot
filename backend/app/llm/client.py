@@ -313,6 +313,11 @@ class LLMClient:
                         append_response_usage, entry.provider.value, entry.model, attempts
                     ),
                 )
+                if entry.provider == LLMProvider.OPENAI:
+                    hooks.on(
+                        "completion:response",
+                        functools.partial(_warn_if_no_tool_call, entry.model),
+                    )
                 try:
                     async with cut:
                         result, _ = await client.chat.completions.create_with_completion(
@@ -867,6 +872,38 @@ def openai_instructor(sdk: AsyncOpenAI) -> instructor.AsyncInstructor:
     milk in a milk-allergy plan in the evals (2026-10-31), and with it was
     clean. So reasoning stays at the model's default, which is what passed."""
     return instructor.from_openai(sdk, mode=instructor.Mode.RESPONSES_TOOLS)
+
+
+def _warn_if_no_tool_call(model: str, response: object) -> None:
+    """instructor ``completion:response`` hook for OpenAI: log why a Responses
+    reply carries no usable tool call.
+
+    On such a reply (cut by the content filter or the output limit, a refusal,
+    plain text) instructor 1.15 falls through to its chat-completions parser
+    and fails with AttributeError "'Response' object has no attribute
+    'choices'", which is all the chain's log would otherwise show. The status,
+    the incomplete reason and any refusal exist only on the reply."""
+    status = getattr(response, "status", None)
+    output = getattr(response, "output", None) or []
+    if status == "completed" and any(
+        getattr(item, "type", None) == "function_call" and getattr(item, "arguments", None)
+        for item in output
+    ):
+        return
+    refusals = [
+        str(getattr(part, "refusal", ""))
+        for item in output
+        if getattr(item, "type", None) == "message"
+        for part in getattr(item, "content", None) or []
+        if getattr(part, "type", None) == "refusal"
+    ]
+    logger.warning(
+        "OpenAI %s answered without a usable tool call: status=%s reason=%s refusal=%.200r",
+        model,
+        status,
+        getattr(getattr(response, "incomplete_details", None), "reason", None),
+        " ".join(refusals),
+    )
 
 
 # Maps each provider to the Settings attribute holding its (already
