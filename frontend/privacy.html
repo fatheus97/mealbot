@@ -138,7 +138,7 @@
       <a class="back" href="/">&larr; Back to Mealbot</a>
 
       <h1>Privacy Policy</h1>
-      <p class="muted">Last updated: <time datetime="2026-08-08">8 August 2026</time></p>
+      <p class="muted">Last updated: <time datetime="2026-11-01">1 November 2026</time></p>
 
       <p>
         This describes what Mealbot actually does with your data — written from the code, not
@@ -150,7 +150,7 @@
           <strong>The short version.</strong> We use three cookies, all of them needed to keep
           you signed in. We run no analytics, no advertising and no third-party trackers of any
           kind. We never see your card details. But your <strong>dietary restrictions and
-          allergies are sent to Google</strong> to generate your meal plans — that is how the
+          allergies are sent to Google, and sometimes to OpenAI,</strong> to generate your meal plans — that is how the
           product works, and it is the most important thing on this page.
         </p>
       </div>
@@ -240,20 +240,27 @@
         meal plans, and they never contain sign-in links or password-reset links.
       </p>
 
-      <h2>Your dietary data goes to Google</h2>
+      <h2>Your dietary data goes to Google, and sometimes to OpenAI</h2>
       <div class="note">
         <p>
-          To build a meal plan we send your request to <strong>Google's Gemini API</strong>. That
-          request includes your <strong>declared allergens, your diet types</strong> (including
+          To build a meal plan we send your request to <strong>Google's Gemini API</strong>, and
+          sometimes to <strong>OpenAI's API</strong>. That request includes your
+          <strong>declared allergens, your diet types</strong> (including
           halal, kosher, diabetic, low-FODMAP and baby-food), your free-text
           ingredients-to-avoid, your taste preferences, your household size and your fridge
           contents.
         </p>
         <p>
           <strong>We do not send your email address, your name, or any account identifier.</strong>
-          Google receives the content, not who you are.
+          Google and OpenAI receive the content, not who you are.
         </p>
       </div>
+      <p>
+        A request goes to OpenAI when Google's service fails or answers too slowly, in which case
+        Google may have received it too. For a few minutes after Google answers too slowly, new
+        requests may go to OpenAI first. We may also send a share of requests to OpenAI first, to
+        compare which of the two writes better plans.
+      </p>
       <p>
         The same applies to a receipt photo if you use the scanner (the image is sent), and to
         feedback you submit (the text is sent, to categorise it automatically).
@@ -264,8 +271,14 @@
         replacement for reading labels.
       </p>
       <p class="muted">
-        We use Google's standard API. If you would rather not have this data processed this way,
-        the honest answer is that Mealbot cannot generate plans without it.
+        Google and OpenAI act as our processors for this data, under their data processing terms.
+        The terms of the APIs we use (Google's paid Gemini API and OpenAI's API) forbid both from
+        using it to improve their products or train their models, and we have not opted in to
+        sharing data with OpenAI. The one exception is the copy each keeps for a limited time to
+        detect abuse, which Google may also use to train its abuse filters. OpenAI keeps that copy
+        for up to 30 days, longer only where the law requires it or to protect against harm;
+        Google keeps it for 55 days. If you would rather not have this data processed this way, the honest
+        answer is that Mealbot cannot generate plans without it.
       </p>
 
       <h2>Who else receives your data</h2>
@@ -278,6 +291,11 @@
             <tr>
               <td>Google (Gemini API)</td>
               <td>Your meal-plan request, including dietary restrictions, fridge contents, receipt images and feedback text. No identity.</td>
+              <td>Generating plans and recipes</td>
+            </tr>
+            <tr>
+              <td>OpenAI (API)</td>
+              <td>The same as Google, for the requests we send to OpenAI (see above). No identity.</td>
               <td>Generating plans and recipes</td>
             </tr>
             <tr>
@@ -314,8 +332,11 @@
       </p>
       <p class="muted">
         Servers are hosted with Hetzner Online GmbH in <strong>Nuremberg, Germany</strong>, so
-        your data is stored in the EU. Google, Stripe, Resend and GitHub may process data
-        outside the EU under their own terms.
+        your data is stored in the EU. Google, OpenAI, Stripe, Resend and GitHub may process data
+        outside the EU under their own terms. OpenAI may process it in the United States, under
+        the EU Standard Contractual Clauses or a European Commission adequacy decision, as its
+        <a href="https://openai.com/policies/data-processing-addendum/" rel="noopener">data
+        processing addendum</a> provides.
       </p>
 
       <h2>Cookies</h2>

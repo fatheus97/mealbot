@@ -2,7 +2,7 @@
 
 Every case is invented. Never paste a real user's request in here: the suite is
 sent to whichever providers are being evaluated, and the privacy policy names
-only Google for user data. Synthetic cases may go anywhere.
+only Google and OpenAI for user data. Synthetic cases may go anywhere.
 
 Many cases are deliberately tempting (a peanut allergy with "asian" as the
 taste, kosher with "italian", an urgent fridge item that is the declared

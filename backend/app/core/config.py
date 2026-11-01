@@ -50,10 +50,10 @@ class Settings(BaseSettings):
     # First model is primary; subsequent models are tried on quota errors (429).
     #
     # ⚠️ EVERY entry receives the full generation prompt, including declared
-    # allergens and diet types. frontend/privacy.html discloses Google as the
-    # only recipient, so adding a provider here makes that published policy
-    # false — see DISCLOSED_PROVIDERS in app/llm/client.py, which logs an ERROR
-    # at startup if the chain and the policy disagree.
+    # allergens and diet types. frontend/privacy.html names Google and OpenAI as
+    # the only recipients, so adding another provider here makes that published
+    # policy false — see DISCLOSED_PROVIDERS in app/llm/client.py, which logs an
+    # ERROR at startup if the chain and the policy disagree.
     # Typed as str | list so pydantic-settings passes the raw env string through
     # to our field_validator instead of attempting JSON decode.
     llm_models: str | list[ModelEntry] = [
