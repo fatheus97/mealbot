@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import Depends
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete
@@ -90,6 +91,13 @@ async def kitchen(
     async def as_user() -> User:
         return user
 
+    async def as_user_in_request_session(session: AsyncSession = Depends(get_session)) -> User:
+        # Loaded in the request's own session, as get_current_user does in
+        # production, so a rollback in the handler expires this user too.
+        found = await session.get(User, uid)
+        assert found is not None
+        return found
+
     rv = Rendezvous()
     try:
         # restore_consumed_batches is where Finish / Delete / Unconfirm read the
@@ -102,7 +110,13 @@ async def kitchen(
             "app.api.fridge.get_fridge_items", _held(rv, fridge_service.get_fridge_items)
         )
         app.dependency_overrides[get_session] = own_connection
-        app.dependency_overrides[get_current_user] = as_user
+        # The default hands back a user that opens no transaction, which
+        # TestTheLockComesFirst relies on; parametrize the fixture indirectly
+        # with "user_in_request_session" for production's wiring.
+        in_session = getattr(request, "param", None) == "user_in_request_session"
+        app.dependency_overrides[get_current_user] = (
+            as_user_in_request_session if in_session else as_user
+        )
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             yield c, rv
     finally:
@@ -475,12 +489,17 @@ def _edit(name: str) -> dict[str, object]:
     }
 
 
-async def _starred(c: AsyncClient) -> tuple[int, int]:
-    """A confirmed plan whose first meal is in the cookbook: (plan_id, entry_id)."""
+async def _starred(c: AsyncClient, vector: list[float] | None = None) -> tuple[int, int]:
+    """A confirmed plan whose first meal is in the cookbook, with ``vector`` as
+    its embedding: (plan_id, entry_id)."""
     await _stock(c, 1000)
     plan_id = await _confirmed_plan(c)
     entry_id = int((await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"])
-    with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+
+    async def embed(entry: MealEntry) -> None:
+        entry.embedding = vector
+
+    with patch("app.api.plan.embed_meal_entry", side_effect=embed):
         r = await c.post(
             f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
         )
@@ -571,3 +590,71 @@ class TestEditEmbedsOutsideTheLock:
         assert stored is not None and stored.embedding is not None
         assert stored.name == "Second"
         assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.2, 0.2])
+
+
+@pytest.mark.parametrize("kitchen", ["user_in_request_session"], indirect=True)
+class TestAFailedVectorNeverFailsTheRequest:
+    """The vector is written after the star or edit is committed. If embedding
+    or storing it fails, the request still answers 200 with its change saved;
+    only RAG goes without the new vector."""
+
+    async def test_a_failed_embed_keeps_the_edit_and_the_old_vector(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        plan_id, entry_id = await _starred(c, [0.4] * 384)
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=RuntimeError("model down")):
+            r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl"))
+
+        assert r.status_code == 200, r.text
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None and stored.embedding is not None
+        assert stored.name == "Tofu bowl"
+        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.4, 0.4])
+
+    async def test_a_failed_vector_write_after_an_edit_answers_200(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        plan_id, entry_id = await _starred(c, [0.4] * 384)
+
+        async def wrong_size(entry: MealEntry) -> None:
+            entry.embedding = [0.1] * 3  # the column is vector(384): the UPDATE fails
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=wrong_size):
+            r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl"))
+
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == "Tofu bowl"
+        assert r.json()["allergen_warnings"] == []  # read from the user before the rollback
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None and stored.embedding is not None
+        assert stored.name == "Tofu bowl"
+        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.4, 0.4])
+
+    async def test_a_failed_vector_write_after_a_star_answers_200(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        await _stock(c, 1000)
+        plan_id = await _confirmed_plan(c)
+        entry_id = (await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"]
+
+        async def wrong_size(entry: MealEntry) -> None:
+            entry.embedding = [0.1] * 3
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=wrong_size):
+            r = await c.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
+            )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["is_favorite"] is True
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None
+        assert stored.is_favorite is True
+        assert stored.embedding is None
