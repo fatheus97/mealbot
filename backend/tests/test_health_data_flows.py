@@ -245,5 +245,8 @@ async def test_repeat_copy_of_a_cleared_plan_stays_unregeneratable(
 async def test_export_shows_the_plans_health_data(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
+    # The generated meals (what _generate's mock returns) carry none of the
+    # values, so they can only reach the export from the stored request.
+    assert not HEALTH_VALUES & _strings(_fake_day().model_dump(mode="json"))
     plan_id, _ = await _generate(client, db_session)
     assert HEALTH_VALUES.issubset(_strings(await _export_entry(client, plan_id)))
