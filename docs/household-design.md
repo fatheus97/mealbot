@@ -102,7 +102,10 @@ kitchen `user_id` read becomes a mypy error.
    can before PR 5 ships joins, and two members' rows landing in one household could collide on
    the new staples unique key. Before adding the FKs it checks that every kitchen row's
    `household_id` exists in `household` and fails with the table and the count if not, which
-   reads better in a deploy log than an FK violation.
+   reads better in a deploy log than an FK violation. Every unique key that includes
+   `household_id` (the staples key, `uq_mealplan_id_household_id`) is created after the remap,
+   so a swapped pair (A with ids 5/7, B with 7/5) cannot collide midway through the UPDATE; the
+   dry run seeds such a pair holding the same staple name.
 6. **`household_03`** lifts the health fields out of every plan's `request_json` into `planhealth`,
    attributed to `created_by_user_id` (exact, since every plan has had one owner), using frozen copies
    of `_blob_carries` and `_cleared` as `health_data_consent_01` did. The lift is idempotent and runs
