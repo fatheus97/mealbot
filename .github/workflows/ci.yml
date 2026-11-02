@@ -567,6 +567,55 @@ jobs:
           shellcheck scripts/*.sh || failed=1
           exit "$failed"
 
+      - name: deploy.sh retries a migration only when it lost a lock race
+        # The migrations step runs while the old stack still serves, so a
+        # migration can lose a lock race to a live request and roll back; that
+        # is retried. A broken migration must still fail the deploy at once, and
+        # the container swap must never follow a failed migration.
+        run: |
+          set -uo pipefail
+          work=$(mktemp -d)
+          sed -n '/^echo "==> Running migrations/,/^echo "==> Swapping containers"/p' scripts/deploy.sh \
+            | sed '$d' > "$work/step.sh"
+          grep -q 'alembic upgrade head' "$work/step.sh" \
+            || { echo "::error::the migrations step was not found in scripts/deploy.sh"; exit 1; }
+          # Stub compose: each run prints the next scripted outcome; "ok" succeeds.
+          cat > "$work/compose" <<'STUB'
+          #!/usr/bin/env bash
+          n=$(( $(cat "$STATE/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STATE/calls"
+          line=$(sed -n "${n}p" "$STATE/script")
+          [ "$line" = ok ] && exit 0
+          echo "sqlalchemy.exc.OperationalError: $line"; exit 1
+          STUB
+          chmod +x "$work/compose"
+          failed=0
+          check() { # name, expected exit code, expected runs, outcome per run...
+            local name=$1 want_rc=$2 want_runs=$3; shift 3
+            export STATE="$work/$name"; mkdir -p "$STATE"; printf '%s\n' "$@" > "$STATE/script"
+            ( set -euo pipefail
+              COMPOSE="$work/compose"
+              sleep() { :; }
+              # shellcheck disable=SC1091
+              source "$work/step.sh"
+              echo SWAPPED ) > "$STATE/out" 2>&1
+            local rc=$? runs swapped=no want_swapped=no
+            runs=$(cat "$STATE/calls")
+            grep -q SWAPPED "$STATE/out" && swapped=yes
+            [ "$want_rc" = 0 ] && want_swapped=yes
+            if [ "$rc" != "$want_rc" ] || [ "$runs" != "$want_runs" ] || [ "$swapped" != "$want_swapped" ]; then
+              echo "::error::${name}: exit ${rc} (want ${want_rc}), ${runs} runs (want ${want_runs}), swapped=${swapped}"
+              cat "$STATE/out"; failed=1
+            fi
+          }
+          check first-try 0 1 ok
+          check lock-timeout-once 0 2 "canceling statement due to lock timeout" ok
+          check deadlock-then-statement-timeout 0 3 "deadlock detected" \
+            "canceling statement due to statement timeout" ok
+          check broken-migration 1 1 'column "x" does not exist' ok
+          check lock-timeout-every-time 1 5 "lock timeout" "lock timeout" "lock timeout" \
+            "lock timeout" "lock timeout" ok
+          exit "$failed"
+
       - name: Backup scripts are executable
         # systemd ExecStart= runs the file directly; a non-executable script
         # fails at runtime on the box, long after CI was green.
