@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.legal import TERMS_VERSION
 from app.core.security import get_password_hash
 from app.models.db_models import InviteToken, User
@@ -27,6 +28,7 @@ async def _mint(db_session: AsyncSession) -> tuple[str, InviteToken]:
     """Mint an invite straight through the service, mirroring test_invite_redeem."""
     admin = User(
         email="invite-admin@example.com",
+        normalized_email=normalize_email("invite-admin@example.com"),
         hashed_password=get_password_hash(TEST_PASSWORD),
         is_admin=True,
     )
@@ -240,7 +242,7 @@ class TestOperatorPathsRecordNothing:
 
     def test_user_create_still_does(self) -> None:
         with pytest.raises(Exception):
-            UserCreate(email="a@b.com", password=TEST_PASSWORD)
+            UserCreate.model_validate({"email": "a@b.com", "password": TEST_PASSWORD})
 
 
 class _Ctx:

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import InviteToken, User
 from app.services.invite import create_invite
@@ -28,6 +29,7 @@ async def _mint(
     test_admin_invites); returns (plaintext, row)."""
     admin = User(
         email="admin@example.com",
+        normalized_email=normalize_email("admin@example.com"),
         hashed_password=get_password_hash(TEST_PASSWORD),
         is_admin=True,
     )
@@ -178,7 +180,9 @@ class TestRedeem:
         self, unauthed_client: AsyncClient, db_session: AsyncSession,
     ) -> None:
         existing = User(
-            email="dupe@example.com", hashed_password=get_password_hash("Existing123")
+            email="dupe@example.com",
+            normalized_email=normalize_email("dupe@example.com"),
+            hashed_password=get_password_hash("Existing123"),
         )
         db_session.add(existing)
         await db_session.flush()

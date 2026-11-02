@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_active_subscription
 from app.core.config import settings
 from app.core.csrf import _CSRF_EXEMPT_PATHS
+from app.core.email_normalize import normalize_email
 from app.models.db_models import User
 from app.services import stripe_service
 
@@ -28,16 +29,27 @@ from app.services import stripe_service
 # --------------------------------------------------------------------------- #
 # is_entitled — the single source of truth for the paywall
 # --------------------------------------------------------------------------- #
-def _user(**kwargs: Any) -> User:
-    base = dict(
-        email="e@example.com",
+def _user(
+    *,
+    is_admin: bool = False,
+    is_demo: bool = False,
+    is_comped: bool = False,
+    subscription_status: str = "none",
+    subscription_price_id: str | None = None,
+    subscription_event_ts: int | None = None,
+) -> User:
+    email = "e@example.com"
+    return User(
+        email=email,
+        normalized_email=normalize_email(email),
         hashed_password="x",
-        is_admin=False,
-        is_demo=False,
-        subscription_status="none",
+        is_admin=is_admin,
+        is_demo=is_demo,
+        is_comped=is_comped,
+        subscription_status=subscription_status,
+        subscription_price_id=subscription_price_id,
+        subscription_event_ts=subscription_event_ts,
     )
-    base.update(kwargs)
-    return User(**base)
 
 
 def test_is_entitled_billing_off_allows_everyone(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1102,11 +1114,19 @@ def test_czech_annual_price_counts_as_annual(monkeypatch: pytest.MonkeyPatch) ->
     assert "price_cs_annual" in ids
     assert "price_base_annual" in ids
 
-    cs_annual = User(email="cs@example.com", hashed_password="x")
+    cs_annual = User(
+        email="cs@example.com",
+        normalized_email=normalize_email("cs@example.com"),
+        hashed_password="x",
+    )
     cs_annual.subscription_price_id = "price_cs_annual"
     assert stripe_service.is_annual(cs_annual) is True
 
-    monthly = User(email="m@example.com", hashed_password="x")
+    monthly = User(
+        email="m@example.com",
+        normalized_email=normalize_email("m@example.com"),
+        hashed_password="x",
+    )
     monthly.subscription_price_id = "price_base"
     assert stripe_service.is_annual(monthly) is False
 

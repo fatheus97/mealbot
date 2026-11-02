@@ -21,6 +21,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import SQLModel, col, delete, select
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import (
     AuthSession,
@@ -109,6 +110,7 @@ async def test_bare_user_delete_cascades(db_session: AsyncSession) -> None:
     """
     user = User(
         email="cascade@example.com",
+        normalized_email=normalize_email("cascade@example.com"),
         hashed_password=get_password_hash("Whatever123"),
     )
     db_session.add(user)
@@ -122,6 +124,7 @@ async def test_bare_user_delete_cascades(db_session: AsyncSession) -> None:
     )
     db_session.add(plan)
     await db_session.flush()
+    assert plan.id is not None
     db_session.add_all([
         MealEntry(
             user_id=uid, meal_plan_id=plan.id, day_index=1, meal_index=1,

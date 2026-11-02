@@ -5,14 +5,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.models.db_models import User
 from app.services import feedback_notify
 
 
-def _user(**over: object) -> User:
-    base: dict[str, object] = dict(email="reporter@example.com", hashed_password="x")
-    base.update(over)
-    user = User(**base)
+def _user() -> User:
+    email = "reporter@example.com"
+    user = User(email=email, normalized_email=normalize_email(email), hashed_password="x")
     user.id = 7
     return user
 

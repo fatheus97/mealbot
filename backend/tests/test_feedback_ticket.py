@@ -61,10 +61,18 @@ def _install_fake_httpx(
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
 
 
-def _report(**over: object) -> FeedbackReport:
-    base = dict(user_id=7, kind="bug", message="Regenerate crashes\nsecond line")
-    base.update(over)
-    report = FeedbackReport(**base)
+def _report(
+    *,
+    screenshot_base64: str | None = None,
+    screenshot_content_type: str | None = None,
+) -> FeedbackReport:
+    report = FeedbackReport(
+        user_id=7,
+        kind="bug",
+        message="Regenerate crashes\nsecond line",
+        screenshot_base64=screenshot_base64,
+        screenshot_content_type=screenshot_content_type,
+    )
     report.id = 42
     return report
 

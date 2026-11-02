@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.email_normalize import normalize_email
 from app.core.meal_types import MealType
 from app.core.security import get_password_hash
 from app.models.db_models import MealPlan, User
@@ -229,9 +230,14 @@ class TestListPlans:
         db_session: AsyncSession, test_user: User,
     ) -> None:
         # Another user's unconfirmed plan must survive test_user creating a plan.
-        other = User(email="other-clear@example.com", hashed_password=get_password_hash("x"))
+        other = User(
+            email="other-clear@example.com",
+            normalized_email=normalize_email("other-clear@example.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(other)
         await db_session.flush()
+        assert other.id is not None
         other_plan = MealPlan(
             user_id=other.id, days=1, meals_per_day=1, people_count=1,
             request_json="{}", response_json="{}",  # unconfirmed
@@ -861,6 +867,7 @@ class TestOwnershipChecks:
         # swap the override itself to simulate a different caller.
         user_b = User(
             email="userb@test.com",
+            normalized_email=normalize_email("userb@test.com"),
             hashed_password=get_password_hash("userb-pw"),
             # Verified: this test is about OWNERSHIP (expects 404 on someone
             # else's plan). An unverified user would 403 at

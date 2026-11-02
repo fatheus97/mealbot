@@ -12,9 +12,9 @@ from sqlmodel import SQLModel
 
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.rate_limit import limiter
-from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User

@@ -67,6 +67,7 @@ class TestMealHistory:
         rows intact so historical data keeps rendering; the frontend label
         helper handles the display.
         """
+        assert test_user.id is not None
         plan = MealPlan(
             user_id=test_user.id,
             days=1,
@@ -79,6 +80,7 @@ class TestMealHistory:
         db_session.add(plan)
         await db_session.flush()
 
+        assert plan.id is not None
         legacy_entry = MealEntry(
             user_id=test_user.id,
             meal_plan_id=plan.id,

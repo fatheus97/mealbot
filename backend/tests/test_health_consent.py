@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete, select
 
 from app.api.deps import get_current_user
+from app.core.email_normalize import normalize_email
 from app.core.error_copy import ERROR_COPY
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.security import get_password_hash
@@ -69,6 +70,7 @@ async def _events(db_session: AsyncSession, user: User) -> list[HealthConsentEve
 async def _plan(
     db_session: AsyncSession, user: User, request: dict[str, object], *, confirmed: bool = False
 ) -> MealPlan:
+    assert user.id is not None
     plan = MealPlan(
         user_id=user.id,
         days=1,
@@ -110,6 +112,7 @@ class TestRules:
     def test_consent_to_an_older_text_does_not_count(self) -> None:
         user = User(
             email="x@example.com",
+            normalized_email=normalize_email("x@example.com"),
             hashed_password="x",
             health_consent_at=datetime.now(UTC),
             health_consent_version="2000-01-01",
@@ -290,7 +293,11 @@ class TestWithdraw:
     async def test_leaves_other_users_plans_alone(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
     ) -> None:
-        other = User(email="other@example.com", hashed_password="x")
+        other = User(
+            email="other@example.com",
+            normalized_email=normalize_email("other@example.com"),
+            hashed_password="x",
+        )
         db_session.add(other)
         await db_session.flush()
         theirs = await _plan(db_session, other, {"allergens": ["milk"]})
@@ -547,9 +554,11 @@ async def consent_race(
     commits (test_kitchen_lock explains the harness)."""
     from app.main import app
 
+    email = f"consent-{abs(hash(request.node.name))}@example.com"
     async with AsyncSession(test_engine, expire_on_commit=False) as s:
         user = User(
-            email=f"consent-{abs(hash(request.node.name))}@example.com",
+            email=email,
+            normalized_email=normalize_email(email),
             hashed_password=get_password_hash(TEST_PASSWORD),
             email_verified_at=datetime.now(UTC),
             health_consent_at=datetime.now(UTC),

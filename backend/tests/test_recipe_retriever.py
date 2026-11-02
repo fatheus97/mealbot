@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import MealEntry, MealPlan, User
 from app.services.recipe_retriever import (
@@ -179,7 +180,11 @@ SAMPLE_MEAL_JSON_MIN = (
 
 
 async def _make_user(db_session: AsyncSession, email: str) -> tuple[User, int]:
-    user = User(email=email, hashed_password=get_password_hash("irrelevant"))
+    user = User(
+        email=email,
+        normalized_email=normalize_email(email),
+        hashed_password=get_password_hash("irrelevant"),
+    )
     db_session.add(user)
     await db_session.flush()
     assert user.id is not None

@@ -12,6 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import (
     AdminAuditLog,
@@ -35,8 +36,14 @@ async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
     await db_session.flush()
 
 
-async def _seed(db_session: AsyncSession, email: str, **kw: object) -> User:
-    u = User(email=email, hashed_password=get_password_hash("Whatever123"), **kw)
+async def _seed(
+    db_session: AsyncSession, email: str, *, is_demo: bool = False, is_admin: bool = False,
+) -> User:
+    u = User(
+        email=email, normalized_email=normalize_email(email),
+        hashed_password=get_password_hash("Whatever123"),
+        is_demo=is_demo, is_admin=is_admin,
+    )
     db_session.add(u)
     await db_session.flush()
     return u
@@ -112,6 +119,7 @@ class TestDeletePurgesDataAndPreservesLedger:
         )
         db_session.add(plan)
         await db_session.flush()
+        assert plan.id is not None
         db_session.add_all([
             MealEntry(
                 user_id=vid, meal_plan_id=plan.id, day_index=1, meal_index=1,

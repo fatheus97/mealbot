@@ -20,6 +20,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email_normalize import normalize_email
 from app.core.error_copy import ERROR_COPY, ErrorKey, PluralErrorKey
 from app.core.errors import LocalizedHTTPException
 from app.core.i18n import UI_LOCALES, Locale, locale_from_accept_language, plural_category
@@ -435,6 +436,7 @@ async def _login_as(
     session.add(
         User(
             email=email,
+            normalized_email=normalize_email(email),
             hashed_password=get_password_hash(password),
             language=language,
             email_verified_at=datetime.now(UTC) if verified else None,

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select, update
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import AdminAuditLog, User
 from app.services import stripe_service
@@ -35,6 +36,7 @@ async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
 async def _seed_payer(db_session: AsyncSession, email: str, *, is_active: bool = True) -> User:
     u = User(
         email=email,
+        normalized_email=normalize_email(email),
         hashed_password=get_password_hash(TEST_PASSWORD),
         stripe_customer_id="cus_1",
         stripe_subscription_id="sub_1",

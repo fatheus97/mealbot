@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import (
     MachineGeneration,
@@ -46,6 +47,7 @@ async def _user(
 ) -> int:
     u = User(
         email=email,
+        normalized_email=normalize_email(email),
         hashed_password=get_password_hash("Password123"),
         signup_utm_source=utm_source,
         is_demo=is_demo,

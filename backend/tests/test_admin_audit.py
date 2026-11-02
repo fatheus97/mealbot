@@ -8,12 +8,18 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.email_normalize import normalize_email
 from app.models.db_models import AdminAuditLog, User
 from app.services.admin_audit import record_admin_action
 
 
-async def _persist_user(db_session: AsyncSession, email: str, **kw: object) -> User:
-    u = User(email=email, hashed_password="h", **kw)
+async def _persist_user(db_session: AsyncSession, email: str, is_admin: bool = False) -> User:
+    u = User(
+        email=email,
+        normalized_email=normalize_email(email),
+        hashed_password="h",
+        is_admin=is_admin,
+    )
     db_session.add(u)
     await db_session.flush()
     return u
@@ -72,6 +78,10 @@ class TestRecordAdminAction:
         assert await db_session.get(User, target_id) is None
 
     async def test_rejects_unpersisted_actor(self, db_session: AsyncSession) -> None:
-        actor = User(email="nopersist@example.com", hashed_password="h")  # no id yet
+        actor = User(
+            email="nopersist@example.com",
+            normalized_email=normalize_email("nopersist@example.com"),
+            hashed_password="h",
+        )  # no id yet
         with pytest.raises(ValueError):
             record_admin_action(db_session, actor=actor, action="user.x")
