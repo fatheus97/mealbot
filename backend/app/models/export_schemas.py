@@ -17,6 +17,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, JsonValue
 
+from app.models.plan_models import DietaryProfileRead
 from app.models.user_schemas import UserRead
 
 
@@ -140,4 +141,7 @@ class UserDataExport(BaseModel):
     refunds: list[ExportedRefund]
     health_consent_history: list[ExportedConsentEvent]
     waste_records: list[ExportedWasteRecord]
+    # Saved diets, allergens and ingredients to avoid (shared households);
+    # null when there is none.
+    dietary_profile: DietaryProfileRead | None
     excluded: list[str]

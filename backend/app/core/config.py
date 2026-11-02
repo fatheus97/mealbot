@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     # directions — a client can neither opt in nor opt out.
     leftovers_enabled: bool = True
 
+    # Shared households (docs/household-design.md): saved dietary profiles so
+    # far; eaters and joins come in later PRs. Off until the owner flips it,
+    # and without effect until the consent text covers households (see
+    # app.services.kitchen.households_enabled).
+    households_enabled: bool = False
+
     # RAG thresholds
     rag_min_results: int = 3
     rag_max_distance: float = 0.4

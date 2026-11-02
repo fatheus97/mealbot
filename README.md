@@ -230,6 +230,7 @@ docs/               # dietary reference, landing-page plan
 | `USE_RAG` | No | Retrieve favourited meals as prompt context. Default `false` |
 | `USAGE_CAP_ENABLED` | No | Per-user monthly LLM cost ceiling. Default `true` |
 | `LEFTOVERS_ENABLED` | No | Kill switch for leftover linking. Default `true` |
+| `HOUSEHOLDS_ENABLED` | No | Shared households (`docs/household-design.md`). Default `false`. No effect until the consent text covers households (`HOUSEHOLD_CONSENT_VERSION`); set before that, the backend logs an ERROR at startup |
 | `COOKIE_SECURE` / `CSRF_ENABLED` | No | Both default `true`; only relax for local HTTP |
 | `DOMAIN` / `ALLOWED_ORIGINS` | Prod | Caddy HTTPS domain and CORS origins |
 

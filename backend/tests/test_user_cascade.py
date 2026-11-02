@@ -25,6 +25,7 @@ from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import (
     AuthSession,
+    DietaryProfile,
     EmailVerificationToken,
     InviteToken,
     LlmUsage,
@@ -157,6 +158,7 @@ async def test_bare_user_delete_cascades(db_session: AsyncSession) -> None:
             expiration_date=date.today() + timedelta(days=3),
         ),
         PantryStaple(household_id=hid, name="olive oil"),
+        DietaryProfile(user_id=uid, diet_types=["vegan"], allergens=["milk"], avoid_ingredients=[]),
         AuthSession(
             user_id=uid, refresh_token_hash="a" * 64,
             expires_at=datetime.now(UTC) + timedelta(days=1),
@@ -199,7 +201,7 @@ async def test_bare_user_delete_cascades(db_session: AsyncSession) -> None:
         )
     for model in (
         AuthSession, PasswordResetToken, EmailVerificationToken, MachineGeneration,
-        MachineCorrection, LlmUsage,
+        MachineCorrection, LlmUsage, DietaryProfile,
     ):
         assert await _count(db_session, model, uid) == 0, f"{model.__name__} not cascaded"
 

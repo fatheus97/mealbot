@@ -159,11 +159,11 @@ kitchen `user_id` read becomes a mypy error.
    single head right before each merge. CI does not run migrations: every one gets an
    upgrade/downgrade/upgrade dry run on `test-db` with seeded rows, never the shared dev DB.
    `downgrade()` refuses when any household has two or more members. Downgrading `household_03`
-   writes each plan's creator row back into its blob (the inverse of the lift) and drops
-   `dietaryprofile` and every other contributor's row: an emergency rollback loses saved profiles,
-   the one downgrade that destroys Art. 9 data, and its dry run asserts exactly that outcome. A plan
-   whose creator was deleted (`created_by_user_id` NULL) has no creator row to restore, so its health
-   data is dropped too; the dry run seeds that case.
+   writes each plan's creator row back into its blob (the inverse of the lift) and drops every other
+   contributor's row. A plan whose creator was deleted (`created_by_user_id` NULL) has no creator
+   row to restore, so its health data is dropped too; the dry run seeds that case. Downgrading
+   `household_05` drops `dietaryprofile`: an emergency rollback loses saved profiles, the one
+   downgrade that destroys Art. 9 data rather than moving it, and it logs how many it dropped.
 8. **Deploy window (default: accept).** Between migrate and swap the old container's kitchen
    endpoints fail for seconds. The alternative is expand/contract, three extra PRs.
 
@@ -215,11 +215,13 @@ can still overwrite the partner's edit.
   every request with health data 403 until the user consents again, and doing that for a feature
   nobody can use yet would be noise. 3a stays within today's text (the same data, typed by the
   user, for the same purpose); saved profiles and eaters (3b) exist only behind the flag until then.
-  The flag must not be able to go on before the new text exists: 3b adds
-  `HOUSEHOLD_CONSENT_VERSION: str | None = None` to `backend/app/core/legal.py`, the first consent
-  version whose text covers households, and a startup check that refuses `HOUSEHOLDS_ENABLED=true`
-  unless it is set and `HEALTH_CONSENT_VERSION >= HOUSEHOLD_CONSENT_VERSION` (both are ISO dates,
-  so string order is date order). Only PR 7 sets it, together with the bump.
+  The flag must not be able to go on before the new text exists: 3b-2a adds
+  `HOUSEHOLD_CONSENT_VERSION: Final[str | None] = None` to `backend/app/core/legal.py`, the first
+  consent version whose text covers households. `HOUSEHOLDS_ENABLED` has no effect unless it is set
+  and `HEALTH_CONSENT_VERSION >= HOUSEHOLD_CONSENT_VERSION` (compared as dates); set before that,
+  the backend logs an ERROR at startup. Not a refusal to start, as first written: in prod that is a
+  crash-looping backend, the whole site down over one dark feature. Only PR 7 sets it, together
+  with the bump.
 - **Generation** picks who is eating; the server defaults to all members when the field is missing in
   a household of two or more (an old bundle must not silently skip the partner's allergies). A
   household of one with no selection behaves byte-identically to today. Each eater needs current
@@ -301,7 +303,8 @@ adversarial review.
 | 3s | Safety net before any of 3: API tests that the stored health data reaches the model on generate, regenerate and Cook Now, survives repeat and a Cook Now save, and is in the export. A 3a that reads the emptied blob must go red. | each test negative-controlled against the production path it pins; the PR records the suite's test count, which 3a reconciles against; it also pins that editing, confirming, cooking, starring and regenerating a plan leave its `request_json` unchanged, the claim that makes withdrawal the only blob rewrite a copied row can miss. |
 | 3a | `household_03`: `planhealth` and `health_contributors`, the copy (Migrations 6), every reader and writer switched to rows with the blob as fallback (generate, Cook Now, regenerate, repeat, edit screen, withdraw, export, telemetry), `health_data_removed` taking precedence, and the startup delete of a removed plan's rows. Byte-identical for a household of one, including two behaviours the design later changes (below). No consent change. | 3s stays green unchanged; a new plan's blob holds the four HEALTH_FIELDS empty (legacy diet_type included); copy is idempotent and attributes every blob to its creator; a carrying blob with no row reads as the creator's row; a removed plan with a row left over is never read as health data, and the startup delete removes that row; withdrawal clears rows and blob; dry run up/down/up with all three blob shapes, a NULL creator, and "row copied, then the old stack withdraws". |
 | 3b-1 | `household_04`, the contract step: runs the removed-plan delete once and takes the startup statement out, gives a plan the pre-3a stack wrote in 3a's window its creator row, empties the four fields of every blob that has rows and names its contributors. Flips the two kept behaviours, for everyone: the edit screen warns from the plan's rows whoever edits (before, the editor's own consent decided), and repeat refuses a plan whose health data was removed, 409 (before, it copied it, still marked). Split from 3b so the one step that rewrites stored health data ships and deploys on its own. | dry run: the app reads every plan identically before and after, removed rows gone, idempotent, downgrade a no-op, down to `household_02` and back; editor without current consent still gets the allergen warning; repeat of a removed or lost-contributor plan 409s and copies nothing. |
-| 3b-2 | `dietaryprofile`, eaters and the merge, per-eater consent (403 naming the member), repeat re-screening against the current eaters, `HOUSEHOLD_CONSENT_VERSION` and its startup guard, all behind `HOUSEHOLDS_ENABLED`. | deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members. |
+| 3b-2a | `household_05` (`dietaryprofile`, empty), the profile API (GET; PUT behind `HOUSEHOLDS_ENABLED`, under the kitchen lock with the consent read as committed; DELETE), withdrawal and DELETE removing the profile whatever the flag says, the profile in the export, `HOUSEHOLDS_ENABLED` and the `HOUSEHOLD_CONSENT_VERSION` gate. Nothing reads a profile yet. Split from 3b-2 to keep the additive part apart from the generation changes. | flag off or no consent text: PUT 404; carrying data without a current consent, read fresh: 403; "balanced" alone needs none; withdrawal and DELETE remove it with the flag off again; export shows it; the startup log; user delete cascades; migration dry run with the schema equal to the model. |
+| 3b-2b | Eaters and the merge, per-eater consent (403 naming the member), the after-the-LLM contributor filter, repeat re-screening against the current eaters, all behind `HOUSEHOLDS_ENABLED`. The code map for it lists the traps: build each eater's row from their profile and the one-off row from the typed fields only (never write the union back into the request), dedup across rows in `merged_request_json`, keep `eaters` out of the stored request and telemetry, lock contributor rows against a concurrent delete. | deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members. |
 | 4 | Versions: columns, household-scoped tokens on GET/PUT/merge, 409s (`ErrorKey` en + cs), client queueing, freshness. | stale or foreign token 409s and writes nothing; two quick edits on one device succeed; a PUT without a token behaves as before; Vitest in its own `docker run`. |
 | 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; a redeem rejected at the cap leaves the invite in place; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
 | 6 | UI: Settings "Household" section, profile editor, eater picker with the merged summary, delete-dialog branch, reload after join/leave, InfoHints. en + cs, sentence-level keys. | Vitest, `tsc -b`, key-usage and parity tests, two-theme browser check. |

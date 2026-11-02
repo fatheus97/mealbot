@@ -98,6 +98,37 @@ def _declared_max_items(model: type[BaseModel], field_name: str | None) -> int:
     return _DEFAULT_SANITIZED_MAX_ITEMS
 
 
+def _sanitized_strings(
+    model: type[BaseModel], v: object, field_name: str | None
+) -> list[str]:
+    """The body of every free-text list's ``mode="before"`` validator, so a fix
+    lands in all of them (it was once copied, and a fix to one copy was half a
+    fix).
+
+    A mode="before" validator receives the raw request body value, so it must
+    not assume a list. Iterating blind raised TypeError on a scalar, and
+    pydantic converts only ValueError/AssertionError into a 422, so TypeError
+    escaped as a 500. A bare string IS iterable, so it never crashed; it
+    silently became one entry per character."""
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        raise ValueError("must be a list of strings")
+    cleaned: list[str] = []
+    for item in v:
+        if not isinstance(item, str):
+            continue
+        if len(item) > 50:
+            continue
+        # Unicode-aware whitelist: keep letters (incl. Czech/European
+        # diacritics), digits, spaces, and a small set of harmless punctuation.
+        # Still blocks prompt-injection vectors like { } < > | ` $ \ / etc.
+        clean = re.sub(r"[^\w\s\-,.]", "", item, flags=re.UNICODE).strip()
+        if clean:
+            cleaned.append(clean)
+    return cleaned[: _declared_max_items(model, field_name)]
+
+
 def _hide_array_bounds(schema: dict[str, JsonValue]) -> None:
     """Keep ``maxItems``/``minItems`` out of the EMITTED JSON schema. Pydantic
     still enforces the bound — only what we hand the LLM changes.
@@ -450,30 +481,7 @@ class MealPlanRequest(BaseModel):
     @field_validator(*_MEAL_PLAN_SANITIZED_FIELDS, mode="before")
     @classmethod
     def sanitize_input(cls, v: object, info: ValidationInfo) -> list[str]:
-        # A mode="before" validator receives the raw request body value, so it
-        # must not assume a list. Iterating blind raised TypeError on a scalar,
-        # and pydantic converts only ValueError/AssertionError into a 422 —
-        # TypeError escaped as a 500. A bare string IS iterable, so it never
-        # crashed; it silently became one entry per character.
-        if v is None:
-            return []
-        if not isinstance(v, list):
-            raise ValueError("must be a list of strings")
-
-        cleaned_list: list[str] = []
-        for item in v:
-            if not isinstance(item, str):
-                continue
-            if len(item) > 50:
-                continue
-            # Unicode-aware whitelist: keep letters (incl. Czech/European diacritics),
-            # digits, spaces, and a small set of harmless punctuation. Still blocks
-            # prompt-injection vectors like { } < > | ` $ \ / etc.
-            cleaned = re.sub(r"[^\w\s\-,.]", "", item, flags=re.UNICODE).strip()
-            if cleaned:
-                cleaned_list.append(cleaned)
-
-        return cleaned_list[: _declared_max_items(cls, info.field_name)]
+        return _sanitized_strings(cls, v, info.field_name)
 
     @model_validator(mode="after")
     def _reconcile_diet(self) -> MealPlanRequest:
@@ -1129,25 +1137,7 @@ class SingleRecipeRequest(BaseModel):
     @field_validator(*_SINGLE_RECIPE_SANITIZED_FIELDS, mode="before")
     @classmethod
     def sanitize_input(cls, v: object, info: ValidationInfo) -> list[str]:
-        # Same unicode-aware whitelist, the same non-list guard and the same
-        # per-field cap as MealPlanRequest (see there for why TypeError became a
-        # 500, and why the cap is read from max_length). Duplicated rather than
-        # imported to keep model-layer cross-references minimal — so a fix to
-        # one is only half a fix.
-        if v is None:
-            return []
-        if not isinstance(v, list):
-            raise ValueError("must be a list of strings")
-        cleaned: list[str] = []
-        for item in v:
-            if not isinstance(item, str):
-                continue
-            if len(item) > 50:
-                continue
-            clean = re.sub(r"[^\w\s\-,.]", "", item, flags=re.UNICODE).strip()
-            if clean:
-                cleaned.append(clean)
-        return cleaned[: _declared_max_items(cls, info.field_name)]
+        return _sanitized_strings(cls, v, info.field_name)
 
     @field_validator("note", mode="before")
     @classmethod
@@ -1313,3 +1303,50 @@ class CookbookListResponse(BaseModel):
 
 class CookbookCountResponse(BaseModel):
     count: int
+
+
+_PROFILE_SANITIZED_FIELDS = ("avoid_ingredients",)
+
+
+class DietaryProfileBody(BaseModel):
+    """PUT /api/users/dietary-profile: a person's own diets, allergens and
+    ingredients to avoid, saved for shared households (docs/household-design.md,
+    "Diets, allergies and consent"). It feeds the same prompt as the request
+    fields, so it takes their caps and their sanitiser (the CI list-field-caps
+    job reads this declaration too). Order is kept, duplicates dropped."""
+
+    diet_types: list[DietType] = Field(default_factory=list, max_length=_MAX_DIET_TYPES)
+    allergens: list[Allergen] = Field(default_factory=list, max_length=_MAX_ALLERGENS)
+    avoid_ingredients: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator(*_PROFILE_SANITIZED_FIELDS, mode="before")
+    @classmethod
+    def sanitize_input(cls, v: object, info: ValidationInfo) -> list[str]:
+        return _sanitized_strings(cls, v, info.field_name)
+
+    @model_validator(mode="after")
+    def _dedup(self) -> DietaryProfileBody:
+        self.diet_types = _dedup_preserve_order(self.diet_types)
+        self.allergens = _dedup_preserve_order(self.allergens)
+        self.avoid_ingredients = _dedup_preserve_order(self.avoid_ingredients)
+        return self
+
+
+class DietaryProfileRead(BaseModel):
+    """A person's saved profile, as stored (plain strings, so a value a later
+    release drops from the enums still reads). ``updated_at`` is None when
+    they have saved none."""
+
+    diet_types: list[str]
+    allergens: list[str]
+    avoid_ingredients: list[str]
+    updated_at: datetime | None
+
+    @field_validator("updated_at", mode="before")
+    @classmethod
+    def ensure_utc(cls, v: datetime | None) -> datetime | None:
+        """The column is naive; a save returns the aware value it just wrote.
+        Attach UTC so the PUT, the GET and the export serialise one row alike."""
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=UTC)
+        return v

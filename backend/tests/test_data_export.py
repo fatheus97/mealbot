@@ -314,6 +314,7 @@ _TABLE_COVERAGE = {
     "feedbackreport": "feedback_reports",
     "salerecord": "invoices",
     "healthconsentevent": "health_consent_history",
+    "dietaryprofile": "dietary_profile",
     "authsession": "excluded",
     "passwordresettoken": "excluded",
     "emailverificationtoken": "excluded",

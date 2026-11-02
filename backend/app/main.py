@@ -33,6 +33,7 @@ from app.core.request_context import RequestContextMiddleware, unhandled_error_r
 from app.core.security_headers import security_headers_middleware
 from app.llm.client import check_model_chain_keys
 from app.llm.experiment import check_experiment_arms
+from app.services.kitchen import check_households_flag
 from app.services.llm_cost import check_chain_rates
 from app.services.recipe_retriever import get_embedding_model
 
@@ -57,6 +58,7 @@ async def lifespan(fastAPI: FastAPI) -> AsyncIterator[None]:
     check_model_chain_keys()
     check_experiment_arms()
     check_chain_rates()
+    check_households_flag()
     logger.info("Initializing embedding model")
     await asyncio.to_thread(get_embedding_model)
     logger.info("Embedding model ready")

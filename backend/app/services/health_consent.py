@@ -50,18 +50,20 @@ from fastapi import status
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, select
+from sqlmodel import col, delete, select
 
 from app.core.dietary import Allergen, DietType
 from app.core.errors import LocalizedHTTPException
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.models.db_models import (
+    DietaryProfile,
     HealthConsentEvent,
     MachineGeneration,
     MealPlan,
     PlanHealth,
     User,
 )
+from app.models.plan_models import DietaryProfileBody, DietaryProfileRead
 from app.services.fridge_service import lock_kitchen
 from app.services.kitchen import Kitchen
 
@@ -471,9 +473,62 @@ async def withdraw(session: AsyncSession, user: User) -> int:
                 user_id=user.id, granted=False, version=previous or HEALTH_CONSENT_VERSION
             )
         )
+    # The saved profile goes too, whatever HOUSEHOLDS_ENABLED says now: a flag
+    # turned off again must not strand data whose consent was withdrawn.
+    await session.execute(delete(DietaryProfile).where(col(DietaryProfile.user_id) == user.id))
     user.health_consent_at = None
     user.health_consent_version = None
     session.add(user)
     await session.commit()
     logger.info("health_consent_withdrawn user_id=%s plans_cleared=%s", user.id, changed)
     return changed
+
+
+def profile_read(profile: DietaryProfile | None) -> DietaryProfileRead | None:
+    """A saved dietary profile as the API and the export show it; None when the
+    person has none."""
+    if profile is None:
+        return None
+    return DietaryProfileRead(
+        diet_types=list(profile.diet_types),
+        allergens=list(profile.allergens),
+        avoid_ingredients=list(profile.avoid_ingredients),
+        updated_at=profile.updated_at,
+    )
+
+
+async def save_profile(
+    session: AsyncSession, user: User, body: DietaryProfileBody
+) -> DietaryProfile:
+    """Save ``user``'s own dietary profile, replacing the one before. Commits.
+
+    Health data in it needs the person's consent as committed NOW, read under
+    lock_kitchen, which withdraw() takes too: a withdrawal that committed first
+    is seen here, and one that waited for the lock deletes this profile along
+    with the rest. Deciding on ``user`` as the request loaded it could save a
+    profile after the consent was gone. A profile with nothing but "balanced"
+    needs no consent, as a request with nothing more does not."""
+    assert user.id is not None
+    await lock_kitchen(session, Kitchen.of(user))
+    data = body.model_dump(mode="json")
+    if _blob_carries(data) and not await _consent_now(session, user):
+        raise LocalizedHTTPException(status.HTTP_403_FORBIDDEN, "health_consent_required")
+    profile = await session.get(DietaryProfile, user.id)
+    if profile is None:
+        profile = DietaryProfile(user_id=user.id, **data)
+    else:
+        profile.diet_types = data["diet_types"]
+        profile.allergens = data["allergens"]
+        profile.avoid_ingredients = data["avoid_ingredients"]
+        profile.updated_at = datetime.now(UTC)
+    session.add(profile)
+    await session.commit()
+    logger.info("dietary_profile_saved user_id=%s", user.id)
+    return profile
+
+
+async def delete_profile(session: AsyncSession, user: User) -> None:
+    """Delete ``user``'s saved dietary profile, if any. Commits. Allowed with
+    HOUSEHOLDS_ENABLED off: removing your own data never waits for a feature."""
+    await session.execute(delete(DietaryProfile).where(col(DietaryProfile.user_id) == user.id))
+    await session.commit()
