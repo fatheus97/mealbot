@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import Depends
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete
@@ -87,8 +88,12 @@ async def kitchen(
         async with AsyncSession(test_engine, expire_on_commit=False) as s:
             yield s
 
-    async def as_user() -> User:
-        return user
+    async def as_user(session: AsyncSession = Depends(get_session)) -> User:
+        # Loaded in the request's own session, as get_current_user does in
+        # production: a rollback in the handler then expires this user too.
+        found = await session.get(User, uid)
+        assert found is not None
+        return found
 
     rv = Rendezvous()
     try:
@@ -536,6 +541,7 @@ class TestAFailedVectorNeverFailsTheRequest:
 
         assert r.status_code == 200, r.text
         assert r.json()["name"] == "Tofu bowl"
+        assert r.json()["allergen_warnings"] == []  # read from the user before the rollback
         async with AsyncSession(test_engine) as s:
             stored = await s.get(MealEntry, entry_id)
         assert stored is not None and stored.embedding is not None
