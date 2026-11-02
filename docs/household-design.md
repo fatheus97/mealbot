@@ -39,9 +39,12 @@ New:
 - `planhealth(id PK, meal_plan_id FK mealplan CASCADE, entered_by_user_id FK user CASCADE, subject_user_id NULL FK user CASCADE, diet_types, allergens, avoid_ingredients jsonb)`.
   `entered_by_user_id` is whose consent covers the row. `subject_user_id` is the member the row
   describes, or NULL for a one-off entry typed for this plan (a guest, a child without an account).
+  A row is written for every contributor even when all three lists are empty, so a missing row can
+  only mean a deleted member.
 - `householdinvite(id, household_id FK CASCADE, invited_normalized_email, token_hash UNIQUE, created_by_user_id FK user CASCADE, expires_at)`.
-  Redeem is `DELETE ... WHERE token_hash = :h AND expires_at > now() RETURNING household_id`, so it is
-  single-use by construction. Revoke is a delete. No status columns.
+  Redeem is `DELETE ... WHERE token_hash = :h AND invited_normalized_email = :email AND expires_at > now() RETURNING household_id`,
+  so it is single-use by construction and a wrong account burns nothing. Revoke is a delete. No
+  status columns.
 
 Changed (the column is renamed in place, so no row is rewritten):
 
@@ -49,7 +52,7 @@ Changed (the column is renamed in place, so no row is rewritten):
 |---|---|
 | stockitem | `user_id` becomes `household_id`, FK household CASCADE. |
 | pantrystaple | `household_id`, plus `UNIQUE (household_id, lower(name))`, declared in the model so `create_all` builds it. |
-| mealplan | `household_id` CASCADE; new `created_by_user_id` NULL, FK user SET NULL, backfilled from the old owner; `UNIQUE (id, household_id)`; `ix_mealplan_catalog` follows the rename. `request_json` gains `health_contributors: [user_id, ...]` and new writes carry the four health fields empty. |
+| mealplan | `household_id` CASCADE; new `created_by_user_id` NULL, FK user SET NULL, backfilled from the old owner; `UNIQUE (id, household_id)`; `ix_mealplan_catalog` follows the rename. `request_json` gains `health_contributors: [user_id, ...]`, every `entered_by_user_id` among the plan's rows, one-off entries included, and new writes carry the four health fields empty. |
 | mealentry | `household_id`; composite FK `(meal_plan_id, household_id) -> mealplan(id, household_id) ON DELETE CASCADE ON UPDATE CASCADE` replaces the single plan FK, so an entry cannot sit in another household than its plan. The favourites index `(household_id, is_favorite)` is declared in `__table_args__` (today it exists only in a migration). |
 | wasterecord | unchanged, per person. Added to the export (it is missing today). |
 
@@ -65,8 +68,10 @@ kitchen `user_id` read becomes a mypy error.
 ### Migrations
 
 1. **`household_01`** backfills `household.id = user.id` for every user, then `setval`. The lock key
-   `(KTCH, id)` therefore keeps its value for every existing account, and old and new code serialize
-   during the deploy window.
+   `(KTCH, id)` therefore keeps its value for every account that exists at migration time, so old and new code
+   serialize for those accounts during the deploy window. An account the old stack creates inside
+   the window gets its household id from the sequence instead; for those seconds its old-code key can
+   contend with another household's, and old and new code do not serialize for it. Accepted.
 2. A **BEFORE INSERT trigger** on `"user"` creates a household when `household_id` is NULL. It also
    covers the old stack during the deploy window (which still inserts users without the column), Core
    inserts, `scripts/create_user.py` and hand-run SQL. It is also attached as a metadata `DDL`
@@ -89,7 +94,10 @@ kitchen `user_id` read becomes a mypy error.
 7. Descriptive revision ids, the first with `down_revision = "health_data_consent_01"`. Re-check for a
    single head right before each merge. CI does not run migrations: every one gets an
    upgrade/downgrade/upgrade dry run on `test-db` with seeded rows, never the shared dev DB.
-   `downgrade()` refuses when any household has two or more members.
+   `downgrade()` refuses when any household has two or more members. Downgrading `household_03`
+   writes each plan's creator row back into its blob (the inverse of the lift) and drops
+   `dietaryprofile` and every other contributor's row: an emergency rollback loses saved profiles,
+   the one downgrade that destroys Art. 9 data, and its dry run asserts exactly that outcome.
 8. **Deploy window (default: accept).** Between migrate and swap the old container's kitchen
    endpoints fail for seconds. The alternative is expand/contract, three extra PRs.
 
@@ -163,15 +171,20 @@ can still overwrite the partner's edit.
 ### Join and leave
 
 - **Invites:** any member of a household below the cap mints one: email-bound, single-use, 48 hours,
-  at most 3 live. Both the minter and the redeemer must be verified, non-demo accounts. Redeeming
+  at most 3 live. The code is a `create_refresh_token()` plaintext (`secrets.token_urlsafe(32)`, 256
+  bits), stored only as its hash, because it unlocks a kitchen holding other people's allergy data:
+  never a short human-friendly code. The redeem endpoint is rate-limited per user, like the consent
+  endpoints. Both the minter and the redeemer must be verified, non-demo accounts. Redeeming
   never creates an account; a partner without one gets an admin invite first while registration is
   closed.
 - **Billing rule for phase 1 (decided: each member on their own):** joining requires the joiner and
   every member to be entitled independently (subscribed, comped or grandfathered). No billing code
   changes. AI spend caps stay per person.
-- **Join** is allowed only from a household of one. The joiner brings their kitchen **(decided)**:
+- **Join** is allowed only from a household of one. Redeem takes both households' kitchen locks
+  (ascending id) before it checks the cap, so two redeems at 5 of 6 cannot both pass. The joiner brings their kitchen **(decided)**:
   plans and fridge rows move by `UPDATE ... SET household_id` (entries and `planhealth` follow
-  through the FKs), staples merge with `ON CONFLICT DO NOTHING`, the joiner's drafts are deleted, the
+  through the FKs; fridge rows move as batches, so an item both partners hold becomes two batches of
+  it, which the fridge already supports), staples merge with `ON CONFLICT DO NOTHING`, the joiner's drafts are deleted, the
   versions bump, the old household is deleted.
 - **Leave:** under the lock, the leaver moves to a new household of one with nothing but their
   profile and export **(default)**. Their drafts and every `planhealth` row they entered or that
@@ -201,10 +214,10 @@ adversarial review.
 |---|---|---|
 | 0 | `fix(export)`: `WasteRecord` in the export. | waste exported; a meta-test that every table with a user FK is exported or named in `_EXCLUDED`. |
 | 1 | `household_01`: table, backfill, `user.household_id`, both triggers (migration + DDL listener), sequence offset. | every creation path gets a household; last-member delete removes it, one of two keeps it; two last members deleting at once leave no orphan (two-connection harness); demo sweep leaves none; downgrade refuses on 2+. |
-| 2 | `household_02` rekey: renames and index renames, `created_by_user_id`, composite FK, staples unique + lock, `Kitchen`, `lock_kitchen(kitchen)`, `load_plan`/`load_entry`, RAG, per-member drafts. Withdraw and export key on the creator until PR 3. | route matrix; two-member races in the `test_kitchen_lock.py` harness, with a per-user-key negative control that goes red; membership change while waiting returns 409; composite FK rejects a cross-household entry; A's Generate keeps B's draft; index list matches metadata. |
+| 2 | `household_02` rekey: renames and index renames, `created_by_user_id`, composite FK, staples unique + lock, `Kitchen`, `lock_kitchen(kitchen)`, `load_plan`/`load_entry`, RAG, per-member drafts. Withdraw and export key on the creator until PR 3. | route matrix; two-member races in the `test_kitchen_lock.py` harness, with a per-user-key negative control that goes red; membership change while waiting returns 409; composite FK rejects a cross-household entry; moving a plan to another household carries its entries (ON UPDATE CASCADE is load-bearing); A's Generate keeps B's draft; index list matches metadata. |
 | 3 | `household_03`: `dietaryprofile`, `planhealth`, `health_contributors`, the lift, every reader and writer (generate, Cook Now, regenerate, repeat, edit, withdraw, export), the consent version bump. | lift attributes every blob to its creator; deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members; editor without consent still gets the allergen warning. |
 | 4 | Versions: columns, household-scoped tokens on GET/PUT/merge, 409s (`ErrorKey` en + cs), client queueing, freshness. | stale or foreign token 409s and writes nothing; two quick edits on one device succeed; a PUT without a token behaves as before; Vitest in its own `docker run`. |
-| 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
+| 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
 | 6 | UI: Settings "Household" section, profile editor, eater picker with the merged summary, delete-dialog branch, reload after join/leave, InfoHints. en + cs, sentence-level keys. | Vitest, `tsc -b`, key-usage and parity tests, two-theme browser check. |
 | 7 | Legal: privacy en + cs, material change, owner's Czech read. Then the owner flips the flag. | legal-version CI job. |
 
@@ -237,7 +250,8 @@ Needed before households are offered to paying users who do not each have their 
 8. Children without accounts: one-off entries per plan under the generating member's consent.
 9. Preferences stay per person; whoever generates decides. Household settings come when it confuses.
 10. `WasteRecord` stays per person and joins the export.
-11. Global RAG examples across accounts (pre-existing, unrelated): decide separately.
+11. Global RAG examples across accounts (pre-existing): plan content from one account can shape
+    another account's prompt. Decide before the flag flips, not open-ended.
 
 ## Where each critic gap went
 
