@@ -14,6 +14,7 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.rate_limit import limiter
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import User
@@ -231,6 +232,7 @@ async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
 async def test_user(db_session: AsyncSession) -> User:
     user = User(
         email=TEST_EMAIL,
+        normalized_email=normalize_email(TEST_EMAIL),
         hashed_password=get_password_hash(TEST_PASSWORD),
         # Verified by default: this fixture stands in for an ordinary existing
         # account, which in production is exactly what the email_verify_01
