@@ -164,6 +164,7 @@ class TestWriters:
             "allergens": ["milk", "eggs"],
             "avoid_ingredients": ["peanuts", "celery root"],
         }
+        assert "health_contributors" not in entry["request"]
 
     async def test_regenerate_reads_the_row_in_the_order_typed(
         self, client: AsyncClient, db_session: AsyncSession
@@ -363,6 +364,16 @@ class TestMerge:
         assert json.loads(merged_request_json(plan, rows))["allergens"] == ["milk", "fish", "eggs"]
         assert json.loads(merged_request_json(plan, rows, shown_to=2))["allergens"] == ["fish"]
         assert json.loads(merged_request_json(plan, rows, shown_to=3))["allergens"] == ["eggs"]
+
+    @pytest.mark.parametrize("contributors", [[1], [1, 2]], ids=["all rows", "one lost"])
+    def test_no_reader_gets_the_contributors(self, contributors: list[int]) -> None:
+        # Other members' ids are no part of the request as typed; "one lost"
+        # takes the removed path.
+        plan = self._saved({**EMPTY, "health_contributors": contributors})
+        rows = [self._row(1, ["milk"])]
+        for shown_to in (None, 1):
+            merged = json.loads(merged_request_json(plan, rows, shown_to=shown_to))
+            assert "health_contributors" not in merged
 
     def test_a_blob_without_the_fields_stays_without_them(self) -> None:
         # A cookbook favourite's FavoriteRecipeRequest has no health fields;

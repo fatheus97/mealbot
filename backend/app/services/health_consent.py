@@ -261,7 +261,9 @@ def merged_request_json(
 ) -> str:
     """``plan.request_json`` with its health data put back from ``rows`` (all
     of the plan's planhealth rows), as the blob held it before household_03:
-    diet_type mirrors diet_types[0], in the order typed.
+    diet_type mirrors diet_types[0], in the order typed, and no
+    ``health_contributors`` (other members' ids, which the export must not
+    show; every other reader validates the request, which ignores the key).
 
     * ``health_data_removed`` wins: the four fields come back empty, whatever
       rows are left (the old stack withdraws by marking the blob only). So does
@@ -281,7 +283,7 @@ def merged_request_json(
         return raw
     if not isinstance(data, dict):
         return raw
-    contributors = data.get(CONTRIBUTORS)
+    contributors = data.pop(CONTRIBUTORS, None)
     entered = {row.entered_by_user_id for row in rows}
     lost = isinstance(contributors, list) and any(c not in entered for c in contributors)
     unowned = not rows and plan.created_by_user_id is None and _blob_carries(data)
