@@ -91,6 +91,7 @@ ErrorKey = Literal[
     "plan_generation_failed",
     "plan_regeneration_failed",
     "plan_regenerate_confirmed",
+    "plan_regenerate_stale",
     "plan_not_confirmed",
     "plan_not_finished",
     "plan_finished",
@@ -224,6 +225,9 @@ _EN: Final[dict[str, str]] = {
     "plan_generation_failed": "Meal plan generation failed. Please try again.",
     "plan_regeneration_failed": "Meal plan regeneration failed. Please try again.",
     "plan_regenerate_confirmed": "Cannot regenerate a confirmed plan",
+    "plan_regenerate_stale": (
+        "This plan changed while new meals were being generated. Reload the page and try again."
+    ),
     "plan_not_confirmed": "Plan is not confirmed.",
     "plan_not_finished": "Plan is not finished.",
     "plan_finished": "Plan is finished.",
@@ -412,6 +416,9 @@ _CS: Final[dict[str, str]] = {
         "Přegenerování jídelníčku se nezdařilo. Zkuste to prosím znovu."
     ),
     "plan_regenerate_confirmed": "Potvrzený jídelníček nelze přegenerovat",
+    "plan_regenerate_stale": (
+        "Jídelníček se mezitím změnil. Obnovte stránku a zkuste to znovu."
+    ),
     "plan_not_confirmed": "Jídelníček není potvrzený.",
     "plan_not_finished": "Jídelníček není dokončený.",
     "plan_finished": "Jídelníček je dokončený.",
