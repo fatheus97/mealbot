@@ -349,6 +349,83 @@ class TestRegenerateRechecksUnderTheLock:
         names = [m["name"] for d in (await c.get(f"/api/plan/{plan_id}")).json()["days"] for m in d["meals"]]
         assert names and not any(n.startswith("Regenerated") for n in names)
 
+    async def _draft(self, c: AsyncClient) -> int:
+        await _stock(c, 1000)
+        with patch(
+            "app.services.plan_service.generate_single_day",
+            new_callable=AsyncMock,
+            return_value=_fake_day(3),
+        ):
+            r = await c.post("/api/plan?days=1", json={"meals_per_day": 3, "people_count": 2})
+        assert r.status_code == 200, r.text
+        return int(r.json()["plan_id"])
+
+    @staticmethod
+    async def _names(c: AsyncClient, plan_id: int) -> list[str]:
+        days = (await c.get(f"/api/plan/{plan_id}")).json()["days"]
+        return [m["name"] for d in days for m in d["meals"]]
+
+    async def test_an_edit_landing_during_the_llm_call_is_kept(
+        self, kitchen: tuple[AsyncClient, Rendezvous]
+    ) -> None:
+        """The frozen meals are copied from the plan as Regenerate first read
+        it. An edit saved while the LLM ran is newer: writing over it would
+        lose it without a word, so the regenerate refuses instead."""
+        c, _ = kitchen
+        plan_id = await self._draft(c)
+        new_day = _fake_day(3)
+        for meal in new_day.meals:
+            meal.name = "Regenerated " + meal.name
+
+        async def llm_call_while_user_edits(*args: object, **kwargs: object) -> object:
+            edit = await c.patch(
+                f"/api/plan/{plan_id}/days/0/meals/0",
+                json={"name": "Edited meanwhile", "ingredients": [], "steps": ["Eat"]},
+            )
+            assert edit.status_code == 200, edit.text
+            return new_day
+
+        with patch("app.api.plan.generate_partial_day", side_effect=llm_call_while_user_edits):
+            r = await c.post(
+                f"/api/plan/{plan_id}/regenerate",
+                json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
+            )
+
+        assert r.status_code == 409, r.text
+        assert "changed" in r.json()["detail"]
+        names = await self._names(c, plan_id)
+        assert names[0] == "Edited meanwhile"
+        assert not any(n.startswith("Regenerated") for n in names)
+
+    async def test_of_two_overlapping_regenerates_the_later_read_wins(
+        self, kitchen: tuple[AsyncClient, Rendezvous]
+    ) -> None:
+        c, _ = kitchen
+        plan_id = await self._draft(c)
+        calls = 0
+
+        def day(prefix: str) -> object:
+            d = _fake_day(3)
+            for meal in d.meals:
+                meal.name = prefix + meal.name
+            return d
+
+        async def llm(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                inner = await c.post(f"/api/plan/{plan_id}/regenerate", json={"frozen_meals": []})
+                assert inner.status_code == 200, inner.text
+                return day("Outer ")
+            return day("Inner ")
+
+        with patch("app.api.plan.generate_partial_day", side_effect=llm):
+            r = await c.post(f"/api/plan/{plan_id}/regenerate", json={"frozen_meals": []})
+
+        assert r.status_code == 409, r.text
+        names = await self._names(c, plan_id)
+        assert names and all(n.startswith("Inner ") for n in names)
+
 
 class TestFavoriteEmbedsOutsideTheLock:
     async def test_unstar_during_the_embed_is_not_blocked_and_wins(

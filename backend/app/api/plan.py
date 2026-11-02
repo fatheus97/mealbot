@@ -613,6 +613,8 @@ async def regenerate_plan(
     # 1) Load plan & ownership check
     kitchen = Kitchen.of(current_user)
     plan = await load_plan(session, kitchen, plan_id)
+    # What the frozen meals are copied from; re-checked under the lock below.
+    response_json_read = plan.response_json
 
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
         raise LocalizedHTTPException(409, "plan_regenerate_confirmed")
@@ -877,17 +879,23 @@ async def regenerate_plan(
 
     # The LLM calls above ran without the kitchen lock (it must never be held
     # across one). Take it now and re-read: a Confirm that landed meanwhile
-    # debited the fridge for the OLD meals, and a Delete removed the plan.
+    # debited the fridge for the OLD meals, a Delete removed the plan, and a
+    # meal edit or another Regenerate rewrote response_json, which this one
+    # would overwrite with frozen meals copied from the version it read first.
     await lock_kitchen(session, kitchen)
     current = (
         await session.execute(
-            select(col(MealPlan.confirmed_at)).where(col(MealPlan.id) == plan_id)
+            select(col(MealPlan.confirmed_at), col(MealPlan.response_json)).where(
+                col(MealPlan.id) == plan_id
+            )
         )
     ).one_or_none()
     if current is None:
         raise LocalizedHTTPException(404, "plan_not_found")
     if current[0] is not None:
         raise LocalizedHTTPException(409, "plan_regenerate_confirmed")
+    if current[1] != response_json_read:
+        raise LocalizedHTTPException(409, "plan_regenerate_stale")
 
     # 8) Persist updated response (no MealEntry rows pre-confirm)
     plan.response_json = response_obj.model_dump_json()
