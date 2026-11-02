@@ -188,7 +188,9 @@ can still overwrite the partner's edit.
   DELETE and the cap check both come after the lock, so two redeems at 5 of 6 cannot both pass. Zero
   rows returned after the lock is the same 404 as an email mismatch or an unknown code, so the
   endpoint cannot be used to learn which emails hold invites. All of it is one transaction, so a
-  cap failure (409) rolls back the DELETE too and the invite stays usable. The joiner brings their kitchen **(decided)**:
+  cap failure (409) rolls back the DELETE too and the invite stays usable. The cap's 409 is distinct
+  from the 404 of every other miss on purpose: by then the caller has proved a valid code and the
+  matching email, so it reveals nothing new. The joiner brings their kitchen **(decided)**:
   plans and fridge rows move by `UPDATE ... SET household_id` (entries and `planhealth` follow
   through the FKs; fridge rows move as batches, so an item both partners hold becomes two batches of
   it, which the fridge already supports), staples merge with `ON CONFLICT DO NOTHING`, the joiner's drafts are deleted, the
@@ -224,7 +226,7 @@ adversarial review.
 | 2 | `household_02` rekey: renames and index renames, `created_by_user_id`, composite FK, staples unique + lock, `Kitchen`, `lock_kitchen(kitchen)`, `load_plan`/`load_entry`, RAG, per-member drafts. Withdraw and export key on the creator until PR 3. | route matrix; two-member races in the `test_kitchen_lock.py` harness, with a per-user-key negative control that goes red; membership change while waiting returns 409; composite FK rejects a cross-household entry; moving a plan to another household carries its entries (ON UPDATE CASCADE is load-bearing); A's Generate keeps B's draft; index list matches metadata. |
 | 3 | `household_03`: `dietaryprofile`, `planhealth`, `health_contributors`, the lift, every reader and writer (generate, Cook Now, regenerate, repeat, edit, withdraw, export), the consent version bump. | lift attributes every blob to its creator; deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members; editor without consent still gets the allergen warning. |
 | 4 | Versions: columns, household-scoped tokens on GET/PUT/merge, 409s (`ErrorKey` en + cs), client queueing, freshness. | stale or foreign token 409s and writes nothing; two quick edits on one device succeed; a PUT without a token behaves as before; Vitest in its own `docker run`. |
-| 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
+| 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; a redeem rejected at the cap leaves the invite in place; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
 | 6 | UI: Settings "Household" section, profile editor, eater picker with the merged summary, delete-dialog branch, reload after join/leave, InfoHints. en + cs, sentence-level keys. | Vitest, `tsc -b`, key-usage and parity tests, two-theme browser check. |
 | 7 | Legal: privacy en + cs, material change, owner's Czech read. Gate before the flag flips: decision 11 (global RAG examples) is settled and, if it changes code, shipped. Then the owner flips the flag. | legal-version CI job. |
 
