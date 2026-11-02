@@ -27,9 +27,10 @@ updates:
         update-types: [minor, patch]
     ignore:
       # typescript-eslint 8.71 accepts only typescript <6.1, so npm ci fails
-      # on 7.x. Lift when typescript-eslint supports TypeScript 7.
+      # on 7.x. Lift when typescript-eslint supports TypeScript 7. 6.x still
+      # gets proposed.
       - dependency-name: typescript
-        update-types: ["version-update:semver-major"]
+        versions: [">=7"]
 
   - package-ecosystem: docker
     directory: /backend
