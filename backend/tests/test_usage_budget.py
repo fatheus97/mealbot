@@ -18,21 +18,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_generation_budget
 from app.core.config import LLMProvider, ModelEntry, settings
+from app.core.email_normalize import normalize_email
 from app.models.db_models import LlmUsage, User
 from app.models.usage_schemas import BudgetStatus
 from app.services import llm_cost, usage_budget
 
 
-def _user(**kwargs: object) -> User:
-    base = dict(
-        email="e@example.com",
+def _user(
+    *,
+    id: int | None = None,
+    is_admin: bool = False,
+    is_demo: bool = False,
+    is_comped: bool = False,
+    subscription_status: str = "none",
+    current_period_end: datetime | None = None,
+) -> User:
+    email = "e@example.com"
+    u = User(
+        id=id,
+        email=email,
+        normalized_email=normalize_email(email),
         hashed_password="x",
-        is_admin=False,
-        is_demo=False,
-        subscription_status="none",
+        is_admin=is_admin,
+        is_demo=is_demo,
+        is_comped=is_comped,
+        subscription_status=subscription_status,
+        current_period_end=current_period_end,
     )
-    base.update(kwargs)
-    u = User(**base)
     if u.id is None:
         u.id = 1
     return u

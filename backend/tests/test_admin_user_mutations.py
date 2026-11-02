@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.api.deps import require_verified_email
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import AdminAuditLog, AuthSession, User
 
@@ -22,8 +23,22 @@ async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
     await db_session.flush()
 
 
-async def _seed(db_session: AsyncSession, email: str, **kw: object) -> User:
-    u = User(email=email, hashed_password=get_password_hash("Whatever123"), **kw)
+async def _seed(
+    db_session: AsyncSession,
+    email: str,
+    *,
+    is_demo: bool = False,
+    is_admin: bool = False,
+    is_active: bool = True,
+    onboarding_completed: bool = False,
+    email_verified_at: datetime | None = None,
+) -> User:
+    u = User(
+        email=email, normalized_email=normalize_email(email),
+        hashed_password=get_password_hash("Whatever123"),
+        is_demo=is_demo, is_admin=is_admin, is_active=is_active,
+        onboarding_completed=onboarding_completed, email_verified_at=email_verified_at,
+    )
     db_session.add(u)
     await db_session.flush()
     return u

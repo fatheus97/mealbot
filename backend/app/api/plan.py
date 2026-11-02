@@ -90,7 +90,7 @@ from app.services.plan_service import (
     reopen_plan_fridge,
     unconfirm_plan_fridge,
 )
-from app.services.recipe_retriever import embed_meal_entry
+from app.services.recipe_retriever import EmbedProbe, embed_meal_entry
 from app.services.telemetry import (
     latest_generation_id,
     record_correction,
@@ -1144,7 +1144,7 @@ async def favorite_meal(
     if body.is_favorite:
         # Embedded on a detached copy so the tracked entry never goes dirty: an
         # autoflush would write the embedding unconditionally.
-        probe = MealEntry(name=entry.name, meal_json=entry.meal_json)
+        probe = EmbedProbe(name=entry.name, meal_json=entry.meal_json)
         try:
             await embed_meal_entry(probe)
         except Exception:

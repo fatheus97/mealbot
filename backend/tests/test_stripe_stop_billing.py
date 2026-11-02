@@ -10,6 +10,7 @@ import pytest
 import stripe
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import User
 from app.services import stripe_service
@@ -33,6 +34,7 @@ def _user(
     return User(
         id=7,
         email="payer@example.com",
+        normalized_email=normalize_email("payer@example.com"),
         hashed_password=get_password_hash(TEST_PASSWORD),
         stripe_customer_id=customer,
         stripe_subscription_id=sub,

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.cookies import ACCESS_COOKIE_NAME
+from app.core.email_normalize import normalize_email
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import create_access_token, get_password_hash
 from app.db import get_session
@@ -54,8 +55,16 @@ async def test_authed_limit_buckets_by_user_not_ip(
     confirm u2 (same ASGI transport, same `request.client.host`) can still
     make calls. With the old per-IP key they'd have collided.
     """
-    u1 = User(email="bucket_u1@test.com", hashed_password=get_password_hash("pw"))
-    u2 = User(email="bucket_u2@test.com", hashed_password=get_password_hash("pw"))
+    u1 = User(
+        email="bucket_u1@test.com",
+        normalized_email=normalize_email("bucket_u1@test.com"),
+        hashed_password=get_password_hash("pw"),
+    )
+    u2 = User(
+        email="bucket_u2@test.com",
+        normalized_email=normalize_email("bucket_u2@test.com"),
+        hashed_password=get_password_hash("pw"),
+    )
     db_session.add_all([u1, u2])
     await db_session.flush()
     assert u1.id is not None and u2.id is not None

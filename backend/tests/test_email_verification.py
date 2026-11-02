@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import EmailVerificationToken, User
 from app.services import email_verification as ev
@@ -31,6 +32,7 @@ async def _mint(db_session: AsyncSession, user: User) -> str:
 async def _unverified(db_session: AsyncSession, email: str = "new@example.com") -> User:
     user = User(
         email=email,
+        normalized_email=normalize_email(email),
         hashed_password=get_password_hash("TestPassword123"),
         email_verified_at=None,
     )

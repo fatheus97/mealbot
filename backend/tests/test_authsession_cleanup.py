@@ -32,6 +32,7 @@ async def _add_session(
     seq = (await session.execute(
         select(func.count()).select_from(AuthSession)
     )).scalar_one()
+    assert user.id is not None
     row = AuthSession(
         user_id=user.id,
         refresh_token_hash=f"{seq:064x}",

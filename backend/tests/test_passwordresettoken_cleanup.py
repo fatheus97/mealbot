@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import func, select
 
+from app.core.email_normalize import normalize_email
 from app.models.db_models import PasswordResetToken, User
 from app.services.passwordresettoken_cleanup import (
     DEFAULT_RETENTION_DAYS,
@@ -55,6 +56,7 @@ async def _add_token(
     seq = (
         await session.execute(select(func.count()).select_from(PasswordResetToken))
     ).scalar_one()
+    assert user.id is not None
     row = PasswordResetToken(
         user_id=user.id,
         token_hash=f"{seq:064x}",
@@ -209,7 +211,11 @@ async def test_leaves_another_users_tokens_alone_is_not_a_thing_it_promises(
     test documents that a second user's expired rows go too; that is the point,
     not a leak.
     """
-    other = User(email="other-sweep@x.com", hashed_password="x")
+    other = User(
+        email="other-sweep@x.com",
+        normalized_email=normalize_email("other-sweep@x.com"),
+        hashed_password="x",
+    )
     db_session.add(other)
     await db_session.flush()
 
