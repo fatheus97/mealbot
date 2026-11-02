@@ -1,12 +1,12 @@
 """Assemble a user's self-service data export.
 
-Seven SELECTs and no joins — each table is fetched flat and the export nests
+One SELECT per section and no joins — each table is fetched flat and the export nests
 nothing, so `meals` carries `plan_id` and the reader can reassemble. A join would
 duplicate every plan blob once per meal, and plan blobs are the biggest thing
 here by an order of magnitude.
 
 Separate from the API layer so the shape is testable without HTTP, and so
-`api/user.py` does not grow seven queries.
+`api/user.py` does not grow a query per section.
 """
 import json
 import logging
@@ -26,6 +26,7 @@ from app.models.db_models import (
     SaleRefund,
     StockItem,
     User,
+    WasteRecord,
 )
 from app.models.export_schemas import (
     ExportedConsentEvent,
@@ -35,6 +36,7 @@ from app.models.export_schemas import (
     ExportedMeal,
     ExportedPlan,
     ExportedRefund,
+    ExportedWasteRecord,
     UserDataExport,
 )
 from app.models.user_schemas import UserRead
@@ -46,13 +48,20 @@ logger = logging.getLogger(__name__)
 #: section is added above, delete its line here.
 _EXCLUDED = [
     "Password (stored only as a bcrypt hash — it cannot be exported, by design).",
-    "Login sessions and reset/verification tokens (stored only as SHA-256 hashes).",
+    "Login sessions and reset, verification and invite tokens (stored only as "
+    "SHA-256 hashes).",
     "Model-performance telemetry: copies of what was sent to the AI (without "
     "your diets, allergies or ingredients to avoid) and what it returned, which "
     "generated fields you edited, and the token/cost accounting for your "
     "generations. Ask us if you want it.",
     "Advisory AI triage notes on your feedback reports, and which admin "
     "reviewed them — internal moderation state about the report, not your data.",
+    "Records of the service emails we sent you, such as policy-change notices "
+    "(which notice, and when). Ask us if you want them.",
+    "The admin action log entries about your account (which admin changed what, "
+    "and when), kept for accountability. Ask us if you want them.",
+    "A one-way fingerprint of the card used for a free trial, kept so the same "
+    "card cannot start a second trial. It cannot be turned back into the card.",
 ]
 
 
@@ -130,6 +139,13 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
             select(SaleRefund)
             .where(col(SaleRefund.stripe_invoice_id).in_([s.stripe_invoice_id for s in sales]))
             .order_by(col(SaleRefund.occurred_at))
+        )
+    ).scalars().all()
+    waste = (
+        await session.execute(
+            select(WasteRecord)
+            .where(col(WasteRecord.user_id) == user_id)
+            .order_by(col(WasteRecord.created_at), col(WasteRecord.id))
         )
     ).scalars().all()
     consent_events = (
@@ -221,6 +237,17 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
         health_consent_history=[
             ExportedConsentEvent(granted=e.granted, version=e.version, created_at=e.created_at)
             for e in consent_events
+        ],
+        waste_records=[
+            ExportedWasteRecord(
+                name=w.name,
+                quantity_grams=w.quantity_grams,
+                expiration_date=w.expiration_date,
+                reason=w.reason,
+                source=w.source,
+                created_at=w.created_at,
+            )
+            for w in waste
         ],
         excluded=list(_EXCLUDED),
     )
