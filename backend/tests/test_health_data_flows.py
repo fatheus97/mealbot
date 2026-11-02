@@ -230,23 +230,23 @@ async def test_repeat_copy_keeps_the_health_data_for_the_edit_screen(
     assert await _edit_warnings(client, db_session, copy_id) == ["milk"]
 
 
-async def test_repeat_copy_of_a_cleared_plan_stays_unregeneratable(
+async def test_a_cleared_plan_is_neither_regenerated_nor_repeated(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    # Withdrawal marks the plan health_data_removed; the copy inherits the mark.
+    # Withdrawal marks the plan health_data_removed: its meals were screened
+    # against allergies that are gone, so it yields no new meals and no copy.
     plan_id, _ = await _generate(client, db_session)
     assert (await client.delete("/api/users/health-consent")).status_code == 200
     _forget(db_session)
-    copy_id = await _repeat(client, db_session, plan_id)
-    for pid in (plan_id, copy_id):
-        assert not HEALTH_VALUES & _strings(await _export_entry(client, pid)), pid
-    refused = ERROR_COPY["en"]["plan_health_data_removed"]
-    for pid in (plan_id, copy_id):
-        with patch("app.api.plan.generate_partial_day", new_callable=AsyncMock) as partial:
-            resp = await client.post(f"/api/plan/{pid}/regenerate", json={})
-        assert resp.status_code == 409, resp.text
-        assert resp.json()["detail"] == refused
-        partial.assert_not_awaited()
+    assert not HEALTH_VALUES & _strings(await _export_entry(client, plan_id))
+    with patch("app.api.plan.generate_partial_day", new_callable=AsyncMock) as partial:
+        resp = await client.post(f"/api/plan/{plan_id}/regenerate", json={})
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == ERROR_COPY["en"]["plan_health_data_removed"]
+    partial.assert_not_awaited()
+    resp = await client.post(f"/api/plan/{plan_id}/repeat", json={})
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == ERROR_COPY["en"]["plan_repeat_health_data_removed"]
 
 
 async def test_export_shows_the_plans_health_data(

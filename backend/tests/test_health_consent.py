@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import Depends
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete, select
 
@@ -483,20 +484,22 @@ class TestRemovedHealthData:
         mock_gen.assert_not_awaited()
 
     @STORAGE
-    async def test_a_cleared_plan_can_still_be_repeated_and_stays_marked(
+    async def test_a_cleared_plan_is_not_repeated(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession, rows: bool
     ) -> None:
+        # Its meals were screened against allergies that are gone, so a copy
+        # could hold anything; even a consent given again does not bring them back.
         plan = await _plan(
             db_session, test_user, {"allergens": ["milk"]}, confirmed=True, rows=rows
         )
         await client.delete("/api/users/health-consent")
+        await client.post("/api/users/health-consent", json={"version": HEALTH_CONSENT_VERSION})
+        plans = select(func.count()).select_from(MealPlan)
+        before = await db_session.scalar(plans)
         resp = await client.post(f"/api/plan/{plan.id}/repeat", json={"start_date": "2026-08-10"})
-        assert resp.status_code == 200
-        copy = await db_session.get(MealPlan, resp.json()["plan_id"])
-        assert copy is not None
-        # Marked where both stacks read it, and nothing copied to mark.
-        assert MealPlanRequest.model_validate_json(copy.request_json).health_data_removed
-        assert await _rows_of(db_session, copy) == []
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == ERROR_COPY["en"]["plan_repeat_health_data_removed"]
+        assert await db_session.scalar(plans) == before
 
     async def test_withdrawal_mid_generation_saves_the_plan_without_them(
         self, test_user: User, db_session: AsyncSession
@@ -518,7 +521,7 @@ class TestRemovedHealthData:
         assert stored.health_data_removed
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
-    async def test_edit_screen_uses_stored_allergens_only_under_current_consent(
+    async def test_edit_screen_uses_the_plans_allergens_whoever_edits(
         self, mock_gen: AsyncMock, client: AsyncClient, test_user: User, db_session: AsyncSession
     ) -> None:
         from tests.test_meal_edit_api import _fake_day as edit_fake_day
@@ -536,9 +539,18 @@ class TestRemovedHealthData:
         }
         warned = await client.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=edit)
         assert [w["allergen"] for w in warned.json()["allergen_warnings"]] == ["milk"]
-        # A consent to an older text (e.g. after a version bump) is not current.
+        # The row is covered by the consent of whoever entered it, not the
+        # editor's: an editor whose consent is not current (here an older text,
+        # as after a version bump) still gets the warning.
         test_user.health_consent_version = "2000-01-01"
         await db_session.flush()
+        still = await client.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=edit)
+        assert still.status_code == 200
+        assert [w["allergen"] for w in still.json()["allergen_warnings"]] == ["milk"]
+        # A withdrawal takes the allergens, and with them the warning.
+        test_user.health_consent_version = HEALTH_CONSENT_VERSION
+        await db_session.flush()
+        assert (await client.delete("/api/users/health-consent")).status_code == 200
         silent = await client.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=edit)
         assert silent.status_code == 200
         assert silent.json()["allergen_warnings"] == []

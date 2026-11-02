@@ -7,7 +7,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from slowapi.middleware import SlowAPIMiddleware
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.access_request import router as access_request_router
 from app.api.admin import router as admin_router
@@ -32,11 +31,8 @@ from app.core.log_config import configure_logging
 from app.core.rate_limit import limiter
 from app.core.request_context import RequestContextMiddleware, unhandled_error_response
 from app.core.security_headers import security_headers_middleware
-from app.db import async_session_factory
 from app.llm.client import check_model_chain_keys
 from app.llm.experiment import check_experiment_arms
-from app.services.email_service import send_email
-from app.services.health_consent import forget_health_of_removed_plans
 from app.services.llm_cost import check_chain_rates
 from app.services.recipe_retriever import get_embedding_model
 
@@ -45,30 +41,6 @@ configure_logging()
 
 # Grab a logger specific to this file
 logger = logging.getLogger(__name__)
-
-
-async def forget_withdrawn_health_rows() -> None:
-    """Health rows the old stack's withdrawals left behind during the deploy
-    window (app.services.health_consent). Nothing reads them, so a failure
-    does not keep the site down; but they hold data whose consent was
-    withdrawn, so it mails the operator rather than waiting for the next
-    deploy. send_email never raises."""
-    try:
-        async with async_session_factory() as session:
-            forgotten = await forget_health_of_removed_plans(session)
-        logger.info("health rows of removed plans deleted: %d", forgotten)
-    except SQLAlchemyError:
-        logger.exception("Could not delete the health rows of removed plans")
-        await send_email(
-            "[mealbot] withdrawn health data not deleted at startup",
-            "<p>The backend could not delete the planhealth rows of plans marked "
-            "<code>health_data_removed</code>: consent to them was withdrawn. "
-            "Read the error in the backend log, then restart the backend, which "
-            "runs the delete again:</p>"
-            "<pre>cd /opt/mealbot && docker compose -f docker-compose.yml "
-            "-f docker-compose.prod.yml restart backend</pre>",
-        )
-
 
 @asynccontextmanager
 async def lifespan(fastAPI: FastAPI) -> AsyncIterator[None]:
@@ -85,7 +57,6 @@ async def lifespan(fastAPI: FastAPI) -> AsyncIterator[None]:
     check_model_chain_keys()
     check_experiment_arms()
     check_chain_rates()
-    await forget_withdrawn_health_rows()
     logger.info("Initializing embedding model")
     await asyncio.to_thread(get_embedding_model)
     logger.info("Embedding model ready")

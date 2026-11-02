@@ -2,7 +2,7 @@
 
 from collections.abc import Coroutine
 from typing import NoReturn
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -54,10 +54,9 @@ class TestGetEmbeddingModel:
 
         module._model = None
 
-    @patch("app.main.forget_health_of_removed_plans", new_callable=AsyncMock)
     @patch("app.services.recipe_retriever.TextEmbedding")
     async def test_lifespan_initializes_model_at_startup(
-        self, mock_embedding_cls: MagicMock, forget: AsyncMock
+        self, mock_embedding_cls: MagicMock
     ) -> None:
         # Production safety: two concurrent requests hitting a cold path
         # must not both allocate a TextEmbedding. The lifespan hook closes
@@ -72,9 +71,6 @@ class TestGetEmbeddingModel:
 
         async with lifespan(app):
             assert module._model is mock_instance
-        # And deletes the health rows of removed plans once (health_consent),
-        # here without touching a database.
-        forget.assert_awaited_once()
 
         module._model = None
 

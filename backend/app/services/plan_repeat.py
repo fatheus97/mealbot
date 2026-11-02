@@ -64,6 +64,10 @@ class PlanNotRepeatableError(ValueError):
     """The source is not a multi-day plan, so "repeat this week" is meaningless."""
 
 
+class PlanHealthDataRemovedError(ValueError):
+    """The source's diets and allergies were removed (``health_data_removed``)."""
+
+
 async def repeat_plan(
     session: AsyncSession,
     user: User,
@@ -104,19 +108,20 @@ async def repeat_plan(
             "plan_repeat_unparsable plan_id=%s user_id=%s", source.id, user.id
         )
         raise PlanRepeatError(str(exc)) from exc
+    # Its meals were screened against diets and allergies that are gone (a
+    # withdrawal, or a contributor whose account went), so a copy could hold
+    # anything for whoever eats now.
+    if request.health_data_removed:
+        raise PlanHealthDataRemovedError(f"plan_id={source.id}")
     # The copy stores the source's diets and allergens again: the same consent
     # rule as generating them (app.services.health_consent).
     require_health_consent(user, request)
     kitchen = Kitchen.of(user)
-    # The source's planhealth rows, copied as they are. A removed source has
-    # none to give, and the copy keeps its mark (request.health_data_removed).
-    # A source with no rows at all was written by the old stack during a
-    # deploy window: its blob is its creator's row (merged_request_json read
-    # one with no creator as removed, so `or` only meets a blob that carries
+    # The source's planhealth rows, copied as they are. A source with no rows
+    # at all reads its blob as the creator's row (merged_request_json read one
+    # with no creator as removed, so `or` only meets a blob that carries
     # nothing).
-    if request.health_data_removed:
-        entries: list[HealthEntry] = []
-    elif health:
+    if health:
         entries = [HealthEntry.of(row) for row in health]
     else:
         entries = [HealthEntry.typed_by(source.created_by_user_id or kitchen.user_id, request)]

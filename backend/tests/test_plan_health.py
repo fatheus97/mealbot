@@ -9,10 +9,9 @@ file pins how it is stored, and the three fail-closed reader rules:
   EMPTY in request_json, the legacy diet_type included, which is the
   precondition test_health_data_flows.py names, and the data in a row;
 * repeat copies the source's rows;
-* a carrying blob with no row reads as the creator's row (the old stack wrote
-  it during the deploy window);
-* health_data_removed wins over a row left behind (the old stack withdraws by
-  marking the blob only), and the startup delete removes that row;
+* a carrying blob with no row reads as the creator's row (household_04 left
+  none, but the rule stays);
+* health_data_removed wins over a row left behind, and repeat refuses the plan;
 * a contributor without a row reads as removed;
 * withdrawal leaves a plan with nothing but "balanced" regenerable, as before;
 * telemetry keeps neither the fields nor the contributors; the new FKs
@@ -26,21 +25,20 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, select
 
 from app.core.dietary import Allergen, DietType
 from app.core.email_normalize import normalize_email
 from app.core.error_copy import ERROR_COPY
-from app.main import forget_withdrawn_health_rows
 from app.models.db_models import MachineGeneration, MealPlan, PlanHealth, User
 from app.models.plan_models import MealPlanRequest
 from app.services.health_consent import (
+    CONTRIBUTORS,
     HEALTH_FIELDS,
     _blob_carries,
     _cleared,
-    forget_health_of_removed_plans,
     merged_request_json,
 )
 from tests.test_health_consent import _plan
@@ -243,36 +241,7 @@ class TestRemovedWins:
         _forget(db_session)
         assert await _edit_warnings(client, db_session, plan.id) == []
         assert not HEALTH_VALUES & _strings(await _export_entry(client, plan.id))
-        copy_id = await _repeat(client, db_session, plan.id)
-        assert await _rows(db_session, copy_id) == []
-        assert (await _blob(db_session, copy_id))["health_data_removed"] is True
-
-    async def test_the_startup_delete_removes_it_and_nothing_else(
-        self, client: AsyncClient, db_session: AsyncSession, test_user: User
-    ) -> None:
-        # Generated first: a generation sweeps the member's unconfirmed drafts.
-        kept = await _plan_now_in_rows(client, db_session)
-        removed = await self._withdrawn_by_the_old_stack(db_session, test_user)
-        assert removed.id is not None
-        assert await forget_health_of_removed_plans(db_session) == 1
-        assert await _rows(db_session, removed.id) == []
-        assert len(await _rows(db_session, kept)) == 1
-        assert await forget_health_of_removed_plans(db_session) == 0
-
-    async def test_a_failed_startup_delete_alerts_the_operator(self) -> None:
-        # Not fatal (the site stays up), but not silent either: the rows hold
-        # withdrawn Art. 9 data until a start runs the delete again.
-        failure = OperationalError("DELETE FROM planhealth", None, Exception("timeout"))
-        with (
-            patch(
-                "app.main.forget_health_of_removed_plans",
-                new_callable=AsyncMock,
-                side_effect=failure,
-            ),
-            patch("app.main.send_email", new_callable=AsyncMock) as alert,
-        ):
-            await forget_withdrawn_health_rows()
-        alert.assert_awaited_once()
+        await _assert_not_repeated(client, db_session, plan.id)
 
     async def test_a_contributor_without_a_row_reads_as_removed(
         self, client: AsyncClient, db_session: AsyncSession
@@ -284,6 +253,18 @@ class TestRemovedWins:
             resp = await client.post(f"/api/plan/{plan_id}/regenerate", json={})
         assert resp.status_code == 409, resp.text
         partial.assert_not_awaited()
+        await _assert_not_repeated(client, db_session, plan_id)
+
+
+async def _assert_not_repeated(client: AsyncClient, db: AsyncSession, plan_id: int) -> None:
+    """Repeat refuses the plan and copies nothing (a copy is unconfirmed, so
+    only the table shows one)."""
+    count = select(func.count()).select_from(MealPlan)
+    before = await db.scalar(count)
+    resp = await client.post(f"/api/plan/{plan_id}/repeat", json={})
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == ERROR_COPY["en"]["plan_repeat_health_data_removed"]
+    assert await db.scalar(count) == before
 
 
 class TestWithdrawal:
@@ -388,14 +369,9 @@ class TestMerge:
         assert merged_request_json(plan, [self._row(1, ["milk"])]) == raw
 
 
-def _migration() -> ModuleType:
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "alembic"
-        / "versions"
-        / "household_03_plan_health_rows.py"
-    )
-    spec = importlib.util.spec_from_file_location("_mig_household_03", path)
+def _migration(name: str = "household_03_plan_health_rows") -> ModuleType:
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"_mig_{name}", path)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -441,4 +417,10 @@ class TestMigrationFrozenCopies:
     )
     def test_a_field_the_validator_rejects_is_not_copied(self, blob: dict[str, object]) -> None:
         assert _migration()._lists(blob) is None
+
+    def test_household_04_empties_the_live_fields(self) -> None:
+        mig = _migration("household_04_empty_plan_blobs")
+        assert mig._FIELDS == HEALTH_FIELDS
+        assert mig._EMPTY == EMPTY and set(EMPTY) == set(HEALTH_FIELDS)
+        assert mig._CONTRIBUTORS == CONTRIBUTORS
 
