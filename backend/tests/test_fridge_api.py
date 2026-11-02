@@ -470,19 +470,19 @@ class TestFIFOSubtraction:
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
+        from app.services.kitchen import Kitchen
 
-        assert test_user.id is not None
-        user_id = test_user.id
+        kitchen = Kitchen.of(test_user)
         items = [
             StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 13)),
             StockItemDTO(name="milk", quantity_grams=500, expiration_date=date(2026, 3, 20)),
         ]
-        await lock_kitchen(db_session, user_id)
-        await replace_fridge_items(db_session, user_id, items)
+        await lock_kitchen(db_session, kitchen)
+        await replace_fridge_items(db_session, kitchen.household_id, items)
 
-        await lock_kitchen(db_session, user_id)
+        await lock_kitchen(db_session, kitchen)
         result = await subtract_ingredients_from_fridge(
-            db_session, user_id,
+            db_session, kitchen.household_id,
             [IngredientAmount(name="milk", quantity_grams=150)],
         )
         # Should deduct 150 from earliest batch (200 → 50), leave later batch untouched
@@ -503,19 +503,19 @@ class TestFIFOSubtraction:
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
+        from app.services.kitchen import Kitchen
 
-        assert test_user.id is not None
-        user_id = test_user.id
+        kitchen = Kitchen.of(test_user)
         items = [
             StockItemDTO(name="milk", quantity_grams=100, expiration_date=date(2026, 3, 13)),
             StockItemDTO(name="milk", quantity_grams=500, expiration_date=date(2026, 3, 20)),
         ]
-        await lock_kitchen(db_session, user_id)
-        await replace_fridge_items(db_session, user_id, items)
+        await lock_kitchen(db_session, kitchen)
+        await replace_fridge_items(db_session, kitchen.household_id, items)
 
-        await lock_kitchen(db_session, user_id)
+        await lock_kitchen(db_session, kitchen)
         result = await subtract_ingredients_from_fridge(
-            db_session, user_id,
+            db_session, kitchen.household_id,
             [IngredientAmount(name="milk", quantity_grams=250)],
         )
         # First batch (100) fully consumed, 150 taken from second batch (500 → 350)
@@ -533,21 +533,21 @@ class TestFIFOSubtraction:
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
+        from app.services.kitchen import Kitchen
 
-        assert test_user.id is not None
-        user_id = test_user.id
+        kitchen = Kitchen.of(test_user)
         # Insert larger batch first to prove sorting picks the smaller one
         items = [
             StockItemDTO(name="milk", quantity_grams=300, expiration_date=date(2026, 3, 15)),
             StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 15)),
         ]
-        await lock_kitchen(db_session, user_id)
-        await replace_fridge_items(db_session, user_id, items)
+        await lock_kitchen(db_session, kitchen)
+        await replace_fridge_items(db_session, kitchen.household_id, items)
 
         # Deduct 250: should exhaust smaller batch (200) first, then take 50 from larger (300 → 250)
-        await lock_kitchen(db_session, user_id)
+        await lock_kitchen(db_session, kitchen)
         result = await subtract_ingredients_from_fridge(
-            db_session, user_id,
+            db_session, kitchen.household_id,
             [IngredientAmount(name="milk", quantity_grams=250)],
         )
         assert len(result) == 1
@@ -564,21 +564,21 @@ class TestFIFOSubtraction:
             replace_fridge_items,
             subtract_ingredients_from_fridge,
         )
+        from app.services.kitchen import Kitchen
 
-        assert test_user.id is not None
-        user_id = test_user.id
+        kitchen = Kitchen.of(test_user)
         # Insert larger batch first to prove sorting picks the smaller one
         items = [
             StockItemDTO(name="milk", quantity_grams=300, expiration_date=date(2026, 3, 15)),
             StockItemDTO(name="milk", quantity_grams=200, expiration_date=date(2026, 3, 15)),
         ]
-        await lock_kitchen(db_session, user_id)
-        await replace_fridge_items(db_session, user_id, items)
+        await lock_kitchen(db_session, kitchen)
+        await replace_fridge_items(db_session, kitchen.household_id, items)
 
         # Deduct 100: should reduce smaller batch (200 → 100), larger untouched (300)
-        await lock_kitchen(db_session, user_id)
+        await lock_kitchen(db_session, kitchen)
         result = await subtract_ingredients_from_fridge(
-            db_session, user_id,
+            db_session, kitchen.household_id,
             [IngredientAmount(name="milk", quantity_grams=100)],
         )
         milk_items = sorted(result, key=lambda x: x.quantity_grams)

@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING, Protocol
 from fastembed import TextEmbedding
 from pydantic import BaseModel
 from sqlalchemy import func, literal_column
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.config import settings
 from app.core.executors import run_in_parse_executor
 from app.models.db_models import MealEntry
 from app.models.plan_models import PlannedMeal
+from app.services.kitchen import HouseholdId
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +39,7 @@ def get_embedding_model() -> TextEmbedding:
 class MealHit(BaseModel):
     """A highly-rated meal returned by similarity search."""
     meal_entry_id: int
-    user_id: int
+    household_id: int
     name: str
     meal_type: str
     meal_json: str
@@ -48,7 +49,7 @@ class MealHit(BaseModel):
 
 async def retrieve_rated_meals(
     session: AsyncSession,
-    user_id: int,
+    household_id: HouseholdId,
     query: str,
 ) -> list[MealHit]:
     """
@@ -56,8 +57,10 @@ async def retrieve_rated_meals(
 
     Two regimes, switched on cookbook size:
 
+    "Own" means the household's cookbook (docs/household-design.md).
+
     * **Cookbook-only** (favorites count >= settings.rag_cookbook_threshold):
-      the user has a strong taste model — query their own favorites only.
+      the household has a strong taste model — query their own favorites only.
       Cross-user candidates would dilute relevance, and they're not scarce
       enough to be useful as novelty injection.
     * **Hybrid** (below threshold): own-user top-N plus global top-M, merged
@@ -91,7 +94,7 @@ async def retrieve_rated_meals(
     # (always-hybrid + post-filter) wastes a global HNSW lookup that the
     # large-cookbook user wouldn't use anyway.
     favorite_count_stmt = select(func.count()).select_from(MealEntry).where(
-        MealEntry.user_id == user_id,
+        col(MealEntry.household_id) == household_id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     )
     favorite_count = (await session.execute(favorite_count_stmt)).scalar() or 0
@@ -102,7 +105,7 @@ async def retrieve_rated_meals(
         # for downstream observability.
         own_stmt = (
             select(MealEntry, distance_expr.label("cosine_distance"))
-            .where(*base_filters, MealEntry.user_id == user_id)
+            .where(*base_filters, col(MealEntry.household_id) == household_id)
             .order_by(literal_column("cosine_distance"))
             .limit(settings.rag_cookbook_only_fetch)
         )
@@ -111,7 +114,7 @@ async def retrieve_rated_meals(
         hits = [
             MealHit(
                 meal_entry_id=cast_id(row[0]),
-                user_id=row[0].user_id,
+                household_id=row[0].household_id,
                 name=row[0].name,
                 meal_type=row[0].meal_type,
                 meal_json=row[0].meal_json,
@@ -129,7 +132,7 @@ async def retrieve_rated_meals(
     # Hybrid path
     own_stmt = (
         select(MealEntry, distance_expr.label("cosine_distance"))
-        .where(*base_filters, MealEntry.user_id == user_id)
+        .where(*base_filters, col(MealEntry.household_id) == household_id)
         .order_by(literal_column("cosine_distance"))
         .limit(settings.rag_own_user_fetch)
     )
@@ -158,11 +161,15 @@ async def retrieve_rated_meals(
         if entry_id in seen:
             continue
 
-        adjusted = distance * settings.rag_user_boost if entry.user_id == user_id else distance
+        adjusted = (
+            distance * settings.rag_user_boost
+            if entry.household_id == household_id
+            else distance
+        )
 
         seen[entry_id] = MealHit(
             meal_entry_id=entry_id,
-            user_id=entry.user_id,
+            household_id=entry.household_id,
             name=entry.name,
             meal_type=entry.meal_type,
             meal_json=entry.meal_json,

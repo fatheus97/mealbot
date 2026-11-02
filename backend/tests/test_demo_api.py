@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
 from app.core.country_whitelist import normalize_country
@@ -113,8 +113,9 @@ class TestDemoSession:
         users = result.scalars().all()
         assert len(users) == 1
 
+        assert users[0].household_id is not None
         stock = await db_session.execute(
-            select(StockItem).where(StockItem.user_id == users[0].id)
+            select(StockItem).where(col(StockItem.household_id) == users[0].household_id)
         )
         assert len(stock.scalars().all()) > 0
 
@@ -165,18 +166,20 @@ class TestDemoSession:
         self, unauthed_client: AsyncClient, db_session: AsyncSession
     ) -> None:
         # Regression: PUT /api/staples has no demo guard, so a demo visitor can own a
-        # PantryStaple, and PantryStaple.user_id has no ondelete. When the sweep's
+        # PantryStaple, and PantryStaple.user_id had no ondelete. When the sweep's
         # purge list omitted the table, the final delete(User) raised IntegrityError —
         # and since the sweep runs FIRST in POST /api/auth/demo, that wedged demo
         # session creation for every later visitor until the rows were cleaned by hand.
+        # Staples now belong to the household, which goes with its last member, so
+        # this pins that the sweep still takes them along and still succeeds.
         with patch("app.core.config.settings.demo_mode", True):
             await unauthed_client.post("/api/auth/demo")
 
         result = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712
         old_user = result.scalars().first()
-        assert old_user is not None and old_user.id is not None
-        old_id = old_user.id
-        db_session.add(PantryStaple(user_id=old_id, name="Olive oil"))
+        assert old_user is not None and old_user.household_id is not None
+        old_household_id = old_user.household_id
+        db_session.add(PantryStaple(household_id=old_household_id, name="Olive oil"))
         old_user.created_at = datetime.now(UTC) - timedelta(hours=3)
         db_session.add(old_user)
         await db_session.commit()
@@ -186,7 +189,7 @@ class TestDemoSession:
         assert resp.status_code == 200
 
         staples = await db_session.execute(
-            select(PantryStaple).where(PantryStaple.user_id == old_id)
+            select(PantryStaple).where(col(PantryStaple.household_id) == old_household_id)
         )
         assert staples.scalars().all() == []
         result2 = await db_session.execute(select(User).where(User.is_demo == True))  # noqa: E712

@@ -1,4 +1,6 @@
+import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.pantry import MAX_STAPLES
@@ -94,15 +96,18 @@ class TestStaplesService:
         db_session: AsyncSession,
     ) -> None:
         from app.models.plan_models import PantryStapleDTO
+        from app.services.fridge_service import lock_kitchen
+        from app.services.kitchen import Kitchen
         from app.services.pantry_service import load_staple_keys, replace_staples
 
-        assert test_user.id is not None
+        kitchen = Kitchen.of(test_user)
+        await lock_kitchen(db_session, kitchen)
         await replace_staples(
             db_session,
-            test_user.id,
+            kitchen.household_id,
             [PantryStapleDTO(name="Salt"), PantryStapleDTO(name="Olive Oil")],
         )
-        keys = await load_staple_keys(db_session, test_user.id)
+        keys = await load_staple_keys(db_session, kitchen.household_id)
         assert keys == frozenset({"salt", "olive oil"})
 
     async def test_replace_staples_dedups_case_insensitively(
@@ -113,13 +118,70 @@ class TestStaplesService:
         db_session: AsyncSession,
     ) -> None:
         from app.models.plan_models import PantryStapleDTO
+        from app.services.fridge_service import lock_kitchen
+        from app.services.kitchen import Kitchen
         from app.services.pantry_service import get_staples, replace_staples
 
-        assert test_user.id is not None
+        kitchen = Kitchen.of(test_user)
+        await lock_kitchen(db_session, kitchen)
         await replace_staples(
             db_session,
-            test_user.id,
+            kitchen.household_id,
             [PantryStapleDTO(name="salt"), PantryStapleDTO(name="Salt")],
         )
-        result = await get_staples(db_session, test_user.id)
+        result = await get_staples(db_session, kitchen.household_id)
         assert [s.name for s in result] == ["salt"]
+
+    async def test_the_unique_index_has_the_last_word(
+        self, test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Python's lower() and the database's disagree on some letters, so a
+        pair the dedup lets through must still not reach the index as a
+        duplicate. With the dedup switched off, the insert alone keeps the
+        first casing."""
+        from app.models.plan_models import PantryStapleDTO
+        from app.services import pantry_service
+        from app.services.fridge_service import lock_kitchen
+        from app.services.kitchen import Kitchen
+
+        monkeypatch.setattr(
+            pantry_service, "_dedup_normalized", lambda items: [i.name for i in items]
+        )
+        kitchen = Kitchen.of(test_user)
+        await lock_kitchen(db_session, kitchen)
+        saved = await pantry_service.replace_staples(
+            db_session,
+            kitchen.household_id,
+            [PantryStapleDTO(name="Salt"), PantryStapleDTO(name="salt")],
+            commit=False,
+        )
+        assert [s.name for s in saved] == ["Salt"]
+
+    async def test_letters_python_and_postgres_fold_differently_save(
+        self, client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession
+    ) -> None:
+        # Greek final sigma: Python lowers "ΟΔΟΣ" to "οδος", the database's
+        # per-letter lower() to "οδοσ". Whatever this server's locale makes of
+        # the pair, the PUT saves instead of failing on the unique index.
+        payload = [{"name": "ΟΔΟΣ"}, {"name": "οδοσ"}]
+        resp = await client.put("/api/staples", headers=auth_headers, json=payload)
+        assert resp.status_code == 200, resp.text
+        same = (
+            await db_session.execute(text("SELECT lower('ΟΔΟΣ') = lower('οδοσ')"))
+        ).scalar_one()
+        assert [x["name"] for x in resp.json()] == (["ΟΔΟΣ"] if same else ["ΟΔΟΣ", "οδοσ"])
+
+    async def test_replace_staples_without_the_lock_is_refused(
+        self, test_user: User, db_session: AsyncSession
+    ) -> None:
+        """Two members' whole-list writes would interleave without the kitchen lock."""
+        from app.models.plan_models import PantryStapleDTO
+        from app.services.kitchen import Kitchen
+        from app.services.pantry_service import get_staples, replace_staples
+
+        household_id = Kitchen.of(test_user).household_id
+        with pytest.raises(RuntimeError, match="without lock_kitchen"):
+            await replace_staples(
+                db_session, household_id, [PantryStapleDTO(name="salt")], commit=False
+            )
+        assert await get_staples(db_session, household_id) == []

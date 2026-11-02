@@ -64,6 +64,7 @@ from app.services.health_consent import (
     request_json_to_store,
     require_health_consent,
 )
+from app.services.kitchen import Kitchen, load_entry, load_plan
 from app.services.leftovers import (
     expand_leftover_groups,
     leftover_dependents,
@@ -118,11 +119,12 @@ async def list_plans(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[MealPlanSummary]:
-    """List the current user's confirmed plans with cooking status (single query).
+    """List the household's confirmed plans with cooking status (single query).
 
     Newest first. limit/offset are optional and default to returning everything
     (backward-compatible); pass them to page as plan history grows.
     """
+    kitchen = Kitchen.of(current_user)
     total_count = func.count(MealEntry.id).label("total_meals")  # type: ignore[arg-type]
     cooked_count = func.count(MealEntry.cooked_at).label("cooked_meals")  # type: ignore[arg-type]
 
@@ -134,7 +136,7 @@ async def list_plans(
         )
         .outerjoin(MealEntry, MealEntry.meal_plan_id == MealPlan.id)  # type: ignore[arg-type]
         .where(
-            MealPlan.user_id == current_user.id,
+            col(MealPlan.household_id) == kitchen.household_id,
             MealPlan.confirmed_at.is_not(None),  # type: ignore[union-attr]
             # Cook Now plans are auto-confirmed on creation but shouldn't
             # appear in the multi-day plan catalog — their UX contract (1-day,
@@ -144,7 +146,7 @@ async def list_plans(
         .group_by(MealPlan.id)  # type: ignore[arg-type]
         # id.desc() is a tiebreaker: created_at isn't unique (same-burst creates
         # can collide), and without a stable total order LIMIT/OFFSET pages can
-        # duplicate or drop a row. The catalog index covers (user_id, created_at)
+        # duplicate or drop a row. The catalog index covers (household_id, created_at)
         # so the id tie-sort is a cheap in-memory step on rare collisions.
         .order_by(
             MealPlan.created_at.desc(),  # type: ignore[attr-defined]
@@ -190,9 +192,10 @@ async def plan_calendar(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> CalendarResponse:
-    """The current user's confirmed, scheduled ('planned') plans whose date span
+    """The household's confirmed, scheduled ('planned') plans whose date span
     overlaps [from, to], each expanded into per-day cells (with meal names) the
     frontend places on the grid. Bounded to a 92-day window."""
+    kitchen = Kitchen.of(current_user)
     if to_date < from_date:
         raise HTTPException(status_code=422, detail="`to` must be on or after `from`.")
     if (to_date - from_date).days > 92:
@@ -215,7 +218,7 @@ async def plan_calendar(
         select(MealPlan, total_count, cooked_count)
         .outerjoin(MealEntry, col(MealEntry.meal_plan_id) == col(MealPlan.id))
         .where(
-            col(MealPlan.user_id) == current_user.id,
+            col(MealPlan.household_id) == kitchen.household_id,
             col(MealPlan.confirmed_at).is_not(None),
             col(MealPlan.kind) == "planned",
             col(MealPlan.start_date).is_not(None),
@@ -305,9 +308,8 @@ async def get_plan_detail(
     session: AsyncSession = Depends(get_session),
 ) -> MealPlanResponse:
     """Get the full plan detail (parsed from response_json)."""
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    kitchen = Kitchen.of(current_user)
+    plan = await load_plan(session, kitchen, plan_id)
 
     try:
         plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
@@ -348,11 +350,9 @@ async def repeat_plan_endpoint(
     """
     # Before any read: the copy stores the source's request, so it serializes
     # with a consent withdrawal like every other save (see repeat_plan).
-    assert current_user.id is not None
-    await lock_kitchen(session, current_user.id)
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    plan = await load_plan(session, kitchen, plan_id)
 
     try:
         copy = await repeat_plan(session, current_user, plan, payload.start_date)
@@ -400,12 +400,10 @@ async def delete_plan(
     deliberate to avoid surprising data loss now that the cookbook is a
     visible UI surface.
     """
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    plan = await load_plan(session, kitchen, plan_id)
 
     favorite_count = (
         await session.execute(
@@ -426,7 +424,7 @@ async def delete_plan(
     # DELETE fail (StaleDataError, rolled back) instead of restoring the same
     # food again.
     if plan.confirmed_at is not None and plan.finished_at is None:
-        await finish_plan_fridge(session, current_user.id, plan)
+        await finish_plan_fridge(session, kitchen.household_id, plan)
 
     # Delete meal entries first (no cascade in SQLModel by default)
     await session.execute(
@@ -450,11 +448,10 @@ async def reschedule_plan(
 ) -> PlanScheduleResponse:
     """Set or clear a plan's calendar start date. A null start_date unschedules
     the plan — it drops off the calendar but keeps its positional day ordering.
-    Works on any owned plan (whether it was dated at generation, at confirm, or
-    never)."""
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    Works on any of the household's plans (whether it was dated at generation,
+    at confirm, or never)."""
+    kitchen = Kitchen.of(current_user)
+    plan = await load_plan(session, kitchen, plan_id)
 
     plan.start_date = payload.start_date
     session.add(plan)
@@ -480,6 +477,7 @@ async def plan_meals_for_user(
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
 ) -> MealPlanResponse:
+    kitchen = Kitchen.of(current_user)
     # Before the request is stored or reaches an LLM (app.services.health_consent).
     require_health_consent(current_user, payload)
 
@@ -546,16 +544,16 @@ async def plan_meals_for_user(
         shopping_list=shopping_items,
     )
 
-    # Clean up old unconfirmed plans before saving a new one
-    assert current_user.id is not None
+    # Clean up this member's old unconfirmed plans before saving a new one
     # After the LLM, before the first write: serializes this save with a
     # consent withdrawal (request_json_to_store below relies on it).
-    await lock_kitchen(session, current_user.id)
-    await clear_unconfirmed_plans(session, current_user.id)
+    await lock_kitchen(session, kitchen)
+    await clear_unconfirmed_plans(session, kitchen)
 
     # Save MealPlan to DB (no MealEntry rows yet — created on confirm)
     plan = MealPlan(
-        user_id=current_user.id,
+        household_id=kitchen.household_id,
+        created_by_user_id=kitchen.user_id,
         days=days,
         start_date=start_date,
         meals_per_day=payload.meals_per_day,
@@ -572,7 +570,7 @@ async def plan_meals_for_user(
     # app.services.telemetry.
     record_generation(
         session,
-        user_id=current_user.id,
+        user_id=kitchen.user_id,
         surface="meal_plan",
         # Reuse the strings already serialized onto the plan — avoids a second
         # dump and guarantees the captured snapshot is byte-identical to what
@@ -585,7 +583,7 @@ async def plan_meals_for_user(
     # transaction, linked to the plan.
     record_llm_usage(
         session,
-        user_id=current_user.id,
+        user_id=kitchen.user_id,
         surface="meal_plan",
         usages=usages,
         meal_plan_id=plan.id,
@@ -613,9 +611,8 @@ async def regenerate_plan(
     """Regenerate unfrozen meals in an existing plan, keeping frozen meals intact."""
 
     # 1) Load plan & ownership check
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    kitchen = Kitchen.of(current_user)
+    plan = await load_plan(session, kitchen, plan_id)
 
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
         raise LocalizedHTTPException(409, "plan_regenerate_confirmed")
@@ -690,7 +687,7 @@ async def regenerate_plan(
 
     # 5) Re-load current fridge from DB
     result = await session.execute(
-        select(StockItem).where(StockItem.user_id == current_user.id)
+        select(StockItem).where(col(StockItem.household_id) == kitchen.household_id)
     )
     db_items = result.scalars().all()
 
@@ -848,8 +845,8 @@ async def regenerate_plan(
 
     # 7) Recompute shopping list. Apply the owner's pantry staples here too, or a
     # regenerate would silently reintroduce salt/oil/… that the initial generation
-    # excluded. plan.user_id == current_user.id (ownership checked above) and is a
-    # non-null int, so it's the mypy-safe owner id to key the staples on.
+    # excluded. The plan is in this kitchen (load_plan above), so the kitchen's
+    # household keys the staples.
     # Filter spices by the value the plan's meals were AUTHORED under (stored in
     # request_json), NOT the live user preference: frozen meals are kept verbatim
     # and the regenerated ones are still prompted from original_req, so both carry
@@ -859,7 +856,7 @@ async def regenerate_plan(
     # a regenerate — same "frozen plans aren't rewritten" rule the staples filter
     # follows. (staple_keys legitimately uses the live value: name-based, not tied
     # to how the meals were authored.)
-    staple_keys = await load_staple_keys(session, plan.user_id)
+    staple_keys = await load_staple_keys(session, kitchen.household_id)
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
         new_days, initial_fridge, staples=staple_keys, include_spices=original_req.include_spices
     )
@@ -881,8 +878,7 @@ async def regenerate_plan(
     # The LLM calls above ran without the kitchen lock (it must never be held
     # across one). Take it now and re-read: a Confirm that landed meanwhile
     # debited the fridge for the OLD meals, and a Delete removed the plan.
-    assert current_user.id is not None  # narrowed by the ownership check above
-    await lock_kitchen(session, current_user.id)
+    await lock_kitchen(session, kitchen)
     current = (
         await session.execute(
             select(col(MealPlan.confirmed_at)).where(col(MealPlan.id) == plan_id)
@@ -950,18 +946,18 @@ async def confirm_plan(
     # rolls back the whole transaction — no partial fridge mutation survives.
     # Do not introduce an intermediate session.commit() in this handler.
 
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
 
     # Load plan & ownership check
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    plan = await load_plan(session, kitchen, plan_id)
 
     # Idempotence guard (do not subtract twice)
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
-        return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
+        return await get_fridge_items(
+            session, kitchen.household_id, current_user.need_to_use_enabled
+        )
 
     # Pin the calendar date at confirm time if the client supplied one (overrides
     # any date set at generation). Staged here; the single commit below persists
@@ -978,10 +974,10 @@ async def confirm_plan(
 
     # FIFO-debit + persist entries + mark confirmed. All staged; the single
     # commit below is the atomicity boundary (see the contract comment above).
-    await confirm_plan_fridge(session, current_user.id, plan, plan_obj)
+    await confirm_plan_fridge(session, kitchen.household_id, plan, plan_obj)
     await session.commit()
 
-    return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
+    return await get_fridge_items(session, kitchen.household_id, current_user.need_to_use_enabled)
 
 
 # POST /api/plan/{plan_id}/unconfirm
@@ -1000,12 +996,10 @@ async def unconfirm_plan(
     Blocks if any meal has cooked_at set; the user must uncook first so
     cooking history is never silently destroyed.
     """
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    plan = await load_plan(session, kitchen, plan_id)
 
     if not plan.confirmed_at:
         raise LocalizedHTTPException(409, "plan_not_confirmed")
@@ -1042,10 +1036,10 @@ async def unconfirm_plan(
 
     # Restore each entry's snapshot debit, delete entries, clear confirmed_at
     # (staged; the commit below is the atomicity boundary).
-    await unconfirm_plan_fridge(session, current_user.id, plan)
+    await unconfirm_plan_fridge(session, kitchen.household_id, plan)
     await session.commit()
 
-    return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
+    return await get_fridge_items(session, kitchen.household_id, current_user.need_to_use_enabled)
 
 
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/cook
@@ -1059,20 +1053,14 @@ async def cook_meal(
     session: AsyncSession = Depends(get_session),
 ) -> MealEntrySummary:
     """Mark a single meal as cooked (cosmetic only — no fridge changes). Idempotent."""
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    entry = await session.get(MealEntry, meal_entry_id)
-    if (
-        not entry
-        or entry.meal_plan_id != plan_id
-        or entry.user_id != current_user.id
-    ):
-        raise LocalizedHTTPException(404, "plan_meal_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    entry = await load_entry(session, kitchen, plan_id, meal_entry_id)
 
     # Guard: cannot cook meals on a finished plan
-    plan = await session.get(MealPlan, plan_id)
-    if plan and plan.finished_at is not None:
+    plan = await load_plan(session, kitchen, plan_id)
+    if plan.finished_at is not None:
         raise LocalizedHTTPException(409, "plan_finished")
 
     # Idempotent: if already cooked, return as-is
@@ -1106,16 +1094,10 @@ async def favorite_meal(
     haven't cooked yet (intent to keep), and uncooking no longer wipes a
     favorite (history vs. preference are orthogonal).
     """
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    entry = await session.get(MealEntry, meal_entry_id)
-    if (
-        not entry
-        or entry.meal_plan_id != plan_id
-        or entry.user_id != current_user.id
-    ):
-        raise LocalizedHTTPException(404, "plan_meal_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    entry = await load_entry(session, kitchen, plan_id, meal_entry_id)
 
     # A leftover is a content-free "reheat of X" — no ingredients, one step,
     # and a pointer that means nothing outside its own plan. Favoriting one
@@ -1179,20 +1161,14 @@ async def uncook_meal(
     session: AsyncSession = Depends(get_session),
 ) -> MealEntrySummary:
     """Unmark a meal as cooked (cosmetic only — no fridge changes). Idempotent."""
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    entry = await session.get(MealEntry, meal_entry_id)
-    if (
-        not entry
-        or entry.meal_plan_id != plan_id
-        or entry.user_id != current_user.id
-    ):
-        raise LocalizedHTTPException(404, "plan_meal_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    entry = await load_entry(session, kitchen, plan_id, meal_entry_id)
 
     # Guard: cannot uncook meals on a finished plan
-    plan = await session.get(MealPlan, plan_id)
-    if plan and plan.finished_at is not None:
+    plan = await load_plan(session, kitchen, plan_id)
+    if plan.finished_at is not None:
         raise LocalizedHTTPException(409, "plan_finished")
 
     # Idempotent: if already uncooked, return as-is. Cookbook membership
@@ -1307,12 +1283,10 @@ async def edit_meal(
     ingredients cannot desync fridge accounting. meal_type/meal_type_label are
     preserved — changing a slot would desync the day layout and taxonomy.
     """
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    plan = await load_plan(session, kitchen, plan_id)
 
     if plan.finished_at is not None:
         raise LocalizedHTTPException(409, "plan_edit_finished")
@@ -1499,9 +1473,8 @@ async def list_meal_entries(
     session: AsyncSession = Depends(get_session),
 ) -> list[MealEntrySummary]:
     """List all meal entries for a plan (for cook/uncook UI)."""
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    kitchen = Kitchen.of(current_user)
+    await load_plan(session, kitchen, plan_id)
 
     result = await session.execute(
         select(MealEntry)
@@ -1523,12 +1496,10 @@ async def finish_plan(
     session: AsyncSession = Depends(get_session),
 ) -> FinishPlanResponse:
     """Finish a plan: return ingredients for uncooked meals to fridge."""
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    plan = await load_plan(session, kitchen, plan_id)
 
     if not plan.confirmed_at:
         raise LocalizedHTTPException(409, "plan_not_confirmed")
@@ -1549,7 +1520,7 @@ async def finish_plan(
         )
 
     # Restore uncooked meals' ingredients + mark finished (staged; atomic).
-    returned_meals = await finish_plan_fridge(session, current_user.id, plan)
+    returned_meals = await finish_plan_fridge(session, kitchen.household_id, plan)
     await session.commit()
 
     assert plan.finished_at is not None  # set by finish_plan_fridge
@@ -1577,12 +1548,10 @@ async def reopen_plan(
     cannot be fully re-debited from current stock — the user must restock
     or accept the finish as final.
     """
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    assert current_user.id is not None  # every authenticated user has one
-    await lock_kitchen(session, current_user.id)
-    plan = await session.get(MealPlan, plan_id)
-    if not plan or plan.user_id != current_user.id:
-        raise LocalizedHTTPException(404, "plan_not_found")
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    plan = await load_plan(session, kitchen, plan_id)
 
     if plan.finished_at is None:
         raise LocalizedHTTPException(409, "plan_not_finished")
@@ -1590,7 +1559,7 @@ async def reopen_plan(
     # Re-debit uncooked meals against current stock, rewrite snapshots, clear
     # finished_at (staged; atomic). A shortage aborts before any fridge write.
     try:
-        await reopen_plan_fridge(session, current_user.id, plan)
+        await reopen_plan_fridge(session, kitchen.household_id, plan)
     except PlanReopenShortageError as exc:
         raise LocalizedHTTPException(
             409,
@@ -1601,6 +1570,6 @@ async def reopen_plan(
         ) from exc
     await session.commit()
 
-    return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
+    return await get_fridge_items(session, kitchen.household_id, current_user.need_to_use_enabled)
 
 

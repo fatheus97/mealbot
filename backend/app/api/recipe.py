@@ -52,6 +52,7 @@ from app.services.fridge_service import (
     replace_fridge_items,
 )
 from app.services.health_consent import request_json_to_store, require_health_consent
+from app.services.kitchen import Kitchen
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
 from app.services.recipe_retriever import embed_meal_entry
@@ -196,6 +197,7 @@ async def generate_recipe(
     """
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    kitchen = Kitchen.of(current_user)
     # Before the request reaches an LLM (app.services.health_consent).
     require_health_consent(current_user, payload)
 
@@ -203,7 +205,9 @@ async def generate_recipe(
     # Pre-load the fridge so the LLM can use available stock. Unlike the plan
     # flow we don't allocate here — just feed the names+grams in so the LLM
     # prefers them.
-    fridge = await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
+    fridge = await get_fridge_items(
+        session, kitchen.household_id, current_user.need_to_use_enabled
+    )
     plan_req.stock_items = [
         StockItemDTO(
             name=item.name,
@@ -288,16 +292,17 @@ async def cook_recipe(
     """
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    kitchen = Kitchen.of(current_user)
     # The cooked recipe is saved with its request, diets and allergens included.
     require_health_consent(current_user, payload)
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    await lock_kitchen(session, current_user.id)
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    await lock_kitchen(session, kitchen)
 
     # TRUST BOUNDARY: payload.recipe is fully client-controlled — name,
     # ingredients, quantities, steps AND meal_type are taken at face value. The
-    # blast radius is self-scoped (each user's own fridge), so the risk is
-    # self-harm only — a user can craft a recipe that debits their fridge
-    # inaccurately. A future hardening step is to cache generated recipes
+    # blast radius is the user's own household (its shared fridge), so the risk
+    # stays inside that kitchen — a member can craft a recipe that debits the
+    # household fridge inaccurately. A future hardening step is to cache generated recipes
     # server-side (short-TTL draft row) and accept a draft_id here instead of
     # the full payload. See Phase 4 review on PR #89.
     #
@@ -333,7 +338,8 @@ async def cook_recipe(
 
     # Create the MealPlan row.
     plan = MealPlan(
-        user_id=current_user.id,
+        household_id=kitchen.household_id,
+        created_by_user_id=kitchen.user_id,
         days=1,
         meals_per_day=1,
         people_count=payload.people_count,
@@ -369,7 +375,7 @@ async def cook_recipe(
             )
 
     # FIFO-debit the fridge for the single meal (reuses /plan/confirm logic).
-    fridge = await get_fridge_items(session, current_user.id)
+    fridge = await get_fridge_items(session, kitchen.household_id)
     batches_by_name = group_and_sort_fridge(fridge)
     meal_ings: list[IngredientAmount] = [
         ing for ing in payload.recipe.ingredients if not ing.is_spice
@@ -377,7 +383,7 @@ async def cook_recipe(
     allocations: list[ConsumedBatch] = allocate_fifo(batches_by_name, meal_ings)
 
     final_state = flatten_fridge_batches(batches_by_name)
-    await replace_fridge_items(session, current_user.id, final_state, commit=False)
+    await replace_fridge_items(session, kitchen.household_id, final_state, commit=False)
 
     # Persist MealEntry with cooked_at set immediately — Cook Now skips the
     # "planned → confirmed → cooked" state machine because the user's action
@@ -385,7 +391,7 @@ async def cook_recipe(
     now = datetime.now(UTC)
     entries = persist_meal_entries(
         session,
-        user_id=current_user.id,
+        household_id=kitchen.household_id,
         plan_id=plan.id,
         plan_obj=plan_obj,
         cooked_at=now,
@@ -433,6 +439,7 @@ async def favorite_recipe(
     """
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    kitchen = Kitchen.of(current_user)
 
     # Server-assigned fields; same handling as /recipe/cook.
     payload.recipe.leftover_of = None
@@ -449,7 +456,8 @@ async def favorite_recipe(
     )
 
     plan = MealPlan(
-        user_id=current_user.id,
+        household_id=kitchen.household_id,
+        created_by_user_id=kitchen.user_id,
         days=1,
         meals_per_day=1,
         people_count=payload.people_count,
@@ -482,7 +490,7 @@ async def favorite_recipe(
     # No fridge debit, no consumed_snapshot — the recipe is just a record.
     entries = persist_meal_entries(
         session,
-        user_id=current_user.id,
+        household_id=kitchen.household_id,
         plan_id=plan.id,
         plan_obj=plan_obj,
         cooked_at=None,

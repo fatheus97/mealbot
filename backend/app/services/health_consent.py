@@ -43,6 +43,7 @@ from app.core.errors import LocalizedHTTPException
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.models.db_models import HealthConsentEvent, MachineGeneration, MealPlan, User
 from app.services.fridge_service import lock_kitchen
+from app.services.kitchen import Kitchen
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ async def grant(session: AsyncSession, user: User, version: str) -> None:
     if version != HEALTH_CONSENT_VERSION:
         raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "health_consent_version_stale")
     assert user.id is not None
-    await lock_kitchen(session, user.id)
+    await lock_kitchen(session, Kitchen.of(user))
     await session.refresh(user)
     if has_health_consent(user):
         return
@@ -210,11 +211,15 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     second withdrawal or none at all.
     """
     assert user.id is not None
-    await lock_kitchen(session, user.id)
+    await lock_kitchen(session, Kitchen.of(user))
     await session.refresh(user)
     previous = user.health_consent_version
     plans = (
-        await session.execute(select(MealPlan).where(col(MealPlan.user_id) == user.id))
+        # Until per-person health rows (household_03), the data in a plan's
+        # request is covered by the consent of the member who generated it.
+        await session.execute(
+            select(MealPlan).where(col(MealPlan.created_by_user_id) == user.id)
+        )
     ).scalars().all()
     changed = 0
     for plan in plans:

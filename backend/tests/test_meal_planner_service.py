@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.meal_types import MealType
+from app.models.db_models import User
 from app.models.plan_models import (
     GeneratedMeal,
     IngredientAmount,
@@ -16,12 +17,22 @@ from app.models.plan_models import (
     SingleDayResponse,
     StockItemDTO,
 )
+from app.services.kitchen import Kitchen
 from app.services.meal_planner import (
     generate_partial_day,
     generate_single_day,
     generate_single_day_with_rag,
 )
 from app.services.recipe_retriever import MealHit
+
+# The RAG tests mock retrieval and the session, so an in-memory account is
+# enough; its household id differs from its user id, as in the test schema.
+_HOUSEHOLD_ID = Kitchen.of(
+    User(
+        id=1, household_id=1000001,
+        email="rag@example.com", normalized_email="rag@example.com", hashed_password="x",
+    )
+).household_id
 
 
 def _make_request(**overrides: Any) -> MealPlanRequest:
@@ -409,7 +420,7 @@ class TestRagPromptContent:
     def _rag_hit(self) -> MealHit:
         return MealHit(
             meal_entry_id=1,
-            user_id=1,
+            household_id=_HOUSEHOLD_ID,
             name="Retrieved Meal",
             meal_type="dinner",
             meal_json=(
@@ -440,7 +451,9 @@ class TestRagPromptContent:
         mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         req = _make_request(diet_types=[DietType.VEGAN], allergens=[Allergen.MILK])
-        result = await generate_single_day_with_rag(req, session=MagicMock(), user_id=1)
+        result = await generate_single_day_with_rag(
+            req, session=MagicMock(), household_id=_HOUSEHOLD_ID
+        )
 
         assert result is not None
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
@@ -465,7 +478,9 @@ class TestRagPromptContent:
         mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         req = _make_request(ingredients_to_use=["rajčata", "tofu"])
-        result = await generate_single_day_with_rag(req, session=MagicMock(), user_id=1)
+        result = await generate_single_day_with_rag(
+            req, session=MagicMock(), household_id=_HOUSEHOLD_ID
+        )
 
         assert result is not None, "RAG should have fired with a relevant hit"
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
@@ -493,7 +508,9 @@ class TestRagPromptContent:
         mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
         await generate_single_day_with_rag(
-            _make_request(diet_type="baby_food"), session=MagicMock(), user_id=1
+            _make_request(diet_type="baby_food"),
+            session=MagicMock(),
+            household_id=_HOUSEHOLD_ID,
         )
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert "INFANT FOOD MODE" in prompt
@@ -517,7 +534,7 @@ class TestRagPromptContent:
         await generate_single_day_with_rag(
             _make_request(taste_preferences=["sladké", "pečené"]),
             session=MagicMock(),
-            user_id=1,
+            household_id=_HOUSEHOLD_ID,
         )
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert "HONOR TASTE PREFERENCES STRONGLY" in prompt
@@ -539,7 +556,9 @@ class TestRagPromptContent:
         mock_retrieve.return_value = [self._rag_hit()]
         mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
 
-        await generate_single_day_with_rag(_make_request(), session=MagicMock(), user_id=1)
+        await generate_single_day_with_rag(
+            _make_request(), session=MagicMock(), household_id=_HOUSEHOLD_ID
+        )
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
         assert '"total_time_minutes": <number>' in prompt
 
@@ -615,7 +634,7 @@ class TestBatchCookingPrompt:
     def _rag_hit(self) -> MealHit:
         return MealHit(
             meal_entry_id=1,
-            user_id=1,
+            household_id=_HOUSEHOLD_ID,
             name="Retrieved Meal",
             meal_type="dinner",
             meal_json=(
@@ -718,7 +737,7 @@ class TestBatchCookingPrompt:
         result = await generate_single_day_with_rag(
             _make_request(people_count=2),
             session=MagicMock(),
-            user_id=1,
+            household_id=_HOUSEHOLD_ID,
             slot_layout=["hot_dinner"],
             slot_portions=[2],
         )
@@ -822,7 +841,7 @@ class TestRagAllergenRetryBudget:
         # allergen pre-filter and RAG actually proceeds to generate.
         return MealHit(
             meal_entry_id=1,
-            user_id=1,
+            household_id=_HOUSEHOLD_ID,
             name="Retrieved Meal",
             meal_type="dinner",
             meal_json=(
@@ -859,7 +878,7 @@ class TestRagAllergenRetryBudget:
             await generate_single_day_with_rag(
                 _make_request(allergens=[Allergen.MILK]),
                 session=MagicMock(),
-                user_id=1,
+                household_id=_HOUSEHOLD_ID,
             )
         # ONE shot, not the standard 3 — the standard pipeline behind it (in
         # generate_plan_days) is what retries with the full budget.
@@ -885,7 +904,7 @@ class TestRagAllergenRetryBudget:
         )
 
         result = await generate_single_day_with_rag(
-            _make_request(), session=MagicMock(), user_id=1,
+            _make_request(), session=MagicMock(), household_id=_HOUSEHOLD_ID,
         )
         assert result is not None
         assert mock_llm.chat_json.await_count == 1

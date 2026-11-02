@@ -258,14 +258,18 @@ async def stats_funnel(
         .distinct()
         .subquery()
     )
+    # Plans are a household's, so confirmed/cooked count the PERSON through the
+    # plan's creator. A plan whose creator was deleted (NULL) joins no user.
     confirmed_sub = (
-        select(col(MealPlan.user_id).label("user_id"))
+        select(col(MealPlan.created_by_user_id).label("user_id"))
         .where(col(MealPlan.confirmed_at).is_not(None))
         .distinct()
         .subquery()
     )
     cooked_sub = (
-        select(col(MealEntry.user_id).label("user_id"))
+        select(col(MealPlan.created_by_user_id).label("user_id"))
+        .select_from(MealEntry)
+        .join(MealPlan, col(MealPlan.id) == col(MealEntry.meal_plan_id))
         .where(col(MealEntry.cooked_at).is_not(None))
         .distinct()
         .subquery()
@@ -1046,8 +1050,12 @@ async def delete_user(
       (``ON DELETE SET NULL``) — the VAT/revenue history and the invite audit
       trail survive without a person attached; a deleted user must not erase tax
       records.
-    - Everything the user owns — plans, entries, fridge, staples, sessions,
-      reset/verification tokens, telemetry, feedback — is ``ON DELETE CASCADE``.
+    - Everything the user owns — sessions, reset/verification tokens,
+      telemetry, feedback — is ``ON DELETE CASCADE``.
+    - The kitchen (plans, entries, fridge, staples) is the HOUSEHOLD's: it
+      stays with the other members (``MealPlan.created_by_user_id`` goes NULL),
+      and the ``user_household_after_delete`` trigger deletes it with the
+      household when the last member goes.
     - The **AdminAuditLog** row written below has no FK to ``user``, so it
       survives the delete — the permanent record of who deleted whom.
 

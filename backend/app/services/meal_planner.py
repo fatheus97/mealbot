@@ -28,6 +28,7 @@ from app.services.infant_screen import (
     InfantViolation,
     screen_meals_for_infant,
 )
+from app.services.kitchen import HouseholdId
 from app.services.recipe_retriever import MealHit, retrieve_rated_meals
 
 if TYPE_CHECKING:
@@ -301,7 +302,7 @@ def _filter_relevant(hits: list[MealHit]) -> list[MealHit]:
 async def generate_single_day_with_rag(
     req: MealPlanRequest,
     session: AsyncSession,
-    user_id: int,
+    household_id: HouseholdId,
     mock: bool = False,
     slot_layout: list[str] | None = None,
     slot_portions: list[int] | None = None,
@@ -320,7 +321,7 @@ async def generate_single_day_with_rag(
 
     retrieval_query = "\n".join(query_parts) or "general meal planning"
 
-    hits = await retrieve_rated_meals(session, user_id, retrieval_query)
+    hits = await retrieve_rated_meals(session, household_id, retrieval_query)
     # Cap the set fed to the LLM — token cost is linear in example count, but
     # relevance drops off quickly past the top few. Filter THEN slice so we
     # don't keep high-ranked-but-irrelevant hits over low-ranked relevant ones.
@@ -379,7 +380,7 @@ async def generate_single_day_with_rag(
                 "name": meal.name,
                 "ingredients": [ing.name for ing in meal.ingredients],
                 "steps": meal.steps,
-                "is_own": hit.user_id == user_id,
+                "is_own": hit.household_id == household_id,
             })
         except Exception:
             logger.warning("RAG: failed to parse meal_json for entry %d", hit.meal_entry_id)

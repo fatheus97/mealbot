@@ -33,7 +33,7 @@ _MEAL_JSON = PlannedMeal(
 
 def _entry(meal_json: str = _MEAL_JSON, snapshot: str | None = None, id: int | None = 1) -> MealEntry:
     return MealEntry(
-        id=id, user_id=1, meal_plan_id=1, day_index=1, meal_index=1,
+        id=id, household_id=1, meal_plan_id=1, day_index=1, meal_index=1,
         name="Soup", meal_type="soup", meal_json=meal_json,
         consumed_snapshot_json=snapshot,
     )

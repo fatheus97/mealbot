@@ -66,9 +66,15 @@ def _gen(uid: int, surface: str = "meal_plan") -> MachineGeneration:
     return MachineGeneration(user_id=uid, surface=surface, output_json="{}")
 
 
-def _plan(uid: int, *, confirmed: bool) -> MealPlan:
+async def _plan(db_session: AsyncSession, uid: int, *, confirmed: bool) -> MealPlan:
+    """A plan in the user's household, created by them: the funnel counts a
+    plan's person through ``created_by_user_id``."""
+    user = await db_session.get(User, uid)
+    assert user is not None
+    assert user.household_id is not None
     return MealPlan(
-        user_id=uid,
+        household_id=user.household_id,
+        created_by_user_id=uid,
         days=1,
         meals_per_day=1,
         people_count=1,
@@ -78,10 +84,11 @@ def _plan(uid: int, *, confirmed: bool) -> MealPlan:
     )
 
 
-def _cooked_entry(uid: int, plan_id: int) -> MealEntry:
+def _cooked_entry(plan: MealPlan) -> MealEntry:
+    assert plan.id is not None
     return MealEntry(
-        user_id=uid,
-        meal_plan_id=plan_id,
+        household_id=plan.household_id,
+        meal_plan_id=plan.id,
         day_index=0,
         meal_index=0,
         name="Soup",
@@ -124,11 +131,10 @@ class TestFunnelAggregation:
 
         # A — google, full funnel: generated → confirmed → cooked → paid.
         a = await _user(db_session, "a@x.com", utm_source="google")
-        a_plan = _plan(a, confirmed=True)
+        a_plan = await _plan(db_session, a, confirmed=True)
         db_session.add_all([_gen(a), a_plan])
         await db_session.flush()
-        assert a_plan.id is not None
-        db_session.add_all([_cooked_entry(a, a_plan.id), _sale(a, "inv_a")])
+        db_session.add_all([_cooked_entry(a_plan), _sale(a, "inv_a")])
 
         # B — google, generated + a live subscription but NO paid invoice. This
         # is every user in a launch cohort's first 10 days: the trial-opening
@@ -138,7 +144,7 @@ class TestFunnelAggregation:
 
         # C — facebook, generated + confirmed (not cooked, not paid).
         c = await _user(db_session, "c@x.com", utm_source="facebook")
-        db_session.add_all([_gen(c), _plan(c, confirmed=True)])
+        db_session.add_all([_gen(c), await _plan(db_session, c, confirmed=True)])
 
         # D — a regular direct signup (no UTM) who verified their email and then
         # did nothing else, so `verified` is exercised on its own rather than
@@ -147,11 +153,10 @@ class TestFunnelAggregation:
 
         # A demo user with a FULL funnel — must be excluded everywhere.
         demo = await _user(db_session, "demo@x.com", utm_source="google", is_demo=True)
-        demo_plan = _plan(demo, confirmed=True)
+        demo_plan = await _plan(db_session, demo, confirmed=True)
         db_session.add_all([_gen(demo), demo_plan])
         await db_session.flush()
-        assert demo_plan.id is not None
-        db_session.add_all([_cooked_entry(demo, demo_plan.id), _sale(demo, "inv_demo")])
+        db_session.add_all([_cooked_entry(demo_plan), _sale(demo, "inv_demo")])
         await db_session.flush()
 
         resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
@@ -212,11 +217,10 @@ class TestFunnelAggregation:
         await _make_admin(db_session, test_user)
         # Regular user: confirmed + cooked, but deliberately NO _gen(...) row.
         u = await _user(db_session, "legacy@x.com", utm_source="google")
-        plan = _plan(u, confirmed=True)
+        plan = await _plan(db_session, u, confirmed=True)
         db_session.add(plan)
         await db_session.flush()
-        assert plan.id is not None
-        db_session.add(_cooked_entry(u, plan.id))
+        db_session.add(_cooked_entry(plan))
         await db_session.flush()
 
         resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)
@@ -367,11 +371,10 @@ class TestFunnelAggregation:
                 is_admin=is_admin,
                 is_comped=is_comped,
             )
-            plan = _plan(uid, confirmed=True)
+            plan = await _plan(db_session, uid, confirmed=True)
             db_session.add_all([_gen(uid), plan])
             await db_session.flush()
-            assert plan.id is not None
-            db_session.add_all([_cooked_entry(uid, plan.id), _sale(uid, f"inv_{email}")])
+            db_session.add_all([_cooked_entry(plan), _sale(uid, f"inv_{email}")])
         await db_session.flush()
 
         resp = await client.get("/api/admin/stats/funnel", headers=auth_headers)

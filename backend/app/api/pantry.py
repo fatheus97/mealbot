@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -8,6 +8,8 @@ from app.core.errors import LocalizedHTTPException
 from app.db import get_session
 from app.models.db_models import User
 from app.models.plan_models import PantryStapleDTO
+from app.services.fridge_service import lock_kitchen
+from app.services.kitchen import Kitchen
 from app.services.pantry_service import get_staples, replace_staples
 
 logger = logging.getLogger(__name__)
@@ -26,9 +28,8 @@ async def list_staples(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[PantryStapleDTO]:
-    if current_user.id is None:
-        raise HTTPException(status_code=500, detail="Invalid user state")
-    return await get_staples(session, current_user.id)
+    kitchen = Kitchen.of(current_user)
+    return await get_staples(session, kitchen.household_id)
 
 
 # /api/staples
@@ -38,8 +39,7 @@ async def put_staples(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[PantryStapleDTO]:
-    if current_user.id is None:
-        raise HTTPException(status_code=500, detail="Invalid user state")
+    kitchen = Kitchen.of(current_user)
     if len(payload) > MAX_STAPLES:
         raise LocalizedHTTPException(
             422,
@@ -47,4 +47,6 @@ async def put_staples(
             count_given=str(len(payload)),
             maximum=str(MAX_STAPLES),
         )
-    return await replace_staples(session, current_user.id, payload)
+    # Two members replacing the whole list at once serialize here (see lock_kitchen).
+    await lock_kitchen(session, kitchen)
+    return await replace_staples(session, kitchen.household_id, payload)

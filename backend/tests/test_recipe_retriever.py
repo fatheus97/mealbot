@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import MealEntry, MealPlan, User
+from app.services.kitchen import HouseholdId, Kitchen
 from app.services.recipe_retriever import (
     MealHit,
     embed_meal_entry,
@@ -84,7 +85,7 @@ class TestEmbedMealEntry:
 
         entry = MealEntry(
             id=1,
-            user_id=1,
+            household_id=1,
             meal_plan_id=1,
             day_index=1,
             meal_index=1,
@@ -109,7 +110,7 @@ class TestEmbedMealEntry:
 
         entry = MealEntry(
             id=1,
-            user_id=1,
+            household_id=1,
             meal_plan_id=1,
             day_index=1,
             meal_index=1,
@@ -133,7 +134,7 @@ class TestMealHitModel:
         """MealHit with user boost should have lower adjusted_distance."""
         own_hit = MealHit(
             meal_entry_id=1,
-            user_id=1,
+            household_id=1,
             name="My Curry",
             meal_type="dinner",
             meal_json="{}",
@@ -142,7 +143,7 @@ class TestMealHitModel:
         )
         other_hit = MealHit(
             meal_entry_id=2,
-            user_id=2,
+            household_id=2,
             name="Their Curry",
             meal_type="dinner",
             meal_json="{}",
@@ -155,15 +156,15 @@ class TestMealHitModel:
         """Hits should be sortable by adjusted_distance."""
         hits = [
             MealHit(
-                meal_entry_id=1, user_id=2, name="Far",
+                meal_entry_id=1, household_id=2, name="Far",
                 meal_type="dinner", meal_json="{}", cosine_distance=0.5, adjusted_distance=0.5,
             ),
             MealHit(
-                meal_entry_id=2, user_id=1, name="Close (boosted)",
+                meal_entry_id=2, household_id=1, name="Close (boosted)",
                 meal_type="dinner", meal_json="{}", cosine_distance=0.4, adjusted_distance=0.28,
             ),
             MealHit(
-                meal_entry_id=3, user_id=2, name="Medium",
+                meal_entry_id=3, household_id=2, name="Medium",
                 meal_type="dinner", meal_json="{}", cosine_distance=0.35, adjusted_distance=0.35,
             ),
         ]
@@ -179,7 +180,8 @@ SAMPLE_MEAL_JSON_MIN = (
 )
 
 
-async def _make_user(db_session: AsyncSession, email: str) -> tuple[User, int]:
+async def _make_user(db_session: AsyncSession, email: str) -> tuple[User, HouseholdId]:
+    """A user in their own household (the insert trigger makes one)."""
     user = User(
         email=email,
         normalized_email=normalize_email(email),
@@ -187,13 +189,14 @@ async def _make_user(db_session: AsyncSession, email: str) -> tuple[User, int]:
     )
     db_session.add(user)
     await db_session.flush()
-    assert user.id is not None
-    return user, user.id
+    return user, Kitchen.of(user).household_id
 
 
-async def _make_plan(db_session: AsyncSession, user_id: int) -> tuple[MealPlan, int]:
+async def _make_plan(db_session: AsyncSession, user: User) -> tuple[MealPlan, int]:
+    assert user.household_id is not None
     plan = MealPlan(
-        user_id=user_id, days=1, meals_per_day=1, people_count=1,
+        household_id=user.household_id, created_by_user_id=user.id,
+        days=1, meals_per_day=1, people_count=1,
         request_json="{}", response_json="{}",
     )
     db_session.add(plan)
@@ -203,11 +206,11 @@ async def _make_plan(db_session: AsyncSession, user_id: int) -> tuple[MealPlan, 
 
 
 async def _make_entry(
-    db_session: AsyncSession, user_id: int, plan_id: int, name: str,
+    db_session: AsyncSession, household_id: int, plan_id: int, name: str,
     is_favorite: bool, embedding: list[float] | None,
 ) -> MealEntry:
     entry = MealEntry(
-        user_id=user_id, meal_plan_id=plan_id,
+        household_id=household_id, meal_plan_id=plan_id,
         day_index=1, meal_index=1, name=name, meal_type="dinner",
         meal_json=SAMPLE_MEAL_JSON_MIN, is_favorite=is_favorite, embedding=embedding,
     )
@@ -267,26 +270,26 @@ class TestRetrieveRatedMeals:
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
-        _, user_id = await _make_user(db_session, "r1@example.com")
-        _, plan_id = await _make_plan(db_session, user_id)
+        user, household_id = await _make_user(db_session, "r1@example.com")
+        _, plan_id = await _make_plan(db_session, user)
 
         # Rated 5, has embedding — should appear
         await _make_entry(
-            db_session, user_id, plan_id, "good", is_favorite=True,
+            db_session, household_id, plan_id, "good", is_favorite=True,
             embedding=_unit_vec_like(query_vec, bias=0.01),
         )
         # Not favorited — filtered out
         await _make_entry(
-            db_session, user_id, plan_id, "mediocre", is_favorite=False,
+            db_session, household_id, plan_id, "mediocre", is_favorite=False,
             embedding=_unit_vec_like(query_vec, bias=0.01),
         )
         # Favorited but no embedding — filtered out
         await _make_entry(
-            db_session, user_id, plan_id, "not yet embedded", is_favorite=True,
+            db_session, household_id, plan_id, "not yet embedded", is_favorite=True,
             embedding=None,
         )
 
-        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
+        hits = await retrieve_rated_meals(db_session, household_id=household_id, query="q")
 
         names = [h.name for h in hits]
         assert names == ["good"]
@@ -306,10 +309,10 @@ class TestRetrieveRatedMeals:
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
-        _, me_id = await _make_user(db_session, "me@example.com")
-        _, them_id = await _make_user(db_session, "them@example.com")
-        _, my_plan_id = await _make_plan(db_session, me_id)
-        _, their_plan_id = await _make_plan(db_session, them_id)
+        me, my_household = await _make_user(db_session, "me@example.com")
+        them, their_household = await _make_user(db_session, "them@example.com")
+        _, my_plan_id = await _make_plan(db_session, me)
+        _, their_plan_id = await _make_plan(db_session, them)
 
         # Cosine distance is controlled by the angle. Using unit vectors along
         # different axes gives a predictable distance (≈ 1 - cos(angle)).
@@ -321,15 +324,15 @@ class TestRetrieveRatedMeals:
             return [c, s] + [0.0] * 382
 
         await _make_entry(
-            db_session, me_id, my_plan_id, "mine_far", is_favorite=True,
+            db_session, my_household, my_plan_id, "mine_far", is_favorite=True,
             embedding=vec_at_cos(0.6),
         )
         await _make_entry(
-            db_session, them_id, their_plan_id, "theirs_close", is_favorite=True,
+            db_session, their_household, their_plan_id, "theirs_close", is_favorite=True,
             embedding=vec_at_cos(0.7),
         )
 
-        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
+        hits = await retrieve_rated_meals(db_session, household_id=my_household, query="q")
 
         assert len(hits) == 2
         # After boost, mine (0.4 * 0.7 = 0.28) should rank above theirs (0.3)
@@ -355,8 +358,8 @@ class TestRetrieveRatedMeals:
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
-        _, user_id = await _make_user(db_session, "k@example.com")
-        _, plan_id = await _make_plan(db_session, user_id)
+        user, household_id = await _make_user(db_session, "k@example.com")
+        _, plan_id = await _make_plan(db_session, user)
 
         # 10 meals at strictly increasing cosine distance (bias tilts an axis
         # orthogonal to the query — see _unit_vec_like). Distinct distances make
@@ -364,11 +367,11 @@ class TestRetrieveRatedMeals:
         # subset of the global top-M and this holds regardless of run order.
         for i in range(10):
             await _make_entry(
-                db_session, user_id, plan_id, f"m{i}", is_favorite=True,
+                db_session, household_id, plan_id, f"m{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.1 * (i + 1)),
             )
 
-        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
+        hits = await retrieve_rated_meals(db_session, household_id=household_id, query="q")
         # Every meal is this user's own, so own_n (⊆) folds into the global_n
         # fetch on dedup → the union is exactly the global_n closest meals.
         assert len(hits) == global_n
@@ -391,29 +394,29 @@ class TestRetrieveRatedMeals:
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
-        _, me_id = await _make_user(db_session, "me2@example.com")
-        _, them_id = await _make_user(db_session, "them2@example.com")
-        _, my_plan_id = await _make_plan(db_session, me_id)
-        _, their_plan_id = await _make_plan(db_session, them_id)
+        me, my_household = await _make_user(db_session, "me2@example.com")
+        them, their_household = await _make_user(db_session, "them2@example.com")
+        _, my_plan_id = await _make_plan(db_session, me)
+        _, their_plan_id = await _make_plan(db_session, them)
 
         # My single meal — relatively far from the query
         await _make_entry(
-            db_session, me_id, my_plan_id, "mine_only", is_favorite=True,
+            db_session, my_household, my_plan_id, "mine_only", is_favorite=True,
             embedding=_unit_vec_like(query_vec, bias=0.5),
         )
         # 5 much closer meals belonging to someone else — would crowd out
         # a single global top-3 without the separate own-user query.
         for i in range(5):
             await _make_entry(
-                db_session, them_id, their_plan_id, f"theirs_{i}", is_favorite=True,
+                db_session, their_household, their_plan_id, f"theirs_{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.001 * (i + 1)),
             )
 
-        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
+        hits = await retrieve_rated_meals(db_session, household_id=my_household, query="q")
 
         names = [h.name for h in hits]
         assert "mine_only" in names, "own-user meal must be retrieved despite being further"
-        own_hits = [h for h in hits if h.user_id == me_id]
+        own_hits = [h for h in hits if h.household_id == my_household]
         assert len(own_hits) == 1
 
     @patch("app.services.recipe_retriever.settings")
@@ -430,8 +433,8 @@ class TestRetrieveRatedMeals:
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
-        _, user_id = await _make_user(db_session, "empty@example.com")
-        hits = await retrieve_rated_meals(db_session, user_id=user_id, query="q")
+        _, household_id = await _make_user(db_session, "empty@example.com")
+        hits = await retrieve_rated_meals(db_session, household_id=household_id, query="q")
         assert hits == []
 
     @patch("app.services.recipe_retriever.settings")
@@ -451,26 +454,26 @@ class TestRetrieveRatedMeals:
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
-        _, me_id = await _make_user(db_session, "me_small@example.com")
-        _, them_id = await _make_user(db_session, "them_small@example.com")
-        _, my_plan_id = await _make_plan(db_session, me_id)
-        _, their_plan_id = await _make_plan(db_session, them_id)
+        me, my_household = await _make_user(db_session, "me_small@example.com")
+        them, their_household = await _make_user(db_session, "them_small@example.com")
+        _, my_plan_id = await _make_plan(db_session, me)
+        _, their_plan_id = await _make_plan(db_session, them)
 
         # I have 2 favorites — well below threshold of 10
         for i in range(2):
             await _make_entry(
-                db_session, me_id, my_plan_id, f"mine_{i}", is_favorite=True,
+                db_session, my_household, my_plan_id, f"mine_{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.1 * (i + 1)),
             )
         # 3 cross-user favorites — these MUST appear in hybrid mode
         for i in range(3):
             await _make_entry(
-                db_session, them_id, their_plan_id, f"theirs_{i}", is_favorite=True,
+                db_session, their_household, their_plan_id, f"theirs_{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.05 * (i + 1)),
             )
 
-        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
-        cross_user = [h for h in hits if h.user_id == them_id]
+        hits = await retrieve_rated_meals(db_session, household_id=my_household, query="q")
+        cross_user = [h for h in hits if h.household_id == their_household]
         assert len(cross_user) > 0, "hybrid mode must surface cross-user favorites"
 
     @patch("app.services.recipe_retriever.settings")
@@ -490,26 +493,26 @@ class TestRetrieveRatedMeals:
         mock_model.embed.return_value = iter([np.array(query_vec, dtype=np.float32)])
         mock_get_model.return_value = mock_model
 
-        _, me_id = await _make_user(db_session, "me_big@example.com")
-        _, them_id = await _make_user(db_session, "them_big@example.com")
-        _, my_plan_id = await _make_plan(db_session, me_id)
-        _, their_plan_id = await _make_plan(db_session, them_id)
+        me, my_household = await _make_user(db_session, "me_big@example.com")
+        them, their_household = await _make_user(db_session, "them_big@example.com")
+        _, my_plan_id = await _make_plan(db_session, me)
+        _, their_plan_id = await _make_plan(db_session, them)
 
         # 3 own favorites — meets the threshold of 3
         for i in range(3):
             await _make_entry(
-                db_session, me_id, my_plan_id, f"mine_{i}", is_favorite=True,
+                db_session, my_household, my_plan_id, f"mine_{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.1 * (i + 1)),
             )
         # 5 cross-user favorites — must NOT appear once we cross the threshold
         for i in range(5):
             await _make_entry(
-                db_session, them_id, their_plan_id, f"theirs_{i}", is_favorite=True,
+                db_session, their_household, their_plan_id, f"theirs_{i}", is_favorite=True,
                 embedding=_unit_vec_like(query_vec, bias=0.01 * (i + 1)),
             )
 
-        hits = await retrieve_rated_meals(db_session, user_id=me_id, query="q")
-        cross_user = [h for h in hits if h.user_id == them_id]
+        hits = await retrieve_rated_meals(db_session, household_id=my_household, query="q")
+        cross_user = [h for h in hits if h.household_id == their_household]
         assert cross_user == [], "cookbook-only mode must exclude cross-user favorites"
         assert len(hits) == 3
         # adjusted_distance == cosine_distance in cookbook-only mode (no boost)
@@ -545,6 +548,14 @@ class TestEmbedTimeout:
             "app.services.recipe_retriever.get_embedding_model",
             return_value=MagicMock(),
         ), patch("app.services.recipe_retriever.asyncio.wait_for", _timeout):
-            # Session is unused on the timeout path (we return before querying).
-            hits = await retrieve_rated_meals(MagicMock(), user_id=1, query="q")
+            # Session is unused on the timeout path (we return before querying),
+            # so an in-memory account stands in for the household.
+            household_id = Kitchen.of(
+                User(
+                    id=1, household_id=1000001,
+                    email="t@example.com", normalized_email="t@example.com",
+                    hashed_password="x",
+                )
+            ).household_id
+            hits = await retrieve_rated_meals(MagicMock(), household_id=household_id, query="q")
         assert hits == []

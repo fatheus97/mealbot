@@ -59,14 +59,14 @@ async def create_ephemeral_demo_user(session: AsyncSession) -> User:
         track_snacks=False,
     )
     session.add(user)
-    await session.flush()  # populate user.id
-    assert user.id is not None
+    await session.flush()  # populate user.id and, from the trigger, household_id
+    assert user.household_id is not None
 
     today = date.today()
     for name, grams, offset, need_to_use in _FRIDGE_SEED:
         expiry = today + timedelta(days=offset) if offset is not None else None
         session.add(StockItem(
-            user_id=user.id,
+            household_id=user.household_id,
             name=name,
             quantity_grams=grams,
             expiration_date=expiry,

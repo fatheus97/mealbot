@@ -40,6 +40,7 @@ from app.services.health_consent import (
     request_json_to_store,
     strip_health_fields,
 )
+from app.services.kitchen import Kitchen
 from app.services.telemetry import record_generation
 from tests.conftest import TEST_PASSWORD
 from tests.test_kitchen_lock import Rendezvous, _held, _race
@@ -70,9 +71,10 @@ async def _events(db_session: AsyncSession, user: User) -> list[HealthConsentEve
 async def _plan(
     db_session: AsyncSession, user: User, request: dict[str, object], *, confirmed: bool = False
 ) -> MealPlan:
-    assert user.id is not None
+    assert user.id is not None and user.household_id is not None
     plan = MealPlan(
-        user_id=user.id,
+        household_id=user.household_id,
+        created_by_user_id=user.id,
         days=1,
         meals_per_day=1,
         people_count=2,
@@ -280,7 +282,7 @@ class TestWithdraw:
         assert resp.status_code == 200
         lock.assert_awaited_once()
         assert lock.await_args is not None
-        assert lock.await_args.args[1] == test_user.id
+        assert lock.await_args.args[1] == Kitchen.of(test_user)
 
     async def test_without_consent_logs_no_withdrawal(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
@@ -319,7 +321,7 @@ class TestGenerationIsRefusedWithoutConsent:
         assert resp.json()["detail"] == REFUSED
         mock_gen.assert_not_awaited()
         stored = await db_session.execute(
-            select(MealPlan).where(col(MealPlan.user_id) == test_user.id)
+            select(MealPlan).where(col(MealPlan.household_id) == Kitchen.of(test_user).household_id)
         )
         assert stored.scalars().first() is None
 

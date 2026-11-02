@@ -75,10 +75,11 @@ class TestGenerateRecipe:
             headers=auth_headers,
             json={"meal_type": "soup", "people_count": 2},
         )
-        # Fresh session view — should see zero plan rows for this user.
+        # Fresh session view — should see zero plan rows in this user's kitchen.
         await db_session.commit()
+        assert test_user.household_id is not None
         result = await db_session.execute(
-            select(MealPlan).where(MealPlan.user_id == test_user.id),
+            select(MealPlan).where(MealPlan.household_id == test_user.household_id),
         )
         assert result.scalars().first() is None
 
@@ -202,10 +203,11 @@ class TestCookRecipe:
         # Plan persisted with kind="cook_now"
         await db_session.commit()
         plan_result = await db_session.execute(
-            select(MealPlan).where(MealPlan.user_id == test_user.id),
+            select(MealPlan).where(MealPlan.household_id == test_user.household_id),
         )
         plans = plan_result.scalars().all()
         assert len(plans) == 1
+        assert plans[0].created_by_user_id == test_user.id
         assert plans[0].kind == "cook_now"
         assert plans[0].confirmed_at is not None
 
@@ -255,7 +257,7 @@ class TestCookRecipe:
         assert resp.json()["meal_type"] == "dessert"
 
         result = await db_session.execute(
-            select(MealEntry).where(MealEntry.user_id == test_user.id),
+            select(MealEntry).where(MealEntry.household_id == test_user.household_id),
         )
         entries = result.scalars().all()
         assert len(entries) == 1
@@ -322,7 +324,7 @@ class TestCookRecipe:
         await db_session.commit()
         entry = (
             await db_session.execute(
-                select(MealEntry).where(MealEntry.user_id == test_user.id),
+                select(MealEntry).where(MealEntry.household_id == test_user.household_id),
             )
         ).scalars().first()
         assert entry is not None
@@ -366,7 +368,7 @@ class TestCookRecipe:
         await db_session.commit()
         entry = (
             await db_session.execute(
-                select(MealEntry).where(MealEntry.user_id == test_user.id),
+                select(MealEntry).where(MealEntry.household_id == test_user.household_id),
             )
         ).scalars().first()
         assert entry is not None
