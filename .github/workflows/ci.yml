@@ -577,7 +577,7 @@ jobs:
           work=$(mktemp -d)
           sed -n '/^echo "==> Running migrations/,/^echo "==> Swapping containers"/p' scripts/deploy.sh \
             | sed '$d' > "$work/step.sh"
-          grep -q 'alembic upgrade head' "$work/step.sh" \
+          grep -q 'run --rm migrate' "$work/step.sh" \
             || { echo "::error::the migrations step was not found in scripts/deploy.sh"; exit 1; }
           # Stub compose: each run prints the next scripted outcome; "ok" succeeds.
           cat > "$work/compose" <<'STUB'

@@ -40,10 +40,16 @@ echo "==> Running migrations (old stack still serving traffic)"
 # backend/app/llm/client.py), so the waits below add up to that. Any other
 # failure stops the deploy at once: a broken migration stays broken however
 # often it runs.
+#
+# It runs the migrate service itself, not `run backend alembic upgrade head`:
+# backend depends on migrate, so that form ran the real migration in a
+# dependency container whose output never reached this log, and the backend's
+# own upgrade that followed was always a no-op. A lock timeout showed up only
+# as "service migrate didn't complete successfully", with nothing to match.
 migrate_log=$(mktemp)
 trap 'rm -f "$migrate_log"' EXIT
 for attempt in 1 2 3 4 5; do
-  if $COMPOSE run --rm backend alembic upgrade head 2>&1 | tee "$migrate_log"; then
+  if $COMPOSE run --rm migrate 2>&1 | tee "$migrate_log"; then
     break
   fi
   if ! grep -qE 'lock timeout|deadlock detected|statement timeout' "$migrate_log"; then
