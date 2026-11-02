@@ -164,6 +164,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 Changing an env var on the box requires `up -d`, never `restart` — `restart` reuses the old environment.
 
+**Reverting a PR that added a migration:** downgrade first, on the box in `/opt/mealbot` while that PR's code is still deployed, then merge the revert. Plan pages error until the revert is live (about two minutes), which is the safe direction.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic downgrade <the migration's down_revision>
+```
+
+Merged the other way round, the revert's deploy stops at migrations with `Can't locate revision identified by '<revision>'` and the current code keeps serving: nothing breaks, nothing rolls back. Don't get past that error any other way (`alembic stamp`, starting the backend without `migrate`). From `household_03` on, older code reads diets and allergens from where newer code leaves them empty, and would plan meals without them.
+
 Scheduled jobs are systemd units in [`deploy/systemd/`](deploy/systemd/) and must be installed on the machine once; `deploy.sh` only swaps containers.
 
 **Build-time secret:** `HF_TOKEN` (optional) — a Hugging Face read token passed as a BuildKit secret to authenticate the one-time embedding-model download baked into the image. Anonymous access works too; the token just lifts the build-time rate limit.
