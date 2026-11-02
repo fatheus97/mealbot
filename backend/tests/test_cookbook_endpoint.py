@@ -18,15 +18,18 @@ SAMPLE_MEAL_JSON = (
 
 async def _seed_favorite(
     db_session: AsyncSession,
-    user_id: int | None,
+    user: User,
     name: str = "Chicken Curry",
     meal_type: str = "main_course",
     is_favorite: bool = True,
 ) -> int:
-    """Create a confirmed plan + favorited MealEntry. Returns meal_entry_id."""
-    assert user_id is not None
+    """Create a confirmed plan + favorited MealEntry in the user's household.
+    Returns meal_entry_id."""
+    assert user.id is not None
+    assert user.household_id is not None
     plan = MealPlan(
-        user_id=user_id,
+        household_id=user.household_id,
+        created_by_user_id=user.id,
         days=1,
         meals_per_day=1,
         people_count=1,
@@ -39,7 +42,7 @@ async def _seed_favorite(
     assert plan.id is not None
 
     entry = MealEntry(
-        user_id=user_id,
+        household_id=plan.household_id,
         meal_plan_id=plan.id,
         day_index=1,
         meal_index=1,
@@ -68,8 +71,8 @@ class TestCookbookList:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        await _seed_favorite(db_session, test_user.id, "Kept", is_favorite=True)
-        await _seed_favorite(db_session, test_user.id, "Tossed", is_favorite=False)
+        await _seed_favorite(db_session, test_user, "Kept", is_favorite=True)
+        await _seed_favorite(db_session, test_user, "Tossed", is_favorite=False)
 
         resp = await client.get("/api/cookbook", headers=auth_headers)
         body = resp.json()
@@ -80,7 +83,7 @@ class TestCookbookList:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        await _seed_favorite(db_session, test_user.id, "Chicken Curry")
+        await _seed_favorite(db_session, test_user, "Chicken Curry")
 
         resp = await client.get("/api/cookbook", headers=auth_headers)
         item = resp.json()["items"][0]
@@ -93,8 +96,8 @@ class TestCookbookList:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        await _seed_favorite(db_session, test_user.id, "Chicken Curry")
-        await _seed_favorite(db_session, test_user.id, "Tofu Stirfry")
+        await _seed_favorite(db_session, test_user, "Chicken Curry")
+        await _seed_favorite(db_session, test_user, "Tofu Stirfry")
 
         resp = await client.get("/api/cookbook?q=curry", headers=auth_headers)
         body = resp.json()
@@ -105,8 +108,8 @@ class TestCookbookList:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        await _seed_favorite(db_session, test_user.id, "Curry", meal_type="main_course")
-        await _seed_favorite(db_session, test_user.id, "Toast", meal_type="savory_breakfast")
+        await _seed_favorite(db_session, test_user, "Curry", meal_type="main_course")
+        await _seed_favorite(db_session, test_user, "Toast", meal_type="savory_breakfast")
 
         resp = await client.get(
             "/api/cookbook?meal_type=savory_breakfast", headers=auth_headers,
@@ -120,7 +123,7 @@ class TestCookbookList:
         db_session: AsyncSession, test_user: User,
     ) -> None:
         for i in range(5):
-            await _seed_favorite(db_session, test_user.id, f"Recipe {i}")
+            await _seed_favorite(db_session, test_user, f"Recipe {i}")
 
         resp = await client.get("/api/cookbook?limit=2&offset=0", headers=auth_headers)
         body = resp.json()
@@ -142,8 +145,8 @@ class TestCookbookList:
         db_session.add(other)
         await db_session.flush()
 
-        await _seed_favorite(db_session, other.id, "Other's recipe")
-        await _seed_favorite(db_session, test_user.id, "Mine")
+        await _seed_favorite(db_session, other, "Other's recipe")
+        await _seed_favorite(db_session, test_user, "Mine")
 
         resp = await client.get("/api/cookbook", headers=auth_headers)
         body = resp.json()
@@ -163,9 +166,9 @@ class TestCookbookCount:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        await _seed_favorite(db_session, test_user.id, "A", is_favorite=True)
-        await _seed_favorite(db_session, test_user.id, "B", is_favorite=True)
-        await _seed_favorite(db_session, test_user.id, "C", is_favorite=False)
+        await _seed_favorite(db_session, test_user, "A", is_favorite=True)
+        await _seed_favorite(db_session, test_user, "B", is_favorite=True)
+        await _seed_favorite(db_session, test_user, "C", is_favorite=False)
 
         resp = await client.get("/api/cookbook/count", headers=auth_headers)
         assert resp.json() == {"count": 2}
@@ -181,7 +184,7 @@ class TestCookbookDelete:
         db_session: AsyncSession,
         test_user: User,
     ) -> None:
-        entry_id = await _seed_favorite(db_session, test_user.id, "Goodbye")
+        entry_id = await _seed_favorite(db_session, test_user, "Goodbye")
         # seed an embedding so we can verify it gets cleared
         entry = await db_session.get(MealEntry, entry_id)
         assert entry is not None
@@ -213,7 +216,7 @@ class TestCookbookDelete:
         db_session.add(other)
         await db_session.flush()
 
-        entry_id = await _seed_favorite(db_session, other.id, "Theirs")
+        entry_id = await _seed_favorite(db_session, other, "Theirs")
 
         resp = await client.delete(
             f"/api/cookbook/{entry_id}", headers=auth_headers,

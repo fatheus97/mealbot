@@ -40,11 +40,14 @@ from app.models.db_models import (
 )
 
 # Rows that must OUTLIVE the account, anonymised rather than deleted: the VAT /
-# revenue ledger and the invite audit trail. Everything else user-owned CASCADEs.
+# revenue ledger, the invite audit trail, and a household's plan (it stays with
+# the other members; the household's own delete takes it with the last one).
+# Everything else user-owned CASCADEs.
 _SET_NULL: set[tuple[str, str]] = {
     ("salerecord", "user_id"),
     ("invitetoken", "created_by_admin_id"),
     ("invitetoken", "redeemed_by_user_id"),
+    ("mealplan", "created_by_user_id"),
 }
 
 
@@ -77,10 +80,11 @@ def test_every_user_fk_declares_ondelete() -> None:
 def test_mealentry_meal_plan_fk_cascades() -> None:
     """``mealentry.meal_plan_id`` must CASCADE, not NO ACTION.
 
-    A user delete fires one cascade statement per referencing FK, ordered by
-    constraint OID — so it differs between databases. With NO ACTION here, the
-    ``mealplan`` cascade's end-of-statement RI check can run while the user's
-    ``mealentry`` rows still exist and abort the delete. A green test on one DB
+    A household delete (the last member's, through the trigger) fires one
+    cascade statement per referencing FK, ordered by constraint OID — so it
+    differs between databases. With NO ACTION here, the ``mealplan`` cascade's
+    end-of-statement RI check can run while the household's ``mealentry`` rows
+    still exist and abort the delete. A green test on one DB
     would not prove anything about another; this asserts the DDL directly.
     """
     fk = next(
@@ -101,12 +105,28 @@ async def _count(db_session: AsyncSession, model: type, uid: int) -> int:
     )
 
 
+async def _count_kitchen(
+    db_session: AsyncSession,
+    model: type[MealEntry] | type[MealPlan] | type[StockItem] | type[PantryStaple],
+    hid: int,
+) -> int:
+    return int(
+        (
+            await db_session.execute(
+                select(func.count()).select_from(model).where(col(model.household_id) == hid)
+            )
+        ).scalar_one()
+    )
+
+
 async def test_bare_user_delete_cascades(db_session: AsyncSession) -> None:
     """A raw ``DELETE FROM "user"`` removes every owned row, no app code involved.
 
-    This is the contract both hard-delete paths now rely on. It also covers the
-    two-table ordering hazard: the plan and its entry are removed by two separate
-    cascade statements, and the delete must not depend on which fires first.
+    This is the contract both hard-delete paths now rely on. The kitchen rows go
+    with the household, which the trigger deletes when its only member goes. It
+    also covers the two-table ordering hazard: the plan and its entry are removed
+    by two separate cascade statements, and the delete must not depend on which
+    fires first.
     """
     user = User(
         email="cascade@example.com",
@@ -116,25 +136,27 @@ async def test_bare_user_delete_cascades(db_session: AsyncSession) -> None:
     db_session.add(user)
     await db_session.flush()
     uid = user.id
+    hid = user.household_id
     assert uid is not None
+    assert hid is not None
 
     plan = MealPlan(
-        user_id=uid, days=1, meals_per_day=1, people_count=1,
-        request_json="{}", response_json="{}",
+        household_id=hid, created_by_user_id=uid, days=1, meals_per_day=1,
+        people_count=1, request_json="{}", response_json="{}",
     )
     db_session.add(plan)
     await db_session.flush()
     assert plan.id is not None
     db_session.add_all([
         MealEntry(
-            user_id=uid, meal_plan_id=plan.id, day_index=1, meal_index=1,
+            household_id=hid, meal_plan_id=plan.id, day_index=1, meal_index=1,
             name="Soup", meal_type="main_course", meal_json="{}",
         ),
         StockItem(
-            user_id=uid, name="egg", quantity_grams=100,
+            household_id=hid, name="egg", quantity_grams=100,
             expiration_date=date.today() + timedelta(days=3),
         ),
-        PantryStaple(user_id=uid, name="olive oil"),
+        PantryStaple(household_id=hid, name="olive oil"),
         AuthSession(
             user_id=uid, refresh_token_hash="a" * 64,
             expires_at=datetime.now(UTC) + timedelta(days=1),
@@ -171,9 +193,12 @@ async def test_bare_user_delete_cascades(db_session: AsyncSession) -> None:
     await db_session.flush()
     db_session.expire_all()
 
+    for kitchen_model in (MealEntry, MealPlan, StockItem, PantryStaple):
+        assert await _count_kitchen(db_session, kitchen_model, hid) == 0, (
+            f"{kitchen_model.__name__} not cascaded"
+        )
     for model in (
-        MealEntry, MealPlan, StockItem, PantryStaple, AuthSession,
-        PasswordResetToken, EmailVerificationToken, MachineGeneration,
+        AuthSession, PasswordResetToken, EmailVerificationToken, MachineGeneration,
         MachineCorrection, LlmUsage,
     ):
         assert await _count(db_session, model, uid) == 0, f"{model.__name__} not cascaded"

@@ -68,8 +68,10 @@ class TestMealHistory:
         helper handles the display.
         """
         assert test_user.id is not None
+        assert test_user.household_id is not None
         plan = MealPlan(
-            user_id=test_user.id,
+            household_id=test_user.household_id,
+            created_by_user_id=test_user.id,
             days=1,
             meals_per_day=1,
             people_count=2,
@@ -82,7 +84,7 @@ class TestMealHistory:
 
         assert plan.id is not None
         legacy_entry = MealEntry(
-            user_id=test_user.id,
+            household_id=plan.household_id,
             meal_plan_id=plan.id,
             day_index=1,
             meal_index=1,

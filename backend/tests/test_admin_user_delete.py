@@ -59,6 +59,20 @@ async def _count(db_session: AsyncSession, model: type, uid: int) -> int:
     )
 
 
+async def _count_kitchen(
+    db_session: AsyncSession,
+    model: type[MealEntry] | type[MealPlan] | type[StockItem] | type[PantryStaple],
+    hid: int,
+) -> int:
+    return int(
+        (
+            await db_session.execute(
+                select(func.count()).select_from(model).where(col(model.household_id) == hid)
+            )
+        ).scalar_one()
+    )
+
+
 class TestDeleteGate:
     async def test_non_admin_gets_403(self, client: AsyncClient, test_user: User) -> None:
         assert (await client.delete("/api/admin/users/1")).status_code == 403
@@ -110,23 +124,26 @@ class TestDeletePurgesDataAndPreservesLedger:
         admin_id = test_user.id  # capture before expire_all() below invalidates it
         victim = await _seed(db_session, "victim@example.com")
         vid = victim.id
+        vhid = victim.household_id
         assert vid is not None
+        assert vhid is not None
 
-        # A representative slice of everything a user owns.
+        # A representative slice of everything a user owns. The victim is the
+        # only member of their household, so its kitchen goes with them.
         plan = MealPlan(
-            user_id=vid, days=1, meals_per_day=1, people_count=1,
-            request_json="{}", response_json="{}",
+            household_id=vhid, created_by_user_id=vid, days=1, meals_per_day=1,
+            people_count=1, request_json="{}", response_json="{}",
         )
         db_session.add(plan)
         await db_session.flush()
         assert plan.id is not None
         db_session.add_all([
             MealEntry(
-                user_id=vid, meal_plan_id=plan.id, day_index=1, meal_index=1,
+                household_id=vhid, meal_plan_id=plan.id, day_index=1, meal_index=1,
                 name="Soup", meal_type="main_course", meal_json="{}",
             ),
-            StockItem(user_id=vid, name="egg", quantity_grams=100),
-            PantryStaple(user_id=vid, name="olive oil"),
+            StockItem(household_id=vhid, name="egg", quantity_grams=100),
+            PantryStaple(household_id=vhid, name="olive oil"),
             AuthSession(
                 user_id=vid, refresh_token_hash="d" * 64,
                 expires_at=datetime.now(UTC) + timedelta(days=1),
@@ -157,10 +174,10 @@ class TestDeletePurgesDataAndPreservesLedger:
 
         # The user and every owned table are gone.
         assert (await db_session.execute(select(User).where(col(User.id) == vid))).scalars().first() is None
-        assert await _count(db_session, MealEntry, vid) == 0
-        assert await _count(db_session, MealPlan, vid) == 0
-        assert await _count(db_session, StockItem, vid) == 0
-        assert await _count(db_session, PantryStaple, vid) == 0
+        assert await _count_kitchen(db_session, MealEntry, vhid) == 0
+        assert await _count_kitchen(db_session, MealPlan, vhid) == 0
+        assert await _count_kitchen(db_session, StockItem, vhid) == 0
+        assert await _count_kitchen(db_session, PantryStaple, vhid) == 0
         assert await _count(db_session, AuthSession, vid) == 0
         assert await _count(db_session, PasswordResetToken, vid) == 0
         assert await _count(db_session, MachineGeneration, vid) == 0  # ON DELETE CASCADE

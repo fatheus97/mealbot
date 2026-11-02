@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     Connection,
     FetchedValue,
+    ForeignKeyConstraint,
     Index,
     MetaData,
     UniqueConstraint,
@@ -334,9 +335,6 @@ class User(SQLModel, table=True):
     # single ``DELETE FROM "user"`` and let the DB do the rest, so a new
     # user-owned table can no longer be forgotten in one path and not the other.
     # ``tests/test_user_cascade.py`` fails if a future FK omits its ``ondelete``.
-    fridge_items: list[StockItem] = Relationship(back_populates="user")
-    meal_plans: list[MealPlan] = Relationship(back_populates="user")
-    meal_entries: list[MealEntry] = Relationship(back_populates="user")
     auth_sessions: list[AuthSession] = Relationship(back_populates="user")
 
 
@@ -668,14 +666,15 @@ class AccessRequest(SQLModel, table=True):
 
 
 class StockItem(SQLModel, table=True):
+    """One fridge batch of a household's kitchen (docs/household-design.md).
+    Rewritten wholesale on every fridge write, so it carries no "added by"."""
+
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    household_id: int = Field(foreign_key="household.id", index=True, ondelete="CASCADE")
     name: str = Field(index=True)
     quantity_grams: float = Field(ge=0)
     need_to_use: bool = Field(default=False, index=True)
     expiration_date: date | None = Field(default=None, index=True)
-
-    user: User = Relationship(back_populates="fridge_items")
 
 
 class WasteRecord(SQLModel, table=True):
@@ -739,27 +738,40 @@ class WasteRecord(SQLModel, table=True):
 
 
 class PantryStaple(SQLModel, table=True):
-    """A per-user "always have" staple (salt, oil, flour…). Its name is excluded
-    from the generated shopping list AT GENERATION TIME, so household staples stop
+    """A household's "always have" staple (salt, oil, flour…). Its name is
+    excluded from the generated shopping list AT GENERATION TIME, so staples stop
     landing on every list.
 
-    Deliberately a name-only per-user collection — the StockItem shape minus the
-    stock fields — because a staple is a membership set, not inventory (no
-    quantity, no expiry). No ORM back-relationship (like InviteToken): the write
-    path is delete-all-then-insert, so it would be unused machinery. Duplicate-name
-    protection is handled in the service layer (case-insensitive dedup on the
-    replace-all write), so the table needs no unique constraint.
+    Deliberately a name-only collection, the StockItem shape minus the stock
+    fields, because a staple is a membership set, not inventory (no quantity, no
+    expiry). No ORM back-relationship: the write path is delete-all-then-insert.
+    The service dedups case-insensitively on that write, and the unique index
+    below holds it once two members can write the same list.
 
-    This is the table that shipped with a bare ``user_id`` FK and no ondelete,
-    which is what wedged the demo sweep in #337."""
+    This is the table that shipped with a bare FK and no ondelete, which is what
+    wedged the demo sweep in #337."""
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    household_id: int = Field(foreign_key="household.id", index=True, ondelete="CASCADE")
     name: str = Field(index=True)
+
+    __table_args__ = (
+        Index(
+            "uq_pantrystaple_household_name",
+            "household_id",
+            text("lower(name)"),
+            unique=True,
+        ),
+    )
 
 
 class MealPlan(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    household_id: int = Field(foreign_key="household.id", index=True, ondelete="CASCADE")
+    # Who generated it: drafts are per member, and the admin funnel counts by
+    # person. SET NULL, so a member's deletion leaves the shared plan in place.
+    created_by_user_id: int | None = Field(
+        default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     days: int
     meals_per_day: int
@@ -792,37 +804,35 @@ class MealPlan(SQLModel, table=True):
     finished_at: datetime | None = Field(default=None)
     stock_after_json: str | None = Field(default=None)
 
-    user: User = Relationship(back_populates="meal_plans")
-    meal_entries: list[MealEntry] = Relationship(back_populates="meal_plan")
-
     __table_args__ = (
         # Partial composite index matching the plan-catalog query (list_plans):
-        # WHERE user_id = ? AND confirmed_at IS NOT NULL AND kind = 'planned'
-        # ORDER BY created_at DESC. Only user_id was indexed before, forcing a
-        # scan+sort of all the user's plans per catalog load. Postgres scans this
-        # index backward for the DESC order.
+        # WHERE household_id = ? AND confirmed_at IS NOT NULL AND kind = 'planned'
+        # ORDER BY created_at DESC. Postgres scans it backward for the DESC order.
         Index(
             "ix_mealplan_catalog",
-            "user_id",
+            "household_id",
             "created_at",
             postgresql_where=text("confirmed_at IS NOT NULL AND kind = 'planned'"),
         ),
+        # Target of MealEntry's composite FK, which pins an entry to its plan's
+        # household.
+        UniqueConstraint("id", "household_id", name="uq_mealplan_id_household_id"),
     )
 
 class MealEntry(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
-    # CASCADE is load-bearing, not cosmetic. Deleting a user fires one cascade
-    # statement PER referencing FK, in an order that depends on constraint OIDs
-    # and so differs between databases. If this FK were NO ACTION, the
-    # ``DELETE FROM mealplan WHERE user_id = ...`` cascade would run its
-    # end-of-statement RI check while the user's mealentry rows may still exist
-    # (their own cascade not yet fired) → IntegrityError, non-deterministically.
-    # Cascading here removes the check entirely. Also drops the ordering
-    # requirement the old app-level purge list encoded ("children before parents").
-    meal_plan_id: int = Field(
-        foreign_key="mealplan.id", index=True, ondelete="CASCADE"
-    )
+    # Always the plan's household: the composite FK below makes an entry in
+    # another household than its plan impossible, and ON UPDATE CASCADE moves
+    # the entries when a plan moves (a join). No FK of its own to household: the
+    # plan's cascade is the one path a household delete takes to these rows.
+    # Every kitchen query filters on it.
+    household_id: int = Field(index=True)
+    # CASCADE is load-bearing, not cosmetic: deleting a household fires one
+    # cascade statement per referencing FK, in an order that depends on
+    # constraint OIDs. If the plan FK were NO ACTION, the mealplan cascade's RI
+    # check could run while these rows still exist -> IntegrityError,
+    # non-deterministically.
+    meal_plan_id: int = Field(index=True)
     day_index: int = Field(description="Which day of the plan this meal belongs to (1-based).")
     meal_index: int = Field(description="Index of the meal within the day (1-based).")
     name: str = Field(index=True)
@@ -841,10 +851,9 @@ class MealEntry(SQLModel, table=True):
     # generation; un-starring clears both. Replaces the legacy 1–5 rating column —
     # we lost the granularity intentionally to keep the cookbook UX a single bit.
     #
-    # No standalone index here — the composite (user_id, is_favorite) index
-    # created in migration o5p6q7r8s9t0 covers every hot path (cookbook list,
-    # count, RAG threshold check). Keeping index=True would make Alembic
-    # autogenerate add a redundant single-column index next time it runs.
+    # No standalone index here: the composite (household_id, is_favorite)
+    # index in __table_args__ covers every hot path (cookbook list, count, RAG
+    # threshold check).
     is_favorite: bool = Field(
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
@@ -888,10 +897,14 @@ class MealEntry(SQLModel, table=True):
         default=None, sa_column=Column(Vector(384), nullable=True)
     )
 
-    user: User = Relationship(back_populates="meal_entries")
-    meal_plan: MealPlan = Relationship(back_populates="meal_entries")
-
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["meal_plan_id", "household_id"],
+            ["mealplan.id", "mealplan.household_id"],
+            ondelete="CASCADE",
+            onupdate="CASCADE",
+        ),
+        Index("ix_mealentry_household_id_is_favorite", "household_id", "is_favorite"),
         Index(
             "ix_mealentry_embedding_hnsw",
             "embedding",

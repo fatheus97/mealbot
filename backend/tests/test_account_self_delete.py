@@ -50,11 +50,17 @@ async def _login(client: AsyncClient) -> None:
 
 
 async def _seed_owned_data(db_session: AsyncSession, user: User) -> None:
-    """One row in each of the tables that must go, plus one that must survive."""
+    """One row in each of the tables that must go, plus one that must survive.
+
+    The user is the only member of their household, so the kitchen rows go with
+    the household when the account is deleted."""
     uid = user.id
+    hid = user.household_id
     assert uid is not None
+    assert hid is not None
     plan = MealPlan(
-        user_id=uid,
+        household_id=hid,
+        created_by_user_id=uid,
         days=1,
         meals_per_day=1,
         people_count=1,
@@ -67,7 +73,7 @@ async def _seed_owned_data(db_session: AsyncSession, user: User) -> None:
     db_session.add_all(
         [
             MealEntry(
-                user_id=uid,
+                household_id=hid,
                 meal_plan_id=plan.id,
                 day_index=1,
                 meal_index=1,
@@ -75,8 +81,8 @@ async def _seed_owned_data(db_session: AsyncSession, user: User) -> None:
                 meal_type="lunch",
                 meal_json="{}",
             ),
-            StockItem(user_id=uid, name="carrot", quantity_grams=100.0),
-            PantryStaple(user_id=uid, name="salt"),
+            StockItem(household_id=hid, name="carrot", quantity_grams=100.0),
+            PantryStaple(household_id=hid, name="salt"),
             SaleRecord(
                 stripe_invoice_id=f"in_selfdelete_{uid}",
                 user_id=uid,
@@ -111,12 +117,30 @@ async def _count(db_session: AsyncSession, model: type, uid: int) -> int:
     )
 
 
+async def _count_kitchen(
+    db_session: AsyncSession,
+    model: type[MealEntry] | type[MealPlan] | type[StockItem] | type[PantryStaple],
+    hid: int,
+) -> int:
+    return int(
+        (
+            await db_session.execute(
+                select(func.count())
+                .select_from(model)
+                .where(col(model.household_id) == hid)
+            )
+        ).scalar_one()
+    )
+
+
 class TestSelfDeleteSuccess:
     async def test_deletes_the_account_and_its_data(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession
     ) -> None:
         uid = test_user.id
+        hid = test_user.household_id
         assert uid is not None
+        assert hid is not None
         await _seed_owned_data(db_session, test_user)
         await _login(unauthed_client)
         assert await _count(db_session, AuthSession, uid) == 1
@@ -127,8 +151,11 @@ class TestSelfDeleteSuccess:
         assert resp.status_code == 204
 
         assert await _user_count(db_session, uid) == 0
-        for model in (MealPlan, MealEntry, StockItem, PantryStaple, AuthSession):
-            assert await _count(db_session, model, uid) == 0, model.__name__
+        for kitchen_model in (MealPlan, MealEntry, StockItem, PantryStaple):
+            assert await _count_kitchen(db_session, kitchen_model, hid) == 0, (
+                kitchen_model.__name__
+            )
+        assert await _count(db_session, AuthSession, uid) == 0, AuthSession.__name__
 
     async def test_anonymises_the_vat_ledger_instead_of_deleting_it(
         self, unauthed_client: AsyncClient, test_user: User, db_session: AsyncSession

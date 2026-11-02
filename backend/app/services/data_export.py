@@ -40,6 +40,7 @@ from app.models.export_schemas import (
     UserDataExport,
 )
 from app.models.user_schemas import UserRead
+from app.services.kitchen import Kitchen
 
 logger = logging.getLogger(__name__)
 
@@ -88,30 +89,36 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
     user_id = user.id
     if user_id is None:  # pragma: no cover — a persisted user always has one
         raise ValueError("user is not persisted")
+    kitchen = Kitchen.of(user)
 
+    # Plans this person generated, and their meals: a plan's request carries
+    # what its creator entered (household_03 splits that per person). The
+    # fridge and staples are the household's, the same for every member.
     plans = (
         await session.execute(
             select(MealPlan)
-            .where(col(MealPlan.user_id) == user_id)
+            .where(col(MealPlan.created_by_user_id) == user_id)
             .order_by(col(MealPlan.created_at))
         )
     ).scalars().all()
     meals = (
         await session.execute(
             select(MealEntry)
-            .where(col(MealEntry.user_id) == user_id)
+            .where(col(MealEntry.meal_plan_id).in_([p.id for p in plans]))
             .order_by(col(MealEntry.meal_plan_id), col(MealEntry.day_index), col(MealEntry.meal_index))
         )
     ).scalars().all()
     fridge = (
         await session.execute(
-            select(StockItem).where(col(StockItem.user_id) == user_id).order_by(col(StockItem.name))
+            select(StockItem)
+            .where(col(StockItem.household_id) == kitchen.household_id)
+            .order_by(col(StockItem.name))
         )
     ).scalars().all()
     staples = (
         await session.execute(
             select(PantryStaple)
-            .where(col(PantryStaple.user_id) == user_id)
+            .where(col(PantryStaple.household_id) == kitchen.household_id)
             .order_by(col(PantryStaple.name))
         )
     ).scalars().all()

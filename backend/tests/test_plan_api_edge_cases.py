@@ -309,9 +309,10 @@ class TestCorruptedPlanData:
         test_user: User, db_session: AsyncSession,
     ) -> None:
         """Corrupted response_json should return generic message, not Pydantic internals."""
-        assert test_user.id is not None
+        assert test_user.id is not None and test_user.household_id is not None
         plan = MealPlan(
-            user_id=test_user.id,
+            household_id=test_user.household_id,
+            created_by_user_id=test_user.id,
             days=1,
             meals_per_day=1,
             people_count=2,
@@ -408,9 +409,10 @@ class TestFinishPlan:
         ValidationError propagate and the user could never finish the plan.
         Now the corrupt entry is logged and skipped; the plan still finishes.
         """
-        assert test_user.id is not None
+        assert test_user.id is not None and test_user.household_id is not None
         plan = MealPlan(
-            user_id=test_user.id,
+            household_id=test_user.household_id,
+            created_by_user_id=test_user.id,
             days=1,
             meals_per_day=1,
             people_count=2,
@@ -424,7 +426,7 @@ class TestFinishPlan:
         # Legacy entry: NULL consumed_snapshot_json + corrupt meal_json.
         assert plan.id is not None
         bad_entry = MealEntry(
-            user_id=test_user.id,
+            household_id=plan.household_id,
             meal_plan_id=plan.id,
             day_index=1,
             meal_index=1,
@@ -824,9 +826,10 @@ class TestUnconfirmPlan:
         test_user: User, db_session: AsyncSession,
     ) -> None:
         """Un-confirming a plan that was never confirmed → 409."""
-        assert test_user.id is not None
+        assert test_user.id is not None and test_user.household_id is not None
         plan = MealPlan(
-            user_id=test_user.id, days=1, meals_per_day=1, people_count=2,
+            household_id=test_user.household_id, created_by_user_id=test_user.id,
+            days=1, meals_per_day=1, people_count=2,
             request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
             confirmed_at=None,
         )
@@ -937,9 +940,10 @@ class TestUnconfirmPlan:
         db_session.add(other)
         await db_session.flush()
 
-        assert other.id is not None
+        assert other.id is not None and other.household_id is not None
         plan = MealPlan(
-            user_id=other.id, days=1, meals_per_day=1, people_count=2,
+            household_id=other.household_id, created_by_user_id=other.id,
+            days=1, meals_per_day=1, people_count=2,
             request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
             confirmed_at=datetime.now(UTC),
         )
@@ -1094,9 +1098,10 @@ class TestReopenPlan:
         db_session.add(other)
         await db_session.flush()
 
-        assert other.id is not None
+        assert other.id is not None and other.household_id is not None
         plan = MealPlan(
-            user_id=other.id, days=1, meals_per_day=1, people_count=2,
+            household_id=other.household_id, created_by_user_id=other.id,
+            days=1, meals_per_day=1, people_count=2,
             request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
             confirmed_at=datetime.now(UTC), finished_at=datetime.now(UTC),
         )

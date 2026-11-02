@@ -149,8 +149,10 @@ class TestStartDateInCatalog:
         # A plan row written without start_date (mirrors every pre-migration
         # plan) must read back as null, not error.
         assert test_user.id is not None
+        assert test_user.household_id is not None
         plan = MealPlan(
-            user_id=test_user.id,
+            household_id=test_user.household_id,
+            created_by_user_id=test_user.id,
             days=1,
             meals_per_day=1,
             people_count=1,

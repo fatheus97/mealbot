@@ -12,6 +12,7 @@ from sqlmodel import col, func, select
 from app.core.email_normalize import normalize_email
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import MealPlanRequest, MealPlanResponse
+from app.services.kitchen import HouseholdId, Kitchen
 
 ENDPOINT = "/api/plan/{}/repeat"
 
@@ -59,9 +60,10 @@ async def _plan(
     request = MealPlanRequest.model_validate(
         {"meals_per_day": 1, "people_count": 2, "include_spices": include_spices}
     )
-    assert user.id is not None
+    assert user.id is not None and user.household_id is not None
     plan = MealPlan(
-        user_id=user.id,
+        household_id=user.household_id,
+        created_by_user_id=user.id,
         days=1,
         meals_per_day=1,
         people_count=2,
@@ -77,12 +79,12 @@ async def _plan(
     return plan
 
 
-async def _plan_count(session: AsyncSession, user_id: int) -> int:
+async def _plan_count(session: AsyncSession, household_id: HouseholdId) -> int:
     return (
         await session.execute(
             select(func.count())
             .select_from(MealPlan)
-            .where(col(MealPlan.user_id) == user_id)
+            .where(col(MealPlan.household_id) == household_id)
         )
     ).scalar_one()
 
@@ -128,8 +130,7 @@ class TestRepeatCopies:
     ) -> None:
         source = await _plan(db_session, test_user)
         await db_session.commit()
-        uid = test_user.id
-        assert uid is not None
+        hid = Kitchen.of(test_user).household_id
 
         resp = await client.post(
             ENDPOINT.format(source.id),
@@ -142,7 +143,7 @@ class TestRepeatCopies:
         assert body["plan_id"] != source.id
         assert body["start_date"] == "2026-08-17"
         assert body["days"][0]["meals"][0]["name"] == "Lentil stew"
-        assert await _plan_count(db_session, uid) == 2
+        assert await _plan_count(db_session, hid) == 2
 
     async def test_the_source_plan_is_left_completely_alone(
         self,
@@ -236,8 +237,7 @@ class TestRepeatCopies:
         """
         source = await _plan(db_session, test_user, confirmed=False)
         await db_session.commit()
-        uid = test_user.id
-        assert uid is not None
+        hid = Kitchen.of(test_user).household_id
         source_id = source.id
 
         resp = await client.post(
@@ -247,7 +247,7 @@ class TestRepeatCopies:
 
         db_session.expire_all()
         assert await db_session.get(MealPlan, source_id) is not None
-        assert await _plan_count(db_session, uid) == 2
+        assert await _plan_count(db_session, hid) == 2
 
 
 class TestRepeatRecomputesTheShoppingList:
@@ -265,9 +265,12 @@ class TestRepeatRecomputesTheShoppingList:
         copy would send them to the shop for something already in the cupboard.
         """
         source = await _plan(db_session, test_user)
-        assert test_user.id is not None
         db_session.add(
-            StockItem(user_id=test_user.id, name="lentils", quantity_grams=500)
+            StockItem(
+                household_id=Kitchen.of(test_user).household_id,
+                name="lentils",
+                quantity_grams=500,
+            )
         )
         await db_session.commit()
 
@@ -345,15 +348,14 @@ class TestRepeatUnreadableSource:
         change. That is a 422 with a sentence, not a stack trace."""
         source = await _plan(db_session, test_user, response_json="{not json")
         await db_session.commit()
-        uid = test_user.id
-        assert uid is not None
+        hid = Kitchen.of(test_user).household_id
 
         resp = await client.post(
             ENDPOINT.format(source.id), json={}, headers=auth_headers
         )
         assert resp.status_code == 422
         # And nothing was created.
-        assert await _plan_count(db_session, uid) == 1
+        assert await _plan_count(db_session, hid) == 1
 
 
 class TestRepeatRefusesWhatIsNotAWeek:
@@ -377,15 +379,14 @@ class TestRepeatRefusesWhatIsNotAWeek:
         source.kind = "cook_now"
         db_session.add(source)
         await db_session.commit()
-        uid = test_user.id
-        assert uid is not None
+        hid = Kitchen.of(test_user).household_id
 
         resp = await client.post(
             ENDPOINT.format(source.id), json={}, headers=auth_headers
         )
 
         assert resp.status_code == 422
-        assert await _plan_count(db_session, uid) == 1
+        assert await _plan_count(db_session, hid) == 1
 
     async def test_an_out_of_range_start_date_is_rejected(
         self,
@@ -399,8 +400,7 @@ class TestRepeatRefusesWhatIsNotAWeek:
         would happily persist year 9999 onto a real row and junk the calendar."""
         source = await _plan(db_session, test_user)
         await db_session.commit()
-        uid = test_user.id
-        assert uid is not None
+        hid = Kitchen.of(test_user).household_id
 
         resp = await client.post(
             ENDPOINT.format(source.id),
@@ -409,4 +409,4 @@ class TestRepeatRefusesWhatIsNotAWeek:
         )
 
         assert resp.status_code == 422
-        assert await _plan_count(db_session, uid) == 1
+        assert await _plan_count(db_session, hid) == 1
