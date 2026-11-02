@@ -35,7 +35,10 @@ echo "==> Running migrations (old stack still serving traffic)"
 # live request. A migration with a lock_timeout (household_02 sets 5 s) then
 # gives up and rolls back whole, and so does one that hits a deadlock or the
 # server's 30 s statement_timeout. Those three are worth another try once the
-# request is gone. The longest request holding kitchen tables is a plan
+# request is gone. A migration that is slow on its own must lift that timeout
+# (the banner in backend/alembic/script.py.mako says how), so at deploy a
+# statement timeout means a lock wait. The match is on Postgres's own message,
+# not the bare words. The longest request holding kitchen tables is a plan
 # generation, bounded by the LLM chain budget (150 s, _CHAIN_BUDGET_SECONDS in
 # backend/app/llm/client.py), so the waits below add up to that. Any other
 # failure stops the deploy at once: a broken migration stays broken however
@@ -49,10 +52,10 @@ echo "==> Running migrations (old stack still serving traffic)"
 migrate_log=$(mktemp)
 trap 'rm -f "$migrate_log"' EXIT
 for attempt in 1 2 3 4 5; do
-  if $COMPOSE run --rm migrate 2>&1 | tee "$migrate_log"; then
+  if $COMPOSE run --rm -T migrate 2>&1 | tee "$migrate_log"; then
     break
   fi
-  if ! grep -qE 'lock timeout|deadlock detected|statement timeout' "$migrate_log"; then
+  if ! grep -qE 'canceling statement due to (lock|statement) timeout|deadlock detected' "$migrate_log"; then
     exit 1
   fi
   if [ "$attempt" -eq 5 ]; then

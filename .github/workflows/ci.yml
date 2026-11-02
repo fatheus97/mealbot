@@ -577,7 +577,7 @@ jobs:
           work=$(mktemp -d)
           sed -n '/^echo "==> Running migrations/,/^echo "==> Swapping containers"/p' scripts/deploy.sh \
             | sed '$d' > "$work/step.sh"
-          grep -q 'run --rm migrate' "$work/step.sh" \
+          grep -q 'run --rm -T migrate' "$work/step.sh" \
             || { echo "::error::the migrations step was not found in scripts/deploy.sh"; exit 1; }
           # Stub compose: each run prints the next scripted outcome; "ok" succeeds.
           cat > "$work/compose" <<'STUB'
@@ -589,31 +589,38 @@ jobs:
           STUB
           chmod +x "$work/compose"
           failed=0
-          check() { # name, expected exit code, expected runs, outcome per run...
-            local name=$1 want_rc=$2 want_runs=$3; shift 3
+          check() { # name, expected exit code, runs, waits in s, outcome per run...
+            local name=$1 want_rc=$2 want_runs=$3 want_waits=$4; shift 4
             export STATE="$work/$name"; mkdir -p "$STATE"; printf '%s\n' "$@" > "$STATE/script"
+            # `|| rc=$?`: the runner's shell is `bash -e`, and an expected
+            # failure must be measured, not end the step.
+            local rc=0 runs waits swapped=no want_swapped=no
             ( set -euo pipefail
               COMPOSE="$work/compose"
-              sleep() { :; }
+              sleep() { echo "$1" >> "$STATE/waits"; }
               # shellcheck disable=SC1091
               source "$work/step.sh"
-              echo SWAPPED ) > "$STATE/out" 2>&1
-            local rc=$? runs swapped=no want_swapped=no
+              echo SWAPPED ) > "$STATE/out" 2>&1 || rc=$?
             runs=$(cat "$STATE/calls")
+            waits=$( (cat "$STATE/waits" 2>/dev/null || true) | paste -sd ' ' -)
             grep -q SWAPPED "$STATE/out" && swapped=yes
             [ "$want_rc" = 0 ] && want_swapped=yes
-            if [ "$rc" != "$want_rc" ] || [ "$runs" != "$want_runs" ] || [ "$swapped" != "$want_swapped" ]; then
-              echo "::error::${name}: exit ${rc} (want ${want_rc}), ${runs} runs (want ${want_runs}), swapped=${swapped}"
+            if [ "$rc" != "$want_rc" ] || [ "$runs" != "$want_runs" ] \
+              || [ "$waits" != "$want_waits" ] || [ "$swapped" != "$want_swapped" ]; then
+              echo "::error::${name}: exit ${rc} (want ${want_rc}), ${runs} runs (want ${want_runs}), waits [${waits}] (want [${want_waits}]), swapped=${swapped}"
               cat "$STATE/out"; failed=1
             fi
           }
-          check first-try 0 1 ok
-          check lock-timeout-once 0 2 "canceling statement due to lock timeout" ok
-          check deadlock-then-statement-timeout 0 3 "deadlock detected" \
+          lt="canceling statement due to lock timeout"
+          check first-try 0 1 "" ok
+          check lock-timeout-once 0 2 "15" "$lt" ok
+          check deadlock-then-statement-timeout 0 3 "15 30" "deadlock detected" \
             "canceling statement due to statement timeout" ok
-          check broken-migration 1 1 'column "x" does not exist' ok
-          check lock-timeout-every-time 1 5 "lock timeout" "lock timeout" "lock timeout" \
-            "lock timeout" "lock timeout" ok
+          check broken-migration 1 1 "" 'column "x" does not exist' ok
+          # Postgres's message, not the words: a line that only mentions a lock
+          # timeout must not buy a retry.
+          check lock-timeout-words-only 1 1 "" "notes: this migration sets a 5 s lock timeout" ok
+          check lock-timeout-every-time 1 5 "15 30 45 60" "$lt" "$lt" "$lt" "$lt" "$lt" ok
           exit "$failed"
 
       - name: Backup scripts are executable
