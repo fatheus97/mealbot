@@ -88,9 +88,12 @@ async def kitchen(
         async with AsyncSession(test_engine, expire_on_commit=False) as s:
             yield s
 
-    async def as_user(session: AsyncSession = Depends(get_session)) -> User:
+    async def as_user() -> User:
+        return user
+
+    async def as_user_in_request_session(session: AsyncSession = Depends(get_session)) -> User:
         # Loaded in the request's own session, as get_current_user does in
-        # production: a rollback in the handler then expires this user too.
+        # production, so a rollback in the handler expires this user too.
         found = await session.get(User, uid)
         assert found is not None
         return found
@@ -107,7 +110,13 @@ async def kitchen(
             "app.api.fridge.get_fridge_items", _held(rv, fridge_service.get_fridge_items)
         )
         app.dependency_overrides[get_session] = own_connection
-        app.dependency_overrides[get_current_user] = as_user
+        # The default hands back a user that opens no transaction, which
+        # TestTheLockComesFirst relies on; parametrize the fixture indirectly
+        # with "user_in_request_session" for production's wiring.
+        in_session = getattr(request, "param", None) == "user_in_request_session"
+        app.dependency_overrides[get_current_user] = (
+            as_user_in_request_session if in_session else as_user
+        )
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             yield c, rv
     finally:
@@ -506,6 +515,7 @@ class TestEditEmbedsOutsideTheLock:
         assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.2, 0.2])
 
 
+@pytest.mark.parametrize("kitchen", ["user_in_request_session"], indirect=True)
 class TestAFailedVectorNeverFailsTheRequest:
     """The vector is written after the star or edit is committed. If embedding
     or storing it fails, the request still answers 200 with its change saved;
