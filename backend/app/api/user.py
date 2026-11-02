@@ -27,7 +27,8 @@ from app.core.meal_types import MealType
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.security import get_password_hash
 from app.db import get_session
-from app.models.db_models import User
+from app.models.db_models import DietaryProfile, User
+from app.models.plan_models import DietaryProfileBody, DietaryProfileRead
 from app.models.user_schemas import (
     HealthConsentRequest,
     InviteRedeem,
@@ -41,6 +42,7 @@ from app.models.user_schemas import (
 from app.services import email_verification, health_consent
 from app.services.data_export import build_export
 from app.services.invite import find_redeemable_invite
+from app.services.kitchen import households_enabled
 
 _VALID_MEAL_TYPE_VALUES: frozenset[str] = frozenset(m.value for m in MealType)
 
@@ -290,6 +292,52 @@ async def withdraw_health_consent(
     are refused."""
     await health_consent.withdraw(session, current_user)
     return _to_read(current_user)
+
+
+# //api/users/dietary-profile
+@router.get("/dietary-profile", response_model=DietaryProfileRead | None)
+async def read_dietary_profile(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> DietaryProfileRead | None:
+    """The user's saved diets, allergens and ingredients to avoid, which a
+    shared household's plans are generated with; null when there is none.
+    Readable whatever HOUSEHOLDS_ENABLED says: it is the user's own data."""
+    assert current_user.id is not None
+    return health_consent.profile_read(await session.get(DietaryProfile, current_user.id))
+
+
+@router.put("/dietary-profile", response_model=DietaryProfileRead)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def save_dietary_profile(
+    request: Request,
+    body: DietaryProfileBody,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> DietaryProfileRead:
+    """Save the user's own profile (docs/household-design.md, "Diets, allergies
+    and consent"). 404, as for a route that does not exist, while shared
+    households are off: nothing may be saved for a feature nobody can use yet.
+    403 when it carries health data without a current consent."""
+    if not households_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    profile = await health_consent.save_profile(session, current_user, body)
+    saved = health_consent.profile_read(profile)
+    assert saved is not None
+    return saved
+
+
+@router.delete("/dietary-profile", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def delete_dietary_profile(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Delete the user's saved profile, if any, whatever HOUSEHOLDS_ENABLED says:
+    removing your own data never waits for a feature."""
+    await health_consent.delete_profile(session, current_user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/export")

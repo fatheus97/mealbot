@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from app.models.db_models import (
+    DietaryProfile,
     FeedbackReport,
     HealthConsentEvent,
     MealEntry,
@@ -40,7 +41,7 @@ from app.models.export_schemas import (
     UserDataExport,
 )
 from app.models.user_schemas import UserRead
-from app.services.health_consent import merged_request_json, plan_health_rows
+from app.services.health_consent import merged_request_json, plan_health_rows, profile_read
 from app.services.kitchen import Kitchen
 
 logger = logging.getLogger(__name__)
@@ -261,5 +262,6 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
             )
             for w in waste
         ],
+        dietary_profile=profile_read(await session.get(DietaryProfile, user_id)),
         excluded=list(_EXCLUDED),
     )

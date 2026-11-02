@@ -9,7 +9,9 @@ from app.core.dietary import Allergen, DietType
 from app.core.meal_types import MealType
 from app.models.plan_models import (
     _MEAL_PLAN_SANITIZED_FIELDS,
+    _PROFILE_SANITIZED_FIELDS,
     _SINGLE_RECIPE_SANITIZED_FIELDS,
+    DietaryProfileBody,
     FrozenMeal,
     IngredientAmount,
     MealPlanRequest,
@@ -202,6 +204,7 @@ class TestMealPlanRequestSanitization:
         [
             (MealPlanRequest, _MEAL_PLAN_SANITIZED_FIELDS),
             (SingleRecipeRequest, _SINGLE_RECIPE_SANITIZED_FIELDS),
+            (DietaryProfileBody, _PROFILE_SANITIZED_FIELDS),
         ],
     )
     def test_every_sanitized_field_declares_its_own_max_length(

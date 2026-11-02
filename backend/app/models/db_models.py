@@ -6,8 +6,10 @@ from sqlalchemy import (
     Boolean,
     Connection,
     FetchedValue,
+    ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     MetaData,
     UniqueConstraint,
     event,
@@ -938,6 +940,30 @@ class PlanHealth(SQLModel, table=True):
     diet_types: list[str] = Field(sa_column=Column(JSONB, nullable=False))
     allergens: list[str] = Field(sa_column=Column(JSONB, nullable=False))
     avoid_ingredients: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+
+
+class DietaryProfile(SQLModel, table=True):
+    """A person's saved diets, allergens and ingredients to avoid, which a
+    shared household's plans are generated with (docs/household-design.md,
+    "Data model"). GDPR Art. 9 data: written only under the person's current
+    consent, deleted when they withdraw it (health_consent.withdraw) and with
+    the account (CASCADE). One row per person. No relationship on User, like
+    the kitchen tables: nothing loads it along with the user by accident.
+    """
+
+    user_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("user.id", ondelete="CASCADE"),
+            primary_key=True,
+            autoincrement=False,
+        )
+    )
+    # As DietaryProfileBody validated them: order kept, duplicates dropped.
+    diet_types: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+    allergens: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+    avoid_ingredients: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
 
 
 class MachineGeneration(SQLModel, table=True):

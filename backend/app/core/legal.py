@@ -38,6 +38,19 @@ TERMS_VERSION = "2026-11-01"
 #: frontend copy (frontend/src/legal.ts) to this one.
 HEALTH_CONSENT_VERSION: Final = "2026-11-01"
 
+#: The first HEALTH_CONSENT_VERSION whose text says that household members see
+#: each other's saved profiles and that plans are generated with them. None
+#: until that text exists; household PR 7 sets it together with the bump.
+#: Until then HOUSEHOLDS_ENABLED has no effect (household_consent_ready).
+HOUSEHOLD_CONSENT_VERSION: Final[str | None] = None
+
+
+def household_consent_ready() -> bool:
+    """Whether the consent text users agree to now covers shared households."""
+    return HOUSEHOLD_CONSENT_VERSION is not None and date.fromisoformat(
+        HEALTH_CONSENT_VERSION
+    ) >= date.fromisoformat(HOUSEHOLD_CONSENT_VERSION)
+
 #: The newest version whose change is MATERIAL: the kind the Privacy Policy
 #: ("Changes") and Terms §12 promise to tell users about. A user whose recorded
 #: ``terms_version`` is older sees the in-app notice, and the notice email
