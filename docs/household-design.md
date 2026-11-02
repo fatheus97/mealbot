@@ -106,10 +106,31 @@ kitchen `user_id` read becomes a mypy error.
    `household_id` (the staples key, `uq_mealplan_id_household_id`) is created after the remap,
    so a swapped pair (A with ids 5/7, B with 7/5) cannot collide midway through the UPDATE; the
    dry run seeds such a pair holding the same staple name.
-6. **`household_03`** lifts the health fields out of every plan's `request_json` into `planhealth`,
-   attributed to `created_by_user_id` (exact, since every plan has had one owner), using frozen copies
-   of `_blob_carries` and `_cleared` as `health_data_consent_01` did. The lift is idempotent and runs
-   again after the container swap, because the old stack keeps writing blobs during the window.
+6. **`household_03` copies, it does not move.** It writes a creator `planhealth` row for every plan
+   (attributed to `created_by_user_id`, exact while every household has one member) holding that
+   plan's health fields, and **leaves the blob as it is**. The reason is the deploy window, read the
+   other way round: the old container keeps serving until the swap, and it reads only the blob. A
+   blob emptied by the migration would make it fail OPEN, silently: a regenerate sent to the model
+   without the allergens, an edit with no warning, a withdrawal that clears nothing and leaves rows
+   behind. Copying keeps the old code correct. After the swap the new code reads the rows, writes
+   rows for new plans with the four blob fields empty, and a withdrawal clears both. A plan the old
+   stack wrote during the window has a carrying blob and no row: readers treat that blob as the
+   creator's row (fail closed). The contract step that empties the old blobs ships with 3b, when
+   no old code can run any more. Details the map of the code settled:
+   - every plan gets its creator row, even with three empty lists, so a missing row can only mean a
+     deleted member; the row's existence is also what makes the copy idempotent;
+   - `diet_types` is copied reconciled (a legacy blob with only `diet_type` becomes `[diet_type]`),
+     `balanced` included, because generation reads it; order is kept, since it drives the prompt
+     lines and the screen;
+   - `subject_user_id` is NULL for copied rows: a blob was typed per generation and may describe a
+     child or partner, so it is not evidence about the creator's own health;
+   - a plan with `created_by_user_id` NULL cannot be attributed: it gets no row and its blob is
+     emptied with `health_data_removed` set (zero expected, since the last member's delete cascades
+     the household's plans; the dry run seeds it);
+   - three blob shapes live in `request_json` (a plan's `MealPlanRequest`, Cook Now's
+     `CookRecipeRequest`, the cookbook's `FavoriteRecipeRequest` with no health fields), and the
+     frozen predicate is `health_data_consent_01`'s `_carries` (the earlier draft of this doc called
+     it `_blob_carries`).
 7. Descriptive revision ids, the first with `down_revision = "health_data_consent_01"`. Re-check for a
    single head right before each merge. CI does not run migrations: every one gets an
    upgrade/downgrade/upgrade dry run on `test-db` with seeded rows, never the shared dev DB.
@@ -165,7 +186,11 @@ can still overwrite the partner's edit.
 
 - Each person's profile is saved under their own current consent. The consent text gets a new
   version (backend `HEALTH_CONSENT_VERSION` and `frontend/src/legal.ts` together) saying household
-  members see the profile and plans are generated with it. Everyone is asked again.
+  members see the profile and plans are generated with it. Everyone is asked again, **in PR 7, right
+  before the flag flips** (decision 12): `has_health_consent` is an equality check, so a bump makes
+  every request with health data 403 until the user consents again, and doing that for a feature
+  nobody can use yet would be noise. 3a stays within today's text (the same data, typed by the
+  user, for the same purpose); saved profiles and eaters (3b) exist only behind the flag until then.
 - **Generation** picks who is eating; the server defaults to all members when the field is missing in
   a household of two or more (an old bundle must not silently skip the partner's allergies). A
   household of one with no selection behaves byte-identically to today. Each eater needs current
@@ -243,11 +268,13 @@ adversarial review.
 | 0 | `fix(export)`: `WasteRecord` in the export. | waste exported; a meta-test that every table with a user FK is exported or named in `_EXCLUDED`. |
 | 1 | `household_01`: table, backfill, `user.household_id`, both triggers (migration + DDL listener), sequence offset. | every creation path gets a household; last-member delete removes it, one of two keeps it; two last members deleting at once leave no orphan (two-connection harness); demo sweep leaves none; downgrade refuses on 2+. |
 | 2 | `household_02` rekey: renames and index renames, `created_by_user_id`, composite FK, staples unique + lock, `Kitchen`, `lock_kitchen(kitchen)`, `load_plan`/`load_entry`, RAG, per-member drafts. Withdraw and export key on the creator until PR 3. | route matrix; two-member races in the `test_kitchen_lock.py` harness, with a per-user-key negative control that goes red; membership change while waiting returns 409; composite FK rejects a cross-household entry; moving a plan to another household carries its entries (ON UPDATE CASCADE is load-bearing); A's Generate keeps B's draft; index list matches metadata. |
-| 3 | `household_03`: `dietaryprofile`, `planhealth`, `health_contributors`, the lift, every reader and writer (generate, Cook Now, regenerate, repeat, edit, withdraw, export), the consent version bump. | lift attributes every blob to its creator; deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members; editor without consent still gets the allergen warning. |
+| 3s | Safety net before any of 3: API tests that the stored health data reaches the model on generate, regenerate and Cook Now, survives repeat and a Cook Now save, and is in the export. A 3a that reads the emptied blob must go red. | each test negative-controlled against the production path it pins. |
+| 3a | `household_03`: `planhealth` and `health_contributors`, the copy (Migrations 6), every reader and writer switched to rows with the blob as fallback (generate, Cook Now, regenerate, repeat, edit screen, withdraw, export, telemetry). Byte-identical for a household of one, including two behaviours the design later changes (below). No consent change. | 3s stays green unchanged; copy is idempotent and attributes every blob to its creator; a carrying blob with no row reads as the creator's row; withdrawal clears rows and blob; dry run up/down/up with all three blob shapes and a NULL creator. |
+| 3b | `dietaryprofile`, eaters and the merge, per-eater consent (403 naming the member), the contract step emptying old blobs, all behind `HOUSEHOLDS_ENABLED`. Also flips the two kept behaviours: the edit screen warns whoever edits (today the editor's own consent decides), and repeat refuses a plan whose health data was removed (today it copies it, still marked). | deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members; editor without consent still gets the allergen warning. |
 | 4 | Versions: columns, household-scoped tokens on GET/PUT/merge, 409s (`ErrorKey` en + cs), client queueing, freshness. | stale or foreign token 409s and writes nothing; two quick edits on one device succeed; a PUT without a token behaves as before; Vitest in its own `docker run`. |
 | 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; a redeem rejected at the cap leaves the invite in place; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
 | 6 | UI: Settings "Household" section, profile editor, eater picker with the merged summary, delete-dialog branch, reload after join/leave, InfoHints. en + cs, sentence-level keys. | Vitest, `tsc -b`, key-usage and parity tests, two-theme browser check. |
-| 7 | Legal: privacy en + cs, material change, owner's Czech read. Gate before the flag flips: decision 11 (global RAG examples) is settled and, if it changes code, shipped. Then the owner flips the flag. | legal-version CI job. |
+| 7 | Legal: privacy en + cs, material change, owner's Czech read, the health consent version bump (decision 12). Gate before the flag flips: decision 11 (global RAG examples) is settled and, if it changes code, shipped. Then the owner flips the flag. | legal-version CI job. |
 
 ## Phase 2: before strangers use households
 
@@ -280,6 +307,9 @@ Needed before households are offered to paying users who do not each have their 
 10. `WasteRecord` stays per person and joins the export.
 11. Global RAG examples across accounts (pre-existing): plan content from one account can shape
     another account's prompt. Decide before the flag flips, not open-ended.
+12. Health consent version bump: in PR 7 with the legal texts, not in PR 3 (see "Diets, allergies
+    and consent"). Decision 1's "accept the window" does not cover the health data copy: there the
+    window fails open and silently, so 3a copies and 3b contracts.
 
 ## Where each critic gap went
 
