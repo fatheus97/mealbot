@@ -31,7 +31,9 @@ after each write, so reads go to the database, as on prod's fresh session.
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import instance_state
 
 from app.core.dietary import Allergen, DietType
 from app.core.error_copy import ERROR_COPY
@@ -67,9 +69,14 @@ def _forget(db: AsyncSession) -> None:
 
     Safe only while no relationship on User (auth_sessions today) is loaded:
     add_all cascades save-update to every loaded child and re-attaches it with
-    its in-memory state, so that child would be answered from memory again. 3a
-    must keep it so or expunge those children."""
+    its in-memory state, so that child would be answered from memory again. So
+    it fails loudly the moment one is loaded; 3a must then expunge that child
+    rather than relax this."""
     users = [row for row in db if isinstance(row, User)]
+    relationships = set(inspect(User).relationships.keys())
+    for user in users:
+        loaded = relationships - instance_state(user).unloaded
+        assert not loaded, f"_forget would re-attach loaded User children: {sorted(loaded)}"
     db.expunge_all()
     db.add_all(users)
 
