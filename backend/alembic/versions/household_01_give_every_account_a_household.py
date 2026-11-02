@@ -11,11 +11,20 @@ docs/household-design.md, "Migrations" 1 to 4. Adds:
   AFTER DELETE deletes a household left without a member, locking its row
   first so two last members deleted at once cannot leave it behind.
 
-Backfill: every existing user gets a household whose id EQUALS the user's id,
-and the sequence moves past them. The kitchen lock key (KTCH, id) therefore
-keeps its value for every account that exists now, once PR 2 keys the lock on
-the household. Nothing reads household_id yet: kitchen rows stay keyed by
-user_id until household_02.
+Backfill: every existing user gets a household whose id EQUALS the user's id.
+The kitchen lock key (KTCH, id) therefore keeps its value for every account
+that exists now, once PR 2 keys the lock on the household. Nothing reads
+household_id yet: kitchen rows stay keyed by user_id until household_02.
+
+The household sequence then starts where the USER sequence will next issue, not
+just past the backfilled ids: deleted demo accounts and failed inserts leave
+user_id_seq ahead of MAX(id), and starting lower would give every later account
+a household id that differs from its user id by that gap, permanently. Aligned,
+the two sequences advance one step per insert and new accounts keep the two
+equal. That is the usual case, NOT an invariant: two concurrent inserts can swap
+their pair, and an insert naming its household (a join) uses a user id without
+a household one. household_02 must therefore move kitchen rows to
+``user.household_id`` by a join, never assume household_id = user_id.
 
 Downgrade refuses while any household has more than one member, because the
 single-owner schema has nowhere to put the second one.
@@ -87,12 +96,16 @@ def upgrade() -> None:
     bind = op.get_bind()
     bind.execute(sa.text('INSERT INTO household (id, created_at) SELECT id, created_at FROM "user"'))
     bind.execute(sa.text('UPDATE "user" SET household_id = id'))
-    # Past every backfilled id, so the next household (a new account) cannot
-    # collide with one. is_called=false: the next nextval() returns exactly this.
+    # Next household id = the next user id (see the docstring), and in any
+    # case past every backfilled one. is_called=false: the next nextval()
+    # returns exactly this. ADD COLUMN above holds ACCESS EXCLUSIVE on "user",
+    # so no insert can move user_id_seq while this reads it.
     bind.execute(
         sa.text(
-            "SELECT setval(pg_get_serial_sequence('household', 'id'), "
-            "COALESCE(MAX(id), 0) + 1, false) FROM household"
+            "SELECT setval(pg_get_serial_sequence('household', 'id'), GREATEST("
+            "(SELECT COALESCE(MAX(id), 0) + 1 FROM household), "
+            "(SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END "
+            "FROM user_id_seq)), false)"
         )
     )
     count = bind.execute(sa.text("SELECT count(*) FROM household")).scalar_one()

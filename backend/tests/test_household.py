@@ -97,7 +97,13 @@ class TestEveryUserGetsOne:
         partner = _user("partner@example.com", household_id=test_user.household_id)
         db_session.add(partner)
         await db_session.flush()
-        assert partner.household_id == test_user.household_id
+        # Read from the row: the ORM sent the value as a literal and never
+        # reads it back, so the attribute would match even if the trigger had
+        # replaced it.
+        stored = (
+            await db_session.execute(select(User.household_id).where(col(User.id) == partner.id))
+        ).scalar_one()
+        assert stored == test_user.household_id
 
 
 class TestTheLastMemberTakesItAlong:
@@ -165,7 +171,9 @@ class TestConcurrentLastMembers:
         async with (
             AsyncSession(test_engine) as first,
             AsyncSession(test_engine) as second,
+            AsyncSession(test_engine) as observer,
         ):
+            second_pid = (await second.execute(text("SELECT pg_backend_pid()"))).scalar_one()
             # First deletes A and holds its transaction open: B is still there,
             # so the household stays, and its row is locked until commit.
             await first.execute(delete(User).where(col(User.id) == a.id))
@@ -175,7 +183,21 @@ class TestConcurrentLastMembers:
             other = asyncio.create_task(
                 second.execute(delete(User).where(col(User.id) == b.id))
             )
-            await asyncio.sleep(0.3)
+            # Commit the first only once Postgres reports the second blocked
+            # behind it, so the test can never pass without the lock being
+            # taken. Without the lock it never blocks, and this fails.
+            for _ in range(100):
+                blocked = (
+                    await observer.execute(
+                        text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"),
+                        {"pid": second_pid},
+                    )
+                ).scalar_one()
+                if blocked:
+                    break
+                await asyncio.sleep(0.05)
+            assert blocked, "the second delete never waited for the first"
+            assert not other.done()
             await first.commit()
             await asyncio.wait_for(other, 10)
             await second.commit()
