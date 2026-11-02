@@ -18,7 +18,7 @@ and only ever once.
 > copy, so it looks applied and isn't. If you find yourself hand-copying a unit,
 > check §7 is alive first — that is the symptom.
 
-All jobs are **idempotent**. The two app-database jobs run as a one-off container
+All jobs are **idempotent**. The app-database jobs run as a one-off container
 (`docker compose run --rm --no-deps -T backend ...`), so they keep working even
 during the brief window when the backend container is restarting mid-deploy; the
 Docker-cleanup job instead shells out to `docker` directly on the host (it prunes
@@ -33,10 +33,11 @@ the daemon's build cache / images, so it has no reason to enter a container).
 | `mealbot-billing-alerts` | `app.scripts.billing_alerts` — VAT-threshold + monthly filing-reminder emails (#202) | daily 08:00 | **Yes** (`RESEND_API_KEY`, `ALERT_EMAIL_TO`) |
 | `mealbot-authsession-cleanup` | `app.scripts.authsession_cleanup` — delete long-expired `authsession` rows so the table doesn't grow unbounded | daily 03:30 | No |
 | `mealbot-passwordresettoken-cleanup` | `app.scripts.passwordresettoken_cleanup` — delete long-expired `passwordresettoken` rows so the table doesn't grow unbounded | daily 04:00 | No |
+| `mealbot-embedding-backfill` | `app.scripts.backfill_meal_embeddings` — embed cookbook favourites left without a vector, so RAG can use them (§9) | daily 05:00 | No (`ALERT_*` only for failure mail) |
 | `mealbot-docker-cleanup` | `docker builder prune -af` + `docker image prune -af` — cap the ever-growing BuildKit build cache / unused images so the disk doesn't fill | **weekly** Sun 04:30 | No |
 
-The schedules are staggered (02:30, 03:00, 03:30, 04:00, Sun 04:30, 08:00, plus
-the hourly disk check) so they never contend for the small Hetzner box at once.
+The schedules are staggered (02:30, 03:00, 03:30, 04:00, Sun 04:30, 05:00, 08:00,
+plus the hourly disk check) so they never contend for the small Hetzner box at once.
 The backup deliberately runs *before* both row sweeps: if either ever deletes
 something it shouldn't, the night's dump predates it.
 
@@ -632,6 +633,50 @@ Expected log line: `passwordresettoken_cleanup: deleted N reset-token row(s) exp
 A first run reporting `deleted 0` is the expected result, not a failure: the app
 has had few password resets, and any row younger than 30 days is deliberately
 kept.
+
+---
+
+## 9. Cookbook-embedding backfill (`mealbot-embedding-backfill`)
+
+A cookbook favourite reaches RAG only through its embedding. Starring a meal and
+editing a starred one embed it after the request has saved (outside the kitchen
+lock), and a failed embed is only logged, so the request still succeeds. That
+leaves the meal without a vector, and RAG never shows it. An edit drops the old
+vector together with the edit, so this case is also a missing vector, never a
+stale one. This job embeds every favourite left without one. No env vars
+required; the embedding model is baked into the backend image.
+
+It exits 1 when an embed or a write fails, so the failure alert (see "Failure alerting" above)
+reaches you; the next day's run tries those meals again. A meal whose stored
+content cannot be parsed is logged as `unreadable` and skipped without failing
+the run, since it would fail the same way every day.
+
+**With §7 installed you do not need to do anything**: `sync-systemd-units.sh`
+copies both files and enables a *new* timer on its next ten-minute pass. The
+commands below are for a box rebuild or a box without §7.
+
+```bash
+sudo cp deploy/systemd/mealbot-embedding-backfill.service /etc/systemd/system/
+sudo cp deploy/systemd/mealbot-embedding-backfill.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mealbot-embedding-backfill.timer
+```
+
+### Verify
+
+```bash
+# next scheduled run:
+systemctl list-timers mealbot-embedding-backfill.timer
+
+# run it once right now (doesn't wait for 05:00):
+sudo systemctl start mealbot-embedding-backfill.service
+
+# check the result:
+journalctl -u mealbot-embedding-backfill.service -n 30 --no-pager
+```
+
+Expected log line: `backfill_meal_embeddings: embedded N, unreadable 0, failed 0`.
+`embedded 0` is the usual result: embeds rarely fail.
 
 ---
 

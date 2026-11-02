@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import Depends
 from httpx import ASGITransport, AsyncClient, Response
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete
 
@@ -489,9 +490,19 @@ def _edit(name: str) -> dict[str, object]:
     }
 
 
-async def _starred(c: AsyncClient, vector: list[float] | None = None) -> tuple[int, int]:
+async def _stored_vector(engine: AsyncEngine, entry_id: int) -> list[float] | None:
+    async with AsyncSession(engine) as s:
+        stored = await s.get(MealEntry, entry_id)
+    assert stored is not None
+    return None if stored.embedding is None else [float(x) for x in stored.embedding]
+
+
+async def _starred(
+    c: AsyncClient, engine: AsyncEngine, vector: list[float] | None = None
+) -> tuple[int, int]:
     """A confirmed plan whose first meal is in the cookbook, with ``vector`` as
-    its embedding: (plan_id, entry_id)."""
+    its embedding (checked, so a test that expects it gone starts from it):
+    (plan_id, entry_id)."""
     await _stock(c, 1000)
     plan_id = await _confirmed_plan(c)
     entry_id = int((await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"])
@@ -504,6 +515,11 @@ async def _starred(c: AsyncClient, vector: list[float] | None = None) -> tuple[i
             f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
         )
     assert r.status_code == 200, r.text
+    stored = await _stored_vector(engine, entry_id)
+    if vector is None:
+        assert stored is None
+    else:
+        assert stored == pytest.approx(vector)
     return plan_id, entry_id
 
 
@@ -515,7 +531,7 @@ class TestEditEmbedsOutsideTheLock:
         self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
     ) -> None:
         c, _ = kitchen
-        plan_id, entry_id = await _starred(c)
+        plan_id, entry_id = await _starred(c, test_engine)
         unstarred: list[int] = []
 
         async def slow_embed(entry: MealEntry) -> None:
@@ -542,7 +558,7 @@ class TestEditEmbedsOutsideTheLock:
         self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
     ) -> None:
         c, _ = kitchen
-        plan_id, entry_id = await _starred(c)
+        plan_id, entry_id = await _starred(c, test_engine)
         embedded: list[str] = []
 
         async def embed(entry: MealEntry) -> None:
@@ -566,7 +582,7 @@ class TestEditEmbedsOutsideTheLock:
         embed finishes last, and must not put the old content's vector on the
         new content."""
         c, _ = kitchen
-        plan_id, entry_id = await _starred(c)
+        plan_id, entry_id = await _starred(c, test_engine)
         second: list[int] = []
 
         async def embed(entry: MealEntry) -> None:
@@ -596,13 +612,14 @@ class TestEditEmbedsOutsideTheLock:
 class TestAFailedVectorNeverFailsTheRequest:
     """The vector is written after the star or edit is committed. If embedding
     or storing it fails, the request still answers 200 with its change saved;
-    only RAG goes without the new vector."""
+    the meal is left without a vector, for the daily backfill to embed (an edit
+    drops the old vector, which describes the old content)."""
 
-    async def test_a_failed_embed_keeps_the_edit_and_the_old_vector(
+    async def test_a_failed_embed_keeps_the_edit_and_leaves_no_vector(
         self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
     ) -> None:
         c, _ = kitchen
-        plan_id, entry_id = await _starred(c, [0.4] * 384)
+        plan_id, entry_id = await _starred(c, test_engine, [0.4] * 384)
 
         with patch("app.api.plan.embed_meal_entry", side_effect=RuntimeError("model down")):
             r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl"))
@@ -610,15 +627,16 @@ class TestAFailedVectorNeverFailsTheRequest:
         assert r.status_code == 200, r.text
         async with AsyncSession(test_engine) as s:
             stored = await s.get(MealEntry, entry_id)
-        assert stored is not None and stored.embedding is not None
+        assert stored is not None
         assert stored.name == "Tofu bowl"
-        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.4, 0.4])
+        assert stored.is_favorite is True
+        assert stored.embedding is None  # not the old content's vector
 
     async def test_a_failed_vector_write_after_an_edit_answers_200(
         self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
     ) -> None:
         c, _ = kitchen
-        plan_id, entry_id = await _starred(c, [0.4] * 384)
+        plan_id, entry_id = await _starred(c, test_engine, [0.4] * 384)
 
         async def wrong_size(entry: MealEntry) -> None:
             entry.embedding = [0.1] * 3  # the column is vector(384): the UPDATE fails
@@ -631,9 +649,9 @@ class TestAFailedVectorNeverFailsTheRequest:
         assert r.json()["allergen_warnings"] == []  # read from the user before the rollback
         async with AsyncSession(test_engine) as s:
             stored = await s.get(MealEntry, entry_id)
-        assert stored is not None and stored.embedding is not None
+        assert stored is not None
         assert stored.name == "Tofu bowl"
-        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.4, 0.4])
+        assert stored.embedding is None
 
     async def test_a_failed_vector_write_after_a_star_answers_200(
         self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
@@ -658,3 +676,98 @@ class TestAFailedVectorNeverFailsTheRequest:
         assert stored is not None
         assert stored.is_favorite is True
         assert stored.embedding is None
+
+    async def test_a_failed_reread_after_a_star_answers_200(
+        self,
+        kitchen: tuple[AsyncClient, Rendezvous],
+        test_engine: AsyncEngine,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The star and its vector are saved; only the reread for the answer
+        fails. That is still a saved star, not a 500."""
+        c, _ = kitchen
+        await _stock(c, 1000)
+        plan_id = await _confirmed_plan(c)
+        entry_id = (await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"]
+
+        async def embed(entry: MealEntry) -> None:
+            entry.embedding = [0.2] * 384
+
+        async def broken_refresh(self: AsyncSession, *args: object, **kwargs: object) -> None:
+            raise SQLAlchemyError("connection lost")
+
+        monkeypatch.setattr(AsyncSession, "refresh", broken_refresh)
+        with patch("app.api.plan.embed_meal_entry", side_effect=embed):
+            r = await c.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
+            )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["is_favorite"] is True
+        # The vector was stored, so the 200 came from the guarded reread and
+        # not from the early answer a failed write takes.
+        assert await _stored_vector(test_engine, entry_id) == pytest.approx([0.2] * 384)
+
+@pytest.mark.parametrize("kitchen", ["user_in_request_session"], indirect=True)
+class TestAStarsVectorFollowsItsContent:
+    """A star embeds after its commit, like an edit; an edit landing in that
+    window changes the content the star's vector was computed from."""
+
+    async def test_an_edit_during_the_stars_embed_keeps_the_old_vector_off(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        """Star, and while its embed runs an edit lands whose own embed fails.
+        The star's vector describes the old content: it must not be stored on
+        the new content, where nothing would ever replace it. The meal is left
+        without a vector, for the daily backfill."""
+        c, _ = kitchen
+        await _stock(c, 1000)
+        plan_id = await _confirmed_plan(c)
+        entry_id = (await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"]
+        edits: list[int] = []
+
+        async def embed(entry: MealEntry) -> None:
+            if entry.name == "Tofu bowl":
+                raise RuntimeError("model down")  # the edit's own embed
+            r = await asyncio.wait_for(
+                c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl")),
+                timeout=5,
+            )
+            edits.append(r.status_code)
+            entry.embedding = [0.1] * 384
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=embed):
+            r = await c.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
+            )
+
+        assert r.status_code == 200, r.text
+        assert edits == [200]
+        assert await _stored_vector(test_engine, entry_id) is None
+
+    async def test_an_edit_during_the_stars_embed_keeps_its_own_vector(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        await _stock(c, 1000)
+        plan_id = await _confirmed_plan(c)
+        entry_id = (await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"]
+
+        async def embed(entry: MealEntry) -> None:
+            if entry.name == "Tofu bowl":
+                entry.embedding = [0.3] * 384  # the edit's, lands first
+                return
+            r = await asyncio.wait_for(
+                c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl")),
+                timeout=5,
+            )
+            assert r.status_code == 200, r.text
+            entry.embedding = [0.1] * 384
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=embed):
+            r = await c.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
+            )
+
+        assert r.status_code == 200, r.text
+        assert await _stored_vector(test_engine, entry_id) == pytest.approx([0.3] * 384)

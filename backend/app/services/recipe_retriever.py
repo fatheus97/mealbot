@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Protocol
 
 from fastembed import TextEmbedding
 from pydantic import BaseModel
-from sqlalchemy import func, literal_column
+from sqlalchemy import ColumnElement, func, literal_column, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import col, select
 
 from app.core.config import settings
@@ -234,3 +235,42 @@ async def embed_meal_entry(entry: Embeddable) -> None:
         )
     )[0].tolist()
     entry.embedding = emb
+
+
+async def store_embedding(
+    session: AsyncSession,
+    entry_id: int,
+    probe: EmbedProbe,
+    *still: ColumnElement[bool],
+) -> bool:
+    """Write a vector embedded outside any transaction onto its meal, if the
+    meal is still a favourite and matches ``still`` (an un-star, a later edit
+    or a delete that landed meanwhile keeps its own state). Commits. Never
+    raises: the star or edit it belongs to is already saved, and a missing or
+    stale vector only keeps the meal out of RAG, so a failed write is logged
+    and the caller carries on (a request still answers 200).
+
+    Returns False when the write failed. The session has then been rolled
+    back, which expires EVERY instance in it (expire_on_commit=False covers
+    commit only), including the request's user and plan: reading one of their
+    attributes would lazy-load and fail on an AsyncSession. So the caller
+    builds its response before calling this, or uses one built earlier."""
+    try:
+        stored = (
+            await session.execute(
+                update(MealEntry)
+                .where(col(MealEntry.id) == entry_id, col(MealEntry.is_favorite).is_(True), *still)
+                .values(embedding=probe.embedding)
+                .returning(col(MealEntry.id))
+            )
+        ).scalar_one_or_none()
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.exception("Failed to store the embedding of meal entry %d", entry_id)
+        return False
+    if stored is None:
+        # Expected when an un-star, a later edit or a delete won the race; says
+        # why this meal's vector is not the one just computed.
+        logger.info("Embedding of meal entry %d not stored: the meal changed meanwhile", entry_id)
+    return True
