@@ -51,7 +51,7 @@ from app.services.fridge_service import (
     lock_kitchen,
     replace_fridge_items,
 )
-from app.services.health_consent import request_json_to_store, require_health_consent
+from app.services.health_consent import HealthEntry, request_to_store, require_health_consent
 from app.services.kitchen import Kitchen
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
@@ -336,7 +336,11 @@ async def cook_recipe(
         shopping_list=[],
     )
 
-    # Create the MealPlan row.
+    # Create the MealPlan row. Its diets and allergens go to a planhealth row;
+    # without them if consent was withdrawn since the check above.
+    stored = await request_to_store(
+        session, current_user, payload, [HealthEntry.typed_by(kitchen.user_id, payload)]
+    )
     plan = MealPlan(
         household_id=kitchen.household_id,
         created_by_user_id=kitchen.user_id,
@@ -344,9 +348,8 @@ async def cook_recipe(
         meals_per_day=1,
         people_count=payload.people_count,
         kind="cook_now",
-        # Store the original request+response for history parity with /plan,
-        # without the diet fields if consent was withdrawn since the check above.
-        request_json=await request_json_to_store(session, current_user, payload),
+        # Store the original request+response for history parity with /plan.
+        request_json=stored.request_json,
         response_json=plan_obj.model_dump_json(),
         confirmed_at=datetime.now(UTC),
     )
@@ -354,6 +357,7 @@ async def cook_recipe(
     await session.flush()
     if plan.id is None:
         raise HTTPException(status_code=500, detail="Plan insert failed")
+    stored.add_rows(session, plan)
 
     # Telemetry: if the user edited the generated recipe before cooking, record
     # the delta against its (owner-checked) generation. An unedited cook leaves

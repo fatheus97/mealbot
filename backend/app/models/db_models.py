@@ -915,6 +915,31 @@ class MealEntry(SQLModel, table=True):
     )
 
 
+class PlanHealth(SQLModel, table=True):
+    """One contributor's diets, allergens and ingredients to avoid for one plan
+    (docs/household-design.md, "Data model"). GDPR Art. 9 data, kept only
+    under ``entered_by_user_id``'s current consent (app.services.health_consent).
+
+    A plan's stored request keeps these four fields EMPTY and names its
+    contributors in ``health_contributors``; readers rebuild the request from
+    these rows. ``subject_user_id`` is the member the row describes, or NULL for
+    an entry typed for this plan only, which is every row until saved profiles
+    exist. Both user FKs CASCADE: the data goes with the person.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    meal_plan_id: int = Field(foreign_key="mealplan.id", index=True, ondelete="CASCADE")
+    entered_by_user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    subject_user_id: int | None = Field(
+        default=None, foreign_key="user.id", index=True, ondelete="CASCADE"
+    )
+    # As the request validator leaves them: diet_types reconciled from the
+    # legacy diet_type, in the order typed (it drives the prompt and the screen).
+    diet_types: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+    allergens: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+    avoid_ingredients: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+
+
 class MachineGeneration(SQLModel, table=True):
     """Append-only record of a raw machine/LLM/OCR output, captured at
     generation time BEFORE any user edits.

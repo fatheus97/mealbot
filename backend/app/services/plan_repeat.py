@@ -42,7 +42,13 @@ from app.models.plan_models import (
     ShoppingListItem,
     StockItemDTO,
 )
-from app.services.health_consent import request_json_to_store, require_health_consent
+from app.services.health_consent import (
+    HealthEntry,
+    merged_request_json,
+    plan_health_rows,
+    request_to_store,
+    require_health_consent,
+)
 from app.services.kitchen import Kitchen
 from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan
@@ -88,9 +94,11 @@ async def repeat_plan(
     # 422 to the caller rather than a 500: the row is real and owned, it just
     # predates a schema change, and "this plan is too old to repeat" is a true
     # and actionable thing to say.
+    assert source.id is not None  # loaded by load_plan
+    health = (await plan_health_rows(session, [source.id])).get(source.id, [])
     try:
         original = MealPlanResponse.model_validate_json(source.response_json)
-        request = MealPlanRequest.model_validate_json(source.request_json)
+        request = MealPlanRequest.model_validate_json(merged_request_json(source, health))
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning(
             "plan_repeat_unparsable plan_id=%s user_id=%s", source.id, user.id
@@ -100,6 +108,18 @@ async def repeat_plan(
     # rule as generating them (app.services.health_consent).
     require_health_consent(user, request)
     kitchen = Kitchen.of(user)
+    # The source's planhealth rows, copied as they are. A removed source has
+    # none to give, and the copy keeps its mark (request.health_data_removed).
+    # A source with no rows at all was written by the old stack during a
+    # deploy window: its blob is its creator's row (merged_request_json read
+    # one with no creator as removed, so `or` only meets a blob that carries
+    # nothing).
+    if request.health_data_removed:
+        entries: list[HealthEntry] = []
+    elif health:
+        entries = [HealthEntry.of(row) for row in health]
+    else:
+        entries = [HealthEntry.typed_by(source.created_by_user_id or kitchen.user_id, request)]
 
     # Today's fridge, in the same shape generation uses. `need_to_use` is masked
     # by the user's master toggle exactly as generate_plan_days masks it, so the
@@ -140,6 +160,7 @@ async def repeat_plan(
         start_date=start_date,
     )
 
+    stored = await request_to_store(session, user, request, entries)
     copy = MealPlan(
         household_id=kitchen.household_id,
         created_by_user_id=kitchen.user_id,
@@ -148,9 +169,9 @@ async def repeat_plan(
         people_count=source.people_count,
         start_date=start_date,
         kind=source.kind,
-        # The caller holds lock_kitchen; without the diet fields if consent
+        # The caller holds lock_kitchen; without the health data if consent
         # was withdrawn after the check above.
-        request_json=await request_json_to_store(session, user, request),
+        request_json=stored.request_json,
         response_json=response.model_dump_json(),
         # confirmed_at / finished_at / stock_after_json stay at their defaults.
         # A copy is a plan you have not shopped for, cooked or finished, however
@@ -158,6 +179,7 @@ async def repeat_plan(
     )
     session.add(copy)
     await session.flush()
+    stored.add_rows(session, copy)
 
     logger.info(
         "plan_repeat user_id=%s source_plan_id=%s new_plan_id=%s start_date=%s "

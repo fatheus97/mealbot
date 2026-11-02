@@ -19,6 +19,14 @@ consent (Art. 9(2)(a)), so:
 * the model-performance copy (app.services.telemetry) never keeps them: it is a
   different purpose, which this consent does not cover.
 
+Where a saved plan keeps them (household_03, docs/household-design.md): one
+``planhealth`` row per contributor, with the four fields EMPTY in the stored
+request and ``health_contributors`` naming whose rows they are. Readers rebuild
+the request from the rows (merged_request_json), and three rules make them fail
+closed: ``health_data_removed`` wins over every row and the blob; a contributor
+without a row left reads as removed; a plan with no rows at all (the old stack
+wrote it during the deploy window) reads its blob as the creator's row.
+
 "Balanced" is not a diet for this purpose: it was the default every plan got
 before the diet selector became multi-select (#296), so it reveals nothing.
 
@@ -30,18 +38,27 @@ app") asks people to put health details in the diet and allergy fields instead.
 
 import json
 import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Protocol, Self
 
 from fastapi import status
 from pydantic import BaseModel
+from sqlalchemy import exists, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, select
+from sqlmodel import col, delete, select
 
 from app.core.dietary import Allergen, DietType
 from app.core.errors import LocalizedHTTPException
 from app.core.legal import HEALTH_CONSENT_VERSION
-from app.models.db_models import HealthConsentEvent, MachineGeneration, MealPlan, User
+from app.models.db_models import (
+    HealthConsentEvent,
+    MachineGeneration,
+    MealPlan,
+    PlanHealth,
+    User,
+)
 from app.services.fridge_service import lock_kitchen
 from app.services.kitchen import Kitchen
 
@@ -52,6 +69,13 @@ logger = logging.getLogger(__name__)
 #: alembic health_data_consent_01 holds a frozen copy; adding a field here
 #: needs a migration that strips it from old telemetry rows too.
 HEALTH_FIELDS: tuple[str, ...] = ("diet_type", "diet_types", "allergens", "avoid_ingredients")
+
+#: Server-written key of a stored request: the entered_by_user_id of each of
+#: the plan's planhealth rows. Not a request field, so no client can send it.
+CONTRIBUTORS = "health_contributors"
+
+#: What the telemetry copy drops: the covered fields, and who contributed them.
+_NOT_FOR_TELEMETRY: tuple[str, ...] = (*HEALTH_FIELDS, CONTRIBUTORS)
 
 
 class CarriesHealthFields(Protocol):
@@ -101,9 +125,9 @@ def require_health_consent(user: User, request: CarriesHealthFields) -> None:
 
 
 def strip_health_fields(request_json: str | None) -> str | None:
-    """The request blob without the consent-covered fields, for telemetry.
-    Never raises; a blob that is not a JSON object is dropped (None), since it
-    cannot be shown to be clean."""
+    """The request blob without the consent-covered fields (and who contributed
+    them), for telemetry. Never raises; a blob that is not a JSON object is
+    dropped (None), since it cannot be shown to be clean."""
     if request_json is None:
         return None
     try:
@@ -112,25 +136,27 @@ def strip_health_fields(request_json: str | None) -> str | None:
         return None
     if not isinstance(data, dict):
         return None
-    if not any(key in data for key in HEALTH_FIELDS):
+    if not any(key in data for key in _NOT_FOR_TELEMETRY):
         return request_json
-    for key in HEALTH_FIELDS:
+    for key in _NOT_FOR_TELEMETRY:
         data.pop(key, None)
     return json.dumps(data)
 
 
-def _cleared(request_json: str) -> str | None:
+def _cleared(request_json: str, *, force: bool = False) -> str | None:
     """A saved plan's request with the fields emptied, not removed, so the blob
     still validates as a request, and marked ``health_data_removed`` so the plan
     is never regenerated without its allergy constraints. None when it has
-    nothing to clear (or is not a JSON object).
+    nothing to clear (or is not a JSON object). ``force`` marks it even when
+    the blob itself carries nothing: its planhealth rows did.
 
-    alembic health_data_consent_01 holds a frozen copy of this rule."""
+    alembic health_data_consent_01 holds a frozen copy of this rule (without
+    ``force``)."""
     try:
         data = json.loads(request_json)
     except ValueError:
         return None
-    if not isinstance(data, dict) or not _blob_carries(data):
+    if not isinstance(data, dict) or not (force or _blob_carries(data)):
         return None
     data["diet_type"] = None
     data["diet_types"] = []
@@ -138,6 +164,160 @@ def _cleared(request_json: str) -> str | None:
     data["avoid_ingredients"] = []
     data["health_data_removed"] = True
     return json.dumps(data)
+
+
+def _says_removed(data: dict[str, object]) -> bool:
+    return data.get("health_data_removed") is True
+
+
+@dataclass(frozen=True)
+class HealthEntry:
+    """One contributor's health data for a plan: a planhealth row apart from
+    its plan, so it can be written to a new one."""
+
+    entered_by_user_id: int
+    subject_user_id: int | None
+    diet_types: list[str]
+    allergens: list[str]
+    avoid_ingredients: list[str]
+
+    @classmethod
+    def typed_by(cls, user_id: int, request: CarriesHealthFields) -> Self:
+        """What ``user_id`` typed into a validated request (diet_types already
+        reconciled from a legacy diet_type). Typed per generation, so it may
+        describe anyone at the table: no subject."""
+        return cls(
+            entered_by_user_id=user_id,
+            subject_user_id=None,
+            diet_types=[d.value for d in request.diet_types],
+            allergens=[a.value for a in request.allergens],
+            avoid_ingredients=list(request.avoid_ingredients),
+        )
+
+    @classmethod
+    def of(cls, row: PlanHealth) -> Self:
+        return cls(
+            entered_by_user_id=row.entered_by_user_id,
+            subject_user_id=row.subject_user_id,
+            diet_types=list(row.diet_types),
+            allergens=list(row.allergens),
+            avoid_ingredients=list(row.avoid_ingredients),
+        )
+
+    def carries(self) -> bool:
+        """Health data in the consent's sense ("balanced" alone is not)."""
+        return _blob_carries(
+            {
+                "diet_types": self.diet_types,
+                "allergens": self.allergens,
+                "avoid_ingredients": self.avoid_ingredients,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class StoredRequest:
+    """A request as a new plan stores it: the blob, and the planhealth rows to
+    add once the plan has an id (add_rows)."""
+
+    request_json: str
+    entries: tuple[HealthEntry, ...]
+
+    def add_rows(self, session: AsyncSession, plan: MealPlan) -> None:
+        if plan.id is None:
+            raise ValueError("add_rows needs a flushed plan")
+        session.add_all(
+            PlanHealth(
+                meal_plan_id=plan.id,
+                entered_by_user_id=e.entered_by_user_id,
+                subject_user_id=e.subject_user_id,
+                diet_types=e.diet_types,
+                allergens=e.allergens,
+                avoid_ingredients=e.avoid_ingredients,
+            )
+            for e in self.entries
+        )
+
+
+async def plan_health_rows(
+    session: AsyncSession, plan_ids: Sequence[int]
+) -> dict[int, list[PlanHealth]]:
+    """Each plan's planhealth rows, in the order they were written."""
+    rows = (
+        await session.execute(
+            select(PlanHealth)
+            .where(col(PlanHealth.meal_plan_id).in_(plan_ids))
+            .order_by(col(PlanHealth.id))
+        )
+    ).scalars().all()
+    by_plan: dict[int, list[PlanHealth]] = {}
+    for row in rows:
+        by_plan.setdefault(row.meal_plan_id, []).append(row)
+    return by_plan
+
+
+def merged_request_json(
+    plan: MealPlan, rows: Sequence[PlanHealth], *, shown_to: int | None = None
+) -> str:
+    """``plan.request_json`` with its health data put back from ``rows`` (all
+    of the plan's planhealth rows), as the blob held it before household_03:
+    diet_type mirrors diet_types[0], in the order typed.
+
+    * ``health_data_removed`` wins: the four fields come back empty, whatever
+      rows are left (the old stack withdraws by marking the blob only). So does
+      a contributor in ``health_contributors`` without a row: lost is lost.
+    * No rows at all: the blob as it is. A plan the old stack wrote during the
+      deploy window carries its data there; that blob is its creator's row. A
+      carrying blob with no creator to cover it reads as removed.
+    * Otherwise the rows' lists, row after row. ``shown_to`` keeps only the
+      rows that person entered or is the subject of (the export, Art. 15(4)).
+
+    A blob that is not a JSON object comes back unchanged, so the caller's
+    validation fails on it exactly as before."""
+    raw = plan.request_json
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return raw
+    if not isinstance(data, dict):
+        return raw
+    contributors = data.get(CONTRIBUTORS)
+    entered = {row.entered_by_user_id for row in rows}
+    lost = isinstance(contributors, list) and any(c not in entered for c in contributors)
+    unowned = not rows and plan.created_by_user_id is None and _blob_carries(data)
+    if _says_removed(data) or lost or unowned:
+        data.update(
+            diet_type=None, diet_types=[], allergens=[], avoid_ingredients=[],
+            health_data_removed=True,
+        )
+    elif rows:
+        shown = [
+            row for row in rows
+            if shown_to is None or shown_to in (row.entered_by_user_id, row.subject_user_id)
+        ]
+        # ponytail: concatenated, not merged; one row per plan until saved
+        # profiles and eaters (household PR 3b) bring the deduplicated union.
+        diets = [d for row in shown for d in row.diet_types]
+        lists = {
+            "diet_types": diets,
+            "allergens": [a for row in shown for a in row.allergens],
+            "avoid_ingredients": [i for row in shown for i in row.avoid_ingredients],
+        }
+        # A blob without the fields (a cookbook favourite, which household_03
+        # still gave an empty row) stays without them. diet_type mirrors
+        # diet_types[0], as the request validator stored it: the export shows
+        # this dict without validating it.
+        if any(lists.values()) or any(key in data for key in HEALTH_FIELDS):
+            data.update(lists, diet_type=diets[0] if diets else None)
+    return json.dumps(data)
+
+
+async def stored_request_json(session: AsyncSession, plan: MealPlan) -> str:
+    """merged_request_json for one plan, its rows read now."""
+    if plan.id is None:
+        raise ValueError("stored_request_json needs a persisted plan")
+    rows = (await plan_health_rows(session, [plan.id])).get(plan.id, [])
+    return merged_request_json(plan, rows)
 
 
 async def _consent_now(session: AsyncSession, user: User) -> bool:
@@ -157,20 +337,32 @@ async def _consent_now(session: AsyncSession, user: User) -> bool:
     )
 
 
-async def request_json_to_store(
-    session: AsyncSession, user: User, request: BaseModel
-) -> str:
-    """The request as it may be saved with a plan. A generation can run for
-    minutes after its consent check; if the user withdrew meanwhile, the plan
-    is saved without the fields (and marked), as withdrawal promises.
+async def request_to_store(
+    session: AsyncSession, user: User, request: BaseModel, entries: Sequence[HealthEntry]
+) -> StoredRequest:
+    """The request as it may be saved with a plan, whose health data is
+    ``entries``: the blob holds the four HEALTH_FIELDS empty and names the
+    contributors; the rows hold the data (StoredRequest.add_rows, after flush).
+
+    A request already marked ``health_data_removed`` (a removed plan repeated,
+    or a client sending the flag) keeps no rows: removed wins in every reader,
+    so a row would hold data nothing reads. A generation can run for minutes
+    after its consent check; if the user withdrew meanwhile, the plan is saved
+    without the data (no rows) and marked, as withdrawal promises. Entries
+    without health data ("balanced" alone) are kept either way, as such a
+    request was before.
 
     The caller must hold lock_kitchen, which withdraw() takes too, so the two
     never interleave: a withdrawal committed first is seen by this read, and
     one that waited for the lock clears this plan along with the rest."""
-    dumped = request.model_dump_json()
-    if await _consent_now(session, user):
-        return dumped
-    return _cleared(dumped) or dumped
+    data = request.model_dump(mode="json")
+    data.update(diet_type=None, diet_types=[], allergens=[], avoid_ingredients=[])
+    kept = () if _says_removed(data) else tuple(entries)
+    if any(e.carries() for e in kept) and not await _consent_now(session, user):
+        data["health_data_removed"] = True
+        kept = ()
+    data[CONTRIBUTORS] = list(dict.fromkeys(e.entered_by_user_id for e in kept))
+    return StoredRequest(request_json=json.dumps(data), entries=kept)
 
 
 async def grant(session: AsyncSession, user: User, version: str) -> None:
@@ -199,10 +391,11 @@ async def grant(session: AsyncSession, user: User, version: str) -> None:
 
 async def withdraw(session: AsyncSession, user: User) -> int:
     """Withdraw consent and remove the covered fields from everything stored
-    for this user: saved plans, and (defensively, the write path already strips
-    them) telemetry rows. Returns how many plans changed. Commits. A
-    generation still running saves its plan without them
-    (request_json_to_store).
+    for this user: the planhealth rows they entered or that describe them
+    (each such plan marked ``health_data_removed``), blobs that still carry
+    the fields, and (defensively, the write path already strips them)
+    telemetry rows. Returns how many plans changed. Commits. A generation
+    still running saves its plan without them (request_to_store).
 
     Takes lock_kitchen first, like every save of a request, so a plan saved
     concurrently is either seen and cleared here or sees the withdrawal. The
@@ -214,20 +407,45 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     await lock_kitchen(session, Kitchen.of(user))
     await session.refresh(user)
     previous = user.health_consent_version
-    plans = (
-        # Until per-person health rows (household_03), the data in a plan's
-        # request is covered by the consent of the member who generated it.
+    rows = (
         await session.execute(
-            select(MealPlan).where(col(MealPlan.created_by_user_id) == user.id)
+            select(PlanHealth).where(
+                or_(
+                    col(PlanHealth.entered_by_user_id) == user.id,
+                    col(PlanHealth.subject_user_id) == user.id,
+                )
+            )
+        )
+    ).scalars().all()
+    carrying = {row.meal_plan_id for row in rows if HealthEntry.of(row).carries()}
+    plans = (
+        # A blob that still carries the data (written before household_03, or
+        # by the old stack during its deploy window) is covered by the consent
+        # of the member who generated the plan.
+        await session.execute(
+            select(MealPlan).where(
+                or_(
+                    col(MealPlan.created_by_user_id) == user.id,
+                    col(MealPlan.id).in_(carrying),
+                )
+            )
         )
     ).scalars().all()
     changed = 0
+    removed = set(carrying)
     for plan in plans:
-        cleared = _cleared(plan.request_json)
+        assert plan.id is not None
+        cleared = _cleared(plan.request_json, force=plan.id in carrying)
         if cleared is not None:
             plan.request_json = cleared
             session.add(plan)
             changed += 1
+            removed.add(plan.id)
+    # Rows without health data ("balanced" alone) stay on a plan that keeps
+    # regenerating as before; on a plan marked removed nothing reads them.
+    for row in rows:
+        if row.meal_plan_id in removed:
+            await session.delete(row)
     generations = (
         await session.execute(
             select(MachineGeneration).where(
@@ -253,3 +471,41 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     await session.commit()
     logger.info("health_consent_withdrawn user_id=%s plans_cleared=%s", user.id, changed)
     return changed
+
+
+async def forget_health_of_removed_plans(session: AsyncSession) -> int:
+    """Delete the planhealth rows of every plan whose blob says
+    ``health_data_removed``. Commits; returns how many went. Run at startup.
+
+    The old stack withdraws by marking the blob only, so during a deploy
+    window a copied row can outlive its consent. No reader uses it (removed
+    wins), but it must not be kept either. Idempotent. The blobs are parsed
+    here, not cast in SQL: one legacy blob that is not JSON would fail a cast
+    for the whole table (Postgres 15 has no pg_input_is_valid). Temporary:
+    household PR 3b's contract migration runs this once and takes it out."""
+    plans = (
+        await session.execute(
+            select(col(MealPlan.id), col(MealPlan.request_json)).where(
+                exists().where(col(PlanHealth.meal_plan_id) == col(MealPlan.id))
+            )
+        )
+    ).all()
+    removed: list[int] = []
+    for plan_id, raw in plans:
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(data, dict) and _says_removed(data):
+            removed.append(plan_id)
+    if not removed:
+        return 0
+    deleted = (
+        await session.execute(
+            delete(PlanHealth)
+            .where(col(PlanHealth.meal_plan_id).in_(removed))
+            .returning(col(PlanHealth.id))
+        )
+    ).scalars().all()
+    await session.commit()
+    return len(deleted)
