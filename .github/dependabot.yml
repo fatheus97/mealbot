@@ -12,6 +12,11 @@ updates:
       # instructor's `anthropic` extra moves past 0.93.
       - dependency-name: anthropic
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # 0.0.45 makes datetime fields timezone-aware: Postgres needs a
+      # timestamp -> timestamptz migration first (ROADMAP "Held dependency
+      # upgrades"). Lift in the PR that does that migration.
+      - dependency-name: sqlmodel
+        versions: [">=0.0.45"]
 
   - package-ecosystem: npm
     directory: /frontend
@@ -20,6 +25,12 @@ updates:
     groups:
       frontend-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # typescript-eslint 8.71 accepts only typescript <6.1, so npm ci fails
+      # on 7.x. Lift when typescript-eslint supports TypeScript 7. 6.x still
+      # gets proposed.
+      - dependency-name: typescript
+        versions: [">=7"]
 
   - package-ecosystem: docker
     directory: /backend
