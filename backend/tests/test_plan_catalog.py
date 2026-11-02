@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.email_normalize import normalize_email
 from app.core.meal_types import MealType
@@ -196,10 +196,10 @@ class TestListPlans:
         assert plan["status"] == "planned"
         assert plan["finished_at"] is None
 
-    async def _user_plan_ids(self, db_session: AsyncSession, user_id: int) -> set[int]:
+    async def _household_plan_ids(self, db_session: AsyncSession, household_id: int) -> set[int]:
         await db_session.commit()
         rows = await db_session.execute(
-            select(MealPlan).where(MealPlan.user_id == user_id)
+            select(MealPlan).where(col(MealPlan.household_id) == household_id)
         )
         return {p.id for p in rows.scalars().all() if p.id is not None}
 
@@ -207,10 +207,11 @@ class TestListPlans:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        assert test_user.id is not None
+        hid = test_user.household_id
+        assert hid is not None
         a = await _create_plan(client, auth_headers)  # unconfirmed
         b = await _create_plan(client, auth_headers)  # its creation clears A
-        ids = await self._user_plan_ids(db_session, test_user.id)
+        ids = await self._household_plan_ids(db_session, hid)
         assert a["plan_id"] not in ids
         assert b["plan_id"] in ids
 
@@ -218,10 +219,11 @@ class TestListPlans:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        assert test_user.id is not None
+        hid = test_user.household_id
+        assert hid is not None
         a = await _create_and_confirm_plan(client, auth_headers, meals_per_day=1)
         b = await _create_plan(client, auth_headers)  # A is confirmed → kept
-        ids = await self._user_plan_ids(db_session, test_user.id)
+        ids = await self._household_plan_ids(db_session, hid)
         assert a["plan_id"] in ids
         assert b["plan_id"] in ids
 
@@ -230,6 +232,7 @@ class TestListPlans:
         db_session: AsyncSession, test_user: User,
     ) -> None:
         # Another user's unconfirmed plan must survive test_user creating a plan.
+        # The other user is in a household of their own.
         other = User(
             email="other-clear@example.com",
             normalized_email=normalize_email("other-clear@example.com"),
@@ -238,8 +241,10 @@ class TestListPlans:
         db_session.add(other)
         await db_session.flush()
         assert other.id is not None
+        assert other.household_id is not None
         other_plan = MealPlan(
-            user_id=other.id, days=1, meals_per_day=1, people_count=1,
+            household_id=other.household_id, created_by_user_id=other.id,
+            days=1, meals_per_day=1, people_count=1,
             request_json="{}", response_json="{}",  # unconfirmed
         )
         db_session.add(other_plan)
@@ -909,7 +914,7 @@ class TestOwnershipChecks:
 
             # Meal-entry-level verbs → 404 for user B with a real meal_entry_id
             # that belongs to user A. The handlers check both the meal
-            # entry's user_id and the plan_id in the path.
+            # entry's household_id and the plan_id in the path.
             resp = await client.post(
                 f"/api/plan/{plan_id}/meals/{meal_entry_id}/cook"
             )

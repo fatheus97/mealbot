@@ -26,6 +26,7 @@ from app.db import get_session
 from app.models.db_models import MealEntry, User
 from app.models.plan_models import StockItemDTO
 from app.services import fridge_service
+from app.services.kitchen import Kitchen
 from tests.conftest import TEST_PASSWORD
 from tests.test_plan_catalog import _fake_day
 
@@ -106,7 +107,8 @@ async def kitchen(
             yield c, rv
     finally:
         app.dependency_overrides.clear()
-        # Real commits outlive the test: remove the user (cascades plans, fridge).
+        # Real commits outlive the test: remove the user. Their household goes with
+        # its last member, and that cascades plans and fridge.
         async with AsyncSession(test_engine) as s:
             await s.execute(delete(User).where(col(User.id) == uid))
             await s.commit()
@@ -221,29 +223,39 @@ class TestRewriteNeedsTheLock:
     async def test_rewrite_without_the_lock_is_refused(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        assert test_user.id is not None
         with pytest.raises(RuntimeError, match="without lock_kitchen"):
             await fridge_service.replace_fridge_items(
-                db_session, test_user.id, self._ITEMS, commit=False
+                db_session, Kitchen.of(test_user).household_id, self._ITEMS, commit=False
             )
 
     async def test_the_lock_ends_with_its_transaction(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        assert test_user.id is not None
-        await fridge_service.lock_kitchen(db_session, test_user.id)
-        await fridge_service.replace_fridge_items(db_session, test_user.id, self._ITEMS)  # commits
+        kitchen = Kitchen.of(test_user)
+        await fridge_service.lock_kitchen(db_session, kitchen)
+        await fridge_service.replace_fridge_items(db_session, kitchen.household_id, self._ITEMS)  # commits
         with pytest.raises(RuntimeError, match="without lock_kitchen"):
             await fridge_service.replace_fridge_items(
-                db_session, test_user.id, self._ITEMS, commit=False
+                db_session, kitchen.household_id, self._ITEMS, commit=False
             )
 
-    async def test_the_lock_is_per_user(self, db_session: AsyncSession, test_user: User) -> None:
-        assert test_user.id is not None
-        await fridge_service.lock_kitchen(db_session, test_user.id)
+    async def test_the_lock_is_per_household(
+        self, db_session: AsyncSession, test_user: User
+    ) -> None:
+        email = "other-kitchen@example.com"
+        other = User(
+            email=email,
+            normalized_email=normalize_email(email),
+            hashed_password=get_password_hash(TEST_PASSWORD),
+        )
+        db_session.add(other)
+        await db_session.flush()  # the trigger gives them a household of their own
+        assert other.household_id != test_user.household_id
+
+        await fridge_service.lock_kitchen(db_session, Kitchen.of(test_user))
         with pytest.raises(RuntimeError, match="without lock_kitchen"):
             await fridge_service.replace_fridge_items(
-                db_session, test_user.id + 1, self._ITEMS, commit=False
+                db_session, Kitchen.of(other).household_id, self._ITEMS, commit=False
             )
 
 
@@ -293,9 +305,9 @@ class TestTheLockComesFirst:
         c, _ = kitchen
         seen: list[bool] = []
 
-        async def spy(session: AsyncSession, user_id: int) -> None:
+        async def spy(session: AsyncSession, kitchen: Kitchen) -> None:
             seen.append(session.in_transaction())
-            await fridge_service.lock_kitchen(session, user_id)
+            await fridge_service.lock_kitchen(session, kitchen)
 
         monkeypatch.setattr(f"app.api.{router}.lock_kitchen", spy)
         await c.request(method.upper(), url, json=body)

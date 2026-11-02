@@ -43,6 +43,7 @@ from app.models.plan_models import (
     StockItemDTO,
 )
 from app.services.health_consent import request_json_to_store, require_health_consent
+from app.services.kitchen import Kitchen
 from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan
 
@@ -98,13 +99,14 @@ async def repeat_plan(
     # The copy stores the source's diets and allergens again: the same consent
     # rule as generating them (app.services.health_consent).
     require_health_consent(user, request)
+    kitchen = Kitchen.of(user)
 
     # Today's fridge, in the same shape generation uses. `need_to_use` is masked
     # by the user's master toggle exactly as generate_plan_days masks it, so the
     # two paths cannot disagree about what the fridge contains.
     rows = (
         await session.execute(
-            select(StockItem).where(col(StockItem.user_id) == user.id)
+            select(StockItem).where(col(StockItem.household_id) == kitchen.household_id)
         )
     ).scalars().all()
     fridge: list[StockItemDTO] = [
@@ -116,7 +118,7 @@ async def repeat_plan(
         for item in rows
     ]
 
-    staple_keys = await load_staple_keys(session, user.id)
+    staple_keys = await load_staple_keys(session, kitchen.household_id)
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
         original.days,
         fridge,
@@ -139,7 +141,8 @@ async def repeat_plan(
     )
 
     copy = MealPlan(
-        user_id=user.id,
+        household_id=kitchen.household_id,
+        created_by_user_id=kitchen.user_id,
         days=source.days,
         meals_per_day=source.meals_per_day,
         people_count=source.people_count,

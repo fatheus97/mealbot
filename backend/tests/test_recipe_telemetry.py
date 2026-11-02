@@ -566,7 +566,9 @@ class TestGeneratedByStamp:
     async def _saved(self, db_session: AsyncSession, test_user: User) -> tuple[str | None, int]:
         await db_session.commit()
         entry = (
-            await db_session.execute(select(MealEntry).where(MealEntry.user_id == test_user.id))
+            await db_session.execute(
+                select(MealEntry).where(MealEntry.household_id == test_user.household_id)
+            )
         ).scalar_one()
         corrections = (
             await db_session.execute(

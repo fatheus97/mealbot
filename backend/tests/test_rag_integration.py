@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.meal_types import MealType
-from app.models.db_models import MealEntry, MealPlan
+from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
@@ -19,12 +19,12 @@ from app.services.recipe_retriever import MealHit
 def _make_hit(
     distance: float = 0.2,
     adjusted: float | None = None,
-    user_id: int = 1,
+    household_id: int = 1,
     meal_entry_id: int = 1,
 ) -> MealHit:
     return MealHit(
         meal_entry_id=meal_entry_id,
-        user_id=user_id,
+        household_id=household_id,
         name="Test Meal",
         meal_type="dinner",
         meal_json=(
@@ -202,7 +202,7 @@ class TestFavoriteMealEmbedding:
     @staticmethod
     async def _seed_entry(
         db_session: AsyncSession,
-        user_id: int,
+        user: User,
         *,
         is_favorite: bool = False,
         embedding: list[float] | None = None,
@@ -211,8 +211,10 @@ class TestFavoriteMealEmbedding:
 
         from app.models.db_models import MealEntry, MealPlan
 
+        assert user.household_id is not None
         plan = MealPlan(
-            user_id=user_id,
+            household_id=user.household_id,
+            created_by_user_id=user.id,
             days=1,
             meals_per_day=1,
             people_count=1,
@@ -225,7 +227,7 @@ class TestFavoriteMealEmbedding:
 
         assert plan.id is not None
         entry = MealEntry(
-            user_id=user_id,
+            household_id=plan.household_id,
             meal_plan_id=plan.id,
             day_index=1,
             meal_index=1,
@@ -247,7 +249,7 @@ class TestFavoriteMealEmbedding:
         db_session: MagicMock,
         test_user: MagicMock,
     ) -> None:
-        plan, entry = await self._seed_entry(db_session, test_user.id)
+        plan, entry = await self._seed_entry(db_session, test_user)
 
         response = await client.post(
             f"/api/plan/{plan.id}/meals/{entry.id}/favorite",
@@ -266,7 +268,7 @@ class TestFavoriteMealEmbedding:
         test_user: MagicMock,
     ) -> None:
         plan, entry = await self._seed_entry(
-            db_session, test_user.id, is_favorite=True, embedding=[0.1] * 384,
+            db_session, test_user, is_favorite=True, embedding=[0.1] * 384,
         )
 
         response = await client.post(
@@ -295,7 +297,7 @@ class TestFavoriteMealEmbedding:
         from datetime import datetime
 
         plan, entry = await self._seed_entry(
-            db_session, test_user.id, is_favorite=True, embedding=[0.1] * 384,
+            db_session, test_user, is_favorite=True, embedding=[0.1] * 384,
         )
         entry.cooked_at = datetime.now(UTC)
         db_session.add(entry)

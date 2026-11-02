@@ -32,6 +32,7 @@ from app.services.fridge_service import (
     record_waste_entries,
     replace_fridge_items,
 )
+from app.services.kitchen import Kitchen
 from app.services.receipt_scanner import (
     extract_items_from_food_photo,
     extract_items_from_pdf,
@@ -92,9 +93,10 @@ async def get_fridge(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[StockItemDTO]:
-    if current_user.id is None:
-        raise HTTPException(status_code=500, detail="Invalid user state")
-    return await get_fridge_items(session, current_user.id, current_user.need_to_use_enabled)
+    kitchen = Kitchen.of(current_user)
+    return await get_fridge_items(
+        session, kitchen.household_id, current_user.need_to_use_enabled
+    )
 
 
 # //api/fridge
@@ -104,8 +106,7 @@ async def put_fridge(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[StockItemDTO]:
-    if current_user.id is None:
-        raise HTTPException(status_code=500, detail="Invalid user state")
+    kitchen = Kitchen.of(current_user)
     if len(payload) > MAX_FRIDGE_ITEMS:
         raise LocalizedHTTPException(
             422,
@@ -113,10 +114,13 @@ async def put_fridge(
             count_given=str(len(payload)),
             maximum=str(MAX_FRIDGE_ITEMS),
         )
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    await lock_kitchen(session, current_user.id)
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    await lock_kitchen(session, kitchen)
     return await replace_fridge_items(
-        session, current_user.id, payload, need_to_use_enabled=current_user.need_to_use_enabled
+        session,
+        kitchen.household_id,
+        payload,
+        need_to_use_enabled=current_user.need_to_use_enabled,
     )
 
 
@@ -183,6 +187,7 @@ async def scan_receipt(
     and returns its id; the client echoes it back on /fridge/merge so edits to
     the scan can be captured. No fridge write happens here — only the scan.
     """
+    kitchen = Kitchen.of(current_user)
     # Validate content type
     if file.content_type is None:
         raise LocalizedHTTPException(422, "upload_missing_content_type")
@@ -237,7 +242,7 @@ async def scan_receipt(
     # Normalize scanned names against existing fridge items
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
-    fridge_items = await get_fridge_items(session, current_user.id)
+    fridge_items = await get_fridge_items(session, kitchen.household_id)
     items: list[ScannedReceiptItem]
     try:
         items = await normalize_item_names(
@@ -330,6 +335,7 @@ async def merge_fridge_items(
     """Merge scanned items into the existing fridge (auto-sum matching names + expiration)."""
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
+    kitchen = Kitchen.of(current_user)
     if len(payload) > MAX_FRIDGE_ITEMS:
         raise LocalizedHTTPException(
             422,
@@ -337,9 +343,9 @@ async def merge_fridge_items(
             count_given=str(len(payload)),
             maximum=str(MAX_FRIDGE_ITEMS),
         )
-    # Before any read: concurrent writers for this user serialize here (see lock_kitchen).
-    await lock_kitchen(session, current_user.id)
-    existing = await get_fridge_items(session, current_user.id)
+    # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
+    await lock_kitchen(session, kitchen)
+    existing = await get_fridge_items(session, kitchen.household_id)
 
     # Telemetry: if the user edited the scan before merging, record the delta
     # against its (owner-checked) receipt_scan generation. An unedited merge —
@@ -377,5 +383,8 @@ async def merge_fridge_items(
 
     merged = merge_into_fridge_buckets(existing, payload)
     return await replace_fridge_items(
-        session, current_user.id, merged, need_to_use_enabled=current_user.need_to_use_enabled
+        session,
+        kitchen.household_id,
+        merged,
+        need_to_use_enabled=current_user.need_to_use_enabled,
     )

@@ -2,12 +2,13 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.api.deps import get_current_user
 from app.db import get_session
 from app.models.db_models import MealEntry, User
 from app.models.plan_models import MealHistoryItem
+from app.services.kitchen import Kitchen
 
 router = APIRouter()
 
@@ -19,10 +20,10 @@ async def get_meal_history(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[MealHistoryItem]:
-
+    kitchen = Kitchen.of(current_user)
     stmt = (
         select(MealEntry)
-        .where(MealEntry.user_id == current_user.id)
+        .where(col(MealEntry.household_id) == kitchen.household_id)
         .order_by(desc(MealEntry.created_at))  # type: ignore[arg-type]
         .limit(limit)
     )

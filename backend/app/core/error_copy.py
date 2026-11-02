@@ -81,6 +81,8 @@ ErrorKey = Literal[
     "health_consent_required",
     "health_consent_version_stale",
     "plan_health_data_removed",
+    # ── Households (app/services/fridge_service.py lock_kitchen) ────────────
+    "household_changed",
     # ── Meal plans (app/api/plan.py) ───────────────────────────────────────
     "plan_not_found",
     "plan_data_unreadable",
@@ -212,6 +214,7 @@ _EN: Final[dict[str, str]] = {
         "regenerating it could not take them into account. Create a new plan "
         "instead."
     ),
+    "household_changed": "Your household changed while this was saving. Reload the page and try again.",
     "plan_not_found": "Plan not found",
     "plan_data_unreadable": "Stored plan data could not be loaded.",
     "plan_data_inconsistent": "Stored plan data is inconsistent; edit aborted.",
@@ -393,6 +396,7 @@ _CS: Final[dict[str, str]] = {
         "kterým se chcete vyhnout, takže by k nim nové generování nemohlo "
         "přihlédnout. Vytvořte místo toho nový jídelníček."
     ),
+    "household_changed": "Vaše domácnost se mezitím změnila. Obnovte stránku a zkuste to znovu.",
     "plan_not_found": "Jídelníček nenalezen",
     "plan_data_unreadable": "Uložená data jídelníčku se nepodařilo načíst.",
     "plan_data_inconsistent": (

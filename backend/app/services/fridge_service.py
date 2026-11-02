@@ -11,15 +11,17 @@ from datetime import date, timedelta
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, SessionTransaction
-from sqlmodel import delete, select
+from sqlmodel import col, delete, select
 
-from app.models.db_models import StockItem, WasteRecord
+from app.core.errors import LocalizedHTTPException
+from app.models.db_models import StockItem, User, WasteRecord
 from app.models.plan_models import (
     ConsumedBatch,
     IngredientAmount,
     StockItemDTO,
     WasteEntryDTO,
 )
+from app.services.kitchen import HouseholdId, Kitchen
 
 __all__ = [
     "allocate_fifo",
@@ -34,15 +36,21 @@ __all__ = [
     "subtract_ingredients_from_fridge",
 ]
 
-# First half of the (namespace, user_id) advisory-lock key, so this lock can't
-# collide with any other pg_advisory lock taken on the same database. "KTCH".
+# First half of the (namespace, household_id) advisory-lock key, so this lock
+# can't collide with any other pg_advisory lock taken on the same database.
+# "KTCH". household_01 made household id = user id for every account that
+# existed then, so the key value did not change for them when it moved from the
+# user to the household.
 _KITCHEN_LOCK_NAMESPACE = 0x4B544348
-# session.info key recording which user's kitchen THIS transaction has locked.
-_KITCHEN_LOCKED = "kitchen_locked_user_id"
+# session.info key recording which household's kitchen THIS transaction locked.
+_KITCHEN_LOCKED = "kitchen_locked_household_id"
 
 
-async def lock_kitchen(session: AsyncSession, user_id: int) -> None:
-    """Serialize this user's fridge and plan-state writes. Call it FIRST.
+async def lock_kitchen(session: AsyncSession, kitchen: Kitchen) -> None:
+    """Serialize this household's fridge and plan-state writes. Call it FIRST.
+
+    Keyed on the household, not the member: two members writing at once (Finish
+    on one phone, Merge on the other) are exactly the race below.
 
     replace_fridge_items rewrites the whole fridge (delete every row, insert the
     new list), and every caller computes that list from an earlier read. Two such
@@ -61,10 +69,18 @@ async def lock_kitchen(session: AsyncSession, user_id: int) -> None:
     the fridge, not just before writing. Never hold it across an LLM call.
     """
     await session.execute(
-        text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), CAST(:uid AS integer))"),
-        {"ns": _KITCHEN_LOCK_NAMESPACE, "uid": user_id},
+        text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), CAST(:key AS integer))"),
+        {"ns": _KITCHEN_LOCK_NAMESPACE, "key": kitchen.household_id},
     )
-    session.info[_KITCHEN_LOCKED] = user_id
+    # Re-read membership under the lock: joining or leaving takes this lock too,
+    # so a member who moved while this request waited would otherwise write into
+    # a household they have left.
+    current = (
+        await session.execute(select(User.household_id).where(col(User.id) == kitchen.user_id))
+    ).scalar_one_or_none()
+    if current != kitchen.household_id:
+        raise LocalizedHTTPException(409, "household_changed")
+    session.info[_KITCHEN_LOCKED] = kitchen.household_id
 
 
 @event.listens_for(Session, "after_transaction_end")
@@ -163,7 +179,7 @@ def flatten_fridge_batches(
 
 
 async def get_fridge_items(
-    session: AsyncSession, user_id: int, need_to_use_enabled: bool = True,
+    session: AsyncSession, household_id: HouseholdId, need_to_use_enabled: bool = True,
 ) -> list[StockItemDTO]:
     """Return fridge items to the user in API schema form. Auto-ticks near-expiry items.
 
@@ -173,7 +189,9 @@ async def get_fridge_items(
     the underlying StockItem rows ever being touched, so re-enabling instantly
     restores whatever was there before.
     """
-    result = await session.execute(select(StockItem).where(StockItem.user_id == user_id))
+    result = await session.execute(
+        select(StockItem).where(col(StockItem.household_id) == household_id)
+    )
     rows = result.scalars().all()
 
     today = date.today()
@@ -194,7 +212,7 @@ async def get_fridge_items(
 
 async def replace_fridge_items(
     session: AsyncSession,
-    user_id: int,
+    household_id: HouseholdId,
     items: list[StockItemDTO],
     commit: bool = True,
     need_to_use_enabled: bool = True,
@@ -222,17 +240,20 @@ async def replace_fridge_items(
     A key with no existing match by either (a genuinely new item) has no
     stored value to preserve, so it falls back to False.
 
-    The caller must hold ``lock_kitchen`` for ``user_id`` in this transaction,
+    The caller must hold ``lock_kitchen`` for this household in this transaction,
     taken before it read whatever ``items`` was computed from. Writing without
     it raises: an unlocked whole-fridge rewrite races every other writer.
     """
-    if session.info.get(_KITCHEN_LOCKED) != user_id:
+    if session.info.get(_KITCHEN_LOCKED) != household_id:
         raise RuntimeError(
-            f"replace_fridge_items(user_id={user_id}) without lock_kitchen() in this transaction"
+            f"replace_fridge_items(household_id={household_id}) without lock_kitchen() "
+            "in this transaction"
         )
     if not need_to_use_enabled:
         existing = (
-            await session.execute(select(StockItem).where(StockItem.user_id == user_id))
+            await session.execute(
+                select(StockItem).where(col(StockItem.household_id) == household_id)
+            )
         ).scalars().all()
         stored_by_id: dict[int, bool] = {
             r.id: r.need_to_use for r in existing if r.id is not None
@@ -257,7 +278,7 @@ async def replace_fridge_items(
 
         items = [it.model_copy(update={"need_to_use": _preserved(it)}) for it in items]
 
-    await session.execute(delete(StockItem).where(StockItem.user_id == user_id))  # type: ignore[arg-type]
+    await session.execute(delete(StockItem).where(col(StockItem.household_id) == household_id))
 
     for it in items:
         qty = float(it.quantity_grams or 0.0)
@@ -266,7 +287,7 @@ async def replace_fridge_items(
 
         session.add(
             StockItem(
-                user_id=user_id,
+                household_id=household_id,
                 name=it.name,
                 quantity_grams=qty,
                 need_to_use=it.need_to_use,
@@ -276,18 +297,18 @@ async def replace_fridge_items(
 
     if commit:
         await session.commit()
-    return await get_fridge_items(session, user_id, need_to_use_enabled)
+    return await get_fridge_items(session, household_id, need_to_use_enabled)
 
 
 async def restore_consumed_batches(
-    session: AsyncSession, user_id: int, batches: list[ConsumedBatch],
+    session: AsyncSession, household_id: HouseholdId, batches: list[ConsumedBatch],
 ) -> list[StockItemDTO]:
     """Add ConsumedBatch entries back into the fridge, preserving each batch's
     expiration_date and need_to_use. Merges into an existing fridge bucket keyed
     by (name.lower(), expiration_date); creates a fresh bucket otherwise."""
-    existing = await get_fridge_items(session, user_id)
+    existing = await get_fridge_items(session, household_id)
     merged = merge_into_fridge_buckets(existing, batches)
-    return await replace_fridge_items(session, user_id, merged, commit=False)
+    return await replace_fridge_items(session, household_id, merged, commit=False)
 
 
 def allocate_fifo(
@@ -338,11 +359,11 @@ def group_and_sort_fridge(items: list[StockItemDTO]) -> dict[str, list[StockItem
 
 
 async def subtract_ingredients_from_fridge(
-    session: AsyncSession, user_id: int, ingredients: list[IngredientAmount],
+    session: AsyncSession, household_id: HouseholdId, ingredients: list[IngredientAmount],
 ) -> list[StockItemDTO]:
     """Subtract ingredient amounts from fridge using FIFO (earliest-expiring first)."""
-    existing = await get_fridge_items(session, user_id)
+    existing = await get_fridge_items(session, household_id)
     by_name = group_and_sort_fridge(existing)
     allocate_fifo(by_name, ingredients)
     updated = [item for batches in by_name.values() for item in batches if item.quantity_grams > 0]
-    return await replace_fridge_items(session, user_id, updated, commit=False)
+    return await replace_fridge_items(session, household_id, updated, commit=False)

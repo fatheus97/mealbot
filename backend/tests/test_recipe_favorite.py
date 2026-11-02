@@ -54,7 +54,7 @@ class TestFavoriteRecipe:
 
         # MealEntry persisted with is_favorite=True, cooked_at=NULL
         result = await db_session.execute(
-            select(MealEntry).where(MealEntry.user_id == test_user.id)
+            select(MealEntry).where(MealEntry.household_id == test_user.household_id)
         )
         entries = result.scalars().all()
         assert len(entries) == 1
@@ -76,9 +76,9 @@ class TestFavoriteRecipe:
         """Pinning the contract: starring a not-yet-cooked recipe doesn't
         consume fridge stock. Only the explicit cook flow debits the fridge.
         """
-        assert test_user.id is not None
+        assert test_user.household_id is not None
         db_session.add(StockItem(
-            user_id=test_user.id, name="chicken", quantity_grams=500,
+            household_id=test_user.household_id, name="chicken", quantity_grams=500,
         ))
         await db_session.flush()
 
@@ -93,7 +93,7 @@ class TestFavoriteRecipe:
         )
 
         result = await db_session.execute(
-            select(StockItem).where(StockItem.user_id == test_user.id),
+            select(StockItem).where(StockItem.household_id == test_user.household_id),
         )
         stock = result.scalars().all()
         assert len(stock) == 1
@@ -122,10 +122,11 @@ class TestFavoriteRecipe:
         )
 
         result = await db_session.execute(
-            select(MealPlan).where(MealPlan.user_id == test_user.id),
+            select(MealPlan).where(MealPlan.household_id == test_user.household_id),
         )
         plans = result.scalars().all()
         assert len(plans) == 1
+        assert plans[0].created_by_user_id == test_user.id
         assert plans[0].kind == "cook_now"
         assert plans[0].confirmed_at is not None
 
@@ -156,7 +157,7 @@ class TestFavoriteRecipe:
         assert resp.json()["meal_type"] == "soup"
 
         result = await db_session.execute(
-            select(MealEntry).where(MealEntry.user_id == test_user.id),
+            select(MealEntry).where(MealEntry.household_id == test_user.household_id),
         )
         entries = result.scalars().all()
         assert len(entries) == 1

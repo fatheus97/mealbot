@@ -1,6 +1,7 @@
-"""Cookbook endpoints: the user's saved (favorited) recipes.
+"""Cookbook endpoints: the household's saved (favorited) recipes.
 
-Backed by MealEntry rows where is_favorite=TRUE. Returns full PlannedMeal
+Backed by MealEntry rows where is_favorite=TRUE, shared by every member of the
+caller's household (one bit per meal). Returns full PlannedMeal
 details (ingredients + steps) so the frontend's spread view doesn't need a
 second fetch per recipe — for a cap of a few hundred favorites per user the
 payload is small enough to pre-load.
@@ -14,7 +15,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.api.deps import get_current_user
 from app.core.errors import LocalizedHTTPException
@@ -27,6 +28,7 @@ from app.models.plan_models import (
     CookbookListResponse,
     PlannedMeal,
 )
+from app.services.kitchen import Kitchen
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +72,10 @@ async def list_cookbook(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> CookbookListResponse:
-    """Return the user's favorites, paginated, newest first."""
+    """Return the household's favorites, paginated, newest first."""
+    kitchen = Kitchen.of(current_user)
     filters = [
-        MealEntry.user_id == current_user.id,
+        col(MealEntry.household_id) == kitchen.household_id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     ]
     if q:
@@ -126,8 +129,9 @@ async def cookbook_count(
     indirectly informs the user when they're approaching the cookbook-only
     RAG threshold (settings.rag_cookbook_threshold).
     """
+    kitchen = Kitchen.of(current_user)
     stmt = select(func.count()).select_from(MealEntry).where(
-        MealEntry.user_id == current_user.id,
+        col(MealEntry.household_id) == kitchen.household_id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     )
     count = (await session.execute(stmt)).scalar() or 0
@@ -150,8 +154,12 @@ async def remove_from_cookbook(
     plan_id isn't on screen. Returns the updated cookbook count for the
     badge to update without an extra round-trip.
     """
+    kitchen = Kitchen.of(current_user)
+    # No plan_id here, so not load_entry; same rule: another household's id
+    # answers 404 exactly like a missing one. Unlocked on purpose (a benign
+    # single-row writer, docs/household-design.md).
     entry = await session.get(MealEntry, meal_entry_id)
-    if not entry or entry.user_id != current_user.id:
+    if entry is None or entry.household_id != kitchen.household_id:
         raise LocalizedHTTPException(404, "cookbook_recipe_not_found")
 
     if entry.is_favorite:
@@ -161,7 +169,7 @@ async def remove_from_cookbook(
         await session.commit()
 
     stmt = select(func.count()).select_from(MealEntry).where(
-        MealEntry.user_id == current_user.id,
+        col(MealEntry.household_id) == kitchen.household_id,
         MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
     )
     count = (await session.execute(stmt)).scalar() or 0

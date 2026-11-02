@@ -9,11 +9,15 @@ shopping-list computation excludes.
 The HTTP handlers in ``app.api.pantry`` are thin wrappers over these functions;
 tests import the pure helpers directly.
 """
+from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, select
 
 from app.models.db_models import PantryStaple
 from app.models.plan_models import PantryStapleDTO
+from app.services.fridge_service import _KITCHEN_LOCKED
+from app.services.kitchen import HouseholdId
 
 __all__ = [
     "get_staples",
@@ -22,10 +26,12 @@ __all__ = [
 ]
 
 
-async def get_staples(session: AsyncSession, user_id: int) -> list[PantryStapleDTO]:
-    """Return a user's staples in API schema form, oldest first (insertion order)."""
+async def get_staples(session: AsyncSession, household_id: HouseholdId) -> list[PantryStapleDTO]:
+    """Return a household's staples in API schema form, oldest first (insertion order)."""
     result = await session.execute(
-        select(PantryStaple).where(col(PantryStaple.user_id) == user_id).order_by(col(PantryStaple.id))
+        select(PantryStaple)
+        .where(col(PantryStaple.household_id) == household_id)
+        .order_by(col(PantryStaple.id))
     )
     return [PantryStapleDTO(name=r.name) for r in result.scalars().all()]
 
@@ -34,10 +40,11 @@ def _dedup_normalized(items: list[PantryStapleDTO]) -> list[str]:
     """Strip each name, drop blanks, and dedup case-insensitively — keeping the
     first occurrence's display casing.
 
-    The replace-all write path plus this dedup is what guarantees no duplicate
-    rows, so the table carries no unique constraint. Case-insensitive because the
-    shopping-list match is case-insensitive: storing both "Salt" and "salt" would
-    be a pointless duplicate that excludes exactly the same ingredient.
+    Case-insensitive because the shopping-list match is case-insensitive:
+    storing both "Salt" and "salt" would be a pointless duplicate that excludes
+    exactly the same ingredient. Python's lower() is not the database's (Greek
+    final sigma, dotted I), so this only trims the obvious duplicates; the
+    insert in replace_staples lets the unique index have the last word.
     """
     seen: set[str] = set()
     names: list[str] = []
@@ -54,21 +61,43 @@ def _dedup_normalized(items: list[PantryStapleDTO]) -> list[str]:
 
 
 async def replace_staples(
-    session: AsyncSession, user_id: int, items: list[PantryStapleDTO], commit: bool = True,
+    session: AsyncSession,
+    household_id: HouseholdId,
+    items: list[PantryStapleDTO],
+    commit: bool = True,
 ) -> list[PantryStapleDTO]:
-    """Replace a user's staples (delete old, insert new). Mirrors
-    ``replace_fridge_items``' PUT semantics."""
+    """Replace a household's staples (delete old, insert new). Mirrors
+    ``replace_fridge_items``' PUT semantics, its lock rule included: the caller
+    must hold ``lock_kitchen`` for this household, or two members' whole-list
+    writes would interleave."""
+    if session.info.get(_KITCHEN_LOCKED) != household_id:
+        raise RuntimeError(
+            f"replace_staples(household_id={household_id}) without lock_kitchen() "
+            "in this transaction"
+        )
     await session.execute(
-        delete(PantryStaple).where(col(PantryStaple.user_id) == user_id)
+        delete(PantryStaple).where(col(PantryStaple.household_id) == household_id)
     )
-    for name in _dedup_normalized(items):
-        session.add(PantryStaple(user_id=user_id, name=name))
+    names = _dedup_normalized(items)
+    if names:
+        # Rows go in input order and a later row the index calls a duplicate of
+        # an earlier one is skipped, so the first casing wins as in the dedup.
+        await session.execute(
+            pg_insert(PantryStaple)
+            .values([{"household_id": household_id, "name": n} for n in names])
+            .on_conflict_do_nothing(
+                index_elements=[
+                    col(PantryStaple.household_id),
+                    func.lower(col(PantryStaple.name)),
+                ]
+            )
+        )
     if commit:
         await session.commit()
-    return await get_staples(session, user_id)
+    return await get_staples(session, household_id)
 
 
-async def load_staple_keys(session: AsyncSession, user_id: int) -> frozenset[str]:
+async def load_staple_keys(session: AsyncSession, household_id: HouseholdId) -> frozenset[str]:
     """The lowercased staple-name set the shopping-list computation excludes.
 
     Keyed with ``.strip().lower()`` to match ``compute_shopping_list_from_plan``'s
@@ -76,6 +105,6 @@ async def load_staple_keys(session: AsyncSession, user_id: int) -> frozenset[str
     name is already stripped on write, but this stays robust to legacy rows).
     """
     result = await session.execute(
-        select(col(PantryStaple.name)).where(col(PantryStaple.user_id) == user_id)
+        select(col(PantryStaple.name)).where(col(PantryStaple.household_id) == household_id)
     )
     return frozenset(name.strip().lower() for name in result.scalars().all())

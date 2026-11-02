@@ -38,9 +38,11 @@ ENDPOINT = "/api/users/export"
 
 async def _seed(db_session: AsyncSession, user: User) -> None:
     uid = user.id
-    assert uid is not None
+    hid = user.household_id
+    assert uid is not None and hid is not None
     plan = MealPlan(
-        user_id=uid,
+        household_id=hid,
+        created_by_user_id=uid,
         days=2,
         meals_per_day=1,
         people_count=2,
@@ -55,7 +57,7 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
     db_session.add_all(
         [
             MealEntry(
-                user_id=uid,
+                household_id=hid,
                 meal_plan_id=plan.id,
                 day_index=1,
                 meal_index=1,
@@ -65,13 +67,13 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
                 is_favorite=True,
             ),
             StockItem(
-                user_id=uid,
+                household_id=hid,
                 name="carrot",
                 quantity_grams=250.0,
                 need_to_use=True,
                 expiration_date=date(2026, 8, 10),
             ),
-            PantryStaple(user_id=uid, name="salt"),
+            PantryStaple(household_id=hid, name="salt"),
             FeedbackReport(
                 user_id=uid,
                 kind="bug",
@@ -210,10 +212,11 @@ class TestExportContents:
         # Legacy/truncated rows exist. One bad blob must not fail the whole
         # export — the fallback keeps it as the raw string.
         uid = test_user.id
-        assert uid is not None
+        assert uid is not None and test_user.household_id is not None
         db_session.add(
             MealPlan(
-                user_id=uid,
+                household_id=test_user.household_id,
+                created_by_user_id=uid,
                 days=1,
                 meals_per_day=1,
                 people_count=1,
@@ -259,11 +262,13 @@ class TestExportLeaksNothing:
         )
         db_session.add(stranger)
         await db_session.flush()
-        assert stranger.id is not None
+        assert stranger.id is not None and stranger.household_id is not None
         db_session.add_all(
             [
-                StockItem(user_id=stranger.id, name="not-yours", quantity_grams=1.0),
-                PantryStaple(user_id=stranger.id, name="stranger-staple"),
+                StockItem(
+                    household_id=stranger.household_id, name="not-yours", quantity_grams=1.0
+                ),
+                PantryStaple(household_id=stranger.household_id, name="stranger-staple"),
                 SaleRecord(
                     stripe_invoice_id="in_stranger",
                     user_id=stranger.id,
@@ -290,12 +295,14 @@ class TestExportLeaksNothing:
             assert forbidden not in raw, forbidden
 
 
-# Where each table holding a foreign key to "user" goes in the export: a section
+# Where each table linked to a user by foreign keys goes in the export: a section
 # of the payload, or "excluded" when a line of the payload's own `excluded` list
-# names it. A new table with a user FK fails the test below until it is placed
-# here, so it cannot drop out of the export unnoticed. AdminAuditLog and
-# TrialFingerprint hold user ids by value, not by FK, so this cannot see them;
-# `excluded` names both.
+# names it. Linked means an FK path to "user" or to "household": the kitchen
+# tables reach a user only through the household, and a meal only through its
+# plan. A new linked table fails the test below until it is placed here, so it
+# cannot drop out of the export unnoticed. AdminAuditLog and TrialFingerprint
+# hold user ids by value, not by FK, so this cannot see them; `excluded` names
+# both.
 _TABLE_COVERAGE = {
     "mealplan": "plans",
     "mealentry": "meals",
@@ -316,13 +323,19 @@ _TABLE_COVERAGE = {
 }
 
 
-def test_every_table_with_a_user_fk_is_exported_or_excluded() -> None:
-    linked = {
-        table.name
-        for table in SQLModel.metadata.tables.values()
-        for fk in table.foreign_keys
-        if fk.column.table.name == "user"
-    }
+def test_every_table_linked_to_a_user_is_exported_or_excluded() -> None:
+    tables = SQLModel.metadata.tables.values()
+    roots = {"user", "household"}
+    linked: set[str] = set()
+    frontier = set(roots)
+    while frontier:
+        frontier = {
+            table.name
+            for table in tables
+            if table.name not in linked | roots
+            and any(fk.column.table.name in frontier for fk in table.foreign_keys)
+        }
+        linked |= frontier
     assert linked == set(_TABLE_COVERAGE)
     sections = set(UserDataExport.model_fields)
     for table, where in _TABLE_COVERAGE.items():

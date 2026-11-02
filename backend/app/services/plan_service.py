@@ -19,9 +19,9 @@ from typing import Literal
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete
+from sqlalchemy import delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.config import settings
 from app.llm.client import first_choice
@@ -47,6 +47,7 @@ from app.services.fridge_service import (
     replace_fridge_items,
     restore_consumed_batches,
 )
+from app.services.kitchen import HouseholdId, Kitchen
 from app.services.leftovers import (
     LeftoverAssignment,
     leftover_display_name,
@@ -210,7 +211,7 @@ def batches_from_entry(entry: MealEntry) -> list[ConsumedBatch]:
 
 
 async def _restore_entries(
-    session: AsyncSession, user_id: int, entries: Iterable[MealEntry]
+    session: AsyncSession, household_id: HouseholdId, entries: Iterable[MealEntry]
 ) -> None:
     """Restore every entry's confirm-time consumed batches to the fridge in a
     single rewrite (no-op when there's nothing to restore).
@@ -223,11 +224,11 @@ async def _restore_entries(
     for entry in entries:
         batches_to_restore.extend(batches_from_entry(entry))
     if batches_to_restore:
-        await restore_consumed_batches(session, user_id, batches_to_restore)
+        await restore_consumed_batches(session, household_id, batches_to_restore)
 
 
 async def confirm_plan_fridge(
-    session: AsyncSession, user_id: int, plan: MealPlan, plan_obj: MealPlanResponse,
+    session: AsyncSession, household_id: HouseholdId, plan: MealPlan, plan_obj: MealPlanResponse,
 ) -> None:
     """FIFO-debit the fridge per meal, persist the confirmed MealEntry rows, and
     mark the plan confirmed. Staged only — the CALLER commits (atomicity: the
@@ -239,7 +240,7 @@ async def confirm_plan_fridge(
     is the caller's guard).
     """
     assert plan.id is not None  # loaded plan always has an id
-    fridge = await get_fridge_items(session, user_id)
+    fridge = await get_fridge_items(session, household_id)
     batches_by_name = group_and_sort_fridge(fridge)
     snapshots: dict[tuple[int, int], list[ConsumedBatch]] = {}
     for day_index, day in enumerate(plan_obj.days, start=1):
@@ -264,10 +265,10 @@ async def confirm_plan_fridge(
                 batches_by_name, meal_ingredients
             )
     await replace_fridge_items(
-        session, user_id, flatten_fridge_batches(batches_by_name), commit=False
+        session, household_id, flatten_fridge_batches(batches_by_name), commit=False
     )
     persist_meal_entries(
-        session, user_id=user_id, plan_id=plan.id, plan_obj=plan_obj,
+        session, household_id=household_id, plan_id=plan.id, plan_obj=plan_obj,
         cooked_at=None, consumption_snapshots=snapshots,
     )
     plan.confirmed_at = datetime.now(UTC)
@@ -275,7 +276,7 @@ async def confirm_plan_fridge(
 
 
 async def unconfirm_plan_fridge(
-    session: AsyncSession, user_id: int, plan: MealPlan,
+    session: AsyncSession, household_id: HouseholdId, plan: MealPlan,
 ) -> None:
     """Reverse a confirm: restore every entry's consumed batches to the fridge,
     delete the MealEntry rows (re-confirm rebuilds them from response_json), and
@@ -289,7 +290,7 @@ async def unconfirm_plan_fridge(
         )
     ).scalars().all()
 
-    await _restore_entries(session, user_id, entries)
+    await _restore_entries(session, household_id, entries)
 
     await session.execute(
         delete(MealEntry).where(MealEntry.meal_plan_id == plan.id)  # type: ignore[arg-type]
@@ -299,7 +300,7 @@ async def unconfirm_plan_fridge(
 
 
 async def finish_plan_fridge(
-    session: AsyncSession, user_id: int, plan: MealPlan,
+    session: AsyncSession, household_id: HouseholdId, plan: MealPlan,
 ) -> int:
     """Return uncooked meals' ingredients to the fridge and mark the plan
     finished. Returns the count of returned (uncooked) meals for the response.
@@ -319,7 +320,7 @@ async def finish_plan_fridge(
         )
     ).scalars().all()
 
-    await _restore_entries(session, user_id, uncooked_entries)
+    await _restore_entries(session, household_id, uncooked_entries)
 
     plan.finished_at = datetime.now(UTC)
     session.add(plan)
@@ -330,7 +331,7 @@ async def finish_plan_fridge(
 
 
 async def reopen_plan_fridge(
-    session: AsyncSession, user_id: int, plan: MealPlan,
+    session: AsyncSession, household_id: HouseholdId, plan: MealPlan,
 ) -> None:
     """Reverse a finish: re-debit the fridge for uncooked meals (re-allocated
     fresh against current stock), rewrite each entry's snapshot, clear
@@ -365,7 +366,7 @@ async def reopen_plan_fridge(
     # One shared fridge view so meals don't double-spend a batch; per-entry FIFO
     # mutates batches_by_name in place. Detect shortage per ingredient name
     # (a recipe can list a name twice) with a float epsilon on grams.
-    fridge = await get_fridge_items(session, user_id)
+    fridge = await get_fridge_items(session, household_id)
     batches_by_name = group_and_sort_fridge(fridge)
     new_snapshots: list[list[ConsumedBatch]] = []
     for targets in targets_per_entry:
@@ -388,7 +389,7 @@ async def reopen_plan_fridge(
         new_snapshots.append(allocations)
 
     await replace_fridge_items(
-        session, user_id, flatten_fridge_batches(batches_by_name), commit=False
+        session, household_id, flatten_fridge_batches(batches_by_name), commit=False
     )
     for entry, snapshot in zip(uncooked_entries, new_snapshots, strict=True):
         entry.consumed_snapshot_json = json.dumps(
@@ -401,7 +402,7 @@ async def reopen_plan_fridge(
 
 def persist_meal_entries(
     session: AsyncSession,
-    user_id: int,
+    household_id: HouseholdId,
     plan_id: int,
     plan_obj: MealPlanResponse,
     cooked_at: datetime | None = None,
@@ -436,7 +437,7 @@ def persist_meal_entries(
             lo_day, lo_meal = _ref_to_entry_coords(meal.leftover_of)
             entries.append(
                 MealEntry(
-                    user_id=user_id,
+                    household_id=household_id,
                     meal_plan_id=plan_id,
                     day_index=day_index,
                     meal_index=meal_index,
@@ -584,8 +585,9 @@ async def generate_plan_days(
     if user.id is None:
         raise ValueError("generate_plan_days requires a persisted user")
 
+    kitchen = Kitchen.of(user)
     result = await session.execute(
-        select(StockItem).where(StockItem.user_id == user.id)
+        select(StockItem).where(col(StockItem.household_id) == kitchen.household_id)
     )
     db_items = result.scalars().all()
 
@@ -678,7 +680,7 @@ async def generate_plan_days(
                 if settings.use_rag:
                     try:
                         single_day = await generate_single_day_with_rag(
-                            day_req, session, user.id, mock=user.is_demo,
+                            day_req, session, kitchen.household_id, mock=user.is_demo,
                             slot_layout=slot_layout, slot_portions=slot_portions,
                         )
                     except ScreenError:
@@ -762,7 +764,7 @@ async def generate_plan_days(
     # Per-user "always have" staples are dropped from the list at generation
     # time (never on read), so older plans' frozen lists are untouched. The
     # user's include_spices preference is honored here deterministically too.
-    staple_keys = await load_staple_keys(session, user.id)
+    staple_keys = await load_staple_keys(session, kitchen.household_id)
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(
         meal_plan, initial_fridge, staples=staple_keys, include_spices=user.include_spices
     )
@@ -778,26 +780,24 @@ async def generate_plan_days(
     return meal_plan, shopping_items, initial_fridge
 
 
-async def clear_unconfirmed_plans(session: AsyncSession, user_id: int) -> None:
-    """Delete this user's unconfirmed plans + their meal entries.
+async def clear_unconfirmed_plans(session: AsyncSession, kitchen: Kitchen) -> None:
+    """Delete this member's unconfirmed plans (drafts) and their meal entries.
 
-    Used before creating a new plan so we don't accumulate orphans.
-    Staged in the session; caller commits.
+    Drafts are per member: generating a plan never deletes the partner's draft
+    in the same household. Drafts whose creator was deleted (created_by_user_id
+    NULL) belong to nobody and go too, so they cannot pile up.
+
+    Used before creating a new plan so we don't accumulate orphans. Entries go
+    with their plan through the composite FK's ON DELETE CASCADE. Staged in the
+    session; caller commits.
     """
     await session.execute(
-        delete(MealEntry).where(
-            MealEntry.user_id == user_id,  # type: ignore[arg-type]
-            MealEntry.meal_plan_id.in_(  # type: ignore[attr-defined]
-                select(MealPlan.id).where(
-                    MealPlan.user_id == user_id,
-                    MealPlan.confirmed_at.is_(None),  # type: ignore[union-attr]
-                )
-            ),
-        )
-    )
-    await session.execute(
         delete(MealPlan).where(
-            MealPlan.user_id == user_id,  # type: ignore[arg-type]
-            MealPlan.confirmed_at.is_(None),  # type: ignore[union-attr]
+            col(MealPlan.household_id) == kitchen.household_id,
+            col(MealPlan.confirmed_at).is_(None),
+            or_(
+                col(MealPlan.created_by_user_id) == kitchen.user_id,
+                col(MealPlan.created_by_user_id).is_(None),
+            ),
         )
     )

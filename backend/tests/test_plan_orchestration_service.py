@@ -25,6 +25,7 @@ from app.models.plan_models import (
     SingleDayResponse,
 )
 from app.services.fridge_service import lock_kitchen
+from app.services.kitchen import HouseholdId, Kitchen
 from app.services.leftovers import LeftoverAssignment
 from app.services.plan_service import (
     PlanReopenShortageError,
@@ -67,13 +68,16 @@ _PLAN_OBJ = MealPlanResponse(
 
 
 async def _seed(
-    session: AsyncSession, user_id: int, stock: list[tuple[str, float]]
+    session: AsyncSession, kitchen: Kitchen, stock: list[tuple[str, float]]
 ) -> MealPlan:
     """Insert fridge stock + an unconfirmed 1-day/2-meal plan; return the plan."""
     for name, grams in stock:
-        session.add(StockItem(user_id=user_id, name=name, quantity_grams=grams))
+        session.add(
+            StockItem(household_id=kitchen.household_id, name=name, quantity_grams=grams)
+        )
     plan = MealPlan(
-        user_id=user_id,
+        household_id=kitchen.household_id,
+        created_by_user_id=kitchen.user_id,
         days=1,
         meals_per_day=2,
         people_count=1,
@@ -86,10 +90,10 @@ async def _seed(
     return plan
 
 
-async def _fridge(session: AsyncSession, user_id: int) -> dict[str, float]:
+async def _fridge(session: AsyncSession, household_id: HouseholdId) -> dict[str, float]:
     rows = (
         await session.execute(
-            select(StockItem).where(StockItem.user_id == user_id)
+            select(StockItem).where(StockItem.household_id == household_id)
         )
     ).scalars().all()
     out: dict[str, float] = {}
@@ -114,14 +118,14 @@ class TestConfirmPlanFridge:
     async def test_debits_fridge_excludes_spice_and_snapshots_each_meal(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        assert test_user.id is not None
-        plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed(db_session, kitchen, [("rice", 500), ("pasta", 400)])
 
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _PLAN_OBJ)
         await db_session.commit()
 
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 300  # 500 - 200
         assert fridge["pasta"] == 250  # 400 - 150
         assert "salt" not in fridge  # spice never touched the fridge
@@ -137,19 +141,19 @@ class TestUnconfirmPlanFridge:
     async def test_restores_fridge_deletes_entries_clears_confirmed(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        assert test_user.id is not None
-        plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed(db_session, kitchen, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _PLAN_OBJ)
         await db_session.commit()
 
-        await lock_kitchen(db_session, test_user.id)
-        await unconfirm_plan_fridge(db_session, test_user.id, plan)
+        await lock_kitchen(db_session, kitchen)
+        await unconfirm_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
 
         assert plan.confirmed_at is None
         assert await _entries(db_session, plan.id) == []  # type: ignore[arg-type]
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 500  # fully restored
         assert fridge["pasta"] == 400
 
@@ -158,10 +162,10 @@ class TestFinishPlanFridge:
     async def test_returns_uncooked_count_and_restores_only_uncooked(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        assert test_user.id is not None
-        plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed(db_session, kitchen, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _PLAN_OBJ)
         await db_session.commit()
 
         # Cook the rice meal: finish must NOT return its ingredients to the fridge.
@@ -170,13 +174,13 @@ class TestFinishPlanFridge:
         db_session.add(entries[0])
         await db_session.commit()
 
-        await lock_kitchen(db_session, test_user.id)
-        returned = await finish_plan_fridge(db_session, test_user.id, plan)
+        await lock_kitchen(db_session, kitchen)
+        returned = await finish_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
 
         assert returned == 1  # only the uncooked pasta meal
         assert plan.finished_at is not None
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 300  # cooked → stays consumed
         assert fridge["pasta"] == 400  # uncooked → restored
 
@@ -189,19 +193,19 @@ class TestReopenPlanFridge:
         PlanReopenShortageError *before* the fridge is rewritten, so a partial
         allocation (rice succeeds in-memory) is never persisted and the plan
         stays finished. This is what keeps reopen atomic."""
-        assert test_user.id is not None
-        plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
-        await lock_kitchen(db_session, test_user.id)
-        await finish_plan_fridge(db_session, test_user.id, plan)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed(db_session, kitchen, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _PLAN_OBJ)
+        await lock_kitchen(db_session, kitchen)
+        await finish_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
         # Nothing was cooked, so finish restored the fridge to 500/400. Now starve
         # pasta below the 150g the pasta meal needs (rice stays plentiful).
         pasta = (
             await db_session.execute(
                 select(StockItem).where(
-                    StockItem.user_id == test_user.id, StockItem.name == "pasta"
+                    StockItem.household_id == kitchen.household_id, StockItem.name == "pasta"
                 )
             )
         ).scalars().one()
@@ -210,8 +214,8 @@ class TestReopenPlanFridge:
         await db_session.commit()
 
         with pytest.raises(PlanReopenShortageError) as exc:
-            await lock_kitchen(db_session, test_user.id)
-            await reopen_plan_fridge(db_session, test_user.id, plan)
+            await lock_kitchen(db_session, kitchen)
+            await reopen_plan_fridge(db_session, kitchen.household_id, plan)
 
         assert exc.value.ingredient_name == "pasta"
         assert exc.value.needed == 150
@@ -221,7 +225,7 @@ class TestReopenPlanFridge:
         # untouched — no rollback needed to prove it. Rice was NOT debited (its
         # in-memory FIFO allocation never reached the DB) and the plan is still
         # finished. A partial-write bug would show rice at 300 here.
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 500  # untouched — no partial write
         assert fridge["pasta"] == 100
         assert plan.finished_at is not None
@@ -229,21 +233,21 @@ class TestReopenPlanFridge:
     async def test_reopen_redebits_uncooked_and_clears_finished(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        assert test_user.id is not None
-        plan = await _seed(db_session, test_user.id, [("rice", 500), ("pasta", 400)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _PLAN_OBJ)
-        await lock_kitchen(db_session, test_user.id)
-        await finish_plan_fridge(db_session, test_user.id, plan)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed(db_session, kitchen, [("rice", 500), ("pasta", 400)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _PLAN_OBJ)
+        await lock_kitchen(db_session, kitchen)
+        await finish_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
         # Fridge restored to 500/400 by finish; reopen must re-debit both meals.
 
-        await lock_kitchen(db_session, test_user.id)
-        await reopen_plan_fridge(db_session, test_user.id, plan)
+        await lock_kitchen(db_session, kitchen)
+        await reopen_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
 
         assert plan.finished_at is None
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 300  # re-debited 200
         assert fridge["pasta"] == 250  # re-debited 150
 
@@ -252,11 +256,11 @@ class TestRestoreEntriesHelper:
     async def test_noop_on_empty_iterable(
         self, db_session: AsyncSession, test_user: User
     ) -> None:
-        assert test_user.id is not None
+        kitchen = Kitchen.of(test_user)
         # No entries → no fridge writes, no error (guards the shared restore path).
-        await _restore_entries(db_session, test_user.id, [])
+        await _restore_entries(db_session, kitchen.household_id, [])
         await db_session.commit()
-        assert await _fridge(db_session, test_user.id) == {}
+        assert await _fridge(db_session, kitchen.household_id) == {}
 
 
 # --- Leftover fridge accounting -------------------------------------------
@@ -304,12 +308,15 @@ _LEFTOVER_PLAN_OBJ = MealPlanResponse(
 
 
 async def _seed_leftover_plan(
-    session: AsyncSession, user_id: int, stock: list[tuple[str, float]]
+    session: AsyncSession, kitchen: Kitchen, stock: list[tuple[str, float]]
 ) -> MealPlan:
     for name, grams in stock:
-        session.add(StockItem(user_id=user_id, name=name, quantity_grams=grams))
+        session.add(
+            StockItem(household_id=kitchen.household_id, name=name, quantity_grams=grams)
+        )
     plan = MealPlan(
-        user_id=user_id,
+        household_id=kitchen.household_id,
+        created_by_user_id=kitchen.user_id,
         days=2,
         meals_per_day=1,
         people_count=1,
@@ -329,14 +336,14 @@ class TestLeftoverFridgeAccounting:
         """Asserts the actual StockItem rows, not confirm's return value:
         allocate_fifo fails SILENTLY on shortage, so a double-debit would
         return 200 with no error anywhere."""
-        assert test_user.id is not None
-        plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed_leftover_plan(db_session, kitchen, [("rice", 500)])
 
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 300, "leftover re-debited the source's ingredients"
 
     async def test_leftover_entry_snapshot_is_empty_list_never_null(
@@ -345,10 +352,10 @@ class TestLeftoverFridgeAccounting:
         """NULL vs "[]" is the most dangerous distinction in this feature: NULL
         falls through batches_from_entry's fallback, which reconstructs a full
         credit from meal_json and so INVENTS food that was never debited."""
-        assert test_user.id is not None
-        plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed_leftover_plan(db_session, kitchen, [("rice", 500)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
         entries = await _entries(db_session, plan.id)  # type: ignore[arg-type]
@@ -366,10 +373,10 @@ class TestLeftoverFridgeAccounting:
         """ASYMMETRIC CASE 1. The source was eaten, the leftover was not. If the
         leftover restored anything, finish would credit back grams that no longer
         physically exist — food materializing out of nothing."""
-        assert test_user.id is not None
-        plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed_leftover_plan(db_session, kitchen, [("rice", 500)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
         entries = await _entries(db_session, plan.id)  # type: ignore[arg-type]
@@ -378,11 +385,11 @@ class TestLeftoverFridgeAccounting:
         db_session.add(source)
         await db_session.commit()
 
-        await lock_kitchen(db_session, test_user.id)
-        returned = await finish_plan_fridge(db_session, test_user.id, plan)
+        await lock_kitchen(db_session, kitchen)
+        returned = await finish_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
 
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 300, "finish invented food for the leftover"
         # The leftover returns no ingredients, so it must not be counted as a
         # meal whose food went back to the fridge.
@@ -393,10 +400,10 @@ class TestLeftoverFridgeAccounting:
     ) -> None:
         """ASYMMETRIC CASE 2, the mirror. The uncooked source restores its full
         debit exactly once; the cooked leftover contributes nothing."""
-        assert test_user.id is not None
-        plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed_leftover_plan(db_session, kitchen, [("rice", 500)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
         entries = await _entries(db_session, plan.id)  # type: ignore[arg-type]
@@ -405,11 +412,11 @@ class TestLeftoverFridgeAccounting:
         db_session.add(leftover)
         await db_session.commit()
 
-        await lock_kitchen(db_session, test_user.id)
-        returned = await finish_plan_fridge(db_session, test_user.id, plan)
+        await lock_kitchen(db_session, kitchen)
+        returned = await finish_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
 
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 500, "source's debit was not restored exactly once"
         assert returned == 1  # only the source
 
@@ -419,12 +426,12 @@ class TestLeftoverFridgeAccounting:
         """A leftover must not ask for a second helping from CURRENT inventory.
         If it did, a depleted fridge would 409 forever — and since editing is
         blocked on a finished plan, the user would have no escape via the UI."""
-        assert test_user.id is not None
-        plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
-        await lock_kitchen(db_session, test_user.id)
-        await finish_plan_fridge(db_session, test_user.id, plan)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed_leftover_plan(db_session, kitchen, [("rice", 500)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _LEFTOVER_PLAN_OBJ)
+        await lock_kitchen(db_session, kitchen)
+        await finish_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
 
         # Finish restored rice to 500 (nothing cooked). Leave exactly the 200g
@@ -433,7 +440,7 @@ class TestLeftoverFridgeAccounting:
         rice = (
             await db_session.execute(
                 select(StockItem).where(
-                    StockItem.user_id == test_user.id, StockItem.name == "rice"
+                    StockItem.household_id == kitchen.household_id, StockItem.name == "rice"
                 )
             )
         ).scalars().one()
@@ -441,12 +448,12 @@ class TestLeftoverFridgeAccounting:
         db_session.add(rice)
         await db_session.commit()
 
-        await lock_kitchen(db_session, test_user.id)
-        await reopen_plan_fridge(db_session, test_user.id, plan)  # must not raise
+        await lock_kitchen(db_session, kitchen)
+        await reopen_plan_fridge(db_session, kitchen.household_id, plan)  # must not raise
         await db_session.commit()
 
         assert plan.finished_at is None
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         # Source re-debited its 200; the leftover took none.
         assert fridge.get("rice", 0) == 0
 
@@ -460,17 +467,17 @@ class TestLeftoverFridgeAccounting:
         """Included for completeness, NOT as the guard: this symmetric path
         passes even with a double-debit live, because the restore mirrors
         whatever the snapshot says. The asymmetric tests above are what bite."""
-        assert test_user.id is not None
-        plan = await _seed_leftover_plan(db_session, test_user.id, [("rice", 500)])
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, _LEFTOVER_PLAN_OBJ)
+        kitchen = Kitchen.of(test_user)
+        plan = await _seed_leftover_plan(db_session, kitchen, [("rice", 500)])
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, _LEFTOVER_PLAN_OBJ)
         await db_session.commit()
 
-        await lock_kitchen(db_session, test_user.id)
-        await unconfirm_plan_fridge(db_session, test_user.id, plan)
+        await lock_kitchen(db_session, kitchen)
+        await unconfirm_plan_fridge(db_session, kitchen.household_id, plan)
         await db_session.commit()
 
-        assert (await _fridge(db_session, test_user.id))["rice"] == 500
+        assert (await _fridge(db_session, kitchen.household_id))["rice"] == 500
 
 
 class TestLeftoverGuardsAreDefenceInDepth:
@@ -495,7 +502,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
         """model_construct bypasses the validator to build the forbidden state.
         Without the confirm-skip this debits rice twice — silently, since
         allocate_fifo never raises."""
-        assert test_user.id is not None
+        kitchen = Kitchen.of(test_user)
         bad_leftover = PlannedMeal.model_construct(
             name="Roast leftovers",
             meal_type=MealType.LIGHT_LUNCH,
@@ -520,10 +527,13 @@ class TestLeftoverGuardsAreDefenceInDepth:
         session_stock = [("rice", 500)]
         for name, grams in session_stock:
             db_session.add(
-                StockItem(user_id=test_user.id, name=name, quantity_grams=grams)
+                StockItem(
+                    household_id=kitchen.household_id, name=name, quantity_grams=grams
+                )
             )
         plan = MealPlan(
-            user_id=test_user.id,
+            household_id=kitchen.household_id,
+            created_by_user_id=kitchen.user_id,
             days=2,
             meals_per_day=1,
             people_count=1,
@@ -534,11 +544,11 @@ class TestLeftoverGuardsAreDefenceInDepth:
         db_session.add(plan)
         await db_session.flush()
 
-        await lock_kitchen(db_session, test_user.id)
-        await confirm_plan_fridge(db_session, test_user.id, plan, plan_obj)
+        await lock_kitchen(db_session, kitchen)
+        await confirm_plan_fridge(db_session, kitchen.household_id, plan, plan_obj)
         await db_session.commit()
 
-        fridge = await _fridge(db_session, test_user.id)
+        fridge = await _fridge(db_session, kitchen.household_id)
         assert fridge["rice"] == 300, "leftover's stray ingredients were debited"
 
     def test_batches_from_entry_returns_nothing_for_a_leftover_with_null_snapshot(
@@ -561,7 +571,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
             }
         )
         entry = MealEntry(
-            user_id=1,
+            household_id=1,
             meal_plan_id=1,
             day_index=2,
             meal_index=1,
@@ -593,7 +603,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
             }
         )
         entry = MealEntry(
-            user_id=1,
+            household_id=1,
             meal_plan_id=1,
             day_index=2,
             meal_index=1,
@@ -623,7 +633,7 @@ class TestLeftoverGuardsAreDefenceInDepth:
             }
         )
         entry = MealEntry(
-            user_id=1,
+            household_id=1,
             meal_plan_id=1,
             day_index=1,
             meal_index=1,
