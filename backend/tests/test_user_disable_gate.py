@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.cookies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME
+from app.core.email_normalize import normalize_email
 from app.core.security import create_access_token
 from app.models.db_models import AuthSession, User
 from tests.conftest import TEST_EMAIL, TEST_PASSWORD
@@ -17,7 +18,11 @@ from tests.conftest import TEST_EMAIL, TEST_PASSWORD
 
 class TestIsActiveDefault:
     async def test_new_user_is_active_by_default(self, db_session: AsyncSession) -> None:
-        user = User(email="fresh@example.com", hashed_password="h")
+        user = User(
+            email="fresh@example.com",
+            normalized_email=normalize_email("fresh@example.com"),
+            hashed_password="h",
+        )
         db_session.add(user)
         await db_session.flush()
         await db_session.refresh(user)

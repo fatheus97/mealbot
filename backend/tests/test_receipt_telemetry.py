@@ -18,6 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import MachineCorrection, MachineGeneration, User
 from app.models.plan_models import ReceiptScanResponse, ScannedReceiptItem
@@ -205,7 +206,11 @@ class TestMergeCorrectionCapture:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
         """Security: a foreign generation_id must not link (owner check)."""
-        other = User(email="other3@example.com", hashed_password=get_password_hash("x"))
+        other = User(
+            email="other3@example.com",
+            normalized_email=normalize_email("other3@example.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(other)
         await db_session.flush()
         assert other.id is not None
@@ -259,10 +264,18 @@ class TestGuardedCommitDegrade:
     ) -> None:
         """A failed telemetry commit must not 500 the successful scan — the items
         are returned, generation_id=None."""
-        def _bad_record(session: AsyncSession, **kw: object) -> MachineGeneration:
+        def _bad_record(
+            session: AsyncSession,
+            *,
+            user_id: int,
+            surface: str,
+            output_json: str,
+            request_json: str | None = None,
+            meal_plan_id: int | None = None,
+        ) -> MachineGeneration:
             row = MachineGeneration(
-                user_id=9_999_999, surface=kw["surface"],
-                output_json=kw["output_json"], request_json=kw.get("request_json"),
+                user_id=9_999_999, surface=surface,
+                output_json=output_json, request_json=request_json,
             )
             session.add(row)
             return row

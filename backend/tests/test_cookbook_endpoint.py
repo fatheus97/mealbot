@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import MealEntry, MealPlan, User
 
@@ -133,7 +134,11 @@ class TestCookbookList:
         self, client: AsyncClient, auth_headers: dict[str, str],
         db_session: AsyncSession, test_user: User,
     ) -> None:
-        other = User(email="other@example.com", hashed_password=get_password_hash("x"))
+        other = User(
+            email="other@example.com",
+            normalized_email=normalize_email("other@example.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(other)
         await db_session.flush()
 
@@ -200,7 +205,11 @@ class TestCookbookDelete:
         auth_headers: dict[str, str],
         db_session: AsyncSession,
     ) -> None:
-        other = User(email="stranger@example.com", hashed_password=get_password_hash("x"))
+        other = User(
+            email="stranger@example.com",
+            normalized_email=normalize_email("stranger@example.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(other)
         await db_session.flush()
 

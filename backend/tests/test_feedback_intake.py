@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import FeedbackReport, User
 from app.services.feedback_intake import FeedbackAbuse, check_abuse
@@ -38,7 +39,11 @@ async def _add_report(
 
 
 async def _make_user(session: AsyncSession, email: str) -> User:
-    user = User(email=email, hashed_password=get_password_hash("x"))
+    user = User(
+        email=email,
+        normalized_email=normalize_email(email),
+        hashed_password=get_password_hash("x"),
+    )
     session.add(user)
     await session.flush()
     assert user.id is not None

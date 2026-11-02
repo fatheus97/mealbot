@@ -7,6 +7,8 @@ the rolled-back test transaction instead of a real connection.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from enum import Enum
+from typing import Literal
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,6 +18,7 @@ from sqlmodel import select
 
 from app.core.config import settings
 from app.core.email_copy import COPY
+from app.core.email_normalize import normalize_email
 from app.core.legal import CHANGE_SUMMARY, MATERIAL_CHANGE_VERSION
 from app.core.security import get_password_hash
 from app.models.db_models import AdminAuditLog, EmailCampaignSend, User
@@ -44,10 +47,32 @@ def mail(monkeypatch: pytest.MonkeyPatch, db_session: AsyncSession) -> AsyncMock
     return mock
 
 
-async def _user(db_session: AsyncSession, email: str, **fields: object) -> User:
-    defaults: dict[str, object] = {"email_verified_at": datetime.now(UTC)}
-    defaults.update(fields)
-    user = User(email=email, hashed_password=get_password_hash(TEST_PASSWORD), **defaults)
+class _Default(Enum):
+    NOW = "now"  # "verified just now", so None can still mean unverified
+
+
+async def _user(
+    db_session: AsyncSession,
+    email: str,
+    *,
+    email_verified_at: datetime | None | Literal[_Default.NOW] = _Default.NOW,
+    terms_version: str | None = None,
+    is_active: bool = True,
+    is_demo: bool = False,
+    language: str = "English",
+) -> User:
+    user = User(
+        email=email,
+        normalized_email=normalize_email(email),
+        hashed_password=get_password_hash(TEST_PASSWORD),
+        email_verified_at=(
+            datetime.now(UTC) if email_verified_at is _Default.NOW else email_verified_at
+        ),
+        terms_version=terms_version,
+        is_active=is_active,
+        is_demo=is_demo,
+        language=language,
+    )
     db_session.add(user)
     await db_session.flush()
     return user

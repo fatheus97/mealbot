@@ -76,6 +76,7 @@ class TestFavoriteRecipe:
         """Pinning the contract: starring a not-yet-cooked recipe doesn't
         consume fridge stock. Only the explicit cook flow debits the fridge.
         """
+        assert test_user.id is not None
         db_session.add(StockItem(
             user_id=test_user.id, name="chicken", quantity_grams=500,
         ))

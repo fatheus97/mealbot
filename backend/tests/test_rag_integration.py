@@ -223,6 +223,7 @@ class TestFavoriteMealEmbedding:
         db_session.add(plan)
         await db_session.flush()
 
+        assert plan.id is not None
         entry = MealEntry(
             user_id=user_id,
             meal_plan_id=plan.id,

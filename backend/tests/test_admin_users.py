@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import User
 
@@ -18,8 +19,24 @@ async def _make_admin(db_session: AsyncSession, test_user: User) -> None:
     await db_session.flush()
 
 
-async def _seed(db_session: AsyncSession, email: str, **kw: object) -> User:
-    u = User(email=email, hashed_password=get_password_hash("Whatever123"), **kw)
+async def _seed(
+    db_session: AsyncSession,
+    email: str,
+    *,
+    is_active: bool = True,
+    is_demo: bool = False,
+    is_comped: bool = False,
+    email_verified_at: datetime | None = None,
+) -> User:
+    u = User(
+        email=email,
+        normalized_email=normalize_email(email),
+        hashed_password=get_password_hash("Whatever123"),
+        is_active=is_active,
+        is_demo=is_demo,
+        is_comped=is_comped,
+        email_verified_at=email_verified_at,
+    )
     db_session.add(u)
     await db_session.flush()
     return u

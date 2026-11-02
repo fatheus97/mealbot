@@ -60,6 +60,7 @@ async def create_ephemeral_demo_user(session: AsyncSession) -> User:
     )
     session.add(user)
     await session.flush()  # populate user.id
+    assert user.id is not None
 
     today = date.today()
     for name, grams, offset, need_to_use in _FRIDGE_SEED:

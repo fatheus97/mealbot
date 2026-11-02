@@ -17,6 +17,7 @@ from typing import Any
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import (
     FeedbackReport,
@@ -224,6 +225,7 @@ class TestExportLeaksNothing:
     ) -> None:
         stranger = User(
             email="stranger@example.com",
+            normalized_email=normalize_email("stranger@example.com"),
             hashed_password=get_password_hash("Whatever123"),
         )
         db_session.add(stranger)
