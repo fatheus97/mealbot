@@ -682,7 +682,8 @@ class WasteRecord(SQLModel, table=True):
     """One user-declared disposition of food that left the fridge: eaten, or
     thrown out.
 
-    ⚠️ WRITE-ONLY TODAY — nothing in the app reads this table. That is
+    ⚠️ WRITE-ONLY TODAY — nothing in the app reads this table except the
+    user's own data export (GDPR Art. 15), which consumes no signal. That is
     deliberate, not an unfinished half: the value of the signal is the TIME
     SERIES, and a time series cannot be backfilled. Waiting for a reader before
     capturing would mean the reader ships with an empty history. The intended
