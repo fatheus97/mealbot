@@ -4,7 +4,8 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
-from sqlalchemy import delete, func, update
+from sqlalchemy import ColumnElement, delete, func, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -1073,6 +1074,43 @@ async def cook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
+async def _store_embedding(
+    session: AsyncSession,
+    entry_id: int,
+    probe: EmbedProbe,
+    *still: ColumnElement[bool],
+) -> bool:
+    """Write a vector embedded after the commit onto its meal, if the meal is
+    still a favourite and matches ``still``. Never raises: the star or edit it
+    belongs to is already saved, and a missing or stale vector only keeps the
+    meal out of RAG, so a failed write is logged and the request answers 200.
+
+    Returns False when the write failed. The session has then been rolled
+    back, which expires EVERY instance in it (expire_on_commit=False covers
+    commit only), including the request's user and plan: reading one of their
+    attributes would lazy-load and fail on an AsyncSession. So the caller
+    builds its response before calling this, or uses one built earlier."""
+    try:
+        stored = (
+            await session.execute(
+                update(MealEntry)
+                .where(col(MealEntry.id) == entry_id, col(MealEntry.is_favorite).is_(True), *still)
+                .values(embedding=probe.embedding)
+                .returning(col(MealEntry.id))
+            )
+        ).scalar_one_or_none()
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.exception("Failed to store the embedding of meal entry %d", entry_id)
+        return False
+    if stored is None:
+        # Expected when an un-star, a later edit or a delete won the race; says
+        # why this meal's vector is not the one just computed.
+        logger.info("Embedding of meal entry %d not stored: the meal changed meanwhile", entry_id)
+    return True
+
+
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/favorite
 @router.post("/{plan_id}/meals/{meal_entry_id}/favorite", response_model=MealEntrySummary)
 @limiter.limit("20/minute", key_func=user_id_key_func)
@@ -1122,6 +1160,8 @@ async def favorite_meal(
     # up to EMBEDDING_TIMEOUT_S for the shared parse executor, and the lock must
     # never cover a wait like that.
     await session.commit()
+    # The answer if the vector write below fails and expires the session.
+    committed = MealEntrySummary.from_entry(entry)
 
     if body.is_favorite:
         # Embedded on a detached copy so the tracked entry never goes dirty: an
@@ -1139,12 +1179,8 @@ async def favorite_meal(
         else:
             # Only onto a row that is still a favourite: an un-star or a plan
             # delete that landed while this ran must not get it back.
-            await session.execute(
-                update(MealEntry)
-                .where(col(MealEntry.id) == meal_entry_id, col(MealEntry.is_favorite).is_(True))
-                .values(embedding=probe.embedding)
-            )
-            await session.commit()
+            if not await _store_embedding(session, meal_entry_id, probe):
+                return committed
     await session.refresh(entry)
 
     return MealEntrySummary.from_entry(entry)
@@ -1449,6 +1485,16 @@ async def edit_meal(
         )
 
     await session.commit()
+    # Built now, while the session's objects are still loaded: a failed vector
+    # write below rolls the session back and expires them (see _store_embedding).
+    response = MealEditResponse(
+        **updated_meal.model_dump(),
+        # The stored allergens are health data: screen with them only under
+        # a current consent (app.services.health_consent).
+        allergen_warnings=(
+            _screen_edited_meal(updated_meal, plan) if has_health_consent(current_user) else []
+        ),
+    )
 
     # A favourite's vector was built from the old name and content, so RAG
     # needs a new one. Embedded only now, with the edit committed and the
@@ -1465,25 +1511,11 @@ async def edit_meal(
         else:
             # Only onto the row as this edit left it: an un-star, a later edit
             # or a plan delete that landed meanwhile keeps its own state.
-            await session.execute(
-                update(MealEntry)
-                .where(
-                    col(MealEntry.id) == entry_id,
-                    col(MealEntry.is_favorite).is_(True),
-                    col(MealEntry.meal_json) == probe.meal_json,
-                )
-                .values(embedding=probe.embedding)
+            await _store_embedding(
+                session, entry_id, probe, col(MealEntry.meal_json) == probe.meal_json
             )
-            await session.commit()
 
-    return MealEditResponse(
-        **updated_meal.model_dump(),
-        # The stored allergens are health data: screen with them only under
-        # a current consent (app.services.health_consent).
-        allergen_warnings=(
-            _screen_edited_meal(updated_meal, plan) if has_health_consent(current_user) else []
-        ),
-    )
+    return response
 
 
 # GET /api/plan/{plan_id}/meals — List meal entries for a plan
