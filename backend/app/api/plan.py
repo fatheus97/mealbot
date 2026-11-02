@@ -1279,7 +1279,8 @@ async def edit_meal(
         rows exist yet).
       * Post-confirm (active) → updates response_json AND the matching
         MealEntry's meal_json + denormalized name; re-embeds if the meal is a
-        cookbook favorite (its RAG vector must follow the new name/content).
+        cookbook favorite (its RAG vector must follow the new name/content),
+        after the commit, outside the kitchen lock.
 
     Blocked (409) on a finished plan — it's a historical record, and editing
     would let the recipe text diverge from the debit it captured. Reopen first,
@@ -1355,6 +1356,9 @@ async def edit_meal(
     # edit_meal deliberately does not recompute it (post-confirm that would
     # disagree with the FIFO debit already executed).
     dependents: list[tuple[int, int]] = []
+    # (entry id, probe) of a favourite whose vector must follow this edit;
+    # embedded only after the commit, see the end of this function.
+    reembed: tuple[int, EmbedProbe] | None = None
     if existing.name != updated_meal.name:
         dependents = leftover_dependents(plan_obj, day_index, meal_index)
         was_generated_name = leftover_display_name(existing.name)
@@ -1389,17 +1393,8 @@ async def edit_meal(
         if entry is not None:
             entry.name = updated_meal.name
             entry.meal_json = updated_meal.model_dump_json()
-            # A favorite's embedding was built from the old name/content — refresh
-            # it so RAG reflects the edit. Failure is non-fatal (same policy as
-            # favorite_meal): the edit still persists; the vector just goes stale
-            # until a backfill.
-            if entry.is_favorite:
-                try:
-                    await embed_meal_entry(entry)
-                except Exception:
-                    logger.exception(
-                        "Failed to re-embed edited favorite meal entry %d", entry.id
-                    )
+            if entry.is_favorite and entry.id is not None:
+                reembed = (entry.id, EmbedProbe(name=entry.name, meal_json=entry.meal_json))
             session.add(entry)
 
             # Same rename, same transaction, on the projection rows. Entry
@@ -1462,6 +1457,33 @@ async def edit_meal(
         )
 
     await session.commit()
+
+    # A favourite's vector was built from the old name and content, so RAG
+    # needs a new one. Embedded only now, with the edit committed and the
+    # kitchen lock released: the embed can wait up to EMBEDDING_TIMEOUT_S for
+    # the shared parse executor, and the lock must never cover a wait like that
+    # (same as favorite_meal). Until it lands, or if it fails, the old vector
+    # stays and goes stale until a backfill; the edit itself is saved either way.
+    if reembed is not None:
+        entry_id, probe = reembed
+        try:
+            await embed_meal_entry(probe)
+        except Exception:
+            logger.exception("Failed to re-embed edited favorite meal entry %d", entry_id)
+        else:
+            # Only onto the row as this edit left it: an un-star, a later edit
+            # or a plan delete that landed meanwhile keeps its own state.
+            await session.execute(
+                update(MealEntry)
+                .where(
+                    col(MealEntry.id) == entry_id,
+                    col(MealEntry.is_favorite).is_(True),
+                    col(MealEntry.meal_json) == probe.meal_json,
+                )
+                .values(embedding=probe.embedding)
+            )
+            await session.commit()
+
     return MealEditResponse(
         **updated_meal.model_dump(),
         # The stored allergens are health data: screen with them only under

@@ -13,7 +13,8 @@
 #
 # Ordering is migrate-before-swap: if `alembic upgrade head` fails, the old
 # containers keep serving traffic and this script exits non-zero, which shows
-# up as a red deploy run in GitHub Actions.
+# up as a red deploy run in GitHub Actions. A migration that only lost a lock
+# race to a live request is retried first (see the migrations step).
 
 set -euo pipefail
 
@@ -30,7 +31,40 @@ echo "==> Building images"
 $COMPOSE build backend frontend
 
 echo "==> Running migrations (old stack still serving traffic)"
-$COMPOSE run --rm backend alembic upgrade head
+# Because the old stack still serves, a migration can find a table held by a
+# live request. A migration with a lock_timeout (household_02 sets 5 s) then
+# gives up and rolls back whole, and so does one that hits a deadlock or the
+# server's 30 s statement_timeout. Those three are worth another try once the
+# request is gone. A migration that is slow on its own must lift that timeout
+# (the banner in backend/alembic/script.py.mako says how), so at deploy a
+# statement timeout means a lock wait. The match is on Postgres's own message,
+# not the bare words. The longest request holding kitchen tables is a plan
+# generation, bounded by the LLM chain budget (150 s, _CHAIN_BUDGET_SECONDS in
+# backend/app/llm/client.py), so the waits below add up to that. Any other
+# failure stops the deploy at once: a broken migration stays broken however
+# often it runs.
+#
+# It runs the migrate service itself, not `run backend alembic upgrade head`:
+# backend depends on migrate, so that form ran the real migration in a
+# dependency container whose output never reached this log, and the backend's
+# own upgrade that followed was always a no-op. A lock timeout showed up only
+# as "service migrate didn't complete successfully", with nothing to match.
+migrate_log=$(mktemp)
+trap 'rm -f "$migrate_log"' EXIT
+for attempt in 1 2 3 4 5; do
+  if $COMPOSE run --rm -T migrate 2>&1 | tee "$migrate_log"; then
+    break
+  fi
+  if ! grep -qE 'canceling statement due to (lock|statement) timeout|deadlock detected' "$migrate_log"; then
+    exit 1
+  fi
+  if [ "$attempt" -eq 5 ]; then
+    echo "    migrations lost a lock race $attempt times; giving up" >&2
+    exit 1
+  fi
+  echo "    lost a lock race (attempt $attempt); retrying in $((attempt * 15)) s"
+  sleep $((attempt * 15))
+done
 
 echo "==> Swapping containers"
 $COMPOSE up -d --remove-orphans
