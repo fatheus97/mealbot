@@ -118,8 +118,9 @@ kitchen `user_id` read becomes a mypy error.
    - **the old stack writes a plan:** a carrying blob and no row. Readers treat that blob as the
      creator's row;
    - **the old stack withdraws:** it empties the blob and sets `health_data_removed`, but the copied
-     row survives. So the plan's `health_data_removed` takes precedence over every row and the
-     blob: a removed plan is never generated from, screened with or exported as health data,
+     row survives. `health_data_removed` is a key of the stored request in `request_json` (the
+     `MealPlanRequest` field), not a column, and stays there in 3a; it is the one flag both stacks
+     read and write. It takes precedence over every row and the blob: a removed plan is never generated from, screened with or exported as health data,
      whatever rows it still has. And because consent was withdrawn, those rows must also go: the
      new code runs one idempotent statement at startup that deletes the `planhealth` rows of every
      plan whose blob says `health_data_removed`, so they are gone seconds after the swap. It is
@@ -207,9 +208,11 @@ can still overwrite the partner's edit.
   every request with health data 403 until the user consents again, and doing that for a feature
   nobody can use yet would be noise. 3a stays within today's text (the same data, typed by the
   user, for the same purpose); saved profiles and eaters (3b) exist only behind the flag until then.
-  The flag must not be able to go on before the new text exists: 3b adds a startup check that
-  refuses `HOUSEHOLDS_ENABLED=true` while `HEALTH_CONSENT_VERSION` predates the household consent
-  text, and only PR 7 changes both.
+  The flag must not be able to go on before the new text exists: 3b adds
+  `HOUSEHOLD_CONSENT_VERSION: str | None = None` to `backend/app/core/legal.py`, the first consent
+  version whose text covers households, and a startup check that refuses `HOUSEHOLDS_ENABLED=true`
+  unless it is set and `HEALTH_CONSENT_VERSION >= HOUSEHOLD_CONSENT_VERSION` (both are ISO dates,
+  so string order is date order). Only PR 7 sets it, together with the bump.
 - **Generation** picks who is eating; the server defaults to all members when the field is missing in
   a household of two or more (an old bundle must not silently skip the partner's allergies). A
   household of one with no selection behaves byte-identically to today. Each eater needs current
@@ -287,7 +290,7 @@ adversarial review.
 | 0 | `fix(export)`: `WasteRecord` in the export. | waste exported; a meta-test that every table with a user FK is exported or named in `_EXCLUDED`. |
 | 1 | `household_01`: table, backfill, `user.household_id`, both triggers (migration + DDL listener), sequence offset. | every creation path gets a household; last-member delete removes it, one of two keeps it; two last members deleting at once leave no orphan (two-connection harness); demo sweep leaves none; downgrade refuses on 2+. |
 | 2 | `household_02` rekey: renames and index renames, `created_by_user_id`, composite FK, staples unique + lock, `Kitchen`, `lock_kitchen(kitchen)`, `load_plan`/`load_entry`, RAG, per-member drafts. Withdraw and export key on the creator until PR 3. | route matrix; two-member races in the `test_kitchen_lock.py` harness, with a per-user-key negative control that goes red; membership change while waiting returns 409; composite FK rejects a cross-household entry; moving a plan to another household carries its entries (ON UPDATE CASCADE is load-bearing); A's Generate keeps B's draft; index list matches metadata. |
-| 3s | Safety net before any of 3: API tests that the stored health data reaches the model on generate, regenerate and Cook Now, survives repeat and a Cook Now save, and is in the export. A 3a that reads the emptied blob must go red. | each test negative-controlled against the production path it pins; the PR records the suite's test count, which 3a reconciles against. |
+| 3s | Safety net before any of 3: API tests that the stored health data reaches the model on generate, regenerate and Cook Now, survives repeat and a Cook Now save, and is in the export. A 3a that reads the emptied blob must go red. | each test negative-controlled against the production path it pins; the PR records the suite's test count, which 3a reconciles against; it also pins that editing, confirming, cooking, starring and regenerating a plan leave its `request_json` unchanged, the claim that makes withdrawal the only blob rewrite a copied row can miss. |
 | 3a | `household_03`: `planhealth` and `health_contributors`, the copy (Migrations 6), every reader and writer switched to rows with the blob as fallback (generate, Cook Now, regenerate, repeat, edit screen, withdraw, export, telemetry), `health_data_removed` taking precedence, and the startup delete of a removed plan's rows. Byte-identical for a household of one, including two behaviours the design later changes (below). No consent change. | 3s stays green unchanged; copy is idempotent and attributes every blob to its creator; a carrying blob with no row reads as the creator's row; a removed plan with a row left over is never read as health data, and the startup delete removes that row; withdrawal clears rows and blob; dry run up/down/up with all three blob shapes, a NULL creator, and "row copied, then the old stack withdraws". |
 | 3b | `dietaryprofile`, eaters and the merge, per-eater consent (403 naming the member), the contract step emptying old blobs, all behind `HOUSEHOLDS_ENABLED`. Also flips the two kept behaviours: the edit screen warns whoever edits (today the editor's own consent decides), and repeat refuses a plan whose health data was removed (today it copies it, still marked). | deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members; editor without consent still gets the allergen warning. |
 | 4 | Versions: columns, household-scoped tokens on GET/PUT/merge, 409s (`ErrorKey` en + cs), client queueing, freshness. | stale or foreign token 409s and writes nothing; two quick edits on one device succeed; a PUT without a token behaves as before; Vitest in its own `docker run`. |
