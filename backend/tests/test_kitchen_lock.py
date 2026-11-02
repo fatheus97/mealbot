@@ -387,3 +387,110 @@ class TestFavoriteEmbedsOutsideTheLock:
         assert stored is not None
         assert stored.is_favorite is False
         assert stored.embedding is None
+
+
+def _edit(name: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "ingredients": [{"name": "tofu", "quantity_grams": 250}],
+        "steps": ["Fry the tofu"],
+        "total_time_minutes": 20,
+    }
+
+
+async def _starred(c: AsyncClient) -> tuple[int, int]:
+    """A confirmed plan whose first meal is in the cookbook: (plan_id, entry_id)."""
+    await _stock(c, 1000)
+    plan_id = await _confirmed_plan(c)
+    entry_id = int((await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"])
+    with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+        r = await c.post(
+            f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
+        )
+    assert r.status_code == 200, r.text
+    return plan_id, entry_id
+
+
+class TestEditEmbedsOutsideTheLock:
+    """Editing a favourite re-embeds it, after the commit: the same rule as
+    favorite_meal, so another request is never stuck behind the embed."""
+
+    async def test_unstar_during_the_edits_embed_is_not_blocked_and_wins(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        plan_id, entry_id = await _starred(c)
+        unstarred: list[int] = []
+
+        async def slow_embed(entry: MealEntry) -> None:
+            unstar = await asyncio.wait_for(
+                c.post(f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": False}),
+                timeout=5,
+            )
+            unstarred.append(unstar.status_code)
+            entry.embedding = [0.1] * 384
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=slow_embed):
+            r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl"))
+
+        assert r.status_code == 200, r.text
+        assert unstarred == [200]  # not blocked behind the edit's embed
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None
+        assert stored.name == "Tofu bowl"  # the edit itself is saved
+        assert stored.is_favorite is False
+        assert stored.embedding is None
+
+    async def test_the_vector_lands_on_the_edited_favourite(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        plan_id, entry_id = await _starred(c)
+        embedded: list[str] = []
+
+        async def embed(entry: MealEntry) -> None:
+            embedded.append(entry.name)
+            entry.embedding = [0.3] * 384
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=embed):
+            r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl"))
+
+        assert r.status_code == 200, r.text
+        assert embedded == ["Tofu bowl"]  # built from the new content
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None and stored.embedding is not None
+        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.3, 0.3])
+
+    async def test_a_later_edit_keeps_its_own_vector(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        """A second edit lands while the first one's embed runs. The first
+        embed finishes last, and must not put the old content's vector on the
+        new content."""
+        c, _ = kitchen
+        plan_id, entry_id = await _starred(c)
+        second: list[int] = []
+
+        async def embed(entry: MealEntry) -> None:
+            if entry.name == "First":
+                r2 = await asyncio.wait_for(
+                    c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Second")),
+                    timeout=5,
+                )
+                second.append(r2.status_code)
+                entry.embedding = [0.1] * 384
+            else:
+                entry.embedding = [0.2] * 384
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=embed):
+            r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("First"))
+
+        assert r.status_code == 200, r.text
+        assert second == [200]
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None and stored.embedding is not None
+        assert stored.name == "Second"
+        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.2, 0.2])
