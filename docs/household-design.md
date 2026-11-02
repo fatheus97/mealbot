@@ -39,8 +39,10 @@ New:
 - `planhealth(id PK, meal_plan_id FK mealplan CASCADE, entered_by_user_id FK user CASCADE, subject_user_id NULL FK user CASCADE, diet_types, allergens, avoid_ingredients jsonb)`.
   `entered_by_user_id` is whose consent covers the row. `subject_user_id` is the member the row
   describes, or NULL for a one-off entry typed for this plan (a guest, a child without an account).
-  A row is written for every contributor even when all three lists are empty, so a missing row can
-  only mean a deleted member.
+  A row is written for every contributor even when all three lists are empty. Readers check the
+  plan's `health_data_removed` first: a removed plan has no usable health data whatever its rows
+  say (and its rows are deleted, see Migrations 6). Only on a plan that is not removed does a
+  missing row mean a deleted member.
 - `householdinvite(id, household_id FK CASCADE, invited_normalized_email, token_hash UNIQUE, created_by_user_id FK user CASCADE, expires_at)`.
   Redeem is `DELETE ... WHERE token_hash = :h AND invited_normalized_email = :email AND expires_at > now() RETURNING household_id`,
   so it is single-use by construction and a wrong account burns nothing. Revoke is a delete. No
@@ -123,15 +125,18 @@ kitchen `user_id` read becomes a mypy error.
      read and write. It takes precedence over every row and the blob: a removed plan is never generated from, screened with or exported as health data,
      whatever rows it still has. And because consent was withdrawn, those rows must also go: the
      new code runs one idempotent statement at startup that deletes the `planhealth` rows of every
-     plan whose blob says `health_data_removed`, so they are gone seconds after the swap. It is
-     removed again by 3b's contract migration, which runs the same delete before emptying the
-     blobs. The old code never rewrites the health fields of a blob otherwise (an edit touches
+     plan whose blob says `health_data_removed`, so they are gone seconds after the swap. It scans
+     every plan's `request_json` (no index covers the key), which is fine at today's scale and
+     temporary: 3b's contract migration runs the same delete once, before emptying the blobs, and
+     takes the startup statement out. The old code never rewrites the health fields of a blob otherwise (an edit touches
      `response_json` only), so withdrawal is the only blob change a row can miss.
 
    The contract step that empties the old blobs ships with 3b, when no old code can run any more.
    Details the map of the code settled:
-   - every plan gets its creator row, even with three empty lists, so a missing row can only mean a
-     deleted member; the row's existence is also what makes the copy idempotent;
+   - every plan that is not already removed gets its creator row, even with three empty lists; the
+     row's existence is also what makes the copy idempotent. A plan whose blob already says
+     `health_data_removed` (withdrawn before the migration) gets no row: it has nothing to copy,
+     and a row would only be deleted again at the first startup;
    - `diet_types` is copied reconciled (a legacy blob with only `diet_type` becomes `[diet_type]`),
      `balanced` included, because generation reads it; order is kept, since it drives the prompt
      lines and the screen;
