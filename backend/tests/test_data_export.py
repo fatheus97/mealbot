@@ -305,6 +305,8 @@ class TestExportLeaksNothing:
 # both.
 _TABLE_COVERAGE = {
     "mealplan": "plans",
+    # A plan's health data, inside its request (the requester's rows only).
+    "planhealth": "plans",
     "mealentry": "meals",
     "stockitem": "fridge",
     "pantrystaple": "pantry_staples",

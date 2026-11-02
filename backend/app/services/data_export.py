@@ -40,6 +40,7 @@ from app.models.export_schemas import (
     UserDataExport,
 )
 from app.models.user_schemas import UserRead
+from app.services.health_consent import merged_request_json, plan_health_rows
 from app.services.kitchen import Kitchen
 
 logger = logging.getLogger(__name__)
@@ -91,9 +92,10 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
         raise ValueError("user is not persisted")
     kitchen = Kitchen.of(user)
 
-    # Plans this person generated, and their meals: a plan's request carries
-    # what its creator entered (household_03 splits that per person). The
-    # fridge and staples are the household's, the same for every member.
+    # Plans this person generated, and their meals. A plan's request shows its
+    # health data as the planhealth rows this person entered or is the subject
+    # of (Art. 15(4)), never a removed plan's. The fridge and staples are the
+    # household's, the same for every member.
     plans = (
         await session.execute(
             select(MealPlan)
@@ -101,6 +103,7 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
             .order_by(col(MealPlan.created_at))
         )
     ).scalars().all()
+    health = await plan_health_rows(session, [p.id for p in plans if p.id is not None])
     meals = (
         await session.execute(
             select(MealEntry)
@@ -177,7 +180,9 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
                 people_count=p.people_count,
                 confirmed_at=p.confirmed_at,
                 finished_at=p.finished_at,
-                request=_loads(p.request_json),
+                request=_loads(
+                    merged_request_json(p, health.get(p.id or 0, []), shown_to=user_id)
+                ),
                 response=_loads(p.response_json),
             )
             for p in plans

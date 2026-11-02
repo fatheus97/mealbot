@@ -61,9 +61,11 @@ from app.services.fridge_service import (
     lock_kitchen,
 )
 from app.services.health_consent import (
+    HealthEntry,
     has_health_consent,
-    request_json_to_store,
+    request_to_store,
     require_health_consent,
+    stored_request_json,
 )
 from app.services.kitchen import Kitchen, load_entry, load_plan
 from app.services.leftovers import (
@@ -547,11 +549,16 @@ async def plan_meals_for_user(
 
     # Clean up this member's old unconfirmed plans before saving a new one
     # After the LLM, before the first write: serializes this save with a
-    # consent withdrawal (request_json_to_store below relies on it).
+    # consent withdrawal (request_to_store below relies on it).
     await lock_kitchen(session, kitchen)
     await clear_unconfirmed_plans(session, kitchen)
 
-    # Save MealPlan to DB (no MealEntry rows yet — created on confirm)
+    # Save MealPlan to DB (no MealEntry rows yet — created on confirm). Its
+    # diets and allergens go to a planhealth row; without them if consent was
+    # withdrawn while generating.
+    stored = await request_to_store(
+        session, current_user, payload, [HealthEntry.typed_by(kitchen.user_id, payload)]
+    )
     plan = MealPlan(
         household_id=kitchen.household_id,
         created_by_user_id=kitchen.user_id,
@@ -559,12 +566,12 @@ async def plan_meals_for_user(
         start_date=start_date,
         meals_per_day=payload.meals_per_day,
         people_count=payload.people_count,
-        # Without the diet fields if consent was withdrawn while generating.
-        request_json=await request_json_to_store(session, current_user, payload),
+        request_json=stored.request_json,
         response_json=response_obj.model_dump_json(),
     )
     session.add(plan)
     await session.flush()  # assign plan.id so the generation row can link to it
+    stored.add_rows(session, plan)
 
     # Telemetry: bank the pristine machine output before any user edits. Shares
     # this transaction, so it persists iff the plan does. Best-effort — see
@@ -620,9 +627,11 @@ async def regenerate_plan(
     if hasattr(plan, "confirmed_at") and plan.confirmed_at:
         raise LocalizedHTTPException(409, "plan_regenerate_confirmed")
 
-    # 2) Deserialize stored request & response
+    # 2) Deserialize stored request (its health data from planhealth) & response
     try:
-        original_req = MealPlanRequest.model_validate_json(plan.request_json)
+        original_req = MealPlanRequest.model_validate_json(
+            await stored_request_json(session, plan)
+        )
         original_resp = MealPlanResponse.model_validate_json(plan.response_json)
     except ValidationError as exc:
         logger.exception("Failed to parse stored data for plan %d", plan_id)
@@ -1201,25 +1210,28 @@ async def uncook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
-def _screen_edited_meal(meal: PlannedMeal, plan: MealPlan) -> list[AllergenWarning]:
+def _screen_edited_meal(
+    meal: PlannedMeal, plan: MealPlan, request_json: str
+) -> list[AllergenWarning]:
     """Re-screen a user-edited meal against the allergens the PLAN was built for.
 
     WARN, never block. Withholding is right for OUR output; an edit is the
     user's own recipe and their own declared allergy, so the edit saves and the
     UI says loudly what was found.
 
-    The allergens come from the plan's stored request, not the client — there is
-    no server-side allergen profile (they live in browser storage and are sent
-    per generation), so the stored request is the only server-authoritative
-    record of what this plan was built to avoid, and it cannot be tampered with
-    by the edit payload.
+    The allergens come from the plan's stored request (``request_json``, its
+    health data put back from planhealth), not the client — there is no
+    server-side allergen profile (they live in browser storage and are sent per
+    generation), so the stored request is the only server-authoritative record
+    of what this plan was built to avoid, and it cannot be tampered with by the
+    edit payload.
 
     Never raises: a plan whose request_json predates a schema change must still
     be editable. A screen we cannot run degrades to no warning, which is exactly
     the behaviour before this existed.
     """
     try:
-        original = MealPlanRequest.model_validate_json(plan.request_json)
+        original = MealPlanRequest.model_validate_json(request_json)
     except ValidationError:
         logger.warning(
             "Could not parse request_json for plan %d — skipping edit screen", plan.id
@@ -1470,15 +1482,21 @@ async def edit_meal(
             context={"day_index": day_index, "meal_index": meal_index},
         )
 
+    # The stored allergens are health data: screen with them only under a
+    # current consent (app.services.health_consent). Read under the kitchen
+    # lock, which a withdrawal takes too.
+    stored_request = (
+        await stored_request_json(session, plan) if has_health_consent(current_user) else None
+    )
     await session.commit()
     # Built now, while the session's objects are still loaded: a failed vector
     # write below rolls the session back and expires them (see store_embedding).
     response = MealEditResponse(
         **updated_meal.model_dump(),
-        # The stored allergens are health data: screen with them only under
-        # a current consent (app.services.health_consent).
         allergen_warnings=(
-            _screen_edited_meal(updated_meal, plan) if has_health_consent(current_user) else []
+            _screen_edited_meal(updated_meal, plan, stored_request)
+            if stored_request is not None
+            else []
         ),
     )
 

@@ -11,7 +11,7 @@ The rules under test, from app.services.health_consent:
 """
 import importlib.util
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
@@ -29,15 +29,23 @@ from app.core.error_copy import ERROR_COPY
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.security import get_password_hash
 from app.db import get_session
-from app.models.db_models import HealthConsentEvent, MachineGeneration, MealPlan, User
+from app.models.db_models import (
+    HealthConsentEvent,
+    MachineGeneration,
+    MealPlan,
+    PlanHealth,
+    User,
+)
 from app.models.plan_models import MealPlanRequest
 from app.services import fridge_service
 from app.services.health_consent import (
     HEALTH_FIELDS,
+    HealthEntry,
     _cleared,
     carries_health_data,
     has_health_consent,
-    request_json_to_store,
+    request_to_store,
+    stored_request_json,
     strip_health_fields,
 )
 from app.services.kitchen import Kitchen
@@ -69,18 +77,32 @@ async def _events(db_session: AsyncSession, user: User) -> list[HealthConsentEve
 
 
 async def _plan(
-    db_session: AsyncSession, user: User, request: dict[str, object], *, confirmed: bool = False
+    db_session: AsyncSession,
+    user: User,
+    request: Mapping[str, object],
+    *,
+    confirmed: bool = False,
+    rows: bool = False,
 ) -> MealPlan:
+    """A saved plan whose request carries ``request``. Stored as household_03
+    stores a new plan when ``rows`` (the health data in a planhealth row, the
+    blob's fields empty), else in the blob alone: a plan saved before the
+    migration copied it, or by the old stack during a deploy window."""
     assert user.id is not None and user.household_id is not None
+    validated = MealPlanRequest.model_validate({"meals_per_day": 1, "people_count": 2, **request})
+    blob = validated.model_dump(mode="json")
+    if rows:
+        blob.update(
+            diet_type=None, diet_types=[], allergens=[], avoid_ingredients=[],
+            health_contributors=[user.id],
+        )
     plan = MealPlan(
         household_id=user.household_id,
         created_by_user_id=user.id,
         days=1,
         meals_per_day=1,
         people_count=2,
-        request_json=MealPlanRequest.model_validate(
-            {"meals_per_day": 1, "people_count": 2, **request}
-        ).model_dump_json(),
+        request_json=json.dumps(blob),
         response_json=_response_json(),
         confirmed_at=datetime.now(UTC) if confirmed else None,
         finished_at=datetime.now(UTC) if confirmed else None,
@@ -88,7 +110,31 @@ async def _plan(
     )
     db_session.add(plan)
     await db_session.flush()
+    if rows:
+        entry = HealthEntry.typed_by(user.id, validated)
+        assert plan.id is not None
+        db_session.add(
+            PlanHealth(
+                meal_plan_id=plan.id,
+                entered_by_user_id=user.id,
+                diet_types=entry.diet_types,
+                allergens=entry.allergens,
+                avoid_ingredients=entry.avoid_ingredients,
+            )
+        )
+        await db_session.flush()
     return plan
+
+
+async def _rows_of(db_session: AsyncSession, plan: MealPlan) -> list[PlanHealth]:
+    result = await db_session.execute(
+        select(PlanHealth).where(col(PlanHealth.meal_plan_id) == plan.id)
+    )
+    return list(result.scalars().all())
+
+
+#: Both places a saved plan's health data can live after household_03.
+STORAGE = pytest.mark.parametrize("rows", [False, True], ids=["blob", "planhealth"])
 
 
 class TestRules:
@@ -225,14 +271,16 @@ class TestGrant:
 
 
 class TestWithdraw:
+    @STORAGE
     async def test_clears_consent_logs_it_and_empties_saved_plans(
-        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession, rows: bool
     ) -> None:
         plan = await _plan(
             db_session,
             test_user,
             {"allergens": ["milk"], "diet_types": ["vegan"], "avoid_ingredients": ["peanuts"],
              "taste_preferences": ["italian"]},
+            rows=rows,
         )
         resp = await client.delete("/api/users/health-consent")
         assert resp.status_code == 200
@@ -244,10 +292,14 @@ class TestWithdraw:
         assert test_user.health_consent_version is None
         # Still a valid request, so repeat keeps working; marked, so regenerate
         # refuses it.
-        cleared = MealPlanRequest.model_validate_json(plan.request_json)
-        assert not carries_health_data(cleared)
-        assert cleared.health_data_removed is True
-        assert cleared.taste_preferences == ["italian"]
+        # The blob is marked even where the row held the data, and the rows
+        # are gone: both stacks read the blob's mark.
+        for stored in (plan.request_json, await stored_request_json(db_session, plan)):
+            cleared = MealPlanRequest.model_validate_json(stored)
+            assert not carries_health_data(cleared)
+            assert cleared.health_data_removed is True
+            assert cleared.taste_preferences == ["italian"]
+        assert await _rows_of(db_session, plan) == []
         events = await _events(db_session, test_user)
         assert [(e.granted, e.version) for e in events] == [(False, HEALTH_CONSENT_VERSION)]
 
@@ -292,8 +344,9 @@ class TestWithdraw:
         assert resp.status_code == 200
         assert await _events(db_session, test_user) == []
 
+    @STORAGE
     async def test_leaves_other_users_plans_alone(
-        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession, rows: bool
     ) -> None:
         other = User(
             email="other@example.com",
@@ -302,10 +355,12 @@ class TestWithdraw:
         )
         db_session.add(other)
         await db_session.flush()
-        theirs = await _plan(db_session, other, {"allergens": ["milk"]})
+        theirs = await _plan(db_session, other, {"allergens": ["milk"]}, rows=rows)
         await client.delete("/api/users/health-consent")
         await db_session.refresh(theirs)
-        assert MealPlanRequest.model_validate_json(theirs.request_json).allergens
+        stored = await stored_request_json(db_session, theirs)
+        assert MealPlanRequest.model_validate_json(stored).allergens
+        assert len(await _rows_of(db_session, theirs)) == int(rows)
 
 
 class TestGenerationIsRefusedWithoutConsent:
@@ -339,21 +394,30 @@ class TestGenerationIsRefusedWithoutConsent:
         )
         assert resp.status_code == 200
 
+    @STORAGE
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     async def test_regenerate_a_stored_plan_with_allergens(
-        self, mock_gen: AsyncMock, client: AsyncClient, test_user: User, db_session: AsyncSession
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        test_user: User,
+        db_session: AsyncSession,
+        rows: bool,
     ) -> None:
-        plan = await _plan(db_session, test_user, {"allergens": ["milk"]})
+        plan = await _plan(db_session, test_user, {"allergens": ["milk"]}, rows=rows)
         await _without_consent(db_session, test_user)
         resp = await client.post(f"/api/plan/{plan.id}/regenerate", json={"frozen_meals": []})
         assert resp.status_code == 403
         assert resp.json()["detail"] == REFUSED
         mock_gen.assert_not_awaited()
 
+    @STORAGE
     async def test_repeat_a_stored_plan_with_a_diet(
-        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession, rows: bool
     ) -> None:
-        plan = await _plan(db_session, test_user, {"diet_types": ["vegan"]}, confirmed=True)
+        plan = await _plan(
+            db_session, test_user, {"diet_types": ["vegan"]}, confirmed=True, rows=rows
+        )
         await _without_consent(db_session, test_user)
         resp = await client.post(
             f"/api/plan/{plan.id}/repeat", json={"start_date": "2026-08-10"}
@@ -398,13 +462,19 @@ class TestGenerationIsRefusedWithoutConsent:
 
 
 class TestRemovedHealthData:
+    @STORAGE
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     async def test_a_cleared_plan_is_never_regenerated(
-        self, mock_gen: AsyncMock, client: AsyncClient, test_user: User, db_session: AsyncSession
+        self,
+        mock_gen: AsyncMock,
+        client: AsyncClient,
+        test_user: User,
+        db_session: AsyncSession,
+        rows: bool,
     ) -> None:
         # Its allergens are gone, so new meals could not be screened for them,
         # even for a user who has consented again since.
-        plan = await _plan(db_session, test_user, {"allergens": ["milk"]})
+        plan = await _plan(db_session, test_user, {"allergens": ["milk"]}, rows=rows)
         await client.delete("/api/users/health-consent")
         await client.post("/api/users/health-consent", json={"version": HEALTH_CONSENT_VERSION})
         resp = await client.post(f"/api/plan/{plan.id}/regenerate", json={"frozen_meals": []})
@@ -412,30 +482,38 @@ class TestRemovedHealthData:
         assert resp.json()["detail"] == ERROR_COPY["en"]["plan_health_data_removed"]
         mock_gen.assert_not_awaited()
 
+    @STORAGE
     async def test_a_cleared_plan_can_still_be_repeated_and_stays_marked(
-        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession, rows: bool
     ) -> None:
-        plan = await _plan(db_session, test_user, {"allergens": ["milk"]}, confirmed=True)
+        plan = await _plan(
+            db_session, test_user, {"allergens": ["milk"]}, confirmed=True, rows=rows
+        )
         await client.delete("/api/users/health-consent")
         resp = await client.post(f"/api/plan/{plan.id}/repeat", json={"start_date": "2026-08-10"})
         assert resp.status_code == 200
         copy = await db_session.get(MealPlan, resp.json()["plan_id"])
         assert copy is not None
+        # Marked where both stacks read it, and nothing copied to mark.
         assert MealPlanRequest.model_validate_json(copy.request_json).health_data_removed
+        assert await _rows_of(db_session, copy) == []
 
     async def test_withdrawal_mid_generation_saves_the_plan_without_them(
         self, test_user: User, db_session: AsyncSession
     ) -> None:
         # The consent check ran at the start of the request with consent; it is
         # gone by the time the plan is saved.
+        assert test_user.id is not None
         request = MealPlanRequest.model_validate({"meals_per_day": 1, "allergens": ["milk"]})
-        assert json.loads(await request_json_to_store(db_session, test_user, request))["allergens"]
+        entries = [HealthEntry.typed_by(test_user.id, request)]
+        kept = await request_to_store(db_session, test_user, request, entries)
+        assert kept.entries == tuple(entries) and entries[0].allergens == ["milk"]
         test_user.health_consent_at = None
         test_user.health_consent_version = None
         await db_session.flush()
-        stored = MealPlanRequest.model_validate_json(
-            await request_json_to_store(db_session, test_user, request)
-        )
+        dropped = await request_to_store(db_session, test_user, request, entries)
+        assert dropped.entries == ()
+        stored = MealPlanRequest.model_validate_json(dropped.request_json)
         assert not carries_health_data(stored)
         assert stored.health_data_removed
 
