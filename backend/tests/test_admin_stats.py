@@ -7,6 +7,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import LlmUsage, MachineGeneration, User
 
@@ -148,7 +149,11 @@ class TestUsageByUser:
         test_user: User,
     ) -> None:
         uid = await _make_admin(db_session, test_user)
-        other = User(email="other@example.com", hashed_password=get_password_hash("OtherPass123"))
+        other = User(
+            email="other@example.com",
+            normalized_email=normalize_email("other@example.com"),
+            hashed_password=get_password_hash("OtherPass123"),
+        )
         db_session.add(other)
         await db_session.flush()
         assert other.id is not None

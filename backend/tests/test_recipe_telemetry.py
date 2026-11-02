@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.email_normalize import normalize_email
 from app.core.meal_types import MealType
 from app.core.security import get_password_hash
 from app.models.db_models import MachineCorrection, MachineGeneration, MealEntry, User
@@ -207,6 +208,7 @@ class TestCorrectionCapture:
         assert "leftover_of" not in legacy_payload
         import json as _json
 
+        assert test_user.id is not None
         gen = MachineGeneration(
             user_id=test_user.id,
             surface="single_recipe",
@@ -260,6 +262,7 @@ class TestCorrectionCapture:
         legacy_payload.pop("leftover_of")
         import json as _json
 
+        assert test_user.id is not None
         gen = MachineGeneration(
             user_id=test_user.id,
             surface="single_recipe",
@@ -308,7 +311,11 @@ class TestCorrectionCapture:
                   {"name": "carrot", "quantity_grams": 300}],
         )
         # A generation belonging to a DIFFERENT user.
-        other = User(email="other@example.com", hashed_password=get_password_hash("x"))
+        other = User(
+            email="other@example.com",
+            normalized_email=normalize_email("other@example.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(other)
         await db_session.flush()
         assert other.id is not None
@@ -390,7 +397,11 @@ class TestCorrectionCapture:
     ) -> None:
         """Security: a foreign generation_id on /favorite must not link — mirror
         of test_cook_foreign_generation_id_not_linked for the favorite surface."""
-        other = User(email="other2@example.com", hashed_password=get_password_hash("x"))
+        other = User(
+            email="other2@example.com",
+            normalized_email=normalize_email("other2@example.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(other)
         await db_session.flush()
         assert other.id is not None

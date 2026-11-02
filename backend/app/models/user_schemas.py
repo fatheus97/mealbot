@@ -319,8 +319,9 @@ def user_to_read(
     from app.services.health_consent import has_health_consent
     from app.services.stripe_service import is_entitled
 
+    assert u.id is not None  # always populated post-flush
     return UserRead(
-        id=u.id,  # always populated post-flush
+        id=u.id,
         email=u.email,
         country=u.country,
         language=u.language,

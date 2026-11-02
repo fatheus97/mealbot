@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.core.meal_types import MealType
 from app.core.security import get_password_hash
 from app.llm.client import llm_client
@@ -129,6 +130,7 @@ class TestUsageMeEndpoint:
         assert uid is not None
         other = User(
             email="other@example.com",
+            normalized_email=normalize_email("other@example.com"),
             hashed_password=get_password_hash("OtherPassword123"),
         )
         db_session.add(other)

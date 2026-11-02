@@ -255,6 +255,7 @@ class TestCorrectionCapture:
 
 class TestTelemetryHelpers:
     async def _make_plan(self, session: AsyncSession, user: User) -> MealPlan:
+        assert user.id is not None
         plan = MealPlan(
             user_id=user.id,
             days=1,

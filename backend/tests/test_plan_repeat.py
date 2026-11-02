@@ -9,6 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, func, select
 
+from app.core.email_normalize import normalize_email
 from app.models.db_models import MealEntry, MealPlan, StockItem, User
 from app.models.plan_models import MealPlanRequest, MealPlanResponse
 
@@ -58,6 +59,7 @@ async def _plan(
     request = MealPlanRequest.model_validate(
         {"meals_per_day": 1, "people_count": 2, "include_spices": include_spices}
     )
+    assert user.id is not None
     plan = MealPlan(
         user_id=user.id,
         days=1,
@@ -101,7 +103,11 @@ class TestRepeatGate:
     ) -> None:
         """404, not 403 — a 403 would confirm the id exists, which is a plan-id
         oracle for someone else's account."""
-        other = User(email="other-repeat@x.com", hashed_password="x")
+        other = User(
+            email="other-repeat@x.com",
+            normalized_email=normalize_email("other-repeat@x.com"),
+            hashed_password="x",
+        )
         db_session.add(other)
         await db_session.flush()
         theirs = await _plan(db_session, other)
@@ -259,6 +265,7 @@ class TestRepeatRecomputesTheShoppingList:
         copy would send them to the shop for something already in the cupboard.
         """
         source = await _plan(db_session, test_user)
+        assert test_user.id is not None
         db_session.add(
             StockItem(user_id=test_user.id, name="lentils", quantity_grams=500)
         )

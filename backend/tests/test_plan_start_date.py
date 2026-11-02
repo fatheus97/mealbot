@@ -10,6 +10,7 @@ from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.email_normalize import normalize_email
 from app.core.meal_types import MealType
 from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
@@ -205,7 +206,11 @@ class TestReschedule:
         resp = await _create_plan(client, start_date="2026-08-01")
         plan_id = resp.json()["plan_id"]
 
-        user_b = User(email="userb-sched@test.com", hashed_password=get_password_hash("x"))
+        user_b = User(
+            email="userb-sched@test.com",
+            normalized_email=normalize_email("userb-sched@test.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(user_b)
         await db_session.flush()
 
@@ -356,7 +361,11 @@ class TestCalendar:
 
         await self._confirmed_scheduled(client, start_date="2026-08-10", days=1)
 
-        other = User(email="cal-other@test.com", hashed_password=get_password_hash("x"))
+        other = User(
+            email="cal-other@test.com",
+            normalized_email=normalize_email("cal-other@test.com"),
+            hashed_password=get_password_hash("x"),
+        )
         db_session.add(other)
         await db_session.flush()
 

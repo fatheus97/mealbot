@@ -10,6 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.email_normalize import normalize_email
 from app.core.meal_types import MealType
 from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
@@ -308,6 +309,7 @@ class TestCorruptedPlanData:
         test_user: User, db_session: AsyncSession,
     ) -> None:
         """Corrupted response_json should return generic message, not Pydantic internals."""
+        assert test_user.id is not None
         plan = MealPlan(
             user_id=test_user.id,
             days=1,
@@ -406,6 +408,7 @@ class TestFinishPlan:
         ValidationError propagate and the user could never finish the plan.
         Now the corrupt entry is logged and skipped; the plan still finishes.
         """
+        assert test_user.id is not None
         plan = MealPlan(
             user_id=test_user.id,
             days=1,
@@ -419,6 +422,7 @@ class TestFinishPlan:
         await db_session.flush()
 
         # Legacy entry: NULL consumed_snapshot_json + corrupt meal_json.
+        assert plan.id is not None
         bad_entry = MealEntry(
             user_id=test_user.id,
             meal_plan_id=plan.id,
@@ -820,6 +824,7 @@ class TestUnconfirmPlan:
         test_user: User, db_session: AsyncSession,
     ) -> None:
         """Un-confirming a plan that was never confirmed → 409."""
+        assert test_user.id is not None
         plan = MealPlan(
             user_id=test_user.id, days=1, meals_per_day=1, people_count=2,
             request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
@@ -924,10 +929,15 @@ class TestUnconfirmPlan:
         self, client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession,
     ) -> None:
         """Another user's plan must surface as 404, not 403 (no enumeration)."""
-        other = User(email="other@test.com", hashed_password="x")
+        other = User(
+            email="other@test.com",
+            normalized_email=normalize_email("other@test.com"),
+            hashed_password="x",
+        )
         db_session.add(other)
         await db_session.flush()
 
+        assert other.id is not None
         plan = MealPlan(
             user_id=other.id, days=1, meals_per_day=1, people_count=2,
             request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',
@@ -1076,10 +1086,15 @@ class TestReopenPlan:
     async def test_reopen_other_users_plan_404(
         self, client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession,
     ) -> None:
-        other = User(email="other2@test.com", hashed_password="x")
+        other = User(
+            email="other2@test.com",
+            normalized_email=normalize_email("other2@test.com"),
+            hashed_password="x",
+        )
         db_session.add(other)
         await db_session.flush()
 
+        assert other.id is not None
         plan = MealPlan(
             user_id=other.id, days=1, meals_per_day=1, people_count=2,
             request_json="{}", response_json='{"plan_id":null,"days":[],"shopping_list":[]}',

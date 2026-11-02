@@ -12,6 +12,7 @@ from sqlmodel import select
 
 import app.scripts.create_user as create_user_script
 from app.api.deps import require_admin
+from app.core.email_normalize import normalize_email
 from app.models.db_models import User
 from app.models.user_schemas import user_to_read
 
@@ -22,24 +23,46 @@ class TestUserToReadMapper:
     per-response drift that dropped is_admin from the login response."""
 
     def test_maps_is_admin_true(self) -> None:
-        admin = User(id=1, email="a@example.com", hashed_password="h", is_admin=True)
+        admin = User(
+            id=1,
+            email="a@example.com",
+            normalized_email=normalize_email("a@example.com"),
+            hashed_password="h",
+            is_admin=True,
+        )
         assert user_to_read(admin).is_admin is True
 
     def test_maps_is_admin_false(self) -> None:
-        plain = User(id=2, email="b@example.com", hashed_password="h", is_admin=False)
+        plain = User(
+            id=2,
+            email="b@example.com",
+            normalized_email=normalize_email("b@example.com"),
+            hashed_password="h",
+            is_admin=False,
+        )
         assert user_to_read(plain).is_admin is False
 
 
 class TestRequireAdmin:
     async def test_rejects_non_admin_with_403(self) -> None:
-        user = User(email="plain@example.com", hashed_password="h", is_admin=False)
+        user = User(
+            email="plain@example.com",
+            normalized_email=normalize_email("plain@example.com"),
+            hashed_password="h",
+            is_admin=False,
+        )
         with pytest.raises(HTTPException) as exc_info:
             await require_admin(user)
         assert exc_info.value.status_code == 403
         assert "Admin" in exc_info.value.detail
 
     async def test_allows_admin(self) -> None:
-        user = User(email="admin@example.com", hashed_password="h", is_admin=True)
+        user = User(
+            email="admin@example.com",
+            normalized_email=normalize_email("admin@example.com"),
+            hashed_password="h",
+            is_admin=True,
+        )
         assert await require_admin(user) is user
 
 
@@ -47,7 +70,11 @@ class TestIsAdminDefault:
     async def test_new_user_is_not_admin_by_default(
         self, db_session: AsyncSession
     ) -> None:
-        user = User(email="default@example.com", hashed_password="h")
+        user = User(
+            email="default@example.com",
+            normalized_email=normalize_email("default@example.com"),
+            hashed_password="h",
+        )
         db_session.add(user)
         await db_session.flush()
         await db_session.refresh(user)

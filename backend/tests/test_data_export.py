@@ -16,7 +16,9 @@ from typing import Any
 
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import SQLModel
 
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.models.db_models import (
     FeedbackReport,
@@ -27,7 +29,9 @@ from app.models.db_models import (
     SaleRefund,
     StockItem,
     User,
+    WasteRecord,
 )
+from app.models.export_schemas import UserDataExport
 
 ENDPOINT = "/api/users/export"
 
@@ -83,6 +87,15 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
                 currency="eur",
                 country="CZ",
                 occurred_at=datetime.now(UTC),
+            ),
+            WasteRecord(
+                user_id=uid,
+                name="milk",
+                quantity_grams=200.0,
+                expiration_date=date(2026, 8, 3),
+                reason="thrown_out",
+                source="fridge_delete",
+                created_at=datetime(2026, 8, 6),
             ),
             SaleRefund(
                 stripe_refund_id=f"re_export_{uid}",
@@ -165,6 +178,23 @@ class TestExportContents:
             }
         ]
 
+    async def test_contains_the_waste_records(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # Write-only for the app, but the user's own declarations all the same.
+        await _seed(db_session, test_user)
+        body, _ = await _fetch(client)
+        assert body["waste_records"] == [
+            {
+                "name": "milk",
+                "quantity_grams": 200.0,
+                "expiration_date": "2026-08-03",
+                "reason": "thrown_out",
+                "source": "fridge_delete",
+                "created_at": "2026-08-06T00:00:00",
+            }
+        ]
+
     async def test_names_what_it_leaves_out(
         self, client: AsyncClient, test_user: User
     ) -> None:
@@ -224,6 +254,7 @@ class TestExportLeaksNothing:
     ) -> None:
         stranger = User(
             email="stranger@example.com",
+            normalized_email=normalize_email("stranger@example.com"),
             hashed_password=get_password_hash("Whatever123"),
         )
         db_session.add(stranger)
@@ -257,3 +288,42 @@ class TestExportLeaksNothing:
         _, raw = await _fetch(client)
         for forbidden in ("not-yours", "stranger-staple", "in_stranger", "re_stranger"):
             assert forbidden not in raw, forbidden
+
+
+# Where each table holding a foreign key to "user" goes in the export: a section
+# of the payload, or "excluded" when a line of the payload's own `excluded` list
+# names it. A new table with a user FK fails the test below until it is placed
+# here, so it cannot drop out of the export unnoticed. AdminAuditLog and
+# TrialFingerprint hold user ids by value, not by FK, so this cannot see them;
+# `excluded` names both.
+_TABLE_COVERAGE = {
+    "mealplan": "plans",
+    "mealentry": "meals",
+    "stockitem": "fridge",
+    "pantrystaple": "pantry_staples",
+    "wasterecord": "waste_records",
+    "feedbackreport": "feedback_reports",
+    "salerecord": "invoices",
+    "healthconsentevent": "health_consent_history",
+    "authsession": "excluded",
+    "passwordresettoken": "excluded",
+    "emailverificationtoken": "excluded",
+    "invitetoken": "excluded",
+    "machinegeneration": "excluded",
+    "llmusage": "excluded",
+    "machinecorrection": "excluded",
+    "emailcampaignsend": "excluded",
+}
+
+
+def test_every_table_with_a_user_fk_is_exported_or_excluded() -> None:
+    linked = {
+        table.name
+        for table in SQLModel.metadata.tables.values()
+        for fk in table.foreign_keys
+        if fk.column.table.name == "user"
+    }
+    assert linked == set(_TABLE_COVERAGE)
+    sections = set(UserDataExport.model_fields)
+    for table, where in _TABLE_COVERAGE.items():
+        assert where == "excluded" or where in sections, (table, where)

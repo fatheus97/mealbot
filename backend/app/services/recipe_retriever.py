@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 from fastembed import TextEmbedding
 from pydantic import BaseModel
@@ -190,8 +191,26 @@ def cast_id(entry: MealEntry) -> int:
     return entry.id
 
 
-async def embed_meal_entry(entry: MealEntry) -> None:
-    """Generate and set the embedding on a MealEntry in-place."""
+class Embeddable(Protocol):
+    """What embed_meal_entry reads and writes: a MealEntry, or an EmbedProbe."""
+
+    name: str
+    meal_json: str
+    embedding: list[float] | None
+
+
+@dataclass
+class EmbedProbe:
+    """A meal's text, embedded without touching a tracked MealEntry (whose
+    autoflush would write the embedding unconditionally)."""
+
+    name: str
+    meal_json: str
+    embedding: list[float] | None = None
+
+
+async def embed_meal_entry(entry: Embeddable) -> None:
+    """Generate and set the embedding on a MealEntry (or an EmbedProbe) in-place."""
     meal = PlannedMeal.model_validate_json(entry.meal_json)
     text_for_embedding = (
         f"Title: {entry.name}\n\n"

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.email_normalize import normalize_email
 from app.models.db_models import TrialFingerprint, User
 from app.services import stripe_service, trial_guard
 
@@ -26,7 +27,12 @@ def _sub(status: str = "trialing", fingerprint: str | None = "fp_card") -> dict[
 
 
 async def _make_user(session: AsyncSession, email: str, customer_id: str) -> User:
-    u = User(email=email, hashed_password="h", stripe_customer_id=customer_id)
+    u = User(
+        email=email,
+        normalized_email=normalize_email(email),
+        hashed_password="h",
+        stripe_customer_id=customer_id,
+    )
     session.add(u)
     await session.flush()
     return u

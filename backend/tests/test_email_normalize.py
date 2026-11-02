@@ -128,7 +128,11 @@ async def test_column_default_derives_normalized_email(
     # A bare insert (no explicit normalized_email) must auto-derive it from email
     # via the SQLAlchemy insert-time default — and derive it CORRECTLY (dot/+tag
     # stripped), not merely non-null.
-    u = User(email="John.Doe+x@gmail.com", hashed_password="h")
+    # The constructor's signature requires normalized_email, so pass a throwaway
+    # and drop it again: the attribute is then unset, exactly as in a bare
+    # User(email=..., hashed_password=...), and the INSERT omits the column.
+    u = User(email="John.Doe+x@gmail.com", hashed_password="h", normalized_email="unset")
+    del u.normalized_email
     db_session.add(u)
     await db_session.flush()
     assert u.normalized_email == "johndoe@gmail.com"

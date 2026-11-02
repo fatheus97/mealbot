@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete
 
 from app.api.deps import get_current_user
+from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import MealEntry, User
@@ -69,9 +70,11 @@ async def kitchen(
     a rendezvous in the fridge read of Finish/Delete/Unconfirm and of Merge."""
     from app.main import app
 
+    email = f"kitchen-{abs(hash(request.node.name))}@example.com"
     async with AsyncSession(test_engine, expire_on_commit=False) as s:
         user = User(
-            email=f"kitchen-{abs(hash(request.node.name))}@example.com",
+            email=email,
+            normalized_email=normalize_email(email),
             hashed_password=get_password_hash(TEST_PASSWORD),
             email_verified_at=datetime.now(UTC),
         )
