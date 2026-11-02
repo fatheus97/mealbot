@@ -4,7 +4,7 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
-from sqlalchemy import ColumnElement, delete, func, update
+from sqlalchemy import delete, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -92,7 +92,7 @@ from app.services.plan_service import (
     reopen_plan_fridge,
     unconfirm_plan_fridge,
 )
-from app.services.recipe_retriever import EmbedProbe, embed_meal_entry
+from app.services.recipe_retriever import EmbedProbe, embed_meal_entry, store_embedding
 from app.services.telemetry import (
     latest_generation_id,
     record_correction,
@@ -1082,43 +1082,6 @@ async def cook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
-async def _store_embedding(
-    session: AsyncSession,
-    entry_id: int,
-    probe: EmbedProbe,
-    *still: ColumnElement[bool],
-) -> bool:
-    """Write a vector embedded after the commit onto its meal, if the meal is
-    still a favourite and matches ``still``. Never raises: the star or edit it
-    belongs to is already saved, and a missing or stale vector only keeps the
-    meal out of RAG, so a failed write is logged and the request answers 200.
-
-    Returns False when the write failed. The session has then been rolled
-    back, which expires EVERY instance in it (expire_on_commit=False covers
-    commit only), including the request's user and plan: reading one of their
-    attributes would lazy-load and fail on an AsyncSession. So the caller
-    builds its response before calling this, or uses one built earlier."""
-    try:
-        stored = (
-            await session.execute(
-                update(MealEntry)
-                .where(col(MealEntry.id) == entry_id, col(MealEntry.is_favorite).is_(True), *still)
-                .values(embedding=probe.embedding)
-                .returning(col(MealEntry.id))
-            )
-        ).scalar_one_or_none()
-        await session.commit()
-    except SQLAlchemyError:
-        await session.rollback()
-        logger.exception("Failed to store the embedding of meal entry %d", entry_id)
-        return False
-    if stored is None:
-        # Expected when an un-star, a later edit or a delete won the race; says
-        # why this meal's vector is not the one just computed.
-        logger.info("Embedding of meal entry %d not stored: the meal changed meanwhile", entry_id)
-    return True
-
-
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/favorite
 @router.post("/{plan_id}/meals/{meal_entry_id}/favorite", response_model=MealEntrySummary)
 @limiter.limit("20/minute", key_func=user_id_key_func)
@@ -1182,14 +1145,24 @@ async def favorite_meal(
             # diagnose fastembed / pgvector failures instead of a bare message.
             # The favorite bit is already committed so the UI is consistent; a
             # missing embedding just means the recipe is invisible to RAG until
-            # a backfill runs.
+            # the daily backfill (mealbot-embedding-backfill) gives it one.
             logger.exception("Failed to generate embedding for meal entry %d", meal_entry_id)
         else:
-            # Only onto a row that is still a favourite: an un-star or a plan
-            # delete that landed while this ran must not get it back.
-            if not await _store_embedding(session, meal_entry_id, probe):
+            # Only onto the row as this star left it: an un-star or a plan
+            # delete that landed while this ran must not get a vector back, and
+            # an edit must not get the old content's vector (it embeds its own,
+            # or leaves none for the daily backfill).
+            if not await store_embedding(
+                session, meal_entry_id, probe, col(MealEntry.meal_json) == probe.meal_json
+            ):
                 return committed
-    await session.refresh(entry)
+    # Reread so an un-star that won the race shows; a failure here is the
+    # same saved star, so it answers with the committed state, not a 500.
+    try:
+        await session.refresh(entry)
+    except SQLAlchemyError:
+        logger.exception("Failed to reread meal entry %d after starring it", meal_entry_id)
+        return committed
 
     return MealEntrySummary.from_entry(entry)
 
@@ -1431,6 +1404,11 @@ async def edit_meal(
             entry.meal_json = updated_meal.model_dump_json()
             if entry.is_favorite and entry.id is not None:
                 reembed = (entry.id, EmbedProbe(name=entry.name, meal_json=entry.meal_json))
+                # The old vector describes the old content. Drop it with the
+                # edit, so a re-embed that fails leaves NO vector, which the
+                # daily backfill finds, rather than a stale one nothing can
+                # tell apart from a current one.
+                entry.embedding = None
             session.add(entry)
 
             # Same rename, same transaction, on the projection rows. Entry
@@ -1494,7 +1472,7 @@ async def edit_meal(
 
     await session.commit()
     # Built now, while the session's objects are still loaded: a failed vector
-    # write below rolls the session back and expires them (see _store_embedding).
+    # write below rolls the session back and expires them (see store_embedding).
     response = MealEditResponse(
         **updated_meal.model_dump(),
         # The stored allergens are health data: screen with them only under
@@ -1508,8 +1486,9 @@ async def edit_meal(
     # needs a new one. Embedded only now, with the edit committed and the
     # kitchen lock released: the embed can wait up to EMBEDDING_TIMEOUT_S for
     # the shared parse executor, and the lock must never cover a wait like that
-    # (same as favorite_meal). Until it lands, or if it fails, the old vector
-    # stays and goes stale until a backfill; the edit itself is saved either way.
+    # (same as favorite_meal). Until it lands the meal has no vector and RAG
+    # skips it; if it fails, the daily backfill (mealbot-embedding-backfill)
+    # embeds it. The edit itself is saved either way.
     if reembed is not None:
         entry_id, probe = reembed
         try:
@@ -1519,7 +1498,7 @@ async def edit_meal(
         else:
             # Only onto the row as this edit left it: an un-star, a later edit
             # or a plan delete that landed meanwhile keeps its own state.
-            await _store_embedding(
+            await store_embedding(
                 session, entry_id, probe, col(MealEntry.meal_json) == probe.meal_json
             )
 

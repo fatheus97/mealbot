@@ -1,0 +1,41 @@
+# mealbot — daily cookbook-embedding backfill job.
+#
+# Runs `app.scripts.backfill_meal_embeddings` once, then exits (Type=oneshot).
+# Scheduled by mealbot-embedding-backfill.timer; installable/testable on its own
+# via `systemctl start mealbot-embedding-backfill.service`.
+#
+# Starring or editing a cookbook meal embeds it after the request has saved,
+# and a failed embed is only logged, so the meal is left without a vector and
+# RAG never shows it. This job embeds those meals. It exits 1 when an embed or
+# a write fails, which is what OnFailure below alerts on.
+#
+# Deliberately has NO [Install] section: it must run ONLY when the timer (or an
+# operator) triggers it, never at boot. Enable the .timer, not this unit.
+#
+# See deploy/systemd/README.md for install steps.
+
+[Unit]
+Description=mealbot daily cookbook-embedding backfill job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+# Docker must be up before we shell out to `docker compose`. This matters for
+# the timer's Persistent=true catch-up run after a reboot, where the timer can
+# fire before the Docker daemon is ready.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+# Type=oneshot means a failure otherwise lands in the journal and nowhere else.
+OnFailure=mealbot-alert@%n.service
+
+[Service]
+Type=oneshot
+# The same non-root, docker-group user as the other jobs.
+User=deploy
+WorkingDirectory=/opt/mealbot
+# A one-off container, --no-deps and -T for the reasons given in
+# mealbot-authsession-cleanup.service. The embedding model is baked into the
+# backend image (backend/Dockerfile), so a run downloads nothing.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps -T backend python -m app.scripts.backfill_meal_embeddings
+# Loading the model takes seconds and each embed is capped at 15 s
+# (EMBEDDING_TIMEOUT_S), so even a long backlog finishes well inside this; a
+# hung docker or DB connection must not wedge the unit.
+TimeoutStartSec=900

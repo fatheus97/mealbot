@@ -1,70 +1,31 @@
-"""
-One-time backfill: generate embeddings for favorited MealEntry rows that are
-missing them.
+"""Scheduled job: embed every cookbook favourite that has no vector, so it
+reaches RAG (see app.services.embedding_backfill). Idempotent, so it is safe to
+run daily and to catch up after a missed day.
 
-Usage:
+Usage (systemd timer mealbot-embedding-backfill, or by hand):
+
     docker compose exec backend python -m app.scripts.backfill_meal_embeddings
+
+Exits 1 when any embed or write failed, so the unit's OnFailure alert fires.
 """
-from __future__ import annotations
 
 import asyncio
 import logging
 
-from sqlmodel import select
-
 from app.db import async_session_factory
-from app.models.db_models import MealEntry
-from app.services.recipe_retriever import embed_meal_entry
-
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
-
-BATCH_SIZE = 50
+from app.services.embedding_backfill import backfill_missing_embeddings
 
 
-async def backfill() -> None:
+async def main() -> int:
     async with async_session_factory() as session:
-        stmt = (
-            select(MealEntry)
-            .where(
-                MealEntry.is_favorite.is_(True),  # type: ignore[attr-defined]
-                MealEntry.embedding.is_(None),  # type: ignore[union-attr]
-            )
-        )
-        result = await session.execute(stmt)
-        entries = result.scalars().all()
-
-        total = len(entries)
-        if total == 0:
-            logger.info("No entries to backfill.")
-            return
-
-        logger.info("Backfilling %d meal entries...", total)
-
-        failures = 0
-        for i, entry in enumerate(entries, 1):
-            try:
-                await embed_meal_entry(entry)
-                session.add(entry)
-            except Exception:
-                failures += 1
-                logger.exception("Failed to embed entry %d (id=%s)", i, entry.id)
-                continue
-
-            if i % BATCH_SIZE == 0:
-                await session.commit()
-                logger.info("Committed batch (%d/%d)", i, total)
-
-        await session.commit()
-        logger.info(
-            "Backfill complete: %d/%d succeeded, %d failed.",
-            total - failures, total, failures,
-        )
-
-
-def main() -> None:
-    asyncio.run(backfill())
+        counts = await backfill_missing_embeddings(session)
+    print(
+        f"backfill_meal_embeddings: embedded {counts.embedded}, "
+        f"unreadable {counts.unreadable}, failed {counts.failed}"
+    )
+    return 1 if counts.failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    logging.basicConfig(level=logging.INFO)
+    raise SystemExit(asyncio.run(main()))
