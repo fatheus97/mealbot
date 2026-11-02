@@ -187,7 +187,8 @@ can still overwrite the partner's edit.
   kitchen locks in ascending id; run the email-bound `DELETE ... RETURNING`; check the cap. The
   DELETE and the cap check both come after the lock, so two redeems at 5 of 6 cannot both pass. Zero
   rows returned after the lock is the same 404 as an email mismatch or an unknown code, so the
-  endpoint cannot be used to learn which emails hold invites. The joiner brings their kitchen **(decided)**:
+  endpoint cannot be used to learn which emails hold invites. All of it is one transaction, so a
+  cap failure (409) rolls back the DELETE too and the invite stays usable. The joiner brings their kitchen **(decided)**:
   plans and fridge rows move by `UPDATE ... SET household_id` (entries and `planhealth` follow
   through the FKs; fridge rows move as batches, so an item both partners hold becomes two batches of
   it, which the fridge already supports), staples merge with `ON CONFLICT DO NOTHING`, the joiner's drafts are deleted, the
