@@ -46,7 +46,8 @@ New:
   so it is single-use by construction and a wrong account burns nothing. Revoke is a delete. No
   status columns.
 
-Changed (the column is renamed in place, so no row is rewritten):
+Changed (the column is renamed in place, then only the rows of accounts whose household id differs
+from their user id are rewritten, by a join; see Migrations 5):
 
 | table | after |
 |---|---|
@@ -72,6 +73,10 @@ kitchen `user_id` read becomes a mypy error.
    serialize for those accounts during the deploy window. An account the old stack creates inside
    the window gets its household id from the sequence instead; for those seconds its old-code key can
    contend with another household's, and old and new code do not serialize for it. Accepted.
+   `household_01` (#532) also starts the household sequence at `user_id_seq`'s next value, so new
+   accounts usually get a household id equal to their user id too. Usually, not always: two
+   concurrent inserts can swap their pair, and an insert that names its household (a join) uses a
+   user id without a household one. Nothing may assume `household_id = user_id`.
 2. A **BEFORE INSERT trigger** on `"user"` creates a household when `household_id` is NULL. It also
    covers the old stack during the deploy window (which still inserts users without the column), Core
    inserts, `scripts/create_user.py` and hand-run SQL. It is also attached as a metadata `DDL`
@@ -82,11 +87,25 @@ kitchen `user_id` read becomes a mypy error.
    Leave takes the same row lock. These are the repo's first triggers, justified by three bare
    `DELETE FROM "user"` paths that run no app code.
 4. **Test sequence offset:** conftest restarts `household_id_seq` at 1000001 after `create_all`.
-   Otherwise user ids and household ids coincide in tests (as in prod until the first join), and a
+   Otherwise user ids and household ids coincide in tests (as in prod for most accounts), and a
    swapped-id bug passes. This offset is load-bearing.
 5. **`household_02`** renames the kitchen columns and their indexes (`ALTER INDEX ... RENAME`, including
    the migration-only `ix_mealentry_user_id_is_favorite`), so prod and the `create_all` schema match.
-   The test-db dry run compares the prod index list with the metadata.
+   The test-db dry run compares the prod index list with the metadata. After the renames the
+   columns still hold user ids, so before the FKs go on every kitchen table moves its rows to the
+   account's household in one statement:
+   `UPDATE t SET household_id = u.household_id FROM "user" u WHERE u.id = t.household_id AND u.household_id <> u.id`.
+   For accounts that existed at `household_01` the two ids are equal and nothing is rewritten; the
+   dry run seeds an account whose ids differ and checks its rows land in its own household.
+   The renames, the remap and the FKs are one migration transaction, so no row is written in
+   between. `household_02` first refuses to run if any household has more than one member: none
+   can before PR 5 ships joins, and two members' rows landing in one household could collide on
+   the new staples unique key. Before adding the FKs it checks that every kitchen row's
+   `household_id` exists in `household` and fails with the table and the count if not, which
+   reads better in a deploy log than an FK violation. Every unique key that includes
+   `household_id` (the staples key, `uq_mealplan_id_household_id`) is created after the remap,
+   so a swapped pair (A with ids 5/7, B with 7/5) cannot collide midway through the UPDATE; the
+   dry run seeds such a pair holding the same staple name.
 6. **`household_03`** lifts the health fields out of every plan's `request_json` into `planhealth`,
    attributed to `created_by_user_id` (exact, since every plan has had one owner), using frozen copies
    of `_blob_carries` and `_cleared` as `health_data_consent_01` did. The lift is idempotent and runs
@@ -190,8 +209,8 @@ can still overwrite the partner's edit.
   endpoint cannot be used to learn which emails hold invites. All of it is one transaction, so a
   cap failure (409) rolls back the DELETE too and the invite stays usable. The cap's 409 is distinct
   from the 404 of every other miss on purpose: by then the caller has proved a valid code and the
-  matching email, so it reveals nothing new. The joiner brings their kitchen **(decided)**:
-  plans and fridge rows move by `UPDATE ... SET household_id` (entries and `planhealth` follow
+  matching email, so it reveals nothing new.
+- **Bringing the kitchen (decided):** plans and fridge rows move by `UPDATE ... SET household_id` (entries and `planhealth` follow
   through the FKs; fridge rows move as batches, so an item both partners hold becomes two batches of
   it, which the fridge already supports), staples merge with `ON CONFLICT DO NOTHING`, the joiner's drafts are deleted, the
   versions bump, the old household is deleted.
