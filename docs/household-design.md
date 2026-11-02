@@ -97,7 +97,9 @@ kitchen `user_id` read becomes a mypy error.
    `downgrade()` refuses when any household has two or more members. Downgrading `household_03`
    writes each plan's creator row back into its blob (the inverse of the lift) and drops
    `dietaryprofile` and every other contributor's row: an emergency rollback loses saved profiles,
-   the one downgrade that destroys Art. 9 data, and its dry run asserts exactly that outcome.
+   the one downgrade that destroys Art. 9 data, and its dry run asserts exactly that outcome. A plan
+   whose creator was deleted (`created_by_user_id` NULL) has no creator row to restore, so its health
+   data is dropped too; the dry run seeds that case.
 8. **Deploy window (default: accept).** Between migrate and swap the old container's kitchen
    endpoints fail for seconds. The alternative is expand/contract, three extra PRs.
 
@@ -180,8 +182,12 @@ can still overwrite the partner's edit.
 - **Billing rule for phase 1 (decided: each member on their own):** joining requires the joiner and
   every member to be entitled independently (subscribed, comped or grandfathered). No billing code
   changes. AI spend caps stay per person.
-- **Join** is allowed only from a household of one. Redeem takes both households' kitchen locks
-  (ascending id) before it checks the cap, so two redeems at 5 of 6 cannot both pass. The joiner brings their kitchen **(decided)**:
+- **Join** is allowed only from a household of one. Redeem runs in this order: look up the
+  invite's `household_id` by `token_hash` (a plain SELECT; a miss is 404); take both households'
+  kitchen locks in ascending id; run the email-bound `DELETE ... RETURNING`; check the cap. The
+  DELETE and the cap check both come after the lock, so two redeems at 5 of 6 cannot both pass. Zero
+  rows returned after the lock is the same 404 as an email mismatch or an unknown code, so the
+  endpoint cannot be used to learn which emails hold invites. The joiner brings their kitchen **(decided)**:
   plans and fridge rows move by `UPDATE ... SET household_id` (entries and `planhealth` follow
   through the FKs; fridge rows move as batches, so an item both partners hold becomes two batches of
   it, which the fridge already supports), staples merge with `ON CONFLICT DO NOTHING`, the joiner's drafts are deleted, the
@@ -219,7 +225,7 @@ adversarial review.
 | 4 | Versions: columns, household-scoped tokens on GET/PUT/merge, 409s (`ErrorKey` en + cs), client queueing, freshness. | stale or foreign token 409s and writes nothing; two quick edits on one device succeed; a PUT without a token behaves as before; Vitest in its own `docker run`. |
 | 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
 | 6 | UI: Settings "Household" section, profile editor, eater picker with the merged summary, delete-dialog branch, reload after join/leave, InfoHints. en + cs, sentence-level keys. | Vitest, `tsc -b`, key-usage and parity tests, two-theme browser check. |
-| 7 | Legal: privacy en + cs, material change, owner's Czech read. Then the owner flips the flag. | legal-version CI job. |
+| 7 | Legal: privacy en + cs, material change, owner's Czech read. Gate before the flag flips: decision 11 (global RAG examples) is settled and, if it changes code, shipped. Then the owner flips the flag. | legal-version CI job. |
 
 ## Phase 2: before strangers use households
 
