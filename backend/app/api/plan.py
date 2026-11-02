@@ -4,7 +4,8 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
-from sqlalchemy import delete, func, update
+from sqlalchemy import ColumnElement, delete, func, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -1073,6 +1074,36 @@ async def cook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
+async def _store_embedding(
+    session: AsyncSession,
+    entry_id: int,
+    probe: EmbedProbe,
+    *still: ColumnElement[bool],
+) -> None:
+    """Write a vector embedded after the commit onto its meal, if the meal is
+    still a favourite and matches ``still``. Never raises: the star or edit it
+    belongs to is already saved, and a missing or stale vector only keeps the
+    meal out of RAG, so a failed write is logged and the request answers 200."""
+    try:
+        stored = (
+            await session.execute(
+                update(MealEntry)
+                .where(col(MealEntry.id) == entry_id, col(MealEntry.is_favorite).is_(True), *still)
+                .values(embedding=probe.embedding)
+                .returning(col(MealEntry.id))
+            )
+        ).scalar_one_or_none()
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.exception("Failed to store the embedding of meal entry %d", entry_id)
+        return
+    if stored is None:
+        # Expected when an un-star, a later edit or a delete won the race; says
+        # why this meal's vector is not the one just computed.
+        logger.info("Embedding of meal entry %d not stored: the meal changed meanwhile", entry_id)
+
+
 # POST /api/plan/{plan_id}/meals/{meal_entry_id}/favorite
 @router.post("/{plan_id}/meals/{meal_entry_id}/favorite", response_model=MealEntrySummary)
 @limiter.limit("20/minute", key_func=user_id_key_func)
@@ -1139,12 +1170,7 @@ async def favorite_meal(
         else:
             # Only onto a row that is still a favourite: an un-star or a plan
             # delete that landed while this ran must not get it back.
-            await session.execute(
-                update(MealEntry)
-                .where(col(MealEntry.id) == meal_entry_id, col(MealEntry.is_favorite).is_(True))
-                .values(embedding=probe.embedding)
-            )
-            await session.commit()
+            await _store_embedding(session, meal_entry_id, probe)
     await session.refresh(entry)
 
     return MealEntrySummary.from_entry(entry)
@@ -1465,16 +1491,9 @@ async def edit_meal(
         else:
             # Only onto the row as this edit left it: an un-star, a later edit
             # or a plan delete that landed meanwhile keeps its own state.
-            await session.execute(
-                update(MealEntry)
-                .where(
-                    col(MealEntry.id) == entry_id,
-                    col(MealEntry.is_favorite).is_(True),
-                    col(MealEntry.meal_json) == probe.meal_json,
-                )
-                .values(embedding=probe.embedding)
+            await _store_embedding(
+                session, entry_id, probe, col(MealEntry.meal_json) == probe.meal_json
             )
-            await session.commit()
 
     return MealEditResponse(
         **updated_meal.model_dump(),

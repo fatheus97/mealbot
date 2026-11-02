@@ -398,12 +398,17 @@ def _edit(name: str) -> dict[str, object]:
     }
 
 
-async def _starred(c: AsyncClient) -> tuple[int, int]:
-    """A confirmed plan whose first meal is in the cookbook: (plan_id, entry_id)."""
+async def _starred(c: AsyncClient, vector: list[float] | None = None) -> tuple[int, int]:
+    """A confirmed plan whose first meal is in the cookbook, with ``vector`` as
+    its embedding: (plan_id, entry_id)."""
     await _stock(c, 1000)
     plan_id = await _confirmed_plan(c)
     entry_id = int((await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"])
-    with patch("app.api.plan.embed_meal_entry", new_callable=AsyncMock):
+
+    async def embed(entry: MealEntry) -> None:
+        entry.embedding = vector
+
+    with patch("app.api.plan.embed_meal_entry", side_effect=embed):
         r = await c.post(
             f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
         )
@@ -494,3 +499,69 @@ class TestEditEmbedsOutsideTheLock:
         assert stored is not None and stored.embedding is not None
         assert stored.name == "Second"
         assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.2, 0.2])
+
+
+class TestAFailedVectorNeverFailsTheRequest:
+    """The vector is written after the star or edit is committed. If embedding
+    or storing it fails, the request still answers 200 with its change saved;
+    only RAG goes without the new vector."""
+
+    async def test_a_failed_embed_keeps_the_edit_and_the_old_vector(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        plan_id, entry_id = await _starred(c, [0.4] * 384)
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=RuntimeError("model down")):
+            r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl"))
+
+        assert r.status_code == 200, r.text
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None and stored.embedding is not None
+        assert stored.name == "Tofu bowl"
+        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.4, 0.4])
+
+    async def test_a_failed_vector_write_after_an_edit_answers_200(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        plan_id, entry_id = await _starred(c, [0.4] * 384)
+
+        async def wrong_size(entry: MealEntry) -> None:
+            entry.embedding = [0.1] * 3  # the column is vector(384): the UPDATE fails
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=wrong_size):
+            r = await c.patch(f"/api/plan/{plan_id}/days/0/meals/0", json=_edit("Tofu bowl"))
+
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == "Tofu bowl"
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None and stored.embedding is not None
+        assert stored.name == "Tofu bowl"
+        assert [float(x) for x in stored.embedding[:2]] == pytest.approx([0.4, 0.4])
+
+    async def test_a_failed_vector_write_after_a_star_answers_200(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        await _stock(c, 1000)
+        plan_id = await _confirmed_plan(c)
+        entry_id = (await c.get(f"/api/plan/{plan_id}/meals")).json()[0]["id"]
+
+        async def wrong_size(entry: MealEntry) -> None:
+            entry.embedding = [0.1] * 3
+
+        with patch("app.api.plan.embed_meal_entry", side_effect=wrong_size):
+            r = await c.post(
+                f"/api/plan/{plan_id}/meals/{entry_id}/favorite", json={"is_favorite": True}
+            )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["is_favorite"] is True
+        async with AsyncSession(test_engine) as s:
+            stored = await s.get(MealEntry, entry_id)
+        assert stored is not None
+        assert stored.is_favorite is True
+        assert stored.embedding is None
