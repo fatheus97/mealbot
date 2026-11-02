@@ -1,7 +1,17 @@
 from datetime import UTC, date, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Boolean, Index, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Connection,
+    FetchedValue,
+    Index,
+    MetaData,
+    UniqueConstraint,
+    event,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlmodel import Column, Field, Relationship, SQLModel, String
@@ -22,9 +32,78 @@ def _default_normalized_email(context: DefaultExecutionContext) -> str:
     return normalize_email(str(params["email"]))
 
 
+class Household(SQLModel, table=True):
+    """The people who share one kitchen (docs/household-design.md). Every
+    account is in exactly one; a solo account is a household of one.
+
+    The database creates and deletes these, not the app: HOUSEHOLD_TRIGGERS_SQL
+    gives a new user a household of their own and deletes a household when its
+    last member is deleted. Three delete paths are a bare ``DELETE FROM "user"``
+    that runs no app code (admin, self-delete, demo sweep), so only a trigger
+    can keep "no household without a member" true.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
+
+
+#: The two triggers on "user" that own a household's life. The migration
+#: household_01 installs a frozen copy (a test pins the two equal); this copy is
+#: what create_all (the test schema) gets, through the listener below.
+#:
+#: * BEFORE INSERT: a user inserted without a household gets a new one, whatever
+#:   inserted it (ORM, Core, scripts/create_user.py, hand-run SQL, or the old
+#:   container during a deploy, which knows nothing of the column).
+#: * AFTER DELETE: a household left with no member is deleted. It locks the
+#:   household row before looking, so two last members deleted at once cannot
+#:   both see the other still there and leave the household behind.
+HOUSEHOLD_TRIGGERS_SQL = """
+CREATE OR REPLACE FUNCTION household_for_new_user() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.household_id IS NULL THEN
+        INSERT INTO household (created_at) VALUES (timezone('utc', now()))
+        RETURNING id INTO NEW.household_id;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION household_drop_if_empty() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM 1 FROM household WHERE id = OLD.household_id FOR UPDATE;
+    IF NOT EXISTS (SELECT 1 FROM "user" WHERE household_id = OLD.household_id) THEN
+        DELETE FROM household WHERE id = OLD.household_id;
+    END IF;
+    RETURN NULL;
+END
+$$;
+
+DROP TRIGGER IF EXISTS user_household_before_insert ON "user";
+CREATE TRIGGER user_household_before_insert BEFORE INSERT ON "user"
+    FOR EACH ROW EXECUTE FUNCTION household_for_new_user();
+
+DROP TRIGGER IF EXISTS user_household_after_delete ON "user";
+CREATE TRIGGER user_household_after_delete AFTER DELETE ON "user"
+    FOR EACH ROW EXECUTE FUNCTION household_drop_if_empty();
+"""
+
+
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
+    # The household whose kitchen this account uses. Assigned by the database
+    # (HOUSEHOLD_TRIGGERS_SQL), never by the caller: FetchedValue tells the ORM to
+    # leave the column out of the INSERT and read the trigger's value back, so
+    # it is None in Python only before the first flush.
+    household_id: int | None = Field(
+        default=None,
+        foreign_key="household.id",
+        index=True,
+        nullable=False,
+        sa_column_kwargs={"server_default": FetchedValue()},
+    )
     # Canonical anti-abuse uniqueness key (app.core.email_normalize). The raw
     # `email` above stays verbatim for delivery/display/Stripe; uniqueness + all
     # auth/reset lookups key off THIS. Auto-populated at insert from `email` via
@@ -1224,3 +1303,13 @@ class EmailCampaignSend(SQLModel, table=True):
     )
     # NULL = claimed but not confirmed sent (in flight, or the process died).
     sent_at: datetime | None = Field(default=None)
+
+
+def _install_household_triggers(target: MetaData, connection: Connection, **kw: object) -> None:
+    """After create_all has made every table: the test schema gets the same
+    household triggers as a migrated database."""
+    if connection.dialect.name == "postgresql":
+        connection.exec_driver_sql(HOUSEHOLD_TRIGGERS_SQL)
+
+
+event.listen(SQLModel.metadata, "after_create", _install_household_triggers)

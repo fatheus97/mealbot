@@ -102,6 +102,11 @@ async def test_engine() -> AsyncGenerator[AsyncEngine]:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
+        # Household ids start far from user ids. In prod they coincide for
+        # every account that existed at household_01 (id = user.id), so a test
+        # schema where they also coincide would pass a swapped-id bug that
+        # hands a user id to something expecting a household id. Load-bearing.
+        await conn.execute(text("ALTER SEQUENCE household_id_seq RESTART WITH 1000001"))
 
     yield engine
 
