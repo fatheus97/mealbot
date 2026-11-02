@@ -352,8 +352,9 @@ class MealPlanRequest(BaseModel):
     # Server-set: True once diets, allergens and ingredients to avoid were
     # removed from this STORED request (consent withdrawn or never given; see
     # app.services.health_consent). Regenerating such a plan would ask the
-    # model for meals with no allergy constraints, so regenerate refuses it.
-    # A client setting it only blocks regenerating its own new plan.
+    # model for meals with no allergy constraints, so regenerate refuses it,
+    # and repeat too: the copied meals could not be screened against any. A
+    # client setting it only blocks regenerating or repeating its own new plan.
     health_data_removed: bool = False
     meals_per_day: int = Field(
         ge=1,

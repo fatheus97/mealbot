@@ -62,7 +62,6 @@ from app.services.fridge_service import (
 )
 from app.services.health_consent import (
     HealthEntry,
-    has_health_consent,
     request_to_store,
     require_health_consent,
     stored_request_json,
@@ -79,6 +78,7 @@ from app.services.leftovers import (
 from app.services.meal_planner import generate_partial_day
 from app.services.pantry_service import load_staple_keys
 from app.services.plan_repeat import (
+    PlanHealthDataRemovedError,
     PlanNotRepeatableError,
     PlanRepeatError,
     repeat_plan,
@@ -363,6 +363,8 @@ async def repeat_plan_endpoint(
         # A Cook Now recipe, not a week. See repeat_plan for why this is a
         # server-side refusal and not left to the UI.
         raise LocalizedHTTPException(422, "plan_repeat_not_repeatable") from exc
+    except PlanHealthDataRemovedError as exc:
+        raise LocalizedHTTPException(409, "plan_repeat_health_data_removed") from exc
     except PlanRepeatError as exc:
         # The row is real and owned; its stored JSON just predates a schema
         # change. Say that, rather than 500-ing on someone's oldest plan.
@@ -1482,22 +1484,18 @@ async def edit_meal(
             context={"day_index": day_index, "meal_index": meal_index},
         )
 
-    # The stored allergens are health data: screen with them only under a
-    # current consent (app.services.health_consent). Read under the kitchen
-    # lock, which a withdrawal takes too.
-    stored_request = (
-        await stored_request_json(session, plan) if has_health_consent(current_user) else None
-    )
+    # The plan's allergens, whoever edits: each planhealth row is covered by the
+    # consent of the member who entered it, not the editor's, and a partner's
+    # edit must still warn about the allergy it was planned around. A withdrawn
+    # one is already gone. Read under the kitchen lock, which a withdrawal
+    # takes too.
+    stored_request = await stored_request_json(session, plan)
     await session.commit()
     # Built now, while the session's objects are still loaded: a failed vector
     # write below rolls the session back and expires them (see store_embedding).
     response = MealEditResponse(
         **updated_meal.model_dump(),
-        allergen_warnings=(
-            _screen_edited_meal(updated_meal, plan, stored_request)
-            if stored_request is not None
-            else []
-        ),
+        allergen_warnings=_screen_edited_meal(updated_meal, plan, stored_request),
     )
 
     # A favourite's vector was built from the old name and content, so RAG

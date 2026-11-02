@@ -15,17 +15,20 @@ consent (Art. 9(2)(a)), so:
   else lets us keep them, and a plan saved after the withdrawal (its generation
   was already running) is stored without them;
 * a plan whose fields were removed is marked (``health_data_removed``) and can
-  no longer be regenerated: the model would get no allergy constraints;
+  no longer be regenerated or repeated: the model would get no allergy
+  constraints, and the copied meals could not be screened against any;
 * the model-performance copy (app.services.telemetry) never keeps them: it is a
   different purpose, which this consent does not cover.
 
 Where a saved plan keeps them (household_03, docs/household-design.md): one
 ``planhealth`` row per contributor, with the four fields EMPTY in the stored
-request and ``health_contributors`` naming whose rows they are. Readers rebuild
-the request from the rows (merged_request_json), and three rules make them fail
-closed: ``health_data_removed`` wins over every row and the blob; a contributor
-without a row left reads as removed; a plan with no rows at all (the old stack
-wrote it during the deploy window) reads its blob as the creator's row.
+request and ``health_contributors`` naming whose rows they are (household_04
+emptied the blobs of the plans saved before). Readers rebuild the request from
+the rows (merged_request_json), and three rules make them fail closed:
+``health_data_removed`` wins over every row and the blob; a contributor without
+a row left reads as removed; a plan with no rows at all reads its blob as the
+creator's row. household_04 left no such blob carrying data, so that last rule
+only keeps one from ever being read as empty.
 
 "Balanced" is not a diet for this purpose: it was the default every plan got
 before the diet selector became multi-select (#296), so it reveals nothing.
@@ -45,9 +48,9 @@ from typing import Protocol, Self
 
 from fastapi import status
 from pydantic import BaseModel
-from sqlalchemy import exists, or_
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, delete, select
+from sqlmodel import col, select
 
 from app.core.dietary import Allergen, DietType
 from app.core.errors import LocalizedHTTPException
@@ -266,11 +269,11 @@ def merged_request_json(
     show; every other reader validates the request, which ignores the key).
 
     * ``health_data_removed`` wins: the four fields come back empty, whatever
-      rows are left (the old stack withdraws by marking the blob only). So does
-      a contributor in ``health_contributors`` without a row: lost is lost.
-    * No rows at all: the blob as it is. A plan the old stack wrote during the
-      deploy window carries its data there; that blob is its creator's row. A
-      carrying blob with no creator to cover it reads as removed.
+      rows are left. So does a contributor in ``health_contributors`` without
+      a row: lost is lost, and the other contributors' rows go unread.
+    * No rows at all: the blob as it is, so a blob carrying data is its
+      creator's row (household_04 left none). A carrying blob with no creator
+      to cover it reads as removed.
     * Otherwise the rows' lists, row after row. ``shown_to`` keeps only the
       rows that person entered or is the subject of (the export, Art. 15(4)).
 
@@ -346,11 +349,12 @@ async def request_to_store(
     ``entries``: the blob holds the four HEALTH_FIELDS empty and names the
     contributors; the rows hold the data (StoredRequest.add_rows, after flush).
 
-    A request already marked ``health_data_removed`` (a removed plan repeated,
-    or a client sending the flag) keeps no rows: removed wins in every reader,
-    so a row would hold data nothing reads. A generation can run for minutes
-    after its consent check; if the user withdrew meanwhile, the plan is saved
-    without the data (no rows) and marked, as withdrawal promises. Entries
+    A request already marked ``health_data_removed`` (a client sending the
+    flag; repeat refuses a removed plan before it gets here) keeps no rows:
+    removed wins in every reader, so a row would hold data nothing reads. A
+    generation can run for minutes after its consent check; if the user
+    withdrew meanwhile, the plan is saved without the data (no rows) and
+    marked, as withdrawal promises. Entries
     without health data ("balanced" alone) are kept either way, as such a
     request was before.
 
@@ -421,9 +425,9 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     ).scalars().all()
     carrying = {row.meal_plan_id for row in rows if HealthEntry.of(row).carries()}
     plans = (
-        # A blob that still carries the data (written before household_03, or
-        # by the old stack during its deploy window) is covered by the consent
-        # of the member who generated the plan.
+        # A blob that carries the data itself (household_04 left none, but the
+        # readers would use one) is covered by the consent of the member who
+        # generated the plan.
         await session.execute(
             select(MealPlan).where(
                 or_(
@@ -473,41 +477,3 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     await session.commit()
     logger.info("health_consent_withdrawn user_id=%s plans_cleared=%s", user.id, changed)
     return changed
-
-
-async def forget_health_of_removed_plans(session: AsyncSession) -> int:
-    """Delete the planhealth rows of every plan whose blob says
-    ``health_data_removed``. Commits; returns how many went. Run at startup.
-
-    The old stack withdraws by marking the blob only, so during a deploy
-    window a copied row can outlive its consent. No reader uses it (removed
-    wins), but it must not be kept either. Idempotent. The blobs are parsed
-    here, not cast in SQL: one legacy blob that is not JSON would fail a cast
-    for the whole table (Postgres 15 has no pg_input_is_valid). Temporary:
-    household PR 3b's contract migration runs this once and takes it out."""
-    plans = (
-        await session.execute(
-            select(col(MealPlan.id), col(MealPlan.request_json)).where(
-                exists().where(col(PlanHealth.meal_plan_id) == col(MealPlan.id))
-            )
-        )
-    ).all()
-    removed: list[int] = []
-    for plan_id, raw in plans:
-        try:
-            data = json.loads(raw)
-        except ValueError:
-            continue
-        if isinstance(data, dict) and _says_removed(data):
-            removed.append(plan_id)
-    if not removed:
-        return 0
-    deleted = (
-        await session.execute(
-            delete(PlanHealth)
-            .where(col(PlanHealth.meal_plan_id).in_(removed))
-            .returning(col(PlanHealth.id))
-        )
-    ).scalars().all()
-    await session.commit()
-    return len(deleted)

@@ -128,11 +128,12 @@ kitchen `user_id` read becomes a mypy error.
      new code runs one idempotent statement at startup that deletes the `planhealth` rows of every
      plan whose blob says `health_data_removed`, so they are gone seconds after the swap. It scans
      every plan's `request_json` (no index covers the key), which is fine at today's scale and
-     temporary: 3b's contract migration runs the same delete once, before emptying the blobs, and
-     takes the startup statement out. The old code never rewrites the health fields of a blob otherwise (an edit touches
+     temporary: the contract migration (`household_04`, 3b-1) runs the same delete once, before
+     emptying the blobs, and takes the startup statement out. The old code never rewrites the health fields of a blob otherwise (an edit touches
      `response_json` only), so withdrawal is the only blob change a row can miss.
 
-   The contract step that empties the old blobs ships with 3b, when no old code can run any more.
+   The contract step that empties the old blobs ships as `household_04` in 3b-1, when the code
+   serving during its deploy window is 3a's, which reads the rows first.
    Details the map of the code settled:
    - every plan that is not already removed gets its creator row, even with three empty lists; the
      row's existence is also what makes the copy idempotent. A plan whose blob already says
@@ -237,8 +238,9 @@ can still overwrite the partner's edit.
   has no `planhealth` rows is read as the creator's row.
 - **Withdrawal while staying:** delete the person's profile and every `planhealth` row they entered
   or that describes them in the household, and flag those plans `health_data_removed`.
-- Editing screens against the plan's `planhealth` rows whoever edits (today the editor's own consent
-  decides). Repeat re-screens the copied meals against the current eaters and fails closed.
+- Editing screens against the plan's `planhealth` rows whoever edits (since 3b-1). Repeat refuses a
+  removed plan (3b-1), and re-screens the copied meals against the current eaters and fails closed
+  (3b-2).
 - Known limit: a `baby_food` member makes every meal infant food. Shown in the UI; per-slot eaters
   are out of scope.
 
@@ -298,7 +300,8 @@ adversarial review.
 | 2 | `household_02` rekey: renames and index renames, `created_by_user_id`, composite FK, staples unique + lock, `Kitchen`, `lock_kitchen(kitchen)`, `load_plan`/`load_entry`, RAG, per-member drafts. Withdraw and export key on the creator until PR 3. | route matrix; two-member races in the `test_kitchen_lock.py` harness, with a per-user-key negative control that goes red; membership change while waiting returns 409; composite FK rejects a cross-household entry; moving a plan to another household carries its entries (ON UPDATE CASCADE is load-bearing); A's Generate keeps B's draft; index list matches metadata. |
 | 3s | Safety net before any of 3: API tests that the stored health data reaches the model on generate, regenerate and Cook Now, survives repeat and a Cook Now save, and is in the export. A 3a that reads the emptied blob must go red. | each test negative-controlled against the production path it pins; the PR records the suite's test count, which 3a reconciles against; it also pins that editing, confirming, cooking, starring and regenerating a plan leave its `request_json` unchanged, the claim that makes withdrawal the only blob rewrite a copied row can miss. |
 | 3a | `household_03`: `planhealth` and `health_contributors`, the copy (Migrations 6), every reader and writer switched to rows with the blob as fallback (generate, Cook Now, regenerate, repeat, edit screen, withdraw, export, telemetry), `health_data_removed` taking precedence, and the startup delete of a removed plan's rows. Byte-identical for a household of one, including two behaviours the design later changes (below). No consent change. | 3s stays green unchanged; a new plan's blob holds the four HEALTH_FIELDS empty (legacy diet_type included); copy is idempotent and attributes every blob to its creator; a carrying blob with no row reads as the creator's row; a removed plan with a row left over is never read as health data, and the startup delete removes that row; withdrawal clears rows and blob; dry run up/down/up with all three blob shapes, a NULL creator, and "row copied, then the old stack withdraws". |
-| 3b | `dietaryprofile`, eaters and the merge, per-eater consent (403 naming the member), the contract step emptying old blobs (it runs the removed-plan delete once and takes the startup statement out), all behind `HOUSEHOLDS_ENABLED`. Also flips the two kept behaviours: the edit screen warns whoever edits (today the editor's own consent decides), and repeat refuses a plan whose health data was removed (today it copies it, still marked). | deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members; editor without consent still gets the allergen warning. |
+| 3b-1 | `household_04`, the contract step: runs the removed-plan delete once and takes the startup statement out, gives a plan the pre-3a stack wrote in 3a's window its creator row, empties the four fields of every blob that has rows and names its contributors. Flips the two kept behaviours, for everyone: the edit screen warns from the plan's rows whoever edits (before, the editor's own consent decided), and repeat refuses a plan whose health data was removed, 409 (before, it copied it, still marked). Split from 3b so the one step that rewrites stored health data ships and deploys on its own. | dry run: the app reads every plan identically before and after, removed rows gone, idempotent, downgrade a no-op, down to `household_02` and back; editor without current consent still gets the allergen warning; repeat of a removed or lost-contributor plan 409s and copies nothing. |
+| 3b-2 | `dietaryprofile`, eaters and the merge, per-eater consent (403 naming the member), repeat re-screening against the current eaters, `HOUSEHOLD_CONSENT_VERSION` and its startup guard, all behind `HOUSEHOLDS_ENABLED`. | deleting a contributor makes regenerate 409; one-off rows survive nothing silently; withdrawal mid-generation saves without that person; a missing eater field defaults to all members. |
 | 4 | Versions: columns, household-scoped tokens on GET/PUT/merge, 409s (`ErrorKey` en + cs), client queueing, freshness. | stale or foreign token 409s and writes nothing; two quick edits on one device succeed; a PUT without a token behaves as before; Vitest in its own `docker run`. |
 | 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; a redeem rejected at the cap leaves the invite in place; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
 | 6 | UI: Settings "Household" section, profile editor, eater picker with the merged summary, delete-dialog branch, reload after join/leave, InfoHints. en + cs, sentence-level keys. | Vitest, `tsc -b`, key-usage and parity tests, two-theme browser check. |
@@ -336,8 +339,8 @@ Needed before households are offered to paying users who do not each have their 
 11. Global RAG examples across accounts (pre-existing): plan content from one account can shape
     another account's prompt. Decide before the flag flips, not open-ended.
 12. Health consent version bump: in PR 7 with the legal texts, not in PR 3 (see "Diets, allergies
-    and consent"). Decision 1's "accept the window" does not cover the health data copy: there the
-    window fails open and silently, so 3a copies and 3b contracts.
+    and consent"). **(decided 2026-11-02)** Decision 1's "accept the window" does not cover the
+    health data copy: there the window fails open and silently, so 3a copies and 3b-1 contracts.
 
 ## Where each critic gap went
 
