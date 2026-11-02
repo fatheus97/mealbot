@@ -117,7 +117,11 @@ class TestSaving:
         assert {k: v for k, v in saved.json().items() if k != "updated_at"} == want
         assert saved.json()["updated_at"] is not None
         _forget(db_session)
-        assert {k: v for k, v in (await client.get(URL)).json().items() if k != "updated_at"} == want
+        read = (await client.get(URL)).json()
+        assert {k: v for k, v in read.items() if k != "updated_at"} == want
+        # One row, one spelling: the save's aware value and the naive column
+        # read back must serialise alike.
+        assert read["updated_at"] == saved.json()["updated_at"]
         # A second save replaces the first: one profile per person.
         assert (await client.put(URL, json=PROFILE)).status_code == 200
         stored = await _stored(db_session, test_user)

@@ -1341,3 +1341,12 @@ class DietaryProfileRead(BaseModel):
     allergens: list[str]
     avoid_ingredients: list[str]
     updated_at: datetime | None
+
+    @field_validator("updated_at", mode="before")
+    @classmethod
+    def ensure_utc(cls, v: datetime | None) -> datetime | None:
+        """The column is naive; a save returns the aware value it just wrote.
+        Attach UTC so the PUT, the GET and the export serialise one row alike."""
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=UTC)
+        return v
