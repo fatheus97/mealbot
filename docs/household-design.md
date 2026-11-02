@@ -97,6 +97,12 @@ kitchen `user_id` read becomes a mypy error.
    `UPDATE t SET household_id = u.household_id FROM "user" u WHERE u.id = t.household_id AND u.household_id <> u.id`.
    For accounts that existed at `household_01` the two ids are equal and nothing is rewritten; the
    dry run seeds an account whose ids differ and checks its rows land in its own household.
+   The renames, the remap and the FKs are one migration transaction, so no row is written in
+   between. `household_02` first refuses to run if any household has more than one member: none
+   can before PR 5 ships joins, and two members' rows landing in one household could collide on
+   the new staples unique key. Before adding the FKs it checks that every kitchen row's
+   `household_id` exists in `household` and fails with the table and the count if not, which
+   reads better in a deploy log than an FK violation.
 6. **`household_03`** lifts the health fields out of every plan's `request_json` into `planhealth`,
    attributed to `created_by_user_id` (exact, since every plan has had one owner), using frozen copies
    of `_blob_carries` and `_cleared` as `health_data_consent_01` did. The lift is idempotent and runs
