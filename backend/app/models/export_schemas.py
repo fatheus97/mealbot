@@ -100,6 +100,17 @@ class ExportedRefund(BaseModel):
     occurred_at: datetime
 
 
+class ExportedWasteRecord(BaseModel):
+    """What happened to food that left the fridge, as the user declared it."""
+
+    name: str
+    quantity_grams: float
+    expiration_date: date | None
+    reason: str
+    source: str
+    created_at: datetime
+
+
 class ExportedConsentEvent(BaseModel):
     """One grant (``granted``) or withdrawal of the consent to process diets,
     allergens and ingredients to avoid, with the consent text version."""
@@ -128,4 +139,5 @@ class UserDataExport(BaseModel):
     invoices: list[ExportedInvoice]
     refunds: list[ExportedRefund]
     health_consent_history: list[ExportedConsentEvent]
+    waste_records: list[ExportedWasteRecord]
     excluded: list[str]
