@@ -349,11 +349,12 @@ async def request_to_store(
     ``entries``: the blob holds the four HEALTH_FIELDS empty and names the
     contributors; the rows hold the data (StoredRequest.add_rows, after flush).
 
-    A request already marked ``health_data_removed`` (a removed plan repeated,
-    or a client sending the flag) keeps no rows: removed wins in every reader,
-    so a row would hold data nothing reads. A generation can run for minutes
-    after its consent check; if the user withdrew meanwhile, the plan is saved
-    without the data (no rows) and marked, as withdrawal promises. Entries
+    A request already marked ``health_data_removed`` (a client sending the
+    flag; repeat refuses a removed plan before it gets here) keeps no rows:
+    removed wins in every reader, so a row would hold data nothing reads. A
+    generation can run for minutes after its consent check; if the user
+    withdrew meanwhile, the plan is saved without the data (no rows) and
+    marked, as withdrawal promises. Entries
     without health data ("balanced" alone) are kept either way, as such a
     request was before.
 
