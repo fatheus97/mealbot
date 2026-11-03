@@ -268,6 +268,20 @@ class TestSharedHousehold:
         resp = await _repeat(client, db_session, source)
         assert resp.status_code == 200, resp.text
 
+    async def test_sulphites_avoided_through_a_members_profile_pass(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # The source was made for the partner, whose saved profile avoids
+        # sulphites; repeated with them and a newcomer eating. The source's
+        # union is merged from every row, profile rows included.
+        partner = await _member(db_session, test_user.household_id, "partner", profile=SULPHITES_ONLY)
+        source = await _source(
+            db_session, test_user, [CHICKEN], [(_id(partner), _id(partner), SULPHITES_ONLY)]
+        )
+        await _member(db_session, test_user.household_id, "newcomer", profile=EGGS_ONLY)
+        resp = await _repeat(client, db_session, source)
+        assert resp.status_code == 200, resp.text
+
     async def test_a_non_english_meal_with_steps_alone_fails_closed(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
