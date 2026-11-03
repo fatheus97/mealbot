@@ -240,9 +240,9 @@ class TestCombinationRules:
 # Every value a stored row may hold. Saved profiles, planhealth rows and plan
 # requests keep these strings, and their readers turn them back into the enums,
 # failing closed: an allergen dropped on read would be screened for nobody, so a
-# stale one fails the whole household's Generate. Adding a value is free.
-# Removing or renaming one needs a data migration that rewrites the stored rows
-# first; only then take it out of this list.
+# stale one fails the whole household's Generate. A new value goes into this
+# list too, so that its removal is caught later. Removing or renaming one needs
+# a data migration that rewrites the stored rows first; only then take it out.
 _STORED_DIET_TYPES = {
     "balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food",
     "pescatarian", "gluten_free", "dairy_free", "keto", "paleo", "mediterranean",
@@ -256,5 +256,12 @@ _STORED_ALLERGENS = {
 
 
 def test_no_stored_value_leaves_the_enums() -> None:
-    assert {d.value for d in DietType} >= _STORED_DIET_TYPES
-    assert {a.value for a in Allergen} >= _STORED_ALLERGENS
+    for enum, stored in ((DietType, _STORED_DIET_TYPES), (Allergen, _STORED_ALLERGENS)):
+        values = {v.value for v in enum}
+        assert not stored - values, (
+            f"{enum.__name__} lost {sorted(stored - values)}: stored rows still hold "
+            "them. Migrate those rows first (see the comment above)."
+        )
+        assert not values - stored, (
+            f"add {sorted(values - stored)} to the stored {enum.__name__} list above"
+        )
