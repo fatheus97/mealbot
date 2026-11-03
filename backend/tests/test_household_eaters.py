@@ -127,8 +127,8 @@ async def _generate(
     return resp, gen
 
 
-async def _stored(db: AsyncSession, plan_id: int) -> tuple[dict[str, object], list[Row], str]:
-    """The plan's stored request, its rows and its telemetry request."""
+async def _saved(db: AsyncSession, plan_id: int) -> tuple[dict[str, object], list[Row]]:
+    """The plan's stored request and its rows."""
     _forget(db)
     raw = await db.scalar(select(col(MealPlan.request_json)).where(col(MealPlan.id) == plan_id))
     rows = (
@@ -136,20 +136,23 @@ async def _stored(db: AsyncSession, plan_id: int) -> tuple[dict[str, object], li
             select(PlanHealth).where(col(PlanHealth.meal_plan_id) == plan_id).order_by(col(PlanHealth.id))
         )
     ).scalars().all()
+    assert isinstance(raw, str)
+    blob = json.loads(raw)
+    assert isinstance(blob, dict)
+    return blob, [
+        (r.entered_by_user_id, r.subject_user_id, r.diet_types, r.allergens, r.avoid_ingredients)
+        for r in rows
+    ]
+
+
+async def _stored(db: AsyncSession, plan_id: int) -> tuple[dict[str, object], list[Row], str]:
+    """The plan's stored request, its rows and its telemetry request."""
+    blob, rows = await _saved(db, plan_id)
     telemetry = await db.scalar(
         select(col(MachineGeneration.request_json)).where(col(MachineGeneration.meal_plan_id) == plan_id)
     )
-    assert isinstance(raw, str) and isinstance(telemetry, str)
-    blob = json.loads(raw)
-    assert isinstance(blob, dict)
-    return (
-        blob,
-        [
-            (r.entered_by_user_id, r.subject_user_id, r.diet_types, r.allergens, r.avoid_ingredients)
-            for r in rows
-        ],
-        telemetry,
-    )
+    assert isinstance(telemetry, str)
+    return blob, rows, telemetry
 
 
 async def _export_as(client: AsyncClient, user: User) -> dict[str, object]:

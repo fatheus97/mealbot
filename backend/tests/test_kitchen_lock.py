@@ -22,7 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete
 
 from app.api.deps import get_current_user
+from app.core import legal
+from app.core.config import settings
 from app.core.email_normalize import normalize_email
+from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import MealEntry, User
@@ -319,6 +322,10 @@ class TestTheLockComesFirst:
     ) -> None:
         c, _ = kitchen
         seen: list[bool] = []
+        # Shared households on: the reads they add (the eaters on /recipe/cook)
+        # exist only then, and must come after the lock too.
+        monkeypatch.setattr(settings, "households_enabled", True)
+        monkeypatch.setattr(legal, "HOUSEHOLD_CONSENT_VERSION", HEALTH_CONSENT_VERSION)
 
         async def spy(session: AsyncSession, kitchen: Kitchen) -> None:
             seen.append(session.in_transaction())
