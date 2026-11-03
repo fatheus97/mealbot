@@ -201,6 +201,27 @@ class TestSharedHousehold:
         _, rows = await _cook(client, db_session, TYPED)
         assert rows[1] == (partner.id, partner.id, ["vegetarian", "vegan"], ["fish", "milk", "eggs"], ["okra"])
 
+    async def test_cook_skips_a_chosen_eater_who_left_since(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # The picker sends the eaters it showed at "Generate"; one has left by
+        # "I cooked it", their profile still saved. Not a 422, not a 500.
+        partner = await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        other = await _member(db_session, test_user.household_id, "other", profile=EGGS_ONLY)
+        elsewhere = await _member(db_session, None, "elsewhere")
+        body = {**TYPED, "eaters": [test_user.id, partner.id, other.id]}
+        resp, _ = await _generate(client, db_session, body)
+        assert resp.status_code == 200, resp.text
+        partner.household_id = elsewhere.household_id
+        db_session.add(partner)
+        await db_session.flush()
+        blob, rows = await _cook(client, db_session, body)
+        assert rows == [
+            (test_user.id, None, ["vegan"], ["milk"], ["peanuts"]),
+            (other.id, other.id, [], ["eggs"], []),
+        ]
+        assert blob["health_contributors"] == [test_user.id, other.id]
+
     @pytest.mark.parametrize("gone", ["left", "withdrew", "consent lapsed"])
     async def test_cook_leaves_out_an_eater_gone_since_and_keeps_the_rest(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, gone: str
