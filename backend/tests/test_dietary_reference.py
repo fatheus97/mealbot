@@ -235,3 +235,26 @@ class TestCombinationRules:
         assert ctx.warnings  # this combo produces warnings
         for w in ctx.warnings:
             assert w.source
+
+
+# Every value a stored row may hold. Saved profiles, planhealth rows and plan
+# requests keep these strings, and their readers turn them back into the enums,
+# failing closed: an allergen dropped on read would be screened for nobody, so a
+# stale one fails the whole household's Generate. Adding a value is free.
+# Removing or renaming one needs a data migration that rewrites the stored rows
+# first; only then take it out of this list.
+_STORED_DIET_TYPES = {
+    "balanced", "high_protein", "low_carb", "vegetarian", "vegan", "baby_food",
+    "pescatarian", "gluten_free", "dairy_free", "keto", "paleo", "mediterranean",
+    "dash", "low_fodmap", "diabetic", "halal", "kosher",
+}
+_STORED_ALLERGENS = {
+    "cereals_with_gluten", "crustaceans", "eggs", "fish", "peanuts", "soybeans",
+    "milk", "tree_nuts", "celery", "mustard", "sesame", "sulphites", "lupin",
+    "molluscs",
+}
+
+
+def test_no_stored_value_leaves_the_enums() -> None:
+    assert {d.value for d in DietType} >= _STORED_DIET_TYPES
+    assert {a.value for a in Allergen} >= _STORED_ALLERGENS
