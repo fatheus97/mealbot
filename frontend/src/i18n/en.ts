@@ -890,6 +890,12 @@ export const en = {
   // it. See test/i18nAssertions.ts.
   "planner.heading": "Meal Planner",
 
+  // ─── Planner: an edit the allergen check could not run on ─────────────────
+  // Shared households only (AllergenEditWarning, `unchecked`).
+  "planner.editUncheckedHeadline": "This edit was not checked for allergies.",
+  "planner.editUncheckedBody":
+    "The diets and allergies this plan was made for were removed, so there was nothing to check your edit against. We saved your change.",
+
   // ─── Feedback modal ───────────────────────────────────────────────────────
   "feedback.title": "Send feedback",
   "feedback.intro": "Found a bug or have an idea? Tell us — it genuinely helps shape Mealbot.",

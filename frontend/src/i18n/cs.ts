@@ -823,6 +823,11 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // ─── Planner heading ──────────────────────────────────────────────────────
   "planner.heading": "Plánovač jídel",
 
+  // ─── Planner: an edit the allergen check could not run on ─────────────────
+  "planner.editUncheckedHeadline": "Tato úprava nebyla zkontrolována na alergie.",
+  "planner.editUncheckedBody":
+    "Typy stravy a alergie, pro které jídelníček vznikl, byly odstraněny, takže úpravu nebylo s čím porovnat. Změnu jsme uložili.",
+
   // ─── Feedback modal ───────────────────────────────────────────────────────
   "feedback.title": "Poslat zpětnou vazbu",
   "feedback.intro": "Našli jste chybu nebo máte nápad? Napište nám — opravdu nám to pomáhá Mealbota zlepšovat.",

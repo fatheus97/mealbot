@@ -834,4 +834,7 @@ export type FeedbackStatusFilter =
  */
 export interface MealEditResponse extends PlannedMeal {
   allergen_warnings?: AllergenWarning[];
+  /** The edit could not be checked at all: in a shared household, the plan's
+   *  diets and allergies are gone (a withdrawal, a deleted account). */
+  health_data_removed?: boolean;
 }

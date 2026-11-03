@@ -831,6 +831,11 @@ class MealEditResponse(PlannedMeal):
     """
 
     allergen_warnings: list[AllergenWarning] = Field(default_factory=list)
+    # True when the edit could not be screened at all: in a shared household,
+    # the plan's diets and allergies are gone (a withdrawal, or a contributor's
+    # deleted account), so an empty allergen_warnings would read as "checked,
+    # all clear" (check-in Q12). Always False in a household of one.
+    health_data_removed: bool = False
 
 
 class MealEditRequest(BaseModel):
