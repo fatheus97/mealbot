@@ -512,6 +512,8 @@ describe("PlanCatalog — repeat this week", () => {
     [403, "To use your diets, allergies or ingredients to avoid, first give your consent."],
     // The plan's diets were removed, so the copy could not be screened.
     [409, "This plan's diets, allergies and ingredients to avoid were removed, so it can't be repeated safely."],
+    // Everyone eating now avoids more ingredients than one plan can take.
+    [422, "Together you have 60 ingredients to avoid, and one plan can take at most 50."],
   ])("shows the server's reason for a %i refusal instead of 'try again'", async (status, detail) => {
     // Retrying cannot fix either; the server's localized detail says what will.
     loginUser();
