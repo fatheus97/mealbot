@@ -35,6 +35,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from app.core.dietary import Allergen, DietType
 from app.models.db_models import MealPlan, StockItem, User
 from app.models.plan_models import (
     MealPlanRequest,
@@ -42,13 +43,17 @@ from app.models.plan_models import (
     ShoppingListItem,
     StockItemDTO,
 )
+from app.services.allergen_screen import screen_meals_for_allergens
 from app.services.health_consent import (
     HealthEntry,
+    merge_entries,
     merged_request_json,
     plan_health_rows,
+    repeat_entries,
     request_to_store,
     require_health_consent,
 )
+from app.services.infant_screen import screen_meals_for_infant
 from app.services.kitchen import Kitchen
 from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan
@@ -68,17 +73,56 @@ class PlanHealthDataRemovedError(ValueError):
     """The source's diets and allergies were removed (``health_data_removed``)."""
 
 
+class PlanUnsafeForEatersError(ValueError):
+    """A copied meal fails the screen for the people eating now. Not a
+    PlanRepeatError: the route maps that one to "data unreadable"."""
+
+    def __init__(self, meal: str) -> None:
+        super().__init__(meal)
+        self.meal = meal
+
+
+def _screen_for_eaters(
+    original: MealPlanResponse, entries: list[HealthEntry], language: str | None
+) -> None:
+    """Fail closed (check-in Q11): the copied meals were screened, if at all,
+    against whoever ate then. Re-screen them against the current union: an
+    allergen hit, an ingredient the screen cannot read (a meal edited on a
+    non-English plan has no English names), or a baby-food rule hit refuses
+    the copy. Leftover meals are skipped: the meal they come from is in the
+    plan and screened, and their steps only name it. Other diets and the
+    ingredients to avoid have no deterministic screen; the copy stores them,
+    so a regenerate applies them."""
+    diets, allergens, _ = merge_entries(entries)
+    meals = [meal for day in original.days for meal in day.meals if not meal.is_leftover]
+    hits = [
+        v.meal_name
+        for v in screen_meals_for_allergens(
+            meals, [Allergen(a) for a in allergens], language=language
+        )
+    ]
+    if DietType.BABY_FOOD.value in diets:
+        hits += [v.meal_name for v in screen_meals_for_infant(meals, language=language)]
+    if hits:
+        raise PlanUnsafeForEatersError(hits[0])
+
+
 async def repeat_plan(
     session: AsyncSession,
     user: User,
     source: MealPlan,
     start_date: date | None,
+    eaters: list[int] | None = None,
 ) -> MealPlan:
     """Build and stage a new MealPlan copying ``source``'s meals. Caller commits.
 
     Returns the new (flushed, id-bearing) plan. The source is left completely
     untouched — including its own ``start_date``, so repeating does not quietly
     reschedule the thing you copied.
+
+    In a shared household the copy is for the people eating now (``eaters``,
+    missing means every member; repeat_entries) and its meals are re-screened
+    against them (_screen_for_eaters).
     """
     if user.id is None:
         raise ValueError("repeat_plan requires a persisted user")
@@ -113,9 +157,6 @@ async def repeat_plan(
     # anything for whoever eats now.
     if request.health_data_removed:
         raise PlanHealthDataRemovedError(f"plan_id={source.id}")
-    # The copy stores the source's diets and allergens again: the same consent
-    # rule as generating them (app.services.health_consent).
-    require_health_consent(user, request)
     kitchen = Kitchen.of(user)
     # The source's planhealth rows, copied as they are. A source with no rows
     # at all reads its blob as the creator's row (merged_request_json read one
@@ -125,6 +166,14 @@ async def repeat_plan(
         entries = [HealthEntry.of(row) for row in health]
     else:
         entries = [HealthEntry.typed_by(source.created_by_user_id or kitchen.user_id, request)]
+    for_eaters = await repeat_entries(session, user, entries, eaters)
+    if for_eaters is None:
+        # The copy stores the source's diets and allergens again: the same
+        # consent rule as generating them (app.services.health_consent).
+        require_health_consent(user, request)
+    else:
+        entries = for_eaters
+        _screen_for_eaters(original, entries, request.language)
 
     # Today's fridge, in the same shape generation uses. `need_to_use` is masked
     # by the user's master toggle exactly as generate_plan_days masks it, so the

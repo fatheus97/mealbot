@@ -93,6 +93,7 @@ ErrorKey = Literal[
     "plan_data_inconsistent",
     "plan_repeat_not_repeatable",
     "plan_repeat_health_data_removed",
+    "plan_repeat_unsafe_for_eaters",  # $meal
     "plan_generation_failed",
     "plan_regeneration_failed",
     "plan_regenerate_confirmed",
@@ -243,6 +244,10 @@ _EN: Final[dict[str, str]] = {
     "plan_repeat_health_data_removed": (
         "This plan's diets, allergies and ingredients to avoid were removed, so "
         "it can't be repeated safely. Create a new plan instead."
+    ),
+    "plan_repeat_unsafe_for_eaters": (
+        '"$meal" may contain something one of the people eating it now must '
+        "avoid, so this plan can't be repeated. Create a new plan instead."
     ),
     "plan_generation_failed": "Meal plan generation failed. Please try again.",
     "plan_regeneration_failed": "Meal plan regeneration failed. Please try again.",
@@ -449,6 +454,11 @@ _CS: Final[dict[str, str]] = {
         "Z tohoto jídelníčku byly odstraněny typy stravy, alergie a suroviny, "
         "kterým se chcete vyhnout, takže ho nelze bezpečně zopakovat. Vytvořte "
         "místo toho nový jídelníček."
+    ),
+    "plan_repeat_unsafe_for_eaters": (
+        "Jídlo „$meal“ může obsahovat něco, čemu se musí vyhnout někdo z těch, "
+        "kdo ho teď budou jíst, proto tento jídelníček nelze zopakovat. "
+        "Vytvořte místo toho nový jídelníček."
     ),
     "plan_generation_failed": (
         "Vytvoření jídelníčku se nezdařilo. Zkuste to prosím znovu."

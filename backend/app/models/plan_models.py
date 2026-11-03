@@ -924,6 +924,9 @@ class PlanRepeatRequest(BaseModel):
     """
 
     start_date: date | None = None
+    # As MealPlanRequest.eaters: in a shared household the copy is for the
+    # members eating now, missing means every member. Never stored.
+    eaters: list[int] | None = Field(default=None, max_length=6)
 
     @field_validator("start_date")
     @classmethod

@@ -366,15 +366,7 @@ async def _eaters_union(
     if profiles is None:
         return None, [typed]
     entries = [typed, *profiles]
-    diets, allergens, avoid = merge_entries(entries)
-    cap = avoid_ingredients_cap(type(payload))
-    if len(avoid) > cap:
-        raise LocalizedHTTPException(
-            422,
-            "household_avoid_too_long",
-            count_given=str(len(avoid)),
-            maximum=str(cap),
-        )
+    diets, allergens, avoid = merged_within_cap(entries, type(payload))
     union: dict[str, object] = {
         "diet_types": [DietType(d) for d in diets],
         "diet_type": DietType(diets[0]) if diets else None,
@@ -382,6 +374,49 @@ async def _eaters_union(
         "avoid_ingredients": avoid,
     }
     return union, entries
+
+
+def merged_within_cap(
+    entries: Sequence[HealthEntry], model: type[BaseModel]
+) -> tuple[list[str], list[str], list[str]]:
+    """merge_entries, refusing a union of avoid lists longer than one ``model``
+    request may carry (422, never truncated: the request validator would cut
+    it silently)."""
+    diets, allergens, avoid = merge_entries(entries)
+    cap = avoid_ingredients_cap(model)
+    if len(avoid) > cap:
+        raise LocalizedHTTPException(
+            422,
+            "household_avoid_too_long",
+            count_given=str(len(avoid)),
+            maximum=str(cap),
+        )
+    return diets, allergens, avoid
+
+
+async def repeat_entries(
+    session: AsyncSession,
+    user: User,
+    source: Sequence[HealthEntry],
+    eaters: list[int] | None,
+) -> list[HealthEntry] | None:
+    """What a repeat's copy stores in a shared household (check-in Q11), or
+    None with shared households off or ``user`` alone, where the copy keeps
+    the source's entries as before.
+
+    The source's one-off entries (typed for that plan, about no member) stay,
+    under their author's consent: a 403 naming them if it lapsed. Every
+    current eater's saved profile replaces the profiles the source was
+    generated with, refused like Generate (_eater_profiles, strict). Their
+    union must fit one plan request."""
+    profiles = await _eater_profiles(session, user, eaters, strict=True)
+    if profiles is None:
+        return None
+    one_off = [entry for entry in source if entry.subject_user_id is None]
+    await _require_entries_consent(session, user, one_off)
+    entries = [*one_off, *profiles]
+    merged_within_cap(entries, MealPlanRequest)
+    return entries
 
 
 async def eater_entries(
@@ -404,10 +439,19 @@ async def require_contributor_consent(
     under the consent of each person who entered it. For a household of one
     that person is the user, exactly as before. A plan with no rows reads its
     blob as its creator's row, and the user regenerating it is that creator."""
-    people = {row.entered_by_user_id for row in rows if HealthEntry.of(row).carries()}
     if not rows:
         require_health_consent(user, request)
         return
+    await _require_entries_consent(session, user, [HealthEntry.of(row) for row in rows])
+
+
+async def _require_entries_consent(
+    session: AsyncSession, user: User, entries: Sequence[HealthEntry]
+) -> None:
+    """403 unless each person who entered health data among ``entries``
+    consents now: the user as health_consent_required, anyone else named by
+    email."""
+    people = {entry.entered_by_user_id for entry in entries if entry.carries()}
     if user.id in people and not has_health_consent(user):
         raise LocalizedHTTPException(status.HTTP_403_FORBIDDEN, "health_consent_required")
     others = people - {user.id}

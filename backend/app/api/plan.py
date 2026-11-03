@@ -84,6 +84,7 @@ from app.services.plan_repeat import (
     PlanHealthDataRemovedError,
     PlanNotRepeatableError,
     PlanRepeatError,
+    PlanUnsafeForEatersError,
     repeat_plan,
 )
 from app.services.plan_service import (
@@ -361,13 +362,18 @@ async def repeat_plan_endpoint(
     plan = await load_plan(session, kitchen, plan_id)
 
     try:
-        copy = await repeat_plan(session, current_user, plan, payload.start_date)
+        copy = await repeat_plan(
+            session, current_user, plan, payload.start_date, payload.eaters
+        )
     except PlanNotRepeatableError as exc:
         # A Cook Now recipe, not a week. See repeat_plan for why this is a
         # server-side refusal and not left to the UI.
         raise LocalizedHTTPException(422, "plan_repeat_not_repeatable") from exc
     except PlanHealthDataRemovedError as exc:
         raise LocalizedHTTPException(409, "plan_repeat_health_data_removed") from exc
+    except PlanUnsafeForEatersError as exc:
+        # The meal names come from the plan, in its own language.
+        raise LocalizedHTTPException(409, "plan_repeat_unsafe_for_eaters", meal=exc.meal) from exc
     except PlanRepeatError as exc:
         # The row is real and owned; its stored JSON just predates a schema
         # change. Say that, rather than 500-ing on someone's oldest plan.

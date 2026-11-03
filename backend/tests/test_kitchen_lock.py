@@ -294,6 +294,7 @@ _LOCKING_HANDLERS: list[tuple[str, str, str, object]] = [
     ("plan", "post", "/api/plan/999999/meals/999999/uncook", None),
     ("plan", "post", "/api/plan/999999/meals/999999/favorite", {"is_favorite": True}),
     ("plan", "patch", "/api/plan/999999/days/0/meals/0", _EDIT),
+    ("plan", "post", "/api/plan/999999/repeat", {"start_date": None}),
     ("fridge", "put", "/api/fridge", []),
     ("fridge", "post", "/api/fridge/merge", []),
     ("recipe", "post", "/api/recipe/cook", _COOK),
