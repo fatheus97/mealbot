@@ -88,9 +88,8 @@ describe('fridge version token', () => {
     const { queryClient, wrapper } = setup();
     queryClient.setQueryData(['fridge', 1], { items: [], token: '7:3' });
     const first = deferred<ReturnType<typeof reply>>();
-    mockedAuthFetch
-      .mockReturnValueOnce(first.promise)
-      .mockResolvedValueOnce(reply([MILK, EGGS], { token: '7:5' }));
+    const second = deferred<ReturnType<typeof reply>>();
+    mockedAuthFetch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
 
     const { result } = renderHook(() => ({ a: useUpdateFridge(), b: useUpdateFridge() }), { wrapper });
     result.current.a.mutate({ userId: 1, items: [MILK] });
@@ -107,6 +106,9 @@ describe('fridge version token', () => {
     await waitFor(() => expect(puts()).toHaveLength(2));
     expect(sentToken(puts()[0])).toBe('7:3');
     expect(sentToken(puts()[1])).toBe('7:4');
+    expect(queryClient.getQueryData(['fridge', 1])).toEqual({ items: [], token: '7:4' });
+
+    second.resolve(reply([MILK, EGGS], { token: '7:5' }));
     await waitFor(() => expect(result.current.b.isSuccess).toBe(true));
     expect(queryClient.getQueryData(['fridge', 1])).toEqual({ items: [MILK, EGGS], token: '7:5' });
   });
@@ -148,6 +150,28 @@ describe('fridge version token', () => {
     result.current.a.mutate({ userId: 1, items: [EGGS, MILK] });
     await waitFor(() => expect(puts()).toHaveLength(2));
     expect(sentToken(puts()[1])).toBe('7:8');
+  });
+
+  it('a GET in flight when a save starts is dropped, so it cannot roll the save back', async () => {
+    mockedAuthFetch.mockResolvedValueOnce(reply([MILK], { token: '7:3' }));
+    const { queryClient, wrapper } = setup();
+    const { result } = renderHook(() => ({ list: useFridge(1), save: useUpdateFridge() }), { wrapper });
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
+
+    const slowGet = deferred<ReturnType<typeof reply>>();
+    mockedAuthFetch
+      .mockReturnValueOnce(slowGet.promise)
+      .mockResolvedValueOnce(reply([MILK, EGGS], { token: '7:4' }));
+    act(() => { void queryClient.invalidateQueries({ queryKey: ['fridge'] }); });
+    await waitFor(() => expect(gets()).toHaveLength(2));
+
+    result.current.save.mutate({ userId: 1, items: [MILK, EGGS] });
+    await waitFor(() => expect(result.current.save.isSuccess).toBe(true));
+    // The GET was served before the save and answers after it.
+    slowGet.resolve(reply([MILK], { token: '7:3' }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+
+    expect(queryClient.getQueryData(['fridge', 1])).toEqual({ items: [MILK, EGGS], token: '7:4' });
   });
 
   it('no token known: the PUT carries no header at all', async () => {
