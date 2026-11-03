@@ -591,7 +591,9 @@ async def request_to_store(
 
     ``health_contributors`` names the people whose entries carry data: only
     data that existed can be lost, so deleting a member who had nothing saved
-    leaves the plan as it was.
+    leaves the plan as it was. A plan saved marked still names them: it was
+    built around their data, and an edit of it says that data is gone
+    (check-in Q12). Removed wins in every reader, so nothing else reads it.
 
     The caller must hold lock_kitchen, which withdraw() takes too, so the two
     never interleave: a withdrawal committed first is seen by this read, and
@@ -609,10 +611,11 @@ async def request_to_store(
         if e.carries()
     ):
         kept = tuple(e for e in kept if e.people() <= present)
+        named = kept
     else:
         data["health_data_removed"] = True
-        kept = ()
-    data[CONTRIBUTORS] = list(dict.fromkeys(e.entered_by_user_id for e in kept if e.carries()))
+        named, kept = kept, ()
+    data[CONTRIBUTORS] = list(dict.fromkeys(e.entered_by_user_id for e in named if e.carries()))
     return StoredRequest(request_json=json.dumps(data), entries=kept)
 
 

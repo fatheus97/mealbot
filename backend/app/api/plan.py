@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
@@ -61,6 +62,7 @@ from app.services.fridge_service import (
     lock_kitchen,
 )
 from app.services.health_consent import (
+    CONTRIBUTORS,
     merged_request_json,
     plan_health_rows,
     request_to_store,
@@ -69,7 +71,13 @@ from app.services.health_consent import (
     resolve_eaters,
     stored_request_json,
 )
-from app.services.kitchen import Kitchen, load_entry, load_plan
+from app.services.kitchen import (
+    Kitchen,
+    household_members,
+    households_enabled,
+    load_entry,
+    load_plan,
+)
 from app.services.leftovers import (
     expand_leftover_groups,
     leftover_dependents,
@@ -1230,6 +1238,33 @@ async def uncook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
+async def _edit_unchecked(
+    session: AsyncSession, kitchen: Kitchen, plan: MealPlan, stored_request: str
+) -> bool:
+    """Whether an edit of this plan could not be screened because its diets
+    and allergies are gone (check-in Q12): in a shared household, or by
+    someone now alone in theirs when the data was someone else's (a partner's
+    deleted account). Only a household of one after its own withdrawal keeps
+    today's silence."""
+    try:
+        data = json.loads(stored_request)
+    except json.JSONDecodeError:
+        return False
+    if not (isinstance(data, dict) and data.get("health_data_removed") is True):
+        return False
+    if not households_enabled():
+        return False
+    if len(await household_members(session, kitchen)) > 1:
+        return True
+    # merged_request_json dropped the contributors; the stored blob keeps them.
+    try:
+        raw = json.loads(plan.request_json)
+    except json.JSONDecodeError:
+        return False
+    named = raw.get(CONTRIBUTORS) if isinstance(raw, dict) else None
+    return isinstance(named, list) and any(c != kitchen.user_id for c in named)
+
+
 def _screen_edited_meal(
     meal: PlannedMeal, plan: MealPlan, request_json: str
 ) -> list[AllergenWarning]:
@@ -1240,11 +1275,10 @@ def _screen_edited_meal(
     UI says loudly what was found.
 
     The allergens come from the plan's stored request (``request_json``, its
-    health data put back from planhealth), not the client — there is no
-    server-side allergen profile (they live in browser storage and are sent per
-    generation), so the stored request is the only server-authoritative record
-    of what this plan was built to avoid, and it cannot be tampered with by the
-    edit payload.
+    health data put back from planhealth), not the client: that is the record
+    of what this plan was built to avoid, for everyone it was built for, and
+    the edit payload cannot tamper with it. Saved profiles are not read here;
+    they may have changed since the plan was made.
 
     Never raises: a plan whose request_json predates a schema change must still
     be editable. A screen we cannot run degrades to no warning, which is exactly
@@ -1508,12 +1542,14 @@ async def edit_meal(
     # one is already gone. Read under the kitchen lock, which a withdrawal
     # takes too.
     stored_request = await stored_request_json(session, plan)
+    unchecked = await _edit_unchecked(session, kitchen, plan, stored_request)
     await session.commit()
     # Built now, while the session's objects are still loaded: a failed vector
     # write below rolls the session back and expires them (see store_embedding).
     response = MealEditResponse(
         **updated_meal.model_dump(),
         allergen_warnings=_screen_edited_meal(updated_meal, plan, stored_request),
+        health_data_removed=unchecked,
     )
 
     # A favourite's vector was built from the old name and content, so RAG

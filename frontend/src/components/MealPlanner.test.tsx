@@ -24,13 +24,15 @@ vi.mock('../api', () => ({
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
   recordWaste: vi.fn(),
+  updateMeal: vi.fn(),
 }));
 
-import { authFetch, fetchUserProfile, recordWaste } from '../api';
+import { authFetch, fetchUserProfile, recordWaste, updateMeal } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
 const mockedRecordWaste = recordWaste as ReturnType<typeof vi.fn>;
+const mockedUpdateMeal = updateMeal as ReturnType<typeof vi.fn>;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -567,6 +569,75 @@ describe('MealPlanner', () => {
 
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  });
+
+  it.each([
+    // In a shared household whose plan lost its diets and allergies.
+    [true, 'This edit was not checked for allergies.'],
+    // Otherwise the server's warnings decide, and none means no alert.
+    [false, null],
+  ])('shows the unchecked notice after an edit only when the server says so (%s)', async (removed, text) => {
+    loginUser();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const meal = {
+      name: 'Opened Meal',
+      meal_type: 'lunch',
+      ingredients: [{ name: 'rice', quantity_grams: 100 }],
+      steps: ['Cook'],
+    };
+    mockedUpdateMeal.mockResolvedValue({ ...meal, allergen_warnings: [], health_data_removed: removed });
+    const initialPlan = { plan_id: 99, start_date: null, days: [{ meals: [meal] }], shopping_list: [] };
+
+    render(<MealPlanner initialPlan={initialPlan} />, { wrapper: createWrapper() });
+    await userEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(mockedUpdateMeal).toHaveBeenCalledTimes(1));
+    if (text === null) {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    } else {
+      expect(await screen.findByRole('alert')).toHaveTextContent(text);
+    }
+  });
+
+  it('drops the unchecked notice when the plan is regenerated or replaced', async () => {
+    // It describes the plan being replaced, not the one that comes back.
+    loginUser();
+    const meal = {
+      name: 'Opened Meal',
+      meal_type: 'lunch',
+      ingredients: [{ name: 'rice', quantity_grams: 100 }],
+      steps: ['Cook'],
+    };
+    const plan = { plan_id: 42, start_date: null, days: [{ meals: [meal] }], shopping_list: [] };
+    mockedUpdateMeal.mockResolvedValue({ ...meal, allergen_warnings: [], health_data_removed: true });
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(plan) });
+    });
+    const notice = 'This edit was not checked for allergies.';
+    const editAndSave = async () => {
+      await userEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+      await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(notice);
+    };
+
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await userEvent.click(screen.getByRole('button', { name: /generate plan/i }));
+    await screen.findByText('Opened Meal');
+
+    await editAndSave();
+    // Regenerate shows once something is frozen.
+    await userEvent.click(screen.getByRole('button', { name: 'Freeze' }));
+    await userEvent.click(screen.getByRole('button', { name: /regenerate unfrozen/i }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+
+    await editAndSave();
+    await userEvent.click(screen.getByRole('button', { name: /generate plan/i }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
   it('does not scroll on mount when no initialPlan is provided', () => {
