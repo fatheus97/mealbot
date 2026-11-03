@@ -13,6 +13,7 @@ import logging
 from datetime import UTC, datetime
 
 from pydantic import JsonValue
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -23,6 +24,7 @@ from app.models.db_models import (
     MealEntry,
     MealPlan,
     PantryStaple,
+    PlanHealth,
     SaleRecord,
     SaleRefund,
     StockItem,
@@ -65,6 +67,8 @@ _EXCLUDED = [
     "and when), kept for accountability. Ask us if you want them.",
     "A one-way fingerprint of the card used for a free trial, kept so the same "
     "card cannot start a second trial. It cannot be turned back into the card.",
+    "Other household members' diets, allergies and ingredients to avoid on "
+    "plans you share: they are theirs to export.",
 ]
 
 
@@ -93,14 +97,21 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
         raise ValueError("user is not persisted")
     kitchen = Kitchen.of(user)
 
-    # Plans this person generated, and their meals. A plan's request shows its
-    # health data as the planhealth rows this person entered or is the subject
-    # of (Art. 15(4)), never a removed plan's. The fridge and staples are the
-    # household's, the same for every member.
+    # Plans this person generated or holds health data on (a member's plan
+    # generated with their saved profile), and their meals. A plan's request
+    # shows its health data as the planhealth rows this person entered or is
+    # the subject of (Art. 15(4)), never a removed plan's. The fridge and
+    # staples are the household's, the same for every member.
+    theirs = select(col(PlanHealth.meal_plan_id)).where(
+        or_(
+            col(PlanHealth.entered_by_user_id) == user_id,
+            col(PlanHealth.subject_user_id) == user_id,
+        )
+    )
     plans = (
         await session.execute(
             select(MealPlan)
-            .where(col(MealPlan.created_by_user_id) == user_id)
+            .where(or_(col(MealPlan.created_by_user_id) == user_id, col(MealPlan.id).in_(theirs)))
             .order_by(col(MealPlan.created_at))
         )
     ).scalars().all()

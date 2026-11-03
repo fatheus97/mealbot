@@ -557,16 +557,18 @@ async def plan_meals_for_user(
         shopping_list=shopping_items,
     )
 
-    # Clean up this member's old unconfirmed plans before saving a new one
     # After the LLM, before the first write: serializes this save with a
     # consent withdrawal (request_to_store below relies on it).
     await lock_kitchen(session, kitchen)
+    # The plan's diets and allergens go to planhealth rows, one per
+    # contributor; without them if anyone's consent was withdrawn while
+    # generating. Before the cleanup: it locks the contributors' accounts,
+    # which must come before deleting old rows that point at them.
+    stored = await request_to_store(session, current_user, payload, health_entries)
+    # Clean up this member's old unconfirmed plans before saving a new one
     await clear_unconfirmed_plans(session, kitchen)
 
-    # Save MealPlan to DB (no MealEntry rows yet — created on confirm). Its
-    # diets and allergens go to planhealth rows, one per contributor; without
-    # them if anyone's consent was withdrawn while generating.
-    stored = await request_to_store(session, current_user, payload, health_entries)
+    # Save MealPlan to DB (no MealEntry rows yet — created on confirm).
     plan = MealPlan(
         household_id=kitchen.household_id,
         created_by_user_id=kitchen.user_id,

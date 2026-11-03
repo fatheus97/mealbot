@@ -16,7 +16,12 @@ Pinned here:
 * a contributor who withdraws or leaves while the model runs takes the data
   with them: the plan is saved marked, without rows;
 * a member with nothing saved is not a contributor, so deleting them leaves
-  the plan usable.
+  the plan usable, and one deleted or gone while the model runs is dropped;
+* withdrawing removes every row of the plans it marks, the partner's too;
+* each member's export holds the plans they have rows on, with their rows
+  only;
+* the save locks each person's account FOR KEY SHARE: a delete waits for it,
+  an ordinary update does not.
 """
 import json
 from collections.abc import Awaitable, Callable, Mapping
@@ -25,17 +30,24 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text, update
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col, delete, select
 
+from app.api.deps import get_current_user
 from app.core import legal
 from app.core.config import settings
+from app.core.dietary import DietType
 from app.core.email_normalize import normalize_email
 from app.core.error_copy import ERROR_COPY
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.models.db_models import DietaryProfile, MachineGeneration, MealPlan, PlanHealth, User
-from app.models.plan_models import SingleDayResponse
+from app.models.plan_models import MealPlanRequest, SingleDayResponse
+from app.services.fridge_service import lock_kitchen
+from app.services.health_consent import HealthEntry, request_to_store
+from app.services.kitchen import Kitchen
+from app.services.plan_service import clear_unconfirmed_plans
 from tests.test_health_data_flows import _forget, _request_of
 from tests.test_plan_catalog import _fake_day
 
@@ -138,6 +150,32 @@ async def _stored(db: AsyncSession, plan_id: int) -> tuple[dict[str, object], li
         ],
         telemetry,
     )
+
+
+async def _export_as(client: AsyncClient, user: User) -> dict[str, object]:
+    """GET /api/users/export as ``user`` instead of the client's user."""
+    from app.main import app
+
+    original = app.dependency_overrides[get_current_user]
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        resp = await client.get("/api/users/export")
+    finally:
+        app.dependency_overrides[get_current_user] = original
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert isinstance(body, dict)
+    return body
+
+
+def _spy[**P, R](
+    order: list[str], name: str, fn: Callable[P, Awaitable[R]]
+) -> Callable[P, Awaitable[R]]:
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        order.append(name)
+        return await fn(*args, **kwargs)
+
+    return wrapper
 
 
 def _seen(gen: AsyncMock) -> tuple[list[str], list[str], list[str]]:
@@ -353,6 +391,83 @@ class TestSharedHousehold:
             again = await client.post(f"/api/plan/{plan_id}/regenerate", json={})
         assert again.status_code == 200, again.text
 
+    @pytest.mark.parametrize("gone", ["deleted", "left"])
+    async def test_a_member_with_nothing_saved_gone_mid_generation_is_dropped(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User, gone: str
+    ) -> None:
+        balanced = {"diet_types": ["balanced"], "allergens": [], "avoid_ingredients": []}
+        partner = await _member(db_session, test_user.household_id, "partner", profile=balanced)
+        elsewhere = await _member(db_session, None, "elsewhere")
+
+        async def go() -> None:
+            if gone == "deleted":
+                await db_session.execute(delete(User).where(col(User.id) == partner.id))
+            else:
+                await db_session.execute(
+                    update(User)
+                    .where(col(User.id) == partner.id)
+                    .values(household_id=elsewhere.household_id)
+                    .execution_options(synchronize_session=False)
+                )
+
+        resp, _ = await _generate(client, db_session, TYPED, during=go)
+        assert resp.status_code == 200, resp.text
+        blob, rows, _ = await _stored(db_session, resp.json()["plan_id"])
+        # Nothing of theirs was health data: the plan keeps the rest, unmarked.
+        assert rows == [(test_user.id, None, ["vegan"], ["milk"], ["peanuts"])]
+        assert blob["health_data_removed"] is False
+
+    async def test_the_save_locks_the_contributors_before_the_cleanup(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # An account delete locks the account, then the rows pointing at it
+        # (the old draft's). The save takes the account first as well, or the
+        # two deadlock: it holds the draft's rows and waits for the account.
+        await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        order: list[str] = []
+        monkeypatch.setattr(
+            "app.api.plan.request_to_store", _spy(order, "store", request_to_store)
+        )
+        monkeypatch.setattr(
+            "app.api.plan.clear_unconfirmed_plans", _spy(order, "clear", clear_unconfirmed_plans)
+        )
+        resp, _ = await _generate(client, db_session, TYPED)
+        assert resp.status_code == 200, resp.text
+        assert order == ["store", "clear"]
+
+    async def test_withdrawing_removes_the_partners_rows_too(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        resp, _ = await _generate(client, db_session, TYPED)
+        assert resp.status_code == 200, resp.text
+        assert (await client.delete("/api/users/health-consent")).status_code == 200
+        blob, rows, _ = await _stored(db_session, resp.json()["plan_id"])
+        # Marked removed, so nothing would read the partner's row: it goes.
+        assert blob["health_data_removed"] is True and rows == []
+
+    async def test_each_member_exports_their_own_rows_on_a_shared_plan(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        resp, _ = await _generate(client, db_session, TYPED)
+        assert resp.status_code == 200, resp.text
+        plan_id = resp.json()["plan_id"]
+
+        def health(export: dict[str, object]) -> dict[str, object]:
+            plans = export["plans"]
+            assert isinstance(plans, list)
+            (plan,) = [p for p in plans if p["id"] == plan_id]
+            return {k: plan["request"][k] for k in ("diet_types", "allergens", "avoid_ingredients")}
+
+        # The partner did not generate it, but their allergies are on it.
+        assert health(await _export_as(client, partner)) == PARTNER
+        assert health(await _export_as(client, test_user)) == TYPED
+
 
 async def test_with_households_off_a_partner_changes_nothing(
     client: AsyncClient, db_session: AsyncSession, test_user: User
@@ -363,3 +478,30 @@ async def test_with_households_off_a_partner_changes_nothing(
     assert _seen(gen) == (["vegan"], ["milk"], ["peanuts"])
     _, rows, _ = await _stored(db_session, resp.json()["plan_id"])
     assert rows == [(test_user.id, None, ["vegan"], ["milk"], ["peanuts"])]
+
+
+async def test_a_save_blocks_an_account_delete_and_no_update(test_engine: AsyncEngine) -> None:
+    # Real commits on two connections: the shared session would never block.
+    email = "key-share@example.com"
+    async with AsyncSession(test_engine, expire_on_commit=False) as setup:
+        user = User(email=email, normalized_email=normalize_email(email), hashed_password="x")
+        setup.add(user)
+        await setup.commit()
+    assert user.id is not None
+    lock = 'SELECT 1 FROM "user" WHERE id = :id FOR {} NOWAIT'
+    try:
+        async with AsyncSession(test_engine) as saver, AsyncSession(test_engine) as other:
+            await lock_kitchen(saver, Kitchen.of(user))
+            # "balanced" alone: an entry without health data is locked too.
+            request = MealPlanRequest(diet_types=[DietType.BALANCED])
+            await request_to_store(saver, user, request, [HealthEntry.typed_by(user.id, request)])
+            # What an UPDATE of a non-key column takes: granted.
+            await other.execute(text(lock.format("NO KEY UPDATE")), {"id": user.id})
+            await other.rollback()
+            # What a DELETE takes: refused while the save is open.
+            with pytest.raises(DBAPIError, match="could not obtain lock"):
+                await other.execute(text(lock.format("UPDATE")), {"id": user.id})
+    finally:
+        async with AsyncSession(test_engine) as s:
+            await s.execute(delete(User).where(col(User.id) == user.id))
+            await s.commit()

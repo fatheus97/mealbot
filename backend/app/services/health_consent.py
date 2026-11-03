@@ -214,6 +214,12 @@ class HealthEntry:
             avoid_ingredients=list(row.avoid_ingredients),
         )
 
+    def people(self) -> set[int]:
+        """The accounts this entry's row points at."""
+        if self.subject_user_id is None:
+            return {self.entered_by_user_id}
+        return {self.entered_by_user_id, self.subject_user_id}
+
     def carries(self) -> bool:
         """Health data in the consent's sense ("balanced" alone is not)."""
         return _blob_carries(
@@ -485,14 +491,20 @@ async def request_to_store(
     removed wins in every reader, so a row would hold data nothing reads.
 
     A generation can run for minutes after its consent checks. Every person
-    whose entry carries health data is read again here: they must still
-    exist, still be a member of this household and still consent. If any of
-    them is not, the plan is saved without the data (no rows) and marked: its
-    meals were built around that person's allergies, and saving the others
-    alone would let a regenerate drop them silently. Their user rows are read
-    FOR KEY SHARE, so an account delete (which takes no kitchen lock) waits
-    for this save instead of failing its foreign keys. Entries without health
-    data ("balanced" alone) are kept either way, as such a request was before.
+    the entries name is read again here. Whoever's entry carries health data
+    must still exist, still be a member of this household and still consent.
+    If any of them is not, the plan is saved without the data (no rows) and
+    marked: its meals were built around that person's allergies, and saving
+    the others alone would let a regenerate drop them silently. An entry
+    without health data ("balanced" alone) is kept while its person is still
+    a member, and dropped otherwise: it loses nothing, and its row would point
+    at an account that may be gone.
+
+    Those user rows are read FOR KEY SHARE, so an account delete (which takes
+    no kitchen lock) waits for this save instead of failing its foreign keys.
+    Call this before deleting anything that points at them
+    (clear_unconfirmed_plans): a delete that locks such a row first and the
+    account second would deadlock with a save that holds them the other way.
 
     ``health_contributors`` names the people whose entries carry data: only
     data that existed can be lost, so deleting a member who had nothing saved
@@ -507,21 +519,29 @@ async def request_to_store(
     data = request.model_dump(mode="json")
     data.update(diet_type=None, diet_types=[], allergens=[], avoid_ingredients=[])
     kept = () if _says_removed(data) else tuple(entries)
-    if not await _still_covered(session, kitchen, kept):
+    present, consenting = await _lock_people(session, kitchen, kept)
+    if all(
+        e.entered_by_user_id in consenting and e.people() <= present
+        for e in kept
+        if e.carries()
+    ):
+        kept = tuple(e for e in kept if e.people() <= present)
+    else:
         data["health_data_removed"] = True
         kept = ()
     data[CONTRIBUTORS] = list(dict.fromkeys(e.entered_by_user_id for e in kept if e.carries()))
     return StoredRequest(request_json=json.dumps(data), entries=kept)
 
 
-async def _still_covered(
+async def _lock_people(
     session: AsyncSession, kitchen: Kitchen, entries: Sequence[HealthEntry]
-) -> bool:
-    """Whether every person whose entry carries health data still exists, is
-    still in this household and consents NOW (see request_to_store)."""
-    people = {e.entered_by_user_id for e in entries if e.carries()}
+) -> tuple[set[int], set[int]]:
+    """Of the people ``entries`` name: who still exists in this household, and
+    who of those consents NOW. Locks their user rows FOR KEY SHARE (see
+    request_to_store), which blocks a delete and no ordinary update."""
+    people = {person for e in entries for person in e.people()}
     if not people:
-        return True
+        return set(), set()
     rows = (
         await session.execute(
             select(
@@ -531,17 +551,19 @@ async def _still_covered(
                 col(User.health_consent_version),
             )
             .where(col(User.id).in_(people))
-            .with_for_update(key_share=True)
+            # Both flags: key_share alone renders FOR NO KEY UPDATE.
+            .with_for_update(read=True, key_share=True)
         )
     ).all()
-    covered = {
-        user_id
-        for user_id, household_id, consent_at, version in rows
-        if household_id == kitchen.household_id
-        and consent_at is not None
-        and version == HEALTH_CONSENT_VERSION
+    present = {
+        user_id for user_id, household_id, _, _ in rows if household_id == kitchen.household_id
     }
-    return people <= covered
+    consenting = {
+        user_id
+        for user_id, _, consent_at, version in rows
+        if user_id in present and consent_at is not None and version == HEALTH_CONSENT_VERSION
+    }
+    return present, consenting
 
 
 async def grant(session: AsyncSession, user: User, version: str) -> None:
@@ -620,11 +642,12 @@ async def withdraw(session: AsyncSession, user: User) -> int:
             session.add(plan)
             changed += 1
             removed.add(plan.id)
-    # Rows without health data ("balanced" alone) stay on a plan that keeps
-    # regenerating as before; on a plan marked removed nothing reads them.
-    for row in rows:
-        if row.meal_plan_id in removed:
-            await session.delete(row)
+    # A plan marked removed loses every row, other contributors' too: removed
+    # wins in every reader, so they would be health data nothing reads. Rows
+    # without health data ("balanced" alone) stay on a plan that keeps
+    # regenerating as before.
+    if removed:
+        await session.execute(delete(PlanHealth).where(col(PlanHealth.meal_plan_id).in_(removed)))
     generations = (
         await session.execute(
             select(MachineGeneration).where(
