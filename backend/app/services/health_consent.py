@@ -63,9 +63,14 @@ from app.models.db_models import (
     PlanHealth,
     User,
 )
-from app.models.plan_models import DietaryProfileBody, DietaryProfileRead
-from app.services.fridge_service import lock_kitchen
-from app.services.kitchen import Kitchen
+from app.models.plan_models import (
+    DietaryProfileBody,
+    DietaryProfileRead,
+    MealPlanRequest,
+    avoid_ingredients_cap,
+)
+from app.services.fridge_service import _KITCHEN_LOCKED, lock_kitchen
+from app.services.kitchen import Kitchen, household_members, households_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +249,136 @@ class StoredRequest:
         )
 
 
+def merge_entries(entries: Sequence[HealthEntry]) -> tuple[list[str], list[str], list[str]]:
+    """The diets, allergens and ingredients to avoid that ``entries`` add up
+    to, in their order (the one-off entry first, then each eater's profile).
+    One entry comes back exactly as stored, so a household of one reads and
+    prompts what it did before; several become their union, first occurrence
+    first. The plan request validator checks its caps BEFORE it deduplicates,
+    so a concatenation of two rows could fail it; a union of diets or
+    allergens cannot (each enum is within its cap). The avoid list can, and
+    resolve_eaters refuses that before anything is generated."""
+    if len(entries) == 1:
+        only = entries[0]
+        return list(only.diet_types), list(only.allergens), list(only.avoid_ingredients)
+
+    def union(lists: list[list[str]]) -> list[str]:
+        return list(dict.fromkeys(v for values in lists for v in values))
+
+    return (
+        union([e.diet_types for e in entries]),
+        union([e.allergens for e in entries]),
+        union([e.avoid_ingredients for e in entries]),
+    )
+
+
+def _profile_entry(profile: DietaryProfile) -> HealthEntry:
+    """An eater's saved profile as their own entry: entered by them, about
+    them. Values outside today's enums raise rather than being dropped: a
+    dropped allergen would be screened for nobody."""
+    return HealthEntry(
+        entered_by_user_id=profile.user_id,
+        subject_user_id=profile.user_id,
+        diet_types=[DietType(d).value for d in profile.diet_types],
+        allergens=[Allergen(a).value for a in profile.allergens],
+        avoid_ingredients=list(profile.avoid_ingredients),
+    )
+
+
+async def resolve_eaters(
+    session: AsyncSession, user: User, payload: MealPlanRequest
+) -> tuple[MealPlanRequest, list[HealthEntry]]:
+    """Who a plan is generated for (docs/household-design.md, "Diets,
+    allergies and consent"): the request the model gets, and the entries the
+    plan stores.
+
+    With shared households off, or a household of one, nothing changes: the
+    typed fields are the request and the one entry, as before (a saved
+    profile does not apply to someone alone). Otherwise each eater's saved
+    profile is an entry of its own, after the typed one, and the model gets
+    their union. ``payload.eaters`` picks the eaters; missing means every
+    member, so an old client never leaves a partner's allergies out.
+
+    Refused before any model call: an eater who is not a member (one 422 for
+    every such id, naming nobody, so ids say nothing about other households),
+    an eater whose profile carries health data without a current consent (403
+    naming them; their consent covers their entry, not the generator's), and
+    a union longer than a request may carry (422; no silent truncation)."""
+    typed = HealthEntry.typed_by(Kitchen.of(user).user_id, payload)
+    members = await household_members(session, Kitchen.of(user)) if households_enabled() else []
+    if len(members) < 2:
+        return payload, [typed]
+    by_id = {m.id: m for m in members}
+    wanted = list(by_id) if payload.eaters is None else list(dict.fromkeys(payload.eaters))
+    if any(member_id not in by_id for member_id in wanted):
+        raise LocalizedHTTPException(422, "plan_eaters_invalid")
+    profiles = (
+        await session.execute(
+            select(DietaryProfile)
+            .where(col(DietaryProfile.user_id).in_(wanted))
+            .order_by(col(DietaryProfile.user_id))
+        )
+    ).scalars().all()
+    entries = [typed]
+    for profile in profiles:
+        entry = _profile_entry(profile)
+        eater = by_id[profile.user_id]
+        if entry.carries() and not has_health_consent(eater):
+            if eater.id == user.id:
+                raise LocalizedHTTPException(
+                    status.HTTP_403_FORBIDDEN, "health_consent_required"
+                )
+            raise LocalizedHTTPException(
+                status.HTTP_403_FORBIDDEN, "household_member_consent_required", email=eater.email
+            )
+        entries.append(entry)
+    diets, allergens, avoid = merge_entries(entries)
+    cap = avoid_ingredients_cap()
+    if len(avoid) > cap:
+        raise LocalizedHTTPException(
+            422,
+            "household_avoid_too_long",
+            count_given=str(len(avoid)),
+            maximum=str(cap),
+        )
+    merged = payload.model_copy(
+        update={
+            "diet_types": [DietType(d) for d in diets],
+            "diet_type": DietType(diets[0]) if diets else None,
+            "allergens": [Allergen(a) for a in allergens],
+            "avoid_ingredients": avoid,
+        }
+    )
+    return merged, entries
+
+
+async def require_contributor_consent(
+    session: AsyncSession, user: User, rows: Sequence[PlanHealth], request: CarriesHealthFields
+) -> None:
+    """A stored plan's health data goes back to the model (regenerate) only
+    under the consent of each person who entered it. For a household of one
+    that person is the user, exactly as before. A plan with no rows reads its
+    blob as its creator's row, and the user regenerating it is that creator."""
+    people = {row.entered_by_user_id for row in rows if HealthEntry.of(row).carries()}
+    if not rows:
+        require_health_consent(user, request)
+        return
+    if user.id in people and not has_health_consent(user):
+        raise LocalizedHTTPException(status.HTTP_403_FORBIDDEN, "health_consent_required")
+    others = people - {user.id}
+    if not others:
+        return
+    for other in (
+        await session.execute(
+            select(User).where(col(User.id).in_(others)).order_by(col(User.id))
+        )
+    ).scalars():
+        if not has_health_consent(other):
+            raise LocalizedHTTPException(
+                status.HTTP_403_FORBIDDEN, "household_member_consent_required", email=other.email
+            )
+
+
 async def plan_health_rows(
     session: AsyncSession, plan_ids: Sequence[int]
 ) -> dict[int, list[PlanHealth]]:
@@ -299,17 +434,11 @@ def merged_request_json(
         )
     elif rows:
         shown = [
-            row for row in rows
+            HealthEntry.of(row) for row in rows
             if shown_to is None or shown_to in (row.entered_by_user_id, row.subject_user_id)
         ]
-        # ponytail: concatenated, not merged; one row per plan until saved
-        # profiles and eaters (household PR 3b) bring the deduplicated union.
-        diets = [d for row in shown for d in row.diet_types]
-        lists = {
-            "diet_types": diets,
-            "allergens": [a for row in shown for a in row.allergens],
-            "avoid_ingredients": [i for row in shown for i in row.avoid_ingredients],
-        }
+        diets, allergens, avoid = merge_entries(shown)
+        lists = {"diet_types": diets, "allergens": allergens, "avoid_ingredients": avoid}
         # A blob without the fields (a cookbook favourite, which household_03
         # still gave an empty row) stays without them. diet_type mirrors
         # diet_types[0], as the request validator stored it: the export shows
@@ -353,24 +482,66 @@ async def request_to_store(
 
     A request already marked ``health_data_removed`` (a client sending the
     flag; repeat refuses a removed plan before it gets here) keeps no rows:
-    removed wins in every reader, so a row would hold data nothing reads. A
-    generation can run for minutes after its consent check; if the user
-    withdrew meanwhile, the plan is saved without the data (no rows) and
-    marked, as withdrawal promises. Entries
-    without health data ("balanced" alone) are kept either way, as such a
-    request was before.
+    removed wins in every reader, so a row would hold data nothing reads.
+
+    A generation can run for minutes after its consent checks. Every person
+    whose entry carries health data is read again here: they must still
+    exist, still be a member of this household and still consent. If any of
+    them is not, the plan is saved without the data (no rows) and marked: its
+    meals were built around that person's allergies, and saving the others
+    alone would let a regenerate drop them silently. Their user rows are read
+    FOR KEY SHARE, so an account delete (which takes no kitchen lock) waits
+    for this save instead of failing its foreign keys. Entries without health
+    data ("balanced" alone) are kept either way, as such a request was before.
+
+    ``health_contributors`` names the people whose entries carry data: only
+    data that existed can be lost, so deleting a member who had nothing saved
+    leaves the plan as it was.
 
     The caller must hold lock_kitchen, which withdraw() takes too, so the two
     never interleave: a withdrawal committed first is seen by this read, and
     one that waited for the lock clears this plan along with the rest."""
+    kitchen = Kitchen.of(user)
+    if session.info.get(_KITCHEN_LOCKED) != kitchen.household_id:
+        raise RuntimeError("request_to_store needs lock_kitchen held for this household")
     data = request.model_dump(mode="json")
     data.update(diet_type=None, diet_types=[], allergens=[], avoid_ingredients=[])
     kept = () if _says_removed(data) else tuple(entries)
-    if any(e.carries() for e in kept) and not await _consent_now(session, user):
+    if not await _still_covered(session, kitchen, kept):
         data["health_data_removed"] = True
         kept = ()
-    data[CONTRIBUTORS] = list(dict.fromkeys(e.entered_by_user_id for e in kept))
+    data[CONTRIBUTORS] = list(dict.fromkeys(e.entered_by_user_id for e in kept if e.carries()))
     return StoredRequest(request_json=json.dumps(data), entries=kept)
+
+
+async def _still_covered(
+    session: AsyncSession, kitchen: Kitchen, entries: Sequence[HealthEntry]
+) -> bool:
+    """Whether every person whose entry carries health data still exists, is
+    still in this household and consents NOW (see request_to_store)."""
+    people = {e.entered_by_user_id for e in entries if e.carries()}
+    if not people:
+        return True
+    rows = (
+        await session.execute(
+            select(
+                col(User.id),
+                col(User.household_id),
+                col(User.health_consent_at),
+                col(User.health_consent_version),
+            )
+            .where(col(User.id).in_(people))
+            .with_for_update(key_share=True)
+        )
+    ).all()
+    covered = {
+        user_id
+        for user_id, household_id, consent_at, version in rows
+        if household_id == kitchen.household_id
+        and consent_at is not None
+        and version == HEALTH_CONSENT_VERSION
+    }
+    return people <= covered
 
 
 async def grant(session: AsyncSession, user: User, version: str) -> None:

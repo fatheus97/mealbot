@@ -61,9 +61,12 @@ from app.services.fridge_service import (
     lock_kitchen,
 )
 from app.services.health_consent import (
-    HealthEntry,
+    merged_request_json,
+    plan_health_rows,
     request_to_store,
+    require_contributor_consent,
     require_health_consent,
+    resolve_eaters,
     stored_request_json,
 )
 from app.services.kitchen import Kitchen, load_entry, load_plan
@@ -530,9 +533,14 @@ async def plan_meals_for_user(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Who eats (shared households): the model gets their diets and allergies
+    # merged; each eater's saved profile is stored as their own row, never
+    # folded into the typed ones. A household of one gets payload back as is.
+    generation_request, health_entries = await resolve_eaters(session, current_user, payload)
+
     try:
         meal_plan, shopping_items, _initial_fridge = await generate_plan_days(
-            session, current_user, payload, days,
+            session, current_user, generation_request, days,
         )
     except ScreenError as exc:
         # Fail-closed with a specific, honest message that names the allergen we
@@ -556,11 +564,9 @@ async def plan_meals_for_user(
     await clear_unconfirmed_plans(session, kitchen)
 
     # Save MealPlan to DB (no MealEntry rows yet — created on confirm). Its
-    # diets and allergens go to a planhealth row; without them if consent was
-    # withdrawn while generating.
-    stored = await request_to_store(
-        session, current_user, payload, [HealthEntry.typed_by(kitchen.user_id, payload)]
-    )
+    # diets and allergens go to planhealth rows, one per contributor; without
+    # them if anyone's consent was withdrawn while generating.
+    stored = await request_to_store(session, current_user, payload, health_entries)
     plan = MealPlan(
         household_id=kitchen.household_id,
         created_by_user_id=kitchen.user_id,
@@ -630,20 +636,22 @@ async def regenerate_plan(
         raise LocalizedHTTPException(409, "plan_regenerate_confirmed")
 
     # 2) Deserialize stored request (its health data from planhealth) & response
+    assert plan.id is not None  # loaded by load_plan
+    health_rows = (await plan_health_rows(session, [plan.id])).get(plan.id, [])
     try:
         original_req = MealPlanRequest.model_validate_json(
-            await stored_request_json(session, plan)
+            merged_request_json(plan, health_rows)
         )
         original_resp = MealPlanResponse.model_validate_json(plan.response_json)
     except ValidationError as exc:
         logger.exception("Failed to parse stored data for plan %d", plan_id)
         raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
-    # The stored request goes back to the LLM, so it needs the same consent as
-    # a new one (a withdrawal has already emptied it; see health_consent).
-    require_health_consent(current_user, original_req)
     if original_req.health_data_removed:
         # Its allergens are gone: new meals could not be screened against them.
         raise LocalizedHTTPException(409, "plan_health_data_removed")
+    # The stored request goes back to the LLM, so it needs the consent of each
+    # person whose data it holds, as a new one would (see health_consent).
+    await require_contributor_consent(session, current_user, health_rows, original_req)
 
     # Plans stored before the whitelists landed can carry arbitrary strings.
     # Normalize before templating into the system prompt, same as

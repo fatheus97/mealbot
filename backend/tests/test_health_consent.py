@@ -509,6 +509,9 @@ class TestRemovedHealthData:
         assert test_user.id is not None
         request = MealPlanRequest.model_validate({"meals_per_day": 1, "allergens": ["milk"]})
         entries = [HealthEntry.typed_by(test_user.id, request)]
+        with pytest.raises(RuntimeError, match="lock_kitchen"):
+            await request_to_store(db_session, test_user, request, entries)
+        await fridge_service.lock_kitchen(db_session, Kitchen.of(test_user))
         kept = await request_to_store(db_session, test_user, request, entries)
         assert kept.entries == tuple(entries) and entries[0].allergens == ["milk"]
         test_user.health_consent_at = None
