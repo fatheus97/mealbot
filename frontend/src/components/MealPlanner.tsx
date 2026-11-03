@@ -117,6 +117,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Allergens the user's own edit reintroduced. Warn, never block — this is
   // their recipe and their declared allergy; the save has already happened.
   const [allergenWarnings, setAllergenWarnings] = useState<AllergenWarning[]>([]);
+  const [editUnchecked, setEditUnchecked] = useState(false);
   // Which meal (if any) is open in real-time cooking mode, same "day-meal" key.
   const [cookingMeal, setCookingMeal] = useState<string | null>(null);
 
@@ -534,6 +535,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       {
         onSuccess: (serverMeal) => {
           setAllergenWarnings(serverMeal.allergen_warnings ?? []);
+          setEditUnchecked(serverMeal.health_data_removed === true);
           // Replace the edited meal in local plan state with the server's
           // canonical version (echoes back preserved meal_type etc.).
           setCurrentPlan((prev) =>
@@ -587,7 +589,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     <section style={{ marginBottom: "2rem", borderTop: "2px solid #eee", paddingTop: "2rem" }}>
       <AllergenEditWarning
         warnings={allergenWarnings}
-        onDismiss={() => setAllergenWarnings([])}
+        unchecked={editUnchecked}
+        onDismiss={() => {
+          setAllergenWarnings([]);
+          setEditUnchecked(false);
+        }}
       />
       <h2>{t("planner.heading")}</h2>
 

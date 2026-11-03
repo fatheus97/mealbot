@@ -26,6 +26,15 @@ describe('AllergenEditWarning', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  it('says an edit could not be checked when the plan lost its allergies', () => {
+    // A shared plan whose diets and allergies are gone: no warnings would read
+    // as "checked, all clear".
+    const onDismiss = vi.fn();
+    render(<AllergenEditWarning warnings={[]} unchecked onDismiss={onDismiss} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('This edit was not checked for allergies.');
+    expect(screen.getByRole('alert')).toHaveTextContent(/we saved your change/i);
+  });
+
   it('names the allergen and the offending ingredient', () => {
     render(<AllergenEditWarning warnings={[milk]} onDismiss={vi.fn()} />);
     expect(screen.getByText(/your edit added Milk/i)).toBeInTheDocument();

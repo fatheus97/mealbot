@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
@@ -69,7 +70,13 @@ from app.services.health_consent import (
     resolve_eaters,
     stored_request_json,
 )
-from app.services.kitchen import Kitchen, load_entry, load_plan
+from app.services.kitchen import (
+    Kitchen,
+    household_members,
+    households_enabled,
+    load_entry,
+    load_plan,
+)
 from app.services.leftovers import (
     expand_leftover_groups,
     leftover_dependents,
@@ -1230,6 +1237,19 @@ async def uncook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
+async def _edit_unchecked(session: AsyncSession, kitchen: Kitchen, stored_request: str) -> bool:
+    """Whether an edit of this plan could not be screened because its diets
+    and allergies are gone, in a shared household (check-in Q12). A household
+    of one keeps today's silence after its own withdrawal."""
+    try:
+        data = json.loads(stored_request)
+    except json.JSONDecodeError:
+        return False
+    if not (isinstance(data, dict) and data.get("health_data_removed") is True):
+        return False
+    return households_enabled() and len(await household_members(session, kitchen)) > 1
+
+
 def _screen_edited_meal(
     meal: PlannedMeal, plan: MealPlan, request_json: str
 ) -> list[AllergenWarning]:
@@ -1240,11 +1260,10 @@ def _screen_edited_meal(
     UI says loudly what was found.
 
     The allergens come from the plan's stored request (``request_json``, its
-    health data put back from planhealth), not the client — there is no
-    server-side allergen profile (they live in browser storage and are sent per
-    generation), so the stored request is the only server-authoritative record
-    of what this plan was built to avoid, and it cannot be tampered with by the
-    edit payload.
+    health data put back from planhealth), not the client: that is the record
+    of what this plan was built to avoid, for everyone it was built for, and
+    the edit payload cannot tamper with it. Saved profiles are not read here;
+    they may have changed since the plan was made.
 
     Never raises: a plan whose request_json predates a schema change must still
     be editable. A screen we cannot run degrades to no warning, which is exactly
@@ -1508,12 +1527,14 @@ async def edit_meal(
     # one is already gone. Read under the kitchen lock, which a withdrawal
     # takes too.
     stored_request = await stored_request_json(session, plan)
+    unchecked = await _edit_unchecked(session, kitchen, stored_request)
     await session.commit()
     # Built now, while the session's objects are still loaded: a failed vector
     # write below rolls the session back and expires them (see store_embedding).
     response = MealEditResponse(
         **updated_meal.model_dump(),
         allergen_warnings=_screen_edited_meal(updated_meal, plan, stored_request),
+        health_data_removed=unchecked,
     )
 
     # A favourite's vector was built from the old name and content, so RAG
