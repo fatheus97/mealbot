@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -8,7 +8,12 @@ from app.core.errors import LocalizedHTTPException
 from app.db import get_session
 from app.models.db_models import User
 from app.models.plan_models import PantryStapleDTO
-from app.services.fridge_service import lock_kitchen
+from app.services.fridge_service import (
+    expected_version,
+    lock_kitchen,
+    shelf_version,
+    version_token,
+)
 from app.services.kitchen import Kitchen
 from app.services.pantry_service import get_staples, replace_staples
 
@@ -20,25 +25,39 @@ router = APIRouter(prefix="/staples", tags=["staples"])
 # can't ship thousands of names (prompt-size/DoS at the list level). A real
 # "always have" list is a handful of items — this is deliberately generous.
 MAX_STAPLES = 200
+# The staples' version token (docs/household-design.md, "Concurrency for two
+# phones"): sent on GET and PUT, and sent back by the client with its next PUT.
+VERSION_HEADER = "X-Staples-Version"
 
 
 # /api/staples
 @router.get("", response_model=list[PantryStapleDTO])
 async def list_staples(
+    response: Response,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[PantryStapleDTO]:
     kitchen = Kitchen.of(current_user)
-    return await get_staples(session, kitchen.household_id)
+    # Version first, then the list (see shelf_version).
+    version = await shelf_version(session, kitchen.household_id, "staples")
+    staples = await get_staples(session, kitchen.household_id)
+    response.headers[VERSION_HEADER] = version_token(kitchen.household_id, version)
+    return staples
 
 
 # /api/staples
 @router.put("", response_model=list[PantryStapleDTO])
 async def put_staples(
+    response: Response,
     payload: list[PantryStapleDTO],
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    x_staples_version: str | None = Header(default=None),
 ) -> list[PantryStapleDTO]:
+    """Replace the whole staples list. With the version token of the list it
+    was built from (X-Staples-Version), refused with 409 ``staples_changed``
+    if anyone wrote it since; without one (an old bundle), accepted as
+    before."""
     kitchen = Kitchen.of(current_user)
     if len(payload) > MAX_STAPLES:
         raise LocalizedHTTPException(
@@ -47,6 +66,11 @@ async def put_staples(
             count_given=str(len(payload)),
             maximum=str(MAX_STAPLES),
         )
+    expected = expected_version(x_staples_version, kitchen.household_id, "staples")
     # Two members replacing the whole list at once serialize here (see lock_kitchen).
     await lock_kitchen(session, kitchen)
-    return await replace_staples(session, kitchen.household_id, payload)
+    saved = await replace_staples(
+        session, kitchen.household_id, payload, expected_version=expected
+    )
+    response.headers[VERSION_HEADER] = saved.token
+    return saved.items

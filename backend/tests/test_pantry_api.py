@@ -155,7 +155,7 @@ class TestStaplesService:
             [PantryStapleDTO(name="Salt"), PantryStapleDTO(name="salt")],
             commit=False,
         )
-        assert [s.name for s in saved] == ["Salt"]
+        assert [s.name for s in saved.items] == ["Salt"]
 
     async def test_letters_python_and_postgres_fold_differently_save(
         self, client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession

@@ -140,6 +140,8 @@ ErrorKey = Literal[
     # ── Fridge / pantry (app/api/fridge.py, app/api/pantry.py) ─────────────
     "fridge_too_many_items",  # $count_given, $maximum
     "pantry_too_many_staples",  # $count_given, $maximum
+    "fridge_changed",
+    "staples_changed",
     "upload_missing_content_type",
     "upload_bad_file_type",  # $content_type
     "upload_file_too_large",  # $size, $maximum
@@ -339,6 +341,14 @@ _EN: Final[dict[str, str]] = {
     ),
     "cookbook_recipe_not_found": "Recipe not found in cookbook",
     "fridge_too_many_items": "Too many items ($count_given); maximum is $maximum.",
+    "fridge_changed": (
+        "The fridge was changed on another device, so your change wasn't saved. "
+        "You now see the latest version. Please make your change again."
+    ),
+    "staples_changed": (
+        "Your pantry staples were changed on another device, so your change "
+        "wasn't saved. You now see the latest list. Please make your change again."
+    ),
     "pantry_too_many_staples": (
         "Too many staples ($count_given); maximum is $maximum."
     ),
@@ -584,6 +594,14 @@ _CS: Final[dict[str, str]] = {
     # below is the opposite case: there the number governs the noun directly.
     "fridge_too_many_items": (
         "Příliš mnoho položek ($count_given); maximum je $maximum."
+    ),
+    "fridge_changed": (
+        "Lednice se mezitím změnila na jiném zařízení, takže se vaše změna "
+        "neuložila. Teď vidíte aktuální stav. Proveďte prosím změnu znovu."
+    ),
+    "staples_changed": (
+        "Zásoby spíže se mezitím změnily na jiném zařízení, takže se vaše změna "
+        "neuložila. Teď vidíte aktuální seznam. Proveďte prosím změnu znovu."
     ),
     "pantry_too_many_staples": (
         "Příliš mnoho základních surovin ($count_given); maximum je $maximum."
