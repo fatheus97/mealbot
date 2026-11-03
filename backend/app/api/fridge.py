@@ -4,7 +4,17 @@ import logging
 from datetime import date, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,11 +36,14 @@ from app.models.plan_models import (
     WasteRecordedResponse,
 )
 from app.services.fridge_service import (
+    expected_version,
     get_fridge_items,
     lock_kitchen,
     merge_into_fridge_buckets,
     record_waste_entries,
     replace_fridge_items,
+    shelf_version,
+    version_token,
 )
 from app.services.kitchen import Kitchen
 from app.services.receipt_scanner import (
@@ -57,6 +70,10 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 # can't ship thousands of items (prompt-size/DoS at the list level). A real
 # fridge/pantry is well under this.
 MAX_FRIDGE_ITEMS = 500
+# The fridge's version token (docs/household-design.md, "Concurrency for two
+# phones"): sent on GET, PUT and merge, and sent back by the client with its
+# next PUT.
+VERSION_HEADER = "X-Fridge-Version"
 
 # Reused to serialize/parse the telemetry snapshots for the scan→merge surface.
 _SCAN_ITEMS_ADAPTER = TypeAdapter(list[ScannedItemDTO])
@@ -90,22 +107,33 @@ def _canonical_scan_fields(
 # //api/fridge
 @router.get("", response_model=list[StockItemDTO])
 async def get_fridge(
+    response: Response,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[StockItemDTO]:
     kitchen = Kitchen.of(current_user)
-    return await get_fridge_items(
+    # Version first, then the list (see shelf_version).
+    version = await shelf_version(session, kitchen.household_id, "fridge")
+    items = await get_fridge_items(
         session, kitchen.household_id, current_user.need_to_use_enabled
     )
+    response.headers[VERSION_HEADER] = version_token(kitchen.household_id, version)
+    return items
 
 
 # //api/fridge
 @router.put("", response_model=list[StockItemDTO])
 async def put_fridge(
+    response: Response,
     payload: list[StockItemDTO],
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    x_fridge_version: str | None = Header(default=None),
 ) -> list[StockItemDTO]:
+    """Replace the whole fridge with the client's list. With the version
+    token of the list it was built from (X-Fridge-Version), refused with 409
+    ``fridge_changed`` if anyone wrote the fridge since; without one (an old
+    bundle), accepted as before."""
     kitchen = Kitchen.of(current_user)
     if len(payload) > MAX_FRIDGE_ITEMS:
         raise LocalizedHTTPException(
@@ -114,14 +142,18 @@ async def put_fridge(
             count_given=str(len(payload)),
             maximum=str(MAX_FRIDGE_ITEMS),
         )
+    expected = expected_version(x_fridge_version, kitchen.household_id, "fridge")
     # Before any read: concurrent writers for this household serialize here (see lock_kitchen).
     await lock_kitchen(session, kitchen)
-    return await replace_fridge_items(
+    saved = await replace_fridge_items(
         session,
         kitchen.household_id,
         payload,
         need_to_use_enabled=current_user.need_to_use_enabled,
+        expected_version=expected,
     )
+    response.headers[VERSION_HEADER] = saved.token
+    return saved.items
 
 
 @router.post("/waste", response_model=WasteRecordedResponse)
@@ -323,6 +355,7 @@ async def scan_receipt(
 @limiter.limit("10/minute", key_func=user_id_key_func)
 async def merge_fridge_items(
     request: Request,
+    response: Response,
     payload: list[StockItemDTO],
     generation_id: int | None = Query(
         default=None,
@@ -382,9 +415,13 @@ async def merge_fridge_items(
             )
 
     merged = merge_into_fridge_buckets(existing, payload)
-    return await replace_fridge_items(
+    # Merged into what is stored now, under the lock, so never refused as
+    # stale; it still counts as a write, and the reply carries the new token.
+    saved = await replace_fridge_items(
         session,
         kitchen.household_id,
         merged,
         need_to_use_enabled=current_user.need_to_use_enabled,
     )
+    response.headers[VERSION_HEADER] = saved.token
+    return saved.items

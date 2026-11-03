@@ -223,7 +223,7 @@ class TestTheLock:
         saved = await replace_staples(
             db_session, kitchen.household_id, [PantryStapleDTO(name="salt")], commit=False
         )
-        assert [s.name for s in saved] == ["salt"]
+        assert [s.name for s in saved.items] == ["salt"]
 
 
 class TestTheSchema:
