@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
-import { useStaples, useUpdateStaples } from "../hooks/useServerState";
+import { useQueryClient } from "@tanstack/react-query";
+import { ShelfChangedError, shelfToken, useStaples, useUpdateStaples } from "../hooks/useServerState";
 import { useI18n, type PluralKey, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
 import { InfoHint } from "./InfoHint";
@@ -112,6 +113,7 @@ export function PantryStaples({
 } = {}) {
   const { userId } = useAuth();
   const { t, tn } = useI18n();
+  const queryClient = useQueryClient();
   const { data: serverStaples, isLoading, error: fetchError } = useStaples(userId);
   const updateStaples = useUpdateStaples();
 
@@ -124,23 +126,28 @@ export function PantryStaples({
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const lastServerSig = useRef<string | null>(null);
+  // The version of the list the chips were seeded from. Save sends it, so a
+  // change made on another device meanwhile is refused (409), not overwritten.
+  const seededToken = useRef<string | null>(null);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
   // Seed the working list from the server only when the server list actually
-  // changes (initial load + after our own save) — never on a no-op refetch, so
-  // an in-progress edit isn't clobbered when the window regains focus.
+  // changes (initial load + after our own save) — never on a no-op refetch, and
+  // never over unsaved chips: a focus refetch can bring a partner's change, and
+  // replacing an in-progress edit with it would lose the edit without a word.
+  // Save then sends the chips' own version and the server refuses it.
   useEffect(() => {
-    if (!serverStaples) return;
+    if (!serverStaples || userId === null || dirty) return;
+    seededToken.current = shelfToken(queryClient, "staples", userId);
     const sig = JSON.stringify(serverStaples.map((s) => s.name));
     if (sig !== lastServerSig.current) {
       lastServerSig.current = sig;
       setItems(serverStaples.map((s) => s.name));
-      setDirty(false);
     }
-  }, [serverStaples]);
+  }, [serverStaples, dirty, queryClient, userId]);
 
   const addStaple = () => {
     const name = input.trim();
@@ -170,18 +177,24 @@ export function PantryStaples({
   const save = () => {
     if (userId === null) return;
     updateStaples.mutate(
-      { userId, items: items.map((name) => ({ name })) },
+      { userId, items: items.map((name) => ({ name })), token: seededToken.current },
       {
         onSuccess: () => {
           setDirty(false);
           setNotice({ key: "staples.saved", ok: true });
         },
-        onError: (e) =>
+        onError: (e) => {
+          if (e instanceof ShelfChangedError) {
+            // The hook has reloaded the list; show it, as the sentence says.
+            lastServerSig.current = null;
+            setDirty(false);
+          }
           setNotice(
             e instanceof Error
               ? { raw: e.message, ok: false }
               : { key: "staples.saveFailed", ok: false },
-          ),
+          );
+        },
       },
     );
   };

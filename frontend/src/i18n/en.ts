@@ -697,6 +697,7 @@ export const en = {
   "fridge.wasteOptionalHint": "Optional — removing works either way.",
   "fridge.saveFailed": "Failed to save: {message}",
   "fridge.unknownError": "Unknown error",
+  "fridge.itemGone": "This item was removed on another device, so your change wasn't saved.",
   // A "batch" is a separate purchase of the same ingredient, with its own
   // expiry date.
   "fridge.batchN": "Batch {n}",

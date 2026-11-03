@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
-import { useFridge, useRecordWaste, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
+import { ShelfChangedError, useFridge, useRecordWaste, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
 import type { StockItem, WasteEntry, RemovalWasteReason } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
@@ -12,9 +12,16 @@ import { InfoHint } from "./InfoHint";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { useI18n } from "../i18n";
 
+// Dialogs hold rows by _editId, never by index: the list can reload under an
+// open dialog (a focus refetch shows a partner's edit), and an index would then
+// point at whatever moved into its place.
 type PendingRemoval =
-  | { kind: "item"; index: number; name: string; quantity: number }
-  | { kind: "group"; indices: number[]; name: string; batchCount: number };
+  | { kind: "item"; editId: number; name: string; quantity: number }
+  | { kind: "group"; editIds: number[]; name: string; batchCount: number };
+
+type ModalState =
+  | { mode: "add" }
+  | { mode: "edit"; editId: number; initial: FridgeItemValues };
 
 /** StockItem extended with a stable identity for edit-safe rendering. */
 interface EditableStockItem extends StockItem {
@@ -80,6 +87,9 @@ export function Fridge() {
 
   const nextEditId = useRef(0);
   const assignId = (): number => nextEditId.current++;
+  // Server row id -> the _editId it was last shown with, so a reload keeps
+  // each row's identity and an open dialog still finds its item.
+  const editIdByRowId = useRef(new Map<number, number>());
   const [fridge, setFridge] = useState<EditableStockItem[]>([]);
   const [notice, setNotice] = useState("");
   const [expanded, setExpanded] = useState(true);
@@ -88,7 +98,7 @@ export function Fridge() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   // Stable group order — only changes on load, save, add, remove, and sort toggle
   const [groupOrder, setGroupOrder] = useState<string[]>([]);
-  const [modalState, setModalState] = useState<{ mode: "add" | "edit"; editIndex: number | null } | null>(null);
+  const [modalState, setModalState] = useState<ModalState | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   // The "where did it go?" answer for the removal currently being confirmed.
   // null = unanswered, which is a first-class outcome: the removal goes through
@@ -184,13 +194,13 @@ export function Fridge() {
 
   useEffect(() => {
     if (serverFridge) {
-      const copy: EditableStockItem[] = serverFridge.map(item => ({
-        ...JSON.parse(JSON.stringify(item)),
-        _editId: assignId(),
-      }));
-      // Syncing fetched server data into editable local state with stable row
-      // IDs — canonical external-sync effect, the rule's false-positive case.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      const kept = new Map<number, number>();
+      const copy: EditableStockItem[] = serverFridge.map(item => {
+        const editId = (item.id != null ? editIdByRowId.current.get(item.id) : undefined) ?? assignId();
+        if (item.id != null) kept.set(item.id, editId);
+        return { ...JSON.parse(JSON.stringify(item)), _editId: editId };
+      });
+      editIdByRowId.current = kept;
       setFridge(copy);
       refreshGroupOrder(copy, sortKey, sortDir);
     }
@@ -229,13 +239,23 @@ export function Fridge() {
       { userId, items: cleaned },
       {
         onError: (err) => {
-          const msg = err instanceof Error ? err.message : t("fridge.unknownError");
-          setNotice(t("fridge.saveFailed", { message: msg }));
+          // A refusal is the server's whole sentence (the list was changed
+          // elsewhere and has reloaded); anything else is a failure to save.
+          if (err instanceof ShelfChangedError) {
+            setNotice(err.message);
+          } else {
+            const msg = err instanceof Error ? err.message : t("fridge.unknownError");
+            setNotice(t("fridge.saveFailed", { message: msg }));
+          }
           setTimeout(() => setNotice(""), 5000);
         },
       },
     );
   };
+
+  /** Current positions of these rows; a row removed meanwhile is skipped. */
+  const indicesOf = (editIds: number[]): number[] =>
+    editIds.map((id) => fridge.findIndex((item) => item._editId === id)).filter((i) => i >= 0);
 
   const requestRemoveItem = (index: number) => {
     const item = fridge[index];
@@ -243,7 +263,7 @@ export function Fridge() {
     setWasteAnswer(null);
     setPendingRemoval({
       kind: "item",
-      index,
+      editId: item._editId,
       name: item.name || "this item",
       quantity: item.quantity_grams,
     });
@@ -253,7 +273,7 @@ export function Fridge() {
     setWasteAnswer(null);
     setPendingRemoval({
       kind: "group",
-      indices: group.flatIndices,
+      editIds: group.flatIndices.map((i) => fridge[i]._editId),
       name: group.displayName || "this group",
       batchCount: group.batchCount,
     });
@@ -266,8 +286,9 @@ export function Fridge() {
 
   const confirmRemoval = () => {
     if (!pendingRemoval) return;
-    const indices =
-      pendingRemoval.kind === "item" ? [pendingRemoval.index] : pendingRemoval.indices;
+    const indices = indicesOf(
+      pendingRemoval.kind === "item" ? [pendingRemoval.editId] : pendingRemoval.editIds,
+    );
     // Read the outgoing rows BEFORE the splice — after it, the indices point at
     // whatever shifted into their place, and a group removal would report the
     // wrong items entirely.
@@ -303,8 +324,21 @@ export function Fridge() {
     setWasteAnswer(null);
   };
 
-  const openAddModal = () => setModalState({ mode: "add", editIndex: null });
-  const openEditModal = (flatIndex: number) => setModalState({ mode: "edit", editIndex: flatIndex });
+  const openAddModal = () => setModalState({ mode: "add" });
+  const openEditModal = (flatIndex: number) => {
+    const item = fridge[flatIndex];
+    if (!item) return;
+    setModalState({
+      mode: "edit",
+      editId: item._editId,
+      initial: {
+        name: item.name,
+        quantity_grams: item.quantity_grams,
+        expiration_date: item.expiration_date ?? null,
+        need_to_use: item.need_to_use,
+      },
+    });
+  };
 
   const handleModalOk = (values: FridgeItemValues) => {
     let updated: EditableStockItem[];
@@ -319,10 +353,18 @@ export function Fridge() {
           _editId: assignId(),
         },
       ];
-    } else if (modalState?.mode === "edit" && modalState.editIndex !== null) {
+    } else if (modalState?.mode === "edit") {
+      const [index] = indicesOf([modalState.editId]);
+      if (index === undefined) {
+        // Removed on another device while the dialog was open.
+        setModalState(null);
+        setNotice(t("fridge.itemGone"));
+        setTimeout(() => setNotice(""), 5000);
+        return;
+      }
       updated = [...fridge];
-      updated[modalState.editIndex] = {
-        ...updated[modalState.editIndex],
+      updated[index] = {
+        ...updated[index],
         name: values.name,
         quantity_grams: values.quantity_grams,
         need_to_use: values.need_to_use,
@@ -730,13 +772,8 @@ export function Fridge() {
         <FridgeItemModal
           mode={modalState.mode}
           initialValues={
-            modalState.mode === "edit" && modalState.editIndex !== null
-              ? {
-                  name: fridge[modalState.editIndex].name,
-                  quantity_grams: fridge[modalState.editIndex].quantity_grams,
-                  expiration_date: fridge[modalState.editIndex].expiration_date ?? null,
-                  need_to_use: fridge[modalState.editIndex].need_to_use,
-                }
+            modalState.mode === "edit"
+              ? modalState.initial
               : { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false }
           }
           onOk={handleModalOk}

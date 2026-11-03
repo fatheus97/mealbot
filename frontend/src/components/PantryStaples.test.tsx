@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PantryStaples } from './PantryStaples';
@@ -142,6 +142,103 @@ describe('PantryStaples', () => {
 
     // Still exactly one salt chip, and Save stays disabled (nothing changed).
     expect(screen.getAllByText(/^salt$/i)).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /save staples/i })).toBeDisabled();
+  });
+});
+
+// Household PR 4b: a reload must not replace unsaved chips, and Save sends the
+// version the chips were made from, so the server refuses it (409) rather than
+// letting it overwrite a partner's change.
+describe('PantryStaples — changed on another device', () => {
+  const REFUSED = "The pantry staples were changed on another device, so your change wasn't saved.";
+  let server: { items: { name: string }[]; version: number };
+
+  function setup() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
+    );
+    return { queryClient, wrapper };
+  }
+
+  /** A server that counts writes and refuses a PUT with a stale token. */
+  function mockVersionedServer() {
+    mockedAuthFetch.mockImplementation(
+      (url: string, opts?: { method?: string; body?: string; headers?: Record<string, string> }) => {
+        const reply = (status: number, body: unknown) => Promise.resolve({
+          ok: status === 200,
+          status,
+          headers: new Headers({ 'X-Staples-Version': `1:${server.version}` }),
+          json: () => Promise.resolve(body),
+        });
+        if (url === '/staples' && opts?.method === 'PUT') {
+          if (opts.headers?.['X-Staples-Version'] !== `1:${server.version}`) {
+            return reply(409, { detail: REFUSED });
+          }
+          server = { items: JSON.parse(opts.body ?? '[]'), version: server.version + 1 };
+          return reply(200, server.items);
+        }
+        return reply(200, server.items);
+      },
+    );
+  }
+
+  const sentTokens = () =>
+    mockedAuthFetch.mock.calls
+      .filter((c) => c[1]?.method === 'PUT')
+      .map((c) => c[1].headers?.['X-Staples-Version']);
+
+  beforeEach(() => {
+    mockedAuthFetch.mockReset();
+    loginUser();
+    server = { items: [{ name: 'Salt' }], version: 0 };
+    mockVersionedServer();
+  });
+
+  it('each save sends the version it was made from, the next one the version the last returned', async () => {
+    const { wrapper } = setup();
+    const user = userEvent.setup();
+    render(<PantryStaples />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('New staple name'), 'Flour');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: /save staples/i }));
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Remove Salt' }));
+    await user.click(screen.getByRole('button', { name: /save staples/i }));
+    await waitFor(() => expect(server.items).toEqual([{ name: 'Flour' }]));
+    expect(sentTokens()).toEqual(['1:0', '1:1']);
+  });
+
+  it('keeps unsaved chips through a reload; Save is refused, then shows the reloaded list', async () => {
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<PantryStaples />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('New staple name'), 'Flour');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    // A partner saves Pepper; the reload reaches this screen mid-edit.
+    server = { items: [{ name: 'Salt' }, { name: 'Pepper' }], version: 1 };
+    await act(() => queryClient.invalidateQueries({ queryKey: ['staples'] }));
+    expect(screen.getByText('Flour')).toBeInTheDocument();
+    expect(screen.queryByText('Pepper')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /save staples/i }));
+
+    await waitFor(() => expect(screen.getByText(REFUSED)).toBeInTheDocument());
+    expect(sentTokens()).toEqual(['1:0']);
+    // The partner's list was not overwritten, and it is what the screen shows.
+    expect(server.items).toEqual([{ name: 'Salt' }, { name: 'Pepper' }]);
+    expect(screen.getByText('Pepper')).toBeInTheDocument();
+    expect(screen.queryByText('Flour')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /save staples/i })).toBeDisabled();
   });
 });

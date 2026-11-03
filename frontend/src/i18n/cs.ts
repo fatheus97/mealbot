@@ -628,6 +628,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.wasteOptionalHint": "Nepovinné — odebrat jde i bez odpovědi.",
   "fridge.saveFailed": "Uložení se nezdařilo: {message}",
   "fridge.unknownError": "Neznámá chyba",
+  "fridge.itemGone": "Položka byla mezitím odebrána na jiném zařízení, takže se vaše změna neuložila.",
   // "balení" is neuter and INVARIANT across number — 1 balení / 3 balení /
   // 5 balení — so these four forms coincide. That is a property of the noun,
   // not an untranslated copy-paste: "dávka" would inflect to dávky / dávek.

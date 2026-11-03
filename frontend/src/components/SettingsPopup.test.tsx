@@ -248,9 +248,10 @@ describe('SettingsPopup', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    queryClient.setQueryData(['fridge', 1], [
-      { name: 'chicken', quantity_grams: 500, need_to_use: false },
-    ]);
+    queryClient.setQueryData(['fridge', 1], {
+      items: [{ name: 'chicken', quantity_grams: 500, need_to_use: false }],
+      token: null,
+    });
 
     render(<SettingsPopup onClose={vi.fn()} />, {
       wrapper: ({ children }) => (

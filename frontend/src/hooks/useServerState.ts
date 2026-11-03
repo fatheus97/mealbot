@@ -1,21 +1,150 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
 import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 import { extractErrorDetail } from '../utils/httpError';
 
 // --- Queries (Data Fetching) ---
 
-export function useFridge(userId: number | null) {
+// Queries a household member can change from another phone: refetched when the
+// window regains focus, so a partner's edit shows up without a reload. The
+// app-wide default (main.tsx) is 5 min and no focus refetch.
+const SHARED = { refetchOnWindowFocus: true, staleTime: 30_000 } as const;
+
+// The fridge and the staples are each saved as a whole list, so a save made
+// from an out-of-date copy would overwrite a partner's change. The server
+// counts every write and hands out a version token, `<household>:<count>`; a
+// PUT carrying an old one is refused with 409 and writes nothing.
+const SHELVES = {
+  fridge: { path: '/fridge', header: 'X-Fridge-Version', label: 'Fridge' },
+  staples: { path: '/staples', header: 'X-Staples-Version', label: 'Staples' },
+} as const;
+type Shelf = keyof typeof SHELVES;
+
+/** A shelf as cached: the list and the token it was read or written at. null
+ *  when the server sent none. Components see only `items` (the queries select
+ *  it). */
+export interface ShelfData<T> {
+  items: T[];
+  token: string | null;
+}
+
+/** The server refused a save because the list changed since it was loaded
+ *  (409 fridge_changed / staples_changed). The message is the server's
+ *  localized sentence; the hook has already reloaded the list. */
+export class ShelfChangedError extends Error {}
+
+/** The token of the cached list, for a caller that keeps its own edited copy
+ *  and must send the version that copy was made from. */
+export function shelfToken(queryClient: QueryClient, shelf: Shelf, userId: number): string | null {
+  return queryClient.getQueryData<ShelfData<unknown>>([shelf, userId])?.token ?? null;
+}
+
+function itemsOf<T>(data: ShelfData<T>): T[] {
+  return data.items;
+}
+
+function isSaving(queryClient: QueryClient, shelf: Shelf): boolean {
+  return queryClient.isMutating({ mutationKey: [shelf, 'put'] }) > 0;
+}
+
+function useShelf<T>(shelf: Shelf, userId: number | null) {
+  const queryClient = useQueryClient();
+  const { path, header, label } = SHELVES[shelf];
+  // Not while a save of ours is pending: a GET served before it commits would
+  // put the old list back on screen under the edit, and the save's response
+  // refreshes the cache anyway. An invalidation still refetches.
+  const unlessSaving = () => !isSaving(queryClient, shelf);
   return useQuery({
-    queryKey: ['fridge', userId],
-    queryFn: async (): Promise<StockItem[]> => {
-      const res = await authFetch(`/fridge`);
-      if (res.status === 404) return [];
-      if (!res.ok) throw new Error(`Fridge fetch failed: ${res.status}`);
-      return res.json();
+    queryKey: [shelf, userId],
+    queryFn: async (): Promise<ShelfData<T>> => {
+      const res = await authFetch(path);
+      if (res.status === 404) return { items: [], token: null };
+      if (!res.ok) throw new Error(`${label} fetch failed: ${res.status}`);
+      // Optional chaining: test doubles of Response often carry no headers.
+      return { items: (await res.json()) as T[], token: res.headers?.get(header) ?? null };
     },
+    select: itemsOf<T>,
     enabled: userId !== null,
+    staleTime: SHARED.staleTime,
+    refetchOnWindowFocus: unlessSaving,
+    refetchOnMount: unlessSaving,
   });
+}
+
+// Saves queued behind a refused one, by their variables: they were made from
+// the same out-of-date list, so they are refused too instead of going out with
+// the reloaded token and overwriting the change that caused the 409.
+const refusedBehind = new WeakMap<object, string>();
+
+interface ShelfSave<T> {
+  userId: number;
+  items: T[];
+  /** The token of the list these items were made from. Leave it out to send
+   *  the cached one, which follows our own earlier saves: right for a caller
+   *  whose copy is re-seeded from the cache on every change (Fridge). */
+  token?: string | null;
+}
+
+function useUpdateShelf<T>(shelf: Shelf) {
+  const queryClient = useQueryClient();
+  const { path, header, label } = SHELVES[shelf];
+  const mutationKey = [shelf, 'put'];
+
+  return useMutation({
+    mutationKey,
+    // One save at a time per shelf, across every component: each waits for the
+    // previous one to return, so it sends the token that one got back and two
+    // quick edits on one phone never refuse each other.
+    scope: { id: shelf },
+    mutationFn: async (vars: ShelfSave<T>): Promise<ShelfData<T>> => {
+      const refused = refusedBehind.get(vars);
+      if (refused !== undefined) throw new ShelfChangedError(refused);
+      const key = [shelf, vars.userId];
+      // A GET already in flight could land after this save and roll it back.
+      await queryClient.cancelQueries({ queryKey: key });
+      const token = vars.token !== undefined ? vars.token : shelfToken(queryClient, shelf, vars.userId);
+      const res = await authFetch(path, {
+        method: "PUT",
+        body: JSON.stringify(vars.items),
+        // No header at all without a token (accepted, like an older bundle).
+        ...(token !== null ? { headers: { [header]: token } } : {}),
+      });
+      if (res.status === 409) {
+        throw new ShelfChangedError(await extractErrorDetail(res, `${label} update refused`));
+      }
+      if (!res.ok) throw new Error(`${label} update failed: ${res.status}`);
+      return { items: (await res.json()) as T[], token: res.headers?.get(header) ?? null };
+    },
+    onSuccess: (data, vars) => {
+      const key = [shelf, vars.userId];
+      // Saves of ours still queued carry edits this response lacks: take only
+      // its token, or the list on screen steps back until the last one lands.
+      if (queryClient.isMutating({ mutationKey }) > 1) {
+        queryClient.setQueryData<ShelfData<T>>(key, (old) => (old ? { ...old, token: data.token } : data));
+      } else {
+        queryClient.setQueryData<ShelfData<T>>(key, data);
+      }
+    },
+    onError: async (error, vars) => {
+      // A save refused only because the one before it was has nothing new to
+      // reload, and saves queued after the reload are good.
+      if (!(error instanceof ShelfChangedError) || refusedBehind.has(vars)) return;
+      // Awaited, so the caller's onError runs with the current list on screen.
+      await queryClient.invalidateQueries({ queryKey: [shelf, vars.userId] });
+      // After the reload, not before: a save queued while it was in flight was
+      // still made from the old list.
+      for (const m of queryClient.getMutationCache().findAll({ mutationKey, status: 'pending' })) {
+        const queued = m.state.variables;
+        if (queued !== vars && typeof queued === 'object' && queued !== null) {
+          refusedBehind.set(queued, error.message);
+        }
+      }
+    },
+  });
+}
+
+export function useFridge(userId: number | null) {
+  return useShelf<StockItem>('fridge', userId);
 }
 
 export function useUserProfile(userId: number | null) {
@@ -36,9 +165,8 @@ export function useUpdateUserProfile() {
       updateUserProfile(data),
     onSuccess: () => {
       // ['fridge'] too: need_to_use_enabled changes what GET /fridge masks, and
-      // with staleTime:5min + refetchOnWindowFocus:false (main.tsx) the cached
-      // fridge would otherwise keep serving the PRE-toggle masking for up to 5
-      // minutes. That's not just cosmetic — Fridge.tsx's persistFridge PUTs
+      // with a 30 s staleTime (SHARED) the cached fridge would otherwise keep
+      // serving the PRE-toggle masking until the next focus refetch. That's not just cosmetic — Fridge.tsx's persistFridge PUTs
       // its entire local array back on any edit, so an edit against that stale
       // cache would write the wrong-masking values as the new stored truth.
       return Promise.all([
@@ -85,21 +213,7 @@ export function useCookRecipe() {
 }
 
 export function useUpdateFridge() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ items }: { userId: number; items: StockItem[] }) => {
-      const res = await authFetch(`/fridge`, {
-        method: "PUT",
-        body: JSON.stringify(items),
-      });
-      if (!res.ok) throw new Error(`Fridge update failed: ${res.status}`);
-      return res.json();
-    },
-    onSuccess: (data, variables) => {
-      queryClient.setQueryData(['fridge', variables.userId], data);
-    },
-  });
+  return useUpdateShelf<StockItem>('fridge');
 }
 
 export function useScanReceipt() {
@@ -109,37 +223,14 @@ export function useScanReceipt() {
 }
 
 // Pantry staples — the per-user "always have" list, excluded from generated
-// shopping lists. GET/PUT go straight through authFetch (same inline pattern as
-// the fridge above), and the PUT primes the cache so the panel stays in sync.
+// shopping lists. Same shelf plumbing as the fridge; the PUT primes the cache
+// so the panel stays in sync.
 export function useStaples(userId: number | null) {
-  return useQuery({
-    queryKey: ['staples', userId],
-    queryFn: async (): Promise<PantryStaple[]> => {
-      const res = await authFetch(`/staples`);
-      if (res.status === 404) return [];
-      if (!res.ok) throw new Error(`Staples fetch failed: ${res.status}`);
-      return res.json();
-    },
-    enabled: userId !== null,
-  });
+  return useShelf<PantryStaple>('staples', userId);
 }
 
 export function useUpdateStaples() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ items }: { userId: number; items: PantryStaple[] }): Promise<PantryStaple[]> => {
-      const res = await authFetch(`/staples`, {
-        method: "PUT",
-        body: JSON.stringify(items),
-      });
-      if (!res.ok) throw new Error(`Staples update failed: ${res.status}`);
-      return res.json();
-    },
-    onSuccess: (data, variables) => {
-      queryClient.setQueryData(['staples', variables.userId], data);
-    },
-  });
+  return useUpdateShelf<PantryStaple>('staples');
 }
 
 export function useMergeFridge() {
@@ -163,6 +254,7 @@ export function usePlanList(userId: number | null) {
       return res.json();
     },
     enabled: userId !== null,
+    ...SHARED,
   });
 }
 
@@ -183,6 +275,7 @@ export function usePlanCalendar(
     // 5-min staleTime (main.tsx), which otherwise leaves the calendar showing a
     // stale month for minutes after a plan is confirmed/rescheduled elsewhere.
     staleTime: 0,
+    refetchOnWindowFocus: SHARED.refetchOnWindowFocus,
     enabled: userId !== null && !!from && !!to,
   });
 }
@@ -416,6 +509,7 @@ export function useCookbook({ q, mealType, limit = 50, offset = 0, enabled = tru
       return res.json();
     },
     enabled,
+    ...SHARED,
   });
 }
 
@@ -428,7 +522,7 @@ export function useCookbookCount(userId: number | null) {
       return res.json();
     },
     enabled: userId !== null,
-    staleTime: 30_000,
+    ...SHARED,
   });
 }
 

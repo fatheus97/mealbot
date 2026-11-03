@@ -6,7 +6,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
 import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import { formatAmount } from "../utils/pieces";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile, ShelfChangedError } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
@@ -987,7 +987,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
               failure changes nothing the user asked for. */}
           {updateFridgeMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginBottom: "1rem", padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", fontSize: "0.9rem" }}>
-              {t("expired.saveFailed")}
+              {/* A refusal (the fridge changed on another device) is the
+                  server's own sentence; it says what happened and what next. */}
+              {updateFridgeMutation.error instanceof ShelfChangedError
+                ? updateFridgeMutation.error.message
+                : t("expired.saveFailed")}
             </div>
           )}
           {!isConfirmed && frozenMeals.size > 0 && (

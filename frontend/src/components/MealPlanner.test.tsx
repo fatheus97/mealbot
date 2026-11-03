@@ -1530,6 +1530,41 @@ describe('MealPlanner — expired-item review after finishing', () => {
     );
   });
 
+  it('a refused fridge write shows the server sentence, not the generic failure', async () => {
+    // 409 fridge_changed (household PR 4b): the fridge changed on another
+    // device, so the generic "try again from the Fridge panel" would mislead.
+    const REFUSED = "The fridge was changed on another device, so your change wasn't saved.";
+    loginUser();
+    mockedFetchProfile.mockResolvedValue({
+      id: 1, email: 'test@test.com', country: null, language: 'English',
+      measurement_system: 'metric', variability: 'traditional', include_spices: true,
+      track_snacks: true, show_pieces: false, need_to_use_enabled: true,
+      onboarding_completed: true, is_admin: false, default_day_layout: null,
+      waste_tracking_enabled: true,
+    });
+    routeFetch([EXPIRED, FRESH]);
+    const served = mockedAuthFetch.getMockImplementation() as (url: string, opts?: unknown) => Promise<Response>;
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) =>
+      url === '/fridge' && opts?.method === 'PUT'
+        ? Promise.resolve({
+            ok: false, status: 409, json: () => Promise.resolve({ detail: REFUSED }),
+          } as unknown as Response)
+        : served(url, opts));
+
+    const user = userEvent.setup();
+    render(
+      <MealPlanner initialPlan={initialPlan} initialSummary={initialSummary} />,
+      { wrapper: createWrapper() },
+    );
+    await user.click(await screen.findByRole('button', { name: /finish plan/i }));
+    await screen.findByText(/anything past its date/i);
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(REFUSED));
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/could not update your fridge/i);
+  });
+
   it('writes nothing at all when the prompt is skipped', async () => {
     const user = await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
     await screen.findByText(/anything past its date/i);

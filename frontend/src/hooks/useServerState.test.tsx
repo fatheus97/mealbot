@@ -116,7 +116,8 @@ describe('useUpdateFridge', () => {
       method: 'PUT',
       body: JSON.stringify(items),
     });
-    expect(setQueryDataSpy).toHaveBeenCalledWith(['fridge', 1], items);
+    // No X-Fridge-Version on the reply: the token is cached as unknown.
+    expect(setQueryDataSpy).toHaveBeenCalledWith(['fridge', 1], { items, token: null });
   });
 });
 

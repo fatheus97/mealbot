@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubLocationReload } from '../test/location';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Fridge } from './Fridge';
@@ -9,6 +9,7 @@ import { untranslatedEnglishIn } from '../test/i18nAssertions';
 import { AuthProvider } from '../contexts/AuthContext';
 import { setMobileViewport } from '../test/test-utils';
 import type { ReactNode } from 'react';
+import type { StockItem } from '../types';
 
 vi.mock('../api', () => ({
   authFetch: vi.fn(),
@@ -628,5 +629,143 @@ describe('Fridge — food-waste capture', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(untranslatedEnglishIn(dialog)).toEqual([]);
+  });
+});
+
+// Household PR 4b: the list can reload under an open dialog (a focus refetch
+// shows a partner's edit), and a stale save is refused by the server (409).
+describe('Fridge — changed on another device', () => {
+  const REFUSED = "The fridge was changed on another device, so your change wasn't saved.";
+  let server: { items: StockItem[]; token: string };
+
+  function setup() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
+    );
+    return { queryClient, wrapper };
+  }
+
+  /** GET serves `server`; PUT echoes its body, or returns `putReply`. */
+  function mockServer(putReply?: { status: number; body: unknown }) {
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      const headers = new Headers({ 'X-Fridge-Version': server.token });
+      if (url === '/fridge' && opts?.method === 'PUT') {
+        if (putReply) {
+          return Promise.resolve({
+            ok: false, status: putReply.status, headers, json: () => Promise.resolve(putReply.body),
+          });
+        }
+        return Promise.resolve({
+          ok: true, status: 200, headers, json: () => Promise.resolve(JSON.parse(opts.body ?? '[]')),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(server.items) });
+    });
+  }
+
+  const puts = () => mockedAuthFetch.mock.calls.filter((c) => c[1]?.method === 'PUT');
+  const putBody = (n: number) => JSON.parse(puts()[n][1].body) as StockItem[];
+
+  const MILK: StockItem = { id: 1, name: 'Milk', quantity_grams: 500, need_to_use: false };
+  const APPLE: StockItem = { id: 2, name: 'Apple', quantity_grams: 300, need_to_use: false };
+
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+    mockedAuthFetch.mockReset();
+    mockedFetchProfile.mockResolvedValue(profileFixture());
+    localStorage.clear();
+    loginUser();
+    setMobileViewport(false);
+    server = { items: [MILK], token: '1:3' };
+  });
+
+  afterEach(() => {
+    mockedAuthFetch.mockReset();
+    mockedFetchProfile.mockReset();
+  });
+
+  /** A partner's edit reaches this screen the way a focus refetch brings it. */
+  async function reload(queryClient: QueryClient, items: StockItem[]) {
+    server = { items, token: '1:4' };
+    await act(() => queryClient.invalidateQueries({ queryKey: ['fridge'] }));
+    await waitFor(() => expect(screen.getByText(items[0]?.name ?? '')).toBeInTheDocument());
+  }
+
+  it('an open edit dialog still edits its own item after the list reloads under it', async () => {
+    mockServer();
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /edit/i }));
+    // Apple lands at index 0, where Milk was when the dialog opened.
+    await reload(queryClient, [APPLE, MILK]);
+
+    const nameInput = screen.getByDisplayValue('Milk');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Cream');
+    await user.click(screen.getByRole('button', { name: /ok/i }));
+
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(putBody(0)).toEqual([APPLE, { ...MILK, name: 'Cream', expiration_date: null }]);
+    expect(puts()[0][1].headers).toEqual({ 'X-Fridge-Version': '1:4' });
+  });
+
+  it('a remove dialog removes its own item after the list reloads under it', async () => {
+    mockServer();
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await reload(queryClient, [APPLE, MILK]);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(putBody(0)).toEqual([APPLE]);
+  });
+
+  it('says so, and saves nothing, when the item was removed elsewhere while its dialog was open', async () => {
+    mockServer();
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /edit/i }));
+    await reload(queryClient, [APPLE]);
+    await user.click(screen.getByRole('button', { name: /ok/i }));
+
+    expect(
+      screen.getByText("This item was removed on another device, so your change wasn't saved."),
+    ).toBeInTheDocument();
+    expect(puts()).toHaveLength(0);
+  });
+
+  it('a refused save shows the server sentence and the reloaded list', async () => {
+    mockServer({ status: 409, body: { detail: REFUSED } });
+    const { wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    // The partner adds Apple; this phone still shows the list at 1:3.
+    server = { items: [MILK, APPLE], token: '1:4' };
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(screen.getByText(REFUSED)).toBeInTheDocument());
+    expect(screen.queryByText(/failed to save/i)).not.toBeInTheDocument();
+    expect(puts()[0][1].headers).toEqual({ 'X-Fridge-Version': '1:3' });
+    // Reloaded: Milk is back (the removal was not saved) and Apple shows.
+    expect(screen.getByText('Milk')).toBeInTheDocument();
+    expect(screen.getByText('Apple')).toBeInTheDocument();
   });
 });
