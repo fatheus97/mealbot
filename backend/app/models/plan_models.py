@@ -1139,6 +1139,10 @@ class SingleRecipeRequest(BaseModel):
     ingredients_to_use: list[str] = Field(default_factory=list, max_length=20)
     stock_only: bool = False
     note: str | None = Field(default=None, max_length=200)
+    # As MealPlanRequest.eaters: Cook Now cooks for the same members (decision
+    # 7: all of them by default). /cook inherits it and re-reads their
+    # profiles when it saves.
+    eaters: list[int] | None = Field(default=None, max_length=6, exclude=True)
 
     @field_validator(*_SINGLE_RECIPE_SANITIZED_FIELDS, mode="before")
     @classmethod
@@ -1358,7 +1362,8 @@ class DietaryProfileRead(BaseModel):
         return v
 
 
-def avoid_ingredients_cap() -> int:
-    """How many ingredients to avoid one plan request may carry, read off the
-    field's own declaration (the bound the sanitiser and the CI cap check use)."""
-    return _declared_max_items(MealPlanRequest, "avoid_ingredients")
+def avoid_ingredients_cap(model: type[BaseModel]) -> int:
+    """How many ingredients to avoid one ``model`` request may carry, read off
+    the field's own declaration (the bound the sanitiser and the CI cap check
+    use)."""
+    return _declared_max_items(model, "avoid_ingredients")

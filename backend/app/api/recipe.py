@@ -51,7 +51,12 @@ from app.services.fridge_service import (
     lock_kitchen,
     replace_fridge_items,
 )
-from app.services.health_consent import HealthEntry, request_to_store, require_health_consent
+from app.services.health_consent import (
+    eater_entries,
+    request_to_store,
+    require_health_consent,
+    resolve_eaters,
+)
 from app.services.kitchen import Kitchen
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
@@ -200,8 +205,12 @@ async def generate_recipe(
     kitchen = Kitchen.of(current_user)
     # Before the request reaches an LLM (app.services.health_consent).
     require_health_consent(current_user, payload)
+    # Who eats (shared households): the model gets their diets and allergies
+    # merged. Nothing is saved here; /cook re-reads them. A household of one
+    # gets payload back as is.
+    eaten_for, _ = await resolve_eaters(session, current_user, payload)
 
-    plan_req = _build_plan_request(payload, current_user)
+    plan_req = _build_plan_request(eaten_for, current_user)
     # Pre-load the fridge so the LLM can use available stock. Unlike the plan
     # flow we don't allocate here — just feed the names+grams in so the LLM
     # prefers them.
@@ -336,10 +345,11 @@ async def cook_recipe(
         shopping_list=[],
     )
 
-    # Create the MealPlan row. Its diets and allergens go to a planhealth row;
-    # without them if consent was withdrawn since the check above.
+    # Create the MealPlan row. Its diets and allergens go to planhealth rows,
+    # the typed ones and each eater's profile as saved now; without any of them
+    # if a consent was withdrawn since the check above.
     stored = await request_to_store(
-        session, current_user, payload, [HealthEntry.typed_by(kitchen.user_id, payload)]
+        session, current_user, payload, await eater_entries(session, current_user, payload)
     )
     plan = MealPlan(
         household_id=kitchen.household_id,

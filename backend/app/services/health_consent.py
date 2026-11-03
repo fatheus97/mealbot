@@ -67,6 +67,7 @@ from app.models.plan_models import (
     DietaryProfileBody,
     DietaryProfileRead,
     MealPlanRequest,
+    SingleRecipeRequest,
     avoid_ingredients_cap,
 )
 from app.services.fridge_service import _KITCHEN_LOCKED, lock_kitchen
@@ -291,45 +292,42 @@ def _profile_entry(profile: DietaryProfile) -> HealthEntry:
     )
 
 
-async def resolve_eaters(
-    session: AsyncSession, user: User, payload: MealPlanRequest
-) -> tuple[MealPlanRequest, list[HealthEntry]]:
-    """Who a plan is generated for (docs/household-design.md, "Diets,
-    allergies and consent"): the request the model gets, and the entries the
-    plan stores.
+async def _eater_profiles(
+    session: AsyncSession, user: User, eaters: list[int] | None, *, strict: bool
+) -> list[HealthEntry] | None:
+    """Each eater's saved profile as an entry of its own, entered by and about
+    them; None with shared households off or ``user`` alone in theirs (a saved
+    profile does not apply to someone alone). ``eaters`` picks them; missing
+    means every member, so an old client never leaves a partner's allergies
+    out.
 
-    With shared households off, or a household of one, nothing changes: the
-    typed fields are the request and the one entry, as before (a saved
-    profile does not apply to someone alone). Otherwise each eater's saved
-    profile is an entry of its own, after the typed one, and the model gets
-    their union. ``payload.eaters`` picks the eaters; missing means every
-    member, so an old client never leaves a partner's allergies out.
-
-    Refused before any model call: an eater who is not a member (one 422 for
-    every such id, naming nobody, so ids say nothing about other households),
-    an eater whose profile carries health data without a current consent (403
-    naming them; their consent covers their entry, not the generator's), and
-    a union longer than a request may carry (422; no silent truncation)."""
-    typed = HealthEntry.typed_by(Kitchen.of(user).user_id, payload)
+    ``strict``, before a model call: an eater who is not a member is one 422
+    for every such id, naming nobody, so ids say nothing about other
+    households; an eater whose profile carries health data without a current
+    consent is a 403 naming them (their consent covers their entry, not the
+    generator's). Otherwise nothing is refused and both are skipped: only what
+    may be stored now is returned (request_to_store still re-checks it)."""
     members = await household_members(session, Kitchen.of(user)) if households_enabled() else []
     if len(members) < 2:
-        return payload, [typed]
+        return None
     by_id = {m.id: m for m in members}
-    wanted = list(by_id) if payload.eaters is None else list(dict.fromkeys(payload.eaters))
-    if any(member_id not in by_id for member_id in wanted):
+    wanted = list(by_id) if eaters is None else list(dict.fromkeys(eaters))
+    if strict and any(member_id not in by_id for member_id in wanted):
         raise LocalizedHTTPException(422, "plan_eaters_invalid")
     profiles = (
         await session.execute(
             select(DietaryProfile)
-            .where(col(DietaryProfile.user_id).in_(wanted))
+            .where(col(DietaryProfile.user_id).in_([m for m in wanted if m in by_id]))
             .order_by(col(DietaryProfile.user_id))
         )
     ).scalars().all()
-    entries = [typed]
+    entries = []
     for profile in profiles:
         entry = _profile_entry(profile)
         eater = by_id[profile.user_id]
         if entry.carries() and not has_health_consent(eater):
+            if not strict:
+                continue
             if eater.id == user.id:
                 raise LocalizedHTTPException(
                     status.HTTP_403_FORBIDDEN, "health_consent_required"
@@ -338,8 +336,38 @@ async def resolve_eaters(
                 status.HTTP_403_FORBIDDEN, "household_member_consent_required", email=eater.email
             )
         entries.append(entry)
+    return entries
+
+
+async def resolve_eaters[R: (MealPlanRequest, SingleRecipeRequest)](
+    session: AsyncSession, user: User, payload: R
+) -> tuple[R, list[HealthEntry]]:
+    """Who a plan or a Cook Now recipe is generated for
+    (docs/household-design.md, "Diets, allergies and consent"): the request
+    the model gets, and the entries a save stores.
+
+    With shared households off, or a household of one, nothing changes: the
+    typed fields are the request and the one entry, as before. Otherwise each
+    eater's saved profile is an entry of its own, after the typed one, and the
+    model gets their union. Refused before any model call, besides
+    _eater_profiles' strict refusals: a union longer than a request may carry
+    (422; no silent truncation)."""
+    union, entries = await _eaters_union(session, user, payload)
+    return (payload if union is None else payload.model_copy(update=union)), entries
+
+
+async def _eaters_union(
+    session: AsyncSession, user: User, payload: MealPlanRequest | SingleRecipeRequest
+) -> tuple[dict[str, object] | None, list[HealthEntry]]:
+    """resolve_eaters' entries, and the fields its merged request replaces
+    (None: payload is the request as it is)."""
+    typed = HealthEntry.typed_by(Kitchen.of(user).user_id, payload)
+    profiles = await _eater_profiles(session, user, payload.eaters, strict=True)
+    if profiles is None:
+        return None, [typed]
+    entries = [typed, *profiles]
     diets, allergens, avoid = merge_entries(entries)
-    cap = avoid_ingredients_cap()
+    cap = avoid_ingredients_cap(type(payload))
     if len(avoid) > cap:
         raise LocalizedHTTPException(
             422,
@@ -347,15 +375,26 @@ async def resolve_eaters(
             count_given=str(len(avoid)),
             maximum=str(cap),
         )
-    merged = payload.model_copy(
-        update={
-            "diet_types": [DietType(d) for d in diets],
-            "diet_type": DietType(diets[0]) if diets else None,
-            "allergens": [Allergen(a) for a in allergens],
-            "avoid_ingredients": avoid,
-        }
-    )
-    return merged, entries
+    union: dict[str, object] = {
+        "diet_types": [DietType(d) for d in diets],
+        "diet_type": DietType(diets[0]) if diets else None,
+        "allergens": [Allergen(a) for a in allergens],
+        "avoid_ingredients": avoid,
+    }
+    return union, entries
+
+
+async def eater_entries(
+    session: AsyncSession, user: User, payload: SingleRecipeRequest
+) -> list[HealthEntry]:
+    """What a Cook Now save stores, after resolve_eaters checked its
+    generation: the typed entry, then each eater's profile as saved NOW
+    (re-merged at save time). Refuses nothing: the meal is cooked and the
+    fridge must be updated (check-in Q10). An eater who left, withdrew or
+    whose consent lapsed since is left out, the others are kept."""
+    typed = HealthEntry.typed_by(Kitchen.of(user).user_id, payload)
+    profiles = await _eater_profiles(session, user, payload.eaters, strict=False)
+    return [typed] if profiles is None else [typed, *profiles]
 
 
 async def require_contributor_consent(
