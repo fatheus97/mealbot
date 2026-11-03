@@ -18,6 +18,7 @@ import pytest
 from httpx import AsyncClient, Response
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.error_copy import ERROR_COPY
 from app.core.errors import LocalizedHTTPException
 from app.models.db_models import User
@@ -49,6 +50,36 @@ async def _put(
 ) -> Response:
     headers = {} if token is None else {header: token}
     return await client.put(url, json=body, headers=headers)
+
+
+class TestCrossOrigin:
+    """A bundle served from another origin (``VITE_API_BASE``) must be let send
+    the token and read it back; same-origin behind the proxy needs neither."""
+
+    ORIGIN = settings.allowed_origins.split(",")[0].strip()
+
+    @pytest.mark.parametrize(("url", "header"), [("/api/fridge", FRIDGE), ("/api/staples", STAPLES)])
+    async def test_a_preflight_allows_the_token(
+        self, client: AsyncClient, url: str, header: str
+    ) -> None:
+        resp = await client.options(
+            url,
+            headers={
+                "Origin": self.ORIGIN,
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": header.lower(),
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert header.lower() in resp.headers["access-control-allow-headers"].lower()
+
+    @pytest.mark.parametrize(("url", "header"), [("/api/fridge", FRIDGE), ("/api/staples", STAPLES)])
+    async def test_a_response_lets_the_page_read_the_token(
+        self, client: AsyncClient, url: str, header: str
+    ) -> None:
+        resp = await client.get(url, headers={"Origin": self.ORIGIN})
+        assert resp.status_code == 200, resp.text
+        assert header.lower() in resp.headers["access-control-expose-headers"].lower()
 
 
 class TestFridge:
