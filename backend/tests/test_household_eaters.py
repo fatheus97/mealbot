@@ -356,7 +356,8 @@ class TestSharedHousehold:
         assert resp.status_code == 200, resp.text
         blob, rows, _ = await _stored(db_session, resp.json()["plan_id"])
         assert rows == [] and blob["health_data_removed"] is True
-        assert blob["health_contributors"] == []
+        # Still named: the plan was built around their data (an edit says so).
+        assert blob["health_contributors"] == [test_user.id, partner.id]
 
     async def test_a_partner_leaving_mid_generation_takes_the_data(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User

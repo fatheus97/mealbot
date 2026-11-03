@@ -62,6 +62,7 @@ from app.services.fridge_service import (
     lock_kitchen,
 )
 from app.services.health_consent import (
+    CONTRIBUTORS,
     merged_request_json,
     plan_health_rows,
     request_to_store,
@@ -1237,17 +1238,31 @@ async def uncook_meal(
     return MealEntrySummary.from_entry(entry)
 
 
-async def _edit_unchecked(session: AsyncSession, kitchen: Kitchen, stored_request: str) -> bool:
+async def _edit_unchecked(
+    session: AsyncSession, kitchen: Kitchen, plan: MealPlan, stored_request: str
+) -> bool:
     """Whether an edit of this plan could not be screened because its diets
-    and allergies are gone, in a shared household (check-in Q12). A household
-    of one keeps today's silence after its own withdrawal."""
+    and allergies are gone (check-in Q12): in a shared household, or by
+    someone now alone in theirs when the data was someone else's (a partner's
+    deleted account). Only a household of one after its own withdrawal keeps
+    today's silence."""
     try:
         data = json.loads(stored_request)
     except json.JSONDecodeError:
         return False
     if not (isinstance(data, dict) and data.get("health_data_removed") is True):
         return False
-    return households_enabled() and len(await household_members(session, kitchen)) > 1
+    if not households_enabled():
+        return False
+    if len(await household_members(session, kitchen)) > 1:
+        return True
+    # merged_request_json dropped the contributors; the stored blob keeps them.
+    try:
+        raw = json.loads(plan.request_json)
+    except json.JSONDecodeError:
+        return False
+    named = raw.get(CONTRIBUTORS) if isinstance(raw, dict) else None
+    return isinstance(named, list) and any(c != kitchen.user_id for c in named)
 
 
 def _screen_edited_meal(
@@ -1527,7 +1542,7 @@ async def edit_meal(
     # one is already gone. Read under the kitchen lock, which a withdrawal
     # takes too.
     stored_request = await stored_request_json(session, plan)
-    unchecked = await _edit_unchecked(session, kitchen, stored_request)
+    unchecked = await _edit_unchecked(session, kitchen, plan, stored_request)
     await session.commit()
     # Built now, while the session's objects are still loaded: a failed vector
     # write below rolls the session back and expires them (see store_embedding).

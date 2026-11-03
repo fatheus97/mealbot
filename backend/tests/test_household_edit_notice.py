@@ -7,11 +7,14 @@ Pinned here:
   lost with a contributor's account says so (``health_data_removed``) instead
   of passing as checked;
 * a plan that still has its data warns as before and is not flagged;
+* so does someone left alone in their household when the data was a
+  partner's (their account went, they left during generation);
 * a household of one, and a shared household with the flag off, are
   unchanged: no flag, the same silence after a withdrawal.
 """
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete
 
@@ -79,6 +82,34 @@ class TestSharedHousehold:
         # else is still there, so the household is still shared.
         await db_session.execute(delete(User).where(col(User.id) == partner.id))
         assert await _edit(client, db_session, plan_id) == ([], True)
+
+
+    async def test_alone_after_the_partners_account_went_the_edit_says_so(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # The usual shape: two people, and the other one deletes their account.
+        partner = await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        plan_id = await _plan(client, db_session)
+        await db_session.execute(delete(User).where(col(User.id) == partner.id))
+        assert await _edit(client, db_session, plan_id) == ([], True)
+
+    async def test_alone_after_the_partner_left_during_generation_the_edit_says_so(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        elsewhere = await _member(db_session, None, "elsewhere")
+
+        async def leave() -> None:
+            await db_session.execute(
+                update(User)
+                .where(col(User.id) == partner.id)
+                .values(household_id=elsewhere.household_id)
+                .execution_options(synchronize_session=False)
+            )
+
+        resp, _ = await _generate(client, db_session, TYPED, during=leave)
+        assert resp.status_code == 200, resp.text
+        assert await _edit(client, db_session, resp.json()["plan_id"]) == ([], True)
 
 
 class TestUnchanged:
