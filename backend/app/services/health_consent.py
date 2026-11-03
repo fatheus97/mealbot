@@ -551,6 +551,8 @@ async def _lock_people(
                 col(User.health_consent_version),
             )
             .where(col(User.id).in_(people))
+            # One order for every save, should the lock mode ever conflict.
+            .order_by(col(User.id))
             # Both flags: key_share alone renders FOR NO KEY UPDATE.
             .with_for_update(read=True, key_share=True)
         )

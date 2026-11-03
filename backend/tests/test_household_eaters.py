@@ -224,6 +224,10 @@ class TestSharedHousehold:
         assert resp.status_code == 200, resp.text
         # The union, typed first, first occurrence first.
         assert _seen(gen) == (["vegan", "vegetarian"], ["milk", "fish"], ["peanuts", "okra"])
+        # Built with model_copy, which skips the validators: it must already be
+        # what they would make of it.
+        seen = _request_of(gen)
+        assert MealPlanRequest.model_validate(seen.model_dump()) == seen
         blob, rows, telemetry = await _stored(db_session, resp.json()["plan_id"])
         # One row per person, each under their own consent: the partner's data
         # is never filed under the one who generated.
