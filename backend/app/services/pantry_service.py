@@ -16,7 +16,7 @@ from sqlmodel import col, delete, select
 
 from app.models.db_models import PantryStaple
 from app.models.plan_models import PantryStapleDTO
-from app.services.fridge_service import _KITCHEN_LOCKED
+from app.services.fridge_service import _KITCHEN_LOCKED, Saved, _count_write, version_token
 from app.services.kitchen import HouseholdId
 
 __all__ = [
@@ -65,16 +65,19 @@ async def replace_staples(
     household_id: HouseholdId,
     items: list[PantryStapleDTO],
     commit: bool = True,
-) -> list[PantryStapleDTO]:
+    expected_version: int | None = None,
+) -> Saved[PantryStapleDTO]:
     """Replace a household's staples (delete old, insert new). Mirrors
-    ``replace_fridge_items``' PUT semantics, its lock rule included: the caller
-    must hold ``lock_kitchen`` for this household, or two members' whole-list
-    writes would interleave."""
+    ``replace_fridge_items``' PUT semantics, its lock rule and its version
+    included: the caller must hold ``lock_kitchen`` for this household, or two
+    members' whole-list writes would interleave, and ``expected_version``
+    refuses with 409 ``staples_changed`` unless the staples are still at it."""
     if session.info.get(_KITCHEN_LOCKED) != household_id:
         raise RuntimeError(
             f"replace_staples(household_id={household_id}) without lock_kitchen() "
             "in this transaction"
         )
+    version = await _count_write(session, household_id, "staples", expected_version)
     await session.execute(
         delete(PantryStaple).where(col(PantryStaple.household_id) == household_id)
     )
@@ -94,7 +97,7 @@ async def replace_staples(
         )
     if commit:
         await session.commit()
-    return await get_staples(session, household_id)
+    return Saved(await get_staples(session, household_id), version_token(household_id, version))
 
 
 async def load_staple_keys(session: AsyncSession, household_id: HouseholdId) -> frozenset[str]:

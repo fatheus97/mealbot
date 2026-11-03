@@ -5,16 +5,20 @@ fridge business logic without reaching into a sibling router module.
 The HTTP handlers in `app.api.fridge` are thin wrappers over these
 functions; tests import the pure helpers directly.
 """
+import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Literal
 
-from sqlalchemy import event, text
+from sqlalchemy import event, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session, SessionTransaction
+from sqlalchemy.orm import Mapped, Session, SessionTransaction
 from sqlmodel import col, delete, select
 
+from app.core.error_copy import ErrorKey
 from app.core.errors import LocalizedHTTPException
-from app.models.db_models import StockItem, User, WasteRecord
+from app.models.db_models import Household, StockItem, User, WasteRecord
 from app.models.plan_models import (
     ConsumedBatch,
     IngredientAmount,
@@ -24,7 +28,9 @@ from app.models.plan_models import (
 from app.services.kitchen import HouseholdId, Kitchen
 
 __all__ = [
+    "Saved",
     "allocate_fifo",
+    "expected_version",
     "flatten_fridge_batches",
     "get_fridge_items",
     "group_and_sort_fridge",
@@ -33,7 +39,9 @@ __all__ = [
     "record_waste_entries",
     "replace_fridge_items",
     "restore_consumed_batches",
+    "shelf_version",
     "subtract_ingredients_from_fridge",
+    "version_token",
 ]
 
 # First half of the (namespace, household_id) advisory-lock key, so this lock
@@ -44,6 +52,79 @@ __all__ = [
 _KITCHEN_LOCK_NAMESPACE = 0x4B544348
 # session.info key recording which household's kitchen THIS transaction locked.
 _KITCHEN_LOCKED = "kitchen_locked_household_id"
+
+# The two whole lists a household keeps, each with its own version
+# (docs/household-design.md, "Concurrency for two phones").
+type Shelf = Literal["fridge", "staples"]
+_CHANGED: dict[Shelf, ErrorKey] = {"fridge": "fridge_changed", "staples": "staples_changed"}
+_TOKEN = re.compile(r"([0-9]{1,10}):([0-9]{1,10})")
+
+
+def _version_column(shelf: Shelf) -> Mapped[int]:
+    return col(Household.fridge_version) if shelf == "fridge" else col(Household.staples_version)
+
+
+@dataclass(frozen=True)
+class Saved[T]:
+    """What a whole-list write left: the list read back, and the version token
+    it wrote, ``<household_id>:<version>``. The token comes from the write's
+    own count, under the kitchen lock, not from a read after its commit: a
+    partner's write landing in between then makes it too old (a harmless 409
+    later), never too new (a lost update)."""
+
+    items: list[T]
+    token: str
+
+
+def version_token(household_id: HouseholdId, version: int) -> str:
+    """The token a client sends back with its next whole-list PUT. Scoped to
+    the household, so a token from a household the member has left can never
+    match the one they are in now."""
+    return f"{household_id}:{version}"
+
+
+def expected_version(token: str | None, household_id: HouseholdId, shelf: Shelf) -> int | None:
+    """The version a whole-list PUT was built from. None without a token: an
+    old bundle sends none and is accepted as before. A token for another
+    household, or one that does not parse, is as stale as an old one: 409, so
+    the client reloads as after any other conflict."""
+    if token is None:
+        return None
+    match = _TOKEN.fullmatch(token)
+    if match is None or int(match[1]) != household_id:
+        raise LocalizedHTTPException(409, _CHANGED[shelf])
+    return int(match[2])
+
+
+async def shelf_version(session: AsyncSession, household_id: HouseholdId, shelf: Shelf) -> int:
+    """The current version, for a read's token. Read it BEFORE the list it
+    goes with: a write between the two then makes the token too old, never
+    too new."""
+    version: int = (
+        await session.execute(
+            select(_version_column(shelf)).where(col(Household.id) == household_id)
+        )
+    ).scalar_one()
+    return version
+
+
+async def _count_write(
+    session: AsyncSession, household_id: HouseholdId, shelf: Shelf, expected: int | None
+) -> int:
+    """Count one write of ``shelf``; the caller holds lock_kitchen. With
+    ``expected``, only from exactly that version (equality: a restored
+    database can go backwards): anything else is a 409, raised before the
+    caller writes anything. Returns the new version."""
+    column = _version_column(shelf)
+    statement = update(Household).where(col(Household.id) == household_id)
+    if expected is not None:
+        statement = statement.where(column == expected)
+    version = (
+        await session.execute(statement.values({column: column + 1}).returning(column))
+    ).scalar_one_or_none()
+    if version is None:
+        raise LocalizedHTTPException(409, _CHANGED[shelf])
+    return int(version)
 
 
 async def lock_kitchen(session: AsyncSession, kitchen: Kitchen) -> None:
@@ -216,10 +297,15 @@ async def replace_fridge_items(
     items: list[StockItemDTO],
     commit: bool = True,
     need_to_use_enabled: bool = True,
-) -> list[StockItemDTO]:
+    expected_version: int | None = None,
+) -> Saved[StockItemDTO]:
     """Replace fridge items for a user (delete old, insert new).
 
-    Shared by PUT /fridge and plan confirm endpoint.
+    The one writer of a household's fridge: PUT and merge /fridge, plan
+    confirm, unconfirm, finish, delete and reopen, and Cook Now. Each write
+    counts up ``household.fridge_version``; ``expected_version`` (a client's
+    whole-list PUT) refuses with 409 ``fridge_changed`` unless the fridge is
+    still at that version, before anything is written.
 
     ``need_to_use_enabled=False`` means the caller's ``items`` came from a
     client that only ever sees a masked (always-False) need_to_use — e.g. the
@@ -249,6 +335,7 @@ async def replace_fridge_items(
             f"replace_fridge_items(household_id={household_id}) without lock_kitchen() "
             "in this transaction"
         )
+    version = await _count_write(session, household_id, "fridge", expected_version)
     if not need_to_use_enabled:
         existing = (
             await session.execute(
@@ -297,7 +384,10 @@ async def replace_fridge_items(
 
     if commit:
         await session.commit()
-    return await get_fridge_items(session, household_id, need_to_use_enabled)
+    return Saved(
+        await get_fridge_items(session, household_id, need_to_use_enabled),
+        version_token(household_id, version),
+    )
 
 
 async def restore_consumed_batches(
@@ -308,7 +398,7 @@ async def restore_consumed_batches(
     by (name.lower(), expiration_date); creates a fresh bucket otherwise."""
     existing = await get_fridge_items(session, household_id)
     merged = merge_into_fridge_buckets(existing, batches)
-    return await replace_fridge_items(session, household_id, merged, commit=False)
+    return (await replace_fridge_items(session, household_id, merged, commit=False)).items
 
 
 def allocate_fifo(
@@ -366,4 +456,4 @@ async def subtract_ingredients_from_fridge(
     by_name = group_and_sort_fridge(existing)
     allocate_fifo(by_name, ingredients)
     updated = [item for batches in by_name.values() for item in batches if item.quantity_grams > 0]
-    return await replace_fridge_items(session, household_id, updated, commit=False)
+    return (await replace_fridge_items(session, household_id, updated, commit=False)).items

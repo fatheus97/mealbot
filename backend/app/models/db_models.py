@@ -48,6 +48,13 @@ class Household(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
+    # Counted up by every write of the fridge / the staples (replace_fridge_items,
+    # replace_staples), so a phone's whole-list PUT built from an older list is
+    # refused (docs/household-design.md, "Concurrency for two phones"). The
+    # server default matters: the trigger creates households naming created_at
+    # only.
+    fridge_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
+    staples_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
 
 
 #: The two triggers on "user" that own a household's life. The migration
