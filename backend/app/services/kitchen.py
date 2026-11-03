@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import NewType
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
 
 from app.core import legal
 from app.core.config import settings
@@ -85,3 +86,16 @@ def check_households_flag() -> None:
             legal.HOUSEHOLD_CONSENT_VERSION,
             legal.HEALTH_CONSENT_VERSION,
         )
+
+
+async def household_members(session: AsyncSession, kitchen: Kitchen) -> list[User]:
+    """Everyone in this kitchen's household, the caller included, by id."""
+    return list(
+        (
+            await session.execute(
+                select(User)
+                .where(col(User.household_id) == kitchen.household_id)
+                .order_by(col(User.id))
+            )
+        ).scalars()
+    )

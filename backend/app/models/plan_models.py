@@ -387,6 +387,12 @@ class MealPlanRequest(BaseModel):
     # and repeat too: the copied meals could not be screened against any. A
     # client setting it only blocks regenerating or repeating its own new plan.
     health_data_removed: bool = False
+    # Shared households (behind HOUSEHOLDS_ENABLED): the members whose saved
+    # profiles this plan is generated with; missing means every member. Member
+    # ids, so it never goes into the stored request, the prompt or telemetry
+    # (exclude): a household of one stores exactly what it stored before.
+    # Capped at the member cap (docs/household-design.md, decision 3).
+    eaters: list[int] | None = Field(default=None, max_length=6, exclude=True)
     meals_per_day: int = Field(
         ge=1,
         le=6,
@@ -1350,3 +1356,9 @@ class DietaryProfileRead(BaseModel):
         if isinstance(v, datetime) and v.tzinfo is None:
             return v.replace(tzinfo=UTC)
         return v
+
+
+def avoid_ingredients_cap() -> int:
+    """How many ingredients to avoid one plan request may carry, read off the
+    field's own declaration (the bound the sanitiser and the CI cap check use)."""
+    return _declared_max_items(MealPlanRequest, "avoid_ingredients")

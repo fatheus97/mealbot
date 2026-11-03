@@ -83,6 +83,10 @@ ErrorKey = Literal[
     "plan_health_data_removed",
     # ── Households (app/services/fridge_service.py lock_kitchen) ────────────
     "household_changed",
+    # ── Shared households: eaters (app/services/health_consent.py) ──────────
+    "household_member_consent_required",  # $email
+    "household_avoid_too_long",  # $count_given, $maximum
+    "plan_eaters_invalid",
     # ── Meal plans (app/api/plan.py) ───────────────────────────────────────
     "plan_not_found",
     "plan_data_unreadable",
@@ -217,6 +221,19 @@ _EN: Final[dict[str, str]] = {
         "instead."
     ),
     "household_changed": "Your household changed while this was saving. Reload the page and try again.",
+    "household_member_consent_required": (
+        "$email has not consented to the use of their diets, allergies and "
+        "ingredients to avoid. They can give it in Settings, or you can plan "
+        "without them."
+    ),
+    "household_avoid_too_long": (
+        "Together you have $count_given ingredients to avoid, and one plan can "
+        "take at most $maximum. Remove some from a saved profile or from this plan."
+    ),
+    "plan_eaters_invalid": (
+        "Someone chosen to eat is not in your household. Reload the page and "
+        "choose again."
+    ),
     "plan_not_found": "Plan not found",
     "plan_data_unreadable": "Stored plan data could not be loaded.",
     "plan_data_inconsistent": "Stored plan data is inconsistent; edit aborted.",
@@ -406,6 +423,20 @@ _CS: Final[dict[str, str]] = {
         "přihlédnout. Vytvořte místo toho nový jídelníček."
     ),
     "household_changed": "Vaše domácnost se mezitím změnila. Obnovte stránku a zkuste to znovu.",
+    "household_member_consent_required": (
+        "Účet $email nemá udělený souhlas s použitím typů stravy, alergií a "
+        "surovin, kterým se vyhýbá. Souhlas lze udělit v Nastavení, nebo "
+        "plánujte bez tohoto účtu."
+    ),
+    "household_avoid_too_long": (
+        "Dohromady máte $count_given surovin, kterým se vyhnout, a jeden "
+        "jídelníček jich pojme nejvýše $maximum. Některé odeberte z uloženého "
+        "profilu nebo z tohoto jídelníčku."
+    ),
+    "plan_eaters_invalid": (
+        "Někdo z vybraných strávníků není ve vaší domácnosti. Obnovte stránku "
+        "a vyberte znovu."
+    ),
     "plan_not_found": "Jídelníček nenalezen",
     "plan_data_unreadable": "Uložená data jídelníčku se nepodařilo načíst.",
     "plan_data_inconsistent": (
