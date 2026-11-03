@@ -9,7 +9,10 @@ Pinned here:
   saved profile, a member who joined since included; ``eaters`` picks;
 * a copied meal with an allergen of someone eating now, a baby-food rule hit,
   or an ingredient the screen cannot read refuses the copy (409 naming the
-  meal) and copies nothing; leftovers are not re-screened;
+  meal) and copies nothing; a leftover with the server's step is not
+  re-screened, one whose step was edited is;
+* sulphites (no screen) refuse a copy the source was not made to avoid them
+  for; on a non-English plan a meal edited down to steps alone is unreadable;
 * refused like Generate: a non-member eater, an eater without consent, a
   union too long; a one-off row needs its author's consent, not the
   repeater's.
@@ -35,6 +38,7 @@ from app.models.plan_models import (
     MealPlanResponse,
     PlannedMeal,
 )
+from app.services.leftovers import leftover_display_name, leftover_steps
 from tests.test_health_data_flows import _forget
 from tests.test_household_eaters import PARTNER, TYPED, Row, _member, _profile, _saved
 from tests.test_plan_catalog import _fake_day
@@ -59,12 +63,13 @@ HONEY = PlannedMeal(
 BUTTER_CHICKEN = CHICKEN.model_copy(update={"name": "Butter chicken"})
 # Server-built: no ingredients, a step that names its source meal ("butter").
 LEFTOVER = PlannedMeal(
-    name="Butter chicken",
+    name=leftover_display_name("Butter chicken"),
     meal_type=MealType.HOT_DINNER,
     ingredients=[],
-    steps=["Reheat the Butter chicken you cooked earlier and serve."],
+    steps=leftover_steps("Butter chicken"),
     leftover_of=LeftoverRef(day_index=0, meal_index=0),
 )
+SULPHITES_ONLY: dict[str, list[str]] = {"diet_types": [], "allergens": ["sulphites"], "avoid_ingredients": []}
 
 
 @pytest.fixture
@@ -229,6 +234,51 @@ class TestSharedHousehold:
         source = await _source(db_session, test_user, [BUTTER_CHICKEN, LEFTOVER], [])
         resp = await _repeat(client, db_session, source)
         assert resp.status_code == 200, resp.text
+
+    async def test_a_leftover_whose_step_was_edited_is_screened(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        await _member(db_session, test_user.household_id, "partner", profile=EGGS_ONLY)
+        edited = LEFTOVER.model_copy(update={"steps": ["Reheat and serve over scrambled eggs."]})
+        source = await _source(db_session, test_user, [BUTTER_CHICKEN, edited], [])
+        plans = await _plans(db_session)
+        resp = await _repeat(client, db_session, source)
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == _unsafe(LEFTOVER.name)
+        assert await _plans(db_session) == plans
+
+    async def test_sulphites_the_source_was_not_made_to_avoid_refuse(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # No screen reads sulphites; generation avoids them through the prompt
+        # only, and this plan was made without that.
+        await _member(db_session, test_user.household_id, "partner", profile=SULPHITES_ONLY)
+        source = await _source(db_session, test_user, [CHICKEN], [])
+        resp = await _repeat(client, db_session, source)
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == ERROR_COPY["en"]["plan_repeat_unscreened_for_eaters"]
+
+    async def test_sulphites_the_source_was_made_to_avoid_pass(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        await _member(db_session, test_user.household_id, "partner", profile=SULPHITES_ONLY)
+        source = await _source(
+            db_session, test_user, [CHICKEN], [(_id(test_user), None, SULPHITES_ONLY)]
+        )
+        resp = await _repeat(client, db_session, source)
+        assert resp.status_code == 200, resp.text
+
+    async def test_a_non_english_meal_with_steps_alone_fails_closed(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        # Edited down to its method: no ingredient to lack an English name,
+        # and Czech steps the English terms cannot read.
+        await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        steps_only = CHICKEN.model_copy(update={"ingredients": [], "steps": ["Posypte lískovými oříšky."]})
+        source = await _source(db_session, test_user, [steps_only], [], language="Czech")
+        resp = await _repeat(client, db_session, source)
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == _unsafe(CHICKEN.name)
 
     async def test_an_ingredient_the_screen_cannot_read_fails_closed(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User

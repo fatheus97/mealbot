@@ -215,9 +215,10 @@ export function useReschedulePlan() {
 // is responsible for saying so; a silent success on a screen where nothing
 // visibly changes reads as a no-op.
 /** A plan action the server refused for a reason the user can act on (a 403
- *  gate, such as missing consent for diet data, or a 409, such as a plan whose
- *  diet data was removed); its message is the server's localized explanation,
- *  safe to show as is. */
+ *  gate, such as missing consent for diet data, a 409, such as a plan whose
+ *  diet data was removed, or a 422 that explains itself, such as too many
+ *  ingredients to avoid for everyone eating); its message is the server's
+ *  localized explanation, safe to show as is. */
 export class PlanActionRefusedError extends Error {}
 
 export function useRepeatPlan() {
@@ -229,6 +230,12 @@ export function useRepeatPlan() {
       });
       if (res.status === 403 || res.status === 409) {
         throw new PlanActionRefusedError(await extractErrorDetail(res, "Repeat failed"));
+      }
+      if (res.status === 422) {
+        // The server's own 422s carry a sentence; a body-validation 422 (a bad
+        // date) carries a list and keeps the generic message below.
+        const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
+        if (typeof body?.detail === "string") throw new PlanActionRefusedError(body.detail);
       }
       if (!res.ok) throw new Error(`Repeat failed: ${res.status}`);
       return res.json();

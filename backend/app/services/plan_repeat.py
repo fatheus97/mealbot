@@ -30,6 +30,7 @@ cookbook, which is not a plan anyone asked for.
 
 import json
 import logging
+from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,10 +41,11 @@ from app.models.db_models import MealPlan, StockItem, User
 from app.models.plan_models import (
     MealPlanRequest,
     MealPlanResponse,
+    PlannedMeal,
     ShoppingListItem,
     StockItemDTO,
 )
-from app.services.allergen_screen import screen_meals_for_allergens
+from app.services.allergen_screen import is_english_language, screen_meals_for_allergens
 from app.services.health_consent import (
     HealthEntry,
     merge_entries,
@@ -55,6 +57,7 @@ from app.services.health_consent import (
 )
 from app.services.infant_screen import screen_meals_for_infant
 from app.services.kitchen import Kitchen
+from app.services.leftovers import leftover_steps
 from app.services.pantry_service import load_staple_keys
 from app.utils import compute_shopping_list_from_plan
 
@@ -74,35 +77,67 @@ class PlanHealthDataRemovedError(ValueError):
 
 
 class PlanUnsafeForEatersError(ValueError):
-    """A copied meal fails the screen for the people eating now. Not a
-    PlanRepeatError: the route maps that one to "data unreadable"."""
+    """The copy fails the screen for the people eating now: a copied ``meal``,
+    or (None) an allergen of theirs with no screen that the source was not
+    made avoiding. Not a PlanRepeatError: the route maps that one to "data
+    unreadable"."""
 
-    def __init__(self, meal: str) -> None:
-        super().__init__(meal)
+    def __init__(self, meal: str | None) -> None:
+        super().__init__(meal or "unscreened allergen")
         self.meal = meal
 
 
+def _generated_leftover(original: MealPlanResponse, meal: PlannedMeal) -> bool:
+    """A leftover still carrying the server's own step, which only names the
+    meal it comes from (screened in its own right). The edit screen lets a
+    user rewrite that step, and a rewritten one is screened like any other."""
+    ref = meal.leftover_of
+    if ref is None:
+        return False
+    try:
+        source = original.days[ref.day_index].meals[ref.meal_index]
+    except IndexError:
+        return False  # a dangling link: screen it
+    return meal.steps == leftover_steps(source.name)
+
+
 def _screen_for_eaters(
-    original: MealPlanResponse, entries: list[HealthEntry], language: str | None
+    original: MealPlanResponse,
+    entries: list[HealthEntry],
+    language: str | None,
+    source_allergens: Sequence[Allergen],
 ) -> None:
     """Fail closed (check-in Q11): the copied meals were screened, if at all,
     against whoever ate then. Re-screen them against the current union: an
     allergen hit, an ingredient the screen cannot read (a meal edited on a
     non-English plan has no English names), or a baby-food rule hit refuses
-    the copy. Leftover meals are skipped: the meal they come from is in the
-    plan and screened, and their steps only name it. Other diets and the
-    ingredients to avoid have no deterministic screen; the copy stores them,
-    so a regenerate applies them."""
+    the copy. Leftovers with the server's step are skipped (_generated_leftover).
+
+    Two holes the screen leaves at generation, closed here because a copy runs
+    no prompt:
+    * sulphites have no deterministic screen; generation keeps them out
+      through the prompt only (allergen_screen). So sulphites of an eater that
+      the source was not made avoiding refuse the copy outright;
+    * steps are never unreadable, because generated steps may only use listed
+      ingredients. An edit is not bound by that, so on a non-English plan a
+      meal with steps and no ingredients is unreadable while a screen is on.
+
+    Other diets and the ingredients to avoid have no deterministic screen; the
+    copy stores them, so a regenerate applies them."""
     diets, allergens, _ = merge_entries(entries)
-    meals = [meal for day in original.days for meal in day.meals if not meal.is_leftover]
-    hits = [
-        v.meal_name
-        for v in screen_meals_for_allergens(
-            meals, [Allergen(a) for a in allergens], language=language
-        )
+    if Allergen.SULPHITES.value in allergens and Allergen.SULPHITES not in source_allergens:
+        raise PlanUnsafeForEatersError(None)
+    meals = [
+        meal for day in original.days for meal in day.meals
+        if not _generated_leftover(original, meal)
     ]
-    if DietType.BABY_FOOD.value in diets:
+    screened = [Allergen(a) for a in allergens if a != Allergen.SULPHITES.value]
+    baby = DietType.BABY_FOOD.value in diets
+    hits = [v.meal_name for v in screen_meals_for_allergens(meals, screened, language=language)]
+    if baby:
         hits += [v.meal_name for v in screen_meals_for_infant(meals, language=language)]
+    if (screened or baby) and not is_english_language(language):
+        hits += [meal.name for meal in meals if meal.steps and not meal.ingredients]
     if hits:
         raise PlanUnsafeForEatersError(hits[0])
 
@@ -173,7 +208,7 @@ async def repeat_plan(
         require_health_consent(user, request)
     else:
         entries = for_eaters
-        _screen_for_eaters(original, entries, request.language)
+        _screen_for_eaters(original, entries, request.language, request.allergens)
 
     # Today's fridge, in the same shape generation uses. `need_to_use` is masked
     # by the user's master toggle exactly as generate_plan_days masks it, so the

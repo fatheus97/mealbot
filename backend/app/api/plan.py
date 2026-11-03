@@ -372,6 +372,8 @@ async def repeat_plan_endpoint(
     except PlanHealthDataRemovedError as exc:
         raise LocalizedHTTPException(409, "plan_repeat_health_data_removed") from exc
     except PlanUnsafeForEatersError as exc:
+        if exc.meal is None:
+            raise LocalizedHTTPException(409, "plan_repeat_unscreened_for_eaters") from exc
         # The meal names come from the plan, in its own language.
         raise LocalizedHTTPException(409, "plan_repeat_unsafe_for_eaters", meal=exc.meal) from exc
     except PlanRepeatError as exc:
