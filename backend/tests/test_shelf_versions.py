@@ -95,11 +95,22 @@ class TestFridge:
         assert _names(await client.get("/api/fridge")) == []
 
     def test_digits_are_ascii_only(self, test_user: User) -> None:
-        # int() reads "١" as 1; a header can carry it as Latin-1 bytes, which
-        # httpx will not send, so this goes to the parser itself.
+        # int() reads Arabic-Indic digits; httpx will not send them, so this
+        # goes to the parser itself. The household part is the user's own, so
+        # only the digit rule can refuse it.
         assert test_user.household_id is not None
+        arabic = "".join(chr(0x660 + int(d)) for d in str(test_user.household_id))
         with pytest.raises(LocalizedHTTPException):
-            expected_version("١٠٠٠٠٠١:٠", HouseholdId(test_user.household_id), "fridge")
+            expected_version(f"{arabic}:{chr(0x660)}", HouseholdId(test_user.household_id), "fridge")
+
+    @pytest.mark.parametrize(("url", "header"), [("/api/fridge", FRIDGE), ("/api/staples", STAPLES)])
+    async def test_a_version_the_column_cannot_hold_is_stale(
+        self, client: AsyncClient, test_user: User, url: str, header: str
+    ) -> None:
+        body = [MILK] if url == "/api/fridge" else [{"name": "salt"}]
+        refused = await _put(client, url, body, f"{test_user.household_id}:{2**31}", header)
+        assert refused.status_code == 409, refused.text
+        assert (await client.get(url)).json() == []
 
     async def test_a_token_of_another_household_is_stale(
         self, client: AsyncClient, db_session: Any

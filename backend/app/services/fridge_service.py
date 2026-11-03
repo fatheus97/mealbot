@@ -58,6 +58,9 @@ _KITCHEN_LOCKED = "kitchen_locked_household_id"
 type Shelf = Literal["fridge", "staples"]
 _CHANGED: dict[Shelf, ErrorKey] = {"fridge": "fridge_changed", "staples": "staples_changed"}
 _TOKEN = re.compile(r"([0-9]{1,10}):([0-9]{1,10})")
+# The versions are INTEGER columns: a bigger number in a token would fail its
+# bind (a 500), so it is refused as stale like any other bad token.
+_MAX_VERSION = 2**31 - 1
 
 
 def _version_column(shelf: Shelf) -> Mapped[int]:
@@ -91,7 +94,7 @@ def expected_version(token: str | None, household_id: HouseholdId, shelf: Shelf)
     if token is None:
         return None
     match = _TOKEN.fullmatch(token)
-    if match is None or int(match[1]) != household_id:
+    if match is None or int(match[1]) != household_id or int(match[2]) > _MAX_VERSION:
         raise LocalizedHTTPException(409, _CHANGED[shelf])
     return int(match[2])
 
