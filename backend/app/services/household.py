@@ -156,6 +156,8 @@ async def join_household(session: AsyncSession, user: User, code: str) -> Househ
     # moving that person's kitchen would then end in a foreign-key failure.
     if sum(member.household_id == kitchen.household_id for member in rows) != 1:
         raise LocalizedHTTPException(409, "household_join_not_alone")
+    # They may have been deactivated, or lost access, during the wait.
+    await session.refresh(user)
 
     redeemed = (
         await session.execute(
@@ -176,8 +178,10 @@ async def join_household(session: AsyncSession, user: User, code: str) -> Househ
         raise LocalizedHTTPException(409, "household_full", maximum=str(MAX_MEMBERS))
     # An invite minted while its only member was being deactivated outlives the
     # delete of their invites, so being active is checked here too.
-    if not all(member.is_active and stripe_service.is_entitled(member) for member in members):
+    if not all(member.is_active and stripe_service.is_entitled(member) for member in rows):
         raise LocalizedHTTPException(409, "household_join_no_access")
+    # Before the check: a draft that goes in this join shows nobody anything.
+    await clear_unconfirmed_plans(session, kitchen)
     if await anyone_lacks_consent(session, (kitchen.household_id, target)):
         raise LocalizedHTTPException(409, "household_join_consent")
 
@@ -193,7 +197,6 @@ async def _bring_kitchen(
     refuses the delete while it points there. Meals follow their plan (ON UPDATE
     CASCADE) and health rows hang off the plan id. A fridge item both sides hold
     becomes two batches of it, which the fridge already supports."""
-    await clear_unconfirmed_plans(session, kitchen)
     await session.execute(
         update(MealPlan)
         .where(col(MealPlan.household_id) == kitchen.household_id)

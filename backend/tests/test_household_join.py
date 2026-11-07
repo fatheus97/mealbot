@@ -313,6 +313,39 @@ class TestRefusals:
 
         assert (await client.post(URL, json={"code": code})).status_code == 409
 
+    async def test_a_row_they_typed_counts_with_no_subject(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        inviter = await _consenting_inviter(db_session)
+        test_user.health_consent_version = "old"
+        plan = await _add_plan(db_session, _plan(test_user))
+        db_session.add(_row(plan, test_user, None, MILK))
+        code = await _invite(db_session, inviter, test_user.email)
+
+        assert (await client.post(URL, json={"code": code})).status_code == 409
+
+    async def test_the_subject_of_someone_elses_row_counts(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        inviter = await _consenting_inviter(db_session)
+        lapsed = await _member(db_session, inviter.household_id, "lapsed", consent="old")
+        plan = await _add_plan(db_session, _plan(inviter))
+        db_session.add(_row(plan, inviter, lapsed, MILK))
+        code = await _invite(db_session, inviter, test_user.email)
+
+        assert (await client.post(URL, json={"code": code})).status_code == 409
+
+    async def test_a_draft_this_join_deletes_needs_no_consent(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        inviter = await _consenting_inviter(db_session)
+        test_user.health_consent_version = "old"
+        plan = await _add_plan(db_session, _plan(test_user, confirmed=False))
+        db_session.add(_row(plan, test_user, test_user, MILK))
+        code = await _invite(db_session, inviter, test_user.email)
+
+        assert (await client.post(URL, json={"code": code})).status_code == 204
+
     async def test_a_blob_carrying_the_data_counts_as_its_creators(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
@@ -464,7 +497,7 @@ class TestBringingTheKitchen:
         code = await _invite(db_session, inviter, test_user.email)
 
         assert (await client.post(URL, json={"code": code})).status_code == 204
-        assert (await client.post(URL, json={"code": code})).status_code == 404
+        assert await _invites(db_session) == []
 
     async def test_the_code_is_not_logged(
         self,

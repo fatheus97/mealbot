@@ -758,6 +758,7 @@ async def _ensure_active_admin_remains(
         await session.execute(
             select(col(User.id))
             .where(col(User.is_admin).is_(True), col(User.is_active).is_(True))
+            .order_by(col(User.id))
             .with_for_update()
         )
     ).scalars().all()
