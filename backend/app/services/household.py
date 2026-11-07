@@ -16,10 +16,9 @@ from sqlmodel import col, delete, select
 from app.core.email_normalize import normalize_email
 from app.core.errors import LocalizedHTTPException
 from app.core.security import create_refresh_token
-from app.models.db_models import Household, HouseholdInvite, User
+from app.models.db_models import Household, HouseholdInvite, MealPlan, User
 from app.services.health_consent import remove_leaver_health
 from app.services.kitchen import HouseholdId, Kitchen, household_members
-from app.services.plan_service import clear_unconfirmed_plans
 
 #: A household's cap (design decision 3). Also the most eaters a plan can name.
 MAX_MEMBERS: Final = 6
@@ -141,7 +140,15 @@ async def move_to_own_household(session: AsyncSession, member: User) -> int:
     unowned. No trigger helps here: they fire on inserting and deleting a user,
     never on an update of its household. Returns how many plans were marked removed."""
     kitchen = Kitchen.of(member)
-    await clear_unconfirmed_plans(session, kitchen)
+    # Not clear_unconfirmed_plans: it also takes drafts nobody here made, and a
+    # member may have just reopened one of those.
+    await session.execute(
+        delete(MealPlan).where(
+            col(MealPlan.household_id) == kitchen.household_id,
+            col(MealPlan.created_by_user_id) == kitchen.user_id,
+            col(MealPlan.confirmed_at).is_(None),
+        )
+    )
     await delete_minted_invites(session, kitchen.user_id)
     removed = await remove_leaver_health(session, kitchen.user_id, kitchen.household_id)
     household = Household()

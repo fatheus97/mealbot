@@ -68,8 +68,9 @@ _EXCLUDED = [
     "A one-way fingerprint of the card used for a free trial, kept so the same "
     "card cannot start a second trial. It cannot be turned back into the card.",
     "Other household members' diets, allergies and ingredients to avoid on "
-    "plans you share, what they typed into those plans, and the plans they made "
-    "that hold nothing of yours: they are theirs to export.",
+    "plans you share, what they typed into plans they made, and their drafts: "
+    "they are theirs to export. A plan you repeat or regenerate is yours, with "
+    "the preferences it carried.",
     "Open household invites: the address invited and a hash of the code. Every "
     "member can see them in Settings, and they are deleted once they expire.",
     "The plans, meals, fridge and staples of a household you have left: they stay "
@@ -111,12 +112,13 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
         raise ValueError("user is not persisted")
     kitchen = Kitchen.of(user)
 
-    # The plans of the household this person is in now that they made or hold
-    # health data on, and their meals; not a kitchen they have left, or its later
-    # edits. A plan's request shows its health data as the planhealth rows this
-    # person entered or is the subject of (Art. 15(4)), and on a plan someone else
-    # made nothing else of it (merged_request_json). The fridge and staples are
-    # the household's, the same for every member.
+    # The plans of the household this person is in now, and their meals; not a
+    # kitchen they have left, or its later edits. Another member's draft only if
+    # it holds their health data: the app shows nobody those. A plan's request
+    # shows its health data as the planhealth rows this person entered or is the
+    # subject of (Art. 15(4)), and on a plan someone else made nothing else of it
+    # (merged_request_json). The fridge and staples are the household's, the same
+    # for every member.
     theirs = select(col(PlanHealth.meal_plan_id)).where(
         or_(
             col(PlanHealth.entered_by_user_id) == user_id,
@@ -128,7 +130,11 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
             select(MealPlan)
             .where(
                 col(MealPlan.household_id) == kitchen.household_id,
-                or_(col(MealPlan.created_by_user_id) == user_id, col(MealPlan.id).in_(theirs)),
+                or_(
+                    col(MealPlan.confirmed_at).is_not(None),
+                    col(MealPlan.created_by_user_id) == user_id,
+                    col(MealPlan.id).in_(theirs),
+                ),
             )
             .order_by(col(MealPlan.created_at))
         )

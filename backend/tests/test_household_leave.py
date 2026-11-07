@@ -221,6 +221,22 @@ class TestLeave:
 
         assert (await db_session.execute(select(MealPlan))).scalars().all() == []
 
+    async def test_a_draft_another_member_reopened_stays(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        second = await _member(db_session, test_user.household_id, "second")
+        third = await _member(db_session, test_user.household_id, "third")
+        plan = await _add_plan(db_session, _plan(test_user))
+        plan_id = plan.id
+        assert (await client.post(URL)).status_code == 204
+        _act_as(second)
+        assert (await client.post(f"/api/plan/{plan_id}/unconfirm")).status_code == 200
+
+        _act_as(third)
+        assert (await client.post(URL)).status_code == 204
+
+        assert await db_session.get(MealPlan, plan_id) is not None
+
     async def test_only_their_invites_go(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
@@ -685,13 +701,50 @@ class TestExport:
         assert plans[0]["request"]["allergens"] == ["milk"]
         assert plans[0]["response"] is None
 
-    async def test_a_partners_plan_holding_nothing_of_yours_is_not_in_it(
+    async def test_your_own_draft_is_in_it(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        await _add_plan(db_session, _plan(test_user, confirmed=False))
+
+        plans = (await self._export(client))["plans"]
+
+        assert isinstance(plans, list) and len(plans) == 1
+        assert plans[0]["response"] is not None
+
+    async def test_a_partners_draft_holding_nothing_of_yours_is_not_in_it(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(db_session, test_user.household_id, "partner")
+        await _add_plan(db_session, _plan(partner, confirmed=False))
+
+        assert (await self._export(client))["plans"] == []
+
+    async def test_a_partners_plan_shows_without_what_they_typed(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(db_session, test_user.household_id, "partner")
+        plan = _plan(partner)
+        plan.request_json = json.dumps({"taste_preferences": ["diabetic, low sugar"]})
+        await _add_plan(db_session, plan)
+
+        plans = (await self._export(client))["plans"]
+
+        assert isinstance(plans, list) and len(plans) == 1
+        assert "taste_preferences" not in plans[0]["request"]
+        assert plans[0]["response"] is not None
+
+    async def test_a_plan_whose_maker_left_stays_for_whoever_stayed(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
         partner = await _member(db_session, test_user.household_id, "partner")
         await _add_plan(db_session, _plan(partner))
+        _act_as(partner)
+        assert (await client.post(URL)).status_code == 204
 
-        assert (await self._export(client))["plans"] == []
+        _act_as(test_user)
+        plans = (await self._export(client))["plans"]
+
+        assert isinstance(plans, list) and len(plans) == 1
 
     async def test_on_a_lost_plan_your_rows_still_show_as_stored(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User

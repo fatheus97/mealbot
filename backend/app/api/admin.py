@@ -860,8 +860,9 @@ async def update_user(
 
     if body.is_active is False and target.is_active:
         # Before stop_billing: a 409 after it would leave billing stopped on an
-        # active account. So this household's writers wait out stop_billing's
-        # Stripe requests, which a rare admin action can afford.
+        # active account. So this household's writers wait for its Stripe requests,
+        # and past the 30 s statement timeout fail: a rare admin action, and only
+        # while Stripe hangs.
         try:
             await lock_kitchen(session, Kitchen.of(target))
         except LocalizedHTTPException:
