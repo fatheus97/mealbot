@@ -19,6 +19,7 @@ from sqlmodel import col
 from app.api.deps import require_admin
 from app.core.config import settings
 from app.core.email_normalize import normalize_email
+from app.core.errors import LocalizedHTTPException
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.access_request_schemas import (
@@ -83,7 +84,14 @@ from app.services import (
 )
 from app.services.access_request import count_pending, emails_with_accounts
 from app.services.admin_audit import record_admin_action
+from app.services.fridge_service import lock_kitchen
+from app.services.household import (
+    delete_minted_invites,
+    lock_member_rows,
+    move_to_own_household,
+)
 from app.services.invite import create_invite, invite_link, invite_status
+from app.services.kitchen import Kitchen
 
 logger = logging.getLogger(__name__)
 
@@ -850,6 +858,19 @@ async def update_user(
             detail="Demo accounts cannot be modified.",
         )
 
+    if body.is_active is False and target.is_active:
+        # Before stop_billing: a 409 after it would leave billing stopped on an
+        # active account. So this household's writers wait for its Stripe requests,
+        # and past the 30 s statement timeout fail: a rare admin action, and only
+        # while Stripe hangs.
+        try:
+            await lock_kitchen(session, Kitchen.of(target))
+        except LocalizedHTTPException:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This user's household changed while saving. Reload and try again.",
+            ) from None
+
     # Last-active-admin invariant (atomic) — only when this request would strip
     # admin-power from an active admin. The self-guard below is necessary for UX
     # but NOT sufficient under concurrency; the FOR UPDATE lock in the helper is.
@@ -888,6 +909,7 @@ async def update_user(
                 detail="You cannot disable your own account.",
             )
         active_detail = {"is_active": str(body.is_active)}
+        members: list[User] = []
         if body.is_active is False:
             # Last step before any write, after every guard: a 503 here must
             # leave nothing half-applied (the session is never committed).
@@ -898,9 +920,24 @@ async def update_user(
             except stripe_service.BillingStopFailed as exc:
                 logger.exception("admin_deactivate_billing_failed target_id=%s", target.id)
                 raise _billing_stop_failed(exc, "deactivated") from None
+            # After Stripe: a webhook updating a partner's row must not queue behind
+            # it, its event check would be stale by then. After the admin rows above:
+            # that scan stays the first row lock, so two admins deactivating each
+            # other get its 409, not a deadlock.
+            members = await lock_member_rows(session, Kitchen.of(target).household_id)
         target.is_active = body.is_active
         if body.is_active is False:
             await _revoke_sessions_and_bump(session, target, now)
+            # A deactivated account cannot hold a cap slot or be joined: alone, its
+            # household keeps its kitchen but no invite should lead there.
+            if len(members) > 1:
+                active_detail["left_household"] = str(target.household_id)
+                active_detail["plans_marked_removed"] = str(
+                    await move_to_own_household(session, target)
+                )
+            else:
+                assert target.id is not None
+                await delete_minted_invites(session, target.id)
         changes.append(
             ("user.deactivate" if body.is_active is False else "user.reactivate", active_detail)
         )

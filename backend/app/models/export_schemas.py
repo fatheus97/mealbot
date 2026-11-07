@@ -144,4 +144,6 @@ class UserDataExport(BaseModel):
     # Saved diets, allergens and ingredients to avoid (shared households);
     # null when there is none.
     dietary_profile: DietaryProfileRead | None
+    # Says that plans, meals, fridge and staples are shared; null when alone.
+    shared_kitchen: str | None
     excluded: list[str]

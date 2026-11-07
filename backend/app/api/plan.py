@@ -1252,11 +1252,11 @@ async def _edit_unchecked(
         return False
     if not (isinstance(data, dict) and data.get("health_data_removed") is True):
         return False
-    if not households_enabled():
-        return False
-    if len(await household_members(session, kitchen)) > 1:
+    if households_enabled() and len(await household_members(session, kitchen)) > 1:
         return True
     # merged_request_json dropped the contributors; the stored blob keeps them.
+    # Whatever the flag says: with it off, only a shared household from before it
+    # went off can have a plan naming someone else, and leaving still works there.
     try:
         raw = json.loads(plan.request_json)
     except json.JSONDecodeError:
