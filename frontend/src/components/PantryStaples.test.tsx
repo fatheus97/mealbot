@@ -241,4 +241,53 @@ describe('PantryStaples — changed on another device', () => {
     expect(screen.queryByText('Flour')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /save staples/i })).toBeDisabled();
   });
+
+  it('a reload that moved only the token: the next save carries it, and is not refused', async () => {
+    // A partner saved the same names. The list keeps its reference, so nothing
+    // on screen changes, and only the version moved.
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<PantryStaples />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
+
+    server = { items: [{ name: 'Salt' }], version: 1 };
+    await act(() => queryClient.invalidateQueries({ queryKey: ['staples'] }));
+
+    await user.type(screen.getByLabelText('New staple name'), 'Pepper');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: /save staples/i }));
+
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
+    expect(sentTokens()).toEqual(['1:1']);
+    expect(server.items).toEqual([{ name: 'Salt' }, { name: 'Pepper' }]);
+  });
+
+  it('chips cannot change while a save is in flight, so none is lost to its success', async () => {
+    const { wrapper } = setup();
+    const user = userEvent.setup();
+    const served = mockedAuthFetch.getMockImplementation() as (u: string, o?: unknown) => Promise<unknown>;
+    let answer!: () => void;
+    const held = new Promise<void>((r) => { answer = r; });
+    mockedAuthFetch.mockImplementation(async (url: string, opts?: { method?: string }) => {
+      if (opts?.method === 'PUT') await held;
+      return served(url, opts);
+    });
+    render(<PantryStaples />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Salt')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('New staple name'), 'Flour');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: /save staples/i }));
+    await waitFor(() => expect(sentTokens()).toEqual(['1:0']));
+
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove Salt' })).toBeDisabled();
+    await user.type(screen.getByLabelText('New staple name'), 'Rice{Enter}');
+    expect(screen.queryByText('Rice')).not.toBeInTheDocument();
+
+    await act(async () => { answer(); await held; });
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
+    expect(server.items).toEqual([{ name: 'Salt' }, { name: 'Flour' }]);
+  });
 });

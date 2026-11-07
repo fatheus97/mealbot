@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
-import { ShelfChangedError, useFridge, useRecordWaste, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
+import { cachedShelf, shelfSaveKey, ShelfChangedError, useFridge, useRecordWaste, useUpdateFridge, useUserProfile } from "../hooks/useServerState";
 import type { StockItem, WasteEntry, RemovalWasteReason } from "../types";
 import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
@@ -12,16 +13,9 @@ import { InfoHint } from "./InfoHint";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { useI18n } from "../i18n";
 
-// Dialogs hold rows by _editId, never by index: the list can reload under an
-// open dialog (a focus refetch shows a partner's edit), and an index would then
-// point at whatever moved into its place.
 type PendingRemoval =
-  | { kind: "item"; editId: number; name: string; quantity: number }
-  | { kind: "group"; editIds: number[]; name: string; batchCount: number };
-
-type ModalState =
-  | { mode: "add" }
-  | { mode: "edit"; editId: number; initial: FridgeItemValues };
+  | { kind: "item"; index: number; name: string; quantity: number }
+  | { kind: "group"; indices: number[]; name: string; batchCount: number };
 
 /** StockItem extended with a stable identity for edit-safe rendering. */
 interface EditableStockItem extends StockItem {
@@ -74,7 +68,9 @@ export function Fridge() {
   const isMobile = useIsMobile();
   const scheme = usePrefersDark() ? "dark" : "light";
 
-  const { data: serverFridge, isLoading, error: fetchError } = useFridge(userId);
+  const queryClient = useQueryClient();
+  const { data: serverFridge, dataUpdatedAt, isLoading, error: fetchError } = useFridge(userId);
+  const savesPending = useIsMutating({ mutationKey: shelfSaveKey("fridge") });
   const updateFridgeMutation = useUpdateFridge();
   // Shares the ['userProfile', userId] query cache with Settings, so this
   // costs no extra request beyond the app's existing profile fetch.
@@ -85,11 +81,12 @@ export function Fridge() {
   const wasteTrackingEnabled = profile?.waste_tracking_enabled ?? false;
   const recordWasteMutation = useRecordWaste();
 
+  // What the local list was last seeded from, and that list's version: every
+  // save sends it, so a list made from an out-of-date copy is refused (409).
+  const seededFrom = useRef<StockItem[] | null>(null);
+  const seededToken = useRef<string | null>(null);
   const nextEditId = useRef(0);
   const assignId = (): number => nextEditId.current++;
-  // Server row id -> the _editId it was last shown with, so a reload keeps
-  // each row's identity and an open dialog still finds its item.
-  const editIdByRowId = useRef(new Map<number, number>());
   const [fridge, setFridge] = useState<EditableStockItem[]>([]);
   const [notice, setNotice] = useState("");
   const [expanded, setExpanded] = useState(true);
@@ -98,7 +95,7 @@ export function Fridge() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   // Stable group order — only changes on load, save, add, remove, and sort toggle
   const [groupOrder, setGroupOrder] = useState<string[]>([]);
-  const [modalState, setModalState] = useState<ModalState | null>(null);
+  const [modalState, setModalState] = useState<{ mode: "add" | "edit"; editIndex: number | null } | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   // The "where did it go?" answer for the removal currently being confirmed.
   // null = unanswered, which is a first-class outcome: the removal goes through
@@ -192,21 +189,30 @@ export function Fridge() {
     setGroupOrder(sortGroups(groups, key, dir));
   }, [buildGroups, sortGroups]);
 
+  // An edit or remove dialog holds its row by index, into the list it opened on.
+  const holdsRow = pendingRemoval !== null || modalState?.mode === "edit";
+
   useEffect(() => {
-    if (serverFridge) {
-      const kept = new Map<number, number>();
-      const copy: EditableStockItem[] = serverFridge.map(item => {
-        const editId = (item.id != null ? editIdByRowId.current.get(item.id) : undefined) ?? assignId();
-        if (item.id != null) kept.set(item.id, editId);
-        return { ...JSON.parse(JSON.stringify(item)), _editId: editId };
-      });
-      editIdByRowId.current = kept;
-      setFridge(copy);
-      refreshGroupOrder(copy, sortKey, sortDir);
-    }
-  // Only re-run when server data changes, not on sort changes
+    if (!serverFridge || userId === null) return;
+    // The list can reload at any moment (a focus refetch brings a partner's
+    // edit). Not under a dialog holding a row: the index would then point at
+    // something else, and its save goes out with the old token and is refused
+    // instead. Not under a save of ours: the local list is ahead of the cache.
+    if (holdsRow || savesPending > 0) return;
+    // dataUpdatedAt re-runs this for a reload that moved only the token (an
+    // empty fridge stays the same reference).
+    seededToken.current = cachedShelf(queryClient, "fridge", userId)?.token ?? null;
+    if (serverFridge === seededFrom.current) return;
+    seededFrom.current = serverFridge;
+    const copy: EditableStockItem[] = serverFridge.map(item => ({
+      ...JSON.parse(JSON.stringify(item)),
+      _editId: assignId(),
+    }));
+    setFridge(copy);
+    refreshGroupOrder(copy, sortKey, sortDir);
+  // Only re-run when server data changes or the hold ends, not on sort changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverFridge, refreshGroupOrder]);
+  }, [serverFridge, dataUpdatedAt, savesPending, holdsRow, refreshGroupOrder]);
 
   // Live group data (totals, indices) — recomputes on edits, but ORDER is from groupOrder
   const groupedItems = useMemo(() => buildGroups(fridge), [fridge, buildGroups]);
@@ -236,7 +242,7 @@ export function Fridge() {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       .map(({ _editId, ...rest }) => rest);
     updateFridgeMutation.mutate(
-      { userId, items: cleaned },
+      { userId, items: cleaned, token: seededToken.current },
       {
         onError: (err) => {
           // A refusal is the server's whole sentence (the list was changed
@@ -253,17 +259,13 @@ export function Fridge() {
     );
   };
 
-  /** Current positions of these rows; a row removed meanwhile is skipped. */
-  const indicesOf = (editIds: number[]): number[] =>
-    editIds.map((id) => fridge.findIndex((item) => item._editId === id)).filter((i) => i >= 0);
-
   const requestRemoveItem = (index: number) => {
     const item = fridge[index];
     if (!item) return;
     setWasteAnswer(null);
     setPendingRemoval({
       kind: "item",
-      editId: item._editId,
+      index,
       name: item.name || "this item",
       quantity: item.quantity_grams,
     });
@@ -273,7 +275,7 @@ export function Fridge() {
     setWasteAnswer(null);
     setPendingRemoval({
       kind: "group",
-      editIds: group.flatIndices.map((i) => fridge[i]._editId),
+      indices: group.flatIndices,
       name: group.displayName || "this group",
       batchCount: group.batchCount,
     });
@@ -286,9 +288,8 @@ export function Fridge() {
 
   const confirmRemoval = () => {
     if (!pendingRemoval) return;
-    const indices = indicesOf(
-      pendingRemoval.kind === "item" ? [pendingRemoval.editId] : pendingRemoval.editIds,
-    );
+    const indices =
+      pendingRemoval.kind === "item" ? [pendingRemoval.index] : pendingRemoval.indices;
     // Read the outgoing rows BEFORE the splice — after it, the indices point at
     // whatever shifted into their place, and a group removal would report the
     // wrong items entirely.
@@ -324,21 +325,8 @@ export function Fridge() {
     setWasteAnswer(null);
   };
 
-  const openAddModal = () => setModalState({ mode: "add" });
-  const openEditModal = (flatIndex: number) => {
-    const item = fridge[flatIndex];
-    if (!item) return;
-    setModalState({
-      mode: "edit",
-      editId: item._editId,
-      initial: {
-        name: item.name,
-        quantity_grams: item.quantity_grams,
-        expiration_date: item.expiration_date ?? null,
-        need_to_use: item.need_to_use,
-      },
-    });
-  };
+  const openAddModal = () => setModalState({ mode: "add", editIndex: null });
+  const openEditModal = (flatIndex: number) => setModalState({ mode: "edit", editIndex: flatIndex });
 
   const handleModalOk = (values: FridgeItemValues) => {
     let updated: EditableStockItem[];
@@ -353,18 +341,10 @@ export function Fridge() {
           _editId: assignId(),
         },
       ];
-    } else if (modalState?.mode === "edit") {
-      const [index] = indicesOf([modalState.editId]);
-      if (index === undefined) {
-        // Removed on another device while the dialog was open.
-        setModalState(null);
-        setNotice(t("fridge.itemGone"));
-        setTimeout(() => setNotice(""), 5000);
-        return;
-      }
+    } else if (modalState?.mode === "edit" && modalState.editIndex !== null) {
       updated = [...fridge];
-      updated[index] = {
-        ...updated[index],
+      updated[modalState.editIndex] = {
+        ...updated[modalState.editIndex],
         name: values.name,
         quantity_grams: values.quantity_grams,
         need_to_use: values.need_to_use,
@@ -772,8 +752,13 @@ export function Fridge() {
         <FridgeItemModal
           mode={modalState.mode}
           initialValues={
-            modalState.mode === "edit"
-              ? modalState.initial
+            modalState.mode === "edit" && modalState.editIndex !== null
+              ? {
+                  name: fridge[modalState.editIndex].name,
+                  quantity_grams: fridge[modalState.editIndex].quantity_grams,
+                  expiration_date: fridge[modalState.editIndex].expiration_date ?? null,
+                  need_to_use: fridge[modalState.editIndex].need_to_use,
+                }
               : { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false }
           }
           onOk={handleModalOk}

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
 import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
 import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 import { extractErrorDetail } from '../utils/httpError';
@@ -20,6 +21,9 @@ const SHELVES = {
 } as const;
 type Shelf = keyof typeof SHELVES;
 
+/** Identifies a shelf's saves, for a component that must wait for them. */
+export const shelfSaveKey = (shelf: Shelf) => [shelf, 'put'] as const;
+
 /** A shelf as cached: the list and the token it was read or written at. null
  *  when the server sent none. Components see only `items` (the queries select
  *  it). */
@@ -33,27 +37,22 @@ export interface ShelfData<T> {
  *  localized sentence; the hook has already reloaded the list. */
 export class ShelfChangedError extends Error {}
 
-/** The token of the cached list, for a caller that keeps its own edited copy
- *  and must send the version that copy was made from. */
-export function shelfToken(queryClient: QueryClient, shelf: Shelf, userId: number): string | null {
-  return queryClient.getQueryData<ShelfData<unknown>>([shelf, userId])?.token ?? null;
+/** The cached list and its token, read together: what a save must send is the
+ *  token of the very list its items were made from. */
+export function cachedShelf<T>(
+  queryClient: QueryClient,
+  shelf: Shelf,
+  userId: number,
+): ShelfData<T> | undefined {
+  return queryClient.getQueryData<ShelfData<T>>([shelf, userId]);
 }
 
 function itemsOf<T>(data: ShelfData<T>): T[] {
   return data.items;
 }
 
-function isSaving(queryClient: QueryClient, shelf: Shelf): boolean {
-  return queryClient.isMutating({ mutationKey: [shelf, 'put'] }) > 0;
-}
-
 function useShelf<T>(shelf: Shelf, userId: number | null) {
-  const queryClient = useQueryClient();
   const { path, header, label } = SHELVES[shelf];
-  // Not while a save of ours is pending: a GET served before it commits would
-  // put the old list back on screen under the edit, and the save's response
-  // refreshes the cache anyway. An invalidation still refetches.
-  const unlessSaving = () => !isSaving(queryClient, shelf);
   return useQuery({
     queryKey: [shelf, userId],
     queryFn: async (): Promise<ShelfData<T>> => {
@@ -65,49 +64,40 @@ function useShelf<T>(shelf: Shelf, userId: number | null) {
     },
     select: itemsOf<T>,
     enabled: userId !== null,
-    staleTime: SHARED.staleTime,
-    refetchOnWindowFocus: unlessSaving,
-    refetchOnMount: unlessSaving,
+    ...SHARED,
   });
 }
-
-// Saves queued behind a refused one, by their variables: they were made from
-// the same out-of-date list, so they are refused too instead of going out with
-// the reloaded token and overwriting the change that caused the 409.
-const refusedBehind = new WeakMap<object, string>();
 
 interface ShelfSave<T> {
   userId: number;
   items: T[];
-  /** The token of the list these items were made from. Leave it out to send
-   *  the cached one, which follows our own earlier saves: right for a caller
-   *  whose copy is re-seeded from the cache on every change (Fridge). */
-  token?: string | null;
+  /** The token of the list these items were made from. */
+  token: string | null;
 }
 
 function useUpdateShelf<T>(shelf: Shelf) {
   const queryClient = useQueryClient();
   const { path, header, label } = SHELVES[shelf];
-  const mutationKey = [shelf, 'put'];
+  // This caller's last accepted save. A save it made from the same list before
+  // that one returned carries that one's edits too (the caller's copy has them),
+  // so it follows it, with the token that save got back. It is per caller on
+  // purpose: a save from another component is NOT in this caller's list, so its
+  // token must not be adopted, and the server refuses the old one instead.
+  const lastSave = useRef<{ base: string | null; latest: string | null } | null>(null);
 
   return useMutation({
-    mutationKey,
+    mutationKey: shelfSaveKey(shelf),
     // One save at a time per shelf, across every component: each waits for the
-    // previous one to return, so it sends the token that one got back and two
-    // quick edits on one phone never refuse each other.
+    // previous one to return, so two quick edits on one phone never refuse each
+    // other.
     scope: { id: shelf },
-    mutationFn: async (vars: ShelfSave<T>): Promise<ShelfData<T>> => {
-      const refused = refusedBehind.get(vars);
-      if (refused !== undefined) throw new ShelfChangedError(refused);
-      const key = [shelf, vars.userId];
-      // A GET already in flight could land after this save and roll it back.
-      await queryClient.cancelQueries({ queryKey: key });
-      const token = vars.token !== undefined ? vars.token : shelfToken(queryClient, shelf, vars.userId);
+    mutationFn: async ({ items, token }: ShelfSave<T>): Promise<ShelfData<T>> => {
+      const sent = lastSave.current?.base === token ? lastSave.current.latest : token;
       const res = await authFetch(path, {
         method: "PUT",
-        body: JSON.stringify(vars.items),
+        body: JSON.stringify(items),
         // No header at all without a token (accepted, like an older bundle).
-        ...(token !== null ? { headers: { [header]: token } } : {}),
+        ...(sent !== null ? { headers: { [header]: sent } } : {}),
       });
       if (res.status === 409) {
         throw new ShelfChangedError(await extractErrorDetail(res, `${label} update refused`));
@@ -115,29 +105,17 @@ function useUpdateShelf<T>(shelf: Shelf) {
       if (!res.ok) throw new Error(`${label} update failed: ${res.status}`);
       return { items: (await res.json()) as T[], token: res.headers?.get(header) ?? null };
     },
-    onSuccess: (data, vars) => {
-      const key = [shelf, vars.userId];
-      // Saves of ours still queued carry edits this response lacks: take only
-      // its token, or the list on screen steps back until the last one lands.
-      if (queryClient.isMutating({ mutationKey }) > 1) {
-        queryClient.setQueryData<ShelfData<T>>(key, (old) => (old ? { ...old, token: data.token } : data));
-      } else {
-        queryClient.setQueryData<ShelfData<T>>(key, data);
-      }
+    onSuccess: async (data, { userId, token }) => {
+      lastSave.current = { base: token, latest: data.token };
+      const key = [shelf, userId];
+      // A GET that left before this save must not land after it and roll it back.
+      await queryClient.cancelQueries({ queryKey: key });
+      queryClient.setQueryData<ShelfData<T>>(key, data);
     },
-    onError: async (error, vars) => {
-      // A save refused only because the one before it was has nothing new to
-      // reload, and saves queued after the reload are good.
-      if (!(error instanceof ShelfChangedError) || refusedBehind.has(vars)) return;
-      // Awaited, so the caller's onError runs with the current list on screen.
-      await queryClient.invalidateQueries({ queryKey: [shelf, vars.userId] });
-      // After the reload, not before: a save queued while it was in flight was
-      // still made from the old list.
-      for (const m of queryClient.getMutationCache().findAll({ mutationKey, status: 'pending' })) {
-        const queued = m.state.variables;
-        if (queued !== vars && typeof queued === 'object' && queued !== null) {
-          refusedBehind.set(queued, error.message);
-        }
+    onError: (error, { userId }) => {
+      // Returned, so the caller's onError runs with the current list cached.
+      if (error instanceof ShelfChangedError) {
+        return queryClient.invalidateQueries({ queryKey: [shelf, userId] });
       }
     },
   });

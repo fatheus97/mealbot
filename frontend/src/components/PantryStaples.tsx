@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useQueryClient } from "@tanstack/react-query";
-import { ShelfChangedError, shelfToken, useStaples, useUpdateStaples } from "../hooks/useServerState";
+import { cachedShelf, ShelfChangedError, useStaples, useUpdateStaples } from "../hooks/useServerState";
 import { useI18n, type PluralKey, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
 import { InfoHint } from "./InfoHint";
@@ -114,7 +114,7 @@ export function PantryStaples({
   const { userId } = useAuth();
   const { t, tn } = useI18n();
   const queryClient = useQueryClient();
-  const { data: serverStaples, isLoading, error: fetchError } = useStaples(userId);
+  const { data: serverStaples, dataUpdatedAt, isLoading, error: fetchError } = useStaples(userId);
   const updateStaples = useUpdateStaples();
 
   // Resolve at RENDER, so a language switch reaches a notice already on screen.
@@ -141,17 +141,21 @@ export function PantryStaples({
   // Save then sends the chips' own version and the server refuses it.
   useEffect(() => {
     if (!serverStaples || userId === null || dirty) return;
-    seededToken.current = shelfToken(queryClient, "staples", userId);
+    // dataUpdatedAt re-runs this for a reload that moved only the token (a
+    // partner saved the same names): the list stays the same reference.
+    seededToken.current = cachedShelf(queryClient, "staples", userId)?.token ?? null;
     const sig = JSON.stringify(serverStaples.map((s) => s.name));
     if (sig !== lastServerSig.current) {
       lastServerSig.current = sig;
       setItems(serverStaples.map((s) => s.name));
     }
-  }, [serverStaples, dirty, queryClient, userId]);
+  }, [serverStaples, dataUpdatedAt, dirty, queryClient, userId]);
 
   const addStaple = () => {
     const name = input.trim();
-    if (!name) return;
+    // Not during a save: its success clears `dirty`, which would take this chip
+    // along. The buttons are disabled for the same reason; Enter needs this.
+    if (!name || updateStaples.isPending) return;
     // Client-side dedup mirrors the server's case-insensitive rule so the chip
     // list doesn't show a duplicate that the save would silently collapse.
     if (items.some((s) => s.toLowerCase() === name.toLowerCase())) {
@@ -235,6 +239,7 @@ export function PantryStaples({
               <button
                 type="button"
                 aria-label={`Remove ${name}`}
+                disabled={updateStaples.isPending}
                 onClick={() => removeStaple(i)}
                 style={chipRemoveBtn}
               >
@@ -267,7 +272,7 @@ export function PantryStaples({
           aria-label={t("staples.newStapleLabel")}
           style={inputStyle}
         />
-        <button type="button" onClick={addStaple} style={addBtn}>
+        <button type="button" onClick={addStaple} disabled={updateStaples.isPending} style={addBtn}>
           {t("staples.add")}
         </button>
       </div>

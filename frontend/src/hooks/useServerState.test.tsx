@@ -108,7 +108,7 @@ describe('useUpdateFridge', () => {
     const setQueryDataSpy = vi.spyOn(queryClient, 'setQueryData');
     const { result } = renderHook(() => useUpdateFridge(), { wrapper });
 
-    result.current.mutate({ userId: 1, items });
+    result.current.mutate({ userId: 1, items, token: null });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 

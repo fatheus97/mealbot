@@ -697,7 +697,6 @@ export const en = {
   "fridge.wasteOptionalHint": "Optional — removing works either way.",
   "fridge.saveFailed": "Failed to save: {message}",
   "fridge.unknownError": "Unknown error",
-  "fridge.itemGone": "This item was removed on another device, so your change wasn't saved.",
   // A "batch" is a separate purchase of the same ingredient, with its own
   // expiry date.
   "fridge.batchN": "Batch {n}",
@@ -727,6 +726,7 @@ export const en = {
   // The dialog closes as soon as it is answered, so a failed fridge write has
   // nowhere else to be reported.
   "expired.saveFailed": "Could not update your fridge — nothing was changed. Try again from the Fridge panel.",
+  "expired.changedElsewhere": "The fridge was changed on another device, so nothing was updated. Remove or re-date these items in the Fridge panel.",
 
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Add Ingredient",

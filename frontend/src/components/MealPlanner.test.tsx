@@ -1530,10 +1530,9 @@ describe('MealPlanner — expired-item review after finishing', () => {
     );
   });
 
-  it('a refused fridge write shows the server sentence, not the generic failure', async () => {
-    // 409 fridge_changed (household PR 4b): the fridge changed on another
-    // device, so the generic "try again from the Fridge panel" would mislead.
-    const REFUSED = "The fridge was changed on another device, so your change wasn't saved.";
+  it('a refused fridge write says where to go, and carries the token of the list it read', async () => {
+    // 409 fridge_changed (household PR 4b). The dialog that made the change has
+    // closed, so the server's "make your change again" has nowhere to point.
     loginUser();
     mockedFetchProfile.mockResolvedValue({
       id: 1, email: 'test@test.com', country: null, language: 'English',
@@ -1544,12 +1543,20 @@ describe('MealPlanner — expired-item review after finishing', () => {
     });
     routeFetch([EXPIRED, FRESH]);
     const served = mockedAuthFetch.getMockImplementation() as (url: string, opts?: unknown) => Promise<Response>;
-    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) =>
-      url === '/fridge' && opts?.method === 'PUT'
-        ? Promise.resolve({
-            ok: false, status: 409, json: () => Promise.resolve({ detail: REFUSED }),
-          } as unknown as Response)
-        : served(url, opts));
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url !== '/fridge') return served(url, opts);
+      if (opts?.method === 'PUT') {
+        return Promise.resolve({
+          ok: false, status: 409,
+          json: () => Promise.resolve({ detail: 'Please make your change again.' }),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true, status: 200,
+        headers: new Headers({ 'X-Fridge-Version': '1:3' }),
+        json: () => Promise.resolve([EXPIRED, FRESH]),
+      } as unknown as Response);
+    });
 
     const user = userEvent.setup();
     render(
@@ -1561,8 +1568,12 @@ describe('MealPlanner — expired-item review after finishing', () => {
     await user.click(screen.getByRole('radio', { name: /threw it out/i }));
     await user.click(screen.getByRole('button', { name: /^save$/i }));
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(REFUSED));
-    expect(screen.getByRole('alert')).not.toHaveTextContent(/could not update your fridge/i);
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/changed on another device.*in the Fridge panel/i),
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/make your change again/i);
+    const put = mockedAuthFetch.mock.calls.find((c) => c[0] === '/fridge' && c[1]?.method === 'PUT');
+    expect(put?.[1].headers).toEqual({ 'X-Fridge-Version': '1:3' });
   });
 
   it('writes nothing at all when the prompt is skipped', async () => {

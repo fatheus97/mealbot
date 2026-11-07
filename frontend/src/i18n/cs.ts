@@ -628,7 +628,6 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.wasteOptionalHint": "Nepovinné — odebrat jde i bez odpovědi.",
   "fridge.saveFailed": "Uložení se nezdařilo: {message}",
   "fridge.unknownError": "Neznámá chyba",
-  "fridge.itemGone": "Položka byla mezitím odebrána na jiném zařízení, takže se vaše změna neuložila.",
   // "balení" is neuter and INVARIANT across number — 1 balení / 3 balení /
   // 5 balení — so these four forms coincide. That is a property of the noun,
   // not an untranslated copy-paste: "dávka" would inflect to dávky / dávek.
@@ -671,6 +670,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Nepovinné — co si nejste jistí, přeskočte. „Ještě dobré“ položku ponechá a posune datum o týden.",
   "expired.saveFailed":
     "Lednici se nepodařilo upravit — nic se nezměnilo. Zkuste to znovu v sekci Lednice.",
+  "expired.changedElsewhere":
+    "Lednice se mezitím změnila na jiném zařízení, takže se nic neupravilo. Odeberte tyto položky nebo jim změňte datum v sekci Lednice.",
 
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Přidat surovinu",

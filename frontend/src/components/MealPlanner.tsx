@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect, useId, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { AllergenWarning } from "../types";
 import { AllergenEditWarning } from "./AllergenEditWarning";
 import { useAuth, useShowPieces } from "../contexts/AuthContext";
@@ -6,7 +7,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
 import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import { formatAmount } from "../utils/pieces";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile, ShelfChangedError } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile, cachedShelf, ShelfChangedError } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
@@ -158,6 +159,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Opt-in, so the fallback is false: an unloaded profile prompts nothing.
   const wasteTrackingEnabled = profile?.waste_tracking_enabled ?? false;
   const updateFridgeMutation = useUpdateFridge();
+  const queryClient = useQueryClient();
   const recordWasteMutation = useRecordWaste();
   // Expired items to review after a finish. Snapshotted (not derived from the
   // live fridge query) so the list the user is answering about can't shift
@@ -457,7 +459,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     const stillFineIds = new Set(
       identified.filter((d) => d.choice === "still_fine").map((d) => d.item.id),
     );
-    const current = fridgeItems ?? [];
+    // List and token read together: the server refuses this save if the fridge
+    // moved on, a save from the Fridge panel still in flight included.
+    const cached = cachedShelf<StockItem>(queryClient, "fridge", userId);
+    const current = cached?.items ?? [];
     const next = current
       .filter((it) => it.id == null || !binnedIds.has(it.id))
       .map((it) =>
@@ -465,7 +470,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           ? { ...it, expiration_date: addDaysISO(todayISO(), STILL_FINE_EXTENSION_DAYS) }
           : it,
       );
-    updateFridgeMutation.mutate({ userId, items: next });
+    updateFridgeMutation.mutate({ userId, items: next, token: cached?.token ?? null });
 
     // Both dispositions are recorded, and still_fine is not an afterthought:
     // it is the denominator. A count of binned items has no base rate to be
@@ -987,10 +992,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
               failure changes nothing the user asked for. */}
           {updateFridgeMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginBottom: "1rem", padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", fontSize: "0.9rem" }}>
-              {/* A refusal (the fridge changed on another device) is the
-                  server's own sentence; it says what happened and what next. */}
+              {/* Not the server's sentence for a refusal ("make your change
+                  again"): the dialog that made the change has closed for good. */}
               {updateFridgeMutation.error instanceof ShelfChangedError
-                ? updateFridgeMutation.error.message
+                ? t("expired.changedElsewhere")
                 : t("expired.saveFailed")}
             </div>
           )}
