@@ -32,10 +32,15 @@ export function FloatingAlert({
 const wrap: CSSProperties = {
   position: "fixed",
   top: "1rem",
-  left: "50%",
-  transform: "translateX(-50%)",
+  // Centred by the insets, not `left: 50%`: that leaves half the screen as the
+  // width available, a tall narrow column on a phone.
+  left: "1rem",
+  right: "1rem",
+  marginInline: "auto",
+  width: "fit-content",
+  maxWidth: 560,
+  boxSizing: "border-box",
   zIndex: 1400,
-  maxWidth: "min(560px, calc(100vw - 2rem))",
   display: "flex",
   alignItems: "flex-start",
   gap: "0.75rem",
