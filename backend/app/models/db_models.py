@@ -5,6 +5,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Connection,
+    DateTime,
     FetchedValue,
     ForeignKey,
     ForeignKeyConstraint,
@@ -947,6 +948,34 @@ class PlanHealth(SQLModel, table=True):
     diet_types: list[str] = Field(sa_column=Column(JSONB, nullable=False))
     allergens: list[str] = Field(sa_column=Column(JSONB, nullable=False))
     avoid_ingredients: list[str] = Field(sa_column=Column(JSONB, nullable=False))
+
+
+class HouseholdInvite(SQLModel, table=True):
+    """A code that lets one address join a household (docs/household-design.md,
+    "Join and leave"). No status columns: redeeming and revoking delete the row,
+    so a code is single-use by construction, and the daily sweep deletes the
+    expired ones, because a row holds a third party's address.
+
+    The code unlocks a kitchen holding other people's allergy data, so only its
+    sha256 is stored, and it is 256 bits, never a short human-friendly code.
+    ``expires_at`` is TIMESTAMPTZ, declared rather than inferred, so comparing it
+    with now() does not depend on the session's time zone.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    household_id: int = Field(
+        foreign_key="household.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    invited_normalized_email: str = Field(nullable=False)
+    token_hash: str = Field(
+        sa_column=Column(String(64), unique=True, index=True, nullable=False),
+    )
+    created_by_user_id: int = Field(
+        foreign_key="user.id", index=True, nullable=False, ondelete="CASCADE"
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
 
 
 class DietaryProfile(SQLModel, table=True):

@@ -1,0 +1,28 @@
+# mealbot — daily expired-household-invite cleanup job.
+#
+# Runs `app.scripts.householdinvite_cleanup` once, then exits (Type=oneshot).
+# Scheduled by mealbot-householdinvite-cleanup.timer; installable/testable on its
+# own via `systemctl start mealbot-householdinvite-cleanup.service`.
+#
+# Deliberately has NO [Install] section: it must run ONLY when the timer (or an
+# operator) triggers it, never at boot. Enable the .timer, not this unit.
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=mealbot daily expired-household-invite cleanup job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+# Type=oneshot means a failure otherwise lands in the journal and nowhere else.
+OnFailure=mealbot-alert@%n.service
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/opt/mealbot
+# A one-off container, for the same reasons as the other cleanup jobs: it still
+# runs mid-deploy, and it only deletes existing rows, so --no-deps.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps -T backend python -m app.scripts.householdinvite_cleanup
+TimeoutStartSec=300

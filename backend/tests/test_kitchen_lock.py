@@ -299,6 +299,8 @@ _LOCKING_HANDLERS: list[tuple[str, str, str, object]] = [
     ("fridge", "post", "/api/fridge/merge", []),
     ("recipe", "post", "/api/recipe/cook", _COOK),
     ("pantry", "put", "/api/staples", []),
+    ("household", "post", "/api/household/invites", {"email": "someone@example.com"}),
+    ("household", "delete", "/api/household/invites/999999", None),
 ]
 
 

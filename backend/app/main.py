@@ -17,6 +17,7 @@ from app.api.feedback import router as feedback_router
 from app.api.fridge import VERSION_HEADER as FRIDGE_VERSION_HEADER
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
+from app.api.household import router as household_router
 from app.api.pantry import VERSION_HEADER as STAPLES_VERSION_HEADER
 from app.api.pantry import router as pantry_router
 from app.api.plan import router as plan_router
@@ -174,6 +175,7 @@ register_error_handlers(app)
 app.include_router(plan_router, prefix="/api")
 app.include_router(fridge_router, prefix="/api")
 app.include_router(pantry_router, prefix="/api")
+app.include_router(household_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")

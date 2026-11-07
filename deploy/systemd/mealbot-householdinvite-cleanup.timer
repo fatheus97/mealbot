@@ -1,0 +1,23 @@
+# Schedules mealbot-householdinvite-cleanup.service once a day.
+#
+# This is the unit you enable:
+#   systemctl enable --now mealbot-householdinvite-cleanup.timer
+#
+# (In practice sync-systemd-units.sh enables it for you the first time the file
+# lands on the box. The command above is for a box rebuild.)
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=Schedule the mealbot daily expired-household-invite cleanup job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# 05:30, keeping the 30-minute stagger: embedding backfill 05:00, billing 08:00.
+OnCalendar=*-*-* 05:30:00
+# If the box was off at 05:30, run as soon as it is back up.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
