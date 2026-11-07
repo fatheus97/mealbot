@@ -772,6 +772,50 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     return changed
 
 
+async def anyone_lacks_consent(
+    session: AsyncSession, household_ids: Sequence[HouseholdId]
+) -> bool:
+    """Whether someone holding health data on these households' plans has not
+    confirmed the current consent. A join shows each side's data to the other,
+    under a text they may not have agreed to. A row is whoever it names, and a
+    plan without rows whose blob carries the data is its creator's, as in
+    merged_request_json."""
+    plans = (
+        await session.execute(
+            select(
+                col(MealPlan.id), col(MealPlan.request_json), col(MealPlan.created_by_user_id)
+            ).where(col(MealPlan.household_id).in_(household_ids))
+        )
+    ).all()
+    rows = await plan_health_rows(session, [plan_id for plan_id, _, _ in plans])
+    holders: set[int] = set()
+    for plan_id, request_json, creator in plans:
+        if plan_id in rows:
+            entries = [HealthEntry.of(row) for row in rows[plan_id]]
+            holders |= {who for e in entries if e.carries() for who in e.people()}
+        elif creator is not None:
+            try:
+                data = json.loads(request_json)
+            except ValueError:
+                continue
+            if isinstance(data, dict) and _blob_carries(data):
+                holders.add(creator)
+    if not holders:
+        return False
+    lacking = await session.execute(
+        select(col(User.id))
+        .where(
+            col(User.id).in_(holders),
+            or_(
+                col(User.health_consent_at).is_(None),
+                col(User.health_consent_version).is_distinct_from(HEALTH_CONSENT_VERSION),
+            ),
+        )
+        .limit(1)
+    )
+    return lacking.first() is not None
+
+
 def _without_contributors(request_json: str, gone: set[int]) -> str:
     """The stored request with these people out of ``health_contributors``. A
     contributor with no row reads as lost, so a plan that should keep working

@@ -1,5 +1,5 @@
-"""Shared households: who is in one, the invites that let someone join, and
-leaving (docs/household-design.md, "Join and leave").
+"""Shared households: who is in one, the invites that let someone join, joining
+and leaving (docs/household-design.md, "Join and leave").
 
 An invite is minted by any member of a household below the cap. It is bound to
 one address, and only ever shown once: the code goes to the person who minted it,
@@ -9,16 +9,27 @@ on themselves, and it is pasted into Settings on the other side.
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import ColumnElement, func
+from sqlalchemy import ColumnElement, func, literal, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, select
 
 from app.core.email_normalize import normalize_email
 from app.core.errors import LocalizedHTTPException
-from app.core.security import create_refresh_token
-from app.models.db_models import Household, HouseholdInvite, MealPlan, User
-from app.services.health_consent import remove_leaver_health
-from app.services.kitchen import HouseholdId, Kitchen, household_members
+from app.core.security import create_refresh_token, hash_refresh_token
+from app.models.db_models import (
+    Household,
+    HouseholdInvite,
+    MealPlan,
+    PantryStaple,
+    StockItem,
+    User,
+)
+from app.services import stripe_service
+from app.services.fridge_service import _count_write, lock_kitchen_and
+from app.services.health_consent import anyone_lacks_consent, remove_leaver_health
+from app.services.kitchen import HouseholdId, Kitchen, household_members, invited_household
+from app.services.plan_service import clear_unconfirmed_plans
 
 #: A household's cap (design decision 3). Also the most eaters a plan can name.
 MAX_MEMBERS: Final = 6
@@ -98,8 +109,8 @@ async def revoke_invite(session: AsyncSession, kitchen: Kitchen, invite_id: int)
         raise LocalizedHTTPException(404, "household_invite_not_found")
 
 
-async def lock_member_rows(session: AsyncSession, household_id: HouseholdId) -> list[User]:
-    """Lock this household's user rows, by id. After the kitchen lock, before
+async def lock_member_rows(session: AsyncSession, *household_ids: HouseholdId) -> list[User]:
+    """Lock these households' user rows, by id. After the kitchen lock, before
     anything else.
 
     Account deletes take no kitchen lock and lock the user row first, then its
@@ -115,12 +126,104 @@ async def lock_member_rows(session: AsyncSession, household_id: HouseholdId) -> 
         (
             await session.execute(
                 select(User)
-                .where(col(User.household_id) == household_id)
+                .where(col(User.household_id).in_(household_ids))
                 .order_by(col(User.id))
                 .with_for_update(key_share=True)
             )
         ).scalars()
     )
+
+
+async def join_household(session: AsyncSession, user: User, code: str) -> HouseholdId:
+    """Redeem an invite and bring this person's kitchen into its household. Staged;
+    the caller has checked they may share at all, and commits. A refusal raises
+    with nothing committed, so the invite stays usable. Returns the household.
+
+    The order is the point (docs/household-design.md, "Join and leave"): nothing
+    but the code's own validity is said to anyone who has not proved the code and
+    the address, and everything after that is decided under both locks. No trigger
+    helps: they fire on inserting and deleting a user, never on an update."""
+    kitchen = Kitchen.of(user)
+    token_hash = hash_refresh_token(code)
+    target = await invited_household(session, token_hash)
+    # Their own household: the old one would be deleted from under them.
+    if target is None or target == kitchen.household_id:
+        raise LocalizedHTTPException(404, "household_invite_not_found")
+
+    await lock_kitchen_and(session, kitchen, target)
+    rows = await lock_member_rows(session, kitchen.household_id, target)
+    # Only now: someone they invited could have joined them during the wait, and
+    # moving that person's kitchen would then end in a foreign-key failure.
+    if sum(member.household_id == kitchen.household_id for member in rows) != 1:
+        raise LocalizedHTTPException(409, "household_join_not_alone")
+
+    redeemed = (
+        await session.execute(
+            delete(HouseholdInvite)
+            .where(
+                col(HouseholdInvite.token_hash) == token_hash,
+                col(HouseholdInvite.invited_normalized_email) == user.normalized_email,
+                _live(),
+            )
+            .returning(col(HouseholdInvite.id))
+        )
+    ).first()
+    if redeemed is None:
+        raise LocalizedHTTPException(404, "household_invite_not_found")
+
+    members = [member for member in rows if member.household_id == target]
+    if len(members) >= MAX_MEMBERS:
+        raise LocalizedHTTPException(409, "household_full", maximum=str(MAX_MEMBERS))
+    # An invite minted while its only member was being deactivated outlives the
+    # delete of their invites, so being active is checked here too.
+    if not all(member.is_active and stripe_service.is_entitled(member) for member in members):
+        raise LocalizedHTTPException(409, "household_join_no_access")
+    if await anyone_lacks_consent(session, (kitchen.household_id, target)):
+        raise LocalizedHTTPException(409, "household_join_consent")
+
+    await _bring_kitchen(session, user, kitchen, target)
+    return target
+
+
+async def _bring_kitchen(
+    session: AsyncSession, user: User, kitchen: Kitchen, target: HouseholdId
+) -> None:
+    """Everything kept moves before the old household goes, because deleting it
+    cascades to whatever is left. The user row moves before that too, since it
+    refuses the delete while it points there. Meals follow their plan (ON UPDATE
+    CASCADE) and health rows hang off the plan id. A fridge item both sides hold
+    becomes two batches of it, which the fridge already supports."""
+    await clear_unconfirmed_plans(session, kitchen)
+    await session.execute(
+        update(MealPlan)
+        .where(col(MealPlan.household_id) == kitchen.household_id)
+        .values(household_id=target)
+    )
+    await session.execute(
+        update(StockItem)
+        .where(col(StockItem.household_id) == kitchen.household_id)
+        .values(household_id=target)
+    )
+    # A staple both sides hold stays once: UPDATE has no conflict clause. The old
+    # household's rows go with it.
+    await session.execute(
+        pg_insert(PantryStaple)
+        .from_select(
+            ["household_id", "name"],
+            select(literal(target), col(PantryStaple.name)).where(
+                col(PantryStaple.household_id) == kitchen.household_id
+            ),
+        )
+        .on_conflict_do_nothing(
+            index_elements=[col(PantryStaple.household_id), func.lower(col(PantryStaple.name))]
+        )
+    )
+    user.household_id = target
+    session.add(user)
+    await session.flush()
+    await _count_write(session, target, "fridge", None)
+    await _count_write(session, target, "staples", None)
+    await session.execute(delete(Household).where(col(Household.id) == kitchen.household_id))
 
 
 async def delete_minted_invites(session: AsyncSession, user_id: int) -> None:

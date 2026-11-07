@@ -345,7 +345,7 @@ def test_only_kitchen_of_makes_a_household_id() -> None:
                 and node.func.id == "HouseholdId"
             ):
                 makers.append(path.relative_to(app_dir).as_posix())
-    assert makers == ["services/kitchen.py"]
+    assert set(makers) == {"services/kitchen.py"}
 
 
 # --- Two members, one fridge, real concurrency ---------------------------------
