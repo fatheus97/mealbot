@@ -34,9 +34,10 @@ the daemon's build cache / images, so it has no reason to enter a container).
 | `mealbot-authsession-cleanup` | `app.scripts.authsession_cleanup` — delete long-expired `authsession` rows so the table doesn't grow unbounded | daily 03:30 | No |
 | `mealbot-passwordresettoken-cleanup` | `app.scripts.passwordresettoken_cleanup` — delete long-expired `passwordresettoken` rows so the table doesn't grow unbounded | daily 04:00 | No |
 | `mealbot-embedding-backfill` | `app.scripts.backfill_meal_embeddings` — embed cookbook favourites left without a vector, so RAG can use them (§9) | daily 05:00 | No (`ALERT_*` only for failure mail) |
+| `mealbot-householdinvite-cleanup` | `app.scripts.householdinvite_cleanup` — delete expired household invites, each of which holds a third party's address | daily 05:30 | No |
 | `mealbot-docker-cleanup` | `docker builder prune -af` + `docker image prune -af` — cap the ever-growing BuildKit build cache / unused images so the disk doesn't fill | **weekly** Sun 04:30 | No |
 
-The schedules are staggered (02:30, 03:00, 03:30, 04:00, Sun 04:30, 05:00, 08:00,
+The schedules are staggered (02:30, 03:00, 03:30, 04:00, Sun 04:30, 05:00, 05:30, 08:00,
 plus the hourly disk check) so they never contend for the small Hetzner box at once.
 The backup deliberately runs *before* both row sweeps: if either ever deletes
 something it shouldn't, the night's dump predates it.

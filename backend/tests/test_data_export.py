@@ -319,6 +319,7 @@ _TABLE_COVERAGE = {
     "passwordresettoken": "excluded",
     "emailverificationtoken": "excluded",
     "invitetoken": "excluded",
+    "householdinvite": "excluded",
     "machinegeneration": "excluded",
     "llmusage": "excluded",
     "machinecorrection": "excluded",

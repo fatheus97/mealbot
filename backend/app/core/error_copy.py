@@ -83,6 +83,12 @@ ErrorKey = Literal[
     "plan_health_data_removed",
     # ── Households (app/services/fridge_service.py lock_kitchen) ────────────
     "household_changed",
+    # ── Household invites (app/api/household.py, app/services/household.py) ──
+    "household_demo",
+    "household_full",  # $maximum
+    "household_invite_member",
+    "household_too_many_invites",  # $maximum
+    "household_invite_not_found",
     # ── Shared households: eaters (app/services/health_consent.py) ──────────
     "household_member_consent_required",  # $email
     "household_avoid_too_long",  # $count_given, $maximum
@@ -225,6 +231,14 @@ _EN: Final[dict[str, str]] = {
         "instead."
     ),
     "household_changed": "Your household changed while this was saving. Reload the page and try again.",
+    "household_demo": "Demo accounts can't share a household. Create an account to invite someone.",
+    "household_full": "This household already has the most members it can have ($maximum).",
+    "household_invite_member": "This person is already in your household.",
+    "household_too_many_invites": (
+        "Your household already has the most open invites it can have ($maximum). "
+        "Cancel one before creating another."
+    ),
+    "household_invite_not_found": "This invite no longer exists.",
     "household_member_consent_required": (
         "$email has not consented to the use of their diets, allergies and "
         "ingredients to avoid. They can give it in Settings, or you can plan "
@@ -444,6 +458,14 @@ _CS: Final[dict[str, str]] = {
         "přihlédnout. Vytvořte místo toho nový jídelníček."
     ),
     "household_changed": "Vaše domácnost se mezitím změnila. Obnovte stránku a zkuste to znovu.",
+    "household_demo": "Ukázkové účty nemohou sdílet domácnost. Pokud chcete někoho pozvat, vytvořte si účet.",
+    "household_full": "Tato domácnost už má největší možný počet členů ($maximum).",
+    "household_invite_member": "Tato osoba už je ve vaší domácnosti.",
+    "household_too_many_invites": (
+        "Vaše domácnost už má největší možný počet otevřených pozvánek ($maximum). "
+        "Než vytvoříte další, některou zrušte."
+    ),
+    "household_invite_not_found": "Tato pozvánka už neexistuje.",
     "household_member_consent_required": (
         "Účet $email nemá udělený souhlas s použitím typů stravy, alergií a "
         "surovin, kterým se vyhýbá. Souhlas lze udělit v Nastavení, nebo "

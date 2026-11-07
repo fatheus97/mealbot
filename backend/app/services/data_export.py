@@ -69,6 +69,8 @@ _EXCLUDED = [
     "card cannot start a second trial. It cannot be turned back into the card.",
     "Other household members' diets, allergies and ingredients to avoid on "
     "plans you share: they are theirs to export.",
+    "Open household invites: the address invited and a hash of the code. Every "
+    "member can see them in Settings, and they are deleted once they expire.",
 ]
 
 

@@ -43,7 +43,7 @@ New:
   plan's `health_data_removed` first: a removed plan has no usable health data whatever its rows
   say (and its rows are deleted, see Migrations 6). Only on a plan that is not removed does a
   missing row mean a deleted member.
-- `householdinvite(id, household_id FK CASCADE, invited_normalized_email, token_hash UNIQUE, created_by_user_id FK user CASCADE, expires_at)`.
+- `householdinvite(id, household_id FK CASCADE, invited_normalized_email, token_hash UNIQUE, created_by_user_id FK user CASCADE, expires_at TIMESTAMPTZ)`.
   Redeem is `DELETE ... WHERE token_hash = :h AND invited_normalized_email = :email AND expires_at > now() RETURNING household_id`,
   so it is single-use by construction and a wrong account burns nothing. Revoke is a delete. No
   status columns.
@@ -256,41 +256,82 @@ can still overwrite the partner's edit.
 
 ### Join and leave
 
+A review of this section against the code, running the races on a real Postgres, changed it in
+several places before any of it was written (check-in Q15, Q16). The reasons are kept below because
+each one is a trap for whoever changes it next.
+
 - **Invites:** any member of a household below the cap mints one: email-bound, single-use, 48 hours,
-  at most 3 live. The code is a `create_refresh_token()` plaintext (`secrets.token_urlsafe(32)`, 256
+  at most 3 open. The code is a `create_refresh_token()` plaintext (`secrets.token_urlsafe(32)`, 256
   bits), stored only as its hash, because it unlocks a kitchen holding other people's allergy data:
-  never a short human-friendly code. The redeem endpoint is rate-limited per user, like the consent
-  endpoints. Both the minter and the redeemer must be verified, non-demo accounts. Redeeming
-  never creates an account; a partner without one gets an admin invite first while registration is
-  closed.
+  never a short human-friendly code. Mint and redeem are rate-limited per user, like the consent
+  endpoints. Both the minter and the redeemer must be verified, non-demo, entitled accounts. Asking
+  again for the same address replaces its invite, since whoever asks has probably lost the code. An
+  address already in the household is refused. `GET /household` shows every member the members and
+  the open invites, never the code or its hash, and any member can revoke one: there are no roles.
+  Expired rows are deleted daily (`mealbot-householdinvite-cleanup`), with no retention window,
+  because each holds a third party's address. Redeeming never creates an account; a partner without
+  one gets an admin invite first while registration is closed.
 - **Billing rule for phase 1 (decided: each member on their own):** joining requires the joiner and
   every member to be entitled independently (subscribed, comped or grandfathered). No billing code
   changes. AI spend caps stay per person.
-- **Join** is allowed only from a household of one. Redeem runs in this order: look up the
-  invite's `household_id` by `token_hash` (a plain SELECT; a miss is 404); take both households'
-  kitchen locks in ascending id; run the email-bound `DELETE ... RETURNING`; check the cap. The
-  DELETE and the cap check both come after the lock, so two redeems at 5 of 6 cannot both pass. Zero
-  rows returned after the lock is the same 404 as an email mismatch or an unknown code, so the
-  endpoint cannot be used to learn which emails hold invites. All of it is one transaction, so a
-  cap failure (409) rolls back the DELETE too and the invite stays usable. The cap's 409 is distinct
-  from the 404 of every other miss on purpose: by then the caller has proved a valid code and the
-  matching email, so it reveals nothing new.
-- **Bringing the kitchen (decided):** plans and fridge rows move by `UPDATE ... SET household_id` (entries and `planhealth` follow
-  through the FKs; fridge rows move as batches, so an item both partners hold becomes two batches of
-  it, which the fridge already supports), staples merge with `ON CONFLICT DO NOTHING`, the joiner's drafts are deleted, the
-  versions bump, the old household is deleted.
-- **Leave:** under the lock, the leaver moves to a new household of one with nothing but their
-  profile and export **(default)**. Their drafts and every `planhealth` row they entered or that
-  describes them are deleted (plans flagged), and the invites they minted are revoked.
-- Admin deactivation moves the member to a household of one, so a deactivated account cannot hold a
-  cap slot.
+- **Join** is allowed only from a household of one. Redeem runs in this order, and the order is the
+  point:
+  1. The caller is verified, non-demo and entitled.
+  2. Look up the invite's `household_id` by `token_hash` (a plain SELECT; a miss is 404). The caller's
+     own household is also a 404 (a self-minted code would otherwise delete the household it stands
+     in, and fail on its foreign key).
+  3. Take both households' advisory locks in ascending id, then re-read the caller's household (409
+     `household_changed`). `lock_kitchen` cannot do this: it re-reads membership, so it always 409s on
+     a household the caller is not in yet, and its record holds one id.
+  4. Lock both households' user rows, `ORDER BY id FOR NO KEY UPDATE`. Account deletes take no kitchen
+     lock and lock the user row first, so taking plan rows before user rows deadlocks with one (run,
+     and it does). This also keeps the target's last member from disappearing mid-join.
+  5. The caller must be alone in their household, checked only now: an invitee of theirs could have
+     joined during the wait, and moving that person's kitchen would then end in a foreign-key failure.
+  6. The email-bound `DELETE ... RETURNING`. Zero rows is the same 404 as an unknown code, so the
+     endpoint cannot be used to learn which emails hold invites.
+  7. The cap, then every member's entitlement, then consent (check-in Q16): everyone holding carrying
+     `planhealth` rows on either household's plans must have current consent, because the join shows
+     them to the other side. These answer 409 and name nobody. By now the caller has proved a valid
+     code and the matching email, so they reveal nothing new. All of it is one transaction, so a
+     refusal rolls back the DELETE too and the invite stays usable.
+- **Bringing the kitchen (decided):** the joiner's drafts are deleted first. Plans and fridge rows move
+  by `UPDATE ... SET household_id` (entries follow through `ON UPDATE CASCADE`, `planhealth` hangs off
+  the plan id; fridge rows move as batches, so an item both partners hold becomes two batches of it,
+  which the fridge already supports). Staples merge with `INSERT ... SELECT ... ON CONFLICT DO NOTHING`,
+  since `UPDATE` has no conflict clause. Then the user row moves, both versions bump, and the old
+  household is deleted, which takes its leftover staples and invites with it. No trigger helps: they
+  fire on insert and delete of a user, never on an update of `household_id`.
+- **Leave:** take the household's advisory lock, then lock its user rows as above. Fewer than two
+  members is a 409 that changes nothing, whether by a stale screen or by a partner's delete committing
+  during the wait: no trigger would remove the household the leaver left behind. The leaver moves to a
+  new household of one with nothing but their profile and export **(default)**. Their drafts and the
+  invites they minted are deleted. Their `planhealth` rows go:
+  - a row about them (`subject_user_id` is the leaver) is deleted, and they come out of the plan's
+    `health_contributors`, so the plan keeps working for whoever stays (check-in Q15). Flagging it as
+    withdrawal does would delete every row, so one person leaving would stop the other regenerating
+    or repeating most shared plans and silence edit warnings about their own allergens;
+  - a carrying row they entered about anyone else, a one-off for a child above all, may describe
+    someone still eating there. Its plan is flagged `health_data_removed`, as a withdrawal does: fail
+    closed, and all its rows go, because removed wins in every reader;
+  - a row carrying nothing just goes.
+- **Leave is not behind the flag,** and neither is the deactivation move: turning the flag off must not
+  trap anyone in a shared household, the same rule as deleting a saved profile.
+- **Admin deactivation** runs the same routine, staged and uncommitted, so a deactivated account cannot
+  hold a cap slot. Its lock comes before `stop_billing`, so a 409 or a 503 changes nothing; after it, a
+  409 would leave billing stopped on an active account. The cost is one Stripe call under the household
+  lock, bounded at 20 s. A deactivated sole member's invites are deleted too: otherwise someone could
+  join a locked-out person's household.
+- **Not touched by leaving:** the leaver's id stays in `created_by_user_id` on plans left behind. It is
+  how the funnel counts them, and clearing it would make `merged_request_json` read them as unowned.
 - No removal of another member and no roles in v1. After a join or leave the client reloads the
   page, which drops every cache, so query keys can stay user-keyed.
 
 ### GDPR
 
-- **Export:** personal data unchanged, plus the dietary profile and `WasteRecord`. Fridge, staples,
-  plans and meals are labelled as shared. `planhealth` only where the requester entered it or is its
+- **Export:** personal data unchanged, plus the dietary profile and `WasteRecord`. Plans and meals are
+  those of the household you are in now, so a leaver stops exporting the kitchen they left and its
+  later edits. Fridge, staples, plans and meals are labelled as shared. `planhealth` only where the requester entered it or is its
   subject (Art. 15(4)). `_EXCLUDED` names "other members' health entries" and "households you left".
 - **Delete dialog:** a household of one keeps today's text. A shared household gets a branch: the
   shared kitchen stays with the other members, your health data is removed. en and cs.
@@ -318,7 +359,10 @@ adversarial review.
 | 3b-2c-3 | The edit screen on a plan whose health data is gone (withdrawn, or lost with a contributor's account): in a shared household, or by someone now alone in theirs when the plan's stored `health_contributors` name anyone else, `MealEditResponse.health_data_removed` is true and the planner shows "This edit was not checked for allergies" instead of silence (check-in Q12). `request_to_store` keeps naming the contributors when it saves a plan marked, so a partner who left during generation still counts. The notice resets with Generate and Regenerate. A household of one after its own withdrawal, and the flag off, are unchanged. | a plan with its data warns as before and is not flagged; after a withdrawal and after a contributor's account went, the edit is flagged, also in a two-person household left alone (deleted account, partner left during generation); a household of one and a shared household with the flag off stay silent; the planner shows the notice only when the server flags it (and the component test). |
 | 4a | Versions, the API: `household_06` (`fridge_version`, `staples_version`, int NOT NULL DEFAULT 0), counted in `replace_fridge_items` / `replace_staples` (every writer: PUT, merge, plan confirm/unconfirm/finish/delete/reopen, Cook Now) by one conditional UPDATE right after the lock guard and before any write; `X-Fridge-Version` / `X-Staples-Version` on GET (version read before the list), PUT and merge; a PUT's token compared by equality, a stale, foreign or unparsable one is 409 `fridge_changed` / `staples_changed` (en + cs); no token accepted (old bundles). The response token is the write's own count, never a post-commit read. | stale, partner-made, foreign and unparsable tokens 409 and write nothing; two edits each with the token before succeed; no token accepted and counted; merge never refused; confirm and Cook Now count; fridge and staples count apart; staples join the lock-first guard; dry run on test-db (a held fridge write makes the upgrade give up in 6 s with nothing changed, existing/old-style/trigger households get 0/0, household columns equal to create_all, downgrade and up again). |
 | 4b | Versions, the client: token kept in the query data beside the list; every PUT names the token of the list it was made from, queued behind the previous one (mutation scope, across components), following only its own caller's previous accepted PUT; a GET in flight when a PUT lands is dropped; a 409 reloads without holding the queue on the GET, and the caller shows the server's sentence, in a floating alert that stays until dismissed or the next edit (the planner's expired-items alert has its own, its dialog is gone); waste answers are recorded only once the save is accepted; no edits until a list has loaded, since a save with no token replaces the whole list; a failed background refresh shows no error over a good list; shared queries refetch on focus (staleTime 30 s). Rows are renumbered by every write, so no client identity can lean on a server id: Fridge does not re-seed under an edit or remove dialog or a pending save, and a dialog's save goes out with the old token and is refused if the list moved under it; the planner's expired-items dialog keeps its list and token together for the same reason. PantryStaples keeps unsaved chips through a reload, saves with the version they were made from, and freezes chips during a save. CORS allows and exposes both headers (for a `VITE_API_BASE` bundle). | against a double with the real server's behaviour (equality token check, every write renumbers rows): token cached beside the list; two quick saves, the second with the first's token; a save from another component refused, not overwriting; a 409 reloads and later saves pass; a failed save leaves list and token a matching pair; an in-flight GET cannot roll a save back; focus refetch once stale; no token, no header. Fridge: a reload applies with no dialog open, an edit and a remove dialog keep their row and are refused, cancel shows the reload, an add dialog holds nothing, one phone saves through a dialog left open while its earlier save returns, a queued edit and a just-saved edit stay on screen. Staples: chips survive a reload then refused, a token-only reload is picked up, chips frozen during a save. Planner sentence and token, a reload renumbering rows under its dialog refused, no waste row on a refusal. Add off until loaded, on both shelves. CORS preflight and expose. Negative controls for every guard; Vitest in its own `docker run`. |
-| 5 | Join, leave, invites API behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; a redeem rejected at the cap leaves the invite in place; demo minter and redeemer 403; email mismatch 404; the cap; non-entitled member refused; "bring" moves everything; leave revokes the leaver's invites and flags plans. |
+| 5a | `POST /recipe/favorite` takes the kitchen lock and embeds after the commit (#562). It was the one writer of a plan without the lock, and a join deletes the household it inserts into. | it joins the lock-first guard; another write gets through during the embed; a failed embed still saves. |
+| 5b | Invites behind the flag: `household_07` (`householdinvite`), `GET /household`, mint, list, revoke, the daily sweep and its timer. | flag off: every route 404, even for an account that could not use it; the code is shown once, only its hash stored, never logged; demo, unverified and non-entitled minters refused; cap, three open, an expired invite takes no slot; an address already in the household refused; asking again replaces; any member sees and revokes, a stranger gets 404; the sweep takes only what expired; both foreign keys cascade; lock-first guard; dry run on test-db (migrated table equals `create_all`, TIMESTAMPTZ, down and up again). |
+| 5c | Leave, the deactivation move, the export. Not behind the flag. | to be listed with the PR. |
+| 5d | Join behind the flag. | concurrent redeem: exactly one wins; two redeems at the cap: one wins; a redeem rejected at the cap leaves the invite in place (real connections: the shared-session harness cannot show it); demo and unverified redeemer refused; email mismatch 404; a self-minted code 404; not alone 409; non-entitled member refused, named nowhere; lapsed consent refused, named nowhere; "bring" moves everything, both versions bump, the old household is gone; a delete of either side during a redeem neither deadlocks nor orphans. |
 | 6 | UI: Settings "Household" section, profile editor, eater picker with the merged summary, delete-dialog branch, reload after join/leave, InfoHints. en + cs, sentence-level keys. | Vitest, `tsc -b`, key-usage and parity tests, two-theme browser check. |
 | 7 | Legal: privacy en + cs, material change, owner's Czech read, the health consent version bump (decision 12). Gate before the flag flips: decision 11 (global RAG examples) is settled and, if it changes code, shipped. Then the owner flips the flag. | legal-version CI job. |
 
