@@ -298,6 +298,12 @@ _LOCKING_HANDLERS: list[tuple[str, str, str, object]] = [
     ("fridge", "put", "/api/fridge", []),
     ("fridge", "post", "/api/fridge/merge", []),
     ("recipe", "post", "/api/recipe/cook", _COOK),
+    (
+        "recipe",
+        "post",
+        "/api/recipe/favorite",
+        {"meal_type": _RECIPE["meal_type"], "people_count": 1, "recipe": _RECIPE},
+    ),
     ("pantry", "put", "/api/staples", []),
 ]
 
@@ -488,6 +494,46 @@ class TestFavoriteEmbedsOutsideTheLock:
         assert stored is not None
         assert stored.is_favorite is False
         assert stored.embedding is None
+
+
+class TestCookbookSaveEmbedsOutsideTheLock:
+    """Saving a Cook Now recipe to the cookbook follows the same rule as starring
+    a meal: a join would otherwise sit behind the embed holding two households'
+    locks."""
+
+    _SAVE = {"meal_type": _RECIPE["meal_type"], "people_count": 1, "recipe": _RECIPE}
+
+    async def test_another_write_during_the_embed_is_not_blocked(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        written: list[int] = []
+
+        async def slow_embed(entry: MealEntry) -> None:
+            # An exception here is swallowed by the handler (a failed embed is
+            # not fatal), so the outcome is recorded and asserted outside.
+            write = await asyncio.wait_for(c.put("/api/fridge", json=[]), timeout=5)
+            written.append(write.status_code)
+            entry.embedding = [0.1] * 384
+
+        with patch("app.api.recipe.embed_meal_entry", side_effect=slow_embed):
+            r = await c.post("/api/recipe/favorite", json=self._SAVE)
+
+        assert r.status_code == 200, r.text
+        assert written == [200]  # not blocked behind the save's embed
+        stored = await _stored_vector(test_engine, r.json()["id"])
+        assert stored is not None and len(stored) == 384
+
+    async def test_a_failed_embed_still_saves(
+        self, kitchen: tuple[AsyncClient, Rendezvous], test_engine: AsyncEngine
+    ) -> None:
+        c, _ = kitchen
+        with patch("app.api.recipe.embed_meal_entry", side_effect=RuntimeError("no model")):
+            r = await c.post("/api/recipe/favorite", json=self._SAVE)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["is_favorite"] is True
+        assert await _stored_vector(test_engine, r.json()["id"]) is None
 
 
 def _edit(name: str) -> dict[str, object]:
