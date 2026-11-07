@@ -13,6 +13,7 @@ import logging
 from datetime import UTC, datetime
 
 from pydantic import JsonValue
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -23,6 +24,7 @@ from app.models.db_models import (
     MealEntry,
     MealPlan,
     PantryStaple,
+    PlanHealth,
     SaleRecord,
     SaleRefund,
     StockItem,
@@ -66,11 +68,13 @@ _EXCLUDED = [
     "A one-way fingerprint of the card used for a free trial, kept so the same "
     "card cannot start a second trial. It cannot be turned back into the card.",
     "Other household members' diets, allergies and ingredients to avoid on "
-    "plans you share: they are theirs to export.",
+    "plans you share, what they typed into those plans, and the plans they made "
+    "that hold nothing of yours: they are theirs to export.",
     "Open household invites: the address invited and a hash of the code. Every "
     "member can see them in Settings, and they are deleted once they expire.",
     "The plans, meals, fridge and staples of a household you have left: they stay "
-    "with its members, and your diets and allergies were removed from them.",
+    "with its members, and your diets and allergies were removed from them. Ask us "
+    "if you want what you typed into those plans.",
 ]
 
 
@@ -107,15 +111,25 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
         raise ValueError("user is not persisted")
     kitchen = Kitchen.of(user)
 
-    # The plans of the household this person is in now, and their meals: what
-    # they can see, and not a kitchen they have left, or its later edits. A
-    # plan's request shows its health data as the planhealth rows this person
-    # entered or is the subject of (Art. 15(4)), never a removed plan's. The
-    # fridge and staples are the household's, the same for every member.
+    # The plans of the household this person is in now that they made or hold
+    # health data on, and their meals; not a kitchen they have left, or its later
+    # edits. A plan's request shows its health data as the planhealth rows this
+    # person entered or is the subject of (Art. 15(4)), and on a plan someone else
+    # made nothing else of it (merged_request_json). The fridge and staples are
+    # the household's, the same for every member.
+    theirs = select(col(PlanHealth.meal_plan_id)).where(
+        or_(
+            col(PlanHealth.entered_by_user_id) == user_id,
+            col(PlanHealth.subject_user_id) == user_id,
+        )
+    )
     plans = (
         await session.execute(
             select(MealPlan)
-            .where(col(MealPlan.household_id) == kitchen.household_id)
+            .where(
+                col(MealPlan.household_id) == kitchen.household_id,
+                or_(col(MealPlan.created_by_user_id) == user_id, col(MealPlan.id).in_(theirs)),
+            )
             .order_by(col(MealPlan.created_at))
         )
     ).scalars().all()
@@ -199,7 +213,12 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
                 request=_loads(
                     merged_request_json(p, health.get(p.id or 0, []), shown_to=user_id)
                 ),
-                response=_loads(p.response_json),
+                # The app shows nobody another member's draft.
+                response=(
+                    _loads(p.response_json)
+                    if p.confirmed_at is not None or p.created_by_user_id == user_id
+                    else None
+                ),
             )
             for p in plans
         ],

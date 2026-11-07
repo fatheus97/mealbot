@@ -785,7 +785,8 @@ async def clear_unconfirmed_plans(session: AsyncSession, kitchen: Kitchen) -> No
 
     Drafts are per member: generating a plan never deletes the partner's draft
     in the same household. Drafts whose creator was deleted (created_by_user_id
-    NULL) belong to nobody and go too, so they cannot pile up.
+    NULL) or has left (a plan left behind that a member then reopened) belong to
+    nobody here and go too, so they cannot pile up.
 
     Used before creating a new plan so we don't accumulate orphans. Entries go
     with their plan through the composite FK's ON DELETE CASCADE. Staged in the
@@ -798,6 +799,9 @@ async def clear_unconfirmed_plans(session: AsyncSession, kitchen: Kitchen) -> No
             or_(
                 col(MealPlan.created_by_user_id) == kitchen.user_id,
                 col(MealPlan.created_by_user_id).is_(None),
+                col(MealPlan.created_by_user_id).not_in(
+                    select(col(User.id)).where(col(User.household_id) == kitchen.household_id)
+                ),
             ),
         )
     )

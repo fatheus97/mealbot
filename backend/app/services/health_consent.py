@@ -496,12 +496,15 @@ def merged_request_json(
 
     * ``health_data_removed`` wins: the four fields come back empty, whatever
       rows are left. So does a contributor in ``health_contributors`` without
-      a row: lost is lost, and the other contributors' rows go unread.
+      a row: lost is lost, and the other contributors' rows go unread, though
+      the export still shows someone their own, since they are stored.
     * No rows at all: the blob as it is, so a blob carrying data is its
       creator's row (household_04 left none). A carrying blob with no creator
       to cover it reads as removed.
     * Otherwise the rows' lists, row after row. ``shown_to`` keeps only the
-      rows that person entered or is the subject of (the export, Art. 15(4)).
+      rows that person entered or is the subject of (the export, Art. 15(4)),
+      and on a plan someone else made, nothing else of its request: what they
+      typed is theirs to export.
 
     A blob that is not a JSON object comes back unchanged, so the caller's
     validation fails on it exactly as before."""
@@ -516,12 +519,13 @@ def merged_request_json(
     entered = {row.entered_by_user_id for row in rows}
     lost = isinstance(contributors, list) and any(c not in entered for c in contributors)
     unowned = not rows and plan.created_by_user_id is None and _blob_carries(data)
-    if _says_removed(data) or lost or unowned:
+    flagged = _says_removed(data)
+    if flagged or lost or unowned:
         data.update(
             diet_type=None, diet_types=[], allergens=[], avoid_ingredients=[],
             health_data_removed=True,
         )
-    elif rows:
+    if rows and not flagged and (not lost or shown_to is not None):
         shown = [
             HealthEntry.of(row) for row in rows
             if shown_to is None or shown_to in (row.entered_by_user_id, row.subject_user_id)
@@ -534,6 +538,8 @@ def merged_request_json(
         # this dict without validating it.
         if any(lists.values()) or any(key in data for key in HEALTH_FIELDS):
             data.update(lists, diet_type=diets[0] if diets else None)
+    if shown_to is not None and plan.created_by_user_id != shown_to:
+        data = {key: data[key] for key in (*HEALTH_FIELDS, "health_data_removed") if key in data}
     return json.dumps(data)
 
 

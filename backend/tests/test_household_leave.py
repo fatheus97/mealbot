@@ -16,7 +16,8 @@ Pinned here:
 """
 import asyncio
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -28,12 +29,14 @@ from sqlmodel import col, delete, select
 
 from app.api import admin as admin_api
 from app.api.deps import get_current_user
+from app.api.plan import _edit_unchecked
 from app.core.email_normalize import normalize_email
 from app.core.errors import LocalizedHTTPException
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.security import get_password_hash
 from app.db import get_session
 from app.models.db_models import (
+    AdminAuditLog,
     DietaryProfile,
     Household,
     HouseholdInvite,
@@ -45,9 +48,14 @@ from app.models.db_models import (
 )
 from app.services import stripe_service
 from app.services.fridge_service import lock_kitchen
-from app.services.health_consent import CONTRIBUTORS, merged_request_json
+from app.services.health_consent import (
+    CONTRIBUTORS,
+    merged_request_json,
+    stored_request_json,
+)
 from app.services.household import lock_member_rows, move_to_own_household
-from app.services.kitchen import Kitchen
+from app.services.kitchen import HouseholdId, Kitchen
+from app.services.plan_service import clear_unconfirmed_plans
 from app.services.stripe_service import BillingStopFailed
 from tests.conftest import TEST_PASSWORD
 from tests.test_household_eaters import _member
@@ -198,6 +206,20 @@ class TestLeave:
         left = (await db_session.execute(select(col(MealPlan.id)))).scalars().all()
         assert set(left) == stays
         assert mine.id not in stays
+
+    async def test_a_plan_left_behind_and_reopened_goes_with_the_next_to_generate(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(db_session, test_user.household_id, "partner")
+        plan = await _add_plan(db_session, _plan(test_user))
+        plan_id = plan.id
+        assert (await client.post(URL)).status_code == 204
+
+        _act_as(partner)
+        assert (await client.post(f"/api/plan/{plan_id}/unconfirm")).status_code == 200
+        await clear_unconfirmed_plans(db_session, Kitchen.of(partner))
+
+        assert (await db_session.execute(select(MealPlan))).scalars().all() == []
 
     async def test_only_their_invites_go(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
@@ -387,6 +409,23 @@ class TestHealthDataOnThePlansLeftBehind:
         assert data["allergens"] == []
         assert data["health_data_removed"] is True
 
+    async def test_with_the_flag_off_an_edit_still_says_it_was_not_checked(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Their one-off took the partner's allergy with it. Silence would read as
+        checked and found nothing."""
+        partner = await _member(db_session, test_user.household_id, "partner")
+        assert test_user.id is not None and partner.id is not None
+        plan = await _add_plan(db_session, _plan(test_user, contributors=[test_user.id, partner.id]))
+        db_session.add(_row(plan, test_user, None, MILK))
+        db_session.add(_row(plan, partner, partner, EGGS))
+        await db_session.flush()
+
+        await self._leave(client)
+
+        stored = await stored_request_json(db_session, plan)
+        assert await _edit_unchecked(db_session, Kitchen.of(partner), plan, stored) is True
+
     async def test_a_partners_plan_they_had_no_part_in_is_untouched(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
@@ -460,17 +499,74 @@ class TestDeactivation:
     async def test_what_else_the_request_changed_survives_the_lock(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
-        """A change staged before the lock must not be lost to it."""
+        """The move flushes more than once, with this change already staged."""
         await _make_admin(db_session, test_user)
         member = await _member(db_session, None, "member")
+        await _member(db_session, member.household_id, "partner")
+        before = member.household_id
 
         resp = await client.patch(
             f"/api/admin/users/{member.id}", json={"is_active": False, "is_comped": True}
         )
 
         assert resp.status_code == 200, resp.text
+        await db_session.refresh(member)
         assert member.is_comped is True
         assert member.is_active is False
+        assert member.household_id != before
+
+    async def test_the_user_rows_wait_until_billing_has_stopped(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Held across Stripe they would queue a partner's webhook, and taken before
+        the admin scan they would deadlock two admins deactivating each other."""
+        await _make_admin(db_session, test_user)
+        member = await _member(db_session, None, "member")
+        order: list[str] = []
+
+        async def rows(session: AsyncSession, household_id: HouseholdId) -> list[User]:
+            order.append("rows")
+            return await lock_member_rows(session, household_id)
+
+        async def billing(*_: object, **__: object) -> str:
+            order.append("billing")
+            return "none"
+
+        monkeypatch.setattr(admin_api, "lock_member_rows", rows)
+        monkeypatch.setattr(stripe_service, "stop_billing", billing)
+
+        resp = await client.patch(f"/api/admin/users/{member.id}", json={"is_active": False})
+
+        assert resp.status_code == 200, resp.text
+        assert order == ["billing", "rows"]
+
+    async def test_the_audit_row_names_the_move(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        await _make_admin(db_session, test_user)
+        member = await _member(db_session, None, "member")
+        partner = await _member(db_session, member.household_id, "partner")
+        assert member.id is not None
+        old = member.household_id
+        plan = await _add_plan(db_session, _plan(partner, contributors=[member.id]))
+        db_session.add(_row(plan, member, None, MILK))
+        await db_session.flush()
+
+        resp = await client.patch(f"/api/admin/users/{member.id}", json={"is_active": False})
+
+        assert resp.status_code == 200, resp.text
+        audit = (
+            await db_session.execute(
+                select(AdminAuditLog).where(col(AdminAuditLog.action) == "user.deactivate")
+            )
+        ).scalars().one()
+        assert audit.detail is not None
+        assert audit.detail["left_household"] == str(old)
+        assert audit.detail["plans_marked_removed"] == "1"
 
     async def test_the_lock_comes_before_billing_stops(
         self,
@@ -495,6 +591,7 @@ class TestDeactivation:
         resp = await client.patch(f"/api/admin/users/{member.id}", json={"is_active": False})
 
         assert resp.status_code == 409
+        assert "This user's household" in resp.json()["detail"]
         assert member.is_active is True
 
     async def test_reactivating_moves_nobody(
@@ -533,13 +630,22 @@ class TestExport:
         plans = body["plans"]
         assert isinstance(plans, list) and len(plans) == 1
 
-    async def test_shared_it_covers_the_household_but_only_your_own_rows(
+    async def test_on_a_partners_plan_only_your_own_rows_show_and_nothing_they_typed(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
         partner = await _member(db_session, test_user.household_id, "partner")
-        assert partner.id is not None
-        plan = await _add_plan(db_session, _plan(partner, contributors=[partner.id]))
+        assert partner.id is not None and test_user.id is not None
+        plan = _plan(partner, contributors=[partner.id, test_user.id])
+        plan.request_json = json.dumps(
+            {
+                "taste_preferences": ["diabetic, low sugar"],
+                "note": "pregnant",
+                CONTRIBUTORS: [partner.id, test_user.id],
+            }
+        )
+        await _add_plan(db_session, plan)
         db_session.add(_row(plan, partner, partner, EGGS))
+        db_session.add(_row(plan, test_user, test_user, MILK))
         await db_session.flush()
 
         body = await self._export(client)
@@ -547,7 +653,63 @@ class TestExport:
         assert "share a household" in str(body["shared_kitchen"])
         plans = body["plans"]
         assert isinstance(plans, list) and len(plans) == 1
-        assert plans[0]["request"].get("allergens", []) == []
+        request = plans[0]["request"]
+        assert request["allergens"] == ["milk"]
+        assert "taste_preferences" not in request and "note" not in request
+        assert plans[0]["response"] is not None
+
+    async def test_your_own_plan_keeps_what_you_typed(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        await _member(db_session, test_user.household_id, "partner")
+        plan = _plan(test_user)
+        plan.request_json = json.dumps({"taste_preferences": ["spicy"]})
+        await _add_plan(db_session, plan)
+
+        plans = (await self._export(client))["plans"]
+
+        assert isinstance(plans, list)
+        assert plans[0]["request"]["taste_preferences"] == ["spicy"]
+
+    async def test_a_partners_draft_shows_your_row_but_not_its_response(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(db_session, test_user.household_id, "partner")
+        plan = await _add_plan(db_session, _plan(partner, confirmed=False))
+        db_session.add(_row(plan, partner, test_user, MILK))
+        await db_session.flush()
+
+        plans = (await self._export(client))["plans"]
+
+        assert isinstance(plans, list) and len(plans) == 1
+        assert plans[0]["request"]["allergens"] == ["milk"]
+        assert plans[0]["response"] is None
+
+    async def test_a_partners_plan_holding_nothing_of_yours_is_not_in_it(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(db_session, test_user.household_id, "partner")
+        await _add_plan(db_session, _plan(partner))
+
+        assert (await self._export(client))["plans"] == []
+
+    async def test_on_a_lost_plan_your_rows_still_show_as_stored(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Art. 15: the row is still there, so "removed" alone would not be true."""
+        assert test_user.id is not None
+        deleted_member = 987654
+        plan = await _add_plan(
+            db_session, _plan(test_user, contributors=[deleted_member, test_user.id])
+        )
+        db_session.add(_row(plan, test_user, test_user, MILK))
+        await db_session.flush()
+
+        plans = (await self._export(client))["plans"]
+
+        assert isinstance(plans, list)
+        assert plans[0]["request"]["allergens"] == ["milk"]
+        assert plans[0]["request"]["health_data_removed"] is True
 
     async def test_a_leaver_stops_exporting_the_kitchen_they_left(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
@@ -601,6 +763,7 @@ async def real_members(test_engine: AsyncEngine) -> AsyncGenerator[tuple[int, in
         yield ids
     finally:
         async with AsyncSession(test_engine) as s:
+            await s.execute(delete(AdminAuditLog))
             await s.execute(delete(User).where(col(User.email).like("real-%@example.com")))
             await s.commit()
 
@@ -613,39 +776,99 @@ async def _orphans(s: AsyncSession) -> int:
     return int(count.scalar_one())
 
 
-async def _wait_until_blocked(observer: AsyncSession, pid: int, task: asyncio.Task[object]) -> None:
-    """Only once Postgres reports it waiting, so a test can never pass because the
-    two happened not to overlap."""
-    for _ in range(100):
-        blocked = (
-            await observer.execute(
-                text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": pid}
-            )
-        ).scalar_one()
-        if blocked:
-            break
-        await asyncio.sleep(0.05)
-    assert blocked, "the second transaction never waited for the first"
-    assert not task.done()
+async def _wait_until_blocked_by(
+    observer: AsyncSession, holder_pid: int, task: asyncio.Task[object]
+) -> None:
+    """Only once Postgres reports someone waiting on the holder, so a test can never
+    pass because the two happened not to overlap.
+
+    Each look is its own transaction: pg_stat_activity is a snapshot taken once per
+    transaction, so a waiter that connected after the first look would never show.
+    A failure here cancels the task, or closing its session would wait for a
+    statement that waits for the holder, and the test would hang instead of failing."""
+    try:
+        blocked = False
+        for _ in range(100):
+            blocked = (
+                await observer.execute(
+                    text(
+                        "SELECT count(*) > 0 FROM pg_stat_activity"
+                        " WHERE :holder = ANY(pg_blocking_pids(pid))"
+                    ),
+                    {"holder": holder_pid},
+                )
+            ).scalar_one()
+            await observer.rollback()
+            if blocked:
+                break
+            await asyncio.sleep(0.05)
+        assert blocked, "nothing ever waited for the first transaction"
+        assert not task.done()
+    except BaseException:
+        task.cancel()
+        raise
 
 
-async def _leave_in(session: AsyncSession, user_id: int) -> str:
-    """The leave route's body, in a session the test holds open."""
+async def _pid(session: AsyncSession) -> int:
+    pid = (await session.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+    assert isinstance(pid, int)
+    return pid
+
+
+async def _leave_in(session: AsyncSession, user_id: int) -> None:
+    """What the leave route does, in a transaction the test holds open. For the side
+    of a race that has to stay open; the side that waits goes through the route."""
     user = await session.get(User, user_id)
     assert user is not None
     kitchen = Kitchen.of(user)
     await lock_kitchen(session, kitchen)
-    if len(await lock_member_rows(session, kitchen.household_id)) < 2:
-        raise LocalizedHTTPException(409, "household_alone")
+    assert len(await lock_member_rows(session, kitchen.household_id)) == 2
     await move_to_own_household(session, user)
-    return "left"
+
+
+@asynccontextmanager
+async def _routes_as(test_engine: AsyncEngine, user_id: int) -> AsyncIterator[AsyncClient]:
+    """The real routes, as this user, each request on its own connection."""
+    from app.main import app
+
+    async def own_connection() -> AsyncGenerator[AsyncSession]:
+        async with AsyncSession(test_engine, expire_on_commit=False) as s:
+            yield s
+
+    async def current(session: AsyncSession = Depends(get_session)) -> User:
+        loaded = await session.get(User, user_id)
+        assert loaded is not None
+        return loaded
+
+    app.dependency_overrides[get_session] = own_connection
+    app.dependency_overrides[get_current_user] = current
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            yield c
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def _real_admin(test_engine: AsyncEngine) -> int:
+    async with AsyncSession(test_engine, expire_on_commit=False) as s:
+        admin = User(
+            email="real-admin@example.com",
+            normalized_email=normalize_email("real-admin@example.com"),
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            email_verified_at=datetime.now(UTC),
+            is_admin=True,
+        )
+        s.add(admin)
+        await s.commit()
+    assert admin.id is not None
+    return admin.id
 
 
 class TestRaces:
     async def test_the_member_lock_lets_what_only_references_a_user_through(
         self, test_engine: AsyncEngine, real_members: tuple[int, int, int]
     ) -> None:
-        """A login or a waste record must not wait out a Stripe call under this lock."""
+        """A login or a waste record must not wait on this lock."""
         first, _, _ = real_members
         async with AsyncSession(test_engine) as holding, AsyncSession(test_engine) as other:
             user = await holding.get(User, first)
@@ -669,12 +892,12 @@ class TestRaces:
             AsyncSession(test_engine) as deleting,
             AsyncSession(test_engine) as observer,
         ):
-            pid = (await deleting.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            holder = await _pid(leaving)
             await _leave_in(leaving, leaver)
             task = asyncio.create_task(
                 deleting.execute(delete(User).where(col(User.id) == partner))
             )
-            await _wait_until_blocked(observer, pid, task)
+            await _wait_until_blocked_by(observer, holder, task)
             await leaving.commit()
             await asyncio.wait_for(task, 10)
             await deleting.commit()
@@ -690,20 +913,18 @@ class TestRaces:
     ) -> None:
         leaver, partner, household = real_members
         async with (
-            AsyncSession(test_engine) as leaving,
             AsyncSession(test_engine) as deleting,
             AsyncSession(test_engine) as observer,
+            _routes_as(test_engine, leaver) as route,
         ):
-            pid = (await leaving.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            holder = await _pid(deleting)
             await deleting.execute(delete(User).where(col(User.id) == partner))
-            task = asyncio.create_task(_leave_in(leaving, leaver))
-            await _wait_until_blocked(observer, pid, task)
+            task = asyncio.create_task(route.post(URL))
+            await _wait_until_blocked_by(observer, holder, task)
             await deleting.commit()
-            with pytest.raises(LocalizedHTTPException) as refused:
-                await asyncio.wait_for(task, 10)
-            assert refused.value.key == "household_alone"
-            await leaving.rollback()
+            resp = await asyncio.wait_for(task, 10)
 
+        assert resp.status_code == 409, resp.text
         async with AsyncSession(test_engine) as s:
             stayed = await s.get(User, leaver)
             assert stayed is not None and stayed.household_id == household
@@ -716,22 +937,47 @@ class TestRaces:
         first, second, household = real_members
         async with (
             AsyncSession(test_engine) as one,
-            AsyncSession(test_engine) as two,
             AsyncSession(test_engine) as observer,
+            _routes_as(test_engine, second) as route,
         ):
-            pid = (await two.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            holder = await _pid(one)
             await _leave_in(one, first)
-            task = asyncio.create_task(_leave_in(two, second))
-            await _wait_until_blocked(observer, pid, task)
+            task = asyncio.create_task(route.post(URL))
+            await _wait_until_blocked_by(observer, holder, task)
             await one.commit()
-            with pytest.raises(LocalizedHTTPException) as refused:
-                await asyncio.wait_for(task, 10)
-            assert refused.value.key == "household_alone"
-            await two.rollback()
+            resp = await asyncio.wait_for(task, 10)
 
+        assert resp.status_code == 409, resp.text
         async with AsyncSession(test_engine) as s:
             stayed = await s.get(User, second)
             assert stayed is not None and stayed.household_id == household
+            assert await _orphans(s) == 0
+
+    async def test_a_partners_delete_during_a_deactivation_leaves_them_alone_in_it(
+        self, test_engine: AsyncEngine, real_members: tuple[int, int, int]
+    ) -> None:
+        member, partner, household = real_members
+        admin = await _real_admin(test_engine)
+        async with (
+            AsyncSession(test_engine) as deleting,
+            AsyncSession(test_engine) as observer,
+            _routes_as(test_engine, admin) as route,
+        ):
+            holder = await _pid(deleting)
+            await deleting.execute(delete(User).where(col(User.id) == partner))
+            task = asyncio.create_task(
+                route.patch(f"/api/admin/users/{member}", json={"is_active": False})
+            )
+            await _wait_until_blocked_by(observer, holder, task)
+            await deleting.commit()
+            resp = await asyncio.wait_for(task, 10)
+
+        assert resp.status_code == 200, resp.text
+        async with AsyncSession(test_engine) as s:
+            stayed = await s.get(User, member)
+            assert stayed is not None
+            assert stayed.is_active is False
+            assert stayed.household_id == household
             assert await _orphans(s) == 0
 
     async def test_a_refused_deactivation_changes_nothing(
@@ -740,43 +986,16 @@ class TestRaces:
         real_members: tuple[int, int, int],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from app.main import app
-
         member, partner, household = real_members
-        async with AsyncSession(test_engine, expire_on_commit=False) as s:
-            admin = User(
-                email="real-admin@example.com",
-                normalized_email=normalize_email("real-admin@example.com"),
-                hashed_password=get_password_hash(TEST_PASSWORD),
-                email_verified_at=datetime.now(UTC),
-                is_admin=True,
-            )
-            s.add(admin)
-            await s.commit()
-        admin_id = admin.id
+        admin = await _real_admin(test_engine)
 
         async def refuse(*_: object, **__: object) -> str:
             raise BillingStopFailed("sub_1", "unreachable")
 
         monkeypatch.setattr(stripe_service, "stop_billing", refuse)
 
-        async def own_connection() -> AsyncGenerator[AsyncSession]:
-            async with AsyncSession(test_engine, expire_on_commit=False) as s:
-                yield s
-
-        async def as_admin(session: AsyncSession = Depends(get_session)) -> User:
-            loaded = await session.get(User, admin_id)
-            assert loaded is not None
-            return loaded
-
-        app.dependency_overrides[get_session] = own_connection
-        app.dependency_overrides[get_current_user] = as_admin
-        try:
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://t") as c:
-                resp = await c.patch(f"/api/admin/users/{member}", json={"is_active": False})
-        finally:
-            app.dependency_overrides.clear()
+        async with _routes_as(test_engine, admin) as route:
+            resp = await route.patch(f"/api/admin/users/{member}", json={"is_active": False})
 
         assert resp.status_code == 503, resp.text
         async with AsyncSession(test_engine) as s:

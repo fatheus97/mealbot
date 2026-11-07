@@ -130,7 +130,7 @@ async def delete_minted_invites(session: AsyncSession, user_id: int) -> None:
     )
 
 
-async def move_to_own_household(session: AsyncSession, member: User) -> None:
+async def move_to_own_household(session: AsyncSession, member: User) -> int:
     """Move a member of a shared household into a new one of their own, with
     nothing but their profile and export. Staged: the caller holds lock_kitchen
     and lock_member_rows, has seen a second member, and commits.
@@ -139,17 +139,18 @@ async def move_to_own_household(session: AsyncSession, member: User) -> None:
     the plans left behind (health_consent.remove_leaver_health). Their id stays in
     ``created_by_user_id`` on those plans: clearing it would make them read as
     unowned. No trigger helps here: they fire on inserting and deleting a user,
-    never on an update of its household."""
+    never on an update of its household. Returns how many plans were marked removed."""
     kitchen = Kitchen.of(member)
     await clear_unconfirmed_plans(session, kitchen)
     await delete_minted_invites(session, kitchen.user_id)
-    await remove_leaver_health(session, kitchen.user_id, kitchen.household_id)
+    removed = await remove_leaver_health(session, kitchen.user_id, kitchen.household_id)
     household = Household()
     session.add(household)
     await session.flush()
     member.household_id = household.id
     session.add(member)
     await session.flush()
+    return removed
 
 
 async def sweep_expired_invites(session: AsyncSession, now: datetime) -> int:
