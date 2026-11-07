@@ -190,7 +190,8 @@ export function CookbookModal({ onClose }: Props) {
           <CookbookIndex
             items={items}
             isLoading={isLoading}
-            isError={isError}
+            // Only with no list to show: a failed background refresh keeps it.
+            isError={isError && !data}
             searchInput={searchInput}
             onSearch={setSearchInput}
             onOpen={handleOpenSpread}

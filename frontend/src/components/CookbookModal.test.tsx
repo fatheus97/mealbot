@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -318,5 +318,34 @@ describe("CookbookModal", () => {
     await waitFor(() => screen.getByText(/Cookbook/));
     await user.click(screen.getByLabelText("Close cookbook"));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("a failed background refresh shows no error over a good list", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    mockedAuthFetch.mockResolvedValue({ ok: true, status: 200, json: async () => TWO_RECIPES });
+    render(<CookbookModal onClose={vi.fn()} />, {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    });
+    await waitFor(() => expect(screen.getByText("Chicken Curry")).toBeInTheDocument());
+
+    mockedAuthFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["cookbook"] });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    expect(screen.queryByText(/failed to load cookbook/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Chicken Curry")).toBeInTheDocument();
+  });
+
+  it("the load failing with no list to show still says so", async () => {
+    mockedAuthFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    render(<CookbookModal onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText(/failed to load cookbook/i)).toBeInTheDocument());
   });
 });

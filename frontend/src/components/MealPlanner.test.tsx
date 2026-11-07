@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubLocationReload } from '../test/location';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
@@ -1313,6 +1313,13 @@ describe('MealPlanner info hints (U-9)', () => {
 describe('MealPlanner — expired-item review after finishing', () => {
   const PLAN_ID = 900;
 
+  beforeEach(() => {
+    // Not otherwise guaranteed when a test here runs alone: jsdom has no layout.
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true, writable: true, value: vi.fn(),
+    });
+  });
+
   const initialPlan = {
     plan_id: PLAN_ID,
     start_date: null,
@@ -1440,7 +1447,7 @@ describe('MealPlanner — expired-item review after finishing', () => {
       expect(sent!.map((i: { id: number }) => i.id)).toEqual([FRESH.id]);
     });
 
-    expect(mockedRecordWaste).toHaveBeenCalledWith([
+    await waitFor(() => expect(mockedRecordWaste).toHaveBeenCalledWith([
       {
         name: 'Yogurt',
         quantity_grams: 500,
@@ -1448,7 +1455,7 @@ describe('MealPlanner — expired-item review after finishing', () => {
         reason: 'thrown_out',
         source: 'finish_plan',
       },
-    ]);
+    ]));
   });
 
   it('keeps a still-fine item, pushes its date a week, and STILL records it', async () => {
@@ -1471,9 +1478,9 @@ describe('MealPlanner — expired-item review after finishing', () => {
 
     // still_fine is NOT waste, but it IS recorded — it is the denominator a
     // binned count has to be read against.
-    expect(mockedRecordWaste).toHaveBeenCalledWith([
+    await waitFor(() => expect(mockedRecordWaste).toHaveBeenCalledWith([
       expect.objectContaining({ reason: 'still_fine', source: 'finish_plan' }),
-    ]);
+    ]));
   });
 
   it('surfaces a failed fridge write instead of closing silently', async () => {
@@ -1528,6 +1535,122 @@ describe('MealPlanner — expired-item review after finishing', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(/could not update your fridge/i),
     );
+  });
+
+  it('a refused fridge write says where to go, and carries the token of the list it read', async () => {
+    // 409 fridge_changed (household PR 4b). The dialog that made the change has
+    // closed, so the server's "make your change again" has nowhere to point.
+    loginUser();
+    mockedFetchProfile.mockResolvedValue({
+      id: 1, email: 'test@test.com', country: null, language: 'English',
+      measurement_system: 'metric', variability: 'traditional', include_spices: true,
+      track_snacks: true, show_pieces: false, need_to_use_enabled: true,
+      onboarding_completed: true, is_admin: false, default_day_layout: null,
+      waste_tracking_enabled: true,
+    });
+    routeFetch([EXPIRED, FRESH]);
+    const served = mockedAuthFetch.getMockImplementation() as (url: string, opts?: unknown) => Promise<Response>;
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url !== '/fridge') return served(url, opts);
+      if (opts?.method === 'PUT') {
+        return Promise.resolve({
+          ok: false, status: 409,
+          json: () => Promise.resolve({ detail: 'Please make your change again.' }),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true, status: 200,
+        headers: new Headers({ 'X-Fridge-Version': '1:3' }),
+        json: () => Promise.resolve([EXPIRED, FRESH]),
+      } as unknown as Response);
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MealPlanner initialPlan={initialPlan} initialSummary={initialSummary} />,
+      { wrapper: createWrapper() },
+    );
+    await user.click(await screen.findByRole('button', { name: /finish plan/i }));
+    await screen.findByText(/anything past its date/i);
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/changed in the meantime.*in the Fridge panel/i),
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/make your change again/i);
+    const put = mockedAuthFetch.mock.calls.find((c) => c[0] === '/fridge' && c[1]?.method === 'PUT');
+    expect(put?.[1].headers).toEqual({ 'X-Fridge-Version': '1:3' });
+    // Nothing changed, and the alert sends them to a panel that asks again.
+    expect(mockedRecordWaste).not.toHaveBeenCalled();
+  });
+
+  it('a reload that renumbers the rows under the dialog gets the save refused, not silently ignored', async () => {
+    // Every write gives every row a new id, so the answers' ids mean nothing
+    // against a later list: matched there they find no row, and the unchanged
+    // list would be accepted with its current token.
+    loginUser();
+    mockedFetchProfile.mockResolvedValue({
+      id: 1, email: 'test@test.com', country: null, language: 'English',
+      measurement_system: 'metric', variability: 'traditional', include_spices: true,
+      track_snacks: true, show_pieces: false, need_to_use_enabled: true,
+      onboarding_completed: true, is_admin: false, default_day_layout: null,
+      waste_tracking_enabled: true,
+    });
+    routeFetch([]);
+    const served = mockedAuthFetch.getMockImplementation() as (url: string, opts?: unknown) => Promise<Response>;
+    const server = { items: [EXPIRED, FRESH] as { id: number }[], version: 3 };
+    const puts: string[] = [];
+    mockedAuthFetch.mockImplementation(
+      (url: string, opts?: { method?: string; headers?: Record<string, string> }) => {
+        if (url !== '/fridge') return served(url, opts);
+        if (opts?.method === 'PUT') {
+          const sent = opts.headers?.['X-Fridge-Version'] ?? '';
+          puts.push(sent);
+          return Promise.resolve({
+            ok: false, status: 409, json: () => Promise.resolve({ detail: 'refused' }),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true, status: 200,
+          headers: new Headers({ 'X-Fridge-Version': `1:${server.version}` }),
+          json: () => Promise.resolve(server.items),
+        } as unknown as Response);
+      },
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MealPlanner initialPlan={initialPlan} initialSummary={initialSummary} />,
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>{children}</AuthProvider>
+          </QueryClientProvider>
+        ),
+      },
+    );
+    await user.click(await screen.findByRole('button', { name: /finish plan/i }));
+    await screen.findByText(/anything past its date/i);
+
+    server.items = server.items.map((item) => ({ ...item, id: item.id + 100 }));
+    server.version = 4;
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    await user.click(screen.getByRole('radio', { name: /threw it out/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(puts).toEqual(['1:3']));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/changed in the meantime/i),
+    );
+    expect(mockedRecordWaste).not.toHaveBeenCalled();
   });
 
   it('writes nothing at all when the prompt is skipped', async () => {

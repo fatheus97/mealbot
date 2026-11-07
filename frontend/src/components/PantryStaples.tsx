@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext.tsx";
-import { useStaples, useUpdateStaples } from "../hooks/useServerState";
+import { useQueryClient } from "@tanstack/react-query";
+import { cachedShelf, ShelfChangedError, useStaples, useUpdateStaples } from "../hooks/useServerState";
 import { useI18n, type PluralKey, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
 import { InfoHint } from "./InfoHint";
@@ -112,7 +113,8 @@ export function PantryStaples({
 } = {}) {
   const { userId } = useAuth();
   const { t, tn } = useI18n();
-  const { data: serverStaples, isLoading, error: fetchError } = useStaples(userId);
+  const queryClient = useQueryClient();
+  const { data: serverStaples, dataUpdatedAt, isLoading, error: fetchError } = useStaples(userId);
   const updateStaples = useUpdateStaples();
 
   // Resolve at RENDER, so a language switch reaches a notice already on screen.
@@ -124,27 +126,40 @@ export function PantryStaples({
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const lastServerSig = useRef<string | null>(null);
+  // The version of the list the chips were seeded from. Save sends it, so a
+  // change made on another device meanwhile is refused (409), not overwritten.
+  const seededToken = useRef<string | null>(null);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
   // Seed the working list from the server only when the server list actually
-  // changes (initial load + after our own save) — never on a no-op refetch, so
-  // an in-progress edit isn't clobbered when the window regains focus.
+  // changes (initial load + after our own save) — never on a no-op refetch, and
+  // never over unsaved chips: a focus refetch can bring a partner's change, and
+  // replacing an in-progress edit with it would lose the edit without a word.
+  // Save then sends the chips' own version and the server refuses it.
   useEffect(() => {
-    if (!serverStaples) return;
+    if (!serverStaples || userId === null || dirty) return;
+    // dataUpdatedAt re-runs this for a reload that moved only the token (a
+    // partner saved the same names): the list stays the same reference.
+    seededToken.current = cachedShelf(queryClient, "staples", userId)?.token ?? null;
     const sig = JSON.stringify(serverStaples.map((s) => s.name));
     if (sig !== lastServerSig.current) {
       lastServerSig.current = sig;
       setItems(serverStaples.map((s) => s.name));
-      setDirty(false);
     }
-  }, [serverStaples]);
+  }, [serverStaples, dataUpdatedAt, dirty, queryClient, userId]);
+
+  const editsFrozen = updateStaples.isPending || !serverStaples;
 
   const addStaple = () => {
     const name = input.trim();
-    if (!name) return;
+    // Not during a save: its success clears `dirty`, which would take this chip
+    // along. Not before the list has loaded: the chip would block the seed, and
+    // Save would replace the whole list with it, with no version to refuse it
+    // by. The button is disabled for the same reasons; Enter needs this.
+    if (!name || editsFrozen) return;
     // Client-side dedup mirrors the server's case-insensitive rule so the chip
     // list doesn't show a duplicate that the save would silently collapse.
     if (items.some((s) => s.toLowerCase() === name.toLowerCase())) {
@@ -170,18 +185,24 @@ export function PantryStaples({
   const save = () => {
     if (userId === null) return;
     updateStaples.mutate(
-      { userId, items: items.map((name) => ({ name })) },
+      { userId, items: items.map((name) => ({ name })), token: seededToken.current },
       {
         onSuccess: () => {
           setDirty(false);
           setNotice({ key: "staples.saved", ok: true });
         },
-        onError: (e) =>
+        onError: (e) => {
+          if (e instanceof ShelfChangedError) {
+            // The hook has reloaded the list; show it, as the sentence says.
+            lastServerSig.current = null;
+            setDirty(false);
+          }
           setNotice(
             e instanceof Error
               ? { raw: e.message, ok: false }
               : { key: "staples.saveFailed", ok: false },
-          ),
+          );
+        },
       },
     );
   };
@@ -206,7 +227,8 @@ export function PantryStaples({
       </p>
 
       {isLoading && <p style={mutedStyle}>{t("staples.loading")}</p>}
-      {fetchError && (
+      {/* Only with no list to show: a failed background refresh leaves it intact. */}
+      {fetchError && !serverStaples && (
         <p style={{ fontSize: "0.85rem", color: fetchError instanceof TypeError ? MUTED_COLOR : NOTICE_ERROR_COLOR }}>
           {fetchError instanceof TypeError
             ? t("staples.connecting")
@@ -222,6 +244,7 @@ export function PantryStaples({
               <button
                 type="button"
                 aria-label={`Remove ${name}`}
+                disabled={updateStaples.isPending}
                 onClick={() => removeStaple(i)}
                 style={chipRemoveBtn}
               >
@@ -254,7 +277,7 @@ export function PantryStaples({
           aria-label={t("staples.newStapleLabel")}
           style={inputStyle}
         />
-        <button type="button" onClick={addStaple} style={addBtn}>
+        <button type="button" onClick={addStaple} disabled={editsFrozen} style={addBtn}>
           {t("staples.add")}
         </button>
       </div>

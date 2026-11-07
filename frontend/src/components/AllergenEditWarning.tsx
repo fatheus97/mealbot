@@ -1,5 +1,5 @@
-import type { CSSProperties } from "react";
 import { useI18n } from "../i18n";
+import { FloatingAlert } from "./FloatingAlert";
 import type { AllergenWarning } from "../types";
 
 /**
@@ -10,12 +10,6 @@ import type { AllergenWarning } from "../types";
  * an edit is the user's recipe and their declared allergy, so blocking it would
  * be patronising, is trivially routed around, and would push people to keep a
  * "real" copy somewhere the app cannot check at all.
- *
- * `position: fixed` so appearing cannot shove the editor down under the user's
- * cursor (the CLS rule in .claude/rules/frontend.md), and a self-contained
- * opaque surface — background AND colour set together — because inline styles
- * cannot reach `@media (prefers-color-scheme)` and a bare background would go
- * white-on-white in dark mode.
  *
  * `unchecked` (no warnings, in a shared household whose plan lost its diets and
  * allergies) says the edit could not be checked: silence would read as "all
@@ -38,7 +32,7 @@ export function AllergenEditWarning({
   const labels = [...new Set(warnings.map((w) => w.label))];
 
   return (
-    <div role="alert" style={wrap}>
+    <FloatingAlert dismissLabel="Dismiss allergen warning" onDismiss={onDismiss}>
       {warnings.length === 0 ? (
         <div style={{ flex: 1 }}>
           <strong>{t("planner.editUncheckedHeadline")}</strong>
@@ -65,42 +59,6 @@ export function AllergenEditWarning({
           </ul>
         </div>
       )}
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss allergen warning"
-        style={close}
-      >
-        &times;
-      </button>
-    </div>
+    </FloatingAlert>
   );
 }
-
-const wrap: CSSProperties = {
-  position: "fixed",
-  top: "1rem",
-  left: "50%",
-  transform: "translateX(-50%)",
-  zIndex: 1400,
-  maxWidth: "min(560px, calc(100vw - 2rem))",
-  display: "flex",
-  alignItems: "flex-start",
-  gap: "0.75rem",
-  backgroundColor: "#fee2e2",
-  color: "#7f1d1d",
-  border: "1px solid #fecaca",
-  borderRadius: 8,
-  padding: "0.8rem 1rem",
-  boxShadow: "0 2px 12px rgba(0, 0, 0, 0.25)",
-};
-
-const close: CSSProperties = {
-  background: "none",
-  border: "none",
-  color: "inherit",
-  fontSize: "1.2rem",
-  lineHeight: 1,
-  cursor: "pointer",
-  padding: "0 0.2rem",
-};

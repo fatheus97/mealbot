@@ -14,8 +14,10 @@ from app.api.auth import router as auth_router
 from app.api.billing import router as billing_router
 from app.api.cookbook import router as cookbook_router
 from app.api.feedback import router as feedback_router
+from app.api.fridge import VERSION_HEADER as FRIDGE_VERSION_HEADER
 from app.api.fridge import router as fridge_router
 from app.api.history import router as history_router
+from app.api.pantry import VERSION_HEADER as STAPLES_VERSION_HEADER
 from app.api.pantry import router as pantry_router
 from app.api.plan import router as plan_router
 from app.api.recipe import router as recipe_router
@@ -83,7 +85,10 @@ app.add_middleware(
     allow_origins=[o.strip() for o in settings.allowed_origins.split(",")],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-CSRF-Token"],
+    allow_headers=["Content-Type", "X-CSRF-Token", FRIDGE_VERSION_HEADER, STAPLES_VERSION_HEADER],
+    # The version tokens ride on fridge/staples responses; a bundle served from
+    # another origin (VITE_API_BASE) can only read a header listed here.
+    expose_headers=[FRIDGE_VERSION_HEADER, STAPLES_VERSION_HEADER],
 )
 # Added last, so it is the outermost layer: CORS, CSRF and rate-limit
 # responses get a request id and a log line too.

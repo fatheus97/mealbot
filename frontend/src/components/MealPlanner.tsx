@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect, useId, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { AllergenWarning } from "../types";
 import { AllergenEditWarning } from "./AllergenEditWarning";
 import { useAuth, useShowPieces } from "../contexts/AuthContext";
@@ -6,7 +7,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { usePrefersDark } from "../hooks/usePrefersDark";
 import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import { formatAmount } from "../utils/pieces";
-import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile } from "../hooks/useServerState";
+import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile, cachedShelf, ShelfChangedError, type ShelfData } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
@@ -158,6 +159,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Opt-in, so the fallback is false: an unloaded profile prompts nothing.
   const wasteTrackingEnabled = profile?.waste_tracking_enabled ?? false;
   const updateFridgeMutation = useUpdateFridge();
+  const queryClient = useQueryClient();
+  // The list and token the expired-items dialog was built from. Rows renumber on
+  // every write, so its answers' ids mean nothing against any later list.
+  const expiredBase = useRef<ShelfData<StockItem> | null>(null);
   const recordWasteMutation = useRecordWaste();
   // Expired items to review after a finish. Snapshotted (not derived from the
   // live fridge query) so the list the user is answering about can't shift
@@ -422,7 +427,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         try {
           const { data } = await refetchFridge();
           const expired = (data ?? []).filter(isExpired);
-          if (expired.length > 0) setExpiredReview(expired);
+          if (expired.length > 0 && userId) {
+            expiredBase.current = cachedShelf<StockItem>(queryClient, "fridge", userId) ?? null;
+            setExpiredReview(expired);
+          }
         } catch {
           // Prompting is best-effort; the finish already succeeded.
         }
@@ -434,16 +442,17 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
    * Apply the user's answers: bin some items, push the dates of the rest.
    *
    * Both halves are ONE fridge write. PUT /fridge replaces the whole list, so
-   * issuing two writes would make the second clobber the first — and the list
-   * sent must be the CURRENT fridge, not the snapshot the dialog was built
-   * from, or any edit made in another tab meanwhile is silently reverted.
+   * issuing two writes would make the second clobber the first. It is made from
+   * the list the dialog was built from and carries that list's token, so if the
+   * fridge moved on meanwhile the server refuses it and nothing is reverted.
    */
   const handleExpiredApply = (decisions: ExpiredDecision[]) => {
     setExpiredReview(null);
-    if (!userId || decisions.length === 0) return;
+    const base = expiredBase.current;
+    if (!userId || !base || decisions.length === 0) return;
 
     // Rows are matched by server id. An item with no id never round-tripped
-    // through the API and cannot be identified against the current list, so it
+    // through the API and cannot be identified against the list, so it
     // is dropped up front rather than matched by name — two batches of the same
     // ingredient share a name, and binning the wrong one destroys real data.
     // Filtering here (rather than tolerating a stray null inside the Sets) is
@@ -457,15 +466,13 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
     const stillFineIds = new Set(
       identified.filter((d) => d.choice === "still_fine").map((d) => d.item.id),
     );
-    const current = fridgeItems ?? [];
-    const next = current
+    const next = base.items
       .filter((it) => it.id == null || !binnedIds.has(it.id))
       .map((it) =>
         it.id != null && stillFineIds.has(it.id) && it.expiration_date
           ? { ...it, expiration_date: addDaysISO(todayISO(), STILL_FINE_EXTENSION_DAYS) }
           : it,
       );
-    updateFridgeMutation.mutate({ userId, items: next });
 
     // Both dispositions are recorded, and still_fine is not an afterthought:
     // it is the denominator. A count of binned items has no base rate to be
@@ -479,7 +486,15 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         reason: d.choice,
         source: "finish_plan",
       }));
-    if (entries.length > 0) recordWasteMutation.mutate(entries);
+    // Recorded only once the save is accepted: a refused one changed nothing, and
+    // its alert sends the user to the Fridge panel, which asks and records again.
+    // A failure shows through updateFridgeMutation.isError below.
+    updateFridgeMutation.mutateAsync({ userId, items: next, token: base.token }).then(
+      () => {
+        if (entries.length > 0) recordWasteMutation.mutate(entries);
+      },
+      () => {},
+    );
   };
 
   const handleUnconfirm = () => {
@@ -987,7 +1002,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
               failure changes nothing the user asked for. */}
           {updateFridgeMutation.isError && (
             <div role="alert" style={{ color: "#b91c1c", marginBottom: "1rem", padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", fontSize: "0.9rem" }}>
-              {t("expired.saveFailed")}
+              {/* Not the server's sentence for a refusal ("make your change
+                  again"): the dialog that made the change has closed for good. */}
+              {updateFridgeMutation.error instanceof ShelfChangedError
+                ? t("expired.changedElsewhere")
+                : t("expired.saveFailed")}
             </div>
           )}
           {!isConfirmed && frozenMeals.size > 0 && (

@@ -342,12 +342,12 @@ _EN: Final[dict[str, str]] = {
     "cookbook_recipe_not_found": "Recipe not found in cookbook",
     "fridge_too_many_items": "Too many items ($count_given); maximum is $maximum.",
     "fridge_changed": (
-        "The fridge was changed on another device, so your change wasn't saved. "
-        "You now see the latest version. Please make your change again."
+        "The fridge changed while you were editing, so your change wasn't saved. "
+        "Please check the list and make your change again."
     ),
     "staples_changed": (
-        "Your pantry staples were changed on another device, so your change "
-        "wasn't saved. You now see the latest list. Please make your change again."
+        "Your pantry staples changed while you were editing, so your change "
+        "wasn't saved. Please check the list and make your change again."
     ),
     "pantry_too_many_staples": (
         "Too many staples ($count_given); maximum is $maximum."
@@ -596,12 +596,12 @@ _CS: Final[dict[str, str]] = {
         "Příliš mnoho položek ($count_given); maximum je $maximum."
     ),
     "fridge_changed": (
-        "Lednice se mezitím změnila na jiném zařízení, takže se vaše změna "
-        "neuložila. Teď vidíte aktuální stav. Proveďte prosím změnu znovu."
+        "Lednice se mezitím změnila, takže se vaše změna neuložila. "
+        "Zkontrolujte prosím seznam a proveďte změnu znovu."
     ),
     "staples_changed": (
-        "Zásoby spíže se mezitím změnily na jiném zařízení, takže se vaše změna "
-        "neuložila. Teď vidíte aktuální seznam. Proveďte prosím změnu znovu."
+        "Zásoby spíže se mezitím změnily, takže se vaše změna neuložila. "
+        "Zkontrolujte prosím seznam a proveďte změnu znovu."
     ),
     "pantry_too_many_staples": (
         "Příliš mnoho základních surovin ($count_given); maximum je $maximum."
