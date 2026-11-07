@@ -113,9 +113,11 @@ function useUpdateShelf<T>(shelf: Shelf) {
       queryClient.setQueryData<ShelfData<T>>(key, data);
     },
     onError: (error, { userId }) => {
-      // Returned, so the caller's onError runs with the current list cached.
+      // Not awaited, or this save would hold the queue until the GET settles. A
+      // GET that failed on a hidden page waits for focus, focus first waits for
+      // queued saves (resumePausedMutations), and nothing would ever move again.
       if (error instanceof ShelfChangedError) {
-        return queryClient.invalidateQueries({ queryKey: [shelf, userId] });
+        void queryClient.invalidateQueries({ queryKey: [shelf, userId] });
       }
     },
   });

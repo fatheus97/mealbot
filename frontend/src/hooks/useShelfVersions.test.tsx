@@ -1,10 +1,10 @@
 // Household PR 4b: the fridge and staples version tokens on the client.
 // The server side (409 on a stale token) is backend/tests/test_shelf_versions.py.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { ShelfChangedError, useFridge, useUpdateFridge, useUpdateStaples } from './useServerState';
+import { ShelfChangedError, useCookbook, useCookbookCount, useFridge, usePlanCalendar, usePlanList, useStaples, useUpdateFridge, useUpdateStaples } from './useServerState';
 import type { StockItem } from '../types';
 
 vi.mock('../api', () => ({
@@ -115,7 +115,7 @@ describe('fridge version token', () => {
     expect(queryClient.getQueryData(['fridge', 1])).toEqual({ items: [MILK, EGGS], token: '7:4' });
   });
 
-  it('two quick saves by one caller: the second waits and follows the first', async () => {
+  it('three quick saves by one caller: each waits and follows the one before', async () => {
     const server = mockServer([]);
     const first = gate();
     const second = gate();
@@ -123,9 +123,10 @@ describe('fridge version token', () => {
     const { queryClient, wrapper } = setup();
 
     const { result } = renderHook(() => useUpdateFridge(), { wrapper });
-    // Both made from the list at 7:3; the second's list has the first's edit.
+    // All made from the list at 7:3; each list has the edits before it.
     result.current.mutate({ userId: 1, items: [MILK], token: '7:3' });
     result.current.mutate({ userId: 1, items: [MILK, EGGS], token: '7:3' });
+    result.current.mutate({ userId: 1, items: [EGGS], token: '7:3' });
 
     await settle();
     expect(puts()).toHaveLength(1);
@@ -137,8 +138,44 @@ describe('fridge version token', () => {
 
     second.release();
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(server.log).toEqual(['7:3 accepted', '7:4 accepted']);
-    expect(queryClient.getQueryData(['fridge', 1])).toEqual({ items: [MILK, EGGS], token: '7:5' });
+    expect(server.log).toEqual(['7:3 accepted', '7:4 accepted', '7:5 accepted']);
+    expect(queryClient.getQueryData(['fridge', 1])).toEqual({ items: [EGGS], token: '7:6' });
+  });
+
+  it('a save made from a newer list sends that list\'s token, not its own last answer', async () => {
+    const server = mockServer([]);
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useUpdateFridge(), { wrapper });
+    result.current.mutate({ userId: 1, items: [MILK], token: '7:3' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // A partner writes, and this caller reloads and edits the new list.
+    server.version = 5;
+    await act(async () => {
+      await result.current.mutateAsync({ userId: 1, items: [EGGS], token: '7:5' });
+    });
+
+    expect(server.log).toEqual(['7:3 accepted', '7:5 accepted']);
+  });
+
+  it('a refusal does not hold the queue while its reload is out', async () => {
+    // A held queue plus a GET paused on a hidden page never settles: focus waits
+    // for queued saves first, so it would never reach the GET.
+    const server = mockServer([MILK]);
+    const { queryClient, wrapper } = setup();
+    const { result } = renderHook(() => ({ list: useFridge(1), save: useUpdateFridge() }), { wrapper });
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
+
+    const served = mockedAuthFetch.getMockImplementation() as (u: string, o?: { method?: string }) => Promise<unknown>;
+    mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) =>
+      opts?.method === 'PUT' ? served(url, opts) : new Promise(() => {}));
+    server.version = 8;
+    result.current.save.mutate({ userId: 1, items: [MILK, EGGS], token: '7:3' });
+    result.current.save.mutate({ userId: 1, items: [], token: '7:3' });
+
+    await waitFor(() => expect(server.log).toEqual(['7:3 refused', '7:3 refused']));
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
   });
 
   it("a save from another component is not followed: its list lacks that save's edit", async () => {
@@ -253,26 +290,72 @@ describe('fridge version token', () => {
       body: JSON.stringify([MILK]),
     });
   });
+});
 
-  it('refetches when the window regains focus once the list is stale, not before', async () => {
-    mockServer([MILK]);
-    const { queryClient, wrapper } = setup();
-    const { result } = renderHook(() => useFridge(1), { wrapper });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    const refocus = () => act(() => {
-      focusManager.setFocused(false);
-      focusManager.setFocused(true);
+describe('shared queries refetch when the window regains focus', () => {
+  // main.tsx's defaults, which these queries have to override: react-query's own
+  // (focus refetch on, staleTime 0) would let a query with no setting pass.
+  function setupLikeTheApp() {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 },
+        mutations: { retry: false },
+      },
     });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    return { queryClient, wrapper };
+  }
 
+  const refocus = () => act(() => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+  });
+
+  afterEach(() => {
+    focusManager.setFocused(undefined);
+  });
+
+  const QUERIES: [string, () => { isSuccess: boolean }][] = [
+    ['fridge', () => useFridge(1)],
+    ['staples', () => useStaples(1)],
+    ['plan list', () => usePlanList(1)],
+    ['cookbook', () => useCookbook()],
+    ['cookbook count', () => useCookbookCount(1)],
+  ];
+
+  it.each(QUERIES)('%s: not within 30 s, once older', async (_name, useHook) => {
+    mockServer([]);
+    const { queryClient, wrapper } = setupLikeTheApp();
+    const { result } = renderHook(() => useHook(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const age = (ms: number) => {
+      const query = queryClient.getQueryCache().getAll()[0];
+      queryClient.setQueryData(query.queryKey, query.state.data, { updatedAt: Date.now() - ms });
+    };
+    const before = mockedAuthFetch.mock.calls.length;
+
+    age(29_000);
     refocus();
     await settle();
-    expect(gets()).toHaveLength(1);
+    expect(mockedAuthFetch.mock.calls.length).toBe(before);
 
-    queryClient.setQueryData(['fridge', 1], queryClient.getQueryData(['fridge', 1]), { updatedAt: 1 });
+    age(31_000);
     refocus();
-    await waitFor(() => expect(gets()).toHaveLength(2));
-    focusManager.setFocused(undefined);
+    await waitFor(() => expect(mockedAuthFetch.mock.calls.length).toBe(before + 1));
+  });
+
+  it('calendar: every time, it keeps its staleTime of 0', async () => {
+    mockServer([]);
+    const { wrapper } = setupLikeTheApp();
+    const { result } = renderHook(() => usePlanCalendar(1, '2026-11-01', '2026-11-30'), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const before = mockedAuthFetch.mock.calls.length;
+
+    refocus();
+
+    await waitFor(() => expect(mockedAuthFetch.mock.calls.length).toBe(before + 1));
   });
 });
 

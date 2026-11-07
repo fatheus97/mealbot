@@ -151,11 +151,15 @@ export function PantryStaples({
     }
   }, [serverStaples, dataUpdatedAt, dirty, queryClient, userId]);
 
+  const editsFrozen = updateStaples.isPending || !serverStaples;
+
   const addStaple = () => {
     const name = input.trim();
     // Not during a save: its success clears `dirty`, which would take this chip
-    // along. The buttons are disabled for the same reason; Enter needs this.
-    if (!name || updateStaples.isPending) return;
+    // along. Not before the list has loaded: the chip would block the seed, and
+    // Save would replace the whole list with it, with no version to refuse it
+    // by. The button is disabled for the same reasons; Enter needs this.
+    if (!name || editsFrozen) return;
     // Client-side dedup mirrors the server's case-insensitive rule so the chip
     // list doesn't show a duplicate that the save would silently collapse.
     if (items.some((s) => s.toLowerCase() === name.toLowerCase())) {
@@ -223,7 +227,8 @@ export function PantryStaples({
       </p>
 
       {isLoading && <p style={mutedStyle}>{t("staples.loading")}</p>}
-      {fetchError && (
+      {/* Only with no list to show: a failed background refresh leaves it intact. */}
+      {fetchError && !serverStaples && (
         <p style={{ fontSize: "0.85rem", color: fetchError instanceof TypeError ? MUTED_COLOR : NOTICE_ERROR_COLOR }}>
           {fetchError instanceof TypeError
             ? t("staples.connecting")
@@ -272,7 +277,7 @@ export function PantryStaples({
           aria-label={t("staples.newStapleLabel")}
           style={inputStyle}
         />
-        <button type="button" onClick={addStaple} disabled={updateStaples.isPending} style={addBtn}>
+        <button type="button" onClick={addStaple} disabled={editsFrozen} style={addBtn}>
           {t("staples.add")}
         </button>
       </div>

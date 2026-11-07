@@ -651,6 +651,7 @@ describe('Fridge — changed on another device', () => {
       items: renumber(initial),
       version: 3,
       hold: null as Promise<void> | null,
+      failPut: false,
       write(rows: Row[]) {
         server.items = renumber(rows);
         server.version += 1;
@@ -666,6 +667,9 @@ describe('Fridge — changed on another device', () => {
           };
         }
         if (server.hold) await server.hold;
+        if (server.failPut) {
+          return { ok: false, status: 500, headers: new Headers(), json: () => Promise.resolve({}) };
+        }
         if (opts.headers?.['X-Fridge-Version'] !== `1:${server.version}`) {
           return {
             ok: false, status: 409, headers: new Headers(),
@@ -707,7 +711,20 @@ describe('Fridge — changed on another device', () => {
 
   /** A partner's write reaches this screen the way a focus refetch brings it. */
   async function reload(queryClient: QueryClient) {
-    await act(() => queryClient.invalidateQueries({ queryKey: ['fridge'] }));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['fridge'] });
+      // The refetch has settled; its render is still a timer away.
+      await new Promise((r) => setTimeout(r, 20));
+    });
+  }
+
+  const addButton = () => screen.getByRole('button', { name: /add ingredient/i });
+
+  async function addItem(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await waitFor(() => expect(addButton()).toBeEnabled());
+    await user.click(addButton());
+    await user.type(screen.getAllByRole('textbox')[0], name);
+    await user.click(screen.getByRole('button', { name: /^ok$/i }));
   }
 
   beforeEach(() => {
@@ -896,6 +913,194 @@ describe('Fridge — changed on another device', () => {
     server.hold = null;
     await act(async () => { answer(); await Promise.resolve(); });
     await waitFor(() => expect(screen.getByText(REFUSED)).toBeInTheDocument());
+  });
+
+  it('a refused removal records no waste; redoing it records one row', async () => {
+    mockedFetchProfile.mockResolvedValue(profileFixture({ waste_tracking_enabled: true }));
+    mockedRecordWaste.mockReset();
+    mockedRecordWaste.mockResolvedValue({ recorded: 1 });
+    const server = mockServer([MILK]);
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    const removeWithAnswer = async () => {
+      await user.click(screen.getByRole('button', { name: 'Remove' }));
+      await user.click(await screen.findByRole('radio', { name: /threw it out/i }));
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+    };
+
+    server.write([MILK]);
+    await removeWithAnswer();
+    await waitFor(() => expect(screen.getByText(REFUSED)).toBeInTheDocument());
+    await reload(queryClient);
+    expect(mockedRecordWaste).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+    await removeWithAnswer();
+
+    await waitFor(() => expect(mockedRecordWaste).toHaveBeenCalledTimes(1));
+    expect(names(server.items)).toEqual([]);
+  });
+
+  it('a refused add on an empty fridge leaves no ghost row, so redoing it saves one item', async () => {
+    const server = mockServer([]);
+    const { wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+
+    // A counted write that leaves it empty: the reload keeps the same reference.
+    server.write([]);
+    await addItem(user, 'Pear');
+    await waitFor(() => expect(screen.getByText(REFUSED)).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('Pear')).not.toBeInTheDocument());
+
+    await addItem(user, 'Pear');
+
+    await waitFor(() => expect(names(server.items)).toEqual(['Pear']));
+  });
+
+  it('a reload that moved only the token on an empty fridge: the next add carries it', async () => {
+    const server = mockServer([]);
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(addButton()).toBeEnabled());
+
+    server.write([]);
+    await reload(queryClient);
+    await addItem(user, 'Pear');
+
+    await waitFor(() => expect(names(server.items)).toEqual(['Pear']));
+    expect(puts()[0][1].headers).toEqual({ 'X-Fridge-Version': '1:4' });
+    expect(screen.queryByText(REFUSED)).not.toBeInTheDocument();
+  });
+
+  it('Add stays off until the list has loaded', async () => {
+    mockedAuthFetch.mockImplementation(() => new Promise(() => {}));
+    const { wrapper } = setup();
+    render(<Fridge />, { wrapper });
+
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('Add stays off after the first load failed: a save would replace the whole fridge', async () => {
+    mockedAuthFetch.mockResolvedValue({
+      ok: false, status: 500, headers: new Headers(), json: () => Promise.resolve({}),
+    });
+    const { wrapper } = setup();
+    render(<Fridge />, { wrapper });
+
+    await waitFor(() => expect(screen.getByText(/fridge fetch failed/i)).toBeInTheDocument());
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('a failed background refresh shows no error over a good list', async () => {
+    mockServer([MILK]);
+    const { queryClient, wrapper } = setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    mockedAuthFetch.mockResolvedValue({
+      ok: false, status: 500, headers: new Headers(), json: () => Promise.resolve({}),
+    });
+    await reload(queryClient);
+
+    expect(queryClient.getQueryState(['fridge', 1])?.status).toBe('error');
+    expect(screen.queryByText(/fridge fetch failed/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Milk')).toBeInTheDocument();
+    expect(addButton()).toBeEnabled();
+  });
+
+  it('a reload held back by a save that then fails is applied when the save ends', async () => {
+    const server = mockServer([MILK]);
+    let answer!: () => void;
+    const { queryClient, wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    server.hold = new Promise((r) => { answer = r; });
+    await user.click(screen.getByRole('button', { name: /^edit$/i }));
+    await rename(user, 'Milk', 'Cream');
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    server.write([APPLE, MILK]);
+    await reload(queryClient);
+    expect(screen.queryByText('Apple')).not.toBeInTheDocument();
+
+    server.failPut = true;
+    server.hold = null;
+    await act(async () => { answer(); await Promise.resolve(); });
+
+    await waitFor(() => expect(screen.getByText('Apple')).toBeInTheDocument());
+    expect(screen.getByText(/failed to save/i)).toBeInTheDocument();
+  });
+
+  it('a Fridge mounted while a save is out still seeds, instead of showing an empty list', async () => {
+    const server = mockServer([MILK]);
+    let answer!: () => void;
+    const { wrapper } = setup();
+    const user = userEvent.setup();
+    const first = render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    server.hold = new Promise((r) => { answer = r; });
+    await user.click(screen.getByRole('button', { name: /^edit$/i }));
+    await rename(user, 'Milk', 'Cream');
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    first.unmount();
+
+    render(<Fridge />, { wrapper });
+
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+    server.hold = null;
+    await act(async () => { answer(); await Promise.resolve(); });
+  });
+
+  it('a refusal stays on screen past the notice timer, and the next edit clears it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const server = mockServer([MILK]);
+      const { wrapper } = setup();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<Fridge />, { wrapper });
+      await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+      server.write([MILK]);
+      await user.click(screen.getByRole('button', { name: 'Remove' }));
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(REFUSED));
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(screen.getByRole('alert')).toHaveTextContent(REFUSED);
+
+      await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /^edit$/i }));
+      await rename(user, 'Milk', 'Cream');
+
+      await waitFor(() => expect(names(server.items)).toEqual(['Cream']));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a refusal can be dismissed', async () => {
+    const server = mockServer([MILK]);
+    const { wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    server.write([MILK]);
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(REFUSED));
+
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('a save made from a list that went stale unseen shows the server sentence and the reloaded list', async () => {

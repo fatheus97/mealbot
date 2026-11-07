@@ -9,6 +9,7 @@ import { ReceiptScanner } from "./ReceiptScanner";
 import { FridgeItemModal } from "./FridgeItemModal";
 import type { FridgeItemValues } from "./FridgeItemModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { FloatingAlert } from "./FloatingAlert";
 import { InfoHint } from "./InfoHint";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { useI18n } from "../i18n";
@@ -89,6 +90,9 @@ export function Fridge() {
   const assignId = (): number => nextEditId.current++;
   const [fridge, setFridge] = useState<EditableStockItem[]>([]);
   const [notice, setNotice] = useState("");
+  // A refused save. It stays until dismissed or the next edit: the edit has just
+  // vanished from the list, and this is the only thing that says why.
+  const [refusal, setRefusal] = useState<{ message: string } | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -198,7 +202,8 @@ export function Fridge() {
     // edit). Not under a dialog holding a row: the index would then point at
     // something else, and its save goes out with the old token and is refused
     // instead. Not under a save of ours: the local list is ahead of the cache.
-    if (holdsRow || savesPending > 0) return;
+    // Except the first seed: until then there is no list for anything to hold.
+    if (seededFrom.current !== null && (holdsRow || savesPending > 0)) return;
     // dataUpdatedAt re-runs this for a reload that moved only the token (an
     // empty fridge stays the same reference).
     seededToken.current = cachedShelf(queryClient, "fridge", userId)?.token ?? null;
@@ -212,7 +217,7 @@ export function Fridge() {
     refreshGroupOrder(copy, sortKey, sortDir);
   // Only re-run when server data changes or the hold ends, not on sort changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverFridge, dataUpdatedAt, savesPending, holdsRow, refreshGroupOrder]);
+  }, [serverFridge, dataUpdatedAt, savesPending, holdsRow, refusal, refreshGroupOrder]);
 
   // Live group data (totals, indices) — recomputes on edits, but ORDER is from groupOrder
   const groupedItems = useMemo(() => buildGroups(fridge), [fridge, buildGroups]);
@@ -234,27 +239,29 @@ export function Fridge() {
   }, [groupedItems, groupOrder]);
 
   /** Persist the given fridge items to the backend. */
-  const persistFridge = (items: EditableStockItem[]) => {
+  const persistFridge = (items: EditableStockItem[], onSaved?: () => void) => {
     if (!userId) return;
+    setRefusal(null);
     const cleaned: StockItem[] = items
       .filter((item) => item.name.trim() !== "")
       // Strip the client-only _editId before sending to the backend.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       .map(({ _editId, ...rest }) => rest);
-    updateFridgeMutation.mutate(
-      { userId, items: cleaned, token: seededToken.current },
-      {
-        onError: (err) => {
-          // A refusal is the server's whole sentence (the list was changed
-          // elsewhere and has reloaded); anything else is a failure to save.
-          if (err instanceof ShelfChangedError) {
-            setNotice(err.message);
-          } else {
-            const msg = err instanceof Error ? err.message : t("fridge.unknownError");
-            setNotice(t("fridge.saveFailed", { message: msg }));
-          }
-          setTimeout(() => setNotice(""), 5000);
-        },
+    // mutateAsync, not mutate's callbacks: those fire only for the observer's
+    // latest mutate, so an earlier queued save would succeed or fail unheard.
+    updateFridgeMutation.mutateAsync({ userId, items: cleaned, token: seededToken.current }).then(
+      onSaved,
+      (err: unknown) => {
+        if (err instanceof ShelfChangedError) {
+          // Forget the seed, so whatever comes back replaces the refused edit,
+          // even an empty list, which keeps its reference across a reload.
+          seededFrom.current = [];
+          setRefusal({ message: err.message });
+          return;
+        }
+        const msg = err instanceof Error ? err.message : t("fridge.unknownError");
+        setNotice(t("fridge.saveFailed", { message: msg }));
+        setTimeout(() => setNotice(""), 5000);
       },
     );
   };
@@ -303,23 +310,26 @@ export function Fridge() {
     for (const idx of sorted) updated.splice(idx, 1);
     setFridge(updated);
     refreshGroupOrder(updated, sortKey, sortDir);
-    persistFridge(updated);
 
-    // Fire AFTER the fridge write is away, and never await it. The answer is
-    // optional metadata; a failed capture must not cost the user their removal,
-    // so this deliberately has no error surface. One entry per BATCH — removing
-    // a group of three batches records three rows, because each carries its own
-    // quantity and expiry, which is the whole point of keeping them separate.
-    if (wasteTrackingEnabled && wasteAnswer !== null && removed.length > 0) {
-      const entries: WasteEntry[] = removed.map((item) => ({
-        name: item.name,
-        quantity_grams: item.quantity_grams,
-        expiration_date: item.expiration_date ?? null,
-        reason: wasteAnswer,
-        source: "fridge_delete",
-      }));
-      recordWasteMutation.mutate(entries);
-    }
+    // One entry per BATCH — removing a group of three batches records three
+    // rows, because each carries its own quantity and expiry, which is the whole
+    // point of keeping them separate.
+    const entries: WasteEntry[] =
+      wasteTrackingEnabled && wasteAnswer !== null
+        ? removed.map((item) => ({
+            name: item.name,
+            quantity_grams: item.quantity_grams,
+            expiration_date: item.expiration_date ?? null,
+            reason: wasteAnswer,
+            source: "fridge_delete",
+          }))
+        : [];
+    // Recorded only once the removal is accepted: a refused one left the item in
+    // the fridge, and redoing it as told would record it twice. The answer is
+    // optional metadata, so a failed capture deliberately has no error surface.
+    persistFridge(updated, () => {
+      if (entries.length > 0) recordWasteMutation.mutate(entries);
+    });
 
     setPendingRemoval(null);
     setWasteAnswer(null);
@@ -653,7 +663,9 @@ export function Fridge() {
           {/* Both branches sit on the adaptive page background. `red` is below
               AA in BOTH themes (4.00:1 light / 3.88:1 dark), so the error
               branch takes the per-theme pair from constants/theme. */}
-          {fetchError && (
+          {/* Only with no list to show: a failed background refresh leaves the
+              list intact, and refreshes again on the next focus. */}
+          {fetchError && !serverFridge && (
             <p
               style={
                 fetchError instanceof TypeError
@@ -736,7 +748,9 @@ export function Fridge() {
           )}
 
           <div style={{ marginTop: "0.5rem" }}>
-            <button onClick={openAddModal}>{t("fridge.addIngredient")}</button>
+            {/* Not before the list has loaded: a save would replace the whole
+                fridge with what was added, with no version to refuse it by. */}
+            <button onClick={openAddModal} disabled={!serverFridge}>{t("fridge.addIngredient")}</button>
             {/* Adaptive page background again — plain `red` is 4.00:1 light
                 and 3.88:1 dark, under AA in both. */}
             {notice && (
@@ -746,6 +760,12 @@ export function Fridge() {
             )}
           </div>
         </div>
+      )}
+
+      {refusal && (
+        <FloatingAlert dismissLabel={t("fridge.dismissNotice")} onDismiss={() => setRefusal(null)}>
+          <div style={{ flex: 1 }}>{refusal.message}</div>
+        </FloatingAlert>
       )}
 
       {modalState && (
