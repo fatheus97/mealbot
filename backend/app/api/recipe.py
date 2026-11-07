@@ -19,6 +19,7 @@ from typing import Literal, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col
 
 from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.country_whitelist import normalize_country
@@ -27,7 +28,7 @@ from app.core.language_whitelist import normalize_language
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
-from app.models.db_models import MachineGeneration, MealPlan, User
+from app.models.db_models import MachineGeneration, MealEntry, MealPlan, User
 from app.models.plan_models import (
     ConsumedBatch,
     CookRecipeRequest,
@@ -60,7 +61,7 @@ from app.services.health_consent import (
 from app.services.kitchen import Kitchen
 from app.services.meal_planner import generate_single_day
 from app.services.plan_service import persist_meal_entries
-from app.services.recipe_retriever import embed_meal_entry
+from app.services.recipe_retriever import EmbedProbe, embed_meal_entry, store_embedding
 from app.services.telemetry import (
     record_correction,
     record_generation,
@@ -454,6 +455,10 @@ async def favorite_recipe(
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     kitchen = Kitchen.of(current_user)
+    # Before any read, like every other write of a plan: a join moves the
+    # household's plans and then deletes it, and a plan inserted between the
+    # two would go with it, or fail on its foreign key.
+    await lock_kitchen(session, kitchen)
 
     # Server-assigned fields; same handling as /recipe/cook.
     payload.recipe.leftover_of = None
@@ -515,17 +520,30 @@ async def favorite_recipe(
 
     entry = entries[0]
     entry.is_favorite = True
-    try:
-        await embed_meal_entry(entry)
-    except Exception:
-        # Same policy as the plan-side favorite endpoint: the bit flips even
-        # if embedding fails; a backfill can repair RAG visibility later.
-        logger.exception("Failed to embed cookbook entry for user %s", current_user.id)
-
     await session.flush()
     if entry.id is None:
         raise HTTPException(status_code=500, detail="Cookbook persistence failed")
 
-    response = MealEntrySummary.from_entry(entry)
+    # Commit (releasing the kitchen lock) BEFORE embedding, as favorite_meal
+    # does: the embed can wait up to EMBEDDING_TIMEOUT_S for the shared parse
+    # executor, and the lock must never cover a wait like that.
     await session.commit()
+    # The answer if the vector write below fails and expires the session.
+    response = MealEntrySummary.from_entry(entry)
+    entry_id = entry.id
+    # On a detached copy so the tracked entry never goes dirty: an autoflush
+    # would write the embedding unconditionally.
+    probe = EmbedProbe(name=entry.name, meal_json=entry.meal_json)
+    try:
+        await embed_meal_entry(probe)
+    except Exception:
+        # Same policy as the plan-side favorite endpoint: the bit flips even
+        # if embedding fails; the daily backfill repairs RAG visibility later.
+        logger.exception("Failed to embed cookbook entry for user %s", kitchen.user_id)
+    else:
+        # Only onto the row as this save left it: an un-star or an edit that
+        # landed while this ran keeps its own state.
+        await store_embedding(
+            session, entry_id, probe, col(MealEntry.meal_json) == probe.meal_json
+        )
     return response
