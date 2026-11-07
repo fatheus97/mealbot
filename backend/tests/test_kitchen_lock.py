@@ -307,6 +307,7 @@ _LOCKING_HANDLERS: list[tuple[str, str, str, object]] = [
     ("pantry", "put", "/api/staples", []),
     ("household", "post", "/api/household/invites", {"email": "someone@example.com"}),
     ("household", "delete", "/api/household/invites/999999", None),
+    ("household", "post", "/api/household/leave", None),
 ]
 
 

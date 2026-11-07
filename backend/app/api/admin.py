@@ -83,7 +83,14 @@ from app.services import (
 )
 from app.services.access_request import count_pending, emails_with_accounts
 from app.services.admin_audit import record_admin_action
+from app.services.fridge_service import lock_kitchen
+from app.services.household import (
+    delete_minted_invites,
+    lock_member_rows,
+    move_to_own_household,
+)
 from app.services.invite import create_invite, invite_link, invite_status
+from app.services.kitchen import Kitchen
 
 logger = logging.getLogger(__name__)
 
@@ -850,6 +857,16 @@ async def update_user(
             detail="Demo accounts cannot be modified.",
         )
 
+    members: list[User] = []
+    if body.is_active is False and target.is_active:
+        # Before stop_billing: a 409 after it would leave billing stopped on an
+        # active account. Before the admin rows below: a leave holds this lock and
+        # then locks user rows. One Stripe call runs under it, bounded by
+        # stripe_timeout_seconds.
+        kitchen = Kitchen.of(target)
+        await lock_kitchen(session, kitchen)
+        members = await lock_member_rows(session, kitchen.household_id)
+
     # Last-active-admin invariant (atomic) — only when this request would strip
     # admin-power from an active admin. The self-guard below is necessary for UX
     # but NOT sufficient under concurrency; the FOR UPDATE lock in the helper is.
@@ -901,6 +918,13 @@ async def update_user(
         target.is_active = body.is_active
         if body.is_active is False:
             await _revoke_sessions_and_bump(session, target, now)
+            # A deactivated account cannot hold a cap slot or be joined: alone, its
+            # household keeps its kitchen but no invite should lead there.
+            if len(members) > 1:
+                await move_to_own_household(session, target)
+            else:
+                assert target.id is not None
+                await delete_minted_invites(session, target.id)
         changes.append(
             ("user.deactivate" if body.is_active is False else "user.reactivate", active_detail)
         )

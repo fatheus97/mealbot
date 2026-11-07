@@ -71,7 +71,7 @@ from app.models.plan_models import (
     avoid_ingredients_cap,
 )
 from app.services.fridge_service import _KITCHEN_LOCKED, lock_kitchen
-from app.services.kitchen import Kitchen, household_members, households_enabled
+from app.services.kitchen import HouseholdId, Kitchen, household_members, households_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -764,6 +764,104 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     await session.commit()
     logger.info("health_consent_withdrawn user_id=%s plans_cleared=%s", user.id, changed)
     return changed
+
+
+def _without_contributors(request_json: str, gone: set[int]) -> str:
+    """The stored request with these people out of ``health_contributors``. A
+    contributor with no row reads as lost, so a plan that should keep working
+    must stop naming whoever's rows just went on purpose."""
+    try:
+        data = json.loads(request_json)
+    except ValueError:
+        return request_json
+    if not isinstance(data, dict) or not isinstance(data.get(CONTRIBUTORS), list):
+        return request_json
+    data[CONTRIBUTORS] = [c for c in data[CONTRIBUTORS] if c not in gone]
+    return json.dumps(data)
+
+
+async def remove_leaver_health(
+    session: AsyncSession, user_id: int, household_id: HouseholdId
+) -> int:
+    """Take someone leaving a household out of the health data on its plans.
+    Staged; the caller holds the kitchen lock and commits. Returns how many plans
+    were marked ``health_data_removed``.
+
+    Not what withdrawing does, because they are still staying consented, just
+    somewhere else, and the plans stay behind with people who need them:
+
+    - A row about them goes, and they come out of ``health_contributors``, so the
+      plan keeps working for whoever stays. Marking it removed would delete every
+      row, so one person leaving would stop the other regenerating or repeating
+      most shared plans and silence edit warnings about their own allergens.
+    - A carrying row they entered about anyone else, a one-off for a child above
+      all, may describe someone still eating there. Fail closed: the plan is
+      marked removed, and all its rows go, because removed wins in every reader.
+    - A blob that still carries the data itself is covered by the consent of the
+      member who generated the plan, so it goes the same way (see withdraw).
+    - A row carrying nothing just goes.
+    """
+    rows = (
+        await session.execute(
+            select(PlanHealth)
+            .join(MealPlan, col(MealPlan.id) == col(PlanHealth.meal_plan_id))
+            .where(
+                col(MealPlan.household_id) == household_id,
+                or_(
+                    col(PlanHealth.entered_by_user_id) == user_id,
+                    col(PlanHealth.subject_user_id) == user_id,
+                ),
+            )
+        )
+    ).scalars().all()
+    plans = (
+        await session.execute(
+            select(MealPlan).where(
+                col(MealPlan.household_id) == household_id,
+                or_(
+                    col(MealPlan.created_by_user_id) == user_id,
+                    col(MealPlan.id).in_({row.meal_plan_id for row in rows}),
+                ),
+            )
+        )
+    ).scalars().all()
+    about_someone_else = {
+        row.meal_plan_id
+        for row in rows
+        if row.subject_user_id != user_id and HealthEntry.of(row).carries()
+    }
+    removed: set[int] = set()
+    for plan in plans:
+        assert plan.id is not None
+        cleared = _cleared(plan.request_json, force=plan.id in about_someone_else)
+        if cleared is not None:
+            plan.request_json = cleared
+            session.add(plan)
+            removed.add(plan.id)
+    if removed:
+        await session.execute(delete(PlanHealth).where(col(PlanHealth.meal_plan_id).in_(removed)))
+    kept = [row for row in rows if row.meal_plan_id not in removed]
+    if not kept:
+        return len(removed)
+    await session.execute(delete(PlanHealth).where(col(PlanHealth.id).in_([r.id for r in kept])))
+    # Only who lost their last row here: someone already named with no row is a
+    # deleted member, and keeping that plan read as removed is the point.
+    still_there = (
+        await session.execute(
+            select(col(PlanHealth.meal_plan_id), col(PlanHealth.entered_by_user_id)).where(
+                col(PlanHealth.meal_plan_id).in_({row.meal_plan_id for row in kept})
+            )
+        )
+    ).all()
+    for plan in plans:
+        entered = {row.entered_by_user_id for row in kept if row.meal_plan_id == plan.id}
+        if plan.id in removed or not entered:
+            continue
+        gone = entered - {who for plan_id, who in still_there if plan_id == plan.id}
+        if gone:
+            plan.request_json = _without_contributors(plan.request_json, gone)
+            session.add(plan)
+    return len(removed)
 
 
 def profile_read(profile: DietaryProfile | None) -> DietaryProfileRead | None:

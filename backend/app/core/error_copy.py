@@ -89,6 +89,7 @@ ErrorKey = Literal[
     "household_invite_member",
     "household_too_many_invites",  # $maximum
     "household_invite_not_found",
+    "household_alone",
     # ── Shared households: eaters (app/services/health_consent.py) ──────────
     "household_member_consent_required",  # $email
     "household_avoid_too_long",  # $count_given, $maximum
@@ -239,6 +240,7 @@ _EN: Final[dict[str, str]] = {
         "Cancel one before creating another."
     ),
     "household_invite_not_found": "This invite no longer exists.",
+    "household_alone": "There is nobody else in this household, so there is nothing to leave.",
     "household_member_consent_required": (
         "$email has not consented to the use of their diets, allergies and "
         "ingredients to avoid. They can give it in Settings, or you can plan "
@@ -466,6 +468,7 @@ _CS: Final[dict[str, str]] = {
         "Než vytvoříte další, některou zrušte."
     ),
     "household_invite_not_found": "Tato pozvánka už neexistuje.",
+    "household_alone": "V této domácnosti není nikdo jiný, takže není z čeho odejít.",
     "household_member_consent_required": (
         "Účet $email nemá udělený souhlas s použitím typů stravy, alergií a "
         "surovin, kterým se vyhýbá. Souhlas lze udělit v Nastavení, nebo "

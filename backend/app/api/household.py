@@ -1,7 +1,8 @@
-"""The household API: who is in it, and invites (docs/household-design.md, "Join
-and leave"). Behind HOUSEHOLDS_ENABLED: with the flag off every route here is a
-404, the first thing checked, so the feature is invisible even to an account
-that could not use it anyway."""
+"""The household API: who is in it, invites and leaving (docs/household-design.md,
+"Join and leave"). Behind HOUSEHOLDS_ENABLED: with the flag off every route here
+is a 404, the first thing checked, so the feature is invisible even to an account
+that could not use it anyway. Except leaving: turning the flag off must not trap
+anyone in a shared household."""
 import logging
 from datetime import datetime
 
@@ -20,7 +21,9 @@ from app.services.household import (
     MAX_LIVE_INVITES,
     MAX_MEMBERS,
     live_invites,
+    lock_member_rows,
     mint_invite,
+    move_to_own_household,
     revoke_invite,
 )
 from app.services.kitchen import Kitchen, household_members, households_enabled
@@ -33,6 +36,11 @@ router = APIRouter(prefix="/household", tags=["household"])
 class HouseholdMemberRead(BaseModel):
     id: int
     email: str
+
+    @classmethod
+    def of(cls, user: User) -> HouseholdMemberRead:
+        assert user.id is not None
+        return cls(id=user.id, email=user.email)
 
 
 class HouseholdInviteRead(BaseModel):
@@ -94,11 +102,31 @@ async def read_household(
     members = await household_members(session, kitchen)
     invites = await live_invites(session, kitchen)
     return HouseholdRead(
-        members=[HouseholdMemberRead(id=m.id or 0, email=m.email) for m in members],
+        members=[HouseholdMemberRead.of(m) for m in members],
         invites=[HouseholdInviteRead.of(invite) for invite in invites],
         max_members=MAX_MEMBERS,
         max_live_invites=MAX_LIVE_INVITES,
     )
+
+
+# /api/household/leave
+@router.post("/leave", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def leave_household(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Move to a household of one, leaving the shared kitchen behind. Whatever
+    HOUSEHOLDS_ENABLED says. 409 from a household of one: no trigger would remove
+    the household left behind, and there is nothing to leave."""
+    kitchen = Kitchen.of(current_user)
+    await lock_kitchen(session, kitchen)
+    if len(await lock_member_rows(session, kitchen.household_id)) < 2:
+        raise LocalizedHTTPException(status.HTTP_409_CONFLICT, "household_alone")
+    await move_to_own_household(session, current_user)
+    await session.commit()
+    logger.info("household_left user_id=%s household_id=%s", kitchen.user_id, kitchen.household_id)
 
 
 # /api/household/invites
