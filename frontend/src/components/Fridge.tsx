@@ -215,9 +215,10 @@ export function Fridge() {
     }));
     setFridge(copy);
     refreshGroupOrder(copy, sortKey, sortDir);
-  // Only re-run when server data changes or the hold ends, not on sort changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverFridge, dataUpdatedAt, savesPending, holdsRow, refusal, refreshGroupOrder]);
+  // dataUpdatedAt, savesPending and refusal are not read here: they are what
+  // re-runs this when a reload or a hold ends. A sort change re-runs it too and
+  // stops at the seededFrom check, so it cannot drop a failed edit.
+  }, [serverFridge, dataUpdatedAt, savesPending, holdsRow, refusal, refreshGroupOrder, queryClient, userId, sortKey, sortDir]);
 
   // Live group data (totals, indices) — recomputes on edits, but ORDER is from groupOrder
   const groupedItems = useMemo(() => buildGroups(fridge), [fridge, buildGroups]);

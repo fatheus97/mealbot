@@ -1037,6 +1037,24 @@ describe('Fridge — changed on another device', () => {
     expect(screen.getByText(/failed to save/i)).toBeInTheDocument();
   });
 
+  it('a sort does not re-seed: a failed edit stays on screen, ready to go out with the next save', async () => {
+    const server = mockServer([MILK]);
+    const { wrapper } = setup();
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Milk')).toBeInTheDocument());
+
+    server.failPut = true;
+    await user.click(screen.getByRole('button', { name: /^edit$/i }));
+    await rename(user, 'Milk', 'Cream');
+    await waitFor(() => expect(screen.getByText(/failed to save/i)).toBeInTheDocument());
+
+    await user.click(screen.getByText(/^Ingredient/));
+
+    expect(screen.getByText('Cream')).toBeInTheDocument();
+    expect(screen.queryByText('Milk')).not.toBeInTheDocument();
+  });
+
   it('a Fridge mounted while a save is out still seeds, instead of showing an empty list', async () => {
     const server = mockServer([MILK]);
     let answer!: () => void;
