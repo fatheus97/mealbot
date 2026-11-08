@@ -772,6 +772,68 @@ async def withdraw(session: AsyncSession, user: User) -> int:
     return changed
 
 
+async def forget_before_delete(session: AsyncSession, user_id: int) -> int:
+    """Clear what deleting this account would leave stored with nothing to read
+    it. Staged, just before the delete, after anything that can refuse. Returns
+    how many plans were marked ``health_data_removed``.
+
+    The delete cascades this person's planhealth rows, both the ones they entered
+    and the ones about them. A plan naming them in ``health_contributors`` then
+    reads as lost, and so does one where someone else had only a row about them.
+    Lost reads as removed everywhere, yet its other rows would stay stored,
+    unread, until their people withdrew or left. So mark those plans removed and
+    delete their rows, as a withdrawal does. A plan whose blob carries the data
+    with no rows reads as unowned once its creator goes NULL: clear it too.
+
+    Locks the account's row first, the order every account delete takes (the
+    user row, then plans and rows): a leave or a join holds that row before it
+    touches any plan, so the two wait for each other instead of deadlocking."""
+    await session.execute(
+        select(col(User.id)).where(col(User.id) == user_id).with_for_update()
+    )
+    theirs = select(col(PlanHealth.meal_plan_id)).where(
+        or_(
+            col(PlanHealth.entered_by_user_id) == user_id,
+            col(PlanHealth.subject_user_id) == user_id,
+        )
+    )
+    plans = (
+        await session.execute(
+            select(MealPlan).where(
+                or_(col(MealPlan.id).in_(theirs), col(MealPlan.created_by_user_id) == user_id)
+            )
+        )
+    ).scalars().all()
+    rows = await plan_health_rows(session, [p.id for p in plans if p.id is not None])
+    removed: set[int] = set()
+    for plan in plans:
+        assert plan.id is not None
+        try:
+            data = json.loads(plan.request_json)
+        except ValueError:
+            continue
+        if not isinstance(data, dict) or _says_removed(data):
+            continue
+        plan_rows = rows.get(plan.id, [])
+        left = {
+            row.entered_by_user_id
+            for row in plan_rows
+            if user_id not in (row.entered_by_user_id, row.subject_user_id)
+        }
+        named = data.get(CONTRIBUTORS)
+        lost = isinstance(named, list) and any(c not in left for c in named)
+        unowned = not plan_rows and plan.created_by_user_id == user_id and _blob_carries(data)
+        if lost or unowned:
+            cleared = _cleared(plan.request_json, force=True)
+            if cleared is not None:
+                plan.request_json = cleared
+                session.add(plan)
+                removed.add(plan.id)
+    if removed:
+        await session.execute(delete(PlanHealth).where(col(PlanHealth.meal_plan_id).in_(removed)))
+    return len(removed)
+
+
 async def anyone_lacks_consent(
     session: AsyncSession, household_ids: Sequence[HouseholdId]
 ) -> bool:

@@ -85,6 +85,7 @@ from app.services import (
 from app.services.access_request import count_pending, emails_with_accounts
 from app.services.admin_audit import record_admin_action
 from app.services.fridge_service import lock_kitchen
+from app.services.health_consent import forget_before_delete
 from app.services.household import (
     delete_minted_invites,
     lock_member_rows,
@@ -1137,6 +1138,7 @@ async def delete_user(
         detail={"email": target.email, "billing": billing},
     )
 
+    await forget_before_delete(session, user_id)
     # Cascades every owned table (ON DELETE CASCADE) and anonymises SaleRecord +
     # InviteToken (ON DELETE SET NULL) — the ledger and the invite audit trail
     # survive the account.
