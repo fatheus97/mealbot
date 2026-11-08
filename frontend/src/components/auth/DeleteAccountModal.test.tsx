@@ -9,7 +9,7 @@ import * as AuthCtx from "../../contexts/AuthContext";
 import * as api from "../../api";
 import type { AuthState, Household, HouseholdMember } from "../../types";
 
-const ME_ALONE: HouseholdMember = { id: 1, email: "me@example.com" };
+const ME_ALONE: HouseholdMember = { id: 1, email: "me@example.com", profile: null, needs_consent: false };
 
 function authState(over: Partial<AuthState> = {}): AuthState {
   return {
