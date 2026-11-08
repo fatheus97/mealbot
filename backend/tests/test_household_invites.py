@@ -54,6 +54,17 @@ async def _invites(db: AsyncSession) -> list[HouseholdInvite]:
     return list((await db.execute(select(HouseholdInvite))).scalars())
 
 
+async def test_the_app_is_told_whether_households_are_on(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (await client.get("/api/config")).json()["households_enabled"] is False
+    monkeypatch.setattr(settings, "households_enabled", True)
+    # Not yet: the consent text does not cover households.
+    assert (await client.get("/api/config")).json()["households_enabled"] is False
+    monkeypatch.setattr(legal, "HOUSEHOLD_CONSENT_VERSION", HEALTH_CONSENT_VERSION)
+    assert (await client.get("/api/config")).json()["households_enabled"] is True
+
+
 class TestFlagOff:
     async def test_every_route_is_a_404(self, client: AsyncClient, test_user: User) -> None:
         # Unverified too: an account that could not use it still sees no feature.

@@ -19,6 +19,11 @@ vi.mock('../api', () => ({
   updateUserProfile: vi.fn(),
   downloadMyData: vi.fn(),
   deleteAccount: vi.fn(),
+  fetchHousehold: vi.fn(),
+  createHouseholdInvite: vi.fn(),
+  revokeHouseholdInvite: vi.fn(),
+  joinHousehold: vi.fn(),
+  leaveHousehold: vi.fn(),
 }));
 
 import { authFetch, fetchUserProfile, updateUserProfile, downloadMyData } from '../api';

@@ -43,6 +43,8 @@ import type {
   UserProfile,
   WasteEntry,
   WasteRecordedResponse,
+  Household,
+  HouseholdInviteCreated,
 } from "./types";
 import { extractErrorDetail } from "./utils/httpError";
 import { DEFAULT_LOCALE, useLocaleStore } from "./store/useLocaleStore";
@@ -900,4 +902,54 @@ export async function mergeFridgeItems(
     throw new Error(`Fridge merge failed: ${res.status} - ${txt}`);
   }
   return res.json();
+}
+
+// --- Households (docs/household-design.md, "Join and leave") ---
+//
+// Every refusal here carries a server `detail` in the user's language; the copy
+// covers only a 429 and a body without one (see RequestCopy).
+
+export async function fetchHousehold(): Promise<Household> {
+  const res = await authFetch("/household");
+  if (!res.ok) throw new Error(`Household failed: ${res.status}`);
+  return res.json();
+}
+
+export async function createHouseholdInvite(
+  email: string,
+  copy: RequestCopy,
+): Promise<HouseholdInviteCreated> {
+  const res = await authFetch("/household/invites", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  if (res.ok) return res.json();
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
+}
+
+export async function revokeHouseholdInvite(id: number, copy: RequestCopy): Promise<void> {
+  const res = await authFetch(`/household/invites/${id}`, { method: "DELETE" });
+  if (res.ok) return;
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
+}
+
+/** On success this account is in another household: reload the page. */
+export async function joinHousehold(code: string, copy: RequestCopy): Promise<void> {
+  const res = await authFetch("/household/join", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+  if (res.ok) return;
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
+}
+
+/** On success this account is in a household of its own: reload the page. */
+export async function leaveHousehold(copy: RequestCopy): Promise<void> {
+  const res = await authFetch("/household/leave", { method: "POST" });
+  if (res.ok) return;
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
 }

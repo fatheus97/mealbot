@@ -8,6 +8,7 @@ import { FeedbackModal } from "./FeedbackModal";
 import { ChangeEmailModal } from "./auth/ChangeEmailModal";
 import { DeleteAccountModal } from "./auth/DeleteAccountModal";
 import { HealthConsentSettings } from "./HealthConsentSettings";
+import { HouseholdSettings } from "./HouseholdSettings";
 import { downloadMyData } from "../api";
 import { preferencesFromProfile } from "../utils/preferences";
 import { InfoHint } from "./InfoHint";
@@ -319,6 +320,8 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         </div>
       </div>
       )}
+
+      <HouseholdSettings />
 
       <HealthConsentSettings />
 
