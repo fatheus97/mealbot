@@ -22,7 +22,7 @@ function authState(over: Partial<AuthState> = {}): AuthState {
 
 function household(over: Partial<Household> = {}): Household {
   return {
-    members: [{ id: 1, email: "me@example.com" }],
+    members: [{ id: 1, email: "me@example.com", profile: null, needs_consent: false }],
     invites: [],
     max_members: 6,
     max_live_invites: 3,
@@ -32,8 +32,8 @@ function household(over: Partial<Household> = {}): Household {
 
 const SHARED = household({
   members: [
-    { id: 1, email: "me@example.com" },
-    { id: 2, email: "partner@example.com" },
+    { id: 1, email: "me@example.com", profile: null, needs_consent: false },
+    { id: 2, email: "partner@example.com", profile: null, needs_consent: false },
   ],
 });
 
@@ -128,7 +128,7 @@ describe("HouseholdSettings", () => {
     setUp(
       authState(),
       household({
-        members: Array.from({ length: 6 }, (_, n) => ({ id: n + 1, email: `m${n}@example.com` })),
+        members: Array.from({ length: 6 }, (_, n) => ({ id: n + 1, email: `m${n}@example.com`, profile: null, needs_consent: false })),
       }),
     );
     renderWithProviders(<HouseholdSettings />);

@@ -9,14 +9,17 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
 
 from app.api.deps import get_current_user
 from app.core.errors import LocalizedHTTPException
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
-from app.models.db_models import HouseholdInvite, User
+from app.models.db_models import DietaryProfile, HouseholdInvite, User
+from app.models.plan_models import DietaryProfileRead
 from app.services import stripe_service
 from app.services.fridge_service import lock_kitchen
+from app.services.health_consent import has_health_consent, profile_carries, profile_read
 from app.services.household import (
     MAX_LIVE_INVITES,
     MAX_MEMBERS,
@@ -37,11 +40,25 @@ router = APIRouter(prefix="/household", tags=["household"])
 class HouseholdMemberRead(BaseModel):
     id: int
     email: str
+    # What each member's saved profile adds to a shared plan, shown before
+    # Generate; the household's members see each other's (the consent covers it).
+    # None without a current consent: Generate then leaves out whatever of it
+    # counts as health data, so none of it is shown either.
+    profile: DietaryProfileRead | None
+    # Their profile carries health data and their consent is not current, so
+    # Generate refuses them by email; the planner says so first.
+    needs_consent: bool
 
     @classmethod
-    def of(cls, user: User) -> HouseholdMemberRead:
+    def of(cls, user: User, profile: DietaryProfile | None) -> HouseholdMemberRead:
         assert user.id is not None
-        return cls(id=user.id, email=user.email)
+        consents = has_health_consent(user)
+        return cls(
+            id=user.id,
+            email=user.email,
+            profile=profile_read(profile) if consents else None,
+            needs_consent=not consents and profile_carries(profile),
+        )
 
 
 class HouseholdInviteRead(BaseModel):
@@ -106,8 +123,18 @@ async def read_household(
     kitchen = Kitchen.of(current_user)
     members = await household_members(session, kitchen)
     invites = await live_invites(session, kitchen)
+    profiles = {
+        profile.user_id: profile
+        for profile in (
+            await session.execute(
+                select(DietaryProfile).where(
+                    col(DietaryProfile.user_id).in_([m.id for m in members])
+                )
+            )
+        ).scalars()
+    }
     return HouseholdRead(
-        members=[HouseholdMemberRead.of(m) for m in members],
+        members=[HouseholdMemberRead.of(m, profiles.get(m.id or 0)) for m in members],
         invites=[HouseholdInviteRead.of(invite) for invite in invites],
         max_members=MAX_MEMBERS,
         max_live_invites=MAX_LIVE_INVITES,

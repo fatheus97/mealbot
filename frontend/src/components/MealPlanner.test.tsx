@@ -25,9 +25,12 @@ vi.mock('../api', () => ({
   updateUserProfile: vi.fn(),
   recordWaste: vi.fn(),
   updateMeal: vi.fn(),
+  fetchHousehold: vi.fn(),
 }));
 
-import { authFetch, fetchUserProfile, recordWaste, updateMeal } from '../api';
+import { authFetch, fetchHousehold, fetchUserProfile, recordWaste, updateMeal } from '../api';
+import * as AuthCtx from '../contexts/AuthContext';
+import type { AuthState } from '../types';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
@@ -429,6 +432,89 @@ describe('MealPlanner', () => {
         body: JSON.stringify({ frozen_meals: [{ day_index: 0, meal_index: 0 }] }),
       });
     });
+  });
+
+  it('cooks the plan for the members ticked, and leaves eaters out while everyone is', async () => {
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      healthConsent: true,
+      isDemo: false,
+      householdsEnabled: true,
+    } as unknown as AuthState);
+    vi.mocked(fetchHousehold).mockResolvedValue({
+      members: [
+        { id: 1, email: 'me@example.com', profile: null, needs_consent: false },
+        { id: 2, email: 'partner@example.com', profile: null, needs_consent: false },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    mockedAuthFetch.mockReset();
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ plan_id: 7, start_date: null, days: [{ meals: [] }], shopping_list: [] }),
+      } as unknown as Response);
+    });
+    const isGenerateCall = (call: unknown[]) => typeof call[0] === 'string' && call[0].startsWith('/plan?');
+    const bodies = () =>
+      mockedAuthFetch.mock.calls
+        .filter(isGenerateCall)
+        .map((call) => JSON.parse((call[1] as RequestInit).body as string) as { eaters?: unknown });
+
+    try {
+      const user = userEvent.setup();
+      render(<MealPlanner />, { wrapper: createWrapper() });
+      await screen.findByLabelText('partner@example.com');
+      await user.click(screen.getByRole('button', { name: /generate plan/i }));
+      await waitFor(() => expect(bodies()).toHaveLength(1));
+      expect(bodies()[0]).not.toHaveProperty('eaters');
+
+      await user.click(await screen.findByLabelText('partner@example.com'));
+      await user.click(screen.getByRole('button', { name: /generate plan/i }));
+      await waitFor(() => expect(bodies()).toHaveLength(2));
+      expect(bodies()[1].eaters).toEqual([1]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('asks for your consent when your own saved data needs it, and not once you untick yourself', async () => {
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      healthConsent: false,
+      isDemo: false,
+      householdsEnabled: true,
+    } as unknown as AuthState);
+    vi.mocked(fetchHousehold).mockResolvedValue({
+      members: [
+        { id: 1, email: 'me@example.com', profile: null, needs_consent: true },
+        { id: 2, email: 'partner@example.com', profile: null, needs_consent: false },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    mockedAuthFetch.mockReset();
+    mockedAuthFetch.mockImplementation(() => Promise.resolve(okEmpty()));
+
+    try {
+      const user = userEvent.setup();
+      render(<MealPlanner />, { wrapper: createWrapper() });
+
+      expect(await screen.findByRole('checkbox', { name: /i consent/i })).not.toBeChecked();
+      expect(screen.getByRole('button', { name: /generate plan/i })).toBeDisabled();
+
+      await user.click(screen.getByLabelText('me@example.com (you)'));
+
+      expect(screen.queryByRole('checkbox', { name: /i consent/i })).toBeNull();
+      expect(screen.getByRole('button', { name: /generate plan/i })).toBeEnabled();
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate body', async () => {

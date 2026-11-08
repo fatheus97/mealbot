@@ -251,6 +251,31 @@ describe('AuthContext admin flag', () => {
 });
 
 describe('AuthContext misc', () => {
+  it('granting health consent refreshes the household, which shows a profile only with consent', async () => {
+    const profile = { id: 7, email: 'user@test.com', is_demo: false, health_consent_at: '2026-11-08T08:00:00Z' };
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/users/health-consent')
+          ? ({ ok: true, status: 200, json: () => Promise.resolve(profile) } as unknown as Response)
+          : okEmpty(),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    const own = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useAuth(), { wrapper: own });
+    await act(async () => {
+      await result.current.grantHealthConsent();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['household'] });
+  });
+
   it('setOnboardingCompleted persists flag', () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
 

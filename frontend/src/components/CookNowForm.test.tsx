@@ -19,9 +19,12 @@ vi.mock('../api', () => ({
   updateUserProfile: vi.fn(),
   mergeFridgeItems: vi.fn(),
   scanReceipt: vi.fn(),
+  fetchHousehold: vi.fn(),
 }));
 
-import { authFetch, generateRecipe, cookRecipe, favoriteRecipe } from '../api';
+import { authFetch, generateRecipe, cookRecipe, favoriteRecipe, fetchHousehold } from '../api';
+import * as AuthCtx from '../contexts/AuthContext';
+import type { AuthState } from '../types';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedGenerate = generateRecipe as ReturnType<typeof vi.fn>;
@@ -365,6 +368,67 @@ describe('CookNowForm', () => {
     await waitFor(() => expect(mockedGenerate).toHaveBeenCalledTimes(1));
     const call = mockedGenerate.mock.calls[0][0];
     expect(call.avoid_ingredients).toEqual(['peanuts', 'cilantro']);
+  });
+
+  it('cooks for the members ticked, and leaves eaters out while everyone is', async () => {
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      healthConsent: true,
+      isDemo: false,
+      householdsEnabled: true,
+    } as unknown as AuthState);
+    vi.mocked(fetchHousehold).mockResolvedValue({
+      members: [
+        { id: 1, email: 'me@example.com', profile: null, needs_consent: false },
+        { id: 2, email: 'partner@example.com', profile: null, needs_consent: false },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    mockedGenerate.mockResolvedValue({
+      recipe: { name: 'Bowl', meal_type: 'main_course', meal_type_label: 'Main course', ingredients: [], steps: ['Toss'] },
+      generation_id: null,
+    });
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: /generate recipe/i }));
+    await waitFor(() => expect(mockedGenerate).toHaveBeenCalledTimes(1));
+    expect(mockedGenerate.mock.calls[0][0].eaters).toBeUndefined();
+
+    await user.click(screen.getByLabelText('partner@example.com'));
+    await user.click(screen.getByRole('button', { name: /generate recipe/i }));
+    await waitFor(() => expect(mockedGenerate).toHaveBeenCalledTimes(2));
+    expect(mockedGenerate.mock.calls[1][0].eaters).toEqual([1]);
+  });
+
+  it('asks for your consent when your own saved data needs it, and not once you untick yourself', async () => {
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      healthConsent: false,
+      isDemo: false,
+      householdsEnabled: true,
+    } as unknown as AuthState);
+    vi.mocked(fetchHousehold).mockResolvedValue({
+      members: [
+        { id: 1, email: 'me@example.com', profile: null, needs_consent: true },
+        { id: 2, email: 'partner@example.com', profile: null, needs_consent: false },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole('checkbox', { name: /i consent/i })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /generate recipe/i })).toBeDisabled();
+
+    await user.click(screen.getByLabelText('me@example.com (you)'));
+
+    expect(screen.queryByRole('checkbox', { name: /i consent/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /generate recipe/i })).toBeEnabled();
   });
 
   it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate request', async () => {

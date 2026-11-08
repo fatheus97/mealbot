@@ -241,6 +241,48 @@ class TestReadAndRevoke:
         assert body["max_members"] == MAX_MEMBERS
         assert body["max_live_invites"] == MAX_LIVE_INVITES
 
+    async def test_members_see_each_others_saved_profile(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        partner = await _member(
+            db_session, test_user.household_id, "partner",
+            profile={"diet_types": ["vegetarian"], "allergens": ["milk"], "avoid_ingredients": []},
+        )
+
+        members = (await client.get("/api/household")).json()["members"]
+
+        by_email = {m["email"]: m for m in members}
+        assert by_email[partner.email]["profile"]["allergens"] == ["milk"]
+        assert by_email[partner.email]["needs_consent"] is False
+        assert by_email[test_user.email]["profile"] is None
+        assert by_email[test_user.email]["needs_consent"] is False
+
+    async def test_a_profile_without_current_consent_is_not_shown(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        lapsed = await _member(
+            db_session, test_user.household_id, "lapsed", consent="an-older-text",
+            profile={"diet_types": [], "allergens": ["milk"], "avoid_ingredients": []},
+        )
+        never = await _member(
+            db_session, test_user.household_id, "never", consent=None,
+            profile={"diet_types": ["something_dropped_later"], "allergens": [], "avoid_ingredients": []},
+        )
+        balanced = await _member(
+            db_session, test_user.household_id, "balanced", consent=None,
+            profile={"diet_types": ["balanced"], "allergens": [], "avoid_ingredients": []},
+        )
+
+        members = (await client.get("/api/household")).json()["members"]
+
+        by_email = {m["email"]: m for m in members}
+        for person in (lapsed, never):
+            assert by_email[person.email]["profile"] is None
+            assert by_email[person.email]["needs_consent"] is True
+        # "balanced" alone is not health data: Generate does not refuse them.
+        assert by_email[balanced.email]["profile"] is None
+        assert by_email[balanced.email]["needs_consent"] is False
+
     async def test_another_member_sees_and_revokes_it(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:

@@ -266,6 +266,21 @@ export const en = {
   "settings.changeEmailHint":
     "Until you confirm the new address, new plans, recipes and scans are paused. Your other devices are also signed out.",
   "settings.yourData": "Your data",
+  "eaters.title": "Who's eating",
+  "eaters.hintLabel": "How meals for a shared household are cooked",
+  "eaters.hint":
+    "The meals are cooked for everyone ticked here, with their saved diets, allergies and ingredients to avoid, plus anything you pick below. Each person sets their own in Settings.",
+  "eaters.you": "{email} (you)",
+  "eaters.summaryTitle": "Their saved diets and allergies, added to what you pick below:",
+  "eaters.summaryDiets": "Diets: {list}",
+  "eaters.summaryAllergies": "Allergies: {list}",
+  "eaters.summaryAvoid": "Avoid: {list}",
+  "eaters.summaryNone": "The people ticked have no diets or allergies saved.",
+  "eaters.babyFood": "Baby food applies to every meal for everyone eating, not just one person.",
+  "eaters.needsYourConsent":
+    "Your saved diets and allergies are used only with your consent: tick the consent box below, or untick yourself to cook without them.",
+  "eaters.needsConsent":
+    "{email} hasn't confirmed consent to use their diets and allergies. Untick them to cook without them, or ask them to confirm it in Settings.",
   "household.title": "Household",
   "household.hintLabel": "What a shared household does",
   "household.hint":

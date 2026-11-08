@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubLocationReload } from '../test/location';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan } from './useServerState';
+import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan, useSaveDietaryProfile, useDeleteDietaryProfile, useHousehold } from './useServerState';
 import type { ReactNode } from 'react';
 
 // Mock the api module
@@ -10,9 +10,12 @@ vi.mock('../api', () => ({
   authFetch: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
+  saveDietaryProfile: vi.fn(),
+  deleteDietaryProfile: vi.fn(),
+  fetchHousehold: vi.fn(),
 }));
 
-import { authFetch, fetchUserProfile } from '../api';
+import { authFetch, fetchUserProfile, saveDietaryProfile, deleteDietaryProfile, fetchHousehold } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchUserProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
@@ -341,6 +344,48 @@ describe('useDeletePlan', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/5', { method: 'DELETE' });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['fridge'] });
+  });
+});
+
+describe('useHousehold', () => {
+  it('refreshes like the other shared queries: a partner changes their profile from their own phone', async () => {
+    vi.mocked(fetchHousehold).mockResolvedValueOnce({ members: [], invites: [], max_members: 6, max_live_invites: 3 });
+    const { wrapper, queryClient } = createWrapper();
+
+    const { result } = renderHook(() => useHousehold(1, true), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const options = queryClient.getQueryCache().find({ queryKey: ['household', 1] })?.options;
+    expect(options).toMatchObject({ refetchOnWindowFocus: true, staleTime: 30_000 });
+  });
+});
+
+describe('the saved dietary profile', () => {
+  const copy = { fallback: 'x', rateLimited: 'y' };
+  const saved = { diet_types: [], allergens: ['milk'], avoid_ingredients: [], updated_at: '2026-11-08T08:00:00Z' };
+
+  it('refreshes the household after a save, whose members carry their profiles', async () => {
+    vi.mocked(saveDietaryProfile).mockResolvedValueOnce(saved);
+    const { wrapper, queryClient } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useSaveDietaryProfile(), { wrapper });
+    result.current.mutate({ body: { diet_types: [], allergens: ['milk'], avoid_ingredients: [] }, copy });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['household'] });
+  });
+
+  it('refreshes the household after a removal', async () => {
+    vi.mocked(deleteDietaryProfile).mockResolvedValueOnce(undefined);
+    const { wrapper, queryClient } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useDeleteDietaryProfile(), { wrapper });
+    result.current.mutate(copy);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['household'] });
   });
 });
 

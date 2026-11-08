@@ -989,6 +989,20 @@ def profile_read(profile: DietaryProfile | None) -> DietaryProfileRead | None:
     )
 
 
+def profile_carries(profile: DietaryProfile | None) -> bool:
+    """Whether a saved profile is health data in the consent's sense, the rule
+    Generate refuses an eater by ("balanced" alone is not). Reads the stored
+    lists without validating them, so a value a later release dropped still
+    counts."""
+    return profile is not None and _blob_carries(
+        {
+            "diet_types": list(profile.diet_types),
+            "allergens": list(profile.allergens),
+            "avoid_ingredients": list(profile.avoid_ingredients),
+        }
+    )
+
+
 async def save_profile(
     session: AsyncSession, user: User, body: DietaryProfileBody
 ) -> DietaryProfile:

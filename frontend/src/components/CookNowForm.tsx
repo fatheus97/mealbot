@@ -24,6 +24,8 @@ import {
   type MealType,
 } from "../constants/mealTypes";
 import { DietarySelector } from "./DietarySelector";
+import { EaterPicker } from "./EaterPicker";
+import { useEaterChoice } from "../hooks/useEaterChoice";
 import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 import { useI18n, useMealTypeLabel } from "../i18n";
 import type {
@@ -56,6 +58,8 @@ export function CookNowForm() {
   const avoidId = useId();
   const mealTypeLabel = useMealTypeLabel();
   const { userId, healthConsent } = useAuth();
+  // Shared households: who this recipe is for (EaterPicker).
+  const eaterChoice = useEaterChoice();
   const isMobile = useIsMobile();
   // The intro line and the generate-failure alert sit on the ADAPTIVE page
   // background — this form pins no surface of its own until the recipe card.
@@ -121,6 +125,7 @@ export function CookNowForm() {
   // Same consent rule as the planner (HealthConsentCheckbox).
   const carriesHealthData =
     dietTypes.length > 0 || allergens.length > 0 || avoidIngredients.length > 0;
+  const needsConsent = carriesHealthData || eaterChoice.youNeedConsent;
 
   const buildRequest = (): SingleRecipeRequest => ({
     meal_type: mealType,
@@ -132,6 +137,7 @@ export function CookNowForm() {
     ingredients_to_use: ingredientsToUse,
     stock_only: stockOnly,
     note: note.trim() ? note.trim() : null,
+    ...(eaterChoice.eaters !== null && { eaters: eaterChoice.eaters }),
   });
 
   const handleGenerate = () => {
@@ -266,6 +272,7 @@ export function CookNowForm() {
         </label>
 
         <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <EaterPicker choice={eaterChoice} />
           <DietarySelector
             dietTypes={dietTypes}
             allergens={allergens}
@@ -354,11 +361,11 @@ export function CookNowForm() {
         </label>
       </div>
 
-      <HealthConsentCheckbox active={carriesHealthData} id="health-consent-cook" />
+      <HealthConsentCheckbox active={needsConsent} id="health-consent-cook" />
       <button
         type="button"
         onClick={handleGenerate}
-        disabled={generateMutation.isPending || (carriesHealthData && !healthConsent)}
+        disabled={generateMutation.isPending || (needsConsent && !healthConsent)}
         style={{
           alignSelf: "flex-start",
           padding: "0.5rem 1.5rem",

@@ -9,7 +9,7 @@ import * as AuthCtx from "../../contexts/AuthContext";
 import * as api from "../../api";
 import type { AuthState, Household, HouseholdMember } from "../../types";
 
-const ME_ALONE: HouseholdMember = { id: 1, email: "me@example.com" };
+const ME_ALONE: HouseholdMember = { id: 1, email: "me@example.com", profile: null, needs_consent: false };
 
 function authState(over: Partial<AuthState> = {}): AuthState {
   return {
@@ -44,8 +44,8 @@ describe("DeleteAccountModal", () => {
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: true }));
     vi.spyOn(api, "fetchHousehold").mockResolvedValue({
       members: [
-        { id: 1, email: "me@example.com" },
-        { id: 2, email: "partner@example.com" },
+        { id: 1, email: "me@example.com", profile: null, needs_consent: false },
+        { id: 2, email: "partner@example.com", profile: null, needs_consent: false },
       ],
       invites: [],
       max_members: 6,
