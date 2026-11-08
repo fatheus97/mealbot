@@ -48,7 +48,7 @@ Live at **[trymealbot.com](https://trymealbot.com)** — closed alpha, paid subs
 ### Admin and operations
 
 - **Admin dashboard** — usage/cost, revenue and VAT, activation funnel, generation activity, and full user management (create, disable, comp, force-logout, guarded hard-delete that anonymizes the VAT ledger rather than cascading it away), all behind a fail-closed RBAC dependency and an append-only audit log.
-- **RAG** — meals you favourite are embedded (pgvector + `all-MiniLM-L6-v2`) and retrieved as in-context examples, with your own favourites boosted over the global corpus.
+- **RAG** — meals you favourite are embedded (pgvector + `all-MiniLM-L6-v2`) and retrieved as in-context examples, from your own household's cookbook only (never another account's).
 - **Scheduled jobs** — systemd timers for nightly database backup, session-table pruning, billing alerts and Docker disk cleanup, each alerting by email on failure.
 
 ---
