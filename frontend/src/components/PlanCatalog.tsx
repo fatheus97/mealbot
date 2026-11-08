@@ -10,6 +10,9 @@ import {
 } from "../hooks/useServerState";
 import { fetchPlan } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { EaterPicker } from "./EaterPicker";
+import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
+import { useEaterChoice } from "../hooks/useEaterChoice";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { usePrefersDark } from "../hooks/usePrefersDark";
 import type { MealPlanResponse, MealPlanSummary, PlanStatus } from "../types";
@@ -29,13 +32,18 @@ interface PlanCatalogProps {
 
 export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
   const { t, locale } = useI18n();
-  const { userId } = useAuth();
+  const { userId, healthConsent } = useAuth();
   const isMobile = useIsMobile();
   const scheme = usePrefersDark() ? "dark" : "light";
   const { data: plans, isLoading } = usePlanList(userId);
   const deleteMutation = useDeletePlan();
   const rescheduleMutation = useReschedulePlan();
   const repeatMutation = useRepeatPlan();
+  // Shared households: who a repeated plan is copied for (EaterPicker).
+  const eaterChoice = useEaterChoice();
+  // Your own saved data needs your consent while you are eating, as in the
+  // planner; the server refuses the repeat without it.
+  const repeatNeedsConsent = eaterChoice.youNeedConsent && !healthConsent;
   const [expanded, setExpanded] = useState(true);
   const [loadingPlanId, setLoadingPlanId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
@@ -73,7 +81,11 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
     setRepeatingPlanId(summary.id);
     setRepeatError(null);
     try {
-      const copy = await repeatMutation.mutateAsync({ planId: summary.id, startDate });
+      const copy = await repeatMutation.mutateAsync({
+        planId: summary.id,
+        startDate,
+        eaters: eaterChoice.eaters,
+      });
       // Every field is DERIVED from the copy or the source, not invented: the
       // shape/size fields are copied server-side, the copy is by construction
       // uncooked and unfinished, and total_meals is what the plan will hold
@@ -176,6 +188,13 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
             <p style={{ ...MUTED_PAGE_TEXT, fontSize: "0.9rem" }}>
               {t("plans.empty")}
             </p>
+          )}
+
+          {plans && plans.length > 0 && (
+            <div style={{ marginBottom: "0.75rem" }}>
+              <EaterPicker choice={eaterChoice} purpose="repeat" />
+              <HealthConsentCheckbox active={eaterChoice.youNeedConsent} id="health-consent-repeat" />
+            </div>
           )}
 
           {plans && plans.length > 0 && (
@@ -289,7 +308,7 @@ export function PlanCatalog({ onOpenPlan }: PlanCatalogProps) {
                           the same card, not new ones. */}
                       <button
                         onClick={() => handleRepeat(plan, plan.start_date ?? null)}
-                        disabled={repeatingPlanId === plan.id}
+                        disabled={repeatingPlanId === plan.id || repeatNeedsConsent}
                         style={{
                           flex: isMobile ? 1 : undefined,
                           padding: "0.3rem 0.8rem",

@@ -55,6 +55,9 @@ const sent = () => JSON.parse(screen.getByTestId("sent").textContent ?? "") as n
 function EaterPickerOnly() {
   return <EaterPicker choice={useEaterChoice()} />;
 }
+function RepeatPickerOnly() {
+  return <EaterPicker choice={useEaterChoice()} purpose="repeat" />;
+}
 
 function setUp(members: HouseholdMember[] = [ME, PARTNER], state: AuthState = authState()) {
   vi.spyOn(AuthCtx, "useAuth").mockReturnValue(state);
@@ -188,6 +191,21 @@ describe("EaterPicker", () => {
 
     expect(screen.queryByText(/used only with your consent/)).toBeNull();
     expect(screen.getByTestId("you-need-consent")).toHaveTextContent("false");
+  });
+
+  it("says, above the plan list, that a repeated copy is made for them", async () => {
+    setUp();
+    renderWithProviders(<RepeatPickerOnly />);
+    expect(await screen.findByText("Their saved diets and allergies, which the copy is made for:")).toBeInTheDocument();
+    expect(screen.queryByText(/added to what you pick below/)).toBeNull();
+  });
+
+  it("is all Czech for Repeat too", async () => {
+    setUp();
+    act(() => useLocaleStore.setState({ locale: "cs", explicit: true }));
+    renderWithProviders(<RepeatPickerOnly />);
+    expect(await screen.findByText("Jejich uložené diety a alergie, pro které se kopie vytvoří:")).toBeInTheDocument();
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
   });
 
   it("is all Czech in a Czech UI", async () => {
