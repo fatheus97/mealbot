@@ -391,8 +391,10 @@ class MealPlanRequest(BaseModel):
     # profiles this plan is generated with; missing means every member. Member
     # ids, so it never goes into the stored request, the prompt or telemetry
     # (exclude): a household of one stores exactly what it stored before.
-    # Capped at the member cap (docs/household-design.md, decision 3).
-    eaters: list[int] | None = Field(default=None, max_length=6, exclude=True)
+    # Capped at the member cap (docs/household-design.md, decision 3). Never
+    # empty: cooking for nobody would check the plan against nobody's saved
+    # allergies, and the picker always keeps someone ticked.
+    eaters: list[int] | None = Field(default=None, min_length=1, max_length=6, exclude=True)
     meals_per_day: int = Field(
         ge=1,
         le=6,
@@ -931,7 +933,7 @@ class PlanRepeatRequest(BaseModel):
     start_date: date | None = None
     # As MealPlanRequest.eaters: in a shared household the copy is for the
     # members eating now, missing means every member. Never stored.
-    eaters: list[int] | None = Field(default=None, max_length=6)
+    eaters: list[int] | None = Field(default=None, min_length=1, max_length=6)
 
     @field_validator("start_date")
     @classmethod
@@ -1150,7 +1152,7 @@ class SingleRecipeRequest(BaseModel):
     # As MealPlanRequest.eaters: Cook Now cooks for the same members (decision
     # 7: all of them by default). /cook inherits it and re-reads their
     # profiles when it saves.
-    eaters: list[int] | None = Field(default=None, max_length=6, exclude=True)
+    eaters: list[int] | None = Field(default=None, min_length=1, max_length=6, exclude=True)
 
     @field_validator(*_SINGLE_RECIPE_SANITIZED_FIELDS, mode="before")
     @classmethod

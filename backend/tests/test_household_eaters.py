@@ -30,6 +30,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient, Response
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -43,7 +44,12 @@ from app.core.email_normalize import normalize_email
 from app.core.error_copy import ERROR_COPY
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.models.db_models import DietaryProfile, MachineGeneration, MealPlan, PlanHealth, User
-from app.models.plan_models import MealPlanRequest, SingleDayResponse
+from app.models.plan_models import (
+    MealPlanRequest,
+    PlanRepeatRequest,
+    SingleDayResponse,
+    SingleRecipeRequest,
+)
 from app.services.fridge_service import lock_kitchen
 from app.services.health_consent import HealthEntry, request_to_store
 from app.services.kitchen import Kitchen
@@ -265,6 +271,22 @@ class TestSharedHousehold:
             assert resp.status_code == 422, resp.text
             assert resp.json()["detail"] == refused
             gen.assert_not_awaited()
+
+    async def test_nobody_eating_is_refused_before_the_model(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """An empty list would check the plan against nobody's saved allergies."""
+        await _member(db_session, test_user.household_id, "partner", profile=PARTNER)
+        resp, gen = await _generate(client, db_session, {**TYPED, "eaters": []})
+        assert resp.status_code == 422, resp.text
+        gen.assert_not_awaited()
+
+    @pytest.mark.parametrize("model", [MealPlanRequest, SingleRecipeRequest, PlanRepeatRequest])
+    def test_no_request_takes_an_empty_eaters_list(self, model: type[BaseModel]) -> None:
+        with pytest.raises(ValidationError):
+            model.model_validate({"meal_type": "main_course", "eaters": []})
+        # Missing still means every member.
+        assert model.model_validate({"meal_type": "main_course"}).model_dump().get("eaters") is None
 
     async def test_an_eater_without_consent_is_named(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
