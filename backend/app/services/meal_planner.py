@@ -308,7 +308,7 @@ async def generate_single_day_with_rag(
     slot_portions: list[int] | None = None,
 ) -> SingleDayResponse | None:
     """
-    Attempt RAG generation using highly-rated meals from all users.
+    Attempt RAG generation using the household's own favourite meals.
     Returns None if insufficient relevant history (caller should fall back).
     """
     # Build retrieval query from user context
@@ -363,7 +363,7 @@ async def generate_single_day_with_rag(
             ):
                 continue
             # Same rationale for infant safety, and it is load-bearing here.
-            # retrieve_rated_meals pulls highly-rated meals from ALL users with
+            # retrieve_rated_meals pulls the household's favourites with
             # no diet filter, so for a baby_food request nearly every example is
             # an ordinary adult recipe (salt, cheese, oil). Priming the model
             # with those makes it copy them, the post-generation infant screen
@@ -380,7 +380,6 @@ async def generate_single_day_with_rag(
                 "name": meal.name,
                 "ingredients": [ing.name for ing in meal.ingredients],
                 "steps": meal.steps,
-                "is_own": hit.household_id == household_id,
             })
         except Exception:
             logger.warning("RAG: failed to parse meal_json for entry %d", hit.meal_entry_id)
