@@ -138,3 +138,15 @@ class TestMealEntrySummaryFromEntry:
     def test_requires_populated_id(self) -> None:
         with pytest.raises(AssertionError):
             MealEntrySummary.from_entry(_entry(id=None))
+
+
+def test_merge_sums_existing_rows_that_share_a_key() -> None:
+    """A join brings both sides' batches of one item; a merge must keep them all."""
+    existing = [
+        StockItemDTO(name="Rice", quantity_grams=100),
+        StockItemDTO(name="rice", quantity_grams=500, need_to_use=True),
+    ]
+
+    merged = merge_into_fridge_buckets(existing, [StockItemDTO(name="RICE", quantity_grams=50)])
+
+    assert [(m.name, m.quantity_grams, m.need_to_use) for m in merged] == [("Rice", 650, True)]

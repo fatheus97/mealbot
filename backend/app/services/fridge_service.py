@@ -9,7 +9,8 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Literal
+from itertools import chain
+from typing import Final, Literal
 
 from sqlalchemy import event, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,12 @@ __all__ = [
 _KITCHEN_LOCK_NAMESPACE = 0x4B544348
 # session.info key recording which household's kitchen THIS transaction locked.
 _KITCHEN_LOCKED = "kitchen_locked_household_id"
+
+#: Per-item bounds live on StockItemDTO; this caps the LIST so a single PUT/merge
+#: can't ship thousands of items (prompt-size/DoS at the list level). A real
+#: fridge/pantry is well under this. A join checks it too: past it, no whole-list
+#: save could get back under.
+MAX_FRIDGE_ITEMS: Final = 500
 
 # The two whole lists a household keeps, each with its own version
 # (docs/household-design.md, "Concurrency for two phones").
@@ -103,12 +110,15 @@ async def shelf_version(session: AsyncSession, household_id: HouseholdId, shelf:
     """The current version, for a read's token. Read it BEFORE the list it
     goes with: a write between the two then makes the token too old, never
     too new."""
-    version: int = (
+    version = (
         await session.execute(
             select(_version_column(shelf)).where(col(Household.id) == household_id)
         )
-    ).scalar_one()
-    return version
+    ).scalar_one_or_none()
+    # A join that committed after this request read its user deleted the household.
+    if version is None:
+        raise LocalizedHTTPException(409, "household_changed")
+    return int(version)
 
 
 async def _count_write(
@@ -244,10 +254,10 @@ def merge_into_fridge_buckets(
     (ConsumedBatch input) so the two paths can never key the fridge differently.
     Returns a fresh list; callers persist via replace_fridge_items.
     """
-    merged: dict[tuple[str, date | None], StockItemDTO] = {
-        (i.name.strip().lower(), i.expiration_date): i for i in existing
-    }
-    for item in incoming:
+    merged: dict[tuple[str, date | None], StockItemDTO] = {}
+    # Existing rows too: two can share a key (a join brings both sides' batches),
+    # and a dict built from them directly kept only the last.
+    for item in chain(existing, incoming):
         key = (item.name.strip().lower(), item.expiration_date)
         if key in merged:
             merged[key] = StockItemDTO(

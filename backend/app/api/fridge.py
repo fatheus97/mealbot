@@ -36,6 +36,7 @@ from app.models.plan_models import (
     WasteRecordedResponse,
 )
 from app.services.fridge_service import (
+    MAX_FRIDGE_ITEMS,
     expected_version,
     get_fridge_items,
     lock_kitchen,
@@ -66,10 +67,6 @@ router = APIRouter(prefix="/fridge", tags=["fridge"])
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-# Per-item bounds live on StockItemDTO; this caps the LIST so a single PUT/merge
-# can't ship thousands of items (prompt-size/DoS at the list level). A real
-# fridge/pantry is well under this.
-MAX_FRIDGE_ITEMS = 500
 # The fridge's version token (docs/household-design.md, "Concurrency for two
 # phones"): sent on GET, PUT and merge, and sent back by the client with its
 # next PUT.

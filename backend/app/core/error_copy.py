@@ -93,6 +93,7 @@ ErrorKey = Literal[
     "household_join_not_alone",
     "household_join_no_access",
     "household_join_consent",
+    "household_join_too_big",  # $fridge, $staples
     # ── Shared households: eaters (app/services/health_consent.py) ──────────
     "household_member_consent_required",  # $email
     "household_avoid_too_long",  # $count_given, $maximum
@@ -252,6 +253,10 @@ _EN: Final[dict[str, str]] = {
     "household_join_consent": (
         "You can't join yet: everyone with diets or allergies saved on these plans, you "
         "included, has to confirm the current consent first."
+    ),
+    "household_join_too_big": (
+        "Together, your fridge and staples would be more than one household can keep "
+        "(up to $fridge fridge items and $staples staples). Remove some, then try again."
     ),
     "household_member_consent_required": (
         "$email has not consented to the use of their diets, allergies and "
@@ -489,6 +494,11 @@ _CS: Final[dict[str, str]] = {
     "household_join_consent": (
         "Zatím se nemůžete připojit: všichni, kdo mají u těchto plánů uložené diety nebo "
         "alergie, včetně vás, musí nejdřív potvrdit aktuální souhlas."
+    ),
+    "household_join_too_big": (
+        "Vaše lednice a zásoby spíže by dohromady přesáhly, co jedna domácnost může mít "
+        "(nejvýš $fridge položek v lednici a $staples položek v zásobách spíže). Něco "
+        "odeberte a zkuste to znovu."
     ),
     "household_member_consent_required": (
         "Účet $email nemá udělený souhlas s použitím typů stravy, alergií a "

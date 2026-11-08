@@ -26,9 +26,10 @@ from app.models.db_models import (
     User,
 )
 from app.services import stripe_service
-from app.services.fridge_service import _count_write, lock_kitchen_and
+from app.services.fridge_service import MAX_FRIDGE_ITEMS, _count_write, lock_kitchen_and
 from app.services.health_consent import anyone_lacks_consent, remove_leaver_health
 from app.services.kitchen import HouseholdId, Kitchen, household_members, invited_household
+from app.services.pantry_service import MAX_STAPLES
 from app.services.plan_service import clear_unconfirmed_plans
 
 #: A household's cap (design decision 3). Also the most eaters a plan can name.
@@ -184,9 +185,40 @@ async def join_household(session: AsyncSession, user: User, code: str) -> Househ
     await clear_unconfirmed_plans(session, kitchen)
     if await anyone_lacks_consent(session, (kitchen.household_id, target)):
         raise LocalizedHTTPException(409, "household_join_consent")
+    if await _too_big_together(session, kitchen.household_id, target):
+        raise LocalizedHTTPException(
+            409,
+            "household_join_too_big",
+            fridge=str(MAX_FRIDGE_ITEMS),
+            staples=str(MAX_STAPLES),
+        )
 
     await _bring_kitchen(session, user, kitchen, target)
     return target
+
+
+async def _too_big_together(
+    session: AsyncSession, own: HouseholdId, target: HouseholdId
+) -> bool:
+    """Whether the two kitchens together pass a list cap. Past it, no whole-list
+    save could get back under, so nobody in the household could edit that list.
+    A staple both hold counts once, as the merge keeps it once."""
+    households = (own, target)
+    fridge = (
+        await session.execute(
+            select(func.count())
+            .select_from(StockItem)
+            .where(col(StockItem.household_id).in_(households))
+        )
+    ).scalar_one()
+    staples = (
+        await session.execute(
+            select(func.count(func.distinct(func.lower(col(PantryStaple.name))))).where(
+                col(PantryStaple.household_id).in_(households)
+            )
+        )
+    ).scalar_one()
+    return int(fridge) > MAX_FRIDGE_ITEMS or int(staples) > MAX_STAPLES
 
 
 async def _bring_kitchen(

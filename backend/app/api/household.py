@@ -123,9 +123,10 @@ async def join(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Join the household an invite leads to, bringing this person's kitchen. A
-    wrong code and someone else's code answer alike. The client reloads afterwards,
-    which drops every cache."""
+    """Join the household an invite leads to, bringing this person's kitchen. To
+    someone alone in their household, a wrong code and someone else's code answer
+    alike. Someone already sharing one hears that first, which tells them only that
+    the code exists. The client reloads afterwards, which drops every cache."""
     _require_flag()
     _require_can_share(current_user)
     household_id = await join_household(session, current_user, body.code)

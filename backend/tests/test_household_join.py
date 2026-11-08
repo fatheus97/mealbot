@@ -2,7 +2,8 @@
 
 Pinned here:
 * with the flag off it is a 404, before anything else;
-* a wrong code, someone else's code, an expired one and your own all answer alike;
+* to someone alone in their household, a wrong code, someone else's code, an
+  expired one and their own all answer alike;
 * nothing past that names anyone, and any refusal leaves the invite usable;
 * the kitchen comes along, whole, and the old household is gone;
 * neither a second redeem nor a delete on either side deadlocks or orphans a
@@ -36,7 +37,8 @@ from app.models.db_models import (
     User,
 )
 from app.services import fridge_service
-from app.services.fridge_service import lock_kitchen_and
+from app.services import household as household_service
+from app.services.fridge_service import lock_kitchen, lock_kitchen_and, shelf_version
 from app.services.household import MAX_MEMBERS, join_household
 from app.services.kitchen import HouseholdId, Kitchen
 from tests.conftest import TEST_PASSWORD
@@ -380,6 +382,81 @@ class TestRefusals:
         code = await _invite(db_session, inviter, test_user.email)
 
         assert (await client.post(URL, json={"code": code})).status_code == 409
+
+
+@pytest.mark.usefixtures("households_on")
+class TestTooBigTogether:
+    """Past a cap, no whole-list save could get back under it."""
+
+    async def _staples(self, db: AsyncSession, user: User, *names: str) -> None:
+        assert user.household_id is not None
+        for name in names:
+            db.add(PantryStaple(household_id=user.household_id, name=name))
+        await db.flush()
+
+    async def test_staples_past_the_cap_are_refused(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(household_service, "MAX_STAPLES", 2)
+        inviter = await _consenting_inviter(db_session)
+        await self._staples(db_session, inviter, "salt", "pepper")
+        await self._staples(db_session, test_user, "cumin")
+        code = await _invite(db_session, inviter, test_user.email)
+
+        resp = await client.post(URL, json={"code": code})
+
+        assert resp.status_code == 409
+        assert "2 staples" in resp.json()["detail"]
+
+    async def test_a_staple_both_hold_counts_once(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(household_service, "MAX_STAPLES", 2)
+        inviter = await _consenting_inviter(db_session)
+        await self._staples(db_session, inviter, "salt", "pepper")
+        await self._staples(db_session, test_user, "Salt")
+        code = await _invite(db_session, inviter, test_user.email)
+
+        assert (await client.post(URL, json={"code": code})).status_code == 204
+
+    async def test_fridge_rows_past_the_cap_are_refused(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(household_service, "MAX_FRIDGE_ITEMS", 1)
+        inviter = await _consenting_inviter(db_session)
+        assert inviter.household_id is not None and test_user.household_id is not None
+        db_session.add(StockItem(household_id=inviter.household_id, name="rice", quantity_grams=1))
+        db_session.add(StockItem(household_id=test_user.household_id, name="rice", quantity_grams=1))
+        await db_session.flush()
+        code = await _invite(db_session, inviter, test_user.email)
+
+        resp = await client.post(URL, json={"code": code})
+
+        assert resp.status_code == 409
+        assert "1 fridge items" in resp.json()["detail"]
+
+
+class TestAfterTheMove:
+    async def test_a_household_gone_meanwhile_reads_as_changed(
+        self, db_session: AsyncSession
+    ) -> None:
+        """A join that committed after a request read its user deleted the household."""
+        with pytest.raises(LocalizedHTTPException) as changed:
+            await shelf_version(db_session, HouseholdId(999_999_999), "fridge")
+
+        assert changed.value.key == "household_changed"
 
 
 @pytest.mark.usefixtures("households_on")
@@ -802,6 +879,35 @@ class TestRaces:
         async with AsyncSession(test_engine) as s:
             assert await s.get(Household, real_people["joiner_household"]) is None
             assert await s.get(Household, real_people["target"]) is not None
+            assert len((await s.execute(select(HouseholdInvite))).scalars().all()) == 1
+            assert await _orphans(s) == 0
+
+    async def test_a_joiner_deactivated_during_the_wait_is_refused(
+        self, test_engine: AsyncEngine, real_people: dict[str, int]
+    ) -> None:
+        """Their row was loaded before the wait, so it still read active."""
+        code = await _real_invite(test_engine, real_people["inviter"], JOINER)
+        async with (
+            AsyncSession(test_engine) as admin_side,
+            AsyncSession(test_engine) as observer,
+            _routes_as(test_engine, real_people["joiner"]) as route,
+        ):
+            holder = await _pid(admin_side)
+            joiner = await admin_side.get(User, real_people["joiner"])
+            assert joiner is not None
+            await lock_kitchen(admin_side, Kitchen.of(joiner))
+            joiner.is_active = False
+            admin_side.add(joiner)
+            await admin_side.flush()
+            task = asyncio.create_task(route.post(URL, json={"code": code}))
+            await _wait_until_blocked_by(observer, holder, task)
+            await admin_side.commit()
+            resp = await asyncio.wait_for(task, 10)
+
+        assert resp.status_code == 409, resp.text
+        async with AsyncSession(test_engine) as s:
+            me = await s.get(User, real_people["joiner"])
+            assert me is not None and me.household_id == real_people["joiner_household"]
             assert len((await s.execute(select(HouseholdInvite))).scalars().all()) == 1
             assert await _orphans(s) == 0
 
