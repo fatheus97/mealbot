@@ -15,6 +15,7 @@ import { DayLayoutEditor } from "./DayLayoutEditor";
 import { useI18n } from "../i18n";
 import { CookNowForm } from "./CookNowForm";
 import { DietarySelector } from "./DietarySelector";
+import { EaterPicker } from "./EaterPicker";
 import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 import { InfoHint } from "./InfoHint";
 import { usePreferencesStore } from "../store/usePreferencesStore";
@@ -94,6 +95,8 @@ interface MealPlannerProps {
 
 export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
   const { userId, healthConsent } = useAuth();
+  // Shared households: who this plan is for; null = everyone (EaterPicker).
+  const [eaters, setEaters] = useState<number[] | null>(null);
   const { t, locale } = useI18n();
   const showPieces = useShowPieces();
   const isMobile = useIsMobile();
@@ -308,6 +311,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       ingredients_to_use: ingredientsToUse,
       diet_types: dietTypes,
       allergens,
+      ...(eaters !== null && { eaters }),
       meals_per_day: mealsPerDay,
       people_count: peopleCount,
       past_meals: [],
@@ -706,6 +710,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         </label>
 
         <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <EaterPicker eaters={eaters} onChange={setEaters} />
           <DietarySelector
             dietTypes={dietTypes}
             allergens={allergens}

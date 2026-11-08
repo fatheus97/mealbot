@@ -227,6 +227,19 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "settings.changeEmailHint":
     "Dokud novou adresu nepotvrdíte, nemůžete vytvářet nové jídelníčky a recepty ani skenovat. Na ostatních zařízeních vás navíc odhlásíme.",
   "settings.yourData": "Vaše data",
+  "eaters.title": "Kdo bude jíst",
+  "eaters.hintLabel": "Jak se vaří pro sdílenou domácnost",
+  "eaters.hint":
+    "Jídla se uvaří pro všechny, kdo jsou tu zaškrtnutí, s jejich uloženými dietami, alergiemi a surovinami k vynechání a s tím, co vyberete níže. Každý si své nastavuje v Nastavení.",
+  "eaters.you": "{email} (vy)",
+  "eaters.summaryTitle": "Jejich uložené diety a alergie, přidané k tomu, co vyberete níže:",
+  "eaters.summaryDiets": "Diety: {list}",
+  "eaters.summaryAllergies": "Alergie: {list}",
+  "eaters.summaryAvoid": "Vynechat: {list}",
+  "eaters.summaryNone": "Zaškrtnutí lidé nemají uložené žádné diety ani alergie.",
+  "eaters.babyFood": "Dětská strava platí pro každé jídlo a pro všechny, kdo jedí, ne jen pro jednoho člověka.",
+  "eaters.needsConsent":
+    "U {email} chybí potvrzený souhlas s použitím diet a alergií. Zrušte zaškrtnutí, chcete-li vařit bez nich, nebo požádejte o potvrzení v Nastavení.",
   "household.title": "Domácnost",
   "household.hintLabel": "Co dělá sdílená domácnost",
   "household.hint":

@@ -40,6 +40,8 @@ export interface MealPlanRequest {
   // Phase 3+: per-day slot override. Outer length must equal `days` query
   // param. Null/undefined = fall back to user.default_day_layout → meals_per_day.
   day_layouts?: MealType[][] | null;
+  // Shared households: who the plan is cooked for. Missing = every member.
+  eaters?: number[];
 }
 
 // Pointer to the meal a leftover was cooked as part of. 0-BASED, addressing
@@ -222,6 +224,8 @@ export interface SingleRecipeRequest {
   ingredients_to_use: string[];
   stock_only: boolean;
   note: string | null;
+  // Shared households: who the recipe is cooked for. Missing = every member.
+  eaters?: number[];
 }
 
 export interface CookRecipeRequest extends SingleRecipeRequest {
@@ -847,6 +851,12 @@ export interface MealEditResponse extends PlannedMeal {
 export interface HouseholdMember {
   id: number;
   email: string;
+  /** Their saved diets and allergies, which a shared plan is cooked with.
+   *  Null without a current consent, when the server will not use it. */
+  profile: DietaryProfile | null;
+  /** Their saved profile carries health data but their consent is not
+   *  current, so Generate refuses them by email. */
+  needs_consent: boolean;
 }
 
 export interface HouseholdInvite {

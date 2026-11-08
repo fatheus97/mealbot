@@ -44,8 +44,8 @@ describe("DeleteAccountModal", () => {
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: true }));
     vi.spyOn(api, "fetchHousehold").mockResolvedValue({
       members: [
-        { id: 1, email: "me@example.com" },
-        { id: 2, email: "partner@example.com" },
+        { id: 1, email: "me@example.com", profile: null, needs_consent: false },
+        { id: 2, email: "partner@example.com", profile: null, needs_consent: false },
       ],
       invites: [],
       max_members: 6,

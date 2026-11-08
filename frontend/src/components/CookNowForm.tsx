@@ -24,6 +24,7 @@ import {
   type MealType,
 } from "../constants/mealTypes";
 import { DietarySelector } from "./DietarySelector";
+import { EaterPicker } from "./EaterPicker";
 import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 import { useI18n, useMealTypeLabel } from "../i18n";
 import type {
@@ -56,6 +57,8 @@ export function CookNowForm() {
   const avoidId = useId();
   const mealTypeLabel = useMealTypeLabel();
   const { userId, healthConsent } = useAuth();
+  // Shared households: who this recipe is for; null = everyone (EaterPicker).
+  const [eaters, setEaters] = useState<number[] | null>(null);
   const isMobile = useIsMobile();
   // The intro line and the generate-failure alert sit on the ADAPTIVE page
   // background — this form pins no surface of its own until the recipe card.
@@ -132,6 +135,7 @@ export function CookNowForm() {
     ingredients_to_use: ingredientsToUse,
     stock_only: stockOnly,
     note: note.trim() ? note.trim() : null,
+    ...(eaters !== null && { eaters }),
   });
 
   const handleGenerate = () => {
@@ -266,6 +270,7 @@ export function CookNowForm() {
         </label>
 
         <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
+          <EaterPicker eaters={eaters} onChange={setEaters} />
           <DietarySelector
             dietTypes={dietTypes}
             allergens={allergens}
