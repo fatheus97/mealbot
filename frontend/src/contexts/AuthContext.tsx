@@ -257,11 +257,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const profile = await grantHealthConsentRequest(HEALTH_CONSENT_VERSION);
       applyProfile(profile, Boolean(profile.is_demo));
+      // The household shows a member's profile only with a current consent.
+      void queryClient.invalidateQueries({ queryKey: ['household'] });
     } catch (err) {
       if (err instanceof HealthConsentStaleError) await refreshProfile();
       throw err;
     }
-  }, [applyProfile, refreshProfile]);
+  }, [applyProfile, refreshProfile, queryClient]);
 
   const withdrawHealthConsent = useCallback(async (): Promise<void> => {
     const profile = await withdrawHealthConsentRequest();

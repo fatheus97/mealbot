@@ -167,7 +167,11 @@ export function useSaveDietaryProfile() {
   return useMutation({
     mutationFn: ({ body, copy }: { body: DietaryProfileBody; copy: RequestCopy }) =>
       saveDietaryProfile(body, copy),
-    onSuccess: (saved) => queryClient.setQueriesData({ queryKey: ['dietaryProfile'] }, saved),
+    onSuccess: (saved) => {
+      queryClient.setQueriesData({ queryKey: ['dietaryProfile'] }, saved);
+      // The household carries every member's profile (EaterPicker's summary).
+      void queryClient.invalidateQueries({ queryKey: ['household'] });
+    },
   });
 }
 
@@ -175,7 +179,10 @@ export function useDeleteDietaryProfile() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (copy: RequestCopy) => deleteDietaryProfile(copy),
-    onSuccess: () => queryClient.setQueriesData({ queryKey: ['dietaryProfile'] }, null),
+    onSuccess: () => {
+      queryClient.setQueriesData({ queryKey: ['dietaryProfile'] }, null);
+      void queryClient.invalidateQueries({ queryKey: ['household'] });
+    },
   });
 }
 
