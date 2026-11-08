@@ -64,6 +64,7 @@ from app.models.user_schemas import (
 )
 from app.services import email_verification, password_reset, stripe_service
 from app.services.demo_user import cleanup_expired_demo_users, create_ephemeral_demo_user
+from app.services.health_consent import forget_before_delete
 from app.services.password_reset import dispatch_reset_email, find_redeemable
 
 logger = logging.getLogger(__name__)
@@ -725,6 +726,7 @@ async def delete_account(
             "auth_delete_billing_unavailable",
         ) from None
     logger.info("account_delete_billing_stopped user_id=%s billing=%s", user_id, billing)
+    await forget_before_delete(session, user_id)
 
     # A Core delete() (not session.delete) so the DB-level CASCADE / SET NULL
     # fire instead of ORM relationship handling null-updating NOT NULL child
