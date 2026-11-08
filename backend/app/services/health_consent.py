@@ -791,6 +791,16 @@ async def forget_before_delete(session: AsyncSession, user_id: int) -> int:
     await session.execute(
         select(col(User.id)).where(col(User.id) == user_id).with_for_update()
     )
+    # Their unconfirmed plans: listed for nobody once they are gone, yet holding
+    # their request (taste preferences, notes) until another member generates.
+    # Leaving deletes them too (household.move_to_own_household), and the
+    # privacy policy says so for both.
+    await session.execute(
+        delete(MealPlan).where(
+            col(MealPlan.created_by_user_id) == user_id,
+            col(MealPlan.confirmed_at).is_(None),
+        )
+    )
     theirs = select(col(PlanHealth.meal_plan_id)).where(
         or_(
             col(PlanHealth.entered_by_user_id) == user_id,

@@ -160,7 +160,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
 
   // ─── Souhlas se zpracováním údajů o stravě (HealthConsentCheckbox) ────────
   "healthConsent.label":
-    "Souhlasím, aby Mealbot údaje, které zadám (typy stravy, alergie a suroviny, kterým se chci vyhnout), používal ke generování jídelníčků a receptů pro mě a pro domácnost, kterou sdílím, aby ty, které si uložím, zobrazoval ostatním členům této domácnosti a aby je za tímto účelem předával společnostem Google a OpenAI (obě je mohou zpracovávat i mimo EU, včetně USA). Tyto údaje mohou vypovídat o mém zdraví nebo náboženském vyznání. Souhlas mohu kdykoli odvolat v Nastavení. Více v {privacy}.",
+    "Souhlasím, aby Mealbot údaje, které zadám (typy stravy, alergie a suroviny, kterým se chci vyhnout), používal ke generování jídelníčků a receptů pro mě a pro domácnost, kterou sdílím, za tímto účelem je předával společnostem Google a OpenAI (obě je mohou zpracovávat i mimo EU, včetně USA) a zobrazoval je ostatním členům této domácnosti. Tyto údaje mohou vypovídat o mém zdraví nebo náboženském vyznání. Souhlas mohu kdykoli odvolat v Nastavení. Více v {privacy}.",
   "healthConsent.privacyLink": "Zásadách ochrany osobních údajů",
   "healthConsent.note":
     "Potřeby jiných lidí zadávejte jen s jejich souhlasem, nebo pokud jste jejich rodič či zákonný zástupce. Bez tohoto souhlasu můžete jídelníčky generovat dál, jen bez těchto omezení.",

@@ -138,6 +138,25 @@ class TestWhatTheDeleteLeaves:
         await db_session.refresh(plan)
         assert json.loads(plan.request_json)["allergens"] == []
 
+    async def test_their_unconfirmed_plans_go_and_the_others_stay(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Seen by nobody once they are gone, so not left for another member's
+        next Generate to sweep (the privacy policy promises it, as for leaving)."""
+        partner = await _member(db_session, test_user.household_id, "partner")
+        theirs = await _add_plan(db_session, _plan(partner, confirmed=False))
+        their_confirmed = await _add_plan(db_session, _plan(partner))
+        mine = await _add_plan(db_session, _plan(test_user, confirmed=False))
+        ids = (theirs.id, their_confirmed.id, mine.id)
+
+        await self._delete(client, db_session, test_user, partner)
+
+        db_session.expire_all()
+        left = set((await db_session.execute(
+            select(col(MealPlan.id)).where(col(MealPlan.id).in_(ids))
+        )).scalars())
+        assert left == {ids[1], ids[2]}
+
     async def test_a_plan_they_had_no_part_in_is_untouched(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
