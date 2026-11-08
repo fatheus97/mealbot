@@ -134,9 +134,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.deleteAccount.body":
     "Je to trvalé a projeví se okamžitě. Nejde to vzít zpět a není žádná ochranná lhůta.",
   "auth.deleteAccount.pointData":
-    "Vaše jídelníčky, recepty, kuchařka, lednice, spížové základy a předvolby se smažou.",
+    "Vaše jídelníčky, recepty, kuchařka, lednice, zásoby spíže a předvolby se smažou.",
   "auth.deleteAccount.pointHousehold":
-    "Vaše předvolby se smažou. Vaše domácnost si ponechá sdílené jídelníčky, recepty, kuchařku, lednici a spížové základy. Plány vytvořené s vašimi dietami nebo alergiemi si ponechají jídla, ale přijdou o všechny údaje o dietách a alergiích.",
+    "Vaše předvolby se smažou. Vaše domácnost si ponechá sdílené jídelníčky, recepty, kuchařku, lednici a zásoby spíže. Plány vytvořené s vašimi dietami nebo alergiemi si ponechají jídla, ale přijdou o všechny údaje o dietách a alergiích.",
   "auth.deleteAccount.pointSubscription":
     "Předplatné se hned zruší. Zbytek už zaplaceného období se nevrací.",
   "auth.deleteAccount.pointInvoices":
@@ -160,7 +160,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
 
   // ─── Souhlas se zpracováním údajů o stravě (HealthConsentCheckbox) ────────
   "healthConsent.label":
-    "Souhlasím, aby Mealbot údaje, které zadám (typy stravy, alergie a suroviny, kterým se chci vyhnout), používal ke generování mých jídelníčků a receptů a za tímto účelem je předával společnostem Google a OpenAI (obě je mohou zpracovávat i mimo EU, včetně USA). Tyto údaje mohou vypovídat o mém zdraví nebo náboženském vyznání. Souhlas mohu kdykoli odvolat v Nastavení. Více v {privacy}.",
+    "Souhlasím, aby Mealbot údaje, které zadám (typy stravy, alergie a suroviny, kterým se chci vyhnout), používal ke generování a kontrole jídelníčků a receptů pro mě a pro domácnost, kterou sdílím, za tímto účelem je předával společnostem Google a OpenAI (obě je mohou zpracovávat i mimo EU, včetně USA) a zobrazoval je ostatním členům této domácnosti. Tyto údaje mohou vypovídat o mém zdraví nebo náboženském vyznání. Souhlas mohu kdykoli odvolat v Nastavení. Více v {privacy}.",
   "healthConsent.privacyLink": "Zásadách ochrany osobních údajů",
   "healthConsent.note":
     "Potřeby jiných lidí zadávejte jen s jejich souhlasem, nebo pokud jste jejich rodič či zákonný zástupce. Bez tohoto souhlasu můžete jídelníčky generovat dál, jen bez těchto omezení.",

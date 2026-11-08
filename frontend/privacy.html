@@ -138,7 +138,7 @@
       <a class="back" href="/">&larr; Back to Mealbot</a>
 
       <h1>Privacy Policy</h1>
-      <p class="muted">Last updated: <time datetime="2026-11-01">1 November 2026</time></p>
+      <p class="muted">Last updated: <time datetime="2026-11-08">8 November 2026</time></p>
 
       <p>
         This describes what Mealbot actually does with your data — written from the code, not
@@ -205,7 +205,8 @@
         If you plan food for other people, such as your household or a child, only enter their
         diets and allergies if they agree, or if you are their parent or guardian. We store them
         as part of your plans, without names. They can exercise their rights through you, or by
-        emailing us.
+        emailing us. Someone who shares your household with an account of their own saves their
+        diets and allergies under their own consent (see "Sharing a household").
       </p>
 
       <h3>Payment</h3>
@@ -360,6 +361,58 @@
         processing addendum</a> provides.
       </p>
 
+      <h2>Sharing a household</h2>
+      <p>
+        A household holds up to six accounts, yours included, and you can invite other people to
+        share yours. Everyone in a household shares one kitchen: the fridge, the pantry staples, the
+        meal plans with their recipes, and the cookbook. Every member can see and change all of it,
+        and members see each other's email addresses. Your cooking preferences and the food you mark
+        as wasted stay yours.
+      </p>
+      <p>
+        <strong>Invites.</strong> To invite someone, you enter their email address. An invite
+        works for 48 hours. We keep the address, and a one-way hash of the invite code (never the
+        code itself), until the invite is used or cancelled; an unused one is deleted by the daily
+        clean-up after it expires. Every member of your household can see open invites in
+        Settings, and any of them can cancel one. Only someone signed in with the invited address
+        can use the code.
+      </p>
+      <p>
+        <strong>Joining.</strong> When you join a household, your plans that were never confirmed
+        are deleted, and your other plans and recipes, your cookbook, fridge and pantry staples
+        become part of its shared kitchen: every member can see and change them, and they stay with
+        the household if you leave. Your saved diets and allergies and your preferences stay yours.
+      </p>
+      <p>
+        <strong>Your diets and allergies.</strong> With the consent described above, the diets,
+        allergies and ingredients to avoid that you save in Settings are shown to the other members,
+        and the household's plans and recipes are generated with them whenever you are among the
+        people eating. Whoever generates a plan chooses who is eating, and can add diets and
+        allergies for that plan alone. When a member edits a meal of a shared plan, Mealbot checks
+        the edited meal against the allergens the plan was made to avoid, including ones added for
+        that plan alone, and warns them when it finds one. Without your current consent, the other
+        members see only that you have saved some, not what they are, and they are not used for new
+        plans. If you withdraw your consent, your diets and allergies saved in Settings are deleted,
+        and every shared plan made with your diets and allergies loses all of its diet and allergy
+        details, the other members' included, while its meals stay.
+      </p>
+      <p>
+        <strong>Leaving.</strong> When you leave, you move to a household of your own and take your
+        saved diets and allergies and your preferences with you. The shared kitchen stays with the
+        others. The diets and allergies you saved in Settings are removed from the plans you shared,
+        which keep working for the others; a plan where you added diets or allergies for that plan
+        alone loses all of its diet and allergy details, and says so. That includes plans you brought
+        along when you joined. Your plans that were never confirmed are deleted, and so are the
+        invites you sent. If we deactivate your account, we move you out of the household the same
+        way.
+      </p>
+      <p>
+        <strong>Deleting your account</strong> while you share a household deletes your account,
+        your preferences and your plans that were never confirmed. The shared kitchen stays with the
+        other members, and the plans made with your diets or allergies keep their meals but lose all
+        of their diet and allergy details, the other members' included.
+      </p>
+
       <h2>Why we are allowed to use your data</h2>
       <p>
         The GDPR requires a legal basis for each use. These are ours:
@@ -375,8 +428,16 @@
               <td>Our contract with you (GDPR Art. 6(1)(b))</td>
             </tr>
             <tr>
-              <td>Using your diets, allergies and ingredients to avoid, including sending them to Google and OpenAI</td>
+              <td>Using your diets, allergies and ingredients to avoid, including sending them to Google and OpenAI, and showing them to the members of your household</td>
               <td>Your explicit consent (Art. 9(2)(a) and Art. 6(1)(a)), which you can withdraw in Settings at any time</td>
+            </tr>
+            <tr>
+              <td>Sharing your household's fridge, pantry staples, plans and cookbook with its members, and showing them each other's email addresses</td>
+              <td>Our contract with you (Art. 6(1)(b)), since sharing is what you asked for</td>
+            </tr>
+            <tr>
+              <td>Keeping the email address of someone you invite, and showing it to your household's members, until the invite is used or cancelled, or until the daily clean-up after it expires</td>
+              <td>Your and our legitimate interest in letting you invite the people you choose (Art. 6(1)(f))</td>
             </tr>
             <tr>
               <td>Invoice records, and your customer record at Stripe</td>
@@ -462,7 +523,8 @@
             <tr><td>Meal plans you never confirmed</td><td>Deleted when you next generate a plan</td></tr>
             <tr><td>Demo accounts and their data</td><td>About 2 hours</td></tr>
             <tr><td>Database backups</td><td>14 days</td></tr>
-            <tr><td>Your account and everything in it</td><td>Until the account is deleted</td></tr>
+            <tr><td>Your account and everything in it</td><td>Until the account is deleted; a shared household's kitchen stays with its other members</td></tr>
+            <tr><td>Household invites</td><td>Until used or cancelled; an unused one is deleted by the daily clean-up after it expires (48 hours)</td></tr>
             <tr><td>The copy of AI requests, and the record of your consent</td><td>Until the account is deleted</td></tr>
             <tr><td>The admin log of actions we take on accounts</td><td>No fixed end date, so we can show what we did</td></tr>
             <tr><td>Invoice records (VAT)</td><td>Kept after deletion, as tax law requires</td></tr>
@@ -495,6 +557,15 @@
             omissions, so you can see what is not in it: your password (we only ever store a
             hash), session tokens, and the model-performance telemetry described above — ask
             and we will send you that too.
+          </li>
+          <li>
+            <strong>In a shared household, the export says which parts are shared.</strong> It
+            contains the household's plans, fridge, staples and cookbook, and only your own diets
+            and allergies. It leaves out the other members' diets and allergies and what they asked
+            for when making plans; of their unconfirmed plans it includes only those carrying your
+            diets and allergies, with just the dates, the size and your own diets and allergies: the
+            rest is theirs to export. After you leave a household, ask us if you want what you typed
+            into its plans.
           </li>
           <li>
             <strong>Deletion is immediate and cannot be undone.</strong> There is no grace

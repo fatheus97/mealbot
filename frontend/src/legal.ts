@@ -6,4 +6,4 @@
  * sentence in a way that matters (a new recipient or purpose) and bump both.
  * The CI "legal version" job fails when they differ.
  */
-export const HEALTH_CONSENT_VERSION = "2026-11-01";
+export const HEALTH_CONSENT_VERSION = "2026-11-08";

@@ -193,7 +193,7 @@ export const en = {
   // The label IS the consent text: changing what it says about recipients or
   // purpose means bumping HEALTH_CONSENT_VERSION (src/legal.ts + backend).
   "healthConsent.label":
-    "I consent to Mealbot using the diets, allergies and ingredients to avoid that I enter to generate my meal plans and recipes, and to sending them to Google and OpenAI for that purpose (both may process them outside the EU, including in the US). This information can reveal my health or religion. I can withdraw this consent at any time in Settings. More in the {privacy}.",
+    "I consent to Mealbot using the diets, allergies and ingredients to avoid that I enter to generate and check meal plans and recipes for me and for the household I share, to sending them to Google and OpenAI for that purpose (both may process them outside the EU, including in the US), and to showing them to the members of that household. This information can reveal my health or religion. I can withdraw this consent at any time in Settings. More in the {privacy}.",
   "healthConsent.privacyLink": "Privacy Policy",
   "healthConsent.note":
     "Only enter other people's needs if they agree, or if you are their parent or guardian. Without this consent you can still generate plans, just without these restrictions.",

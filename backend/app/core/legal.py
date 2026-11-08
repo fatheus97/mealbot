@@ -26,7 +26,7 @@ from app.core.i18n import Locale
 
 #: Keep in sync with the "Last updated" line in frontend/terms.html and
 #: frontend/privacy.html — pinned by tests/test_legal_version.py.
-TERMS_VERSION = "2026-11-01"
+TERMS_VERSION = "2026-11-08"
 
 #: The version of the explicit consent (GDPR Art. 9(2)(a)) to process diets,
 #: allergens and ingredients to avoid: the sentence the SPA shows next to the
@@ -36,20 +36,21 @@ TERMS_VERSION = "2026-11-01"
 #: new recipient or purpose the sentence has to name) asks everyone again.
 #: The SPA sends the version it displayed; the CI "legal version" job pins the
 #: frontend copy (frontend/src/legal.ts) to this one.
-HEALTH_CONSENT_VERSION: Final = "2026-11-01"
+HEALTH_CONSENT_VERSION: Final = "2026-11-08"
 
 #: The first HEALTH_CONSENT_VERSION whose text says that household members see
-#: each other's saved profiles and that plans are generated with them. None
-#: until that text exists; household PR 7 sets it together with the bump.
-#: Until then HOUSEHOLDS_ENABLED has no effect (household_consent_ready).
-HOUSEHOLD_CONSENT_VERSION: Final[str | None] = None
+#: each other's saved profiles and that plans are generated with them. Set by
+#: household PR 7 together with the bump; while it was None, HOUSEHOLDS_ENABLED
+#: had no effect (household_consent_ready).
+HOUSEHOLD_CONSENT_VERSION: Final[str | None] = "2026-11-08"
 
 
 def household_consent_ready() -> bool:
     """Whether the consent text users agree to now covers shared households."""
-    return HOUSEHOLD_CONSENT_VERSION is not None and date.fromisoformat(
+    version = HOUSEHOLD_CONSENT_VERSION
+    return version is not None and date.fromisoformat(
         HEALTH_CONSENT_VERSION
-    ) >= date.fromisoformat(HOUSEHOLD_CONSENT_VERSION)
+    ) >= date.fromisoformat(version)
 
 #: The newest version whose change is MATERIAL: the kind the Privacy Policy
 #: ("Changes") and Terms §12 promise to tell users about. A user whose recorded
@@ -60,7 +61,7 @@ def household_consent_ready() -> bool:
 #: TERMS_VERSION (the CI job pins it to the printed date), so tying the notice
 #: to it would make every user re-agree after a typo fix. Move THIS one only for
 #: a change that matters to users, and rewrite CHANGE_SUMMARY in the same commit.
-MATERIAL_CHANGE_VERSION: Final = "2026-11-01"
+MATERIAL_CHANGE_VERSION: Final = "2026-11-08"
 
 #: What MATERIAL_CHANGE_VERSION changed, as plain text, per locale. Shown in the
 #: in-app banner and in the notice email, so one reviewed text says it in both.
@@ -68,26 +69,41 @@ MATERIAL_CHANGE_VERSION: Final = "2026-11-01"
 #: cs/privacy.html), so the summary cannot claim more than the policy does.
 CHANGE_SUMMARY: Final[dict[Locale, str]] = {
     "en": (
-        "Your meal-plan requests can now go to OpenAI as well as to Google. A "
-        "request goes to OpenAI when Google's service fails or answers too "
-        "slowly, and we may send a share of requests to OpenAI first, to compare "
-        "which of the two writes better plans. These requests include your "
-        "allergens, diet types and fridge contents, but not your email address, "
-        "your name or any account identifier. OpenAI acts as our processor, may "
-        "not use the data to train its models, and keeps a copy for up to 30 "
-        "days to detect abuse, longer only where the law requires it or to "
-        "protect against harm."
+        "You can now share a household of up to six accounts. Everyone in it "
+        "shares one fridge, pantry staples, meal plans and cookbook, and sees "
+        "the others' email addresses; when you join one, your unconfirmed plans "
+        "are deleted and your other plans, cookbook, fridge and staples become "
+        "part of it. With your consent, the diets, allergies and ingredients to "
+        "avoid that you save are shown to the other members and used for the "
+        "household's plans when you are among the people eating, so that "
+        "consent has new wording and Mealbot asks for it again. To invite "
+        "someone, you enter their email address, which the members see; we keep "
+        "it until the invite is used or cancelled, or until the daily clean-up "
+        "after it expires (48 hours). When you leave, the diets and allergies "
+        "you saved are removed from the plans you shared, and a plan you added "
+        "some to for that plan alone loses all of them; when you delete your "
+        "account, the plans made with your diets and allergies lose all their "
+        "diet and allergy details, the other members' included. Either way the "
+        "shared kitchen stays with the others."
     ),
     "cs": (
-        "Požadavky na jídelníček teď kromě společnosti Google můžeme posílat také "
-        "společnosti OpenAI. Stane se to, když Google selže nebo neodpoví včas. "
-        "Část požadavků také můžeme poslat nejdřív OpenAI, abychom porovnali, "
-        "která z obou služeb sestavuje lepší jídelníčky. Požadavek obsahuje vaše "
-        "alergeny, typy stravy a obsah lednice, ale ne e-mailovou adresu, jméno "
-        "ani žádný identifikátor účtu. OpenAI tyto údaje zpracovává pro nás jako "
-        "zpracovatel, nesmí je používat k trénování svých modelů a kopii kvůli "
-        "odhalování zneužití uchovává nejvýše 30 dní, déle jen tehdy, když to "
-        "vyžaduje zákon nebo ochrana před újmou."
+        "Domácnost teď může sdílet až šest účtů. Všichni v ní sdílejí lednici, "
+        "zásoby spíže, jídelníčky a kuchařku a vidí e-mailové adresy "
+        "ostatních; když se k některé připojíte, vaše nepotvrzené jídelníčky se "
+        "smažou a ostatní jídelníčky, kuchařka, lednice a zásoby spíže se "
+        "stanou její součástí. Uložené typy stravy, alergie a suroviny, kterým "
+        "se chcete vyhnout, se s vaším souhlasem zobrazují ostatním členům "
+        "a používají se pro jídelníčky domácnosti, když patříte "
+        "mezi ty, kdo jedí. Proto má tento souhlas nové znění a Mealbot vás o něj "
+        "požádá znovu. Když někoho zvete, zadáte jeho e-mailovou adresu, kterou "
+        "členové uvidí; uchováme ji, dokud pozvánku nikdo nepoužije nebo "
+        "nezruší, nebo do denního úklidu po jejím vypršení (48 hodin). Když "
+        "odejdete, typy stravy a alergie, které jste uložili, se odstraní "
+        "z jídelníčků, které jste sdíleli, a jídelníček, do kterého jste nějaké "
+        "přidali jen pro něj, přijde o všechny; když smažete účet, jídelníčky "
+        "sestavené s vašimi typy stravy a alergiemi přijdou o všechny údaje "
+        "o stravě a alergiích, i o ty ostatních členů. Sdílená kuchyň "
+        "v obou případech zůstane ostatním."
     ),
 }
 
