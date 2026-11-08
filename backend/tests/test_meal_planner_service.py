@@ -490,7 +490,7 @@ class TestRagPromptContent:
         assert "USE PRIORITY INGREDIENTS" in prompt
         # Retrieved meals actually rendered
         assert "Retrieved Meal" in prompt
-        assert "Highly-rated retrieved meals" in prompt
+        assert "This household's favourite meals" in prompt
 
     @patch("app.services.meal_planner.retrieve_rated_meals", new_callable=AsyncMock)
     @patch("app.services.meal_planner.settings")
@@ -572,7 +572,7 @@ class TestNonRagPromptSuppressesRetrievedMeals:
         mock_llm.chat_json = AsyncMock(return_value=_make_llm_day_response())
         await generate_single_day(_make_request())
         prompt = mock_llm.chat_json.call_args.kwargs["user_prompt"]
-        assert "Highly-rated retrieved meals" not in prompt
+        assert "This household's favourite meals" not in prompt
         assert "curated set of highly-rated meals" not in prompt
         assert "adapt a retrieved meal" not in prompt
 

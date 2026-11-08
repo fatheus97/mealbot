@@ -119,18 +119,16 @@ class Settings(BaseSettings):
     rag_max_distance: float = 0.4
     rag_user_boost: float = 0.7
 
-    # RAG retrieval sizing. At scale (thousands of users), a single global top-K
-    # would rarely surface the requesting user's own meals, so we fetch the two
-    # populations separately and merge. rag_max_context_meals caps the final set
-    # that reaches the LLM prompt — token cost is linear, quality gains plateau.
+    # RAG retrieval sizing, over the household's own cookbook only (decision 11
+    # in docs/household-design.md: another account's recipes never reach this
+    # household's prompt). rag_own_user_fetch is how many a small cookbook
+    # offers, rag_max_context_meals caps the set that reaches the LLM prompt:
+    # token cost is linear, quality gains plateau.
     rag_own_user_fetch: int = 5
-    rag_global_fetch: int = 15
     rag_max_context_meals: int = 8
 
-    # Cookbook-only RAG threshold. Once a user has this many favorites, we skip
-    # the global pool entirely and search only their cookbook. Their taste model
-    # is well-defined by then, and global cross-user noise tends to dilute the
-    # match quality. Configurable so we can tune after real usage data lands.
+    # A cookbook this large is searched deeper (rag_cookbook_only_fetch) and
+    # without rag_user_boost: its taste model is well defined by then.
     rag_cookbook_threshold: int = 100
     rag_cookbook_only_fetch: int = 20
 

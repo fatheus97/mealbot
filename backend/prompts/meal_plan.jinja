@@ -50,10 +50,10 @@ User context:
 {% include "_infant_food.jinja" %}
 {% if retrieved_meals %}
 
-Highly-rated retrieved meals (use as inspiration):
+This household's favourite meals (use as inspiration):
 <user_content type="retrieved_meals">
 {% for m in retrieved_meals %}
-- {{ m.name }}{{ " (your own favourite)" if m.is_own else "" }}
+- {{ m.name }}
   Ingredients: {{ m.ingredients | join(", ") }}
   Steps: {{ m.steps | join(" ") }}
 {% endfor %}
