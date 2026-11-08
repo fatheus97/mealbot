@@ -159,6 +159,8 @@ export const en = {
     "This is permanent and takes effect immediately. There is no undo and no grace period.",
   "auth.deleteAccount.pointData":
     "Your plans, recipes, cookbook, fridge, pantry staples and preferences are deleted.",
+  "auth.deleteAccount.pointHousehold":
+    "Your preferences are deleted. Your household keeps the plans, recipes, cookbook, fridge and pantry staples you share. Plans made with your diets or allergies keep their meals but lose all their diet and allergy details.",
   "auth.deleteAccount.pointSubscription":
     "Your subscription is cancelled right away. The rest of the period you've paid for is not refunded.",
   "auth.deleteAccount.pointInvoices":
@@ -298,6 +300,21 @@ export const en = {
   "household.failed": "Something went wrong. Please try again.",
   "household.rateLimited": "Too many attempts. Please wait a minute and try again.",
   "household.loadFailed": "Couldn't load your household.",
+  "household.profileTitle": "Your saved diets and allergies",
+  "household.profileHintLabel": "How your saved diets and allergies are used",
+  "household.profileHint":
+    "Plans for a shared household are cooked for everyone eating, with each person's saved diets, allergies and ingredients to avoid. The others in your household see what you save here. While you are alone in a household, only what you type before Generate counts.",
+  "household.profileSave": "Save",
+  "household.profileSaving": "Saving…",
+  "household.profileSaved": "Saved.",
+  "household.profileSavedOn": "Last saved {date}.",
+  "household.profileRemove": "Remove saved diets and allergies",
+  "household.profileRemoveConfirm":
+    "Your saved diets and allergies are deleted. Plans already made keep what they were made with; to take it off them too, withdraw your consent below.",
+  "household.profileRemoveButton": "Remove",
+  "household.profileRemoving": "Removing…",
+  "household.profileFailed": "Couldn't save your diets and allergies. Please try again.",
+  "household.profileLoadFailed": "Couldn't load your saved diets and allergies.",
   "settings.healthConsent.title": "Diets and allergies",
   "settings.healthConsent.givenOn":
     "On {date} you consented to Mealbot processing your diets, allergies and ingredients to avoid.",

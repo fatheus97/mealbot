@@ -43,6 +43,8 @@ import type {
   UserProfile,
   WasteEntry,
   WasteRecordedResponse,
+  DietaryProfile,
+  DietaryProfileBody,
   Household,
   HouseholdInviteCreated,
 } from "./types";
@@ -949,6 +951,32 @@ export async function joinHousehold(code: string, copy: RequestCopy): Promise<vo
 /** On success this account is in a household of its own: reload the page. */
 export async function leaveHousehold(copy: RequestCopy): Promise<void> {
   const res = await authFetch("/household/leave", { method: "POST" });
+  if (res.ok) return;
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
+}
+
+export async function fetchDietaryProfile(): Promise<DietaryProfile | null> {
+  const res = await authFetch("/users/dietary-profile");
+  if (!res.ok) throw new Error(`Dietary profile failed: ${res.status}`);
+  return res.json();
+}
+
+export async function saveDietaryProfile(
+  body: DietaryProfileBody,
+  copy: RequestCopy,
+): Promise<DietaryProfile> {
+  const res = await authFetch("/users/dietary-profile", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.json();
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
+}
+
+export async function deleteDietaryProfile(copy: RequestCopy): Promise<void> {
+  const res = await authFetch("/users/dietary-profile", { method: "DELETE" });
   if (res.ok) return;
   if (res.status === 429) throw new Error(copy.rateLimited);
   throw new Error(await extractErrorDetail(res, copy.fallback));

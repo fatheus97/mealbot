@@ -866,3 +866,18 @@ export interface Household {
   max_members: number;
   max_live_invites: number;
 }
+
+/** A person's own saved diets, allergies and ingredients to avoid, as stored:
+ *  plain strings, so a value a later release dropped still reads. */
+export interface DietaryProfile {
+  diet_types: string[];
+  allergens: string[];
+  avoid_ingredients: string[];
+  updated_at: string | null;
+}
+
+export interface DietaryProfileBody {
+  diet_types: string[];
+  allergens: string[];
+  avoid_ingredients: string[];
+}

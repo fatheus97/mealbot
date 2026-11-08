@@ -9,6 +9,7 @@ import {
 import { useI18n } from "../i18n";
 import { formatDate } from "../i18n/localeFormat";
 import type { HouseholdInviteCreated } from "../types";
+import { HouseholdProfile } from "./HouseholdProfile";
 import { InfoHint } from "./InfoHint";
 
 /**
@@ -201,6 +202,8 @@ export function HouseholdSettings() {
               </ul>
             </>
           )}
+
+          <HouseholdProfile />
 
           {members.length === 1 ? (
             <form onSubmit={(e) => void handleJoin(e)} style={{ marginTop: "1rem" }}>

@@ -135,6 +135,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Je to trvalé a projeví se okamžitě. Nejde to vzít zpět a není žádná ochranná lhůta.",
   "auth.deleteAccount.pointData":
     "Vaše jídelníčky, recepty, kuchařka, lednice, spížové základy a předvolby se smažou.",
+  "auth.deleteAccount.pointHousehold":
+    "Vaše předvolby se smažou. Vaše domácnost si ponechá sdílené jídelníčky, recepty, kuchařku, lednici a spížové základy. Plány vytvořené s vašimi dietami nebo alergiemi si ponechají jídla, ale přijdou o všechny údaje o dietách a alergiích.",
   "auth.deleteAccount.pointSubscription":
     "Předplatné se hned zruší. Zbytek už zaplaceného období se nevrací.",
   "auth.deleteAccount.pointInvoices":
@@ -259,6 +261,21 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "household.failed": "Něco se nepovedlo. Zkuste to prosím znovu.",
   "household.rateLimited": "Příliš mnoho pokusů. Počkejte prosím minutu a zkuste to znovu.",
   "household.loadFailed": "Domácnost se nepodařilo načíst.",
+  "household.profileTitle": "Vaše uložené diety a alergie",
+  "household.profileHintLabel": "K čemu slouží uložené diety a alergie",
+  "household.profileHint":
+    "Plány pro sdílenou domácnost se vaří pro všechny, kdo jedí, s uloženými dietami, alergiemi a surovinami k vynechání každého z nich. Ostatní v domácnosti vidí, co si tu uložíte. Dokud jste v domácnosti sami, počítá se jen to, co zadáte před generováním.",
+  "household.profileSave": "Uložit",
+  "household.profileSaving": "Ukládám…",
+  "household.profileSaved": "Uloženo.",
+  "household.profileSavedOn": "Naposledy uloženo {date}.",
+  "household.profileRemove": "Smazat uložené diety a alergie",
+  "household.profileRemoveConfirm":
+    "Vaše uložené diety a alergie se smažou. Plány, které už vznikly, si ponechají to, s čím byly vytvořené; chcete-li to odebrat i z nich, odvolejte níže svůj souhlas.",
+  "household.profileRemoveButton": "Smazat",
+  "household.profileRemoving": "Mažu…",
+  "household.profileFailed": "Diety a alergie se nepodařilo uložit. Zkuste to prosím znovu.",
+  "household.profileLoadFailed": "Uložené diety a alergie se nepodařilo načíst.",
   "settings.healthConsent.title": "Strava a alergie",
   "settings.healthConsent.givenOn":
     "Dne {date} jste souhlasili se zpracováním svých typů stravy, alergií a surovin, kterým se chcete vyhnout.",

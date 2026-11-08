@@ -38,6 +38,30 @@ describe("DeleteAccountModal", () => {
     );
   });
 
+  it("tells someone who shares a household what stays with it", async () => {
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: true }));
+    vi.spyOn(api, "fetchHousehold").mockResolvedValue({
+      members: [
+        { id: 1, email: "me@example.com" },
+        { id: 2, email: "partner@example.com" },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    renderWithProviders(<DeleteAccountModal onClose={vi.fn()} />);
+    expect(await screen.findByText(/Your household keeps the plans/)).toBeInTheDocument();
+    expect(screen.queryByText(/Your plans, recipes, cookbook, fridge/)).toBeNull();
+  });
+
+  it("asks nothing about households while they are off", () => {
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: false }));
+    const fetched = vi.spyOn(api, "fetchHousehold");
+    renderWithProviders(<DeleteAccountModal onClose={vi.fn()} />);
+    expect(screen.getByText(/Your plans, recipes, cookbook, fridge/)).toBeInTheDocument();
+    expect(fetched).not.toHaveBeenCalled();
+  });
+
   it("cannot be submitted without a password", () => {
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
     renderWithProviders(<DeleteAccountModal onClose={vi.fn()} />);
