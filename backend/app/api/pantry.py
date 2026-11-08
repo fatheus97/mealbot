@@ -15,16 +15,12 @@ from app.services.fridge_service import (
     version_token,
 )
 from app.services.kitchen import Kitchen
-from app.services.pantry_service import get_staples, replace_staples
+from app.services.pantry_service import MAX_STAPLES, get_staples, replace_staples
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/staples", tags=["staples"])
 
-# Per-item bounds live on PantryStapleDTO; this caps the LIST so a single PUT
-# can't ship thousands of names (prompt-size/DoS at the list level). A real
-# "always have" list is a handful of items — this is deliberately generous.
-MAX_STAPLES = 200
 # The staples' version token (docs/household-design.md, "Concurrency for two
 # phones"): sent on GET and PUT, and sent back by the client with its next PUT.
 VERSION_HEADER = "X-Staples-Version"

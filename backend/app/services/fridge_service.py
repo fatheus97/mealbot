@@ -9,7 +9,8 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Literal
+from itertools import chain
+from typing import Final, Literal
 
 from sqlalchemy import event, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,12 @@ __all__ = [
 _KITCHEN_LOCK_NAMESPACE = 0x4B544348
 # session.info key recording which household's kitchen THIS transaction locked.
 _KITCHEN_LOCKED = "kitchen_locked_household_id"
+
+#: Per-item bounds live on StockItemDTO; this caps the LIST so a single PUT/merge
+#: can't ship thousands of items (prompt-size/DoS at the list level). A real
+#: fridge/pantry is well under this. A join checks it too: past it, no whole-list
+#: save could get back under.
+MAX_FRIDGE_ITEMS: Final = 500
 
 # The two whole lists a household keeps, each with its own version
 # (docs/household-design.md, "Concurrency for two phones").
@@ -103,12 +110,15 @@ async def shelf_version(session: AsyncSession, household_id: HouseholdId, shelf:
     """The current version, for a read's token. Read it BEFORE the list it
     goes with: a write between the two then makes the token too old, never
     too new."""
-    version: int = (
+    version = (
         await session.execute(
             select(_version_column(shelf)).where(col(Household.id) == household_id)
         )
-    ).scalar_one()
-    return version
+    ).scalar_one_or_none()
+    # A join that committed after this request read its user deleted the household.
+    if version is None:
+        raise LocalizedHTTPException(409, "household_changed")
+    return int(version)
 
 
 async def _count_write(
@@ -152,19 +162,37 @@ async def lock_kitchen(session: AsyncSession, kitchen: Kitchen) -> None:
     protects only what is read AFTER it, so take it before loading the plan or
     the fridge, not just before writing. Never hold it across an LLM call.
     """
+    await _advisory_lock(session, kitchen.household_id)
+    await _still_a_member(session, kitchen)
+    session.info[_KITCHEN_LOCKED] = kitchen.household_id
+
+
+async def lock_kitchen_and(session: AsyncSession, kitchen: Kitchen, other: HouseholdId) -> None:
+    """lock_kitchen for a join, which also needs a household the caller is not in
+    yet: both locks, in ascending id so that joins cannot deadlock each other. It
+    records neither, since a join rewrites no whole list and no guard should read
+    this transaction as holding only one."""
+    for household_id in sorted((kitchen.household_id, other)):
+        await _advisory_lock(session, household_id)
+    await _still_a_member(session, kitchen)
+
+
+async def _advisory_lock(session: AsyncSession, household_id: HouseholdId) -> None:
     await session.execute(
         text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), CAST(:key AS integer))"),
-        {"ns": _KITCHEN_LOCK_NAMESPACE, "key": kitchen.household_id},
+        {"ns": _KITCHEN_LOCK_NAMESPACE, "key": household_id},
     )
-    # Re-read membership under the lock: joining or leaving takes this lock too,
-    # so a member who moved while this request waited would otherwise write into
-    # a household they have left.
+
+
+async def _still_a_member(session: AsyncSession, kitchen: Kitchen) -> None:
+    """Re-read membership under the lock: joining or leaving takes this lock too,
+    so a member who moved while this request waited would otherwise write into a
+    household they have left."""
     current = (
         await session.execute(select(User.household_id).where(col(User.id) == kitchen.user_id))
     ).scalar_one_or_none()
     if current != kitchen.household_id:
         raise LocalizedHTTPException(409, "household_changed")
-    session.info[_KITCHEN_LOCKED] = kitchen.household_id
 
 
 @event.listens_for(Session, "after_transaction_end")
@@ -226,10 +254,10 @@ def merge_into_fridge_buckets(
     (ConsumedBatch input) so the two paths can never key the fridge differently.
     Returns a fresh list; callers persist via replace_fridge_items.
     """
-    merged: dict[tuple[str, date | None], StockItemDTO] = {
-        (i.name.strip().lower(), i.expiration_date): i for i in existing
-    }
-    for item in incoming:
+    merged: dict[tuple[str, date | None], StockItemDTO] = {}
+    # Existing rows too: two can share a key (a join brings both sides' batches),
+    # and a dict built from them directly kept only the last.
+    for item in chain(existing, incoming):
         key = (item.name.strip().lower(), item.expiration_date)
         if key in merged:
             merged[key] = StockItemDTO(

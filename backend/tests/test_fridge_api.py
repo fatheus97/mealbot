@@ -5,8 +5,8 @@ from httpx import AsyncClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.fridge import MAX_FRIDGE_ITEMS
 from app.models.db_models import User, WasteRecord
+from app.services.fridge_service import MAX_FRIDGE_ITEMS
 
 
 class TestFridgeCRUD:

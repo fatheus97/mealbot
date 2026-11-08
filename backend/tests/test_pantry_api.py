@@ -3,8 +3,8 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.pantry import MAX_STAPLES
 from app.models.db_models import User
+from app.services.pantry_service import MAX_STAPLES
 
 
 class TestStaplesCRUD:

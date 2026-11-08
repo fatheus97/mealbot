@@ -1,5 +1,5 @@
-"""The household API: who is in it, invites and leaving (docs/household-design.md,
-"Join and leave"). Behind HOUSEHOLDS_ENABLED: with the flag off every route here
+"""The household API: who is in it, invites, joining and leaving
+(docs/household-design.md, "Join and leave"). Behind HOUSEHOLDS_ENABLED: with the flag off every route here
 is a 404, the first thing checked, so the feature is invisible even to an account
 that could not use it anyway. Except leaving: turning the flag off must not trap
 anyone in a shared household."""
@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -20,6 +20,7 @@ from app.services.fridge_service import lock_kitchen
 from app.services.household import (
     MAX_LIVE_INVITES,
     MAX_MEMBERS,
+    join_household,
     live_invites,
     lock_member_rows,
     mint_invite,
@@ -69,6 +70,10 @@ class HouseholdInviteRequest(BaseModel):
     email: EmailStr
 
 
+class HouseholdJoinRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=512)
+
+
 class HouseholdInviteCreated(HouseholdInviteRead):
     code: str
 
@@ -107,6 +112,26 @@ async def read_household(
         max_members=MAX_MEMBERS,
         max_live_invites=MAX_LIVE_INVITES,
     )
+
+
+# /api/household/join
+@router.post("/join", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def join(
+    request: Request,
+    body: HouseholdJoinRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Join the household an invite leads to, bringing this person's kitchen. To
+    someone alone in their household, a wrong code and someone else's code answer
+    alike. Someone already sharing one hears that first, which tells them only that
+    the code exists. The client reloads afterwards, which drops every cache."""
+    _require_flag()
+    _require_can_share(current_user)
+    household_id = await join_household(session, current_user, body.code)
+    await session.commit()
+    logger.info("household_joined user_id=%s household_id=%s", current_user.id, household_id)
 
 
 # /api/household/leave

@@ -19,13 +19,13 @@ from sqlmodel import col, select
 from app.core import legal
 from app.core.config import settings
 from app.core.errors import LocalizedHTTPException
-from app.models.db_models import MealEntry, MealPlan, User
+from app.models.db_models import HouseholdInvite, MealEntry, MealPlan, User
 
 logger = logging.getLogger(__name__)
 
 #: A household id, a different type from a user id for mypy, so a user id
-#: cannot be passed where a household id belongs. Constructed only in
-#: Kitchen.of (a test pins that). It cannot catch a comparison of two plain
+#: cannot be passed where a household id belongs. Constructed only in this
+#: file (a test pins that). It cannot catch a comparison of two plain
 #: ints such as ``plan.household_id != user.id``; the test schema's household
 #: id offset (conftest) is what makes that one fail.
 HouseholdId = NewType("HouseholdId", int)
@@ -43,6 +43,21 @@ class Kitchen:
         if user.id is None or user.household_id is None:
             raise ValueError("Kitchen.of needs a persisted user")
         return cls(user_id=user.id, household_id=HouseholdId(user.household_id))
+
+
+async def invited_household(session: AsyncSession, token_hash: str) -> HouseholdId | None:
+    """The household an invite code leads to, whoever is asking, so only a redeem
+    may use this: it hands out a household the caller is not in. A plain read, to
+    know which locks to take. Whether this caller may use the code is decided
+    under them."""
+    found = (
+        await session.execute(
+            select(col(HouseholdInvite.household_id)).where(
+                col(HouseholdInvite.token_hash) == token_hash
+            )
+        )
+    ).scalar_one_or_none()
+    return None if found is None else HouseholdId(found)
 
 
 async def load_plan(session: AsyncSession, kitchen: Kitchen, plan_id: int) -> MealPlan:

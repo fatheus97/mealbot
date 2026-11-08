@@ -9,6 +9,8 @@ shopping-list computation excludes.
 The HTTP handlers in ``app.api.pantry`` are thin wrappers over these functions;
 tests import the pure helpers directly.
 """
+from typing import Final
+
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,12 @@ from app.models.db_models import PantryStaple
 from app.models.plan_models import PantryStapleDTO
 from app.services.fridge_service import _KITCHEN_LOCKED, Saved, _count_write, version_token
 from app.services.kitchen import HouseholdId
+
+#: Per-item bounds live on PantryStapleDTO; this caps the LIST so a single PUT
+#: can't ship thousands of names (prompt-size/DoS at the list level). A real
+#: "always have" list is a handful of items, so this is deliberately generous.
+#: A join checks it too: past it, no whole-list save could get back under.
+MAX_STAPLES: Final = 200
 
 __all__ = [
     "get_staples",

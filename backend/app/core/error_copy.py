@@ -90,6 +90,10 @@ ErrorKey = Literal[
     "household_too_many_invites",  # $maximum
     "household_invite_not_found",
     "household_alone",
+    "household_join_not_alone",
+    "household_join_no_access",
+    "household_join_consent",
+    "household_join_too_big",  # $fridge, $staples
     # ── Shared households: eaters (app/services/health_consent.py) ──────────
     "household_member_consent_required",  # $email
     "household_avoid_too_long",  # $count_given, $maximum
@@ -241,6 +245,19 @@ _EN: Final[dict[str, str]] = {
     ),
     "household_invite_not_found": "This invite no longer exists.",
     "household_alone": "There is nobody else in this household, so there is nothing to leave.",
+    "household_join_not_alone": "You already share a household. Leave it before joining another.",
+    "household_join_no_access": (
+        "You can't join this household yet: one of its members doesn't have an active "
+        "account or subscription."
+    ),
+    "household_join_consent": (
+        "You can't join yet: everyone with diets or allergies saved on these plans, you "
+        "included, has to confirm the current consent first."
+    ),
+    "household_join_too_big": (
+        "Together, your fridge and staples would be more than one household can keep "
+        "(up to $fridge fridge items and $staples staples). Remove some, then try again."
+    ),
     "household_member_consent_required": (
         "$email has not consented to the use of their diets, allergies and "
         "ingredients to avoid. They can give it in Settings, or you can plan "
@@ -469,6 +486,20 @@ _CS: Final[dict[str, str]] = {
     ),
     "household_invite_not_found": "Tato pozvánka už neexistuje.",
     "household_alone": "V této domácnosti není nikdo jiný, takže není z čeho odejít.",
+    "household_join_not_alone": "Už sdílíte domácnost. Než se připojíte k jiné, musíte z ní odejít.",
+    "household_join_no_access": (
+        "K této domácnosti se zatím nemůžete připojit: některý z jejích členů nemá aktivní "
+        "účet nebo předplatné."
+    ),
+    "household_join_consent": (
+        "Zatím se nemůžete připojit: všichni, kdo mají u těchto plánů uložené diety nebo "
+        "alergie, včetně vás, musí nejdřív potvrdit aktuální souhlas."
+    ),
+    "household_join_too_big": (
+        "Vaše lednice a zásoby spíže by dohromady přesáhly, co jedna domácnost může mít "
+        "(nejvýš $fridge položek v lednici a $staples položek v zásobách spíže). Něco "
+        "odeberte a zkuste to znovu."
+    ),
     "household_member_consent_required": (
         "Účet $email nemá udělený souhlas s použitím typů stravy, alergií a "
         "surovin, kterým se vyhýbá. Souhlas lze udělit v Nastavení, nebo "
