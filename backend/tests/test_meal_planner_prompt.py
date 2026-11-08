@@ -203,7 +203,6 @@ class TestMoreUserContentTags:
         class _Meal:
             def __init__(self, name: str) -> None:
                 self.name = name
-                self.is_own = False
                 self.ingredients = ["chicken", "rice"]
                 self.steps = ["cook", "serve"]
 

@@ -15,7 +15,7 @@ below; the list at the end says where.
 
 | | |
 |---|---|
-| I1 | A request touches kitchen rows of the caller's current household only. Deliberate global reads stay as they are: the RAG global examples, admin, the sweeps. |
+| I1 | A request touches kitchen rows of the caller's current household only. Deliberate global reads stay as they are: admin, the sweeps. RAG examples are the household's own since decision 11. |
 | I2 | Every fridge, staples or plan-state write of one household serializes on one advisory key. |
 | I3 | Diet and allergy data about a person exists only under a current consent (theirs, or the entering member's for a one-off entry), and a plan whose covering consent is gone is treated as having lost it. |
 | I4 | A member's deletion never deletes another member's kitchen. The last member's deletion deletes the household. |
@@ -416,7 +416,11 @@ Needed before households are offered to paying users who do not each have their 
 9. Preferences stay per person; whoever generates decides. Household settings come when it confuses.
 10. `WasteRecord` stays per person and joins the export.
 11. Global RAG examples across accounts (pre-existing): plan content from one account can shape
-    another account's prompt. Decide before the flag flips, not open-ended.
+    another account's prompt. Decide before the flag flips, not open-ended. **Default taken
+    2026-11-08 (check-in Q19, the owner may still overrule): the household's own cookbook only.**
+    A saved recipe can carry text someone typed by hand, and the privacy policy never said it is
+    shown to other accounts. The small-cookbook boost and both fetch sizes stay as they were for a
+    household's own meals.
 12. Health consent version bump: in PR 7 with the legal texts, not in PR 3 (see "Diets, allergies
     and consent"). **(decided 2026-11-02)** Decision 1's "accept the window" does not cover the
     health data copy: there the window fails open and silently, so 3a copies and 3b-1 contracts.
