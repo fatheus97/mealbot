@@ -137,7 +137,7 @@ class TestPreview:
         assert f'href="{settings.frontend_base_url}/cs/terms"' in cs.html
         # Escaped on the way in (the summary has an apostrophe in English).
         assert CHANGE_SUMMARY["cs"] in cs.html
-        assert "Google&#x27;s" in en.html
+        assert "household&#x27;s" in en.html
         assert "$" not in en.html + cs.html  # every placeholder substituted
 
     async def test_writes_nothing(self, db_session: AsyncSession, mail: AsyncMock) -> None:

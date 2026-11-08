@@ -56,8 +56,9 @@ class TestTheFlag:
     ) -> None:
         # Either half missing is the same 404 as a route that does not exist.
         monkeypatch.setattr(settings, "households_enabled", not ready)
-        if ready:
-            monkeypatch.setattr(legal, "HOUSEHOLD_CONSENT_VERSION", HEALTH_CONSENT_VERSION)
+        monkeypatch.setattr(
+            legal, "HOUSEHOLD_CONSENT_VERSION", HEALTH_CONSENT_VERSION if ready else None
+        )
         resp = await client.put(URL, json=PROFILE)
         assert resp.status_code == 404, resp.text
         assert await _stored(db_session, test_user) is None

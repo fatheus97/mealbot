@@ -57,6 +57,8 @@ async def _invites(db: AsyncSession) -> list[HouseholdInvite]:
 async def test_the_app_is_told_whether_households_are_on(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # As before PR 7 set it: no consent text covering households yet.
+    monkeypatch.setattr(legal, "HOUSEHOLD_CONSENT_VERSION", None)
     assert (await client.get("/api/config")).json()["households_enabled"] is False
     monkeypatch.setattr(settings, "households_enabled", True)
     # Not yet: the consent text does not cover households.
