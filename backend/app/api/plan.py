@@ -1,5 +1,6 @@
 import json
 import logging
+import unicodedata
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
 
@@ -1345,17 +1346,25 @@ def _keep_english_keys(
     ingredient whose name is unchanged keeps them; a renamed one must not, or
     "voda" renamed to "mléko" would still read as water. A `name_en` in the body
     is never trusted for the same reason: the screen reads it, and a client
-    could call milk "water".
+    could call milk "water". Nor is a `canonical_name` in the body: both keys
+    are the model's, the editor sends neither, and a crafted one would show
+    pieces of the wrong thing.
+
+    Names match trimmed, case-insensitive and in NFC, so an editor that sends
+    a decomposed "é" still finds its ingredient.
     """
-    by_name = {ing.name.strip().casefold(): ing for ing in stored}
+    def key(name: str) -> str:
+        return unicodedata.normalize("NFC", name.strip()).casefold()
+
+    by_name = {key(ing.name): ing for ing in stored}
     kept = []
     for ing in edited:
-        same = by_name.get(ing.name.strip().casefold())
+        same = by_name.get(key(ing.name))
         kept.append(
             ing.model_copy(
                 update={
                     "name_en": same.name_en if same else None,
-                    "canonical_name": same.canonical_name if same else ing.canonical_name,
+                    "canonical_name": same.canonical_name if same else None,
                 }
             )
         )

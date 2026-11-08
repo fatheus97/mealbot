@@ -451,6 +451,21 @@ class TestEditKeepsEnglishKeys:
         assert stored["vejce"]["canonical_name"] == "egg"
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_a_decomposed_accent_still_matches(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """Some keyboards send "é" as "e" plus a combining accent (NFD)."""
+        plan_id = await self._czech_plan(mock_gen, client, auth_headers)
+        nfd = "mléko"
+        assert nfd != "mléko"
+
+        out = await self._edit(client, auth_headers, plan_id, [{"name": nfd, "quantity_grams": 100}])
+
+        stored = out["stored"]
+        assert isinstance(stored, dict)
+        assert stored[nfd]["name_en"] == "milk"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_a_renamed_ingredient_does_not_keep_the_old_english_name(
         self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
@@ -474,13 +489,14 @@ class TestEditKeepsEnglishKeys:
 
         out = await self._edit(client, auth_headers, plan_id, [
             {"name": "mléko", "quantity_grams": 100, "name_en": "water"},
-            {"name": "smetana", "quantity_grams": 50, "name_en": "water"},
+            {"name": "smetana", "quantity_grams": 50, "name_en": "water", "canonical_name": "egg"},
         ])
 
         stored = out["stored"]
         assert isinstance(stored, dict)
         assert stored["mléko"]["name_en"] == "milk"
         assert stored["smetana"]["name_en"] is None
+        assert stored["smetana"]["canonical_name"] is None
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_the_edited_czech_meal_stays_readable_to_later_screens(
