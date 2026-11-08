@@ -91,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Whether the annual plan is offered (from /config). Defaults false so the paywall
   // shows monthly-only until config resolves — never a toggle that 400s on submit.
   const [annualBillingAvailable, setAnnualBillingAvailable] = useState<boolean>(false);
+  const [householdsEnabled, setHouseholdsEnabled] = useState<boolean>(false);
   const queryClient = useQueryClient();
 
   const applyProfile = useCallback((profile: AuthLoginResponse, demoFlag: boolean) => {
@@ -172,17 +173,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             demo_mode?: boolean;
             registration_enabled?: boolean;
             annual_billing_available?: boolean;
+            households_enabled?: boolean;
           } | null,
         ) => {
           setDemoEnabled(Boolean(data?.demo_mode));
           setRegistrationEnabled(Boolean(data?.registration_enabled));
           setAnnualBillingAvailable(Boolean(data?.annual_billing_available));
+          setHouseholdsEnabled(Boolean(data?.households_enabled));
         },
       )
       .catch(() => {
         setDemoEnabled(false);
         setRegistrationEnabled(false);
         setAnnualBillingAvailable(false);
+        setHouseholdsEnabled(false);
       });
 
     // Reconcile the localStorage render hint with the server. If we have a
@@ -388,7 +392,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [userId, refreshProfile]);
 
   return (
-    <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, termsUpdate, acceptTerms, healthConsent, healthConsentAt, grantHealthConsent, withdrawHealthConsent, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, onboardingCompleted, showPieces, isDemo, isAdmin, demoEnabled, registrationEnabled, annualBillingAvailable, householdsEnabled, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, isSubscribed, isComped, emailVerified, termsUpdate, acceptTerms, healthConsent, healthConsentAt, grantHealthConsent, withdrawHealthConsent, resendVerification, login, logout, setOnboardingCompleted, loginDemo, register, registerViaInvite, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

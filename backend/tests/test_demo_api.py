@@ -25,6 +25,7 @@ class TestPublicConfig:
             "demo_mode": True,
             "registration_enabled": False,
             "annual_billing_available": False,
+            "households_enabled": False,
         }
 
     async def test_config_reports_demo_mode_false(self, unauthed_client: AsyncClient) -> None:
@@ -39,6 +40,7 @@ class TestPublicConfig:
             "demo_mode": False,
             "registration_enabled": False,
             "annual_billing_available": False,
+            "households_enabled": False,
         }
 
     async def test_config_reports_registration_enabled(
@@ -57,6 +59,7 @@ class TestPublicConfig:
             "demo_mode": False,
             "registration_enabled": True,
             "annual_billing_available": False,
+            "households_enabled": False,
         }
 
 

@@ -383,6 +383,9 @@ export interface AuthState {
   // (monthly-only) until config resolves, so the paywall never shows a toggle that
   // would 400 on submit.
   annualBillingAvailable: boolean;
+  // Whether shared households are on (from /config). False until config
+  // resolves, so nothing about households shows before the server says so.
+  householdsEnabled: boolean;
   // Billing state, sourced from the same profile payload as the rest. null-ish
   // defaults ("none"/null/false) hold until the profile resolves.
   subscriptionStatus: SubscriptionStatus;
@@ -837,4 +840,29 @@ export interface MealEditResponse extends PlannedMeal {
   /** The edit could not be checked at all: in a shared household, the plan's
    *  diets and allergies are gone (a withdrawal, a deleted account). */
   health_data_removed?: boolean;
+}
+
+// --- Households (docs/household-design.md, "Join and leave") ---
+
+export interface HouseholdMember {
+  id: number;
+  email: string;
+}
+
+export interface HouseholdInvite {
+  id: number;
+  email: string;
+  expires_at: string;
+}
+
+/** Returned once, by the mint: the code exists nowhere else afterwards. */
+export interface HouseholdInviteCreated extends HouseholdInvite {
+  code: string;
+}
+
+export interface Household {
+  members: HouseholdMember[];
+  invites: HouseholdInvite[];
+  max_members: number;
+  max_live_invites: number;
 }

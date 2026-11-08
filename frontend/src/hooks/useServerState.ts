@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
 import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
-import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createInvite, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
+import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createHouseholdInvite, createInvite, fetchHousehold, revokeHouseholdInvite, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 import { extractErrorDetail } from '../utils/httpError';
 
 // --- Queries (Data Fetching) ---
@@ -125,6 +125,33 @@ function useUpdateShelf<T>(shelf: Shelf) {
 
 export function useFridge(userId: number | null) {
   return useShelf<StockItem>('fridge', userId);
+}
+
+export function useHousehold(userId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['household', userId],
+    queryFn: fetchHousehold,
+    enabled: enabled && userId !== null,
+  });
+}
+
+export function useCreateHouseholdInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ email, copy }: { email: string; copy: RequestCopy }) =>
+      createHouseholdInvite(email, copy),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['household'] }),
+  });
+}
+
+export function useRevokeHouseholdInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, copy }: { id: number; copy: RequestCopy }) =>
+      revokeHouseholdInvite(id, copy),
+    // A revoke that refused (already gone) still means the list is stale.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['household'] }),
+  });
 }
 
 export function useUserProfile(userId: number | null) {

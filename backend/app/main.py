@@ -36,7 +36,7 @@ from app.core.request_context import RequestContextMiddleware, unhandled_error_r
 from app.core.security_headers import security_headers_middleware
 from app.llm.client import check_model_chain_keys
 from app.llm.experiment import check_experiment_arms
-from app.services.kitchen import check_households_flag
+from app.services.kitchen import check_households_flag, households_enabled
 from app.services.llm_cost import check_chain_rates
 from app.services.recipe_retriever import get_embedding_model
 
@@ -108,6 +108,9 @@ class PublicConfig(BaseModel):
     # The paywall shows the monthly/annual toggle only when true. Non-secret UI-gating
     # flag, same category as the two above.
     annual_billing_available: bool
+    # Whether shared households are on (HOUSEHOLDS_ENABLED, once the consent text
+    # covers them). The household routes answer 404 while it is false.
+    households_enabled: bool
 
 
 class CountriesResponse(BaseModel):
@@ -148,6 +151,7 @@ async def public_config(request: Request) -> PublicConfig:
         demo_mode=settings.demo_mode,
         registration_enabled=settings.registration_enabled,
         annual_billing_available=bool(settings.stripe_price_id_annual),
+        households_enabled=households_enabled(),
     )
 
 
