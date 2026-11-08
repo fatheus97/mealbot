@@ -16,6 +16,7 @@ import { useI18n } from "../i18n";
 import { CookNowForm } from "./CookNowForm";
 import { DietarySelector } from "./DietarySelector";
 import { EaterPicker } from "./EaterPicker";
+import { useEaterChoice } from "../hooks/useEaterChoice";
 import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 import { InfoHint } from "./InfoHint";
 import { usePreferencesStore } from "../store/usePreferencesStore";
@@ -95,8 +96,8 @@ interface MealPlannerProps {
 
 export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPlannerProps) {
   const { userId, healthConsent } = useAuth();
-  // Shared households: who this plan is for; null = everyone (EaterPicker).
-  const [eaters, setEaters] = useState<number[] | null>(null);
+  // Shared households: who this plan is for (EaterPicker).
+  const eaterChoice = useEaterChoice();
   const { t, locale } = useI18n();
   const showPieces = useShowPieces();
   const isMobile = useIsMobile();
@@ -300,6 +301,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // they are sent (HealthConsentCheckbox; the server 403s without it).
   const carriesHealthData =
     dietTypes.length > 0 || allergens.length > 0 || parseList(avoidIngredients).length > 0;
+  // Your own saved profile needs it too when you are eating (EaterPicker).
+  const needsConsent = carriesHealthData || eaterChoice.youNeedConsent;
 
   const handleGenerate = () => {
     if (!userId) return;
@@ -311,7 +314,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
       ingredients_to_use: ingredientsToUse,
       diet_types: dietTypes,
       allergens,
-      ...(eaters !== null && { eaters }),
+      ...(eaterChoice.eaters !== null && { eaters: eaterChoice.eaters }),
       meals_per_day: mealsPerDay,
       people_count: peopleCount,
       past_meals: [],
@@ -710,7 +713,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         </label>
 
         <div style={{ gridColumn: isMobile ? "auto" : "span 2" }}>
-          <EaterPicker eaters={eaters} onChange={setEaters} />
+          <EaterPicker choice={eaterChoice} />
           <DietarySelector
             dietTypes={dietTypes}
             allergens={allergens}
@@ -877,10 +880,10 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         />
       </div>
 
-      <HealthConsentCheckbox active={carriesHealthData} />
+      <HealthConsentCheckbox active={needsConsent} />
       <button
         onClick={handleGenerate}
-        disabled={generatePlanMutation.isPending || (carriesHealthData && !healthConsent)}
+        disabled={generatePlanMutation.isPending || (needsConsent && !healthConsent)}
         style={{ padding: "0.5rem 2rem", fontSize: "1.1rem" }}
       >
         {generatePlanMutation.isPending ? t("planner.generating") : t("planner.generate")}

@@ -132,6 +132,9 @@ export function useHousehold(userId: number | null, enabled: boolean) {
     queryKey: ['household', userId],
     queryFn: fetchHousehold,
     enabled: enabled && userId !== null,
+    // It carries every member's profile and consent, which a partner changes
+    // from their own phone; the eater summary must not lag behind Generate.
+    ...SHARED,
   });
 }
 

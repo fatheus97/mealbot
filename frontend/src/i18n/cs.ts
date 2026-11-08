@@ -238,6 +238,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "eaters.summaryAvoid": "Vynechat: {list}",
   "eaters.summaryNone": "Zaškrtnutí lidé nemají uložené žádné diety ani alergie.",
   "eaters.babyFood": "Dětská strava platí pro každé jídlo a pro všechny, kdo jedí, ne jen pro jednoho člověka.",
+  "eaters.needsYourConsent":
+    "Vaše uložené diety a alergie se použijí jen s vaším souhlasem: zaškrtněte políčko se souhlasem níže, nebo zrušte zaškrtnutí u sebe a vařte bez nich.",
   "eaters.needsConsent":
     "U {email} chybí potvrzený souhlas s použitím diet a alergií. Zrušte zaškrtnutí, chcete-li vařit bez nich, nebo požádejte o potvrzení v Nastavení.",
   "household.title": "Domácnost",

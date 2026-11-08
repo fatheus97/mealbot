@@ -403,6 +403,34 @@ describe('CookNowForm', () => {
     expect(mockedGenerate.mock.calls[1][0].eaters).toEqual([1]);
   });
 
+  it('asks for your consent when your own saved data needs it, and not once you untick yourself', async () => {
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      healthConsent: false,
+      isDemo: false,
+      householdsEnabled: true,
+    } as unknown as AuthState);
+    vi.mocked(fetchHousehold).mockResolvedValue({
+      members: [
+        { id: 1, email: 'me@example.com', profile: null, needs_consent: true },
+        { id: 2, email: 'partner@example.com', profile: null, needs_consent: false },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole('checkbox', { name: /i consent/i })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /generate recipe/i })).toBeDisabled();
+
+    await user.click(screen.getByLabelText('me@example.com (you)'));
+
+    expect(screen.queryByRole('checkbox', { name: /i consent/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /generate recipe/i })).toBeEnabled();
+  });
+
   it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate request', async () => {
     // The FE->BE contract line for safety-relevant allergen data: a click on a
     // diet/allergen chip must land in the outgoing SingleRecipeRequest so the

@@ -2,16 +2,10 @@ import type { CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { ALLERGENS, DIET_TYPES, type Allergen, type DietType } from "../constants/dietary";
 import { MUTED_PAGE_TEXT } from "../constants/theme";
-import { useHousehold } from "../hooks/useServerState";
+import type { EaterChoice } from "../hooks/useEaterChoice";
 import { useI18n } from "../i18n";
 import type { HouseholdMember } from "../types";
 import { InfoHint } from "./InfoHint";
-
-interface EaterPickerProps {
-  /** Who is ticked; null means everyone, the server's own default. */
-  eaters: number[] | null;
-  onChange: (eaters: number[] | null) => void;
-}
 
 const isDiet = (d: string): d is DietType => (DIET_TYPES as readonly string[]).includes(d);
 const isAllergen = (a: string): a is Allergen => (ALLERGENS as readonly string[]).includes(a);
@@ -23,33 +17,34 @@ const isAllergen = (a: string): a is Allergen => (ALLERGENS as readonly string[]
  * Renders nothing for someone alone in their household, or while households
  * are off: their plans keep today's behaviour, only the typed fields.
  *
- * Nothing is sent until someone is unticked: "everyone" stays the server's
- * default, so a member who joins mid-session is not silently left out.
+ * A member whose consent is not current comes without their profile (the
+ * server will not use it), so the summary leaves them out and a note names
+ * them instead; for you, the form's consent box covers it.
  *
  * THEME: sits on the adaptive page, so text keeps the page's colour and the
  * muted lines use MUTED_PAGE_TEXT.
  */
-export function EaterPicker({ eaters, onChange }: EaterPickerProps) {
-  const { userId, isDemo, householdsEnabled } = useAuth();
+export function EaterPicker({ choice }: { choice: EaterChoice }) {
+  const { userId } = useAuth();
   const { t } = useI18n();
-  const { data: household } = useHousehold(userId, householdsEnabled && !isDemo);
-  const members = household?.members ?? [];
+  const { members, eaters, pick } = choice;
   if (members.length < 2) return null;
 
   const ticked = members.filter((m) => eaters === null || eaters.includes(m.id));
   const toggle = (id: number) => {
     const current = eaters ?? members.map((m) => m.id);
-    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-    onChange(next.length === members.length ? null : next);
+    pick(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
   };
 
-  const union = (pick: (m: HouseholdMember) => string[]) => [
-    ...new Set(ticked.flatMap((m) => (m.profile ? pick(m) : []))),
+  const union = (field: (m: HouseholdMember) => string[]) => [
+    ...new Set(ticked.flatMap((m) => (m.profile ? field(m) : []))),
   ];
   const diets = union((m) => m.profile?.diet_types ?? []).filter(isDiet);
   const allergens = union((m) => m.profile?.allergens ?? []).filter(isAllergen);
   const avoid = union((m) => m.profile?.avoid_ingredients ?? []);
-  const lacking = ticked.filter((m) => m.needs_consent);
+  const flagged = ticked.filter((m) => m.needs_consent);
+  const others = flagged.filter((m) => m.id !== userId);
+  const nothing = diets.length === 0 && allergens.length === 0 && avoid.length === 0;
 
   return (
     <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
@@ -70,8 +65,10 @@ export function EaterPicker({ eaters, onChange }: EaterPickerProps) {
         ))}
       </div>
       <div style={{ ...MUTED_PAGE_TEXT, fontSize: "0.8rem" }}>
-        {diets.length === 0 && allergens.length === 0 && avoid.length === 0 ? (
-          <p style={line}>{t("eaters.summaryNone")}</p>
+        {nothing ? (
+          // Not while someone ticked has data the notes below name: that would
+          // say they have nothing saved.
+          flagged.length === 0 && <p style={line}>{t("eaters.summaryNone")}</p>
         ) : (
           <>
             <p style={line}>{t("eaters.summaryTitle")}</p>
@@ -92,7 +89,12 @@ export function EaterPicker({ eaters, onChange }: EaterPickerProps) {
         )}
         {diets.includes("baby_food") && <p style={line}>{t("eaters.babyFood")}</p>}
       </div>
-      {lacking.map((member) => (
+      {choice.youNeedConsent && (
+        <p role="note" style={{ ...line, fontSize: "0.8rem" }}>
+          {t("eaters.needsYourConsent")}
+        </p>
+      )}
+      {others.map((member) => (
         <p key={member.id} role="note" style={{ ...line, fontSize: "0.8rem" }}>
           {t("eaters.needsConsent", { email: member.email })}
         </p>

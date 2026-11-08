@@ -42,8 +42,8 @@ class HouseholdMemberRead(BaseModel):
     email: str
     # What each member's saved profile adds to a shared plan, shown before
     # Generate; the household's members see each other's (the consent covers it).
-    # None without a current consent: Generate may not use it then, so it is not
-    # shown either.
+    # None without a current consent: Generate then leaves out whatever of it
+    # counts as health data, so none of it is shown either.
     profile: DietaryProfileRead | None
     # Their profile carries health data and their consent is not current, so
     # Generate refuses them by email; the planner says so first.

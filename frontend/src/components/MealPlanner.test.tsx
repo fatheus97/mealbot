@@ -482,6 +482,41 @@ describe('MealPlanner', () => {
     }
   });
 
+  it('asks for your consent when your own saved data needs it, and not once you untick yourself', async () => {
+    vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
+      userId: 1,
+      healthConsent: false,
+      isDemo: false,
+      householdsEnabled: true,
+    } as unknown as AuthState);
+    vi.mocked(fetchHousehold).mockResolvedValue({
+      members: [
+        { id: 1, email: 'me@example.com', profile: null, needs_consent: true },
+        { id: 2, email: 'partner@example.com', profile: null, needs_consent: false },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    mockedAuthFetch.mockReset();
+    mockedAuthFetch.mockImplementation(() => Promise.resolve(okEmpty()));
+
+    try {
+      const user = userEvent.setup();
+      render(<MealPlanner />, { wrapper: createWrapper() });
+
+      expect(await screen.findByRole('checkbox', { name: /i consent/i })).not.toBeChecked();
+      expect(screen.getByRole('button', { name: /generate plan/i })).toBeDisabled();
+
+      await user.click(screen.getByLabelText('me@example.com (you)'));
+
+      expect(screen.queryByRole('checkbox', { name: /i consent/i })).toBeNull();
+      expect(screen.getByRole('button', { name: /generate plan/i })).toBeEnabled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('sends the selected diet_types + allergens (and no legacy diet_type) in the generate body', async () => {
     // The FE->BE contract line: diet/allergen selections from the store must be
     // assembled into the POST /plan body so the backend allergen screen sees

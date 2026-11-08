@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubLocationReload } from '../test/location';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan, useSaveDietaryProfile, useDeleteDietaryProfile } from './useServerState';
+import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan, useSaveDietaryProfile, useDeleteDietaryProfile, useHousehold } from './useServerState';
 import type { ReactNode } from 'react';
 
 // Mock the api module
@@ -12,9 +12,10 @@ vi.mock('../api', () => ({
   updateUserProfile: vi.fn(),
   saveDietaryProfile: vi.fn(),
   deleteDietaryProfile: vi.fn(),
+  fetchHousehold: vi.fn(),
 }));
 
-import { authFetch, fetchUserProfile, saveDietaryProfile, deleteDietaryProfile } from '../api';
+import { authFetch, fetchUserProfile, saveDietaryProfile, deleteDietaryProfile, fetchHousehold } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchUserProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
@@ -343,6 +344,19 @@ describe('useDeletePlan', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/5', { method: 'DELETE' });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['fridge'] });
+  });
+});
+
+describe('useHousehold', () => {
+  it('refreshes like the other shared queries: a partner changes their profile from their own phone', async () => {
+    vi.mocked(fetchHousehold).mockResolvedValueOnce({ members: [], invites: [], max_members: 6, max_live_invites: 3 });
+    const { wrapper, queryClient } = createWrapper();
+
+    const { result } = renderHook(() => useHousehold(1, true), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const options = queryClient.getQueryCache().find({ queryKey: ['household', 1] })?.options;
+    expect(options).toMatchObject({ refetchOnWindowFocus: true, staleTime: 30_000 });
   });
 });
 

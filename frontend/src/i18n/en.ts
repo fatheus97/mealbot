@@ -277,6 +277,8 @@ export const en = {
   "eaters.summaryAvoid": "Avoid: {list}",
   "eaters.summaryNone": "The people ticked have no diets or allergies saved.",
   "eaters.babyFood": "Baby food applies to every meal for everyone eating, not just one person.",
+  "eaters.needsYourConsent":
+    "Your saved diets and allergies are used only with your consent: tick the consent box below, or untick yourself to cook without them.",
   "eaters.needsConsent":
     "{email} hasn't confirmed consent to use their diets and allergies. Untick them to cook without them, or ask them to confirm it in Settings.",
   "household.title": "Household",
