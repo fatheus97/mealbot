@@ -9,12 +9,14 @@ from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
 from sqlmodel import select
 
+from app.core.dietary import Allergen
 from app.core.meal_types import MealType
 from app.models.plan_models import (
     IngredientAmount,
     PlannedMeal,
     SingleDayResponse,
 )
+from app.services.allergen_screen import UNSCREENABLE_TERM, screen_meals_for_allergens
 
 
 def _fake_day() -> SingleDayResponse:
@@ -370,6 +372,136 @@ class TestMealEdit:
         )
         assert resp.status_code == 422
         assert "meal_index" in resp.json()["detail"]
+
+
+def _czech_day() -> SingleDayResponse:
+    """A Czech meal as the model writes it: localized names, English keys."""
+    return SingleDayResponse(
+        meals=[
+            PlannedMeal(
+                name="Omeleta",
+                meal_type=MealType.LIGHT_LUNCH,
+                ingredients=[
+                    IngredientAmount(name="mléko", quantity_grams=100, name_en="milk"),
+                    IngredientAmount(
+                        name="vejce", quantity_grams=120, name_en="egg", canonical_name="egg"
+                    ),
+                    IngredientAmount(name="voda", quantity_grams=50, name_en="water"),
+                ],
+                steps=["Rozšlehejte", "Smažte"],
+            )
+        ]
+    )
+
+
+class TestEditKeepsEnglishKeys:
+    """Check-in Q13: the editor sends only name, grams and the spice flag, so an
+    edit used to drop every ingredient's English keys, and a Czech meal became
+    unreadable to the allergen screen of every later step."""
+
+    async def _czech_plan(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str],
+        allergens: list[str] | None = None,
+    ) -> int:
+        mock_gen.return_value = _czech_day()
+        resp = await client.post(
+            "/api/plan?days=1",
+            headers=auth_headers,
+            json={
+                "meals_per_day": 1, "people_count": 2, "language": "cs",
+                "allergens": allergens or [],
+            },
+        )
+        assert resp.status_code == 200
+        plan_id: int = resp.json()["plan_id"]
+        return plan_id
+
+    async def _edit(
+        self, client: AsyncClient, auth_headers: dict[str, str], plan_id: int,
+        ingredients: list[dict[str, object]],
+    ) -> dict[str, object]:
+        edit = await client.patch(
+            f"/api/plan/{plan_id}/days/0/meals/0",
+            headers=auth_headers,
+            json={"name": "Omeleta", "ingredients": ingredients, "steps": ["Smažte"]},
+        )
+        assert edit.status_code == 200, edit.text
+        detail = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
+        stored: dict[str, object] = {
+            ing["name"]: ing for ing in detail.json()["days"][0]["meals"][0]["ingredients"]
+        }
+        return {"response": edit.json(), "stored": stored}
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_unchanged_ingredients_keep_their_english_keys(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        plan_id = await self._czech_plan(mock_gen, client, auth_headers)
+
+        # Grams changed, a name typed in other case: still the same ingredient.
+        out = await self._edit(client, auth_headers, plan_id, [
+            {"name": "MLÉKO", "quantity_grams": 200},
+            {"name": "vejce", "quantity_grams": 180},
+        ])
+
+        stored = out["stored"]
+        assert isinstance(stored, dict)
+        assert stored["MLÉKO"]["name_en"] == "milk"
+        assert stored["vejce"]["name_en"] == "egg"
+        assert stored["vejce"]["canonical_name"] == "egg"
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_a_renamed_ingredient_does_not_keep_the_old_english_name(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        plan_id = await self._czech_plan(mock_gen, client, auth_headers)
+
+        out = await self._edit(client, auth_headers, plan_id, [
+            {"name": "smetana", "quantity_grams": 50},
+        ])
+
+        stored = out["stored"]
+        assert isinstance(stored, dict)
+        # "voda" was water; what replaced it must not read as water.
+        assert stored["smetana"]["name_en"] is None
+        assert stored["smetana"]["canonical_name"] is None
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_an_english_name_sent_by_the_client_is_not_trusted(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        plan_id = await self._czech_plan(mock_gen, client, auth_headers)
+
+        out = await self._edit(client, auth_headers, plan_id, [
+            {"name": "mléko", "quantity_grams": 100, "name_en": "water"},
+            {"name": "smetana", "quantity_grams": 50, "name_en": "water"},
+        ])
+
+        stored = out["stored"]
+        assert isinstance(stored, dict)
+        assert stored["mléko"]["name_en"] == "milk"
+        assert stored["smetana"]["name_en"] is None
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_the_edited_czech_meal_stays_readable_to_later_screens(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """What Q13 is for: repeat and leftovers screen a stored Czech meal with
+        the plan's language, which reads `name_en`; without it every ingredient
+        was UNSCREENABLE and a repeat for someone with a milk allergy refused
+        the meal as unreadable instead of finding the milk."""
+        plan_id = await self._czech_plan(mock_gen, client, auth_headers)
+        await self._edit(client, auth_headers, plan_id, [
+            {"name": "mléko", "quantity_grams": 100},
+            {"name": "vejce", "quantity_grams": 120},
+        ])
+        detail = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
+        meal = PlannedMeal.model_validate(detail.json()["days"][0]["meals"][0])
+
+        violations = screen_meals_for_allergens([meal], [Allergen.MILK], language="cs")
+
+        assert [v.ingredient for v in violations if v.source == "ingredient"] == ["mléko"]
+        assert all(v.matched_term != UNSCREENABLE_TERM for v in violations)
 
 
 class TestEditAllergenWarning:

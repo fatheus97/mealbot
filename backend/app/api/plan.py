@@ -36,6 +36,7 @@ from app.models.plan_models import (
     ConfirmPlanRequest,
     FavoriteToggleRequest,
     FinishPlanResponse,
+    IngredientAmount,
     MealEditRequest,
     MealEditResponse,
     MealEntrySummary,
@@ -1297,9 +1298,11 @@ def _screen_edited_meal(
 
     # language=None (English matching) deliberately, NOT the plan's language.
     #
-    # An edit body has no `name_en` and never can: the editor has no field for
-    # it and this path makes no LLM call to backfill one. Passing a non-English
-    # language would therefore mark EVERY edited ingredient UNSCREENABLE, and
+    # A renamed or added ingredient has no `name_en` and never can: the editor
+    # has no field for it, this path makes no LLM call to backfill one, and only
+    # an unchanged ingredient keeps the stored one (_keep_english_keys). Passing
+    # a non-English language would therefore mark every such ingredient
+    # UNSCREENABLE, and
     # the filter below drops those — so on a Czech or Spanish plan the user
     # could type "cream" straight back in and get no warning at all. The feature
     # would have been silently dead for exactly the users #341 was about.
@@ -1328,6 +1331,35 @@ def _screen_edited_meal(
         # detected — the same mistake the fail-closed 422 message had to fix.
         if v.matched_term != UNSCREENABLE_TERM
     ]
+
+
+def _keep_english_keys(
+    edited: list[IngredientAmount], stored: list[IngredientAmount]
+) -> list[IngredientAmount]:
+    """The English keys an edit cannot supply, carried over from the stored meal.
+
+    `name_en` (what the allergen screen reads on a non-English plan) and
+    `canonical_name` (the pieces lookup) come from the model, and the editor
+    sends neither, so every edit used to drop them and a Czech meal became
+    unreadable to every later screen: repeat, leftovers (check-in Q13). Only an
+    ingredient whose name is unchanged keeps them; a renamed one must not, or
+    "voda" renamed to "mléko" would still read as water. A `name_en` in the body
+    is never trusted for the same reason: the screen reads it, and a client
+    could call milk "water".
+    """
+    by_name = {ing.name.strip().casefold(): ing for ing in stored}
+    kept = []
+    for ing in edited:
+        same = by_name.get(ing.name.strip().casefold())
+        kept.append(
+            ing.model_copy(
+                update={
+                    "name_en": same.name_en if same else None,
+                    "canonical_name": same.canonical_name if same else ing.canonical_name,
+                }
+            )
+        )
+    return kept
 
 
 # PATCH /api/plan/{plan_id}/days/{day_index}/meals/{meal_index} — Edit meal content
@@ -1407,7 +1439,7 @@ async def edit_meal(
         name=body.name,
         meal_type=existing.meal_type,
         meal_type_label=existing.meal_type_label,
-        ingredients=body.ingredients,
+        ingredients=_keep_english_keys(body.ingredients, existing.ingredients),
         steps=body.steps,
         total_time_minutes=body.total_time_minutes,
         leftover_of=existing.leftover_of,
