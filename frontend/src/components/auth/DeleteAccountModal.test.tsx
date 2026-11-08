@@ -54,6 +54,25 @@ describe("DeleteAccountModal", () => {
     expect(screen.queryByText(/Your plans, recipes, cookbook, fridge/)).toBeNull();
   });
 
+  it("waits for the household before it can delete", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: true }));
+    vi.spyOn(api, "fetchHousehold").mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<DeleteAccountModal onClose={vi.fn()} />);
+    await user.type(screen.getByLabelText(/current password/i), "Secret123");
+    expect(screen.getByRole("button", { name: /delete my account/i })).toBeDisabled();
+  });
+
+  it("says what stays with a household when the household cannot be loaded", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: true }));
+    vi.spyOn(api, "fetchHousehold").mockRejectedValue(new Error("down"));
+    renderWithProviders(<DeleteAccountModal onClose={vi.fn()} />);
+    expect(await screen.findByText(/Your household keeps the plans/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/current password/i), "Secret123");
+    expect(screen.getByRole("button", { name: /delete my account/i })).toBeEnabled();
+  });
+
   it("asks nothing about households while they are off", () => {
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: false }));
     const fetched = vi.spyOn(api, "fetchHousehold");

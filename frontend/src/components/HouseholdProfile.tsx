@@ -62,6 +62,7 @@ export function HouseholdProfile() {
 
   const shown = draft ?? fromProfile(profile);
   const carries = shown.dietTypes.length > 0 || shown.allergens.length > 0 || shown.avoid.length > 0;
+  const saveOff = draft === null || save.isPending || (carries && !healthConsent);
   const copy = { rateLimited: t("household.rateLimited"), fallback: t("household.profileFailed") };
   const edit = (next: Draft) => {
     setDraft(next);
@@ -132,8 +133,8 @@ export function HouseholdProfile() {
         <button
           type="button"
           onClick={() => void handleSave()}
-          disabled={draft === null || save.isPending || (carries && !healthConsent)}
-          style={{ ...secondary, opacity: draft === null || save.isPending ? 0.6 : 1 }}
+          disabled={saveOff}
+          style={{ ...secondary, opacity: saveOff ? 0.6 : 1 }}
         >
           {save.isPending ? t("household.profileSaving") : t("household.profileSave")}
         </button>
