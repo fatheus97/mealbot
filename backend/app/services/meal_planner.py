@@ -354,10 +354,11 @@ async def generate_single_day_with_rag(
             # meals from other users, written at an unknown time in an unknown
             # language, and English-authored meals never carry name_en by design.
             # Screening them as non-English would mark every one UNSCREENABLE and
-            # empty the RAG pool permanently. English matching still checks BOTH
-            # name and name_en (candidates includes it whenever present), so this
-            # only ever under-filters an ADVISORY prompt example — the real gate
-            # is the post-generation screen, which uses the true language.
+            # empty the RAG pool permanently. English matching reads only `name`
+            # (screenable_names), so a favourite written in another language is
+            # not filtered here at all; that only ever under-filters an ADVISORY
+            # prompt example. The real gate is the post-generation screen, which
+            # uses the true language and reads `name_en`.
             if req.allergens and screen_meals_for_allergens(
                 [meal], req.allergens, language=None,
             ):
