@@ -39,7 +39,12 @@ export function EaterPicker({
   if (members.length < 2) return null;
 
   const ticked = members.filter((m) => eaters === null || eaters.includes(m.id));
+  // Someone always stays ticked: an empty selection would send `eaters: []`,
+  // a plan checked against nobody's saved allergies, and "cooking for nobody"
+  // is never what an unticking click meant.
+  const lastOne = ticked.length === 1 ? ticked[0].id : null;
   const toggle = (id: number) => {
+    if (id === lastOne) return;
     const current = eaters ?? members.map((m) => m.id);
     pick(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
   };
@@ -69,6 +74,7 @@ export function EaterPicker({
             <input
               type="checkbox"
               checked={eaters === null || eaters.includes(member.id)}
+              disabled={member.id === lastOne}
               onChange={() => toggle(member.id)}
             />
             {member.id === userId ? t("eaters.you", { email: member.email }) : member.email}

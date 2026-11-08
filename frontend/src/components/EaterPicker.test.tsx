@@ -121,6 +121,25 @@ describe("EaterPicker", () => {
     expect(sent()).toBeNull();
   });
 
+  it("always keeps someone ticked, so a plan is never checked against nobody", async () => {
+    setUp([ME, PARTNER, THIRD]);
+    renderWithProviders(<Harness />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByLabelText("partner@example.com"));
+    await user.click(screen.getByLabelText("third@example.com"));
+    expect(sent()).toEqual([1]);
+
+    const me = screen.getByLabelText("me@example.com (you)");
+    expect(me).toBeDisabled();
+    await user.click(me);
+    expect(me).toBeChecked();
+    expect(sent()).toEqual([1]);
+
+    // Ticking someone back frees you again.
+    await user.click(screen.getByLabelText("partner@example.com"));
+    expect(me).toBeEnabled();
+  });
+
   it("never sends someone who left the household since they were picked", async () => {
     const fetched = setUp([ME, PARTNER, THIRD]);
     const { queryClient } = renderWithProviders(<Harness />);
