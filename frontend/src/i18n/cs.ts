@@ -134,9 +134,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.deleteAccount.body":
     "Je to trvalé a projeví se okamžitě. Nejde to vzít zpět a není žádná ochranná lhůta.",
   "auth.deleteAccount.pointData":
-    "Vaše jídelníčky, recepty, kuchařka, lednice, spížové základy a předvolby se smažou.",
+    "Vaše jídelníčky, recepty, kuchařka, lednice, zásoby spíže a předvolby se smažou.",
   "auth.deleteAccount.pointHousehold":
-    "Vaše předvolby se smažou. Vaše domácnost si ponechá sdílené jídelníčky, recepty, kuchařku, lednici a spížové základy. Plány vytvořené s vašimi dietami nebo alergiemi si ponechají jídla, ale přijdou o všechny údaje o dietách a alergiích.",
+    "Vaše předvolby se smažou. Vaše domácnost si ponechá sdílené jídelníčky, recepty, kuchařku, lednici a zásoby spíže. Plány vytvořené s vašimi dietami nebo alergiemi si ponechají jídla, ale přijdou o všechny údaje o dietách a alergiích.",
   "auth.deleteAccount.pointSubscription":
     "Předplatné se hned zruší. Zbytek už zaplaceného období se nevrací.",
   "auth.deleteAccount.pointInvoices":

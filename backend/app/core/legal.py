@@ -88,9 +88,9 @@ CHANGE_SUMMARY: Final[dict[Locale, str]] = {
     ),
     "cs": (
         "Domácnost teď může sdílet až šest účtů. Všichni v ní sdílejí lednici, "
-        "spížové základy, jídelníčky a kuchařku a vidí e-mailové adresy "
+        "zásoby spíže, jídelníčky a kuchařku a vidí e-mailové adresy "
         "ostatních; když se k některé připojíte, vaše nepotvrzené jídelníčky se "
-        "smažou a ostatní jídelníčky, kuchařka, lednice a spížové základy se "
+        "smažou a ostatní jídelníčky, kuchařka, lednice a zásoby spíže se "
         "stanou její součástí. Uložené typy stravy, alergie a suroviny, kterým "
         "se chcete vyhnout, se s vaším souhlasem zobrazují ostatním členům "
         "a používají se pro jídelníčky domácnosti, když patříte "
