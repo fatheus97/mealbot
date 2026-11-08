@@ -28,9 +28,15 @@ import { useI18n } from "../../i18n";
  */
 export function DeleteAccountModal({ onClose }: { onClose: () => void }) {
   const { userId, isSubscribed, isDemo, householdsEnabled } = useAuth();
-  // Only someone sharing a kitchen leaves anything behind in it.
-  const { data: household } = useHousehold(userId, householdsEnabled && !isDemo);
-  const shared = (household?.members.length ?? 0) > 1;
+  // Only someone sharing a kitchen leaves anything behind in it. Until the
+  // household has loaded, the dialog does not know which sentence is true, so
+  // deleting waits. If it cannot load, the household sentence stands: saying
+  // something stays that is in fact deleted harms less than the reverse.
+  const { data: household, isLoading: checking, isError } = useHousehold(
+    userId,
+    householdsEnabled && !isDemo,
+  );
+  const shared = household ? household.members.length > 1 : isError;
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,8 +106,8 @@ export function DeleteAccountModal({ onClose }: { onClose: () => void }) {
             </button>
             <button
               type="submit"
-              disabled={busy || password.length === 0}
-              style={{ ...dangerBtn, opacity: busy || !password ? 0.6 : 1 }}
+              disabled={busy || password.length === 0 || checking}
+              style={{ ...dangerBtn, opacity: busy || !password || checking ? 0.6 : 1 }}
             >
               {busy ? t("auth.deleteAccount.deleting") : t("auth.deleteAccount.submit")}
             </button>

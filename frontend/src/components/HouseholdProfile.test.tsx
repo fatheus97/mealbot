@@ -79,7 +79,10 @@ describe("HouseholdProfile", () => {
     await user.click(await screen.findByRole("button", { name: "Milk / dairy" }));
 
     expect(screen.getByRole("checkbox")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeDisabled();
+    // It looks as off as it is, not only while nothing is edited.
+    expect(saveButton).toHaveStyle({ opacity: "0.6" });
     expect(save).not.toHaveBeenCalled();
   });
 
