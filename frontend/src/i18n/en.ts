@@ -270,8 +270,11 @@ export const en = {
   "eaters.hintLabel": "How meals for a shared household are cooked",
   "eaters.hint":
     "The meals are cooked for everyone ticked here, with their saved diets, allergies and ingredients to avoid, plus anything you pick below. Each person sets their own in Settings.",
+  "eaters.hintRepeat":
+    "A repeated plan is copied for everyone ticked here. Its meals are checked against their saved allergies and baby food, and the copy is refused if one does not fit. Each person sets their own in Settings.",
   "eaters.you": "{email} (you)",
   "eaters.summaryTitle": "Their saved diets and allergies, added to what you pick below:",
+  "eaters.summaryTitleRepeat": "Their saved diets and allergies, which the copy is made for:",
   "eaters.summaryDiets": "Diets: {list}",
   "eaters.summaryAllergies": "Allergies: {list}",
   "eaters.summaryAvoid": "Avoid: {list}",

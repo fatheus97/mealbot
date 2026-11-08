@@ -24,7 +24,15 @@ const isAllergen = (a: string): a is Allergen => (ALLERGENS as readonly string[]
  * THEME: sits on the adaptive page, so text keeps the page's colour and the
  * muted lines use MUTED_PAGE_TEXT.
  */
-export function EaterPicker({ choice }: { choice: EaterChoice }) {
+export function EaterPicker({
+  choice,
+  purpose = "cook",
+}: {
+  choice: EaterChoice;
+  /** "repeat": above the plan list, where nothing is picked below and the
+   *  copy is checked against the union rather than cooked from it. */
+  purpose?: "cook" | "repeat";
+}) {
   const { userId } = useAuth();
   const { t } = useI18n();
   const { members, eaters, pick } = choice;
@@ -50,7 +58,10 @@ export function EaterPicker({ choice }: { choice: EaterChoice }) {
     <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
       <legend style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: 0, fontWeight: 600, fontSize: "0.85rem" }}>
         {t("eaters.title")}
-        <InfoHint label={t("eaters.hintLabel")} text={t("eaters.hint")} />
+        <InfoHint
+          label={t("eaters.hintLabel")}
+          text={t(purpose === "repeat" ? "eaters.hintRepeat" : "eaters.hint")}
+        />
       </legend>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem 1rem", margin: "0.35rem 0" }}>
         {members.map((member) => (
@@ -71,7 +82,7 @@ export function EaterPicker({ choice }: { choice: EaterChoice }) {
           flagged.length === 0 && <p style={line}>{t("eaters.summaryNone")}</p>
         ) : (
           <>
-            <p style={line}>{t("eaters.summaryTitle")}</p>
+            <p style={line}>{t(purpose === "repeat" ? "eaters.summaryTitleRepeat" : "eaters.summaryTitle")}</p>
             {diets.length > 0 && (
               <p style={line}>
                 {t("eaters.summaryDiets", { list: diets.map((d) => t(`diet.${d}` as const)).join(", ") })}
