@@ -7,7 +7,9 @@ import { useLocaleStore, DEFAULT_LOCALE } from "../../store/useLocaleStore";
 import { DeleteAccountModal } from "./DeleteAccountModal";
 import * as AuthCtx from "../../contexts/AuthContext";
 import * as api from "../../api";
-import type { AuthState } from "../../types";
+import type { AuthState, Household, HouseholdMember } from "../../types";
+
+const ME_ALONE: HouseholdMember = { id: 1, email: "me@example.com" };
 
 function authState(over: Partial<AuthState> = {}): AuthState {
   return {
@@ -54,13 +56,20 @@ describe("DeleteAccountModal", () => {
     expect(screen.queryByText(/Your plans, recipes, cookbook, fridge/)).toBeNull();
   });
 
-  it("waits for the household before it can delete", async () => {
+  it("waits for the household before it can delete, and only until it arrives", async () => {
     const user = userEvent.setup();
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: true }));
-    vi.spyOn(api, "fetchHousehold").mockReturnValue(new Promise(() => {}));
+    let arrive: (household: Household) => void = () => {};
+    vi.spyOn(api, "fetchHousehold").mockReturnValue(new Promise((resolve) => (arrive = resolve)));
     renderWithProviders(<DeleteAccountModal onClose={vi.fn()} />);
     await user.type(screen.getByLabelText(/current password/i), "Secret123");
-    expect(screen.getByRole("button", { name: /delete my account/i })).toBeDisabled();
+    const submit = screen.getByRole("button", { name: /delete my account/i });
+    expect(submit).toBeDisabled();
+
+    arrive({ members: [ME_ALONE], invites: [], max_members: 6, max_live_invites: 3 });
+
+    await waitFor(() => expect(submit).toBeEnabled());
+    expect(screen.getByText(/Your plans, recipes, cookbook, fridge/)).toBeInTheDocument();
   });
 
   it("says what stays with a household when the household cannot be loaded", async () => {
