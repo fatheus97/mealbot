@@ -181,7 +181,9 @@ async def join_household(session: AsyncSession, user: User, code: str) -> Househ
     # delete of their invites, so being active is checked here too.
     if not all(member.is_active and stripe_service.is_entitled(member) for member in rows):
         raise LocalizedHTTPException(409, "household_join_no_access")
-    # Before the check: a draft that goes in this join shows nobody anything.
+    # Before the check: a draft that goes in this join shows nobody anything. Like
+    # the invite's delete, it relies on a refusal below rolling back, so no caller
+    # may commit after catching one.
     await clear_unconfirmed_plans(session, kitchen)
     if await anyone_lacks_consent(session, (kitchen.household_id, target)):
         raise LocalizedHTTPException(409, "household_join_consent")
