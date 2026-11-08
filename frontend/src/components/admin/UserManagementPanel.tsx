@@ -93,7 +93,7 @@ export function UserManagementPanel() {
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
 
   // --- Bulk selection ---
-  const { userId: currentAdminId } = useAuth();
+  const { userId: currentAdminId, householdsEnabled } = useAuth();
   const queryClient = useQueryClient();
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState<
@@ -213,7 +213,11 @@ export function UserManagementPanel() {
     if (u.is_active) {
       askConfirm({
         title: "Deactivate account",
-        message: `Disable ${u.email}? They'll be logged out of every device immediately and can't sign in until reactivated.`,
+        message:
+          `Disable ${u.email}? They'll be logged out of every device immediately and can't sign in until reactivated.` +
+          (householdsEnabled
+            ? " If they share a household, they're moved into one of their own, and their diets and allergies are taken off its plans."
+            : ""),
         confirmLabel: "Deactivate",
         run: (cb) => updateMut.mutate({ id: u.id, update: { is_active: false } }, cb),
       });

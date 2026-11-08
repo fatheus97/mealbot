@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
-import type { StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
-import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createHouseholdInvite, createInvite, fetchHousehold, revokeHouseholdInvite, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
+import type { DietaryProfileBody, StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
+import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createHouseholdInvite, createInvite, deleteDietaryProfile, fetchDietaryProfile, fetchHousehold, revokeHouseholdInvite, saveDietaryProfile, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 import { extractErrorDetail } from '../utils/httpError';
 
 // --- Queries (Data Fetching) ---
@@ -151,6 +151,31 @@ export function useRevokeHouseholdInvite() {
       revokeHouseholdInvite(id, copy),
     // A revoke that refused (already gone) still means the list is stale.
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['household'] }),
+  });
+}
+
+export function useDietaryProfile(userId: number | null) {
+  return useQuery({
+    queryKey: ['dietaryProfile', userId],
+    queryFn: fetchDietaryProfile,
+    enabled: userId !== null,
+  });
+}
+
+export function useSaveDietaryProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ body, copy }: { body: DietaryProfileBody; copy: RequestCopy }) =>
+      saveDietaryProfile(body, copy),
+    onSuccess: (saved) => queryClient.setQueriesData({ queryKey: ['dietaryProfile'] }, saved),
+  });
+}
+
+export function useDeleteDietaryProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (copy: RequestCopy) => deleteDietaryProfile(copy),
+    onSuccess: () => queryClient.setQueriesData({ queryKey: ['dietaryProfile'] }, null),
   });
 }
 

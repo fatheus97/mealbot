@@ -39,6 +39,7 @@ const SHARED = household({
 
 function setUp(state: AuthState = authState(), data: Household = household()) {
   vi.spyOn(AuthCtx, "useAuth").mockReturnValue(state);
+  vi.spyOn(api, "fetchDietaryProfile").mockResolvedValue(null);
   return vi.spyOn(api, "fetchHousehold").mockResolvedValue(data);
 }
 
@@ -187,8 +188,15 @@ describe("HouseholdSettings", () => {
   it("says so when the household cannot be loaded", async () => {
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
     vi.spyOn(api, "fetchHousehold").mockRejectedValue(new Error("Household failed: 500"));
+    vi.spyOn(api, "fetchDietaryProfile").mockResolvedValue(null);
     renderWithProviders(<HouseholdSettings />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load your household.");
+  });
+
+  it("holds the saved-profile editor", async () => {
+    setUp();
+    renderWithProviders(<HouseholdSettings />);
+    expect(await screen.findByText("Your saved diets and allergies")).toBeInTheDocument();
   });
 
   it("is all Czech in a Czech UI", async () => {

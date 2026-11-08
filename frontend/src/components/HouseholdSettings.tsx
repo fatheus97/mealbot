@@ -9,6 +9,7 @@ import {
 import { useI18n } from "../i18n";
 import { formatDate } from "../i18n/localeFormat";
 import type { HouseholdInviteCreated } from "../types";
+import { HouseholdProfile } from "./HouseholdProfile";
 import { InfoHint } from "./InfoHint";
 
 /**
@@ -28,7 +29,7 @@ import { InfoHint } from "./InfoHint";
  * own colours like the rows around it.
  */
 export function HouseholdSettings() {
-  const { userId, email, isDemo, householdsEnabled } = useAuth();
+  const { userId, isDemo, householdsEnabled } = useAuth();
   const { t, locale } = useI18n();
   const shown = householdsEnabled && !isDemo;
   const { data: household, isError } = useHousehold(userId, shown);
@@ -125,7 +126,7 @@ export function HouseholdSettings() {
           <ul aria-label={t("household.members")} style={{ margin: "0 0 0.75rem", padding: 0, listStyle: "none" }}>
             {members.map((member) => (
               <li key={member.id} style={{ fontSize: 13, color: "#111827", padding: "0.15rem 0" }}>
-                {member.id === userId || member.email === email
+                {member.id === userId
                   ? t("household.you", { email: member.email })
                   : member.email}
               </li>
@@ -201,6 +202,8 @@ export function HouseholdSettings() {
               </ul>
             </>
           )}
+
+          <HouseholdProfile />
 
           {members.length === 1 ? (
             <form onSubmit={(e) => void handleJoin(e)} style={{ marginTop: "1rem" }}>

@@ -5,7 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../../test/test-utils";
 import { UserManagementPanel } from "./UserManagementPanel";
 import * as api from "../../api";
-import type { AdminUser, AdminUserListResponse } from "../../types";
+import * as AuthCtx from "../../contexts/AuthContext";
+import type { AdminUser, AdminUserListResponse, AuthState } from "../../types";
 
 vi.mock("../../api", () => ({
   // AuthProvider calls authFetch("/config") on mount — stub it.
@@ -87,6 +88,27 @@ describe("UserManagementPanel", () => {
     await waitFor(() =>
       expect(api.updateAdminUser).toHaveBeenCalledWith(7, { is_admin: true }),
     );
+  });
+
+  it("says a shared member moves out, only while households are on", async () => {
+    const u = mkUser({ id: 3, email: "carol@example.com", is_active: true });
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(listResp([u]));
+    const auth = vi
+      .spyOn(AuthCtx, "useAuth")
+      .mockReturnValue({ userId: 99, householdsEnabled: true } as unknown as AuthState);
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("carol@example.com");
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/moved into one of their own/);
+    unmount();
+
+    auth.mockReturnValue({ userId: 99, householdsEnabled: false } as unknown as AuthState);
+    renderWithProviders(<UserManagementPanel />);
+    await screen.findByText("carol@example.com");
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(await screen.findByRole("dialog")).not.toHaveTextContent(/household/);
+    auth.mockRestore();
   });
 
   it("deactivates through a confirm dialog", async () => {

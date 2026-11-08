@@ -1,6 +1,7 @@
 import { type CSSProperties, type FormEvent, useState } from "react";
 import { ModalShell } from "../ModalShell";
 import { useAuth } from "../../contexts/AuthContext";
+import { useHousehold } from "../../hooks/useServerState";
 import { deleteAccount } from "../../api";
 import { useI18n } from "../../i18n";
 
@@ -26,7 +27,10 @@ import { useI18n } from "../../i18n";
  * template, so a white card that sets no colour goes white-on-white.
  */
 export function DeleteAccountModal({ onClose }: { onClose: () => void }) {
-  const { isSubscribed } = useAuth();
+  const { userId, isSubscribed, isDemo, householdsEnabled } = useAuth();
+  // Only someone sharing a kitchen leaves anything behind in it.
+  const { data: household } = useHousehold(userId, householdsEnabled && !isDemo);
+  const shared = (household?.members.length ?? 0) > 1;
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,7 +70,7 @@ export function DeleteAccountModal({ onClose }: { onClose: () => void }) {
             {t("auth.deleteAccount.body")}
           </p>
           <ul style={list}>
-            <li>{t("auth.deleteAccount.pointData")}</li>
+            <li>{t(shared ? "auth.deleteAccount.pointHousehold" : "auth.deleteAccount.pointData")}</li>
             {isSubscribed && <li>{t("auth.deleteAccount.pointSubscription")}</li>}
             <li>{t("auth.deleteAccount.pointInvoices")}</li>
             <li>{t("auth.deleteAccount.pointBackups")}</li>
