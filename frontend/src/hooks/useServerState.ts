@@ -358,10 +358,19 @@ export class PlanActionRefusedError extends Error {}
 
 export function useRepeatPlan() {
   return useMutation({
-    mutationFn: async ({ planId, startDate }: { planId: number; startDate: string | null }): Promise<MealPlanResponse> => {
+    mutationFn: async ({
+      planId,
+      startDate,
+      eaters = null,
+    }: {
+      planId: number;
+      startDate: string | null;
+      // Shared households: who the copy is for; null = every member (EaterPicker).
+      eaters?: number[] | null;
+    }): Promise<MealPlanResponse> => {
       const res = await authFetch(`/plan/${planId}/repeat`, {
         method: "POST",
-        body: JSON.stringify({ start_date: startDate }),
+        body: JSON.stringify({ start_date: startDate, ...(eaters !== null && { eaters }) }),
       });
       if (res.status === 403 || res.status === 409) {
         throw new PlanActionRefusedError(await extractErrorDetail(res, "Repeat failed"));

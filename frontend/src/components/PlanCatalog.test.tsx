@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,9 +17,12 @@ vi.mock("../api", () => ({
   fetchPlan: vi.fn(),
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
+  fetchHousehold: vi.fn(),
 }));
 
-import { authFetch, fetchPlan } from "../api";
+import { authFetch, fetchPlan, fetchHousehold } from "../api";
+import * as AuthCtx from "../contexts/AuthContext";
+import type { AuthState, Household } from "../types";
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchPlan = fetchPlan as ReturnType<typeof vi.fn>;
@@ -461,6 +464,79 @@ describe("PlanCatalog — repeat this week", () => {
         body: JSON.stringify({ start_date: "2026-08-01" }),
       }),
     );
+  });
+
+  describe("in a shared household", () => {
+    const shared = (meNeedsConsent = false): Household => ({
+      members: [
+        { id: 1, email: "me@example.com", profile: null, needs_consent: meNeedsConsent },
+        {
+          id: 2,
+          email: "partner@example.com",
+          profile: { diet_types: [], allergens: ["eggs"], avoid_ingredients: [], updated_at: "2026-11-05T10:00:00Z" },
+          needs_consent: false,
+        },
+      ],
+      invites: [],
+      max_members: 6,
+      max_live_invites: 3,
+    });
+    const repeatBodies = () =>
+      mockedAuthFetch.mock.calls
+        .filter(([url, opts]) => (opts as { method?: string } | undefined)?.method === "POST" && String(url).endsWith("/repeat"))
+        .map(([, opts]) => JSON.parse((opts as { body: string }).body) as Record<string, unknown>);
+
+    function setUp(household: Household, healthConsent = true) {
+      vi.spyOn(AuthCtx, "useAuth").mockReturnValue({
+        userId: 1,
+        healthConsent,
+        isDemo: false,
+        householdsEnabled: true,
+      } as unknown as AuthState);
+      vi.mocked(fetchHousehold).mockResolvedValue(household);
+      mockedAuthFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+        if (opts?.method === "POST" && url.endsWith("/repeat"))
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ plan_id: 99, start_date: null, days: [], shopping_list: [] }),
+          });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([SAMPLE_PLAN]) });
+      });
+    }
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it("copies for the members ticked, and sends nobody while everyone is", async () => {
+      setUp(shared());
+      render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+      const user = userEvent.setup();
+      expect(await screen.findByText("Who's eating")).toBeInTheDocument();
+      expect(screen.getByText(/which the copy is made for/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /repeat/i }));
+      await waitFor(() => expect(repeatBodies()).toHaveLength(1));
+      expect(repeatBodies()[0]).toEqual({ start_date: null });
+
+      await user.click(screen.getByLabelText("partner@example.com"));
+      await user.click(screen.getByRole("button", { name: /repeat/i }));
+      await waitFor(() => expect(repeatBodies()).toHaveLength(2));
+      expect(repeatBodies()[1]).toEqual({ start_date: null, eaters: [1] });
+    });
+
+    it("asks for your consent when your own saved data needs it, and not once you untick yourself", async () => {
+      setUp(shared(true), false);
+      render(<PlanCatalog onOpenPlan={vi.fn()} />, { wrapper: createWrapper() });
+      const user = userEvent.setup();
+
+      expect(await screen.findByRole("checkbox", { name: /i consent/i })).not.toBeChecked();
+      expect(screen.getByRole("button", { name: /repeat/i })).toBeDisabled();
+
+      await user.click(screen.getByLabelText("me@example.com (you)"));
+
+      expect(screen.queryByRole("checkbox", { name: /i consent/i })).toBeNull();
+      expect(screen.getByRole("button", { name: /repeat/i })).toBeEnabled();
+    });
   });
 
   it("hands the COPY to the planner, not the source", async () => {

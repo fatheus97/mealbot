@@ -231,8 +231,11 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "eaters.hintLabel": "Jak se vaří pro sdílenou domácnost",
   "eaters.hint":
     "Jídla se uvaří pro všechny, kdo jsou tu zaškrtnutí, s jejich uloženými dietami, alergiemi a surovinami k vynechání a s tím, co vyberete níže. Každý si své nastavuje v Nastavení.",
+  "eaters.hintRepeat":
+    "Opakovaný jídelníček se zkopíruje pro všechny, kdo jsou tu zaškrtnutí. Jeho jídla se zkontrolují podle jejich uložených alergií a dětské stravy, a pokud některé nevyhovuje, kopie se odmítne. Každý si své nastavuje v Nastavení.",
   "eaters.you": "{email} (vy)",
   "eaters.summaryTitle": "Jejich uložené diety a alergie, přidané k tomu, co vyberete níže:",
+  "eaters.summaryTitleRepeat": "Jejich uložené diety a alergie, pro které se kopie vytvoří:",
   "eaters.summaryDiets": "Diety: {list}",
   "eaters.summaryAllergies": "Alergie: {list}",
   "eaters.summaryAvoid": "Vynechat: {list}",
