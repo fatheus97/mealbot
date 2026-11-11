@@ -147,7 +147,7 @@ export function useAnswerRestock() {
     mutationFn: () => answerRestockPrompt(),
     // Never shown (the prompt is gone either way), but a household that keeps
     // being asked again would otherwise leave no trace of why.
-    onError: (err) => console.warn("Restock answer failed:", err),
+    onError: (err) => console.warn('Restock answer failed:', err),
     onSuccess: () =>
       queryClient.setQueriesData<RestockStatus>(
         { queryKey: ['restock'] },
