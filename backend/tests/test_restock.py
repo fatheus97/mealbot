@@ -3,8 +3,9 @@
 Pinned here:
 * restock_due: never before a first write, due from exactly RESTOCK_AFTER, and
   an answer counts only if it came after the last write;
-* every counted fridge write stamps household.fridge_written_at, a staples
-  write and a PUT refused with 409 do not;
+* every fridge writer stamps household.fridge_written_at (a PUT, a merge, a
+  plan confirm and finish, Cook Now, and _count_write itself, which a household
+  join calls directly); a staples write and a PUT refused with 409 do not;
 * GET /fridge/restock is keyed on the household (a partner's write clears it
   for both) and never asks a demo account or one still in onboarding;
 * POST /fridge/restock/answer stamps the database clock, whatever the body says.
@@ -21,8 +22,10 @@ from sqlmodel import col, select
 
 from app.api.deps import get_current_user
 from app.models.db_models import Household, User
-from app.services.fridge_service import RESTOCK_AFTER, restock_due
+from app.services.fridge_service import RESTOCK_AFTER, _count_write, restock_due
+from app.services.kitchen import HouseholdId
 from tests.test_household_eaters import _member
+from tests.test_plan_catalog import _create_plan, _fake_day
 
 NOW = datetime(2026, 11, 11, 9, 0, tzinfo=UTC)
 MILK = {"name": "milk", "quantity_grams": 1000}
@@ -44,6 +47,23 @@ async def _age_fridge(db: AsyncSession, household_id: int | None, days: int) -> 
         .where(col(Household.id) == household_id)
         .values(fridge_written_at=datetime.now(UTC) - timedelta(days=days))
     )
+
+
+async def _turn_back(db: AsyncSession, user: User, days: int) -> None:
+    """Move the fridge stamp AND this person's answer back by ``days``, keeping
+    their real order: the test asserts on writes that actually happened."""
+    shift = timedelta(days=days)
+    await db.execute(
+        update(Household)
+        .where(col(Household.id) == user.household_id)
+        .values(fridge_written_at=col(Household.fridge_written_at) - shift)
+    )
+    await db.execute(
+        update(User)
+        .where(col(User.id) == user.id)
+        .values(restock_prompt_answered_at=col(User.restock_prompt_answered_at) - shift)
+    )
+    await db.refresh(user)
 
 
 @asynccontextmanager
@@ -136,6 +156,51 @@ class TestTheClock:
         assert resp.status_code == 200, resp.text
         assert await _written_at(db_session, test_user.household_id) is not None
 
+    async def test_confirming_and_finishing_a_plan_stamp_it(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        # Food the plan reserves at confirm, so the finish has some to put back
+        # (a finish that restores nothing writes nothing, and stamps nothing).
+        chicken = {"name": "chicken breast", "quantity_grams": 500}
+        assert (await client.put("/api/fridge", json=[chicken])).status_code == 200
+        plan = await _create_plan(client, auth_headers, meals_per_day=1)
+        confirmed = await client.post(f"/api/plan/{plan['plan_id']}/confirm")
+        assert confirmed.status_code == 200, confirmed.text
+        assert await _written_at(db_session, test_user.household_id) is not None
+        await _age_fridge(db_session, test_user.household_id, 20)
+        finished = await client.post(f"/api/plan/{plan['plan_id']}/finish")
+        assert finished.status_code == 200, finished.text
+        stamp = await _written_at(db_session, test_user.household_id)
+        assert stamp is not None
+        assert datetime.now(UTC) - stamp < timedelta(minutes=5)
+
+    async def test_cook_now_stamps_it(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        recipe = _fake_day().meals[0].model_dump(mode="json")
+        cooked = await client.post(
+            "/api/recipe/cook",
+            json={"meal_type": recipe["meal_type"], "people_count": 2, "recipe": recipe},
+        )
+        assert cooked.status_code == 200, cooked.text
+        assert await _written_at(db_session, test_user.household_id) is not None
+
+    async def test_the_counter_itself_stamps_fridge_writes_only(
+        self, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # A household join calls _count_write directly for both shelves
+        # (household.py), not through replace_fridge_items.
+        assert test_user.household_id is not None
+        household = HouseholdId(test_user.household_id)
+        await _count_write(db_session, household, "staples", None)
+        assert await _written_at(db_session, test_user.household_id) is None
+        await _count_write(db_session, household, "fridge", None)
+        assert await _written_at(db_session, test_user.household_id) is not None
+
 
 @pytest.mark.usefixtures("onboarded")
 class TestTheQuestion:
@@ -170,15 +235,12 @@ class TestTheQuestion:
         assert answered.status_code == 200, answered.text
         assert answered.json()["due"] is False
         assert (await client.get("/api/fridge/restock")).json()["due"] is False
-        # The fridge is written again, then left alone for 15 days: ask again.
+        # Weeks pass without a write: still answered, still not asked.
+        await _turn_back(db_session, test_user, 15)
+        assert (await client.get("/api/fridge/restock")).json()["due"] is False
+        # A real write after the real answer, then 15 quiet days: ask again.
         await client.put("/api/fridge", json=[MILK])
-        await _age_fridge(db_session, test_user.household_id, 15)
-        await db_session.execute(
-            update(User)
-            .where(col(User.id) == test_user.id)
-            .values(restock_prompt_answered_at=datetime.now(UTC) - timedelta(days=16))
-        )
-        await db_session.refresh(test_user)
+        await _turn_back(db_session, test_user, 15)
         assert (await client.get("/api/fridge/restock")).json()["due"] is True
 
     async def test_the_answer_uses_the_server_clock(

@@ -197,8 +197,8 @@ async def answer_restock_prompt(
     session: AsyncSession = Depends(get_session),
 ) -> RestockStatus:
     """Record that this person answered the restock question, either way. The
-    database clock, the same one that stamps fridge_written_at, so the two
-    compare without skew; no body is read. Nothing in the fridge changes, so
+    database's wall clock (clock_timestamp), the same one that stamps
+    fridge_written_at, so the two compare without skew; no body is read. Nothing in the fridge changes, so
     no kitchen lock. Not a PATCH /users field on purpose: a preference there
     needs both payload builders, and this is not a preference."""
     if current_user.id is None:
@@ -207,7 +207,7 @@ async def answer_restock_prompt(
         await session.execute(
             update(User)
             .where(col(User.id) == current_user.id)
-            .values(restock_prompt_answered_at=func.now())
+            .values(restock_prompt_answered_at=func.clock_timestamp())
         )
         await session.commit()
         await session.refresh(current_user, ["restock_prompt_answered_at"])

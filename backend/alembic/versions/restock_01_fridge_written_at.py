@@ -13,9 +13,12 @@ deploy window, which never reads them). The backfill stamps the deploy time:
 a lower bound on how stale each fridge is, so it can never prompt early, and a
 household away across the deploy is still asked 14 days later instead of never.
 
-Both ALTERs take ACCESS EXCLUSIVE, and "user" is read on every request; the
-5 s lock_timeout (as in household_05/06) makes the migration give up rather
-than queue behind a long write, and the deploy retries it.
+The deploy runs this while the old stack still serves, and every request
+reads "user" first (to authenticate) and household after. So both locks are
+taken up front, "user" first, as household_02's _lock_tables does: altering
+household first and "user" second could deadlock with a request holding
+"user" and waiting on household, and Postgres would abort the request (a 500)
+before the 5 s lock_timeout made the migration give up for the deploy to retry.
 
 Downgrade drops two timestamps that hold nobody's food.
 
@@ -37,6 +40,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
+    op.execute('LOCK TABLE "user", household IN ACCESS EXCLUSIVE MODE')
     op.add_column(
         "household",
         sa.Column("fridge_written_at", sa.DateTime(timezone=True), nullable=True),
@@ -50,5 +54,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
+    op.execute('LOCK TABLE "user", household IN ACCESS EXCLUSIVE MODE')
     op.drop_column("user", "restock_prompt_answered_at")
     op.drop_column("household", "fridge_written_at")

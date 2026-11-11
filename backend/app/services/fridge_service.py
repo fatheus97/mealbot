@@ -143,14 +143,18 @@ async def _count_write(
     ``expected``, only from exactly that version (equality: a restored
     database can go backwards): anything else is a 409, raised before the
     caller writes anything. Returns the new version. A fridge write also
-    stamps fridge_written_at (the restock clock); a staples write does not."""
+    stamps fridge_written_at (the restock clock) with the database's wall
+    clock at this statement; a staples write does not."""
     column = _version_column(shelf)
     statement = update(Household).where(col(Household.id) == household_id)
     if expected is not None:
         statement = statement.where(column == expected)
     statement = statement.values({column: column + 1})
     if shelf == "fridge":
-        statement = statement.values(fridge_written_at=func.now())
+        # clock_timestamp, not now(): now() is when the transaction began, and
+        # a write may have waited on the kitchen lock since, long enough for
+        # an answer to land in between and be wrongly counted as later.
+        statement = statement.values(fridge_written_at=func.clock_timestamp())
     version = (await session.execute(statement.returning(column))).scalar_one_or_none()
     if version is None:
         raise LocalizedHTTPException(409, _CHANGED[shelf])
