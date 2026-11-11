@@ -8,11 +8,11 @@ functions; tests import the pure helpers directly.
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from itertools import chain
 from typing import Final, Literal
 
-from sqlalchemy import event, text, update
+from sqlalchemy import event, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, SessionTransaction
 from sqlmodel import col, delete, select
@@ -68,6 +68,21 @@ _TOKEN = re.compile(r"([0-9]{1,10}):([0-9]{1,10})")
 # The versions are INTEGER columns: a bigger number in a token would fail its
 # bind (a 500), so it is refused as stale like any other bad token.
 _MAX_VERSION = 2**31 - 1
+
+#: A fridge list unchanged this long is offered a restock ("start fresh",
+#: docs/restock-design.md). The owner's own example; a code constant on purpose.
+RESTOCK_AFTER: Final = timedelta(days=14)
+
+
+def restock_due(
+    written_at: datetime | None, answered_at: datetime | None, now: datetime
+) -> bool:
+    """Ask once: the fridge was last written RESTOCK_AFTER ago or more, and
+    this person has not answered since that write. Never before a first write
+    (NULL), so a new household is left to onboarding."""
+    if written_at is None or now - written_at < RESTOCK_AFTER:
+        return False
+    return answered_at is None or answered_at < written_at
 
 
 def _version_column(shelf: Shelf) -> Mapped[int]:
@@ -127,14 +142,20 @@ async def _count_write(
     """Count one write of ``shelf``; the caller holds lock_kitchen. With
     ``expected``, only from exactly that version (equality: a restored
     database can go backwards): anything else is a 409, raised before the
-    caller writes anything. Returns the new version."""
+    caller writes anything. Returns the new version. A fridge write also
+    stamps fridge_written_at (the restock clock) with the database's wall
+    clock at this statement; a staples write does not."""
     column = _version_column(shelf)
     statement = update(Household).where(col(Household.id) == household_id)
     if expected is not None:
         statement = statement.where(column == expected)
-    version = (
-        await session.execute(statement.values({column: column + 1}).returning(column))
-    ).scalar_one_or_none()
+    statement = statement.values({column: column + 1})
+    if shelf == "fridge":
+        # clock_timestamp, not now(): now() is when the transaction began, and
+        # a write may have waited on the kitchen lock since, long enough for
+        # an answer to land in between and be wrongly counted as later.
+        statement = statement.values(fridge_written_at=func.clock_timestamp())
+    version = (await session.execute(statement.returning(column))).scalar_one_or_none()
     if version is None:
         raise LocalizedHTTPException(409, _CHANGED[shelf])
     return int(version)
