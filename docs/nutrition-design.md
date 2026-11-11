@@ -170,13 +170,14 @@ Each ingredient gets one of these results:
   - not recognised: no usable key for the plan language;
   - not in the table;
   - amount not given: a 1 g is_spice placeholder for a food without the seasoning flag, such as honey, sesame oil or soy sauce without the flag;
-  - frying fat, amount eaten unknown: a row with at least 80 g fat per 100 g and more than 50 g per serving. Shallow-frying oil below that limit is counted in full, which errs high.
+  - frying fat, amount eaten unknown: a row with at least 80 g fat per 100 g whose grams in the dish, divided by the meal's servings (defined below), exceed 50 g. The per-serving amount is computed first, from the same servings denominator as the figure, and the rule is applied to the ingredient before it is summed, so a fat that fails it adds nothing to dish_total. Shallow-frying oil at or below the limit is counted in full, which errs high.
 
 Raw versus cooked:
 - PR 2 pins the weight basis. quantity_grams is the edible part, raw, as it goes into the pan; rice, pasta, grains and dried legumes are given dry; a product bought cooked or canned says so in its name.
 - States are matched, never converted, so no yield factor is applied anywhere. Water lost in cooking changes the weight of the dish, not the protein, fat or carbohydrate in it. The USDA retention factors cover vitamins and minerals, not macros.
 - A per-100 g figure for the cooked dish is never shown.
 - Each meal generated under the rule is stamped `grams_basis = 1` (PR 2). A meal with no stamp has an undefined basis and gets no figure (owner decision 5).
+- An edit keeps the meal's stamp, and the ingredients the user typed or changed are counted under it. The basis is a property of what the prompt wrote, not of what a person types, so this is accepted under the "recipe as written" caveat: the caption never claims more than the recipe on screen, and the provenance table shows the grams each figure used. Marking edited ingredients separately would need a per-ingredient stamp that the edit path does not carry today; it is a follow-up if real edits turn out to use cooked weights.
 
 Per meal:
 - dish_total is the sum of the counted contributions.
@@ -287,7 +288,7 @@ Health-data consent:
 
 Each PR ships on its own. PRs 3 and 5 wait for the owner's sign-off, so auto-merge is not armed on them until he approves.
 
-1. **docs(nutrition): decision record.** Adds this file as docs/nutrition-design.md. ROADMAP.md:338 goes to 🟡 with a link to it, and the source at :498 becomes "Ciqual 2025 (ANSES)". Docs only.
+1. **docs(nutrition): decision record.** Adds this file as docs/nutrition-design.md. The ROADMAP nutrition row links to it and stays ⬜ until code exists (it moves to 🟡 with PR 2); the reference-KB row names Ciqual 2025 (ANSES) as the recommended source, pending the owner's choice. Docs only.
 
 2. **feat(plan): pin the weight basis and stamp it on each meal.**
    - The prompt gets the rule next to meal_plan.jinja:144, in meal_plan_partial.jinja and in whichever template Cook Now renders. quantity_grams is the edible part, raw, as it goes into the pan. Rice, pasta, grains and dried legumes are dry. A product bought cooked or canned says so in name and name_en. name_en names the ingredient as bought, with no cutting or preparation words ("potatoes", not "potatoes, peeled and cubed") but keeping any cooked or canned word.
@@ -359,6 +360,7 @@ Follow-ups, not scheduled:
 - Liquid broth and stock (12% of grams) have no matching Ciqual row. Left uncounted, they would push many soups and stews below the coverage floor (owner decision 6).
 - The prompt rule can be ignored. If the model writes cooked-rice weights under "rice", that ingredient's energy is overstated about 2.5 times. RAG examples from stored favourites carry the old basis and may pull the model back. Re-measure grain grams per person after any change to LLM_MODELS.
 - The edible-weight basis makes the shopping list under-buy peel and bone by the refuse fraction. It is small for most foods; bone-in items are not counted at all in v1.
+- Servings are derived on read from the leftover_of links, so deleting or regenerating a leftover meal changes the earlier meal's per-serving figure without notice. That is correct for the plan as it now stands (the batch feeds fewer meals), and the figure is never stored, but a user comparing screenshots may see it move.
 - Equal servings mislead mixed tables (adults and children) even outside infant mode. The UI says "1 of N equal servings", but a parent may still read it as one person's intake.
 - Diabetic users may dose from the carbohydrate figure, and calorie numbers can harm people with eating disorders. Opt-in default off, the explicit dosing sentence, and the absence of targets and colour coding limit this but do not remove it.
 - The Ciqual conventions listed under "Recommended source and why" are still unverified. If the carbohydrate column includes fibre, PR 3 stops by design, and a conversion step would weaken the promise that the screen shows the source's own values.
