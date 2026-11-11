@@ -5,7 +5,7 @@ jinja2~=3.1
 python-multipart~=0.0.32
 
 # For LLM
-instructor~=1.15
+instructor~=1.17
 openai~=2.53
 # Claude. Held at the version instructor's `anthropic` extra pins (==0.93.0 up to
 # instructor 1.17), which is what its Anthropic handlers are tested against; the
