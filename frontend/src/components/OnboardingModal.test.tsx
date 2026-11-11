@@ -100,14 +100,14 @@ function stubAuthFetch() {
   });
 }
 
-function createWrapper() {
-  const queryClient = new QueryClient({
+function createWrapper(
+  queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
-  });
-
+  }),
+) {
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>{children}</AuthProvider>
@@ -128,8 +128,11 @@ function renderOnboarding() {
     const { onboardingCompleted } = useAuth();
     return onboardingCompleted ? <p>ONBOARDING_DONE</p> : <OnboardingModal onStartRestock={onStartRestock} />;
   }
-  const view = render(<Harness />, { wrapper: createWrapper() });
-  return { ...view, onStartRestock };
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const view = render(<Harness />, { wrapper: createWrapper(queryClient) });
+  return { ...view, onStartRestock, queryClient };
 }
 
 beforeEach(() => {
@@ -388,13 +391,19 @@ describe('OnboardingModal stock step', () => {
     await submit(user);
 
     expect(await screen.findByRole('heading', { name: 'Stock your fridge now?' })).toBeInTheDocument();
+    // Focus jumps to Scan, so the question is announced as the dialog's description.
     expect(
-      screen.getByText('Take photos of your food and your latest receipts, check the list, save.'),
+      screen.getByRole('dialog', {
+        name: 'Stock your fridge now?',
+        description: 'Take photos of your food and your latest receipts, check the list, save.',
+      }),
     ).toBeInTheDocument();
     expect(mockedUpdateProfile).toHaveBeenCalledTimes(1);
     expect(mockedUpdateProfile).toHaveBeenCalledWith(FRESH_PAYLOAD);
-    // Not finished yet: the step is part of onboarding.
-    expect(localStorage.getItem('mealbot_onboarding')).toBeNull();
+    // The server flag is already true, so the session hint is written now: a
+    // reload skips the preferences form. The step itself still shows.
+    expect(localStorage.getItem('mealbot_onboarding')).toBe('true');
+    expect(screen.queryByText('ONBOARDING_DONE')).not.toBeInTheDocument();
     expect(onStartRestock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Scan my food' }));
@@ -408,14 +417,16 @@ describe('OnboardingModal stock step', () => {
 
   it('Later completes onboarding without opening Start fresh', async () => {
     const user = userEvent.setup();
-    const { onStartRestock } = renderOnboarding();
+    const { onStartRestock, queryClient } = renderOnboarding();
     await submit(user);
 
     await user.click(await screen.findByRole('button', { name: 'Later' }));
     expect(screen.getByText('ONBOARDING_DONE')).toBeInTheDocument();
     expect(onStartRestock).not.toHaveBeenCalled();
-    // Later is an answer: "Start fresh?" must not follow it straight away.
+    // Later is an answer: "Start fresh?" must not follow it straight away. The
+    // seed is what holds the prompt's query back while the POST is in flight.
     expect(mockedAnswerRestock).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: false, days_since_write: null });
   });
 
   it('closes as before when the fridge has food in it (an admin reset, a new household member)', async () => {
@@ -458,12 +469,18 @@ describe('OnboardingModal stock step', () => {
     // Every scan returns 403 until the email is confirmed.
     localStorage.setItem('mealbot_email_verified', 'false');
     const user = userEvent.setup();
-    const { onStartRestock } = renderOnboarding();
+    const { onStartRestock, queryClient } = renderOnboarding();
     await submit(user);
 
     expect(await screen.findByRole('heading', { name: 'Stock your fridge now?' })).toBeInTheDocument();
+    // The pointer is the instruction that matters here, and focus is on OK.
     expect(
-      screen.getByText('Confirm your email first. Then Start fresh in the Fridge section scans your food.'),
+      screen.getByRole('dialog', {
+        name: 'Stock your fridge now?',
+        description:
+          'Take photos of your food and your latest receipts, check the list, save. ' +
+          'Confirm your email first. Then Start fresh in the Fridge section scans your food.',
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Scan my food' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Later' })).not.toBeInTheDocument();
@@ -472,6 +489,7 @@ describe('OnboardingModal stock step', () => {
     expect(screen.getByText('ONBOARDING_DONE')).toBeInTheDocument();
     expect(onStartRestock).not.toHaveBeenCalled();
     expect(mockedAnswerRestock).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: false, days_since_write: null });
   });
 
   it('leaves no untranslated English in Czech, in either branch', async () => {
@@ -487,6 +505,8 @@ describe('OnboardingModal stock step', () => {
     expect(untranslatedEnglishIn(verified.container)).toEqual([]);
     verified.unmount();
 
+    // A second fresh account: the first one's stock step wrote the onboarding hint.
+    localStorage.removeItem('mealbot_onboarding');
     localStorage.setItem('mealbot_email_verified', 'false');
     const unverified = renderOnboarding();
     await submit(user, 'Začít');

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useId, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -59,6 +59,9 @@ export function OnboardingModal({ onStartRestock }: { onStartRestock: () => void
   // later language switch. See AuthBar for the same shape.
   const [saveError, setSaveError] = useState<TranslationKey | null>(null);
   const [step, setStep] = useState<"prefs" | "stock">("prefs");
+  const titleId = useId();
+  const textId = useId();
+  const pointerId = useId();
   const answerRestock = useAnswerRestock();
 
   // The stock step IS the restock question, asked at first run: any of its
@@ -102,6 +105,11 @@ export function OnboardingModal({ onStartRestock }: { onStartRestock: () => void
     // modal as before.
     const fridge = queryClient.getQueryState<ShelfData<StockItem>>(["fridge", userId]);
     if (fridge?.status === "success" && fridge.data?.token != null && fridge.data.items.length === 0) {
+      // The server flag is already true: write the session hint now, as
+      // setOnboardingCompleted would, so a reload or a second tab (the
+      // confirmation email) skips the preferences form instead of showing it
+      // until the profile loads. The local flag stays false: this step shows.
+      window.localStorage.setItem("mealbot_onboarding", "true");
       setStep("stock");
     } else {
       setOnboardingCompleted(true);
@@ -121,6 +129,12 @@ export function OnboardingModal({ onStartRestock }: { onStartRestock: () => void
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        // The stock step moves focus to its button, so the question (and for an
+        // unconfirmed email, the pointer) must be the dialog's description.
+        aria-describedby={step === "stock" && !emailVerified ? `${textId} ${pointerId}` : textId}
         style={{
           backgroundColor: "white",
           color: "#111",
@@ -137,8 +151,8 @@ export function OnboardingModal({ onStartRestock }: { onStartRestock: () => void
           // Every button finishes onboarding: the server flag is already true,
           // so a reload skips this screen anyway.
           <>
-            <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>{t("onboarding.stockTitle")}</h2>
-            <p style={{ color: "#666", marginTop: 0, marginBottom: "1.5rem" }}>
+            <h2 id={titleId} style={{ marginTop: 0, marginBottom: "0.25rem" }}>{t("onboarding.stockTitle")}</h2>
+            <p id={textId} style={{ color: "#666", marginTop: 0, marginBottom: "1.5rem" }}>
               {t("onboarding.stockText")}
             </p>
             {emailVerified ? (
@@ -158,7 +172,7 @@ export function OnboardingModal({ onStartRestock }: { onStartRestock: () => void
             ) : (
               // Every scan returns 403 until the email is confirmed.
               <>
-                <p style={{ marginTop: 0, marginBottom: "1.5rem" }}>{t("onboarding.stockVerifyFirst")}</p>
+                <p id={pointerId} style={{ marginTop: 0, marginBottom: "1.5rem" }}>{t("onboarding.stockVerifyFirst")}</p>
                 <button type="button" autoFocus onClick={() => finishStock(false)} style={primaryButton}>
                   {t("onboarding.stockOk")}
                 </button>
@@ -167,8 +181,8 @@ export function OnboardingModal({ onStartRestock }: { onStartRestock: () => void
           </>
         ) : (
           <>
-            <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>{t("onboarding.title")}</h2>
-            <p style={{ color: "#666", marginTop: 0, marginBottom: "1.5rem" }}>
+            <h2 id={titleId} style={{ marginTop: 0, marginBottom: "0.25rem" }}>{t("onboarding.title")}</h2>
+            <p id={textId} style={{ color: "#666", marginTop: 0, marginBottom: "1.5rem" }}>
               {t("onboarding.subtitle")}
             </p>
             {profile ? (
