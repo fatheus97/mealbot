@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import (
@@ -172,16 +172,19 @@ async def get_restock_status(
         return RestockStatus(due=False)
     # A column read, not session.get: an identity-mapped Household would not
     # see the UPDATE that _count_write stamped earlier in the same session.
-    written_at = (
+    # "Now" comes from the same database clock that stamped both times, so app
+    # server skew cannot move the 14-day boundary.
+    row = (
         await session.execute(
-            select(col(Household.fridge_written_at)).where(
+            select(col(Household.fridge_written_at), func.clock_timestamp()).where(
                 col(Household.id) == Kitchen.of(current_user).household_id
             )
         )
-    ).scalar_one_or_none()
-    if written_at is None:
+    ).one_or_none()
+    if row is None or row[0] is None:
         return RestockStatus(due=False)
-    now = datetime.now(UTC)
+    written_at: datetime = row[0]
+    now: datetime = row[1]
     return RestockStatus(
         due=restock_due(written_at, current_user.restock_prompt_answered_at, now),
         days_since_write=max((now - written_at).days, 0),
@@ -196,11 +199,12 @@ async def answer_restock_prompt(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> RestockStatus:
-    """Record that this person answered the restock question, either way. The
-    database's wall clock (clock_timestamp), the same one that stamps
-    fridge_written_at, so the two compare without skew; no body is read. Nothing in the fridge changes, so
-    no kitchen lock. Not a PATCH /users field on purpose: a preference there
-    needs both payload builders, and this is not a preference."""
+    """Record that this person answered the restock question, either way.
+    The database's wall clock (clock_timestamp), the same one that stamps
+    fridge_written_at, so the two compare without skew; no body is read.
+    Nothing in the fridge changes, so no kitchen lock. Not a PATCH /users
+    field on purpose: a preference there needs both payload builders, and
+    this is not a preference."""
     if current_user.id is None:
         raise HTTPException(status_code=500, detail="Invalid user state")
     if not current_user.is_demo:
