@@ -418,13 +418,17 @@ describe('the restock prompt status', () => {
     const { wrapper, queryClient } = createWrapper();
     queryClient.setQueryData(['restock', 1], { due: true, days_since_write: 20 });
 
-    const { result } = renderHook(() => useAnswerRestock(), { wrapper });
-    result.current.mutate();
+    try {
+      const { result } = renderHook(() => useAnswerRestock(), { wrapper });
+      result.current.mutate();
 
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: true, days_since_write: 20 });
-    expect(warn).toHaveBeenCalledWith('Restock answer failed:', failure);
-    warn.mockRestore();
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: true, days_since_write: 20 });
+      expect(warn).toHaveBeenCalledWith('Restock answer failed:', failure);
+    } finally {
+      // Restored even when an assertion fails, so the stub never leaks into later tests.
+      warn.mockRestore();
+    }
   });
 });
 
