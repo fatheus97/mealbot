@@ -325,6 +325,13 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "onboarding.submit": "Začít",
   "onboarding.loadFailed": "Vaše předvolby se nepodařilo načíst.",
   "onboarding.retry": "Zkusit znovu",
+  "onboarding.stockTitle": "Chcete hned zapsat, co máte v lednici?",
+  "onboarding.stockText": "Vyfoťte jídlo a poslední účtenky, zkontrolujte seznam a uložte ho.",
+  "onboarding.stockScan": "Naskenovat jídlo",
+  "onboarding.stockLater": "Později",
+  "onboarding.stockVerifyFirst":
+    "Nejdřív si potvrďte e-mail. Potom jídlo naskenujete v sekci Lednice tlačítkem „Začít nanovo“.",
+  "onboarding.stockOk": "OK",
 
   // ─── Preferences form ─────────────────────────────────────────────────────
   "prefs.country": "Země",

@@ -363,7 +363,7 @@ export function UserManagementPanel() {
           >
             <InfoHint
               label="About Reset onboarding"
-              text="After Reset onboarding they must redo setup on their next visit. The form opens with their saved preferences, so saving it unchanged keeps them."
+              text="After Reset onboarding they must redo setup on their next visit. The form opens with their saved preferences, so saving it unchanged keeps them. If their fridge list is empty, setup then also offers to stock it."
             />
           </span>
         </span>

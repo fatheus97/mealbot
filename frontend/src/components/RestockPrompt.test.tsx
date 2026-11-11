@@ -228,6 +228,29 @@ describe('RestockPrompt', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it("onboarding's Scan opens the dialog without the prompt asking too, even when due", async () => {
+    // OnboardingModal's Scan completes onboarding and opens the dialog in one
+    // click, so the prompt goes from ineligible straight to an open dialog.
+    // The answer fails, so only the open dialog can keep the prompt shut.
+    mockedAnswer.mockRejectedValue(new Error('Restock answer failed: 500'));
+    setAuth({ onboardingCompleted: false });
+    const { queryClient, reopen } = renderPrompt();
+    await act(async () => {});
+    expect(mockedStatus).not.toHaveBeenCalled();
+
+    setAuth({ onboardingCompleted: true });
+    await reopen(true);
+    await settled(queryClient);
+    await waitFor(() => expect(queryClient.getQueryState(['fridge', 1])?.status).toBe('success'));
+    await waitFor(() => expect(mockedAnswer).toHaveBeenCalledTimes(1));
+    expect(queryClient.getQueryData<RestockStatus>(['restock', 1])?.due).toBe(true);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    // Closing the dialog does not ask either.
+    await reopen(false);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('opening Start fresh when nothing is due answers nothing', async () => {
     mockedStatus.mockResolvedValue({ due: false, days_since_write: 3 });
     const { queryClient } = renderPrompt({ restockOpen: true });
