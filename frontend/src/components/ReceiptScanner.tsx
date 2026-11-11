@@ -87,11 +87,13 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   // Scans in the review list on screen; 0 means there is no list. Once it is
   // above 0, a new scan appends and any failure keeps the rows (paid scans).
   const [scanCount, setScanCount] = useState(0);
-  // machine_generation ids of those scans, echoed back on merge so the server
-  // can capture edits made in the review table. The demo path (no real /scan
-  // call) and a skipped scan telemetry write add none.
-  const [generationIds, setGenerationIds] = useState<number[]>([]);
+  // machine_generation id of each of those scans, echoed back on merge so the
+  // server can capture edits made in the review table. null for a scan whose
+  // telemetry write was skipped; the demo path (no real /scan call) adds none.
+  const [generationIds, setGenerationIds] = useState<(number | null)[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
+  // An add-another scan that found nothing says so here, under the list.
+  const [scanInfo, setScanInfo] = useState("");
   const [confirmError, setConfirmError] = useState("");
   const [notice, setNotice] = useState("");
   // Camera is being acquired (permission prompt open) — disables the file input
@@ -258,6 +260,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     const adding = scanCount > 0;
     setState(adding ? "review" : "scanning");
     setErrorMessage("");
+    setScanInfo("");
 
     try {
       const scanResponse = await scanMutation.mutateAsync({
@@ -293,9 +296,12 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       });
 
       setReviewItems((prev) => (adding ? [...prev, ...items] : items));
-      setGenerationIds((prev) => [...(adding ? prev : []), ...(id != null ? [id] : [])]);
+      setGenerationIds((prev) => [...(adding ? prev : []), id]);
       setScanCount(scanCount + 1);
       setState("review");
+      if (adding && items.length === 0) {
+        setScanInfo(source === "food_photo" ? t("receipt.noItemsFoodPhoto") : t("receipt.noItems"));
+      }
     } catch (err) {
       fail(err instanceof Error ? err.message : t("receipt.scanFailed"));
     } finally {
@@ -338,11 +344,19 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       expiration_date: item.expirationDate,
     }));
 
+    // The server compares the scans it can resolve with the WHOLE list, so one
+    // unlinked scan would make an unedited save read as edited. Send no ids
+    // then: telemetry skipped, never a false correction.
+    const linked = generationIds.filter((id): id is number => id !== null);
     try {
       await mergeMutation.mutateAsync({
         items: itemsToMerge,
-        generationIds,
-        copy: { rateLimited: t("receipt.rateLimited"), fallback: t("receipt.mergeFailed") },
+        generationIds: linked.length === generationIds.length ? linked : [],
+        copy: {
+          rateLimited: t("receipt.rateLimited"),
+          fallback: t("receipt.mergeFailed"),
+          connectionLost: t("receipt.mergeConnectionLost"),
+        },
       });
       clearList();
       setNotice(t("receipt.added"));
@@ -354,29 +368,29 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   };
 
   const clearList = () => {
+    stopCamera(); // defensive: no path should leave a stream live here
     setState("idle");
     setReviewItems([]);
     setScanCount(0);
     setGenerationIds([]);
     setErrorMessage("");
+    setScanInfo("");
     setConfirmError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // Functional updates: an edit made before a finished scan's rows render must
+  // not overwrite the list with the one it was typed into.
   const updateReviewItem = <K extends keyof ReviewItem>(
     index: number,
     field: K,
     value: ReviewItem[K],
   ) => {
-    const updated = [...reviewItems];
-    updated[index] = { ...updated[index], [field]: value };
-    setReviewItems(updated);
+    setReviewItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
   };
 
   const removeReviewItem = (index: number) => {
-    const updated = [...reviewItems];
-    updated.splice(index, 1);
-    setReviewItems(updated);
+    setReviewItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   // Source, file and camera: the first scan in idle/error, "add another" in review.
@@ -715,18 +729,23 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
             })()
           )}
           {confirmError && (
-            <p style={{ color: "#f87171", margin: "0.25rem 0 0.5rem" }}>{confirmError}</p>
+            <p role="alert" style={{ color: "#f87171", margin: "0.25rem 0 0.5rem" }}>{confirmError}</p>
           )}
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <button
               onClick={handleConfirm}
-              // Not while a scan is adding rows: they would miss this save.
-              disabled={mergeMutation.isPending || scanMutation.isPending || reviewItems.length === 0}
+              // Not while a scan is adding rows (they would miss this save) or
+              // the camera is being acquired (its stream would outlive the list).
+              disabled={mergeMutation.isPending || scanMutation.isPending || cameraOpening || reviewItems.length === 0}
               style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: "pointer" }}
             >
               {mergeMutation.isPending ? t("receipt.adding") : t("receipt.add")}
             </button>
-            <button onClick={clearList}>{t("receipt.cancel")}</button>
+            {/* Not while a scan or camera is in flight: it would land after the
+                list is gone and reopen a review of the discarded scan. */}
+            <button onClick={clearList} disabled={scanMutation.isPending || cameraOpening}>
+              {t("receipt.cancel")}
+            </button>
           </div>
           {/* Below the buttons, so its status line toggling shifts nothing the
               person is about to click. The demo has a single scan only. */}
@@ -736,13 +755,14 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                 {scanPickers}
               </div>
-              {scanMutation.isPending && (
-                <p style={{ margin: "0.5rem 0 0" }}>
-                  {isFoodPhoto ? t("receipt.scanningFoodPhoto") : t("receipt.scanning")}
-                </p>
-              )}
+              {/* Always mounted, so screen readers announce what it says next. */}
+              <p role="status" style={{ margin: "0.5rem 0 0" }}>
+                {scanMutation.isPending
+                  ? isFoodPhoto ? t("receipt.scanningFoodPhoto") : t("receipt.scanning")
+                  : scanInfo}
+              </p>
               {errorMessage && (
-                <p style={{ color: "#f87171", margin: "0.5rem 0 0" }}>{errorMessage}</p>
+                <p role="alert" style={{ color: "#f87171", margin: "0.5rem 0 0" }}>{errorMessage}</p>
               )}
             </div>
           )}

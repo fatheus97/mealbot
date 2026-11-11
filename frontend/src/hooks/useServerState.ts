@@ -280,9 +280,14 @@ export function useMergeFridge() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (vars: { items: StockItem[]; generationIds: number[]; copy: RequestCopy }) =>
-      mergeFridgeItems(vars.items, vars.generationIds, vars.copy),
-    onSuccess: () => {
+    mutationFn: (vars: {
+      items: StockItem[];
+      generationIds: number[];
+      copy: RequestCopy & { connectionLost: string };
+    }) => mergeFridgeItems(vars.items, vars.generationIds, vars.copy),
+    // Settled, not success: after a dropped connection only a refetch shows
+    // whether the merge landed.
+    onSettled: () => {
       return queryClient.invalidateQueries({ queryKey: ['fridge'] });
     },
   });

@@ -333,6 +333,12 @@ describe('changeEmail', () => {
 });
 
 const COPY = { rateLimited: 'Slow down, please.', fallback: 'Scan went wrong.' };
+const MERGE_COPY = { ...COPY, connectionLost: 'Lost the line; check before retrying.' };
+
+/** fetch itself rejects: no Response at all (offline, DNS, aborted). */
+function failFetch() {
+  (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+}
 
 describe('scanReceipt 429 split', () => {
   const scan = () => scanReceipt(new File(['x'], 'r.jpg', { type: 'image/jpeg' }), 'receipt', COPY);
@@ -373,6 +379,11 @@ describe('scanReceipt 429 split', () => {
     mockFetch(500, {});
     await expect(scan()).rejects.toThrow('Scan went wrong. (500)');
   });
+
+  it('a network failure shows the fallback copy, not the browser\'s English', async () => {
+    failFetch();
+    await expect(scan()).rejects.toThrow(/^Scan went wrong\.$/);
+  });
 });
 
 describe('mergeFridgeItems', () => {
@@ -380,26 +391,38 @@ describe('mergeFridgeItems', () => {
 
   it('sends one generation_id per scan, and none for an empty list', async () => {
     mockFetch(200, []);
-    await mergeFridgeItems([], [7, 8], COPY);
+    await mergeFridgeItems([], [7, 8], MERGE_COPY);
     expect(lastUrl()).toBe(`${MOCK_BASE}/fridge/merge?generation_id=7&generation_id=8`);
 
     mockFetch(200, []);
-    await mergeFridgeItems([], [], COPY);
+    await mergeFridgeItems([], [], MERGE_COPY);
     expect(lastUrl()).toBe(`${MOCK_BASE}/fridge/merge`);
   });
 
-  it('never sends more ids than the server accepts (20)', async () => {
+  it('sends 20 ids, but none at all past the server limit (never a prefix)', async () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
     mockFetch(200, []);
-    await mergeFridgeItems([], Array.from({ length: 25 }, (_, i) => i + 1), COPY);
+    await mergeFridgeItems([], ids(20), MERGE_COPY);
     expect(new URL(lastUrl(), 'http://x').searchParams.getAll('generation_id')).toHaveLength(20);
+
+    mockFetch(200, []);
+    await mergeFridgeItems([], ids(21), MERGE_COPY);
+    expect(lastUrl()).toBe(`${MOCK_BASE}/fridge/merge`);
+  });
+
+  it('a network failure says the outcome is unknown, so nobody blindly retries', async () => {
+    failFetch();
+    await expect(mergeFridgeItems([], [7], MERGE_COPY)).rejects.toThrow(
+      /^Lost the line; check before retrying\.$/,
+    );
   });
 
   it('shows the server detail, else the fallback copy, never a raw status dump', async () => {
     mockFetch(422, { detail: 'Too many items (501); maximum is 500.' });
-    await expect(mergeFridgeItems([], [], COPY)).rejects.toThrow('Too many items (501); maximum is 500.');
+    await expect(mergeFridgeItems([], [], MERGE_COPY)).rejects.toThrow('Too many items (501); maximum is 500.');
     mockFetch(500, { oops: true });
-    await expect(mergeFridgeItems([], [], COPY)).rejects.toThrow('Scan went wrong. (500)');
+    await expect(mergeFridgeItems([], [], MERGE_COPY)).rejects.toThrow('Scan went wrong. (500)');
     mockFetch(429, { error: 'Rate limit exceeded' });
-    await expect(mergeFridgeItems([], [], COPY)).rejects.toThrow(/^Slow down, please\.$/);
+    await expect(mergeFridgeItems([], [], MERGE_COPY)).rejects.toThrow(/^Slow down, please\.$/);
   });
 });

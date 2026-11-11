@@ -259,10 +259,17 @@ export async function scanReceipt(
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await authFetch(`/fridge/scan?source=${source}`, {
-    method: "POST",
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await authFetch(`/fridge/scan?source=${source}`, {
+      method: "POST",
+      body: formData,
+    });
+  } catch {
+    // No Response at all (network down, aborted): the browser's own message
+    // ("Failed to fetch", "Load failed") is English and tells the user nothing.
+    throw new Error(copy.fallback);
+  }
   if (res.status === 402) throw new PaywallError();
   if (res.status === 429) {
     // Two different 429s share this status. The usage cap
@@ -906,19 +913,27 @@ export async function recordWaste(entries: WasteEntry[]): Promise<WasteRecordedR
 export async function mergeFridgeItems(
   items: StockItem[],
   generationIds: number[],
-  copy: RequestCopy,
+  copy: RequestCopy & { connectionLost: string },
 ): Promise<StockItem[]> {
   // One generation_id per scan rides as a repeated query param so the merge
   // body stays a bare item array; the server owner-checks each for telemetry.
-  // ponytail: the server refuses more than 20 ids, so a longer list drops the
-  // later scans' edit telemetry rather than refusing to save paid scans.
+  // ponytail: the server refuses more than 20 ids, so a longer list sends none
+  // (that save's edit telemetry is skipped). A prefix would be compared with
+  // the whole list and record corrections nobody made.
   const qs = new URLSearchParams(
-    generationIds.slice(0, 20).map((id) => ["generation_id", String(id)]),
+    (generationIds.length > 20 ? [] : generationIds).map((id) => ["generation_id", String(id)]),
   ).toString();
-  const res = await authFetch(`/fridge/merge${qs ? `?${qs}` : ""}`, {
-    method: "POST",
-    body: JSON.stringify(items),
-  });
+  let res: Response;
+  try {
+    res = await authFetch(`/fridge/merge${qs ? `?${qs}` : ""}`, {
+      method: "POST",
+      body: JSON.stringify(items),
+    });
+  } catch {
+    // No Response: the merge may have committed before the connection dropped,
+    // and it is not idempotent, so "try again" could add everything twice.
+    throw new Error(copy.connectionLost);
+  }
   if (res.status === 429) throw new Error(copy.rateLimited);
   if (!res.ok) throw new Error(await extractErrorDetail(res, copy.fallback));
   return res.json();
