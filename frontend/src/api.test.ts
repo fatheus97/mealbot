@@ -6,6 +6,8 @@ import {
   changeEmail,
   fetchUserProfile,
   mergeFridgeItems,
+  answerRestockPrompt,
+  fetchRestockStatus,
   redeemInvite,
   revokeInvite,
   scanReceipt,
@@ -424,5 +426,29 @@ describe('mergeFridgeItems', () => {
     await expect(mergeFridgeItems([], [], MERGE_COPY)).rejects.toThrow('Scan went wrong. (500)');
     mockFetch(429, { error: 'Rate limit exceeded' });
     await expect(mergeFridgeItems([], [], MERGE_COPY)).rejects.toThrow(/^Slow down, please\.$/);
+  });
+});
+
+describe('the restock prompt calls', () => {
+  const lastCall = () => (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.at(-1);
+
+  it('GETs the status and POSTs an answer with no body', async () => {
+    mockFetch(200, { due: true, days_since_write: 23 });
+    await expect(fetchRestockStatus()).resolves.toEqual({ due: true, days_since_write: 23 });
+    expect(lastCall()?.[0]).toBe(`${MOCK_BASE}/fridge/restock`);
+    expect(lastCall()?.[1].method).toBe('GET');
+
+    mockFetch(200, { due: false, days_since_write: null });
+    await expect(answerRestockPrompt()).resolves.toEqual({ due: false, days_since_write: null });
+    expect(lastCall()?.[0]).toBe(`${MOCK_BASE}/fridge/restock/answer`);
+    expect(lastCall()?.[1].method).toBe('POST');
+    expect(lastCall()?.[1].body).toBeUndefined();
+  });
+
+  it('throws on a refusal, so the query errors and the mutation fails', async () => {
+    mockFetch(500);
+    await expect(fetchRestockStatus()).rejects.toThrow('Restock status failed: 500');
+    mockFetch(429);
+    await expect(answerRestockPrompt()).rejects.toThrow('Restock answer failed: 429');
   });
 });

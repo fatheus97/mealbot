@@ -44,6 +44,9 @@ export function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
+  // The message as the dialog's description, so a screen reader announces the
+  // question with the title, not the title alone.
+  const messageId = useId();
 
   // Focus Cancel by default — safer choice for a destructive prompt.
   useEffect(() => {
@@ -111,6 +114,7 @@ export function ConfirmDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      aria-describedby={message ? messageId : undefined}
       onKeyDown={handleDialogKeyDown}
       style={{
         position: "fixed",
@@ -139,7 +143,7 @@ export function ConfirmDialog({
         <h3 id={titleId} style={{ margin: "0 0 0.5rem 0", fontSize: "1.05rem" }}>
           {title}
         </h3>
-        <p style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.92rem" }}>
+        <p id={messageId} style={{ margin: "0 0 1rem 0", color: "#374151", fontSize: "0.92rem" }}>
           {message}
         </p>
 

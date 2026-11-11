@@ -12,6 +12,7 @@ import { PlanCatalog } from "./components/PlanCatalog";
 import { MealPlanner } from "./components/MealPlanner";
 import { OnboardingModal } from "./components/OnboardingModal";
 import { RestockDialog } from "./components/RestockDialog";
+import { RestockPrompt } from "./components/RestockPrompt";
 import { CookbookFab } from "./components/CookbookFab";
 import { CalendarFab } from "./components/CalendarFab";
 import { AdminDashboard } from "./components/admin/AdminDashboard";
@@ -37,8 +38,8 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
   // single user session — see AuthRoot below for the userId-keyed remount that
   // discards them on logout/login transitions.
   const [openedPlan, setOpenedPlan] = useState<OpenedPlan | null>(null);
-  // Start fresh lives here, not in Fridge, so the entry points to come (the
-  // prompt, onboarding) open the same dialog.
+  // Start fresh lives here, not in Fridge, so every entry point (the Fridge
+  // button, RestockPrompt, and onboarding next) opens the same dialog.
   const [restockOpen, setRestockOpen] = useState(false);
 
   // Extra bottom padding on mobile so the last rows can scroll clear of the
@@ -101,6 +102,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
       <AppFooter />
       {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
       {restockOpen && <RestockDialog onClose={() => setRestockOpen(false)} />}
+      <RestockPrompt restockOpen={restockOpen} onStartRestock={() => setRestockOpen(true)} />
       {userId && <CookbookFab />}
       {userId && (
         <CalendarFab onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />

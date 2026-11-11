@@ -254,6 +254,13 @@ export interface StockItem {
   expiration_date?: string | null;
 }
 
+// GET /fridge/restock (mirrors backend RestockStatus): whether to ask once to
+// start the fridge list fresh. days_since_write is null when there is no write.
+export interface RestockStatus {
+  due: boolean;
+  days_since_write: number | null;
+}
+
 // A per-user "always have" pantry staple (salt, oil, flour…). Name-only — its
 // job is to be excluded from generated shopping lists. Mirrors PantryStapleDTO.
 export interface PantryStaple {

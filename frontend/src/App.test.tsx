@@ -23,6 +23,17 @@ vi.mock("./components/PlanCatalog", () => ({ PlanCatalog: () => <div /> }));
 vi.mock("./components/MealPlanner", () => ({ MealPlanner: () => <div /> }));
 vi.mock("./components/OnboardingModal", () => ({ OnboardingModal: () => <div /> }));
 vi.mock("./components/CookbookFab", () => ({ CookbookFab: () => <div /> }));
+// RestockPrompt reads react-query; the stub shows what MainLayout hands it.
+vi.mock("./components/RestockPrompt", () => ({
+  RestockPrompt: (p: { restockOpen: boolean; onStartRestock: () => void }) => (
+    <button onClick={p.onStartRestock}>{p.restockOpen ? "PROMPT_SUSPENDED" : "PROMPT_LIVE"}</button>
+  ),
+}));
+vi.mock("./components/RestockDialog", () => ({
+  RestockDialog: ({ onClose }: { onClose: () => void }) => (
+    <button onClick={onClose}>RESTOCK_DIALOG</button>
+  ),
+}));
 vi.mock("./components/admin/AdminDashboard", () => ({
   AdminDashboard: ({ onExit }: { onExit: () => void }) => (
     <div>
@@ -74,5 +85,18 @@ describe("App admin gating (AuthRoot)", () => {
     // Must land on main, not straight onto the dashboard.
     expect(screen.queryByText("ADMIN_DASHBOARD")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /admin/i })).toBeInTheDocument();
+  });
+});
+
+describe("MainLayout restock wiring", () => {
+  it("suspends the prompt while the dialog it opened is open, and resumes after", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("PROMPT_LIVE"));
+    expect(screen.getByText("RESTOCK_DIALOG")).toBeInTheDocument();
+    expect(screen.getByText("PROMPT_SUSPENDED")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("RESTOCK_DIALOG"));
+    expect(screen.queryByText("RESTOCK_DIALOG")).not.toBeInTheDocument();
+    expect(screen.getByText("PROMPT_LIVE")).toBeInTheDocument();
   });
 });

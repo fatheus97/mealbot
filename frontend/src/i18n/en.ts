@@ -740,7 +740,7 @@ export const en = {
   "fridge.startFresh": "Start fresh",
   "fridge.startFreshHintLabel": "About Start fresh",
   "fridge.startFreshHint":
-    "Start fresh replaces the whole fridge list with what you scan now. You can undo it right after. Old items are not counted as waste.",
+    "Start fresh replaces the whole fridge list with what you scan now. You can undo it right after. Old items are not counted as waste. If the list hasn't changed for 14 days, the app asks you once.",
   "fridge.remove": "Remove",
   "fridge.removeAll": "Remove all",
   "fridge.removing": "Removing…",
@@ -911,6 +911,13 @@ export const en = {
   "restock.undoFailed": "Undo failed. Try again.",
   "restock.undoRefused": "The fridge changed after your save, so it can't be undone. Check the list in the Fridge section.",
   "restock.close": "Close",
+  // The ask-once prompt (RestockPrompt); its Start button reuses fridge.startFresh.
+  "restock.promptTitle": "Start fresh?",
+  "restock.promptMessage_one":
+    "Your fridge list hasn't changed in {count} day. Start fresh from photos of your food and your recent receipts?",
+  "restock.promptMessage_other":
+    "Your fridge list hasn't changed in {count} days. Start fresh from photos of your food and your recent receipts?",
+  "restock.notNow": "Not now",
 
   // ─── Plan catalog ─────────────────────────────────────────────────────────
   "plans.title": "My Plans",

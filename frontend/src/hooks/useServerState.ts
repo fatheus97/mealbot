@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
-import type { DietaryProfileBody, StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
-import { acceptAdminFeedback, authFetch, cookRecipe, createAdminUser, createHouseholdInvite, createInvite, deleteDietaryProfile, fetchDietaryProfile, fetchHousehold, revokeHouseholdInvite, saveDietaryProfile, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
+import type { DietaryProfileBody, RestockStatus, StockItem, PantryStaple,MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
+import { acceptAdminFeedback, answerRestockPrompt, authFetch, cookRecipe,createAdminUser, createHouseholdInvite, createInvite, deleteDietaryProfile, fetchDietaryProfile, fetchHousehold, fetchRestockStatus, revokeHouseholdInvite, saveDietaryProfile, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 import { extractErrorDetail } from '../utils/httpError';
 
 // --- Queries (Data Fetching) ---
@@ -128,6 +128,29 @@ function useUpdateShelf<T>(shelf: Shelf) {
 
 export function useFridge(userId: number | null) {
   return useShelf<StockItem>('fridge', userId);
+}
+
+// Whether to ask once to start the fridge list fresh. Focus-refetched like the
+// fridge: a partner's restock clears it for both (docs/restock-design.md).
+export function useRestockStatus(userId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['restock', userId],
+    queryFn: fetchRestockStatus,
+    enabled: enabled && userId !== null,
+    ...SHARED,
+  });
+}
+
+export function useAnswerRestock() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => answerRestockPrompt(),
+    onSuccess: () =>
+      queryClient.setQueriesData<RestockStatus>(
+        { queryKey: ['restock'] },
+        (old) => old && { ...old, due: false },
+      ),
+  });
 }
 
 export function useHousehold(userId: number | null, enabled: boolean) {
