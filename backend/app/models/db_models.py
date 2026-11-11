@@ -56,6 +56,13 @@ class Household(SQLModel, table=True):
     # only.
     fridge_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
     staples_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"}, nullable=False)
+    # Stamped with the database clock by every counted fridge write (_count_write),
+    # never by a staples write. The restock question is asked once it is 14 days
+    # old (fridge_service.restock_due). NULL until the first write after
+    # restock_01: a new household is never asked before it has used its fridge.
+    fridge_written_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
 
 
 #: The two triggers on "user" that own a household's life. The migration
@@ -262,6 +269,13 @@ class User(SQLModel, table=True):
     # history (who granted and withdrew what, when) is HealthConsentEvent.
     health_consent_at: datetime | None = Field(default=None)
     health_consent_version: str | None = Field(default=None, max_length=32)
+
+    # When this person last answered the "start fresh" question (either button),
+    # server clock. Asked again only after the household fridge is written later
+    # than this and goes stale (fridge_service.restock_due).
+    restock_prompt_answered_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
 
     # --- Billing (Stripe) — mirror of Stripe state, kept current via webhooks so
     # entitlement checks are a local read, not a Stripe round-trip. Stripe is the
