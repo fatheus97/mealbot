@@ -411,16 +411,24 @@ describe('the restock prompt status', () => {
     expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: false, days_since_write: 20 });
   });
 
-  it('a failed answer leaves the cache alone', async () => {
-    vi.mocked(answerRestockPrompt).mockRejectedValueOnce(new Error('Restock answer failed: 500'));
+  it('a failed answer leaves the cache alone and leaves a warning in the log', async () => {
+    const failure = new Error('Restock answer failed: 500');
+    vi.mocked(answerRestockPrompt).mockRejectedValueOnce(failure);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { wrapper, queryClient } = createWrapper();
     queryClient.setQueryData(['restock', 1], { due: true, days_since_write: 20 });
 
-    const { result } = renderHook(() => useAnswerRestock(), { wrapper });
-    result.current.mutate();
+    try {
+      const { result } = renderHook(() => useAnswerRestock(), { wrapper });
+      result.current.mutate();
 
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: true, days_since_write: 20 });
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: true, days_since_write: 20 });
+      expect(warn).toHaveBeenCalledWith('Restock answer failed:', failure);
+    } finally {
+      // Restored even when an assertion fails, so the stub never leaks into later tests.
+      warn.mockRestore();
+    }
   });
 });
 
