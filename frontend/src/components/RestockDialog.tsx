@@ -66,12 +66,15 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
   // must carry the token of the list as it is now, not the refused one.
   // Returns the fresh list when it is exactly what the last Save sent: that
   // Save landed and only its reply was lost.
+  // Throws when the reload fails or brings no token: the snapshot then stays
+  // as it was (a null token would unmount the scanner and its paid rows).
   const recapture = async (): Promise<ShelfData<StockItem> | null> => {
     await Promise.all([
-      queryClient.refetchQueries({ queryKey: ["fridge", userId], exact: true }),
-      queryClient.refetchQueries({ queryKey: ["planList", userId] }),
+      queryClient.refetchQueries({ queryKey: ["fridge", userId], exact: true }, { throwOnError: true }),
+      queryClient.refetchQueries({ queryKey: ["planList", userId] }, { throwOnError: true }),
     ]);
     const fresh = read();
+    if (fresh.token === null) throw new Error("fridge reload carried no version token");
     const sent = lastSent.current;
     const ownSaveLanded = sent !== null && listKey(fresh.items) === listKey(sent);
     // Keep the list that save replaced, so Undo still puts THAT back, and take
@@ -91,8 +94,10 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
 
   const save = (items: StockItem[], generationIds: number[]) =>
     holding(async () => {
-      // Never an unchecked PUT: without a token the scanner is not even shown.
-      if (userId === null || snapshot.token === null) return;
+      // Never an unchecked PUT. Unreachable (no token, no scanner), but if it
+      // ever is, fail loudly: a silent return would read as saved and the
+      // scanner would clear its paid rows.
+      if (userId === null || snapshot.token === null) throw new Error(t("restock.saveFailed"));
       setMessage("");
       lastSent.current = items;
       try {
@@ -101,7 +106,13 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
         setDone(saved);
       } catch (err) {
         if (err instanceof ShelfChangedError) {
-          const landed = await recapture();
+          let landed: ShelfData<StockItem> | null;
+          try {
+            landed = await recapture();
+          } catch {
+            // Could not see what changed: say so, not "someone changed it".
+            throw new Error(t("restock.saveFailed"));
+          }
           // Not a partner's change: our earlier Save is on the server, so this
           // restock is done (blaming "someone" here would be wrong).
           if (landed) {
@@ -141,7 +152,8 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
         setMessage(t("restock.finishFailed"));
       }
       // The finish put food back, or someone else's did: either way, read again.
-      await recapture();
+      // A failed reload keeps the old token, and the next Save's 409 reloads.
+      await recapture().catch(() => undefined);
     });
 
   const openPlans = (plans ?? []).filter((p) => p.status === "planned" || p.status === "active");
