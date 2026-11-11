@@ -21,7 +21,11 @@ vi.mock("./components/DemoBanner", () => ({ DemoBanner: () => null }));
 vi.mock("./components/Fridge", () => ({ Fridge: () => <div /> }));
 vi.mock("./components/PlanCatalog", () => ({ PlanCatalog: () => <div /> }));
 vi.mock("./components/MealPlanner", () => ({ MealPlanner: () => <div /> }));
-vi.mock("./components/OnboardingModal", () => ({ OnboardingModal: () => <div /> }));
+vi.mock("./components/OnboardingModal", () => ({
+  OnboardingModal: (p: { onStartRestock: () => void }) => (
+    <button onClick={p.onStartRestock}>ONBOARDING_SCAN</button>
+  ),
+}));
 vi.mock("./components/CookbookFab", () => ({ CookbookFab: () => <div /> }));
 // RestockPrompt reads react-query; the stub shows what MainLayout hands it.
 vi.mock("./components/RestockPrompt", () => ({
@@ -98,5 +102,16 @@ describe("MainLayout restock wiring", () => {
     fireEvent.click(screen.getByText("RESTOCK_DIALOG"));
     expect(screen.queryByText("RESTOCK_DIALOG")).not.toBeInTheDocument();
     expect(screen.getByText("PROMPT_LIVE")).toBeInTheDocument();
+  });
+
+  it("onboarding's Scan opens the dialog here, outside the onboarding modal", () => {
+    // The modal unmounts on a profile re-read; the dialog must not go with it.
+    mockAuth = { userId: 1, isAdmin: false, onboardingCompleted: false, isDemo: false };
+    render(<App />);
+    expect(screen.queryByText("RESTOCK_DIALOG")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("ONBOARDING_SCAN"));
+    expect(screen.getByText("RESTOCK_DIALOG")).toBeInTheDocument();
+    expect(screen.getByText("PROMPT_SUSPENDED")).toBeInTheDocument();
   });
 });

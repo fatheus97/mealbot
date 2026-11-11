@@ -39,7 +39,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
   // discards them on logout/login transitions.
   const [openedPlan, setOpenedPlan] = useState<OpenedPlan | null>(null);
   // Start fresh lives here, not in Fridge, so every entry point (the Fridge
-  // button, RestockPrompt, and onboarding next) opens the same dialog.
+  // button, RestockPrompt, and onboarding) opens the same dialog.
   const [restockOpen, setRestockOpen] = useState(false);
 
   // Extra bottom padding on mobile so the last rows can scroll clear of the
@@ -100,7 +100,9 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
           registration was the only other route to these documents). Inside the
           padded container so the mobile FAB clearance applies to it too. */}
       <AppFooter />
-      {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
+      {userId && !onboardingCompleted && !isDemo && (
+        <OnboardingModal onStartRestock={() => setRestockOpen(true)} />
+      )}
       {restockOpen && <RestockDialog onClose={() => setRestockOpen(false)} />}
       <RestockPrompt restockOpen={restockOpen} onStartRestock={() => setRestockOpen(true)} />
       {userId && <CookbookFab />}

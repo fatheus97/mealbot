@@ -152,6 +152,7 @@ describe('translation parity', () => {
       'cook.minutesAbbrev', // "min" — SI-style unit abbreviation
       'editor.grams', // "g" — SI unit symbol, identical in every language
       'fridgeItem.ok', // "OK" — international
+      'onboarding.stockOk', // "OK" — international
       'receipt.typeSnack', // "snack" — loanword; Czech uses it too
       'plans.statusCount', // "{status} ({cooked}/{total})" — placeholders + punctuation only
     ];

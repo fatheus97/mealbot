@@ -364,6 +364,13 @@ export const en = {
   "onboarding.submit": "Get Started",
   "onboarding.loadFailed": "Could not load your preferences.",
   "onboarding.retry": "Try again",
+  "onboarding.stockTitle": "Stock your fridge now?",
+  "onboarding.stockText": "Take photos of your food and your latest receipts, check the list, save.",
+  "onboarding.stockScan": "Scan my food",
+  "onboarding.stockLater": "Later",
+  "onboarding.stockVerifyFirst":
+    "Confirm your email first. Then Start fresh in the Fridge section scans your food.",
+  "onboarding.stockOk": "OK",
 
   // ─── Preferences form ─────────────────────────────────────────────────────
   "prefs.country": "Country",
