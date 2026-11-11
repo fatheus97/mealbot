@@ -73,6 +73,8 @@ interface ShelfSave<T> {
   items: T[];
   /** The token of the list these items were made from. */
   token: string | null;
+  /** /fridge/scan ids behind these items (Start fresh), for edit telemetry. */
+  generationIds?: number[];
 }
 
 function useUpdateShelf<T>(shelf: Shelf) {
@@ -91,9 +93,10 @@ function useUpdateShelf<T>(shelf: Shelf) {
     // previous one to return, so two quick edits on one phone never refuse each
     // other.
     scope: { id: shelf },
-    mutationFn: async ({ items, token }: ShelfSave<T>): Promise<ShelfData<T>> => {
+    mutationFn: async ({ items, token, generationIds = [] }: ShelfSave<T>): Promise<ShelfData<T>> => {
       const sent = lastSave.current?.base === token ? lastSave.current.latest : token;
-      const res = await authFetch(path, {
+      const qs = new URLSearchParams(generationIds.map((id) => ["generation_id", String(id)])).toString();
+      const res = await authFetch(qs ? `${path}?${qs}` : path, {
         method: "PUT",
         body: JSON.stringify(items),
         // No header at all without a token (accepted, like an older bundle).

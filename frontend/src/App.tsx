@@ -11,6 +11,7 @@ import { Fridge } from "./components/Fridge";
 import { PlanCatalog } from "./components/PlanCatalog";
 import { MealPlanner } from "./components/MealPlanner";
 import { OnboardingModal } from "./components/OnboardingModal";
+import { RestockDialog } from "./components/RestockDialog";
 import { CookbookFab } from "./components/CookbookFab";
 import { CalendarFab } from "./components/CalendarFab";
 import { AdminDashboard } from "./components/admin/AdminDashboard";
@@ -36,6 +37,9 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
   // single user session — see AuthRoot below for the userId-keyed remount that
   // discards them on logout/login transitions.
   const [openedPlan, setOpenedPlan] = useState<OpenedPlan | null>(null);
+  // Start fresh lives here, not in Fridge, so the entry points to come (the
+  // prompt, onboarding) open the same dialog.
+  const [restockOpen, setRestockOpen] = useState(false);
 
   // Extra bottom padding on mobile so the last rows can scroll clear of the
   // fixed CookbookFab (bottom-right) instead of hiding under it.
@@ -83,7 +87,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
       <EmailVerificationBanner />
       <TermsUpdateBanner />
       {userId && <SubscriptionBanner />}
-      <Fridge />
+      <Fridge onStartRestock={() => setRestockOpen(true)} />
       <PlanCatalog onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />
       <MealPlanner
         key={openedPlan?.plan.plan_id ?? "new"}
@@ -96,6 +100,7 @@ function MainLayout({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
           padded container so the mobile FAB clearance applies to it too. */}
       <AppFooter />
       {userId && !onboardingCompleted && !isDemo && <OnboardingModal />}
+      {restockOpen && <RestockDialog onClose={() => setRestockOpen(false)} />}
       {userId && <CookbookFab />}
       {userId && (
         <CalendarFab onOpenPlan={(plan, summary) => setOpenedPlan({ plan, summary })} />

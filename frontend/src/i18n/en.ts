@@ -737,6 +737,10 @@ export const en = {
   "fridge.connecting": "Connecting to server…",
   "fridge.empty": "Fridge is empty.",
   "fridge.addIngredient": "Add ingredient",
+  "fridge.startFresh": "Start fresh",
+  "fridge.startFreshHintLabel": "About Start fresh",
+  "fridge.startFreshHint":
+    "Start fresh replaces the whole fridge list with what you scan now. You can undo it right after. Old items are not counted as waste. If the list hasn't changed for 14 days, the app asks you once.",
   "fridge.remove": "Remove",
   "fridge.removeAll": "Remove all",
   "fridge.removing": "Removing…",
@@ -885,6 +889,25 @@ export const en = {
   "receipt.demo.butter": "Butter",
   "receipt.demo.tomatoes": "Roma Tomatoes",
   "receipt.demo.bread": "Whole Wheat Bread",
+
+  // ─── Start fresh (RestockDialog) ──────────────────────────────────────────
+  "restock.title": "Start fresh",
+  "restock.replaces_one": "Saving replaces your fridge list ({count} item) with what you scan now.",
+  "restock.replaces_other": "Saving replaces your fridge list ({count} items) with what you scan now.",
+  "restock.shared": "You share this fridge. The new list replaces it for everyone in your household.",
+  "restock.openPlan":
+    "Your plan from {date} is not finished. Finish it first, or the food set aside for its uncooked meals comes back on top of your new list when you finish it later.",
+  "restock.finishPlan": "Finish it",
+  "restock.finishFailed": "Couldn't finish the plan. Try again.",
+  "restock.save_one": "Replace the fridge with this {count} item",
+  "restock.save_other": "Replace the fridge with these {count} items",
+  "restock.saveAgain": "Saving again replaces their change too.",
+  "restock.emptyNow": "Empty the fridge",
+  "restock.done_one": "Your fridge now has {count} item",
+  "restock.done_other": "Your fridge now has {count} items",
+  "restock.undo": "Undo",
+  "restock.undoRefused": "The fridge changed after your save, so it can't be undone. Check the list in the Fridge section.",
+  "restock.close": "Close",
 
   // ─── Plan catalog ─────────────────────────────────────────────────────────
   "plans.title": "My Plans",

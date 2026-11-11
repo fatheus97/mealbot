@@ -985,6 +985,40 @@ describe('Fridge — changed on another device', () => {
     expect(addButton()).toBeDisabled();
   });
 
+  const startFresh = () => screen.queryByRole('button', { name: 'Start fresh' });
+
+  it('Start fresh stays off until the list has loaded: the dialog needs its token', () => {
+    mockedAuthFetch.mockImplementation(() => new Promise(() => {}));
+    const { wrapper } = setup();
+    render(<Fridge onStartRestock={vi.fn()} />, { wrapper });
+
+    expect(startFresh()).toBeDisabled();
+  });
+
+  it('Start fresh, once the list has loaded, opens the dialog', async () => {
+    mockServer([MILK]);
+    const onStartRestock = vi.fn();
+    const user = userEvent.setup();
+    const { wrapper } = setup();
+    render(<Fridge onStartRestock={onStartRestock} />, { wrapper });
+
+    await waitFor(() => expect(startFresh()).toBeEnabled());
+    await user.click(startFresh()!);
+    expect(onStartRestock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'About Start fresh' })).toBeInTheDocument();
+  });
+
+  it('Start fresh is hidden for the demo, which never scans for real', async () => {
+    localStorage.setItem('mealbot_is_demo', 'true');
+    mockedFetchProfile.mockResolvedValue(profileFixture({ is_demo: true }));
+    mockServer([MILK]);
+    const { wrapper } = setup();
+    render(<Fridge onStartRestock={vi.fn()} />, { wrapper });
+
+    await waitFor(() => expect(addButton()).toBeEnabled());
+    expect(startFresh()).not.toBeInTheDocument();
+  });
+
   it('Add stays off after the first load failed: a save would replace the whole fridge', async () => {
     mockedAuthFetch.mockResolvedValue({
       ok: false, status: 500, headers: new Headers(), json: () => Promise.resolve({}),
