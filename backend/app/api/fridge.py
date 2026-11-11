@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import (
@@ -16,18 +16,21 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import TypeAdapter
+from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
 
 from app.api.deps import get_current_user, require_generation_budget, usage_capture
 from app.core.errors import LocalizedHTTPException
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
-from app.models.db_models import User
+from app.models.db_models import Household, User
 from app.models.plan_models import (
     FoodPhotoItem,
     FoodPhotoScanResponse,
     ReceiptScanResponse,
+    RestockStatus,
     ScannedItemDTO,
     ScannedItemsResponse,
     ScannedReceiptItem,
@@ -43,6 +46,7 @@ from app.services.fridge_service import (
     merge_into_fridge_buckets,
     record_waste_entries,
     replace_fridge_items,
+    restock_due,
     shelf_version,
     version_token,
 )
@@ -151,6 +155,63 @@ async def put_fridge(
     )
     response.headers[VERSION_HEADER] = saved.token
     return saved.items
+
+
+# //api/fridge/restock
+@router.get("/restock", response_model=RestockStatus)
+async def get_restock_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> RestockStatus:
+    """Whether to ask this person once to start the fridge list fresh
+    (docs/restock-design.md): the household's list unchanged for RESTOCK_AFTER,
+    and no answer from them since. Keyed on the household, so a partner who
+    kept the fridge current keeps it not due for both. A demo account or one
+    still in onboarding is never asked. Read-only, no lock."""
+    if current_user.is_demo or not current_user.onboarding_completed:
+        return RestockStatus(due=False)
+    # A column read, not session.get: an identity-mapped Household would not
+    # see the UPDATE that _count_write stamped earlier in the same session.
+    written_at = (
+        await session.execute(
+            select(col(Household.fridge_written_at)).where(
+                col(Household.id) == Kitchen.of(current_user).household_id
+            )
+        )
+    ).scalar_one_or_none()
+    if written_at is None:
+        return RestockStatus(due=False)
+    now = datetime.now(UTC)
+    return RestockStatus(
+        due=restock_due(written_at, current_user.restock_prompt_answered_at, now),
+        days_since_write=max((now - written_at).days, 0),
+    )
+
+
+# //api/fridge/restock/answer
+@router.post("/restock/answer", response_model=RestockStatus)
+@limiter.limit("10/minute", key_func=user_id_key_func)
+async def answer_restock_prompt(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> RestockStatus:
+    """Record that this person answered the restock question, either way. The
+    database clock, the same one that stamps fridge_written_at, so the two
+    compare without skew; no body is read. Nothing in the fridge changes, so
+    no kitchen lock. Not a PATCH /users field on purpose: a preference there
+    needs both payload builders, and this is not a preference."""
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
+    if not current_user.is_demo:
+        await session.execute(
+            update(User)
+            .where(col(User.id) == current_user.id)
+            .values(restock_prompt_answered_at=func.now())
+        )
+        await session.commit()
+        await session.refresh(current_user, ["restock_prompt_answered_at"])
+    return RestockStatus(due=False)
 
 
 @router.post("/waste", response_model=WasteRecordedResponse)

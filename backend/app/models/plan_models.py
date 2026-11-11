@@ -336,6 +336,16 @@ class WasteRecordedResponse(BaseModel):
     recorded: int
 
 
+class RestockStatus(BaseModel):
+    """GET /fridge/restock: whether to ask this person once to start the
+    fridge list fresh (docs/restock-design.md). ``days_since_write`` is how
+    long the household's list has gone unchanged, for the question's wording;
+    None when the server has no write to count from."""
+
+    due: bool
+    days_since_write: int | None = None
+
+
 class MealPlanRequest(BaseModel):
     """Request for planning meals (potentially multiple days, one day per LLM call)."""
     stock_items: list[StockItemDTO] = Field(
