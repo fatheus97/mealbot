@@ -63,9 +63,9 @@ function formatDate(iso: string | null | undefined, fallback = "\u2014"): string
   return localeDateFormatter.format(date);
 }
 
-export function Fridge() {
+export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
   const { t, tn } = useI18n();
-  const { userId } = useAuth();
+  const { userId, isDemo } = useAuth();
   const isMobile = useIsMobile();
   const scheme = usePrefersDark() ? "dark" : "light";
 
@@ -752,6 +752,16 @@ export function Fridge() {
             {/* Not before the list has loaded: a save would replace the whole
                 fridge with what was added, with no version to refuse it by. */}
             <button onClick={openAddModal} disabled={!serverFridge}>{t("fridge.addIngredient")}</button>
+            {/* Same rule as Add: the dialog captures the list's token, so not
+                before the first load. The demo never scans for real. */}
+            {onStartRestock && !isDemo && (
+              <>
+                <button onClick={onStartRestock} disabled={!serverFridge} style={{ marginLeft: "0.5rem" }}>
+                  {t("fridge.startFresh")}
+                </button>
+                <InfoHint label={t("fridge.startFreshHintLabel")} text={t("fridge.startFreshHint")} />
+              </>
+            )}
             {/* Adaptive page background again — plain `red` is 4.00:1 light
                 and 3.88:1 dark, under AA in both. */}
             {notice && (

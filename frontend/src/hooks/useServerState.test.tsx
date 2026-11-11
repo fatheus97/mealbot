@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubLocationReload } from '../test/location';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan, useSaveDietaryProfile, useDeleteDietaryProfile, useHousehold } from './useServerState';
 import type { ReactNode } from 'react';
@@ -121,6 +121,23 @@ describe('useUpdateFridge', () => {
     });
     // No X-Fridge-Version on the reply: the token is cached as unknown.
     expect(setQueryDataSpy).toHaveBeenCalledWith(['fridge', 1], { items, token: null });
+  });
+
+  it('puts one generation_id per scan on the path, and nothing when there are none', async () => {
+    const items = [{ name: 'Milk', quantity_grams: 1000, need_to_use: true }];
+    const ok = { ok: true, status: 200, json: () => Promise.resolve(items) };
+    mockedAuthFetch.mockClear();
+    mockedAuthFetch.mockResolvedValueOnce(ok).mockResolvedValueOnce(ok);
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useUpdateFridge(), { wrapper });
+    await act(() => result.current.mutateAsync({ userId: 1, items, token: '1:3', generationIds: [4, 9] }));
+    await act(() => result.current.mutateAsync({ userId: 1, items, token: '1:4', generationIds: [] }));
+
+    expect(mockedAuthFetch.mock.calls.map((c) => c[0])).toEqual([
+      '/fridge?generation_id=4&generation_id=9',
+      '/fridge',
+    ]);
   });
 });
 

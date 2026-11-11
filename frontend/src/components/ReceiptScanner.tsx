@@ -13,6 +13,12 @@ type ScannerState = "idle" | "scanning" | "review" | "error" | "camera";
 
 interface ReceiptScannerProps {
   currentFridge: StockItem[];
+  /** Saves the list instead of merging it (Start fresh). Rejecting keeps the rows. */
+  onSave?: (items: StockItem[], generationIds: number[]) => Promise<void>;
+  /** The Confirm label for onSave, given the number of rows. */
+  saveLabel?: (count: number) => string;
+  /** The parent holds Confirm, Empty and the pickers (Start fresh, while Finish it runs). */
+  disabled?: boolean;
 }
 
 interface ReviewItem {
@@ -73,7 +79,7 @@ const buildDemoScanItems = (t: (key: TranslationKey) => string): ReviewItem[] =>
   });
 };
 
-export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
+export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = false }: ReceiptScannerProps) {
   const { t } = useI18n();
   const { isDemo } = useAuth();
   const isMobile = useIsMobile();
@@ -121,6 +127,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
   const scanMutation = useScanReceipt();
   const mergeMutation = useMergeFridge();
+  // onSave in flight: a second Confirm must not race it with a stale token.
+  // `confirming` also holds Confirm, Empty and the pickers while the parent asks.
+  const [saving, setSaving] = useState(false);
+  const confirming = saving || mergeMutation.isPending || disabled;
 
   // getUserMedia needs a secure context (HTTPS or localhost) and the API present.
   // Evaluated at render (not module load) so it reflects the live environment.
@@ -325,6 +335,21 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     void handleScan(file);
   };
 
+  // The parent's save (Start fresh). `saving` spans the whole call, its reload
+  // after a 409 included, so the next Confirm goes out with the new token.
+  const saveVia = async (
+    save: NonNullable<ReceiptScannerProps["onSave"]>,
+    items: StockItem[],
+    ids: number[],
+  ) => {
+    setSaving(true);
+    try {
+      await save(items, ids);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleConfirm = async () => {
     const invalidIdx = reviewItems.findIndex((item) => Number.isNaN(parseQty(item.addedQty)));
     if (invalidIdx !== -1) {
@@ -346,21 +371,27 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
     // The server compares the scans it can resolve with the WHOLE list, so one
     // unlinked scan would make an unedited save read as edited. Send no ids
-    // then: telemetry skipped, never a false correction.
+    // then: telemetry skipped, never a false correction. Nor over the server's
+    // limit of 20, where a prefix would be compared with the whole list.
     const linked = generationIds.filter((id): id is number => id !== null);
+    const ids = linked.length === generationIds.length && linked.length <= 20 ? linked : [];
     try {
-      await mergeMutation.mutateAsync({
-        items: itemsToMerge,
-        generationIds: linked.length === generationIds.length ? linked : [],
-        copy: {
-          rateLimited: t("receipt.rateLimited"),
-          fallback: t("receipt.mergeFailed"),
-          connectionLost: t("receipt.mergeConnectionLost"),
-        },
-      });
+      if (onSave) {
+        await saveVia(onSave, itemsToMerge, ids);
+      } else {
+        await mergeMutation.mutateAsync({
+          items: itemsToMerge,
+          generationIds: ids,
+          copy: {
+            rateLimited: t("receipt.rateLimited"),
+            fallback: t("receipt.mergeFailed"),
+            connectionLost: t("receipt.mergeConnectionLost"),
+          },
+        });
+        setNotice(t("receipt.added"));
+        setTimeout(() => setNotice(""), 3000);
+      }
       clearList();
-      setNotice(t("receipt.added"));
-      setTimeout(() => setNotice(""), 3000);
     } catch (err) {
       // Stay in review: the "error" state would hide the rows (paid scans).
       setConfirmError(err instanceof Error ? err.message : t("receipt.mergeFailed"));
@@ -394,7 +425,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   };
 
   // Source, file and camera: the first scan in idle/error, "add another" in review.
-  const busy = scanMutation.isPending || cameraOpening || mergeMutation.isPending;
+  const busy = scanMutation.isPending || cameraOpening || confirming;
   const scanPickers = (
     <>
       <div
@@ -454,7 +485,21 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               </button>
             </>
           ) : (
-            scanPickers
+            <>
+              {scanPickers}
+              {onSave && (
+                <button
+                  onClick={() =>
+                    void saveVia(onSave, [], []).catch((err: unknown) =>
+                      fail(err instanceof Error ? err.message : t("receipt.mergeFailed")),
+                    )
+                  }
+                  disabled={busy}
+                >
+                  {t("restock.emptyNow")}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -493,7 +538,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
       {/* Error state */}
       {state === "error" && (
-        <p style={{ color: "#f87171", marginTop: "0.5rem" }}>{errorMessage}</p>
+        <p role="alert" style={{ color: "#f87171", marginTop: "0.5rem" }}>{errorMessage}</p>
       )}
 
       {/* Review state */}
@@ -736,10 +781,14 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               onClick={handleConfirm}
               // Not while a scan is adding rows (they would miss this save) or
               // the camera is being acquired (its stream would outlive the list).
-              disabled={mergeMutation.isPending || scanMutation.isPending || cameraOpening || reviewItems.length === 0}
+              disabled={confirming || scanMutation.isPending || cameraOpening || reviewItems.length === 0}
               style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: "pointer" }}
             >
-              {mergeMutation.isPending ? t("receipt.adding") : t("receipt.add")}
+              {saving
+                ? t("restock.saving")
+                : mergeMutation.isPending
+                  ? t("receipt.adding")
+                  : saveLabel ? saveLabel(reviewItems.length) : t("receipt.add")}
             </button>
             {/* Not while a scan or camera is in flight: it would land after the
                 list is gone and reopen a review of the discarded scan. */}

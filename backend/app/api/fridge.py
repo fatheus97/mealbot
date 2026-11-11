@@ -184,6 +184,14 @@ async def get_fridge(
 async def put_fridge(
     response: Response,
     payload: list[StockItemDTO],
+    # Start fresh saves its scans with a PUT; same contract as merge's list.
+    generation_id: list[int] = Query(
+        default_factory=list,
+        max_length=20,
+        description="ids from /fridge/scan, one per scan in the list; links the "
+        "user's edits to those scans for telemetry. Owner-checked; never trusted "
+        "for logic.",
+    ),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     x_fridge_version: str | None = Header(default=None),
@@ -192,6 +200,8 @@ async def put_fridge(
     token of the list it was built from (X-Fridge-Version), refused with 409
     ``fridge_changed`` if anyone wrote the fridge since; without one (an old
     bundle), accepted as before."""
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="Invalid user state")
     kitchen = Kitchen.of(current_user)
     if len(payload) > MAX_FRIDGE_ITEMS:
         raise LocalizedHTTPException(
@@ -207,9 +217,15 @@ async def put_fridge(
         session,
         kitchen.household_id,
         payload,
+        commit=False,
         need_to_use_enabled=current_user.need_to_use_enabled,
         expected_version=expected,
     )
+    # After the version check, so a 409 stages nothing; one commit for both.
+    await _record_scan_corrections(
+        session, current_user.id, generation_id, payload, via="replace"
+    )
+    await session.commit()
     response.headers[VERSION_HEADER] = saved.token
     return saved.items
 
@@ -479,7 +495,7 @@ async def merge_fridge_items(
     # Repeated, one per scan in the review list (`?generation_id=1&generation_id=2`);
     # a single `?generation_id=5` from an older bundle still parses.
     generation_id: list[int] = Query(
-        default=[],
+        default_factory=list,
         max_length=20,
         description="ids from /fridge/scan, one per scan in the list; links the "
         "user's edits to those scans for telemetry. Owner-checked; never trusted "

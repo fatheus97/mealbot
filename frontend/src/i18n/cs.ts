@@ -666,6 +666,10 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.connecting": "Připojování k serveru…",
   "fridge.empty": "Lednice je prázdná.",
   "fridge.addIngredient": "Přidat surovinu",
+  "fridge.startFresh": "Začít nanovo",
+  "fridge.startFreshHintLabel": "O tlačítku „Začít nanovo“",
+  "fridge.startFreshHint":
+    "Tlačítko „Začít nanovo“ nahradí celý seznam v lednici tím, co teď naskenujete. Hned potom to můžete vrátit. Staré položky se nepočítají jako vyhozené jídlo.",
   "fridge.remove": "Odebrat",
   "fridge.removeAll": "Odebrat vše",
   "fridge.removing": "Odebírám…",
@@ -825,6 +829,36 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.demo.butter": "Máslo",
   "receipt.demo.tomatoes": "Rajčata Roma",
   "receipt.demo.bread": "Celozrnný chléb",
+
+  // ─── Start fresh (RestockDialog) ──────────────────────────────────────────
+  "restock.title": "Začít nanovo",
+  // "položka": 1 položka / 2–4 položky / 5+ položek; _many is a fraction, never hit.
+  "restock.replaces_one": "Uložením nahradíte seznam v lednici ({count} položka) tím, co teď naskenujete.",
+  "restock.replaces_few": "Uložením nahradíte seznam v lednici ({count} položky) tím, co teď naskenujete.",
+  "restock.replaces_many": "Uložením nahradíte seznam v lednici ({count} položky) tím, co teď naskenujete.",
+  "restock.replaces_other": "Uložením nahradíte seznam v lednici ({count} položek) tím, co teď naskenujete.",
+  "restock.shared": "Lednici sdílíte. Nový seznam uvidí místo starého všichni v domácnosti.",
+  "restock.openPlan":
+    "Jídelníček z {date} není dokončený. Dokončete ho nejdřív, jinak se suroviny odložené pro jeho neuvařená jídla přičtou k novému seznamu, až ho dokončíte později.",
+  "restock.finishPlan": "Dokončit",
+  "restock.finishFailed": "Jídelníček se nepodařilo dokončit. Zkuste to znovu.",
+  // Instrumental: touto 1 položkou / těmito 2, 5 položkami.
+  "restock.save_one": "Nahradit lednici touto {count} položkou",
+  "restock.save_few": "Nahradit lednici těmito {count} položkami",
+  "restock.save_many": "Nahradit lednici těmito {count} položkami",
+  "restock.save_other": "Nahradit lednici těmito {count} položkami",
+  "restock.changedMeanwhile": "Seznam v lednici mezitím někdo změnil. Uložením teď nahradíte i tuto změnu.",
+  "restock.saving": "Ukládám…",
+  "restock.saveFailed": "Uložení se nepodařilo. Naskenované položky tu zůstaly, takže to můžete zkusit znovu.",
+  "restock.emptyNow": "Vyprázdnit lednici",
+  "restock.done_one": "V lednici je teď {count} položka",
+  "restock.done_few": "V lednici jsou teď {count} položky",
+  "restock.done_many": "V lednici je teď {count} položky",
+  "restock.done_other": "V lednici je teď {count} položek",
+  "restock.undo": "Vrátit zpět",
+  "restock.undoFailed": "Vrácení se nepodařilo. Zkuste to znovu.",
+  "restock.undoRefused": "Od uložení se lednice změnila, takže změnu už nejde vrátit. Zkontrolujte seznam v sekci Lednice.",
+  "restock.close": "Zavřít",
 
   // ─── Plan catalog ─────────────────────────────────────────────────────────
   "plans.title": "Moje jídelníčky",

@@ -20,7 +20,7 @@ from sqlmodel import select
 
 from app.core.email_normalize import normalize_email
 from app.core.security import get_password_hash
-from app.models.db_models import MachineCorrection, MachineGeneration, User
+from app.models.db_models import MachineCorrection, MachineGeneration, User, WasteRecord
 from app.models.plan_models import ReceiptScanResponse, ScannedReceiptItem
 from app.services.telemetry import record_generation
 
@@ -392,6 +392,84 @@ class TestMultiScanMerge:
         assert ok.status_code == 200  # 20 is the limit, not over it
         over = "&".join(f"generation_id={i}" for i in range(1, 22))
         resp = await client.post(f"/api/fridge/merge?{over}", json=payload)
+        assert resp.status_code == 422
+
+
+class TestReplaceCorrectionCapture:
+    """Start fresh saves its scans with a version-checked PUT /fridge."""
+
+    async def test_put_with_ids_records_corrections_via_replace(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        a, b = await _scan(client), await _scan(client, MOCK_SCAN_2)
+        token = (await client.get("/api/fridge")).headers["X-Fridge-Version"]
+        payload = _merge_payload(a["items"] + b["items"])
+        payload[0]["name"] = "chicken thighs"
+        resp = await client.put(
+            f"/api/fridge?generation_id={a['generation_id']}"
+            f"&generation_id={b['generation_id']}",
+            json=payload,
+            headers={"X-Fridge-Version": token},
+        )
+        assert resp.status_code == 200, resp.text
+        corrs = sorted(await _corrections(db_session, test_user), key=lambda c: c.id or 0)
+        assert [c.generation_id for c in corrs] == [a["generation_id"], b["generation_id"]]
+        assert all(
+            c.context_json == {
+                "batch": 2, "scanned_count": 2, "submitted_count": 4, "via": "replace"
+            }
+            for c in corrs
+        )
+
+    async def test_put_without_ids_records_nothing(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        body = await _scan(client)
+        payload = _merge_payload(body["items"])
+        payload[0]["name"] = "edited"
+        resp = await client.put("/api/fridge", json=payload)
+        assert resp.status_code == 200, resp.text
+        assert {i["name"] for i in resp.json()} == {"edited", "rice"}
+        assert await _corrections(db_session, test_user) == []
+
+    async def test_put_with_ids_writes_no_waste(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Old items are not waste: a restock replaces the list, nothing more."""
+        assert (await client.put("/api/fridge", json=[
+            {"name": "old cheese", "quantity_grams": 200}
+        ])).status_code == 200
+        body = await _scan(client)
+        resp = await client.put(
+            f"/api/fridge?generation_id={body['generation_id']}",
+            json=_merge_payload(body["items"]),
+        )
+        assert resp.status_code == 200, resp.text
+        await db_session.commit()
+        waste = await db_session.execute(
+            select(WasteRecord).where(WasteRecord.user_id == test_user.id)
+        )
+        assert waste.first() is None
+
+    async def test_stale_token_put_records_nothing(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        body = await _scan(client)
+        stale = (await client.get("/api/fridge")).headers["X-Fridge-Version"]
+        assert (await client.put("/api/fridge", json=[])).status_code == 200
+        payload = _merge_payload(body["items"])
+        payload[0]["name"] = "edited"
+        resp = await client.put(
+            f"/api/fridge?generation_id={body['generation_id']}",
+            json=payload,
+            headers={"X-Fridge-Version": stale},
+        )
+        assert resp.status_code == 409, resp.text
+        assert await _corrections(db_session, test_user) == []
+
+    async def test_twenty_one_ids_are_refused(self, client: AsyncClient) -> None:
+        over = "&".join(f"generation_id={i}" for i in range(1, 22))
+        resp = await client.put(f"/api/fridge?{over}", json=[])
         assert resp.status_code == 422
 
 

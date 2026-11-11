@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor, fireEvent, render } from '@testing-library/react';
+import { act, screen, waitFor, fireEvent, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -374,6 +374,56 @@ describe('ReceiptScanner', () => {
         { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null },
       ], [], expect.anything());
     });
+  });
+
+  it('with onSave, Confirm saves through it instead of merging, with no ids when a scan is unlinked', async () => {
+    const row = (name: string) => ({ name, quantity_grams: 100, need_to_use: false, item_type: 'ingredient' as const });
+    mockedScanReceipt
+      .mockResolvedValueOnce({ generation_id: 3, items: [row('Eggs')] })
+      .mockResolvedValueOnce({ generation_id: null, items: [row('Milk')] });
+    let finish: () => void = () => {};
+    const onSave = vi.fn(() => new Promise<void>((r) => { finish = () => r(); }));
+
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReceiptScanner currentFridge={[]} onSave={onSave} saveLabel={(n) => `Replace with ${n}`} />,
+    );
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await screen.findByDisplayValue('Eggs');
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await screen.findByDisplayValue('Milk');
+    await user.click(screen.getByRole('button', { name: 'Replace with 2' }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0]).toEqual([
+      [
+        { name: 'Eggs', quantity_grams: 100, need_to_use: false, expiration_date: null },
+        { name: 'Milk', quantity_grams: 100, need_to_use: false, expiration_date: null },
+      ],
+      [],
+    ]);
+    // In flight, a second Confirm must not go out (the parent may be reloading
+    // the token it needs).
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    await act(async () => finish());
+    expect(mockedMergeFridge).not.toHaveBeenCalled();
+  });
+
+  it('with onSave, the idle state offers Empty the fridge, which saves an empty list', async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error('Refused, reloaded.'));
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} onSave={onSave} />);
+
+    await user.click(screen.getByRole('button', { name: 'Empty the fridge' }));
+    expect(onSave).toHaveBeenCalledWith([], []);
+    // A refusal shows, and the pickers stay for the next try.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Refused, reloaded.');
+    expect(screen.getByRole('button', { name: 'Empty the fridge' })).toBeEnabled();
+  });
+
+  it('without onSave there is no Empty the fridge button', () => {
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+    expect(screen.queryByRole('button', { name: 'Empty the fridge' })).not.toBeInTheDocument();
   });
 
   it('demo scan merges with a null generation_id (no real /scan call)', async () => {
