@@ -347,14 +347,14 @@ describe('ReceiptScanner', () => {
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
         { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null },
-      ], 7);
+      ], [7], expect.anything());
       expect(screen.getByText(/items added to fridge/i)).toBeInTheDocument();
     });
   });
 
   it('threads a null generation_id (guarded-commit degrade) through to merge', async () => {
     // Server returns generation_id: null when the scan telemetry write is
-    // skipped. The client must forward null so api.ts omits the query param.
+    // skipped. The client must send no id so api.ts omits the query param.
     mockedScanReceipt.mockResolvedValue({
       generation_id: null,
       items: [
@@ -372,7 +372,7 @@ describe('ReceiptScanner', () => {
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
         { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null },
-      ], null);
+      ], [], expect.anything());
     });
   });
 
@@ -394,8 +394,8 @@ describe('ReceiptScanner', () => {
     await waitFor(() => {
       expect(mockedScanReceipt).not.toHaveBeenCalled();
       expect(mockedMergeFridge).toHaveBeenCalledTimes(1);
-      // Demo has no generation, so merge must receive null (not a stale id).
-      expect(mockedMergeFridge.mock.calls[0][1]).toBeNull();
+      // Demo has no generation, so merge must receive no id (not a stale one).
+      expect(mockedMergeFridge.mock.calls[0][1]).toEqual([]);
     });
   });
 
@@ -502,7 +502,7 @@ describe('ReceiptScanner', () => {
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
         { name: 'yeast', quantity_grams: 12.5, need_to_use: false, expiration_date: null },
-      ], 7);
+      ], [7], expect.anything());
     });
   });
 
@@ -531,6 +531,300 @@ describe('ReceiptScanner', () => {
 
     expect(screen.queryByDisplayValue('chicken')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+  });
+
+  describe('several scans in one list', () => {
+    const item = (name: string, expiration_date: string | null = null) => ({
+      name, quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const, expiration_date,
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'mediaDevices');
+    });
+
+    /** Scan once (rice), so the review list is on screen. */
+    async function firstScan(user: ReturnType<typeof userEvent.setup>) {
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+      await screen.findByDisplayValue('rice');
+    }
+
+    it('appends a second scan and sends every scan id to merge', async () => {
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockResolvedValueOnce({ generation_id: 8, items: [item('milk')] });
+      mockedMergeFridge.mockResolvedValue([]);
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+
+      expect(screen.getByText('Add another photo or receipt')).toBeInTheDocument();
+      // The source can change between scans.
+      await user.click(screen.getByRole('radio', { name: /food photo/i }));
+      await user.upload(screen.getByLabelText(/select a photo of your food/i), createFile('food.jpg'));
+      await screen.findByDisplayValue('milk');
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+      expect(mockedScanReceipt.mock.calls[1][1]).toBe('food_photo');
+
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      await waitFor(() => expect(mockedMergeFridge).toHaveBeenCalledTimes(1));
+      const [items, ids, copy] = mockedMergeFridge.mock.calls[0];
+      expect((items as Array<{ name: string }>).map((i) => i.name)).toEqual(['rice', 'milk']);
+      expect(ids).toEqual([7, 8]);
+      expect(copy).toEqual({
+        rateLimited: 'Too many scans at once. Wait a minute and try again.',
+        fallback: 'Failed to merge items.',
+        connectionLost:
+          "The connection dropped, so we can't tell whether the items were added. Check your fridge list before adding them again.",
+      });
+    });
+
+    it('a scan without a telemetry id still appends, and then the save sends no ids', async () => {
+      // The server compares the scans it can resolve with the whole list, so
+      // sending [7] here would record a correction nobody made.
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockResolvedValueOnce({ generation_id: null, items: [item('milk')] });
+      mockedMergeFridge.mockResolvedValue([]);
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+      await screen.findByDisplayValue('milk');
+
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      await waitFor(() => expect(mockedMergeFridge).toHaveBeenCalledTimes(1));
+      expect(mockedMergeFridge.mock.calls[0][1]).toEqual([]);
+    });
+
+    it('flags a name found in another scan, never a repeat within one scan', async () => {
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice'), item('Milk'), item(' milk ')] })
+        .mockResolvedValueOnce({ generation_id: 8, items: [item('MILK'), item('butter')] });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+      expect(screen.queryByText(/also in another scan/i)).not.toBeInTheDocument();
+
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+      await screen.findByDisplayValue('butter');
+      // The three milk rows (two from scan 1, one from scan 2); not rice or butter.
+      expect(screen.getAllByText("Also in another scan. Remove one if it's the same food.")).toHaveLength(3);
+
+      // Removing the second scan's milk clears the flag on the first scan's rows.
+      await user.click(screen.getAllByRole('button', { name: /remove/i })[3]);
+      expect(screen.queryByText(/also in another scan/i)).not.toBeInTheDocument();
+    });
+
+    it('flags a row whose date has passed', async () => {
+      mockedScanReceipt.mockResolvedValueOnce({
+        generation_id: 7,
+        items: [item('rice', '2999-01-01'), item('old yoghurt', '2001-01-01'), item('salt')],
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+
+      expect(screen.getAllByText('Past its date')).toHaveLength(1);
+      // Moving the date into the future clears it.
+      fireEvent.change(screen.getByDisplayValue('2001-01-01'), { target: { value: '2999-02-02' } });
+      expect(screen.queryByText('Past its date')).not.toBeInTheDocument();
+    });
+
+    it('keeps the rows when a later scan fails, and shows why', async () => {
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockRejectedValueOnce(new Error('That photo could not be read.'));
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+
+      expect(await screen.findByText('That photo could not be read.')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('That photo could not be read.');
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add to fridge/i })).toBeEnabled();
+    });
+
+    it('keeps the rows when the save fails, and shows why', async () => {
+      mockedScanReceipt.mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] });
+      mockedMergeFridge.mockRejectedValueOnce(new Error('The server said no.'));
+      const user = userEvent.setup();
+      const { queryClient } = renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+      await firstScan(user);
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+
+      expect(await screen.findByText('The server said no.')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('The server said no.');
+      // A failed merge may still have landed (dropped connection): refetch the truth.
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['fridge'] });
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+      // A retry sends the same list again.
+      mockedMergeFridge.mockResolvedValueOnce([]);
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      await waitFor(() => expect(mockedMergeFridge).toHaveBeenCalledTimes(2));
+      expect(mockedMergeFridge.mock.calls[1][1]).toEqual([7]);
+    });
+
+    it.each([
+      ['the rate limit', 'Too many scans at once. Wait a minute and try again.'],
+      ['the usage cap', 'You have used your €2.00 of AI generation for this month.'],
+    ])('shows %s message from the scan call, with translated copy passed in', async (_case, message) => {
+      // scanReceipt picks the sentence (api.test.ts covers the 429 split); the
+      // scanner must hand it translated copy and show what it throws.
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockImplementationOnce((_f: File, _s: string, copy: { rateLimited: string }) =>
+          Promise.reject(new Error(message.startsWith('Too many') ? copy.rateLimited : message)));
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+      expect(mockedScanReceipt.mock.calls[0][2]).toEqual({
+        rateLimited: 'Too many scans at once. Wait a minute and try again.',
+        fallback: 'Failed to scan receipt.',
+      });
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+    });
+
+    it('passes Czech copy to the scan call when the UI is Czech', async () => {
+      useLocaleStore.setState({ locale: 'cs', explicit: true });
+      mockedScanReceipt.mockResolvedValueOnce({ generation_id: 7, items: [item('rýže')] });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await user.upload(screen.getByLabelText(/vyberte obrázek/i), createFile());
+      await screen.findByDisplayValue('rýže');
+      expect(mockedScanReceipt.mock.calls[0][2]).toEqual({
+        rateLimited: 'Příliš mnoho skenů najednou. Chvíli počkejte a zkuste to znovu.',
+        fallback: 'Účtenku se nepodařilo naskenovat.',
+      });
+    });
+
+    it('keeps the table up and disables Add and Cancel while a scan runs', async () => {
+      let resolveScan: (v: unknown) => void = () => {};
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockReturnValueOnce(new Promise((r) => { resolveScan = r; }));
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+
+      expect(await screen.findByText(/scanning receipt/i)).toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent(/scanning receipt/i);
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add to fridge/i })).toBeDisabled();
+      // Cancel would let the scan land after the list is gone and reopen it.
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeDisabled();
+      expect(screen.getByLabelText(/select receipt image/i)).toBeDisabled();
+
+      resolveScan({ generation_id: 8, items: [item('milk')] });
+      await screen.findByDisplayValue('milk');
+      expect(screen.getByRole('button', { name: /add to fridge/i })).toBeEnabled();
+    });
+
+    it('opens the camera from the list: Cancel goes back to it, a capture appends', async () => {
+      mockCamera('granted');
+      mockCanvas('sync');
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockResolvedValueOnce({ generation_id: 8, items: [item('milk')] });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      await screen.findByLabelText(/camera preview/i);
+      await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      fireEvent.loadedMetadata(await screen.findByLabelText(/camera preview/i));
+      await user.click(screen.getByRole('button', { name: /^capture$/i }));
+      await screen.findByDisplayValue('milk');
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+    });
+
+    it('blocks Add and Cancel while the camera is acquired; after a save nothing holds it', async () => {
+      let resolveStream!: (s: MediaStream) => void;
+      const stop = vi.fn();
+      const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+      const getUserMedia = vi.fn(() => new Promise<MediaStream>((r) => { resolveStream = r; }));
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } });
+      mockedScanReceipt.mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] });
+      mockedMergeFridge.mockResolvedValue([]);
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+
+      await user.click(screen.getByRole('button', { name: /take photo/i })); // permission prompt open
+      expect(screen.getByRole('button', { name: /add to fridge/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeDisabled();
+
+      resolveStream(stream);
+      await screen.findByLabelText(/camera preview/i);
+      await user.click(screen.getByRole('button', { name: /^cancel$/i })); // back to the list
+      await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+      expect(await screen.findByText(/items added to fridge/i)).toBeInTheDocument();
+      expect(stop).toHaveBeenCalled();
+      // No stream left behind: Take photo asks for a fresh camera.
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ['receipt', /select receipt image/i, 'No food items found in receipt.'],
+      ['food photo', /select a photo of your food/i, 'No food found in the photo.'],
+    ])('an added %s scan that finds nothing says so and keeps the list', async (kind, label, message) => {
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockResolvedValueOnce({ generation_id: 8, items: [] });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+      if (kind === 'food photo') await user.click(screen.getByRole('radio', { name: /food photo/i }));
+      await user.upload(screen.getByLabelText(label), createFile());
+
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(message));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument(); // information, not an error
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+    });
+
+    it('an edit made before a finished scan renders keeps the new rows', async () => {
+      let resolveScan: (v: unknown) => void = () => {};
+      mockedScanReceipt
+        .mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] })
+        .mockReturnValueOnce(new Promise((r) => { resolveScan = r; }));
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+      await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+      await screen.findByText(/scanning receipt/i);
+
+      // The scan finishes and queues its rows (microtasks only, so React has
+      // not rendered them yet); then an edit arrives from the list on screen.
+      const rice = screen.getByDisplayValue('rice');
+      resolveScan({ generation_id: 8, items: [item('milk')] });
+      for (let i = 0; i < 50; i++) await Promise.resolve();
+      fireEvent.change(rice, { target: { value: 'brown rice' } });
+
+      expect(await screen.findByDisplayValue('milk')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('brown rice')).toBeInTheDocument();
+    });
+
+    it('a camera denied from the list keeps the rows', async () => {
+      mockCamera('denied');
+      mockedScanReceipt.mockResolvedValueOnce({ generation_id: 7, items: [item('rice')] });
+      const user = userEvent.setup();
+      renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+      await firstScan(user);
+
+      await user.click(screen.getByRole('button', { name: /take photo/i }));
+      expect(await screen.findByText(/permission denied/i)).toBeInTheDocument();
+      expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+    });
   });
 
   describe('camera capture', () => {

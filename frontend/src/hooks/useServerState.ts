@@ -260,7 +260,8 @@ export function useUpdateFridge() {
 
 export function useScanReceipt() {
   return useMutation({
-    mutationFn: ({ file, source }: { file: File; source: ScanSource }) => scanReceipt(file, source),
+    mutationFn: ({ file, source, copy }: { file: File; source: ScanSource; copy: RequestCopy }) =>
+      scanReceipt(file, source, copy),
   });
 }
 
@@ -279,9 +280,14 @@ export function useMergeFridge() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (vars: { items: StockItem[]; generationId: number | null }) =>
-      mergeFridgeItems(vars.items, vars.generationId),
-    onSuccess: () => {
+    mutationFn: (vars: {
+      items: StockItem[];
+      generationIds: number[];
+      copy: RequestCopy & { connectionLost: string };
+    }) => mergeFridgeItems(vars.items, vars.generationIds, vars.copy),
+    // Settled, not success: after a dropped connection only a refetch shows
+    // whether the merge landed.
+    onSettled: () => {
       return queryClient.invalidateQueries({ queryKey: ['fridge'] });
     },
   });

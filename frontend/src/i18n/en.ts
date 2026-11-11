@@ -873,6 +873,12 @@ export const en = {
   "receipt.selectFoodPhoto": "Select a photo of your food",
   "receipt.scanningFoodPhoto": "Looking at your photo... This may take a few seconds.",
   "receipt.noItemsFoodPhoto": "No food found in the photo.",
+  "receipt.addAnother": "Add another photo or receipt",
+  "receipt.alsoInOtherScan": "Also in another scan. Remove one if it's the same food.",
+  "receipt.pastDate": "Past its date",
+  "receipt.rateLimited": "Too many scans at once. Wait a minute and try again.",
+  "receipt.mergeConnectionLost":
+    "The connection dropped, so we can't tell whether the items were added. Check your fridge list before adding them again.",
   "receipt.demo.milk": "Whole Milk",
   "receipt.demo.eggs": "Eggs",
   "receipt.demo.bananas": "Bananas",

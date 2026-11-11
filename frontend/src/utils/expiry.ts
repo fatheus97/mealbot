@@ -28,6 +28,6 @@ export const STILL_FINE_EXTENSION_DAYS = 7;
  * Both operands are ISO "YYYY-MM-DD", so a lexicographic compare IS a date
  * compare — no Date construction, no timezone shift.
  */
-export function isExpired(item: StockItem): boolean {
+export function isExpired(item: Pick<StockItem, "expiration_date">): boolean {
   return item.expiration_date != null && item.expiration_date < todayISO();
 }

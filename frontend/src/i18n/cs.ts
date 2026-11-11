@@ -813,6 +813,12 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.selectFoodPhoto": "Vyberte fotku jídla",
   "receipt.scanningFoodPhoto": "Prohlížím fotku... Může to pár sekund trvat.",
   "receipt.noItemsFoodPhoto": "Na fotce nebylo nalezeno žádné jídlo.",
+  "receipt.addAnother": "Přidat další fotku nebo účtenku",
+  "receipt.alsoInOtherScan": "Je i v jiném skenu. Pokud jde o stejnou potravinu, jednu odeberte.",
+  "receipt.pastDate": "Po datu",
+  "receipt.rateLimited": "Příliš mnoho skenů najednou. Chvíli počkejte a zkuste to znovu.",
+  "receipt.mergeConnectionLost":
+    "Spojení se přerušilo, takže nevíme, jestli se položky přidaly. Než je přidáte znovu, zkontrolujte seznam v lednici.",
   "receipt.demo.milk": "Plnotučné mléko",
   "receipt.demo.eggs": "Vejce",
   "receipt.demo.bananas": "Banány",

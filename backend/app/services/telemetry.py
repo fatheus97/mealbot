@@ -88,7 +88,7 @@ def record_correction(
     before_json: str | None = None,
     generation_id: int | None = None,
     meal_plan_id: int | None = None,
-    context: dict[str, int] | None = None,
+    context: dict[str, int | str] | None = None,
 ) -> MachineCorrection | None:
     """Stage a MachineCorrection on ``session`` (committed by the caller).
 

@@ -253,23 +253,45 @@ export async function updateUserProfile(
 
 export async function scanReceipt(
   file: File,
-  source: ScanSource = "receipt",
+  source: ScanSource,
+  copy: RequestCopy,
 ): Promise<ScannedItemsResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await authFetch(`/fridge/scan?source=${source}`, {
-    method: "POST",
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await authFetch(`/fridge/scan?source=${source}`, {
+      method: "POST",
+      body: formData,
+    });
+  } catch {
+    // No Response at all (network down, aborted): the browser's own message
+    // ("Failed to fetch", "Load failed") is English and tells the user nothing.
+    throw new Error(copy.fallback);
+  }
   if (res.status === 402) throw new PaywallError();
+  if (res.status === 429) {
+    // Two different 429s share this status. The usage cap
+    // (deps.require_generation_budget) carries its sentence in `user_detail`
+    // under `code: "usage_cap_reached"`; slowapi's per-minute limit carries
+    // nothing a person should read, whatever shape its envelope has. So branch
+    // on the code, never on whether a `detail` happens to be present.
+    let detail: { code?: unknown; user_detail?: unknown } | null | undefined;
+    try {
+      detail = (await res.json())?.detail;
+    } catch {
+      // non-JSON body: the rate limit
+    }
+    if (detail?.code === "usage_cap_reached" && typeof detail.user_detail === "string") {
+      throw new Error(detail.user_detail);
+    }
+    throw new Error(copy.rateLimited);
+  }
   if (!res.ok) {
-    // Was a raw `${status} - ${body}` dump, which only ever surfaced on 5xx.
     // The email-confirmation gate makes 403 a ROUTINE state here, and its
-    // detail ("Please confirm your email address…") is user-facing copy — so
-    // use the same extractor the other gated call sites use rather than
-    // showing the visitor a JSON blob.
-    throw new Error(await extractErrorDetail(res, "Receipt scan failed. Please try again."));
+    // detail ("Please confirm your email address…") is user-facing copy.
+    throw new Error(await extractErrorDetail(res, copy.fallback));
   }
   return res.json();
 }
@@ -890,19 +912,30 @@ export async function recordWaste(entries: WasteEntry[]): Promise<WasteRecordedR
 
 export async function mergeFridgeItems(
   items: StockItem[],
-  generationId: number | null = null,
+  generationIds: number[],
+  copy: RequestCopy & { connectionLost: string },
 ): Promise<StockItem[]> {
-  // generation_id (from the scan) rides as a query param so the merge body
-  // stays a bare item array; the server owner-checks it for edit telemetry.
-  const qs = generationId != null ? `?generation_id=${generationId}` : "";
-  const res = await authFetch(`/fridge/merge${qs}`, {
-    method: "POST",
-    body: JSON.stringify(items),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Fridge merge failed: ${res.status} - ${txt}`);
+  // One generation_id per scan rides as a repeated query param so the merge
+  // body stays a bare item array; the server owner-checks each for telemetry.
+  // ponytail: the server refuses more than 20 ids, so a longer list sends none
+  // (that save's edit telemetry is skipped). A prefix would be compared with
+  // the whole list and record corrections nobody made.
+  const qs = new URLSearchParams(
+    (generationIds.length > 20 ? [] : generationIds).map((id) => ["generation_id", String(id)]),
+  ).toString();
+  let res: Response;
+  try {
+    res = await authFetch(`/fridge/merge${qs ? `?${qs}` : ""}`, {
+      method: "POST",
+      body: JSON.stringify(items),
+    });
+  } catch {
+    // No Response: the merge may have committed before the connection dropped,
+    // and it is not idempotent, so "try again" could add everything twice.
+    throw new Error(copy.connectionLost);
   }
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  if (!res.ok) throw new Error(await extractErrorDetail(res, copy.fallback));
   return res.json();
 }
 

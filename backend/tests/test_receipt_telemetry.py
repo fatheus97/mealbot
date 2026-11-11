@@ -36,6 +36,19 @@ MOCK_SCAN = ReceiptScanResponse(
     ],
 )
 
+# A second, different scan for the multi-scan merge tests.
+MOCK_SCAN_2 = ReceiptScanResponse(
+    purchase_date=date(2026, 3, 11),
+    items=[
+        ScannedReceiptItem(
+            name="milk", quantity_grams=1000, item_type="ingredient", shelf_life_days=7
+        ),
+        ScannedReceiptItem(
+            name="butter", quantity_grams=250, item_type="ingredient", shelf_life_days=30
+        ),
+    ],
+)
+
 
 def _fake_jpeg() -> io.BytesIO:
     buf = io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 1020)
@@ -51,12 +64,14 @@ async def _passthrough_normalize(
     return scanned_items
 
 
-async def _scan(client: AsyncClient) -> dict[str, Any]:
+async def _scan(
+    client: AsyncClient, scan: ReceiptScanResponse = MOCK_SCAN
+) -> dict[str, Any]:
     """POST /scan with the LLM/normalize layers mocked; return the response."""
     with patch(
         "app.api.fridge.extract_items_from_receipt",
         new_callable=AsyncMock,
-        return_value=MOCK_SCAN,
+        return_value=scan,
     ), patch(
         "app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize
     ):
@@ -119,6 +134,7 @@ class TestMergeCorrectionCapture:
     async def test_merge_edited_records_correction(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
+        """Also the legacy-bundle cover: a single bare ?generation_id=N still links."""
         body = await _scan(client)
         gen_id = body["generation_id"]
         payload = _merge_payload(body["items"])
@@ -139,6 +155,9 @@ class TestMergeCorrectionCapture:
         after_names = {i["name"] for i in json.loads(corr.after_json)}
         assert "chicken breast" in before_names
         assert "chicken thighs" in after_names
+        gen = await db_session.get(MachineGeneration, gen_id)
+        assert gen is not None
+        assert corr.before_json == gen.output_json  # one id: the same before as ever
 
     async def test_merge_unedited_records_no_correction(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
@@ -180,7 +199,10 @@ class TestMergeCorrectionCapture:
         assert resp.status_code == 200
         corrs = await _corrections(db_session, test_user)
         assert len(corrs) == 1
-        assert corrs[0].context_json == {"scanned_count": 2, "submitted_count": 1}
+        # One id records what it always did, plus batch and via.
+        assert corrs[0].context_json == {
+            "batch": 1, "scanned_count": 2, "submitted_count": 1, "via": "merge"
+        }
 
     async def test_merge_ambiguous_expiration_does_not_500(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
@@ -256,6 +278,121 @@ class TestMergeCorrectionCapture:
         )
         assert resp.status_code == 200
         assert await _corrections(db_session, test_user) == []
+
+
+class TestMultiScanMerge:
+    """One review list can hold several scans: one generation_id per scan."""
+
+    async def test_merge_without_ids_records_nothing(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        body = await _scan(client)
+        resp = await client.post("/api/fridge/merge", json=_merge_payload(body["items"]))
+        assert resp.status_code == 200
+        assert await _corrections(db_session, test_user) == []
+
+    async def test_several_unedited_scans_record_no_correction(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        a, b = await _scan(client), await _scan(client, MOCK_SCAN_2)
+        # Order across scans is irrelevant (the canonical compare sorts).
+        payload = _merge_payload(b["items"] + a["items"])
+        resp = await client.post(
+            f"/api/fridge/merge?generation_id={a['generation_id']}"
+            f"&generation_id={b['generation_id']}",
+            json=payload,
+        )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 4  # the rows of both scans were merged
+        assert await _corrections(db_session, test_user) == []
+
+    async def test_several_edited_scans_record_one_correction_each(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        a, b = await _scan(client), await _scan(client, MOCK_SCAN_2)
+        payload = _merge_payload(a["items"] + b["items"])
+        payload[3]["quantity_grams"] = 125  # half the butter, from scan b only
+        resp = await client.post(
+            f"/api/fridge/merge?generation_id={a['generation_id']}"
+            f"&generation_id={b['generation_id']}",
+            json=payload,
+        )
+        assert resp.status_code == 200
+
+        corrs = sorted(await _corrections(db_session, test_user), key=lambda c: c.id or 0)
+        assert [c.generation_id for c in corrs] == [a["generation_id"], b["generation_id"]]
+        for corr, scan in zip(corrs, (a, b), strict=True):
+            assert corr.surface == "receipt_merge"
+            gen = await db_session.get(MachineGeneration, scan["generation_id"])
+            assert gen is not None
+            assert corr.before_json == gen.output_json  # that scan's own output
+            assert json.loads(corr.after_json)[3]["quantity_grams"] == 125
+            assert corr.context_json == {
+                "batch": 2, "scanned_count": 2, "submitted_count": 4, "via": "merge"
+            }
+
+    async def test_repeated_id_is_counted_once(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """A duplicated id must not double its scan and read as an edit."""
+        body = await _scan(client)
+        gid = body["generation_id"]
+        resp = await client.post(
+            f"/api/fridge/merge?generation_id={gid}&generation_id={gid}",
+            json=_merge_payload(body["items"]),
+        )
+        assert resp.status_code == 200
+        assert await _corrections(db_session, test_user) == []
+
+    async def test_foreign_id_in_a_batch_is_ignored(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Security: a foreign id is skipped, neither linked nor concatenated.
+
+        The foreign scan holds the same items as the user's own, so counting it
+        would double the scanned list and make an unedited save read as edited.
+        """
+        body = await _scan(client)
+        other = User(
+            email="other4@example.com",
+            normalized_email=normalize_email("other4@example.com"),
+            hashed_password=get_password_hash("x"),
+        )
+        db_session.add(other)
+        await db_session.flush()
+        assert other.id is not None
+        foreign = record_generation(
+            db_session,
+            user_id=other.id,
+            surface="receipt_scan",
+            output_json=json.dumps(body["items"]),
+        )
+        await db_session.flush()
+        assert foreign is not None
+
+        resp = await client.post(
+            f"/api/fridge/merge?generation_id={body['generation_id']}"
+            f"&generation_id={foreign.id}",
+            json=_merge_payload(body["items"]),
+        )
+        assert resp.status_code == 200
+        assert await _corrections(db_session, test_user) == []
+        foreign_corrs = await db_session.execute(
+            select(MachineCorrection).where(MachineCorrection.generation_id == foreign.id)
+        )
+        assert foreign_corrs.first() is None
+
+    async def test_twenty_one_ids_are_refused(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        body = await _scan(client)
+        payload = _merge_payload(body["items"])
+        at_limit = "&".join(["generation_id=1"] * 20)
+        ok = await client.post(f"/api/fridge/merge?{at_limit}", json=payload)
+        assert ok.status_code == 200  # 20 is the limit, not over it
+        over = "&".join(f"generation_id={i}" for i in range(1, 22))
+        resp = await client.post(f"/api/fridge/merge?{over}", json=payload)
+        assert resp.status_code == 422
 
 
 class TestGuardedCommitDegrade:
