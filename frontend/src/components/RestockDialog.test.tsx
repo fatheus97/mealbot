@@ -61,6 +61,8 @@ function mockServer(initial: Row[], plans: MealPlanSummary[] = [], sendToken = t
     /** The next GET /fridge fails (500), or comes back without a version token. */
     failGet: false,
     noTokenOnGet: false,
+    /** GET /plan fails (500). */
+    failPlans: false,
     write(rows: Row[]) {
       server.items = renumber(rows);
       server.version += 1;
@@ -68,7 +70,7 @@ function mockServer(initial: Row[], plans: MealPlanSummary[] = [], sendToken = t
   };
   const token = () => (sendToken ? `1:${server.version}` : undefined);
   mockedAuthFetch.mockImplementation((async (url: string, opts?: Call[1]) => {
-    if (url === '/plan') return reply(server.plans);
+    if (url === '/plan') return server.failPlans ? reply({}, 500) : reply(server.plans);
     const finish = url.match(/^\/plan\/(\d+)\/finish$/);
     if (finish) {
       if (server.holdFinish) await server.holdFinish;
@@ -263,6 +265,26 @@ describe('RestockDialog', () => {
     await waitFor(() => expect(saveButton()).toBeEnabled());
     await user.click(saveButton());
     await screen.findByText(/someone changed the fridge list/i);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.click(saveButton());
+    expect(await screen.findByText('Your fridge now has 1 item')).toBeInTheDocument();
+  });
+
+  it('a plan list that fails to reload after a 409 does not fail the save', async () => {
+    const server = mockServer([MILK]);
+    const user = userEvent.setup();
+    renderDialog();
+    await scan(user, 'Eggs');
+    server.write([APPLE]); // a partner's edit: the save gets a 409
+    server.failPlans = true; // and the plan list cannot be read again
+
+    await user.click(saveButton());
+    expect(
+      await screen.findByText(
+        'Someone changed the fridge list while you were scanning. Saving now replaces their change too.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/saving failed/i)).not.toBeInTheDocument();
     await waitFor(() => expect(saveButton()).toBeEnabled());
     await user.click(saveButton());
     expect(await screen.findByText('Your fridge now has 1 item')).toBeInTheDocument();

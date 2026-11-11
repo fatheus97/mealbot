@@ -69,9 +69,12 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
   // Throws when the reload fails or brings no token: the snapshot then stays
   // as it was (a null token would unmount the scanner and its paid rows).
   const recapture = async (): Promise<ShelfData<StockItem> | null> => {
+    // Only the fridge reload decides: the plan list feeds the "Finish it"
+    // notices alone, so a failed plan reload must not fail a save that may
+    // already have landed (it stays as it was until the next reload).
     await Promise.all([
       queryClient.refetchQueries({ queryKey: ["fridge", userId], exact: true }, { throwOnError: true }),
-      queryClient.refetchQueries({ queryKey: ["planList", userId] }, { throwOnError: true }),
+      queryClient.refetchQueries({ queryKey: ["planList", userId] }).catch(() => undefined),
     ]);
     const fresh = read();
     if (fresh.token === null) throw new Error("fridge reload carried no version token");
@@ -110,7 +113,9 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
           try {
             landed = await recapture();
           } catch {
-            // Could not see what changed: say so, not "someone changed it".
+            // Every recapture failure (reload failed, or came back without a
+            // token) lands here as the same sentence. Could not see what
+            // changed: say so, not "someone changed it".
             throw new Error(t("restock.saveFailed"));
           }
           // Not a partner's change: our earlier Save is on the server, so this
