@@ -58,6 +58,9 @@ function mockServer(initial: Row[], plans: MealPlanSummary[] = [], sendToken = t
     /** Commit the next PUT, then lose its reply (a dropped connection). */
     dropReply: false,
     failPut: false,
+    /** The next GET /fridge fails (500), or comes back without a version token. */
+    failGet: false,
+    noTokenOnGet: false,
     write(rows: Row[]) {
       server.items = renumber(rows);
       server.version += 1;
@@ -88,7 +91,8 @@ function mockServer(initial: Row[], plans: MealPlanSummary[] = [], sendToken = t
     }
     if (url === '/fridge') {
       if (server.holdGet) await server.holdGet;
-      return reply(server.items, 200, token());
+      if (server.failGet) return reply({}, 500);
+      return reply(server.items, 200, server.noTokenOnGet ? undefined : token());
     }
     throw new Error(`unexpected ${url}`);
   }) as typeof authFetch);
@@ -232,6 +236,36 @@ describe('RestockDialog', () => {
     await user.click(saveButton());
     expect(await screen.findByText('Your fridge now has 1 item')).toBeInTheDocument();
     expect(puts()[1][1]?.headers).toEqual({ 'X-Fridge-Version': '1:4' });
+  });
+
+  it.each([
+    ['fails', 'failGet'],
+    ['comes back without a token', 'noTokenOnGet'],
+  ] as const)('a reload that %s after a 409 says saving failed, keeps the rows, and the next try recovers', async (_, flag) => {
+    const server = mockServer([MILK]);
+    const user = userEvent.setup();
+    renderDialog();
+    await scan(user, 'Eggs');
+    server.write([APPLE]); // a partner's edit: the save gets a 409
+    server[flag] = true;
+
+    await user.click(saveButton());
+    expect(
+      await screen.findByText('Saving failed. Your scanned items are still here, so you can try again.'),
+    ).toBeInTheDocument();
+    // Not blamed on someone else, and the paid rows are still on screen.
+    expect(screen.queryByText(/someone changed the fridge list/i)).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('Eggs')).toBeInTheDocument();
+
+    // The reload works again: the retry 409s on the old token, reloads, and
+    // the third save goes through with the fresh one.
+    server[flag] = false;
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.click(saveButton());
+    await screen.findByText(/someone changed the fridge list/i);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.click(saveButton());
+    expect(await screen.findByText('Your fridge now has 1 item')).toBeInTheDocument();
   });
 
   it('sends the token from mount even when the cached list refreshed under the dialog', async () => {
