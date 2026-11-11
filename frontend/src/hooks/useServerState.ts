@@ -260,7 +260,8 @@ export function useUpdateFridge() {
 
 export function useScanReceipt() {
   return useMutation({
-    mutationFn: ({ file, source }: { file: File; source: ScanSource }) => scanReceipt(file, source),
+    mutationFn: ({ file, source, copy }: { file: File; source: ScanSource; copy: RequestCopy }) =>
+      scanReceipt(file, source, copy),
   });
 }
 
@@ -279,8 +280,8 @@ export function useMergeFridge() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (vars: { items: StockItem[]; generationId: number | null }) =>
-      mergeFridgeItems(vars.items, vars.generationId),
+    mutationFn: (vars: { items: StockItem[]; generationIds: number[]; copy: RequestCopy }) =>
+      mergeFridgeItems(vars.items, vars.generationIds, vars.copy),
     onSuccess: () => {
       return queryClient.invalidateQueries({ queryKey: ['fridge'] });
     },

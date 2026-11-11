@@ -1146,10 +1146,10 @@ class MachineCorrection(SQLModel, table=True):
     meal_plan_id: int | None = Field(
         default=None, foreign_key="mealplan.id", index=True, ondelete="SET NULL"
     )
-    # Small structured coords (day/meal index, item counts) for slicing without
-    # parsing the big blobs. JSONB so it's queryable. int-valued only by
-    # convention — anything richer belongs in the JSON snapshots.
-    context_json: dict[str, int] | None = Field(
+    # Small structured coords (day/meal index, item counts, a short enum such as
+    # receipt_merge's "via") for slicing without parsing the big blobs. JSONB so
+    # it's queryable. Anything richer belongs in the JSON snapshots.
+    context_json: dict[str, int | str] | None = Field(
         default=None, sa_column=Column(JSONB, nullable=True)
     )
     # Immediate pre-edit state (JSON) when the server has it (e.g. meal_edit

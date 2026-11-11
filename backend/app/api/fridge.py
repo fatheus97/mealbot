@@ -23,7 +23,7 @@ from app.core.errors import LocalizedHTTPException
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.usage import LlmCallUsage
-from app.models.db_models import User
+from app.models.db_models import MachineGeneration, User
 from app.models.plan_models import (
     FoodPhotoItem,
     FoodPhotoScanResponse,
@@ -99,6 +99,63 @@ def _canonical_scan_fields(
         )
         for i in items
     )
+
+
+async def _record_scan_corrections(
+    session: AsyncSession,
+    user_id: int,
+    generation_ids: list[int],
+    payload: list[StockItemDTO],
+    via: Literal["merge", "replace"],
+) -> None:
+    """Stage a receipt_merge correction per scan if the saved list differs from them.
+
+    The scans' outputs are concatenated and compared with the payload. An
+    unedited save (names, quantities and expirations all match) records
+    nothing: the accept-as-is signal. With several scans, any edit marks every
+    scan in the batch as corrected. That over-counts but never reports a false
+    "accepted as is", and context.batch tells batched rows apart. Foreign,
+    missing and cross-surface ids are skipped (owner-checked). Staged on the
+    caller's session so it commits atomically with the write.
+
+    Never raises: a telemetry failure (corrupt output_json, any edge in the
+    comparison) must never break the save, so it degrades to "not edited".
+    """
+    try:
+        scans: list[tuple[MachineGeneration, list[ScannedItemDTO]]] = []
+        # dict.fromkeys dedupes: a repeated id would double its scan in the
+        # concatenation and read as an edit.
+        for gid in dict.fromkeys(generation_ids):
+            gen = await resolve_owned_generation(
+                session, gid, user_id, surface="receipt_scan"
+            )
+            if gen is not None:
+                scans.append((gen, _SCAN_ITEMS_ADAPTER.validate_json(gen.output_json)))
+        combined = [item for _, items in scans for item in items]
+        if not scans or _canonical_scan_fields(combined) == _canonical_scan_fields(payload):
+            return
+    except Exception:
+        logger.exception(
+            "Failed to diff scans %s vs the saved list — skipping corrections",
+            generation_ids,
+        )
+        return
+    after_json = _STOCK_ITEMS_ADAPTER.dump_json(payload).decode()
+    for gen, items in scans:
+        record_correction(
+            session,
+            user_id=user_id,
+            surface="receipt_merge",
+            before_json=gen.output_json,
+            after_json=after_json,
+            generation_id=gen.id,
+            context={
+                "batch": len(scans),
+                "scanned_count": len(items),
+                "submitted_count": len(payload),
+                "via": via,
+            },
+        )
 
 
 # //api/fridge
@@ -354,10 +411,14 @@ async def merge_fridge_items(
     request: Request,
     response: Response,
     payload: list[StockItemDTO],
-    generation_id: int | None = Query(
-        default=None,
-        description="id from /fridge/scan; links the user's edits to that scan "
-        "for telemetry. Owner-checked; never trusted for logic.",
+    # Repeated, one per scan in the review list (`?generation_id=1&generation_id=2`);
+    # a single `?generation_id=5` from an older bundle still parses.
+    generation_id: list[int] = Query(
+        default=[],
+        max_length=20,
+        description="ids from /fridge/scan, one per scan in the list; links the "
+        "user's edits to those scans for telemetry. Owner-checked; never trusted "
+        "for logic.",
     ),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
@@ -377,39 +438,9 @@ async def merge_fridge_items(
     await lock_kitchen(session, kitchen)
     existing = await get_fridge_items(session, kitchen.household_id)
 
-    # Telemetry: if the user edited the scan before merging, record the delta
-    # against its (owner-checked) receipt_scan generation. An unedited merge —
-    # names, quantities and expirations all match the scan — leaves the
-    # generation with no correction (the accept-as-is signal). Staged on this
-    # session so it commits atomically with replace_fridge_items below.
-    gen = await resolve_owned_generation(
-        session, generation_id, current_user.id, surface="receipt_scan"
+    await _record_scan_corrections(
+        session, current_user.id, generation_id, payload, via="merge"
     )
-    if gen is not None:
-        # Guard the whole diff (parse + canonical compare). A telemetry failure
-        # here — corrupt output_json, or any edge in the comparison — must never
-        # break the fridge merge; degrade to "not edited" and skip the row.
-        scanned: list[ScannedItemDTO] | None = None
-        edited = False
-        try:
-            scanned = _SCAN_ITEMS_ADAPTER.validate_json(gen.output_json)
-            edited = _canonical_scan_fields(scanned) != _canonical_scan_fields(payload)
-        except Exception:
-            logger.exception(
-                "Failed to diff scan vs merge for generation %s — skipping correction",
-                gen.id,
-            )
-            scanned, edited = None, False
-        if scanned is not None and edited:
-            record_correction(
-                session,
-                user_id=current_user.id,
-                surface="receipt_merge",
-                before_json=gen.output_json,
-                after_json=_STOCK_ITEMS_ADAPTER.dump_json(payload).decode(),
-                generation_id=gen.id,
-                context={"scanned_count": len(scanned), "submitted_count": len(payload)},
-            )
 
     merged = merge_into_fridge_buckets(existing, payload)
     # Merged into what is stored now, under the lock, so never refused as

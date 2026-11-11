@@ -7,6 +7,7 @@ import type { ScanSource, ScannedItemType, StockItem } from "../types";
 import { InfoHint } from "./InfoHint";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 import { useI18n, type TranslationKey } from "../i18n";
+import { isExpired } from "../utils/expiry";
 
 type ScannerState = "idle" | "scanning" | "review" | "error" | "camera";
 
@@ -24,7 +25,12 @@ interface ReviewItem {
   // Set for an opened package from a food photo: its full size in grams. The
   // row asks how much is left, and addedQty starts empty until answered.
   packageGrams?: number;
+  // Which scan of this review list the row came from (1, 2, ...), for the
+  // "also in another scan" flag.
+  scan: number;
 }
+
+const FLAG = { fontSize: "0.75rem", padding: "0.15rem 0.4rem", borderRadius: "4px" } as const;
 
 // Quick answers to "how much is left?" for an opened package. "Almost nothing"
 // is 5%: about a spoonful in a 500 g bag.
@@ -40,7 +46,7 @@ const parseQty = (s: string): number => {
 // demo always shows dates relative to today — no stale "expired yesterday"
 // rows for recruiters who open the demo weeks after the build.
 const DEMO_SCAN_TEMPLATE: Array<
-  Omit<ReviewItem, "expirationDate" | "name"> & { nameKey: TranslationKey; shelfLifeDays: number }
+  Omit<ReviewItem, "expirationDate" | "name" | "scan"> & { nameKey: TranslationKey; shelfLifeDays: number }
 > = [
   { nameKey: "receipt.demo.milk",     addedQty: "1000", existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
   { nameKey: "receipt.demo.eggs",     addedQty: "360",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 21 },
@@ -63,7 +69,7 @@ const buildDemoScanItems = (t: (key: TranslationKey) => string): ReviewItem[] =>
     const y = exp.getFullYear();
     const m = String(exp.getMonth() + 1).padStart(2, "0");
     const d = String(exp.getDate()).padStart(2, "0");
-    return { ...item, name: t(nameKey), expirationDate: `${y}-${m}-${d}` };
+    return { ...item, name: t(nameKey), expirationDate: `${y}-${m}-${d}`, scan: 1 };
   });
 };
 
@@ -72,16 +78,19 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
   const { isDemo } = useAuth();
   const isMobile = useIsMobile();
   const [state, setState] = useState<ScannerState>("idle");
-  // Receipt or a photo of the food itself. Only switchable in idle/error, so it
-  // can't change between a scan and its review.
+  // Receipt or a photo of the food itself. Switchable between scans; one review
+  // list can mix both.
   const [source, setSource] = useState<ScanSource>("receipt");
   const sourceGroupName = useId();
   const isFoodPhoto = source === "food_photo";
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
-  // machine_generation id for the scan on screen — echoed back on merge so the
-  // server can capture edits made in the review table. null on the demo path
-  // (no real /scan call) or when the scan telemetry write was skipped.
-  const [scanGenerationId, setScanGenerationId] = useState<number | null>(null);
+  // Scans in the review list on screen; 0 means there is no list. Once it is
+  // above 0, a new scan appends and any failure keeps the rows (paid scans).
+  const [scanCount, setScanCount] = useState(0);
+  // machine_generation ids of those scans, echoed back on merge so the server
+  // can capture edits made in the review table. The demo path (no real /scan
+  // call) and a skipped scan telemetry write add none.
+  const [generationIds, setGenerationIds] = useState<number[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmError, setConfirmError] = useState("");
   const [notice, setNotice] = useState("");
@@ -150,6 +159,13 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     };
   }, []);
 
+  // With a review list on screen a failure shows inline and the rows stay: the
+  // "error" state would hide them, and they are paid scans.
+  const fail = (message: string) => {
+    setErrorMessage(message);
+    setState(scanCount > 0 ? "review" : "error");
+  };
+
   const openCamera = async () => {
     // Ignore re-entrant calls while a prompt/stream is already in flight or open.
     if (openingRef.current || streamRef.current) return;
@@ -165,10 +181,10 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       // or the user did something else during the (non-modal) permission prompt
       // that moved us into a busy state (scanning/review/camera) — stop this
       // just-acquired stream instead of clobbering that action and leaking the
-      // camera. "idle" and "error" are both openable (the button shows in both,
-      // so retry-after-denial must still work).
+      // camera. "idle", "error" and "review" are openable (the button shows in
+      // all three, so retry-after-denial and add-another must still work).
       const openableState =
-        stateRef.current === "idle" || stateRef.current === "error";
+        stateRef.current === "idle" || stateRef.current === "error" || stateRef.current === "review";
       if (!mountedRef.current || !openableState) {
         stream.getTracks().forEach((t) => t.stop());
         return;
@@ -177,16 +193,15 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
       setState("camera");
     } catch (err) {
       // Permission denied / no camera / insecure context — degrade to file upload
-      // (the idle/error state still renders the file input).
+      // (the idle/error/review state still renders the file input).
       const name = err instanceof DOMException ? err.name : "";
-      setErrorMessage(
+      fail(
         name === "NotAllowedError"
           ? t("receipt.cameraDenied")
           : name === "NotFoundError"
             ? t("receipt.cameraNotFound")
             : t("receipt.cameraFailed"),
       );
-      setState("error");
     } finally {
       openingRef.current = false;
       setCameraOpening(false);
@@ -205,8 +220,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       stopCamera(); // resets capturingRef
-      setErrorMessage(t("receipt.captureFailed"));
-      setState("error");
+      fail(t("receipt.captureFailed"));
       return;
     }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -223,8 +237,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
         }
         stopCamera(); // resets capturingRef
         if (!blob) {
-          setErrorMessage(t("receipt.captureFailed"));
-          setState("error");
+          fail(t("receipt.captureFailed"));
           return;
         }
         void handleScan(new File([blob], "receipt.jpg", { type: "image/jpeg" }));
@@ -236,18 +249,24 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
   const closeCamera = () => {
     stopCamera();
-    setState("idle");
+    setState(scanCount > 0 ? "review" : "idle");
   };
 
   const handleScan = async (file: File) => {
-    setState("scanning");
+    // With a list on screen this scan appends to it. The table stays up while
+    // it runs (scanMutation.isPending, not the "scanning" state, which hides it).
+    const adding = scanCount > 0;
+    setState(adding ? "review" : "scanning");
     setErrorMessage("");
-    setScanGenerationId(null);
 
     try {
-      const scanResponse = await scanMutation.mutateAsync({ file, source });
+      const scanResponse = await scanMutation.mutateAsync({
+        file,
+        source,
+        copy: { rateLimited: t("receipt.rateLimited"), fallback: t("receipt.scanFailed") },
+      });
       const scannedItems = scanResponse.items;
-      setScanGenerationId(scanResponse.generation_id);
+      const id = scanResponse.generation_id;
 
       // Build lookup from current fridge by (name, expiration_date) compound key
       const fridgeLookup = new Map<string, StockItem>();
@@ -269,14 +288,16 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
           itemType: scanned.item_type,
           expirationDate: expDate,
           packageGrams: scanned.opened ? scanned.quantity_grams : undefined,
+          scan: scanCount + 1,
         };
       });
 
-      setReviewItems(items);
+      setReviewItems((prev) => (adding ? [...prev, ...items] : items));
+      setGenerationIds((prev) => [...(adding ? prev : []), ...(id != null ? [id] : [])]);
+      setScanCount(scanCount + 1);
       setState("review");
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : t("receipt.scanFailed"));
-      setState("error");
+      fail(err instanceof Error ? err.message : t("receipt.scanFailed"));
     } finally {
       // Reset so selecting the same file again (e.g. after an error) re-triggers onChange.
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -285,7 +306,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
 
   const handleDemoScan = () => {
     setState("scanning");
-    setScanGenerationId(null); // demo skips the real /scan, so no generation
+    setGenerationIds([]); // demo skips the real /scan, so no generation
     setTimeout(() => {
       setReviewItems(buildDemoScanItems(t));
       setState("review");
@@ -318,22 +339,26 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     }));
 
     try {
-      await mergeMutation.mutateAsync({ items: itemsToMerge, generationId: scanGenerationId });
-      setState("idle");
-      setReviewItems([]);
-      setConfirmError("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      await mergeMutation.mutateAsync({
+        items: itemsToMerge,
+        generationIds,
+        copy: { rateLimited: t("receipt.rateLimited"), fallback: t("receipt.mergeFailed") },
+      });
+      clearList();
       setNotice(t("receipt.added"));
       setTimeout(() => setNotice(""), 3000);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : t("receipt.mergeFailed"));
-      setState("error");
+      // Stay in review: the "error" state would hide the rows (paid scans).
+      setConfirmError(err instanceof Error ? err.message : t("receipt.mergeFailed"));
     }
   };
 
-  const handleCancel = () => {
+  const clearList = () => {
     setState("idle");
     setReviewItems([]);
+    setScanCount(0);
+    setGenerationIds([]);
+    setErrorMessage("");
     setConfirmError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -354,6 +379,48 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
     setReviewItems(updated);
   };
 
+  // Source, file and camera: the first scan in idle/error, "add another" in review.
+  const busy = scanMutation.isPending || cameraOpening || mergeMutation.isPending;
+  const scanPickers = (
+    <>
+      <div
+        role="radiogroup"
+        aria-label={t("receipt.sourceLabel")}
+        style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", width: "100%" }}
+      >
+        {([["receipt", "receipt.sourceReceipt"], ["food_photo", "receipt.sourceFoodPhoto"]] as const).map(
+          ([value, labelKey]) => (
+            <label key={value} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+              <input
+                type="radio"
+                name={sourceGroupName}
+                checked={source === value}
+                onChange={() => setSource(value)}
+                disabled={busy}
+              />
+              {t(labelKey)}
+            </label>
+          ),
+        )}
+        <InfoHint label={t("receipt.foodPhotoHintLabel")} text={t("receipt.foodPhotoHint")} />
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        // A food photo is never a PDF; the server rejects that pairing too.
+        accept={isFoodPhoto ? "image/jpeg,image/png" : "image/jpeg,image/png,application/pdf,.pdf"}
+        aria-label={isFoodPhoto ? t("receipt.selectFoodPhoto") : t("receipt.selectFile")}
+        onChange={handleFileChange}
+        disabled={busy}
+      />
+      {cameraSupported && (
+        <button onClick={openCamera} disabled={busy}>
+          {cameraOpening ? t("receipt.openingCamera") : t("receipt.takePhoto")}
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "#1e293b", borderRadius: "8px", color: "rgba(255, 255, 255, 0.87)" }}>
       <h3 style={{ marginTop: 0 }}>{t("receipt.heading")}</h3>
@@ -373,43 +440,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
               </button>
             </>
           ) : (
-            <>
-              <div
-                role="radiogroup"
-                aria-label={t("receipt.sourceLabel")}
-                style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", width: "100%" }}
-              >
-                {([["receipt", "receipt.sourceReceipt"], ["food_photo", "receipt.sourceFoodPhoto"]] as const).map(
-                  ([value, labelKey]) => (
-                    <label key={value} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                      <input
-                        type="radio"
-                        name={sourceGroupName}
-                        checked={source === value}
-                        onChange={() => setSource(value)}
-                        disabled={scanMutation.isPending || cameraOpening}
-                      />
-                      {t(labelKey)}
-                    </label>
-                  ),
-                )}
-                <InfoHint label={t("receipt.foodPhotoHintLabel")} text={t("receipt.foodPhotoHint")} />
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                // A food photo is never a PDF; the server rejects that pairing too.
-                accept={isFoodPhoto ? "image/jpeg,image/png" : "image/jpeg,image/png,application/pdf,.pdf"}
-                aria-label={isFoodPhoto ? t("receipt.selectFoodPhoto") : t("receipt.selectFile")}
-                onChange={handleFileChange}
-                disabled={scanMutation.isPending || cameraOpening}
-              />
-              {cameraSupported && (
-                <button onClick={openCamera} disabled={scanMutation.isPending || cameraOpening}>
-                  {cameraOpening ? t("receipt.openingCamera") : t("receipt.takePhoto")}
-                </button>
-              )}
-            </>
+            scanPickers
           )}
         </div>
       )}
@@ -482,6 +513,34 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                     : `+${addedNum} → ${item.existingQty + addedNum}g`;
                 return { addedNum, isInvalid, isNew, resultLabel };
               };
+              // The scans each name came from. Images are not normalized
+              // against each other, so a name in two scans may be one food
+              // seen twice (a receipt and a photo) or two real packs: flag it,
+              // and let the person decide.
+              const scansByName = new Map<string, Set<number>>();
+              for (const row of reviewItems) {
+                const key = row.name.trim().toLowerCase();
+                if (key) scansByName.set(key, (scansByName.get(key) ?? new Set<number>()).add(row.scan));
+              }
+              const flags = (item: ReviewItem) => {
+                const twin = (scansByName.get(item.name.trim().toLowerCase())?.size ?? 0) > 1;
+                const past = isExpired({ expiration_date: item.expirationDate });
+                if (!twin && !past) return null;
+                return (
+                  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
+                    {twin && (
+                      <span style={{ ...FLAG, backgroundColor: "#3b2f1e", color: "#fbbf24" }}>
+                        {t("receipt.alsoInOtherScan")}
+                      </span>
+                    )}
+                    {past && (
+                      <span style={{ ...FLAG, backgroundColor: "#3b1e1e", color: "#f87171" }}>
+                        {t("receipt.pastDate")}
+                      </span>
+                    )}
+                  </div>
+                );
+              };
               const setLeft = (index: number, grams: number) => {
                 updateReviewItem(index, "addedQty", String(Math.max(1, Math.round(grams))));
                 setConfirmError("");
@@ -532,6 +591,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                             aria-label={t("receipt.itemName", { n: index + 1 })}
                             style={{ width: "100%", boxSizing: "border-box" }}
                           />
+                          {flags(item)}
                           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", margin: "0.4rem 0" }}>
                             <span style={typeBadge(item)}>
                               {item.itemType === "ingredient" ? t("receipt.typeIngredient") : t("receipt.typeSnack")}
@@ -607,6 +667,7 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
                               value={item.name}
                               onChange={(e) => updateReviewItem(index, "name", e.target.value)}
                             />
+                            {flags(item)}
                           </td>
                           <td>
                             <span style={typeBadge(item)}>
@@ -659,13 +720,32 @@ export function ReceiptScanner({ currentFridge }: ReceiptScannerProps) {
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <button
               onClick={handleConfirm}
-              disabled={mergeMutation.isPending || reviewItems.length === 0}
+              // Not while a scan is adding rows: they would miss this save.
+              disabled={mergeMutation.isPending || scanMutation.isPending || reviewItems.length === 0}
               style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: "pointer" }}
             >
               {mergeMutation.isPending ? t("receipt.adding") : t("receipt.add")}
             </button>
-            <button onClick={handleCancel}>{t("receipt.cancel")}</button>
+            <button onClick={clearList}>{t("receipt.cancel")}</button>
           </div>
+          {/* Below the buttons, so its status line toggling shifts nothing the
+              person is about to click. The demo has a single scan only. */}
+          {!isDemo && (
+            <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid #334155" }}>
+              <p style={{ margin: "0 0 0.5rem", fontWeight: 600 }}>{t("receipt.addAnother")}</p>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                {scanPickers}
+              </div>
+              {scanMutation.isPending && (
+                <p style={{ margin: "0.5rem 0 0" }}>
+                  {isFoodPhoto ? t("receipt.scanningFoodPhoto") : t("receipt.scanning")}
+                </p>
+              )}
+              {errorMessage && (
+                <p style={{ color: "#f87171", margin: "0.5rem 0 0" }}>{errorMessage}</p>
+              )}
+            </div>
+          )}
         </>
       )}
 

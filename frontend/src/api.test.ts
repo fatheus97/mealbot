@@ -5,8 +5,10 @@ import {
   fetchInvites,
   changeEmail,
   fetchUserProfile,
+  mergeFridgeItems,
   redeemInvite,
   revokeInvite,
+  scanReceipt,
   updateUserProfile,
 } from './api';
 import { DEFAULT_LOCALE, useLocaleStore } from './store/useLocaleStore';
@@ -327,5 +329,77 @@ describe('changeEmail', () => {
     await expect(changeEmail('Secret123', 'new@example.com')).rejects.toThrow(
       /too many attempts/i,
     );
+  });
+});
+
+const COPY = { rateLimited: 'Slow down, please.', fallback: 'Scan went wrong.' };
+
+describe('scanReceipt 429 split', () => {
+  const scan = () => scanReceipt(new File(['x'], 'r.jpg', { type: 'image/jpeg' }), 'receipt', COPY);
+
+  it('keeps the usage-cap sentence the server wrote', async () => {
+    mockFetch(429, {
+      detail: {
+        code: 'usage_cap_reached',
+        user_detail: 'You have used your allowance for this month.',
+        cap_eur: 2,
+      },
+    });
+    await expect(scan()).rejects.toThrow('You have used your allowance for this month.');
+  });
+
+  it.each([
+    ['no detail (slowapi envelope)', { error: 'Rate limit exceeded' }],
+    ['a raw English detail', { detail: '5 per 1 minute' }],
+    ['an object detail of another code', { detail: { code: 'other', user_detail: 'nope' } }],
+  ])('any other 429 shows the rate-limit copy: %s', async (_shape, body) => {
+    mockFetch(429, body);
+    await expect(scan()).rejects.toThrow(/^Slow down, please\.$/);
+  });
+
+  it('a 429 without a JSON body shows the rate-limit copy', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: () => Promise.reject(new SyntaxError('not json')),
+      text: () => Promise.resolve('Too Many Requests'),
+    });
+    await expect(scan()).rejects.toThrow(/^Slow down, please\.$/);
+  });
+
+  it('other failures use the server detail, else the fallback copy', async () => {
+    mockFetch(403, { detail: 'Please confirm your email address first.' });
+    await expect(scan()).rejects.toThrow('Please confirm your email address first.');
+    mockFetch(500, {});
+    await expect(scan()).rejects.toThrow('Scan went wrong. (500)');
+  });
+});
+
+describe('mergeFridgeItems', () => {
+  const lastUrl = () => (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0] as string;
+
+  it('sends one generation_id per scan, and none for an empty list', async () => {
+    mockFetch(200, []);
+    await mergeFridgeItems([], [7, 8], COPY);
+    expect(lastUrl()).toBe(`${MOCK_BASE}/fridge/merge?generation_id=7&generation_id=8`);
+
+    mockFetch(200, []);
+    await mergeFridgeItems([], [], COPY);
+    expect(lastUrl()).toBe(`${MOCK_BASE}/fridge/merge`);
+  });
+
+  it('never sends more ids than the server accepts (20)', async () => {
+    mockFetch(200, []);
+    await mergeFridgeItems([], Array.from({ length: 25 }, (_, i) => i + 1), COPY);
+    expect(new URL(lastUrl(), 'http://x').searchParams.getAll('generation_id')).toHaveLength(20);
+  });
+
+  it('shows the server detail, else the fallback copy, never a raw status dump', async () => {
+    mockFetch(422, { detail: 'Too many items (501); maximum is 500.' });
+    await expect(mergeFridgeItems([], [], COPY)).rejects.toThrow('Too many items (501); maximum is 500.');
+    mockFetch(500, { oops: true });
+    await expect(mergeFridgeItems([], [], COPY)).rejects.toThrow('Scan went wrong. (500)');
+    mockFetch(429, { error: 'Rate limit exceeded' });
+    await expect(mergeFridgeItems([], [], COPY)).rejects.toThrow(/^Slow down, please\.$/);
   });
 });
