@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useEffect, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -14,19 +15,31 @@ vi.mock('../api', () => ({
   answerRestockPrompt: vi.fn(),
 }));
 
-import { answerRestockPrompt, fetchRestockStatus } from '../api';
+import { answerRestockPrompt, authFetch, fetchRestockStatus } from '../api';
 
+const mockedFetch = vi.mocked(authFetch);
 const mockedStatus = vi.mocked(fetchRestockStatus);
 const mockedAnswer = vi.mocked(answerRestockPrompt);
 const DUE: RestockStatus = { due: true, days_since_write: 23 };
 const MESSAGE =
   "Your fridge list hasn't changed in 23 days. Start fresh from photos of your food and your recent receipts?";
 
+/** GET /fridge as the server answers it: the list and its version token. */
+const fridgeReply = (token: string | null = '1:3', status = 200) =>
+  ({
+    ok: status < 400,
+    status,
+    headers: new Headers(token ? { 'X-Fridge-Version': token } : {}),
+    json: () => Promise.resolve([]),
+  }) as Response;
+
 function setAuth(over: Partial<AuthState> = {}) {
   vi.spyOn(AuthCtx, 'useAuth').mockReturnValue({
     userId: 1, onboardingCompleted: true, isDemo: false, ...over,
   } as unknown as AuthState);
 }
+
+let setOpen: (open: boolean) => void = () => {};
 
 function renderPrompt({ restockOpen = false, cached }: { restockOpen?: boolean; cached?: RestockStatus } = {}) {
   const onStartRestock = vi.fn();
@@ -38,14 +51,30 @@ function renderPrompt({ restockOpen = false, cached }: { restockOpen?: boolean; 
       mutations: { retry: false },
     },
   });
-  if (cached) queryClient.setQueryData(['restock', 1], cached);
-  const ui = (open: boolean) => (
+  // Stale on purpose: an enabled query would refetch it on mount.
+  if (cached) queryClient.setQueryData(['restock', 1], cached, { updatedAt: 0 });
+  // MainLayout's half: Start fresh opens the dialog, which the prompt is told.
+  function Harness() {
+    const [open, setOpenState] = useState(restockOpen);
+    useEffect(() => {
+      setOpen = setOpenState;
+    }, []);
+    return (
+      <RestockPrompt
+        restockOpen={open}
+        onStartRestock={() => {
+          onStartRestock();
+          setOpenState(true);
+        }}
+      />
+    );
+  }
+  const view = render(
     <QueryClientProvider client={queryClient}>
-      <RestockPrompt restockOpen={open} onStartRestock={onStartRestock} />
-    </QueryClientProvider>
+      <Harness />
+    </QueryClientProvider>,
   );
-  const view = render(ui(restockOpen));
-  return { ...view, onStartRestock, queryClient, reopen: (open: boolean) => view.rerender(ui(open)) };
+  return { ...view, onStartRestock, queryClient, reopen: (open: boolean) => act(() => setOpen(open)) };
 }
 
 /** Wait until the status GET has landed, so "no dialog" is not just "not yet". */
@@ -55,6 +84,7 @@ async function settled(queryClient: QueryClient) {
 }
 
 beforeEach(() => {
+  mockedFetch.mockReset().mockResolvedValue(fridgeReply());
   mockedStatus.mockReset().mockResolvedValue(DUE);
   mockedAnswer.mockReset().mockResolvedValue({ due: false, days_since_write: null });
   setAuth();
@@ -71,8 +101,10 @@ describe('RestockPrompt', () => {
   it('asks with the day count when due; Not now answers and does not open the dialog', async () => {
     const user = userEvent.setup();
     const { onStartRestock } = renderPrompt();
-    expect(await screen.findByRole('dialog', { name: 'Start fresh?' })).toBeInTheDocument();
-    expect(screen.getByText(MESSAGE)).toBeInTheDocument();
+    // The sentence is the dialog's description, so it is announced with the title.
+    expect(
+      await screen.findByRole('dialog', { name: 'Start fresh?', description: MESSAGE }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Not now' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -80,13 +112,14 @@ describe('RestockPrompt', () => {
     expect(onStartRestock).not.toHaveBeenCalled();
   });
 
-  it('Start fresh answers too and opens the restock dialog', async () => {
+  it('Start fresh opens the restock dialog and answers exactly once', async () => {
     const user = userEvent.setup();
-    const { onStartRestock } = renderPrompt();
+    const { onStartRestock, queryClient } = renderPrompt();
     await user.click(await screen.findByRole('button', { name: 'Start fresh' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(mockedAnswer).toHaveBeenCalledTimes(1);
     expect(onStartRestock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(queryClient.getQueryData<RestockStatus>(['restock', 1])?.due).toBe(false));
+    expect(mockedAnswer).toHaveBeenCalledTimes(1);
   });
 
   it('Escape and a backdrop click count as Not now', async () => {
@@ -113,6 +146,32 @@ describe('RestockPrompt', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('waits for the fridge list and its token, which the restock dialog reads at mount', async () => {
+    let land: (reply: Response) => void = () => {};
+    mockedFetch.mockReturnValue(new Promise<Response>((resolve) => { land = resolve; }));
+    const { queryClient } = renderPrompt();
+    await settled(queryClient);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await act(async () => land(fridgeReply()));
+    expect(await screen.findByRole('dialog', { name: 'Start fresh?' })).toBeInTheDocument();
+  });
+
+  it('never asks when the fridge GET failed or came without a token', async () => {
+    mockedFetch.mockResolvedValue(fridgeReply('1:3', 500));
+    const failed = renderPrompt();
+    await settled(failed.queryClient);
+    await waitFor(() => expect(failed.queryClient.getQueryState(['fridge', 1])?.status).toBe('error'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    failed.unmount();
+
+    mockedFetch.mockResolvedValue(fridgeReply(null));
+    const tokenless = renderPrompt();
+    await settled(tokenless.queryClient);
+    await waitFor(() => expect(tokenless.queryClient.getQueryState(['fridge', 1])?.status).toBe('success'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('a focus refetch in the same session does not ask again, even after a failed answer', async () => {
     mockedAnswer.mockRejectedValue(new Error('Restock answer failed: 500'));
     const user = userEvent.setup();
@@ -130,7 +189,7 @@ describe('RestockPrompt', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('never asks or fetches for a demo account, even with due in the cache', async () => {
+  it('never asks or fetches for a demo account, even with a stale due in the cache', async () => {
     setAuth({ isDemo: true });
     renderPrompt({ cached: DUE });
     await act(async () => {});
@@ -138,7 +197,7 @@ describe('RestockPrompt', () => {
     expect(mockedStatus).not.toHaveBeenCalled();
   });
 
-  it('never asks or fetches during onboarding, even with due in the cache', async () => {
+  it('never asks or fetches during onboarding, even with a stale due in the cache', async () => {
     setAuth({ onboardingCompleted: false });
     renderPrompt({ cached: DUE });
     await act(async () => {});
@@ -146,14 +205,35 @@ describe('RestockPrompt', () => {
     expect(mockedStatus).not.toHaveBeenCalled();
   });
 
-  it('opening Start fresh another way counts as asked: closed again, it does not nag', async () => {
+  it('opening Start fresh another way answers once, so it does not nag after a remount', async () => {
     const { queryClient, reopen } = renderPrompt({ restockOpen: true });
     await settled(queryClient);
+    await waitFor(() => expect(queryClient.getQueryData<RestockStatus>(['restock', 1])?.due).toBe(false));
+    expect(mockedAnswer).toHaveBeenCalledTimes(1);
+
+    await reopen(false);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('an open restock dialog hides it, and closing it does not ask, even if that answer failed', async () => {
+    mockedAnswer.mockRejectedValue(new Error('Restock answer failed: 500'));
+    const { queryClient, reopen } = renderPrompt({ restockOpen: true });
+    await settled(queryClient);
+    await waitFor(() => expect(queryClient.getQueryState(['fridge', 1])?.status).toBe('success'));
+    await waitFor(() => expect(mockedAnswer).toHaveBeenCalledTimes(1));
+    expect(queryClient.getQueryData<RestockStatus>(['restock', 1])?.due).toBe(true);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    reopen(false);
-    await settled(queryClient);
+    await reopen(false);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('opening Start fresh when nothing is due answers nothing', async () => {
+    mockedStatus.mockResolvedValue({ due: false, days_since_write: 3 });
+    const { queryClient } = renderPrompt({ restockOpen: true });
+    await settled(queryClient);
+    await act(async () => {});
+    expect(mockedAnswer).not.toHaveBeenCalled();
   });
 
   it('leaves no untranslated English in Czech', async () => {
