@@ -669,7 +669,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.startFresh": "Začít nanovo",
   "fridge.startFreshHintLabel": "O tlačítku „Začít nanovo“",
   "fridge.startFreshHint":
-    "Tlačítko „Začít nanovo“ nahradí celý seznam v lednici tím, co teď naskenujete. Hned potom to můžete vrátit. Staré položky se nepočítají jako vyhozené jídlo.",
+    "Tlačítko „Začít nanovo“ nahradí celý seznam v lednici tím, co teď naskenujete. Hned potom to můžete vrátit. Staré položky se nepočítají jako vyhozené jídlo. Pokud se seznam 14 dní nezmění, aplikace se vás jednou zeptá.",
   "fridge.remove": "Odebrat",
   "fridge.removeAll": "Odebrat vše",
   "fridge.removing": "Odebírám…",
@@ -859,6 +859,17 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "restock.undoFailed": "Vrácení se nepodařilo. Zkuste to znovu.",
   "restock.undoRefused": "Od uložení se lednice změnila, takže změnu už nejde vrátit. Zkontrolujte seznam v sekci Lednice.",
   "restock.close": "Zavřít",
+  // "den": 1 den / 2-4 dny / 5+ dní; _many is a fraction (1,5 dne), never hit.
+  "restock.promptTitle": "Začít nanovo?",
+  "restock.promptMessage_one":
+    "Seznam v lednici se nezměnil už {count} den. Chcete ho sestavit znovu z fotek jídla a posledních účtenek?",
+  "restock.promptMessage_few":
+    "Seznam v lednici se nezměnil už {count} dny. Chcete ho sestavit znovu z fotek jídla a posledních účtenek?",
+  "restock.promptMessage_many":
+    "Seznam v lednici se nezměnil už {count} dne. Chcete ho sestavit znovu z fotek jídla a posledních účtenek?",
+  "restock.promptMessage_other":
+    "Seznam v lednici se nezměnil už {count} dní. Chcete ho sestavit znovu z fotek jídla a posledních účtenek?",
+  "restock.notNow": "Teď ne",
 
   // ─── Plan catalog ─────────────────────────────────────────────────────────
   "plans.title": "Moje jídelníčky",

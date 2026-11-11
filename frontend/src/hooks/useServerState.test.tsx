@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubLocationReload } from '../test/location';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan, useSaveDietaryProfile, useDeleteDietaryProfile, useHousehold } from './useServerState';
+import { useFridge, useUserProfile, useUpdateFridge, useGeneratePlan, useRegeneratePlan, useConfirmPlan, useDeletePlan, usePlanCalendar, useReschedulePlan, useSaveDietaryProfile, useDeleteDietaryProfile, useHousehold, useRestockStatus, useAnswerRestock } from './useServerState';
 import type { ReactNode } from 'react';
 
 // Mock the api module
@@ -13,9 +13,11 @@ vi.mock('../api', () => ({
   saveDietaryProfile: vi.fn(),
   deleteDietaryProfile: vi.fn(),
   fetchHousehold: vi.fn(),
+  fetchRestockStatus: vi.fn(),
+  answerRestockPrompt: vi.fn(),
 }));
 
-import { authFetch, fetchUserProfile, saveDietaryProfile, deleteDietaryProfile, fetchHousehold } from '../api';
+import { authFetch, fetchUserProfile, saveDietaryProfile, deleteDietaryProfile, fetchHousehold, fetchRestockStatus, answerRestockPrompt } from '../api';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchUserProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
@@ -374,6 +376,51 @@ describe('useHousehold', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const options = queryClient.getQueryCache().find({ queryKey: ['household', 1] })?.options;
     expect(options).toMatchObject({ refetchOnWindowFocus: true, staleTime: 30_000 });
+  });
+});
+
+describe('the restock prompt status', () => {
+  it('is shared state: refetched on focus, keyed per user', async () => {
+    vi.mocked(fetchRestockStatus).mockResolvedValueOnce({ due: true, days_since_write: 20 });
+    const { wrapper, queryClient } = createWrapper();
+
+    const { result } = renderHook(() => useRestockStatus(1, true), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toEqual({ due: true, days_since_write: 20 }));
+    const options = queryClient.getQueryCache().find({ queryKey: ['restock', 1] })?.options;
+    expect(options).toMatchObject({ refetchOnWindowFocus: true, staleTime: 30_000 });
+  });
+
+  it('does not fetch when not enabled or logged out', () => {
+    vi.mocked(fetchRestockStatus).mockClear();
+    const { wrapper } = createWrapper();
+    expect(renderHook(() => useRestockStatus(1, false), { wrapper }).result.current.fetchStatus).toBe('idle');
+    expect(renderHook(() => useRestockStatus(null, true), { wrapper }).result.current.fetchStatus).toBe('idle');
+    expect(fetchRestockStatus).not.toHaveBeenCalled();
+  });
+
+  it('an answer clears due in the cache', async () => {
+    vi.mocked(answerRestockPrompt).mockResolvedValueOnce({ due: false, days_since_write: null });
+    const { wrapper, queryClient } = createWrapper();
+    queryClient.setQueryData(['restock', 1], { due: true, days_since_write: 20 });
+
+    const { result } = renderHook(() => useAnswerRestock(), { wrapper });
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: false, days_since_write: 20 });
+  });
+
+  it('a failed answer leaves the cache alone', async () => {
+    vi.mocked(answerRestockPrompt).mockRejectedValueOnce(new Error('Restock answer failed: 500'));
+    const { wrapper, queryClient } = createWrapper();
+    queryClient.setQueryData(['restock', 1], { due: true, days_since_write: 20 });
+
+    const { result } = renderHook(() => useAnswerRestock(), { wrapper });
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(queryClient.getQueryData(['restock', 1])).toEqual({ due: true, days_since_write: 20 });
   });
 });
 

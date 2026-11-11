@@ -47,6 +47,7 @@ import type {
   DietaryProfileBody,
   Household,
   HouseholdInviteCreated,
+  RestockStatus,
 } from "./types";
 import { extractErrorDetail } from "./utils/httpError";
 import { DEFAULT_LOCALE, useLocaleStore } from "./store/useLocaleStore";
@@ -936,6 +937,22 @@ export async function mergeFridgeItems(
   }
   if (res.status === 429) throw new Error(copy.rateLimited);
   if (!res.ok) throw new Error(await extractErrorDetail(res, copy.fallback));
+  return res.json();
+}
+
+// --- Start fresh prompt (docs/restock-design.md, "Return after an absence") ---
+
+export async function fetchRestockStatus(): Promise<RestockStatus> {
+  const res = await authFetch("/fridge/restock");
+  if (!res.ok) throw new Error(`Restock status failed: ${res.status}`);
+  return res.json();
+}
+
+/** Either answer to the prompt. A failure shows nothing: the prompt is already
+ *  closed and stays closed for the session. */
+export async function answerRestockPrompt(): Promise<RestockStatus> {
+  const res = await authFetch("/fridge/restock/answer", { method: "POST" });
+  if (!res.ok) throw new Error(`Restock answer failed: ${res.status}`);
   return res.json();
 }
 
