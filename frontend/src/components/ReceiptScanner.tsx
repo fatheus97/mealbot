@@ -17,6 +17,8 @@ interface ReceiptScannerProps {
   onSave?: (items: StockItem[], generationIds: number[]) => Promise<void>;
   /** The Confirm label for onSave, given the number of rows. */
   saveLabel?: (count: number) => string;
+  /** The parent holds Confirm, Empty and the pickers (Start fresh, while Finish it runs). */
+  disabled?: boolean;
 }
 
 interface ReviewItem {
@@ -77,7 +79,7 @@ const buildDemoScanItems = (t: (key: TranslationKey) => string): ReviewItem[] =>
   });
 };
 
-export function ReceiptScanner({ currentFridge, onSave, saveLabel }: ReceiptScannerProps) {
+export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = false }: ReceiptScannerProps) {
   const { t } = useI18n();
   const { isDemo } = useAuth();
   const isMobile = useIsMobile();
@@ -126,8 +128,9 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel }: ReceiptScan
   const scanMutation = useScanReceipt();
   const mergeMutation = useMergeFridge();
   // onSave in flight: a second Confirm must not race it with a stale token.
+  // `confirming` also holds Confirm, Empty and the pickers while the parent asks.
   const [saving, setSaving] = useState(false);
-  const confirming = saving || mergeMutation.isPending;
+  const confirming = saving || mergeMutation.isPending || disabled;
 
   // getUserMedia needs a secure context (HTTPS or localhost) and the API present.
   // Evaluated at render (not module load) so it reflects the live environment.
@@ -535,7 +538,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel }: ReceiptScan
 
       {/* Error state */}
       {state === "error" && (
-        <p style={{ color: "#f87171", marginTop: "0.5rem" }}>{errorMessage}</p>
+        <p role="alert" style={{ color: "#f87171", marginTop: "0.5rem" }}>{errorMessage}</p>
       )}
 
       {/* Review state */}
@@ -781,7 +784,11 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel }: ReceiptScan
               disabled={confirming || scanMutation.isPending || cameraOpening || reviewItems.length === 0}
               style={{ backgroundColor: "#2563eb", color: "white", border: "none", padding: "0.5rem 1rem", borderRadius: "4px", cursor: "pointer" }}
             >
-              {saveLabel ? saveLabel(reviewItems.length) : mergeMutation.isPending ? t("receipt.adding") : t("receipt.add")}
+              {saving
+                ? t("restock.saving")
+                : mergeMutation.isPending
+                  ? t("receipt.adding")
+                  : saveLabel ? saveLabel(reviewItems.length) : t("receipt.add")}
             </button>
             {/* Not while a scan or camera is in flight: it would land after the
                 list is gone and reopen a review of the discarded scan. */}

@@ -53,6 +53,11 @@ function mockServer(initial: Row[], plans: MealPlanSummary[] = [], sendToken = t
     version: 3,
     plans,
     holdGet: null as Promise<void> | null,
+    holdPut: null as Promise<void> | null,
+    holdFinish: null as Promise<void> | null,
+    /** Commit the next PUT, then lose its reply (a dropped connection). */
+    dropReply: false,
+    failPut: false,
     write(rows: Row[]) {
       server.items = renumber(rows);
       server.version += 1;
@@ -63,15 +68,22 @@ function mockServer(initial: Row[], plans: MealPlanSummary[] = [], sendToken = t
     if (url === '/plan') return reply(server.plans);
     const finish = url.match(/^\/plan\/(\d+)\/finish$/);
     if (finish) {
+      if (server.holdFinish) await server.holdFinish;
       server.plans = server.plans.filter((p) => p.id !== Number(finish[1]));
       server.write([...server.items, APPLE]);
       return reply({});
     }
     if (url.startsWith('/fridge') && opts?.method === 'PUT') {
+      if (server.holdPut) await server.holdPut;
+      if (server.failPut) return reply({}, 500);
       if (opts.headers?.['X-Fridge-Version'] !== `1:${server.version}`) {
         return reply({ detail: REFUSED }, 409);
       }
       server.write(JSON.parse(opts.body ?? '[]') as Row[]);
+      if (server.dropReply) {
+        server.dropReply = false;
+        throw new TypeError('Failed to fetch');
+      }
       return reply(server.items, 200, token());
     }
     if (url === '/fridge') {
@@ -114,6 +126,13 @@ function renderDialog() {
     </QueryClientProvider>,
   );
   return { ...view, onClose, queryClient };
+}
+
+/** A request held until the test opens it. */
+function gate() {
+  let open = () => {};
+  const promise = new Promise<void>((r) => { open = () => r(); });
+  return { promise, open: () => act(async () => open()) };
 }
 
 const puts = () =>
@@ -185,29 +204,138 @@ describe('RestockDialog', () => {
     const user = userEvent.setup();
     renderDialog();
     await scan(user, 'Eggs');
-    server.write([APPLE]); // a partner's edit while the dialog was open
-    let release = () => {};
-    server.holdGet = new Promise((r) => { release = r; });
+    // A partner's edit while the dialog was open, and a plan they confirmed.
+    server.write([APPLE]);
+    server.plans = [plan(9, 'planned')];
+    const reload = gate();
+    server.holdGet = reload.promise;
 
     await user.click(saveButton());
     await waitFor(() => expect(puts()).toHaveLength(1));
     // The reload is still out: Save must not go again with the refused token.
     await act(() => new Promise((r) => setTimeout(r, 20)));
-    expect(saveButton()).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
 
-    await act(async () => {
-      server.holdGet = null;
-      release();
-    });
+    server.holdGet = null;
+    await reload.open();
     expect(
-      await screen.findByText(`${REFUSED} Saving again replaces their change too.`),
+      await screen.findByText(
+        'Someone changed the fridge list while you were scanning. Saving now replaces their change too.',
+      ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(REFUSED)).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('Eggs')).toBeInTheDocument();
+    // The plan list was read again too.
+    expect(screen.getByRole('button', { name: 'Finish it' })).toBeInTheDocument();
     await waitFor(() => expect(saveButton()).toBeEnabled());
 
     await user.click(saveButton());
     expect(await screen.findByText('Your fridge now has 1 item')).toBeInTheDocument();
     expect(puts()[1][1]?.headers).toEqual({ 'X-Fridge-Version': '1:4' });
+  });
+
+  it('sends the token from mount even when the cached list refreshed under the dialog', async () => {
+    const server = mockServer([MILK]);
+    const user = userEvent.setup();
+    const { queryClient } = renderDialog();
+    await scan(user, 'Eggs');
+    // A focus refetch brings a partner's write into the cache; the dialog did
+    // not re-read, so its save must still name the list it showed (and fail).
+    server.write([APPLE]);
+    await act(() => queryClient.refetchQueries({ queryKey: ['fridge', 1] }));
+    expect(queryClient.getQueryData<{ token: string }>(['fridge', 1])?.token).toBe('1:4');
+
+    await user.click(saveButton());
+    expect(await screen.findByText(/someone changed the fridge list/i)).toBeInTheDocument();
+    expect(puts()[0][1]?.headers).toEqual({ 'X-Fridge-Version': '1:3' });
+    expect(server.items.map((r) => r.name)).toEqual(['Apple']);
+  });
+
+  it('a save whose reply was lost: the retry finds it landed, shows Done, and Undo restores the list it replaced', async () => {
+    const server = mockServer([MILK]);
+    const user = userEvent.setup();
+    renderDialog();
+    await scan(user, 'Eggs');
+    server.dropReply = true; // commits, then the connection drops
+
+    await user.click(saveButton());
+    expect(
+      await screen.findByText('Saving failed. Your scanned items are still here, so you can try again.'),
+    ).toBeInTheDocument();
+    expect(server.items.map((r) => r.name)).toEqual(['Eggs']);
+
+    // The retry is refused (its token is stale), but the server already holds
+    // exactly this list: Done, with no "someone changed it" blame.
+    await user.click(saveButton());
+    await screen.findByText('Your fridge now has 1 item');
+    expect(screen.queryByText(/someone changed the fridge list/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    // Back to what was there before the restock, not to its own scans.
+    await waitFor(() => expect(server.items.map((r) => r.name)).toEqual(['Milk']));
+    expect(JSON.parse(puts()[2][1]?.body ?? '')).toEqual([MILK]);
+  });
+
+  it('while a save or Undo is out, Close, Finish it and Undo wait, and Confirm says so', async () => {
+    const server = mockServer([MILK], [plan(5, 'active')]);
+    const user = userEvent.setup();
+    const { onClose } = renderDialog();
+    await scan(user, 'Eggs');
+    const put = gate();
+    server.holdPut = put.promise;
+
+    await user.click(saveButton());
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Finish it' })).toBeDisabled();
+    server.holdPut = null;
+    await put.open();
+    await screen.findByText('Your fridge now has 1 item');
+
+    const undoPut = gate();
+    server.holdPut = undoPut.promise;
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+    server.holdPut = null;
+    await undoPut.open();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('while Finish it is out, Empty, the pickers, Confirm and Close wait', async () => {
+    const server = mockServer([MILK], [plan(5, 'active'), plan(6, 'planned')]);
+    const user = userEvent.setup();
+    renderDialog();
+    const first = gate();
+    server.holdFinish = first.promise;
+    await user.click((await screen.findAllByRole('button', { name: 'Finish it' }))[0]);
+    expect(screen.getByRole('button', { name: 'Empty the fridge' })).toBeDisabled();
+    expect(screen.getByLabelText(/select receipt image/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+    for (const b of screen.getAllByRole('button', { name: 'Finish it' })) expect(b).toBeDisabled();
+    server.holdFinish = null;
+    await first.open();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Finish it' })).toHaveLength(1));
+
+    await scan(user, 'Eggs');
+    const second = gate();
+    server.holdFinish = second.promise;
+    await user.click(screen.getByRole('button', { name: 'Finish it' }));
+    expect(saveButton()).toBeDisabled();
+    server.holdFinish = null;
+    await second.open();
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(puts()).toHaveLength(0);
+  });
+
+  it('a refused Empty the fridge shows its sentence as an alert', async () => {
+    const server = mockServer([MILK]);
+    const user = userEvent.setup();
+    renderDialog();
+    await screen.findByRole('button', { name: 'Empty the fridge' });
+    server.write([APPLE]);
+    await user.click(screen.getByRole('button', { name: 'Empty the fridge' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/someone changed the fridge list/i);
   });
 
   it('says the fridge is shared only when the household has more than one member', async () => {
@@ -248,15 +376,18 @@ describe('RestockDialog', () => {
     expect(puts()[0][1]?.headers).toEqual({ 'X-Fridge-Version': '1:4' });
   });
 
-  it('shows a translated error when Finish it fails', async () => {
+  it('shows a translated error when Finish it fails, and still reads the plans again', async () => {
     const server = mockServer([MILK], [plan(5, 'active')]);
     const answer = mockedAuthFetch.getMockImplementation();
     mockedAuthFetch.mockImplementation((async (url: string, opts?: Call[1]) =>
       url.endsWith('/finish') ? reply({}, 500) : answer?.(url, opts)) as typeof authFetch);
     const user = userEvent.setup();
     renderDialog();
-    await user.click(await screen.findByRole('button', { name: 'Finish it' }));
+    await screen.findByRole('button', { name: 'Finish it' });
+    server.plans = []; // a partner finished it from their phone meanwhile
+    await user.click(screen.getByRole('button', { name: 'Finish it' }));
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't finish the plan. Try again.");
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Finish it' })).not.toBeInTheDocument());
     expect(server.version).toBe(3);
   });
 
@@ -302,8 +433,27 @@ describe('RestockDialog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "The fridge changed after your save, so it can't be undone.",
     );
+    // Neither the count nor an Undo that can never work stays on screen.
+    expect(screen.queryByText('Your fridge now has 1 item')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled();
     expect(onClose).not.toHaveBeenCalled();
     expect(server.items.map((r) => r.name)).toEqual(['Apple']);
+  });
+
+  it('an Undo that failed for another reason says so in words and can be tried again', async () => {
+    const server = mockServer([MILK]);
+    const user = userEvent.setup();
+    renderDialog();
+    await scan(user, 'Eggs');
+    await user.click(saveButton());
+    await screen.findByRole('button', { name: 'Undo' });
+    server.failPut = true;
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^Undo failed\. Try again\.$/);
+    expect(screen.getByText('Your fridge now has 1 item')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
   });
 
   it('without a token it offers no scanner and never sends a PUT', async () => {
@@ -315,11 +465,12 @@ describe('RestockDialog', () => {
     expect(puts()).toHaveLength(0);
   });
 
-  it('Escape and the backdrop do not close it; Close does', async () => {
+  it('Escape and the backdrop do not close it; Close does, and has the focus on open', async () => {
     mockServer([MILK]);
     const user = userEvent.setup();
     const { onClose } = renderDialog();
     const dialog = await screen.findByRole('dialog');
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
     fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.click(dialog);
     expect(onClose).not.toHaveBeenCalled();

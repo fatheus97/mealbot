@@ -404,7 +404,7 @@ describe('ReceiptScanner', () => {
     ]);
     // In flight, a second Confirm must not go out (the parent may be reloading
     // the token it needs).
-    expect(screen.getByRole('button', { name: 'Replace with 2' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
     await act(async () => finish());
     expect(mockedMergeFridge).not.toHaveBeenCalled();
   });
@@ -417,7 +417,7 @@ describe('ReceiptScanner', () => {
     await user.click(screen.getByRole('button', { name: 'Empty the fridge' }));
     expect(onSave).toHaveBeenCalledWith([], []);
     // A refusal shows, and the pickers stay for the next try.
-    expect(await screen.findByText('Refused, reloaded.')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Refused, reloaded.');
     expect(screen.getByRole('button', { name: 'Empty the fridge' })).toBeEnabled();
   });
 

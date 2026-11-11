@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -24,6 +24,13 @@ const MUTED = "#94a3b8";
 const ERROR = "#f87171";
 const NOTICE: CSSProperties = { margin: "0 0 0.75rem", color: MUTED };
 
+/** A list as the server compares it: a (name, quantity, expiry) multiset, no ids. */
+const listKey = (items: StockItem[]) =>
+  items
+    .map((i) => JSON.stringify([i.name, i.quantity_grams, i.expiration_date ?? null]))
+    .sort()
+    .join(",");
+
 /**
  * Start fresh (docs/restock-design.md): scans become the new fridge list in
  * ONE version-checked PUT, carrying the token of the list it replaces. Every
@@ -43,7 +50,13 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
   // The list a save replaces and its token: what Undo puts back.
   const [snapshot, setSnapshot] = useState(read);
   const [done, setDone] = useState<ShelfData<StockItem> | null>(null);
+  const [undoRefused, setUndoRefused] = useState(false);
   const [message, setMessage] = useState("");
+  // A save, Empty, Undo or Finish it in flight: everything else waits, Close
+  // included (closing mid-save would land the replace with no Undo).
+  const [busy, setBusy] = useState(false);
+  // What the last Save sent, to recognise it on the server after a lost reply.
+  const lastSent = useRef<StockItem[] | null>(null);
   const { data: household } = useHousehold(userId, householdsEnabled && !isDemo);
   const { data: plans } = usePlanList(userId);
   const finishPlan = useFinishPlan();
@@ -51,58 +64,85 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
 
   // Awaited, unlike useUpdateShelf's own reload after a 409: the next Save
   // must carry the token of the list as it is now, not the refused one.
-  const recapture = async () => {
+  // Returns the fresh list when it is exactly what the last Save sent: that
+  // Save landed and only its reply was lost.
+  const recapture = async (): Promise<ShelfData<StockItem> | null> => {
     await Promise.all([
       queryClient.refetchQueries({ queryKey: ["fridge", userId], exact: true }),
       queryClient.refetchQueries({ queryKey: ["planList", userId] }),
     ]);
-    setSnapshot(read());
+    const fresh = read();
+    const sent = lastSent.current;
+    const ownSaveLanded = sent !== null && listKey(fresh.items) === listKey(sent);
+    // Keep the list that save replaced, so Undo still puts THAT back, and take
+    // just the new token; otherwise someone else wrote, so take their list.
+    setSnapshot((prev) => (ownSaveLanded ? { items: prev.items, token: fresh.token } : fresh));
+    return ownSaveLanded ? fresh : null;
   };
 
-  const save = async (items: StockItem[], generationIds: number[]) => {
-    // Never an unchecked PUT: without a token the scanner is not even shown.
-    if (userId === null || snapshot.token === null) return;
-    setMessage("");
+  const holding = async (work: () => Promise<void>) => {
+    setBusy(true);
     try {
-      const saved = await updateFridge.mutateAsync({ userId, items, token: snapshot.token, generationIds });
-      void queryClient.invalidateQueries({ queryKey: ["restock", userId] });
-      setDone(saved);
-    } catch (err) {
-      if (err instanceof ShelfChangedError) {
-        await recapture();
-        throw new Error(`${err.message} ${t("restock.saveAgain")}`);
+      await work();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = (items: StockItem[], generationIds: number[]) =>
+    holding(async () => {
+      // Never an unchecked PUT: without a token the scanner is not even shown.
+      if (userId === null || snapshot.token === null) return;
+      setMessage("");
+      lastSent.current = items;
+      try {
+        const saved = await updateFridge.mutateAsync({ userId, items, token: snapshot.token, generationIds });
+        void queryClient.invalidateQueries({ queryKey: ["restock", userId] });
+        setDone(saved);
+      } catch (err) {
+        if (err instanceof ShelfChangedError) {
+          const landed = await recapture();
+          // Not a partner's change: our earlier Save is on the server, so this
+          // restock is done (blaming "someone" here would be wrong).
+          if (landed) {
+            void queryClient.invalidateQueries({ queryKey: ["restock", userId] });
+            setDone(landed);
+            return;
+          }
+          throw new Error(t("restock.changedMeanwhile"));
+        }
+        throw new Error(t("restock.saveFailed"));
       }
-      throw new Error(t("fridge.saveFailed", { message: err instanceof Error ? err.message : "" }));
-    }
-  };
+    });
 
-  const undo = async () => {
-    if (userId === null || !done || done.token === null) return;
-    setMessage("");
-    try {
-      // New rows: the snapshot's ids were deleted by the save.
-      const items = snapshot.items.map((item) => ({ ...item, id: undefined }));
-      await updateFridge.mutateAsync({ userId, items, token: done.token });
-      onClose();
-    } catch (err) {
-      setMessage(
-        err instanceof ShelfChangedError
-          ? t("restock.undoRefused")
-          : t("fridge.saveFailed", { message: err instanceof Error ? err.message : "" }),
-      );
-    }
-  };
+  const undo = () =>
+    holding(async () => {
+      if (userId === null || !done || done.token === null) return;
+      setMessage("");
+      try {
+        // New rows: the snapshot's ids were deleted by the save.
+        const items = snapshot.items.map((item) => ({ ...item, id: undefined }));
+        await updateFridge.mutateAsync({ userId, items, token: done.token });
+        onClose();
+      } catch (err) {
+        const refused = err instanceof ShelfChangedError;
+        // Refused for good: the count and Undo would both be stale.
+        setUndoRefused(refused);
+        setMessage(refused ? t("restock.undoRefused") : t("restock.undoFailed"));
+      }
+    });
 
-  const finish = async (planId: number) => {
-    setMessage("");
-    try {
-      await finishPlan.mutateAsync(planId);
-    } catch {
-      setMessage(t("restock.finishFailed"));
-    }
-    // The finish put food back, or someone else's did: either way, read again.
-    await recapture();
-  };
+  const finish = (planId: number) =>
+    holding(async () => {
+      setMessage("");
+      try {
+        await finishPlan.mutateAsync(planId);
+      } catch {
+        setMessage(t("restock.finishFailed"));
+      }
+      // The finish put food back, or someone else's did: either way, read again.
+      await recapture();
+    });
 
   const openPlans = (plans ?? []).filter((p) => p.status === "planned" || p.status === "active");
   const shared = (household?.members.length ?? 0) > 1;
@@ -124,20 +164,23 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
           <h2 style={{ margin: "0 0 0.75rem", fontSize: "1.3rem" }}>{t("restock.title")}</h2>
-          {!done && <button onClick={onClose}>{t("restock.close")}</button>}
+          {/* One Close for both screens. It takes the focus on open, because
+              Escape and the backdrop are off. */}
+          <button onClick={onClose} disabled={busy} autoFocus>
+            {t("restock.close")}
+          </button>
         </div>
         {done ? (
-          <>
-            <p style={{ margin: "0 0 1rem" }}>{tn("restock.done", done.items.length)}</p>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
+          !undoRefused && (
+            <>
+              <p style={{ margin: "0 0 1rem" }}>{tn("restock.done", done.items.length)}</p>
               {done.token !== null && (
-                <button onClick={() => void undo()} disabled={updateFridge.isPending}>
+                <button onClick={() => void undo()} disabled={busy}>
                   {t("restock.undo")}
                 </button>
               )}
-              <button onClick={onClose}>{t("restock.close")}</button>
-            </div>
-          </>
+            </>
+          )
         ) : (
           <>
             {count > 0 && <p style={NOTICE}>{tn("restock.replaces", count)}</p>}
@@ -152,7 +195,7 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
                     }),
                   })}
                 </p>
-                <button onClick={() => void finish(plan.id)} disabled={finishPlan.isPending}>
+                <button onClick={() => void finish(plan.id)} disabled={busy}>
                   {t("restock.finishPlan")}
                 </button>
               </div>
@@ -164,6 +207,7 @@ export function RestockDialog({ onClose }: { onClose: () => void }) {
                 currentFridge={[]}
                 onSave={save}
                 saveLabel={(n) => tn("restock.save", n)}
+                disabled={busy}
               />
             )}
           </>
