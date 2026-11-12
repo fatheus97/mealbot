@@ -756,9 +756,12 @@ class GeneratedMeal(BaseModel):
 
 
 # The weight rule the prompt templates give for quantity_grams: the edible part,
-# raw, as it goes into the pan; rice, pasta, grains and dried legumes dry; a
-# product bought cooked or canned says so in its name. Bump it only together
-# with a changed rule, so a stored meal always names the rule it was written to.
+# raw, as it goes into the pan; rice, pasta, grains and dried legumes dry. Two
+# exceptions: a product bought cooked or canned is weighed as used and says so in
+# its name, and an ingredient taken from the fridge list keeps the list's weight
+# (as stored, which is as bought), so the fridge debit stays right. Bump it only
+# together with a changed rule, so a stored meal always names the rule it was
+# written to.
 GRAMS_BASIS: Final = 1
 
 
@@ -797,7 +800,8 @@ class PlannedMeal(GeneratedMeal):
     # edit keeps it, and /recipe/cook and /recipe/favorite copy it from the
     # generation row. None = written before the rule, so its grams may be
     # cooked or as-bought weights and nutrition (docs/nutrition-design.md)
-    # must not compute a figure from them.
+    # must not compute a figure from them; also None on a leftover, which the
+    # server builds without ingredients and which takes its source's figure.
     grams_basis: int | None = Field(default=None, ge=1)
 
     @property
