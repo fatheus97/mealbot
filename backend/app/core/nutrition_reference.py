@@ -20,7 +20,9 @@ until then every ingredient is "not counted" and no meal gets a figure.
 from __future__ import annotations
 
 import csv
+import math
 import re
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -102,9 +104,10 @@ _SPACES = re.compile(r"\s+")
 
 
 def normalize_key(name: str) -> str:
-    """The lookup form of an ingredient name: stripped, lowercased, inner
-    whitespace collapsed. No stemming and no removal of preparation words."""
-    return _SPACES.sub(" ", name.strip().lower())
+    """The lookup form of an ingredient name: NFC, stripped, lowercased, inner
+    whitespace collapsed. NFC so a decomposed "rýže" (typed on some keyboards)
+    meets the composed alias. No stemming and no removal of preparation words."""
+    return _SPACES.sub(" ", unicodedata.normalize("NFC", name).strip().lower())
 
 
 @dataclass(frozen=True)
@@ -133,8 +136,8 @@ def _number(row: dict[str, str], column: str, *, optional: bool) -> float | None
         value = float(raw)
     except ValueError as exc:
         raise NutritionDataError(f"food {row['alim_code']}: {column}={raw!r} is not a number") from exc
-    if value < 0:
-        raise NutritionDataError(f"food {row['alim_code']}: {column}={value} is negative")
+    if not math.isfinite(value) or value < 0:
+        raise NutritionDataError(f"food {row['alim_code']}: {column}={value} is not a finite, non-negative number")
     return value
 
 
@@ -156,7 +159,14 @@ def _rows(path: Path, columns: tuple[str, ...]) -> list[dict[str, str]]:
         reader = csv.DictReader(handle)
         if tuple(reader.fieldnames or ()) != columns:
             raise NutritionDataError(f"{path.name}: header {reader.fieldnames} != {list(columns)}")
-        return list(reader)
+        rows = []
+        for row in reader:
+            # DictReader pads a short row with None values and files extra fields
+            # under the None key; either would crash or load half a row.
+            if None in row or None in row.values():
+                raise NutritionDataError(f"{path.name} line {reader.line_num}: expected {len(columns)} fields")
+            rows.append(row)
+        return rows
 
 
 def load_reference(data_dir: Path = DATA_DIR) -> NutritionReference:

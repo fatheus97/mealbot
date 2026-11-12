@@ -247,6 +247,10 @@ class TestLoader:
         hit = ref.lookup("en", " Rice ")
         assert hit is not None and hit[1].name == "Rice, white, raw" and hit[1].polyols is None
 
+    def test_a_decomposed_name_finds_the_composed_alias(self, tmp_path: Path) -> None:
+        ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD], ["cs,r\u00fd\u017ee,1,raw,0,"]))
+        assert ref.lookup("cs", "ry\u0301z\u030ce") is not None
+
     @pytest.mark.parametrize(("foods", "aliases"), [
         ([GOOD_FOOD], ["en,rice,2,raw,0,"]),                      # alias points at no food
         ([GOOD_FOOD], ["en,rice,1,raw,0,", "en,rice,1,raw,0,"]),  # duplicate key
@@ -257,6 +261,11 @@ class TestLoader:
         ([GOOD_FOOD.replace(",350,", ",,")], []),                 # energy missing
         ([GOOD_FOOD.replace(",350,", ",-5,")], []),               # negative value
         ([GOOD_FOOD.replace(",350,", ",3 50,")], []),             # not a number
+        ([GOOD_FOOD.replace(",350,", ",nan,")], []),              # NaN parses as a float
+        ([GOOD_FOOD.replace(",350,", ",inf,")], []),              # so does infinity
+        ([GOOD_FOOD], ["en,rice,1,raw,0"]),                       # short row (no trailing field)
+        ([GOOD_FOOD], ["en,rice,1,raw,0,,extra"]),                # extra field
+        ([GOOD_FOOD.rsplit(",", 1)[0]], []),                      # short food row
         ([GOOD_FOOD, GOOD_FOOD], []),                             # duplicate food
     ])
     def test_a_defect_refuses_to_load(self, tmp_path: Path, foods: list[str], aliases: list[str]) -> None:
