@@ -1453,6 +1453,7 @@ async def edit_meal(
         total_time_minutes=body.total_time_minutes,
         leftover_of=existing.leftover_of,
         generated_by=existing.generated_by,
+        grams_basis=existing.grams_basis,
     )
     day_meals[meal_index] = updated_meal
 
