@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from app.core.dietary import DietType
+from app.core.i18n import locale_for_language
 from app.core.nutrition_reference import SOURCE, Food, Lang, NutritionReference, normalize_key
 from app.models.plan_models import (
     DayNutrition,
@@ -97,7 +98,9 @@ class _Language:
     def of(cls, language: str | None) -> _Language:
         return cls(
             english=is_english_language(language),
-            czech=(language or "").strip().lower() in {"czech", "cs", "čeština"},
+            # The app's one language-to-locale map, so a new spelling cannot
+            # drift apart from the rest of the Czech handling.
+            czech=locale_for_language(language) == "cs",
         )
 
     def key(self, ing: IngredientAmount) -> tuple[Lang, str] | None:

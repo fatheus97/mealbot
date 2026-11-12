@@ -115,6 +115,11 @@ class TestKeys:
                       language="Czech")
         assert meal.ingredients[0].alim_code == 2
 
+    @pytest.mark.parametrize("language", ["Czech", "czech", " CZECH "])
+    def test_any_casing_of_czech_reads_the_czech_index(self, language: str) -> None:
+        meal = _first(_days([_meal({"name": "rýže", "quantity_grams": 100})]), language=language)
+        assert meal.ingredients[0].status == "counted"
+
     def test_a_czech_name_without_name_en_uses_the_czech_index(self) -> None:
         # An ingredient renamed in the editor has lost name_en; Czech "paprika"
         # is a bell pepper, never the spice the English key means.
