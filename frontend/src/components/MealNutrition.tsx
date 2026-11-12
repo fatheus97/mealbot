@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react";
-import { InfoHint } from "./InfoHint";
 import { useI18n, type TranslationKey } from "../i18n";
 import { Trans } from "../i18n/Trans";
 import { formatNumber } from "../i18n/localeFormat";
@@ -13,16 +12,20 @@ import type { MealNutrition, NutrientValues, SourceAttribution } from "../types"
 // depends on where it lands.
 //
 // Rounding is display-only (the API sends unrounded values so the maths can be
-// redone): kcal and kJ to the nearest 10 for the headline figures, grams to 1 g
-// with "<1" for a trace. The provenance table keeps whole kcal, because its
-// job is to let anyone redo the sum.
+// redone). An approximate figure rounds to the nearest 10 kcal and 1 g, with
+// "<10" / "<1" for a trace. An "at least" figure rounds DOWN, because rounding
+// a lower bound up would state a minimum the meal does not reach. The
+// provenance table keeps whole kcal, because its job is to let anyone redo the
+// sum.
 
-function roundedKcal(kcal: number, locale: Locale): string {
+function roundedKcal(kcal: number, locale: Locale, atLeast: boolean): string {
+  if (atLeast) return formatNumber(Math.floor(kcal / 10) * 10, locale);
   if (kcal > 0 && kcal < 5) return `<${formatNumber(10, locale)}`;
   return formatNumber(Math.round(kcal / 10) * 10, locale);
 }
 
-function roundedGrams(grams: number, locale: Locale): string {
+function roundedGrams(grams: number, locale: Locale, atLeast: boolean): string {
+  if (atLeast) return formatNumber(Math.floor(grams), locale);
   if (grams > 0 && grams < 0.5) return `<${formatNumber(1, locale)}`;
   return formatNumber(Math.round(grams), locale);
 }
@@ -57,15 +60,35 @@ export function NutritionChip({
   const { t, locale } = useI18n();
   let label = t("nutrition.chipNoData");
   if (figure.per_serving) {
-    const kcal = roundedKcal(figure.per_serving.kcal, locale);
+    const kcal = roundedKcal(figure.per_serving.kcal, locale, !figure.complete);
     const key: TranslationKey = figure.complete
       ? isMobile ? "nutrition.chipShort" : "nutrition.chip"
       : isMobile ? "nutrition.chipAtLeastShort" : "nutrition.chipAtLeast";
     label = t(key, { kcal });
   }
   return (
-    <button type="button" onClick={onToggle} aria-expanded={expanded} aria-controls={panelId} style={chipStyle}>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      // Only while open: the panel is not in the DOM otherwise, and a
+      // reference to a missing id is an ARIA error.
+      aria-controls={expanded ? panelId : undefined}
+      style={chipStyle}
+    >
       {label}
+    </button>
+  );
+}
+
+/** The chip's box, invisible, held while the figures load so the header row
+ *  does not grow (and push the card down) when they arrive. A real disabled
+ *  button, so it gets exactly the chip's size, mobile min-height included. */
+export function NutritionChipPlaceholder({ isMobile }: { isMobile: boolean }) {
+  const { t, locale } = useI18n();
+  return (
+    <button type="button" disabled tabIndex={-1} aria-hidden="true" style={{ ...chipStyle, visibility: "hidden" }}>
+      {t(isMobile ? "nutrition.chipShort" : "nutrition.chip", { kcal: formatNumber(1000, locale) })}
     </button>
   );
 }
@@ -89,6 +112,7 @@ const link: CSSProperties = { color: "#1d4ed8", textDecoration: "underline" };
 
 function PerServing({ values, complete }: { values: NutrientValues; complete: boolean }) {
   const { t, locale } = useI18n();
+  const atLeast = !complete;
   const g = t("editor.grams");
   const macros: [TranslationKey, number][] = [
     ["nutrition.protein", values.protein],
@@ -104,16 +128,16 @@ function PerServing({ values, complete }: { values: NutrientValues; complete: bo
         <tr style={row}>
           <th scope="row" style={th}>{t("nutrition.energy")}</th>
           <td style={num}>
-            {roundedKcal(values.kcal, locale)} {t("nutrition.kcalUnit")}{" "}
+            {roundedKcal(values.kcal, locale, atLeast)} {t("nutrition.kcalUnit")}{" "}
             <small style={{ color: "#555" }}>
-              ({roundedKcal(values.kj, locale)} {t("nutrition.kjUnit")})
+              ({roundedKcal(values.kj, locale, atLeast)} {t("nutrition.kjUnit")})
             </small>
           </td>
         </tr>
         {macros.map(([key, grams]) => (
           <tr key={key} style={row}>
             <th scope="row" style={th}>{t(key)}</th>
-            <td style={num}>{roundedGrams(grams, locale)} {g}</td>
+            <td style={num}>{roundedGrams(grams, locale, atLeast)} {g}</td>
           </tr>
         ))}
       </tbody>
@@ -128,38 +152,44 @@ function Provenance({ figure }: { figure: MealNutrition }) {
   );
   if (rows.length === 0) return null;
   return (
-    // Six columns do not fit 375px; the table scrolls inside the panel.
-    <div style={{ overflowX: "auto", margin: "0.35rem 0" }}>
-      <table style={{ borderCollapse: "collapse", width: "100%" }}>
-        <thead>
-          <tr style={{ borderBottom: "1px solid #ccc" }}>
-            <th scope="col" style={th}>{t("nutrition.colIngredient")}</th>
-            <th scope="col" style={{ ...th, textAlign: "right" }}>{t("nutrition.colGrams")}</th>
-            <th scope="col" style={th}>{t("nutrition.colFood")}</th>
-            <th scope="col" style={{ ...th, textAlign: "right" }}>{t("nutrition.colPer100")}</th>
-            <th scope="col" style={{ ...th, textAlign: "right" }}>{t("nutrition.colDish")}</th>
-            <th scope="col" style={th}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
-                {t("nutrition.colConfidence")}
-                <InfoHint text={t("nutrition.confidenceHint")} label={t("nutrition.confidenceHintLabel")} />
-              </span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((ing, i) => (
-            <tr key={i} style={row}>
-              <td style={td}>{ing.name}</td>
-              <td style={num}>{roundedGrams(ing.grams, locale)} {t("editor.grams")}</td>
-              <td style={td}>{ing.source_name} ({ing.alim_code})</td>
-              <td style={num}>{ing.per_100g ? formatNumber(ing.per_100g.kcal, locale) : ""}</td>
-              <td style={num}>{ing.contribution ? formatNumber(ing.contribution.kcal, locale) : ""}</td>
-              <td style={td}>{ing.confidence}</td>
+    <>
+      {/* Six columns do not fit 375px; the table scrolls inside the panel. */}
+      <div style={{ overflowX: "auto", margin: "0.35rem 0" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #ccc" }}>
+              <th scope="col" style={th}>{t("nutrition.colIngredient")}</th>
+              <th scope="col" style={{ ...th, textAlign: "right" }}>{t("nutrition.colGrams")}</th>
+              <th scope="col" style={th}>{t("nutrition.colFood")}</th>
+              <th scope="col" style={{ ...th, textAlign: "right" }}>{t("nutrition.colPer100")}</th>
+              <th scope="col" style={{ ...th, textAlign: "right" }}>{t("nutrition.colDish")}</th>
+              <th scope="col" style={th}>{t("nutrition.colConfidence")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((ing, i) => (
+              <tr key={i} style={row}>
+                <td style={td}>{ing.name}</td>
+                {/* A seasoning is a "to taste" placeholder: the recipe gives no
+                    amount, so neither does the table, and it adds 0. */}
+                <td style={num}>
+                  {ing.status === "seasoning"
+                    ? t("nutrition.toTaste")
+                    : `${roundedGrams(ing.grams, locale, false)} ${t("editor.grams")}`}
+                </td>
+                <td style={td}>{ing.source_name} ({ing.alim_code})</td>
+                <td style={num}>{ing.per_100g ? formatNumber(ing.per_100g.kcal, locale) : ""}</td>
+                <td style={num}>{ing.contribution ? formatNumber(ing.contribution.kcal, locale) : ""}</td>
+                <td style={td}>{ing.confidence}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* Outside the scroll box: anything that pops out of it (an InfoHint
+          bubble) is clipped, since overflow-x:auto makes overflow-y auto too. */}
+      <p style={muted}>{t("nutrition.confidenceHint")}</p>
+    </>
   );
 }
 

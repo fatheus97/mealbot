@@ -1868,6 +1868,51 @@ describe('MealPlanner nutrition (opt-in)', () => {
     expect(mockedFetchNutrition).toHaveBeenCalledTimes(2);
   });
 
+  it('drops the pre-edit figure at once, not when the new one lands', async () => {
+    withProfile(true);
+    let release: (value: unknown) => void = () => {};
+    mockedFetchNutrition
+      .mockResolvedValueOnce(figure(540))
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    mockedUpdateMeal.mockResolvedValue({ ...meal, allergen_warnings: [], health_data_removed: false });
+    const { container } = render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+    await screen.findByRole('button', { name: '≈ 540 kcal per serving' });
+
+    await userEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    // The saved meal is not the one 540 was counted for.
+    await waitFor(() => expect(mockedFetchNutrition).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: /540 kcal/ })).not.toBeInTheDocument();
+    expect(container.querySelector('button[aria-hidden="true"]')).not.toBeNull();
+    await act(async () => { release(figure(720)); });
+    expect(await screen.findByRole('button', { name: '≈ 720 kcal per serving' })).toBeInTheDocument();
+    expect(container.querySelector('button[aria-hidden="true"]')).toBeNull();
+  });
+
+  it('asks again when the plan is reopened, and never shows the figure it had', async () => {
+    withProfile(true);
+    let release: (value: unknown) => void = () => {};
+    mockedFetchNutrition
+      .mockResolvedValueOnce(figure(540))
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    // One QueryClient across both mounts, as in the app.
+    const wrapper = createWrapper();
+    const first = render(<MealPlanner initialPlan={plan} />, { wrapper });
+    await screen.findByRole('button', { name: '≈ 540 kcal per serving' });
+    first.unmount();
+    // gcTime 0 collects on a zero-delay timer; reopening takes user clicks.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    // Any change to the plan while it was closed would make a cached 540
+    // wrong, so a closed view keeps no figure.
+    render(<MealPlanner initialPlan={plan} />, { wrapper });
+    await waitFor(() => expect(mockedFetchNutrition).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: /540 kcal/ })).not.toBeInTheDocument();
+    await act(async () => { release(figure(610)); });
+    expect(await screen.findByRole('button', { name: '≈ 610 kcal per serving' })).toBeInTheDocument();
+  });
+
   it('drops the old figures on a regenerate instead of showing them on new meals', async () => {
     withProfile(true);
     mockedAuthFetch.mockImplementation((url: string) => {

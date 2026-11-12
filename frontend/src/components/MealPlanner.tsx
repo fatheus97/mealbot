@@ -214,7 +214,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // Read from the profile query, not an AuthContext mirror, so a Settings save
   // shows on the open plan without a reload.
   const showNutrition = profile?.show_nutrition ?? false;
-  const { data: nutrition } = usePlanNutrition(planId, showNutrition);
+  const { data: nutrition, isLoading: nutritionLoading } = usePlanNutrition(planId, showNutrition);
   // Positional, like the plan's own arrays: the server builds both from the
   // same stored days. Gated on the setting too: a disabled query still hands
   // back its cached answer, which would outlive switching the setting off.
@@ -1078,6 +1078,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                      cookStorageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
                      nutrition={nutritionDays?.[idx]?.meals[mealIdx] ?? null}
                      nutritionSource={nutrition?.source ?? null}
+                     nutritionPending={showNutrition && nutritionLoading}
                      cookTogglePending={cookMutation.isPending || uncookMutation.isPending}
                      cookPending={cookMutation.isPending}
                      favoritePending={favoriteMutation.isPending}
@@ -1106,23 +1107,6 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                })}
              </div>
           ))}
-          {/* After the days, not above them: it appears when the figures
-              arrive, and in flow above the cards it would shift them. A Cook
-              Now plan needs no line (it never shows figures anywhere). */}
-          {showNutrition && nutrition && !nutrition.available &&
-            (nutrition.unavailable_reason === "infant" || nutrition.unavailable_reason === "health_data_removed") && (
-            <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>
-              <span style={hintedLabelRow}>
-                {t("nutrition.unavailable")}
-                <InfoHint
-                  text={t(nutrition.unavailable_reason === "infant"
-                    ? "nutrition.unavailableInfantHint"
-                    : "nutrition.unavailableRemovedHint")}
-                  label={t("nutrition.unavailableHintLabel")}
-                />
-              </span>
-            </p>
-          )}
           {currentPlan.shopping_list.length > 0 && (
             <div style={{ marginTop: "1.5rem", padding: "1rem", backgroundColor: "#fff", color: "#111", border: "1px solid #ddd", borderRadius: "6px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
@@ -1184,6 +1168,24 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 })}
               </ul>
             </div>
+          )}
+          {/* Last in the plan block: it appears when the figures arrive, and
+              anywhere above the cards or the shopping list it would shift
+              controls the user may be reaching for. A Cook Now plan needs no
+              line (it never shows figures anywhere). */}
+          {showNutrition && nutrition && !nutrition.available &&
+            (nutrition.unavailable_reason === "infant" || nutrition.unavailable_reason === "health_data_removed") && (
+            <p style={{ fontSize: "0.85em", color: "#666", margin: "1rem 0 0 0" }}>
+              <span style={hintedLabelRow}>
+                {t("nutrition.unavailable")}
+                <InfoHint
+                  text={t(nutrition.unavailable_reason === "infant"
+                    ? "nutrition.unavailableInfantHint"
+                    : "nutrition.unavailableRemovedHint")}
+                  label={t("nutrition.unavailableHintLabel")}
+                />
+              </span>
+            </p>
           )}
         </div>
       )}

@@ -369,7 +369,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "U věcí, které kupujete celé — „2 vejce“ místo „120 g“. Jen tam, kde množství odpovídá celým kusům; jinde zůstávají gramy a přesná gramáž je vždy v popisku.",
   "prefs.showNutrition": "Zobrazovat přibližné výživové hodnoty",
   "prefs.showNutritionHint":
-    "Energie, bílkoviny, tuky a sacharidy na porci u jídel v jídelníčku, spočítané z tabulky potravin Ciqual 2025. Jídla naplánovaná před 12. listopadem 2026 hodnoty nemají.",
+    "Energie, bílkoviny, tuky a sacharidy na porci u jídel v jídelníčku, spočítané z tabulky potravin Ciqual 2025. Jídla naplánovaná do 12. listopadu 2026 včetně a jejich kopie vytvořené přes Zopakovat hodnoty mít nemusí.",
   "prefs.trackSnacks": "Sledovat sladkosti a snacky z účtenek",
   "prefs.trackSnacksHint":
     "Když je volba vypnutá, hotové výrobky (dezerty, snacky, nápoje) se při skenování účtenek přeskočí",
@@ -616,7 +616,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "nutrition.servings_other": "Jídlo je rozdělené na {count} stejných porcí.",
   "nutrition.servingNote": "Porce je stejný díl jídla, ne to, kolik sní konkrétní člověk.",
   "nutrition.notEnoughData":
-    "Tabulka potravin obsahuje příliš málo surovin tohoto jídla, takže hodnoty nejde spočítat.",
+    "U tohoto jídla se dá započítat příliš málo surovin, proto hodnoty neuvádíme.",
   "nutrition.leftoverNote":
     "Zbytky z dřívějšího jídla: hodnoty a jejich zdroje najdete u něj.",
   "nutrition.notCounted": "Nezapočteno: {names}",
@@ -630,9 +630,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "nutrition.colPer100": "kcal na 100 g",
   "nutrition.colDish": "kcal v jídle",
   "nutrition.colConfidence": "Spolehlivost",
-  "nutrition.confidenceHintLabel": "O písmenech spolehlivosti",
+  "nutrition.toTaste": "dle chuti",
   "nutrition.confidenceHint":
-    "Jak spolehlivě Ciqual každou hodnotu hodnotí, od A (nejspolehlivější) po D (nejméně spolehlivá).",
+    "Spolehlivost: nejhorší hodnocení, které Ciqual dává hodnotám dané potraviny, od A (nejspolehlivější) po D (nejméně spolehlivé).",
   "nutrition.captionCalculated":
     "Spočítáno z tabulky složení potravin Ciqual 2025 podle hmotností surovin v tomto receptu a rozděleno rovným dílem na porce.",
   "nutrition.captionRealValues":

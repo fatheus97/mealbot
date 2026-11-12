@@ -376,7 +376,9 @@ describe('nutrition copy', () => {
   const FORBIDDEN = [
     /accura/i, /\bexact/i, /health(y|ier)/i, /balanced/i, /good source/i, /recommend/i,
     /meets your/i, /diabet/i, /daily value/i, /\bsafe\b/i,
-    /přesn[ýáéě]/i, /\bzdrav[ýáéě]/i, /vyvážen/i, /doporučuj|doporučen[ýáé]\b/i,
+    // No \b after a Czech letter: without the u flag \b is ASCII-only, so
+    // "doporučen[ýáé]\b" never matched real text ("doporučené množství").
+    /přesn/i, /\bzdrav[ýáéě]/i, /vyvážen/i, /doporučen(?!í)|doporučuj/iu,
     /diabeti/i, /denní (hodnot|příjem|dávk)/i, /bezpečn/i,
   ];
   const keys = (Object.keys(en) as TranslationKey[]).filter(
@@ -385,6 +387,19 @@ describe('nutrition copy', () => {
 
   it('has keys to scan', () => {
     expect(keys.length).toBeGreaterThan(30);
+  });
+
+  it('catches the phrasings it exists for, and spares the disclaimer', () => {
+    // The control for the scan below: a pattern that never matches real text
+    // passes on broken copy, which is how the first Czech one shipped.
+    const banned = [
+      'doporučené množství', 'Doporučená porce', 'doporučujeme', 'přesnost', 'přesné hodnoty',
+      'zdravé jídlo', 'vyvážená strava', 'accurate', 'a healthy dinner', 'recommended intake',
+    ];
+    for (const text of banned) {
+      expect({ text, hit: FORBIDDEN.some((re) => re.test(text)) }).toEqual({ text, hit: true });
+    }
+    expect(FORBIDDEN.some((re) => re.test('Nejde o výživové ani lékařské doporučení.'))).toBe(false);
   });
 
   for (const locale of UI_LOCALES) {

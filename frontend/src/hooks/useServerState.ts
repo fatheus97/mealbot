@@ -227,16 +227,21 @@ export function useUserProfile(userId: number | null) {
 }
 
 // Approximate energy and macros for one stored plan (docs/nutrition-design.md).
-// Under ['plan', id] so an edit or a regenerate of that plan can drop it.
-// Never fetched while the user's show_nutrition setting is off. Not SHARED:
-// the plan itself is MealPlanner state that does not refetch on focus, so
-// refetching the figures would put a partner's edit on the old card.
+// The figures are positional against the plan MealPlanner holds, so they must
+// never be older than it:
+// * gcTime 0 ties the cache to the planner's mount, the same lifetime as the
+//   plan it fetched. Reopening a plan (which always refetches the plan) starts
+//   empty instead of serving figures cached before a partner's edit.
+// * Not SHARED: the plan does not refetch on focus, so neither may this.
+// * An edit or a regenerate RESETS it (see those hooks), never invalidates.
+// Never fetched while the user's show_nutrition setting is off.
 export const planNutritionKey = (planId: number) => ['plan', planId, 'nutrition'] as const;
 
 export function usePlanNutrition(planId: number | null, enabled: boolean) {
   return useQuery({
     queryKey: ['plan', planId, 'nutrition'],
     queryFn: enabled && planId !== null ? () => fetchPlanNutrition(planId) : skipToken,
+    gcTime: 0,
   });
 }
 
@@ -742,8 +747,11 @@ export function useUpdateMeal() {
     }): Promise<MealEditResponse> => updateMeal(planId, dayIndex, mealIndex, body),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['mealEntries', variables.planId] });
-      // The edited meal's figure, and any leftover that copies it.
-      queryClient.invalidateQueries({ queryKey: planNutritionKey(variables.planId) });
+      // The edited meal's figure, and any leftover that copies it. Reset, not
+      // invalidate, for the reason given on useRegeneratePlan: an invalidated
+      // query keeps the pre-edit figure on the edited meal until (or, if the
+      // refetch fails, after) the new one lands.
+      void queryClient.resetQueries({ queryKey: planNutritionKey(variables.planId) });
       queryClient.invalidateQueries({ queryKey: ['cookbook'] });
       queryClient.invalidateQueries({ queryKey: ['cookbookCount'] });
     },

@@ -411,7 +411,7 @@ export const en = {
     "For things you buy whole — \"2 eggs\" rather than \"120g\". Only where the amount matches whole pieces; everything else stays in grams, and the exact grams are always in the tooltip.",
   "prefs.showNutrition": "Show approximate nutrition",
   "prefs.showNutritionHint":
-    "Energy, protein, fat and carbohydrate per serving on plan meals, calculated from the Ciqual 2025 food table. Meals planned before 12 November 2026 show none.",
+    "Energy, protein, fat and carbohydrate per serving on plan meals, calculated from the Ciqual 2025 food table. Meals planned on or before 12 November 2026, and copies of them made with Repeat, may show none.",
   "prefs.trackSnacks": "Track snacks from receipts",
   "prefs.trackSnacksHint":
     "If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts",
@@ -689,7 +689,7 @@ export const en = {
   "nutrition.servings_other": "The dish is split into {count} equal servings.",
   "nutrition.servingNote": "A serving is an equal share of the dish, not what any one person eats.",
   "nutrition.notEnoughData":
-    "Too few of this meal's ingredients are in the food table to give a figure.",
+    "Too few of this meal's ingredients could be counted to give a figure.",
   "nutrition.leftoverNote":
     "Leftovers of an earlier meal: the figures and their sources are the ones shown there.",
   "nutrition.notCounted": "Not counted: {names}",
@@ -703,9 +703,9 @@ export const en = {
   "nutrition.colPer100": "kcal per 100 g",
   "nutrition.colDish": "kcal in the dish",
   "nutrition.colConfidence": "Confidence",
-  "nutrition.confidenceHintLabel": "About the confidence letters",
+  "nutrition.toTaste": "to taste",
   "nutrition.confidenceHint":
-    "How reliable Ciqual rates each value, from A (most reliable) to D (least reliable).",
+    "Confidence: the lowest reliability rating Ciqual gives the values of that food, from A (most reliable) to D (least reliable).",
   "nutrition.captionCalculated":
     "Calculated from the Ciqual 2025 food composition table for the ingredient weights in this recipe, split evenly between the servings.",
   "nutrition.captionRealValues": "Real values depend on the product, the cut and how you cook it.",

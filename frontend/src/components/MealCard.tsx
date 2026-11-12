@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { FavoriteHeart } from "./FavoriteHeart";
 import { InfoHint } from "./InfoHint";
-import { NutritionChip, NutritionPanel } from "./MealNutrition";
+import { NutritionChip, NutritionChipPlaceholder, NutritionPanel } from "./MealNutrition";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
@@ -51,6 +51,9 @@ interface MealCardProps {
   // presentational (no query of its own) and never needs its own indices.
   nutrition?: MealNutrition | null;
   nutritionSource?: SourceAttribution | null;
+  // The figures are being fetched: hold the chip's place so the header row
+  // does not grow when they arrive.
+  nutritionPending?: boolean;
 
   // Deliberately two flags, not one: the Cook/Cooked toggle disables while
   // EITHER direction is in flight, but cook-mode's "Mark as cooked" button
@@ -88,6 +91,7 @@ export function MealCard({
   cookStorageKey,
   nutrition = null,
   nutritionSource = null,
+  nutritionPending = false,
   cookTogglePending,
   cookPending,
   favoritePending,
@@ -126,7 +130,13 @@ export function MealCard({
     nutrition !== null &&
     nutritionSource !== null &&
     (nutrition.per_serving !== null || nutrition.withheld_reason === "coverage");
-  const [nutritionOpen, setNutritionOpen] = useState(false);
+  // Open for THIS meal object only. A regenerate keeps the card mounted (it is
+  // keyed by position) but hands down a new meal, and an edit replaces it too,
+  // so the panel never opens by itself on a dish nobody clicked. The editor
+  // replaces the panel's branch, so it cannot show while editing; Cancel hands
+  // back the same meal, and the panel returns as it was.
+  const [openFor, setOpenFor] = useState<PlannedMeal | null>(null);
+  const nutritionOpen = nutritionShown && openFor === meal;
   const nutritionPanelId = useId();
 
   // Explicit precedence instead of a fourth nested ternary. Cooked wins (it is
@@ -272,15 +282,6 @@ export function MealCard({
             · {meal.total_time_minutes} min
           </span>
         )}
-        {nutritionShown && nutrition && (
-          <NutritionChip
-            figure={nutrition}
-            expanded={nutritionOpen}
-            panelId={nutritionPanelId}
-            isMobile={isMobile}
-            onToggle={() => setNutritionOpen((open) => !open)}
-          />
-        )}
         {entry && (
           // Disabled — not hidden — on a leftover. The backend 422s a favorite
           // on one (a content-free "reheat of X" embedded in the global RAG
@@ -301,6 +302,19 @@ export function MealCard({
             }
           />
         )}
+        {/* Last in the row, so its arrival moves no control sideways; the
+            placeholder holds its size while the figures load. Hidden while
+            editing, like Edit and Start cooking. */}
+        {!isEditing && nutritionShown && nutrition && (
+          <NutritionChip
+            figure={nutrition}
+            expanded={nutritionOpen}
+            panelId={nutritionPanelId}
+            isMobile={isMobile}
+            onToggle={() => setOpenFor((open) => (open === meal ? null : meal))}
+          />
+        )}
+        {!isEditing && !nutrition && nutritionPending && <NutritionChipPlaceholder isMobile={isMobile} />}
       </div>
 
       {isEditing ? (
@@ -339,7 +353,7 @@ export function MealCard({
           {/* Under the ingredients, in flow, opened only by its own chip: the
               content it pushes down is this card's steps, never a control the
               user was already reaching for. */}
-          {nutritionShown && nutritionOpen && nutrition && nutritionSource && (
+          {nutritionOpen && nutrition && nutritionSource && (
             <NutritionPanel id={nutritionPanelId} figure={nutrition} source={nutritionSource} />
           )}
 
