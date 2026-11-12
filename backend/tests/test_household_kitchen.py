@@ -100,6 +100,7 @@ async def _seed_kitchen(session: AsyncSession, owner: User) -> tuple[int, int]:
 # here fails test_the_matrix_classifies_every_route: classify it, do not skip it.
 _BODIES: dict[tuple[str, str], dict[str, object] | None] = {
     ("GET", "/api/plan/{plan_id}"): None,
+    ("GET", "/api/plan/{plan_id}/nutrition"): None,
     ("DELETE", "/api/plan/{plan_id}"): None,
     ("PATCH", "/api/plan/{plan_id}"): {"start_date": None},
     ("POST", "/api/plan/{plan_id}/repeat"): {"start_date": None},
