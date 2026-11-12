@@ -288,6 +288,8 @@ Health-data consent:
 
 Each PR ships on its own. PRs 3 and 5 wait for the owner's sign-off, so auto-merge is not armed on them until he approves.
 
+Order as built: PR 4 shipped before PR 3, on an empty table, while the Ciqual download waited for the owner (2026-11-12). Until the reviewed rows land it counts nothing, so no meal gets a figure. `nutrition_gaps.py` and the `nutrition_coverage` grader move to PR 3, where the table makes them say something.
+
 1. **docs(nutrition): decision record.** Adds this file as docs/nutrition-design.md. The ROADMAP nutrition row links to it and stays ⬜ until code exists (it moves to 🟡 with PR 2); the reference-KB row names Ciqual 2025 (ANSES) as the recommended source, pending the owner's choice. Docs only.
 
 2. **feat(plan): pin the weight basis and stamp it on each meal.**
