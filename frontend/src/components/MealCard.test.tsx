@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealCard } from "./MealCard";
 import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
@@ -478,8 +478,9 @@ describe("MealCard nutrition", () => {
     // Provenance: Ciqual name and code, whole kcal so the sum can be redone.
     expect(text).toContain("Chicken, breast, raw (36018)");
     expect(text).toContain("484");
-    // Water never reaches the table.
-    expect(text).not.toMatch(/\bwater\b/);
+    // Water never reaches the table: it is neither counted nor left out.
+    expect(within(panelOf(chip)).getByRole("cell", { name: "chicken" })).toBeInTheDocument();
+    expect(within(panelOf(chip)).queryByRole("cell", { name: "water" })).not.toBeInTheDocument();
     expect(text).toMatch(/insulin/);
 
     await user.click(chip);
