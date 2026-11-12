@@ -67,6 +67,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
         measurement_system: values.measurement_system,
         include_spices: values.include_spices,
         show_pieces: values.show_pieces,
+        show_nutrition: values.show_nutrition,
         track_snacks: values.track_snacks,
         need_to_use_enabled: values.need_to_use_enabled,
         waste_tracking_enabled: values.waste_tracking_enabled,

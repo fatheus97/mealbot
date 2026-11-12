@@ -26,9 +26,10 @@ vi.mock('../api', () => ({
   recordWaste: vi.fn(),
   updateMeal: vi.fn(),
   fetchHousehold: vi.fn(),
+  fetchPlanNutrition: vi.fn(),
 }));
 
-import { authFetch, fetchHousehold, fetchUserProfile, recordWaste, updateMeal } from '../api';
+import { authFetch, fetchHousehold, fetchPlanNutrition, fetchUserProfile, recordWaste, updateMeal } from '../api';
 import * as AuthCtx from '../contexts/AuthContext';
 import type { AuthState } from '../types';
 
@@ -36,6 +37,7 @@ const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
 const mockedRecordWaste = recordWaste as ReturnType<typeof vi.fn>;
 const mockedUpdateMeal = updateMeal as ReturnType<typeof vi.fn>;
+const mockedFetchNutrition = fetchPlanNutrition as ReturnType<typeof vi.fn>;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -1764,5 +1766,129 @@ describe('MealPlanner — expired-item review after finishing', () => {
     );
     expect(mockedRecordWaste).not.toHaveBeenCalled();
     expect(fridgePutBody()).toBeUndefined();
+  });
+});
+
+describe('MealPlanner nutrition (opt-in)', () => {
+  const meal = {
+    name: 'Opened Meal',
+    meal_type: 'lunch',
+    ingredients: [{ name: 'rice', quantity_grams: 100 }],
+    steps: ['Cook'],
+  };
+  const plan = { plan_id: 99, start_date: null, days: [{ meals: [meal] }], shopping_list: [] };
+  const SOURCE = { name: 'Ciqual 2025', publisher: 'Anses', published: '2025-11-19', doi: '10.57745/RDMHWY' };
+  const figure = (kcal: number) => ({
+    available: true,
+    unavailable_reason: null,
+    source: SOURCE,
+    days: [{
+      day_index: 0, per_person: null, partial: false,
+      meals: [{
+        day_index: 0, meal_index: 0, withheld_reason: null, servings: 2, complete: true, coverage: 1,
+        per_serving: { kcal, kj: kcal * 4.184, protein: 10, fat: 5, carbohydrate: 60 },
+        ingredients: [], leftover_of: null,
+      }],
+    }],
+  });
+
+  function withProfile(showNutrition: boolean) {
+    loginUser();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+    mockedFetchProfile.mockResolvedValue({
+      id: 1, email: 'test@test.com', country: null, language: 'English',
+      measurement_system: 'metric', variability: 'traditional', include_spices: true,
+      track_snacks: true, show_pieces: false, show_nutrition: showNutrition,
+      need_to_use_enabled: true, waste_tracking_enabled: false,
+      onboarding_completed: true, is_admin: false, default_day_layout: null,
+    });
+  }
+
+  beforeEach(() => {
+    mockedFetchNutrition.mockReset();
+  });
+
+  it('never asks for figures while the setting is off', async () => {
+    withProfile(false);
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    await screen.findByText('Opened Meal');
+    await waitFor(() => expect(mockedFetchProfile).toHaveBeenCalled());
+    // Let the resolved profile render before asserting the absence.
+    await act(async () => { await Promise.resolve(); });
+    expect(mockedFetchNutrition).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /kcal/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the chip for the opened plan once the setting is on', async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue(figure(540));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    expect(await screen.findByRole('button', { name: '≈ 540 kcal per serving' })).toBeInTheDocument();
+    expect(mockedFetchNutrition).toHaveBeenCalledWith(99);
+  });
+
+  it.each([
+    ['infant', /includes baby food/],
+    ['health_data_removed', /were removed/],
+  ])('says why a %s plan has no figures, and shows no chip', async (reason, hint) => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue({ available: false, unavailable_reason: reason, days: [], source: SOURCE });
+    const user = userEvent.setup();
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('Nutrition figures are not shown for this plan.')).toBeInTheDocument();
+    await user.hover(screen.getByRole('button', { name: 'Why this plan has none' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(hint);
+    expect(screen.queryByRole('button', { name: /kcal/ })).not.toBeInTheDocument();
+  });
+
+  it('shows nothing for a Cook Now plan', async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue({ available: false, unavailable_reason: 'cook_now', days: [], source: SOURCE });
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(mockedFetchNutrition).toHaveBeenCalledWith(99));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText(/not shown for this plan/)).not.toBeInTheDocument();
+  });
+
+  it('refetches after a meal edit, so the card shows the edited figure', async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValueOnce(figure(540)).mockResolvedValueOnce(figure(720));
+    mockedUpdateMeal.mockResolvedValue({ ...meal, allergen_warnings: [], health_data_removed: false });
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+    await screen.findByRole('button', { name: '≈ 540 kcal per serving' });
+
+    await userEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    expect(await screen.findByRole('button', { name: '≈ 720 kcal per serving' })).toBeInTheDocument();
+    expect(mockedFetchNutrition).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops the old figures on a regenerate instead of showing them on new meals', async () => {
+    withProfile(true);
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(plan) });
+    });
+    let release: (value: unknown) => void = () => {};
+    mockedFetchNutrition
+      .mockResolvedValueOnce(figure(540))
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await userEvent.click(screen.getByRole('button', { name: /generate plan/i }));
+    await screen.findByRole('button', { name: '≈ 540 kcal per serving' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Freeze' }));
+    await userEvent.click(screen.getByRole('button', { name: /regenerate unfrozen/i }));
+
+    // While the new figures load, the old ones are gone, not left on new meals.
+    await waitFor(() => expect(mockedFetchNutrition).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: /540 kcal/ })).not.toBeInTheDocument();
+    await act(async () => { release(figure(610)); });
+    expect(await screen.findByRole('button', { name: '≈ 610 kcal per serving' })).toBeInTheDocument();
   });
 });

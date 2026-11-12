@@ -1,12 +1,14 @@
+import { useId, useState } from "react";
 import { FavoriteHeart } from "./FavoriteHeart";
 import { InfoHint } from "./InfoHint";
+import { NutritionChip, NutritionPanel } from "./MealNutrition";
 import { IngredientsList } from "./recipe/IngredientsList";
 import { RecipeSteps } from "./recipe/RecipeSteps";
 import { MealEditor } from "./recipe/MealEditor";
 import { CookMode } from "./recipe/CookMode";
 import { useReopenTarget } from "../contexts/CookTimerContext";
 import { useI18n, useMealTypeLabel } from "../i18n";
-import type { MealEntrySummary, PlannedMeal } from "../types";
+import type { MealEntrySummary, MealNutrition, PlannedMeal, SourceAttribution } from "../types";
 
 // One meal inside a rendered plan: the action row (freeze / cook / edit /
 // start-cooking / favorite), the ingredients+steps body (or the inline editor),
@@ -43,6 +45,12 @@ interface MealCardProps {
   // localStorage key for cook-mode progress, owned by the parent so the
   // plan/day/meal coordinates stay in one place.
   cookStorageKey: string;
+  // This meal's entry from GET /plan/{id}/nutrition, and the source to
+  // attribute it to. null while the setting is off, the figures are loading,
+  // or the plan has none. Handed down like leftoverSource, so the card stays
+  // presentational (no query of its own) and never needs its own indices.
+  nutrition?: MealNutrition | null;
+  nutritionSource?: SourceAttribution | null;
 
   // Deliberately two flags, not one: the Cook/Cooked toggle disables while
   // EITHER direction is in flight, but cook-mode's "Mark as cooked" button
@@ -78,6 +86,8 @@ export function MealCard({
   leftoverSource = null,
   isMobile = false,
   cookStorageKey,
+  nutrition = null,
+  nutritionSource = null,
   cookTogglePending,
   cookPending,
   favoritePending,
@@ -108,6 +118,16 @@ export function MealCard({
   const canStartCooking =
     isConfirmed && !isFinished && !!entry && !isCooked && !isLeftover && (meal.steps?.length ?? 0) > 0;
   useReopenTarget(cookStorageKey, onStartCooking, canStartCooking);
+
+  // A chip for a figure or for "not enough data". A meal written before the
+  // weight rule (withheld "legacy") and a leftover whose source is gone show
+  // nothing: neither has anything the panel could explain.
+  const nutritionShown =
+    nutrition !== null &&
+    nutritionSource !== null &&
+    (nutrition.per_serving !== null || nutrition.withheld_reason === "coverage");
+  const [nutritionOpen, setNutritionOpen] = useState(false);
+  const nutritionPanelId = useId();
 
   // Explicit precedence instead of a fourth nested ternary. Cooked wins (it is
   // the most recent fact about the meal), then frozen (an active user choice),
@@ -252,6 +272,15 @@ export function MealCard({
             · {meal.total_time_minutes} min
           </span>
         )}
+        {nutritionShown && nutrition && (
+          <NutritionChip
+            figure={nutrition}
+            expanded={nutritionOpen}
+            panelId={nutritionPanelId}
+            isMobile={isMobile}
+            onToggle={() => setNutritionOpen((open) => !open)}
+          />
+        )}
         {entry && (
           // Disabled — not hidden — on a leftover. The backend 422s a favorite
           // on one (a content-free "reheat of X" embedded in the global RAG
@@ -306,6 +335,12 @@ export function MealCard({
               <em>{t("meal.ingredients")}</em>{" "}
               <IngredientsList ingredients={meal.ingredients ?? []} />
             </div>
+          )}
+          {/* Under the ingredients, in flow, opened only by its own chip: the
+              content it pushes down is this card's steps, never a control the
+              user was already reaching for. */}
+          {nutritionShown && nutritionOpen && nutrition && nutritionSource && (
+            <NutritionPanel id={nutritionPanelId} figure={nutrition} source={nutritionSource} />
           )}
 
           <div style={{ fontSize: "0.9em" }}>

@@ -167,6 +167,14 @@ class User(SQLModel, table=True):
     # arithmetic reads, so this can never change what a plan buys or debits.
     show_pieces: bool = Field(default=False)
 
+    # Show approximate energy and macros per serving on plan meals
+    # (docs/nutrition-design.md). DISPLAY ONLY: the figures are computed on
+    # read and nothing else reads this flag. Opt-in (owner decision 3), so a
+    # user who never opens Settings never sees a calorie number.
+    show_nutrition: bool = Field(
+        default=False, sa_column_kwargs={"server_default": "false"}, nullable=False
+    )
+
     # Master switch for the "need to use" (use-it-soon) ingredient feature.
     # Defaults True to preserve existing behavior for users already relying on
     # it. When False, every fridge read masks need_to_use to False (see

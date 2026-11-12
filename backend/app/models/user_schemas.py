@@ -271,6 +271,7 @@ class UserRead(UserBase):
     include_spices: bool
     track_snacks: bool
     show_pieces: bool
+    show_nutrition: bool
     need_to_use_enabled: bool
     waste_tracking_enabled: bool
     onboarding_completed: bool
@@ -330,6 +331,7 @@ def user_to_read(
         include_spices=u.include_spices,
         track_snacks=u.track_snacks,
         show_pieces=u.show_pieces,
+        show_nutrition=u.show_nutrition,
         need_to_use_enabled=u.need_to_use_enabled,
         waste_tracking_enabled=u.waste_tracking_enabled,
         onboarding_completed=u.onboarding_completed,
@@ -363,6 +365,7 @@ class UserUpdate(SQLModel):
     include_spices: bool | None = None
     track_snacks: bool | None = None
     show_pieces: bool | None = None
+    show_nutrition: bool | None = None
     need_to_use_enabled: bool | None = None
     waste_tracking_enabled: bool | None = None
     onboarding_completed: bool | None = None

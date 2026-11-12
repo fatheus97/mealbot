@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { formatDate, legalHref, localeTags } from "./localeFormat";
+import { formatDate, formatNumber, legalHref, localeTags } from "./localeFormat";
 import { UI_LOCALES } from "../store/useLocaleStore";
 
 describe("localeTags", () => {
@@ -103,5 +103,23 @@ describe("legalHref", () => {
         ).toBe(`/${locale}/${doc}`);
       }
     }
+  });
+});
+
+describe("formatNumber", () => {
+  it("uses a decimal comma and a no-break space between thousands in Czech", () => {
+    // U+00A0, not an ASCII space: Intl's Czech grouping separator. A test
+    // written with a plain space would pass nowhere and teach nothing.
+    expect(formatNumber(1850, "cs")).toBe("1 850");
+    expect(formatNumber(540.5, "cs", 1)).toBe("540,5");
+  });
+
+  it("uses English separators under en", () => {
+    expect(formatNumber(1850, "en")).toBe("1,850");
+    expect(formatNumber(540.5, "en", 1)).toBe("540.5");
+  });
+
+  it("rounds to whole numbers unless asked for decimals", () => {
+    expect(formatNumber(42.6, "en")).toBe("43");
   });
 });

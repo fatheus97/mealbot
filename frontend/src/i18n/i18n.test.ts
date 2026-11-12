@@ -3,7 +3,7 @@ import { makeI18n, interpolate, DICTIONARIES, type TranslationKey } from '.';
 import { en } from './en';
 import { MEAL_TYPES } from '../constants/mealTypes';
 import { ALLERGENS, DIET_TYPES } from '../constants/dietary';
-import type { FeedbackKind, PlanStatus } from '../types';
+import type { FeedbackKind, NotCountedReason, PlanStatus } from '../types';
 import { cs } from './cs';
 import {
   useLocaleStore,
@@ -155,6 +155,9 @@ describe('translation parity', () => {
       'onboarding.stockOk', // "OK" — international
       'receipt.typeSnack', // "snack" — loanword; Czech uses it too
       'plans.statusCount', // "{status} ({cooked}/{total})" — placeholders + punctuation only
+      'nutrition.chipShort', // "≈ {kcal} kcal" — symbol, placeholder and unit only
+      'nutrition.kcalUnit', // "kcal" — unit symbol, identical in every language
+      'nutrition.kjUnit', // "kJ" — SI unit symbol
     ];
     const identical = enKeys.filter((k) => en[k] === cs[k]);
     expect(identical.sort()).toEqual([...SAME_IN_BOTH].sort());
@@ -216,6 +219,8 @@ describe('enum-backed label sets', () => {
   // a comfortable lie.
   const PLAN_STATUSES = ['planned', 'active', 'cooked', 'finished'] as const;
   const FEEDBACK_KINDS = ['bug', 'feature', 'other'] as const;
+  // Mirrors NotCountedReason in types.ts (backend plan_models.py).
+  const NOT_COUNTED_REASONS = ['not_recognised', 'not_in_table', 'amount_not_given', 'frying_fat'] as const;
 
   const SETS: [string, readonly string[]][] = [
     ['mealType', MEAL_TYPES],
@@ -223,6 +228,7 @@ describe('enum-backed label sets', () => {
     ['allergen', ALLERGENS],
     ['planStatus', PLAN_STATUSES],
     ['feedbackKind', FEEDBACK_KINDS],
+    ['nutritionReason', NOT_COUNTED_REASONS],
   ];
 
   for (const [prefix, values] of SETS) {
@@ -258,6 +264,26 @@ describe('enum-backed label sets', () => {
           break;
         default: {
           const never: never = k;
+          throw new Error(`unhandled: ${String(never)}`);
+        }
+      }
+    }
+  });
+
+  it('NOT_COUNTED_REASONS matches the NotCountedReason type exactly', () => {
+    // Same pinning as FEEDBACK_KINDS: tsc fails if the union loses a member,
+    // the exhaustive switch if it gains one.
+    const reasons: readonly NotCountedReason[] = NOT_COUNTED_REASONS;
+    expect(reasons).toHaveLength(4);
+    for (const r of reasons) {
+      switch (r) {
+        case 'not_recognised':
+        case 'not_in_table':
+        case 'amount_not_given':
+        case 'frying_fat':
+          break;
+        default: {
+          const never: never = r;
           throw new Error(`unhandled: ${String(never)}`);
         }
       }
@@ -338,6 +364,41 @@ describe('liability copy', () => {
       // it. Without this the test above passes on an empty disclaimer.
       const text = makeI18n(locale).t('diet.screeningDisclaimer');
       expect(text).toMatch(/not a guarantee|ne záruka/i);
+    });
+  }
+});
+
+describe('nutrition copy', () => {
+  // The wording rule from docs/nutrition-design.md ("What the user sees"):
+  // figures are approximate calculations, never a verdict on the food or the
+  // eater. Scans every nutrition key in both languages, Czech included,
+  // because a translation is where "přesné" or "zdravé" would slip back in.
+  const FORBIDDEN = [
+    /accura/i, /\bexact/i, /health(y|ier)/i, /balanced/i, /good source/i, /recommend/i,
+    /meets your/i, /diabet/i, /daily value/i, /\bsafe\b/i,
+    /přesn[ýáéě]/i, /\bzdrav[ýáéě]/i, /vyvážen/i, /doporučuj|doporučen[ýáé]\b/i,
+    /diabeti/i, /denní (hodnot|příjem|dávk)/i, /bezpečn/i,
+  ];
+  const keys = (Object.keys(en) as TranslationKey[]).filter(
+    (k) => k.startsWith('nutrition') || k.startsWith('prefs.showNutrition'),
+  );
+
+  it('has keys to scan', () => {
+    expect(keys.length).toBeGreaterThan(30);
+  });
+
+  for (const locale of UI_LOCALES) {
+    it(`${locale} makes no claim the design bans`, () => {
+      const i18n = makeI18n(locale);
+      const hits = keys.flatMap((k) =>
+        FORBIDDEN.filter((re) => re.test(i18n.t(k))).map((re) => `${k}: ${String(re)}`),
+      );
+      expect(hits).toEqual([]);
+    });
+
+    it(`${locale} still warns against dosing medicine by the figures`, () => {
+      // The complement: the scan above passes on a deleted disclaimer too.
+      expect(makeI18n(locale).t('nutrition.captionNotAdvice')).toMatch(/insulin|inzulin/i);
     });
   }
 });

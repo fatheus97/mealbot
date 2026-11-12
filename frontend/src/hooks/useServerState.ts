@@ -1,7 +1,7 @@
-import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { skipToken, useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
 import type { DietaryProfileBody, RestockStatus, StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
-import { acceptAdminFeedback, answerRestockPrompt, authFetch, cookRecipe, createAdminUser, createHouseholdInvite, createInvite, deleteDietaryProfile, fetchDietaryProfile, fetchHousehold, fetchRestockStatus, revokeHouseholdInvite, saveDietaryProfile, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
+import { acceptAdminFeedback, answerRestockPrompt, authFetch, cookRecipe, createAdminUser, fetchPlanNutrition, createHouseholdInvite, createInvite, deleteDietaryProfile, fetchDietaryProfile, fetchHousehold, fetchRestockStatus, revokeHouseholdInvite, saveDietaryProfile, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 import { extractErrorDetail } from '../utils/httpError';
 
 // --- Queries (Data Fetching) ---
@@ -226,13 +226,27 @@ export function useUserProfile(userId: number | null) {
   });
 }
 
+// Approximate energy and macros for one stored plan (docs/nutrition-design.md).
+// Under ['plan', id] so an edit or a regenerate of that plan can drop it.
+// Never fetched while the user's show_nutrition setting is off. Not SHARED:
+// the plan itself is MealPlanner state that does not refetch on focus, so
+// refetching the figures would put a partner's edit on the old card.
+export const planNutritionKey = (planId: number) => ['plan', planId, 'nutrition'] as const;
+
+export function usePlanNutrition(planId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['plan', planId, 'nutrition'],
+    queryFn: enabled && planId !== null ? () => fetchPlanNutrition(planId) : skipToken,
+  });
+}
+
 // --- Mutations (Data Manipulation) ---
 
 export function useUpdateUserProfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "show_pieces" | "need_to_use_enabled" | "waste_tracking_enabled" | "onboarding_completed" | "default_day_layout">>) =>
+    mutationFn: (data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "show_pieces" | "show_nutrition" | "need_to_use_enabled" | "waste_tracking_enabled" | "onboarding_completed" | "default_day_layout">>) =>
       updateUserProfile(data),
     onSuccess: () => {
       // ['fridge'] too: need_to_use_enabled changes what GET /fridge masks, and
@@ -728,6 +742,8 @@ export function useUpdateMeal() {
     }): Promise<MealEditResponse> => updateMeal(planId, dayIndex, mealIndex, body),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['mealEntries', variables.planId] });
+      // The edited meal's figure, and any leftover that copies it.
+      queryClient.invalidateQueries({ queryKey: planNutritionKey(variables.planId) });
       queryClient.invalidateQueries({ queryKey: ['cookbook'] });
       queryClient.invalidateQueries({ queryKey: ['cookbookCount'] });
     },
@@ -735,6 +751,7 @@ export function useUpdateMeal() {
 }
 
 export function useRegeneratePlan() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       planId,
@@ -754,6 +771,12 @@ export function useRegeneratePlan() {
         throw new Error(await extractErrorDetail(res, "Regeneration failed. Please try again."));
       }
       return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      // Reset, not invalidate: the same plan id now holds new meals, and an
+      // invalidated query keeps showing the OLD figures on them until the
+      // refetch lands. Not awaited, so the new plan appears without waiting.
+      void queryClient.resetQueries({ queryKey: planNutritionKey(variables.planId) });
     },
   });
 }

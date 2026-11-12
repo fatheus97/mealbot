@@ -436,6 +436,8 @@ async def update_user(
         current_user.track_snacks = bool(patch.track_snacks)
     if patch.show_pieces is not None:
         current_user.show_pieces = bool(patch.show_pieces)
+    if patch.show_nutrition is not None:
+        current_user.show_nutrition = bool(patch.show_nutrition)
     if patch.need_to_use_enabled is not None:
         current_user.need_to_use_enabled = bool(patch.need_to_use_enabled)
     if patch.waste_tracking_enabled is not None:

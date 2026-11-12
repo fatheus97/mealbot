@@ -1,5 +1,6 @@
 // frontend/src/api.ts
 import type {
+  PlanNutrition,
   AccessRequestItem,
   AccessRequestListResponse,
   AccessRequestStatus,
@@ -242,7 +243,7 @@ export async function fetchUserProfile(): Promise<UserProfile> {
 }
 
 export async function updateUserProfile(
-  data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "show_pieces" | "need_to_use_enabled" | "onboarding_completed" | "default_day_layout">>
+  data: Partial<Pick<UserProfile, "country" | "language" | "measurement_system" | "variability" | "include_spices" | "track_snacks" | "show_pieces" | "show_nutrition" | "need_to_use_enabled" | "onboarding_completed" | "default_day_layout">>
 ): Promise<UserProfile> {
   const res = await authFetch("/users", {
     method: "PATCH",
@@ -302,6 +303,12 @@ export async function fetchPlan(planId: number): Promise<MealPlanResponse> {
   if (!res.ok) {
     throw new Error(`Failed to load plan: ${res.status}`);
   }
+  return res.json();
+}
+
+export async function fetchPlanNutrition(planId: number): Promise<PlanNutrition> {
+  const res = await authFetch(`/plan/${planId}/nutrition`);
+  if (!res.ok) throw new Error(`Failed to load nutrition: ${res.status}`);
   return res.json();
 }
 
