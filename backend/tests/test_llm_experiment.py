@@ -196,13 +196,16 @@ class TestGeneratedBy:
         from app.models.plan_models import LlmDayResponse
         assert "generated_by" not in str(LlmDayResponse.model_json_schema())
 
+    # None is the case that tells "keep the stamp" from "stamp the current
+    # basis": a meal written before the weight rule must not gain one by an edit.
+    @pytest.mark.parametrize("basis", [GRAMS_BASIS, None])
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_an_edit_keeps_the_stamp(
-        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+        self, mock_gen: AsyncMock, basis: int | None, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
         stamped = _meal()
         stamped.generated_by = LITE.label
-        stamped.grams_basis = GRAMS_BASIS
+        stamped.grams_basis = basis
         mock_gen.return_value = SingleDayResponse(meals=[stamped])
         plan = await client.post("/api/plan?days=1", headers=auth_headers,
                                  json={"meals_per_day": 1, "people_count": 2})
@@ -213,7 +216,7 @@ class TestGeneratedBy:
                   "steps": ["Boil"], "total_time_minutes": 20},
         )
         assert resp.status_code == 200
-        assert (resp.json()["generated_by"], resp.json()["grams_basis"]) == (LITE.label, GRAMS_BASIS)
+        assert (resp.json()["generated_by"], resp.json()["grams_basis"]) == (LITE.label, basis)
         detail = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
         stored = detail.json()["days"][0]["meals"][0]
-        assert (stored["generated_by"], stored["grams_basis"]) == (LITE.label, GRAMS_BASIS)
+        assert (stored["generated_by"], stored["grams_basis"]) == (LITE.label, basis)

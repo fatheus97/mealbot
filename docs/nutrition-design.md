@@ -173,7 +173,7 @@ Each ingredient gets one of these results:
   - frying fat, amount eaten unknown: a row with at least 80 g fat per 100 g whose grams in the dish, divided by the meal's servings (defined below), exceed 50 g. The per-serving amount is computed first, from the same servings denominator as the figure, and the rule is applied to the ingredient before it is summed, so a fat that fails it adds nothing to dish_total. Shallow-frying oil at or below the limit is counted in full, which errs high.
 
 Raw versus cooked:
-- PR 2 pins the weight basis. quantity_grams is the edible part, raw, as it goes into the pan; rice, pasta, grains and dried legumes are given dry; a product bought cooked or canned says so in its name.
+- PR 2 pins the weight basis. quantity_grams is the edible part, raw, as it goes into the pan; rice, pasta, grains and dried legumes are given dry; a product bought cooked or canned says so in its name. An ingredient taken from the fridge list keeps the fridge's own weight, because the fridge stores what was bought and the debit subtracts these grams: an edible weight would leave bone and peel behind as stock the next plan cooks from. PR 4 therefore reads an ingredient whose name matches a stock item in the plan's request_json as a stored weight (see Risks).
 - States are matched, never converted, so no yield factor is applied anywhere. Water lost in cooking changes the weight of the dish, not the protein, fat or carbohydrate in it. The USDA retention factors cover vitamins and minerals, not macros.
 - A per-100 g figure for the cooked dish is never shown.
 - Each meal generated under the rule is stamped `grams_basis = 1` (PR 2). A meal with no stamp has an undefined basis and gets no figure (owner decision 5).
@@ -291,7 +291,7 @@ Each PR ships on its own. PRs 3 and 5 wait for the owner's sign-off, so auto-mer
 1. **docs(nutrition): decision record.** Adds this file as docs/nutrition-design.md. The ROADMAP nutrition row links to it and stays ⬜ until code exists (it moves to 🟡 with PR 2); the reference-KB row names Ciqual 2025 (ANSES) as the recommended source, pending the owner's choice. Docs only.
 
 2. **feat(plan): pin the weight basis and stamp it on each meal.**
-   - The prompt gets the rule next to meal_plan.jinja:144, in meal_plan_partial.jinja and in whichever template Cook Now renders. quantity_grams is the edible part, raw, as it goes into the pan. Rice, pasta, grains and dried legumes are dry. A product bought cooked or canned says so in name and name_en. name_en names the ingredient as bought, with no cutting or preparation words ("potatoes", not "potatoes, peeled and cubed") but keeping any cooked or canned word.
+   - The prompt gets the rule next to meal_plan.jinja:144, in meal_plan_partial.jinja and in whichever template Cook Now renders. quantity_grams is the edible part, raw, as it goes into the pan. Rice, pasta, grains and dried legumes are dry. A product bought cooked or canned says so in its name, and name_en carries that word as a plain translation. A fridge item keeps the fridge's weight. name_en gets no new rule: the pre-push review found that asking for it without cutting or preparation words would strip the terms the infant and allergen screens read on non-English plans ("soft-boiled egg", "cheese cube", "in batter"), so variants stay explicit alias rows (Matching, step 3).
    - `PlannedMeal.grams_basis: int | None = None` goes next to generated_by (plan_models.py:787), not on GeneratedMeal. to_planned_day (:887) stamps it, edits keep it like plan.py:1455, and `_stamp_from_generation` copies it for /recipe/cook and /recipe/favorite. It is never taken from the client.
    - Tests:
      - the prompt render pins the rule wording in both templates;
@@ -360,6 +360,7 @@ Follow-ups, not scheduled:
 - Liquid broth and stock (12% of grams) have no matching Ciqual row. Left uncounted, they would push many soups and stews below the coverage floor (owner decision 6).
 - The prompt rule can be ignored. If the model writes cooked-rice weights under "rice", that ingredient's energy is overstated about 2.5 times. RAG examples from stored favourites carry the old basis and may pull the model back. Re-measure grain grams per person after any change to LLM_MODELS.
 - The edible-weight basis makes the shopping list under-buy peel and bone by the refuse fraction. It is small for most foods; bone-in items are not counted at all in v1.
+- Fridge items are weighed as stored, which for foods with peel or bone is the bought weight. A figure built on them errs high by the refuse share (about a third for bananas or bone-in chicken). The eval answers of 2026-11-12 also show that the model's weights do not move with the instruction: on gemini-2.5-flash, potatoes, onions, eggs and chicken thighs kept the same per-person medians before and after the rule, and carrots, bananas, apples and avocados moved both ways on small samples (an edible rule would only lower them). The basis records what was asked, not a measured change.
 - Servings are derived on read from the leftover_of links, so deleting or regenerating a leftover meal changes the earlier meal's per-serving figure without notice. That is correct for the plan as it now stands (the batch feeds fewer meals), and the figure is never stored, but a user comparing screenshots may see it move.
 - Equal servings mislead mixed tables (adults and children) even outside infant mode. The UI says "1 of N equal servings", but a parent may still read it as one person's intake.
 - Diabetic users may dose from the carbohydrate figure, and calorie numbers can harm people with eating disorders. Opt-in default off, the explicit dosing sentence, and the absence of targets and colour coding limit this but do not remove it.
@@ -409,6 +410,7 @@ Follow-ups, not scheduled:
   - Leave it undefined.
 - Recommendation: the first option.
 - Why: composition tables are per 100 g of edible portion, pieces.ts already assumes edible weights, and the model already writes dry grains. Undefined leaves rice ambiguous by a factor of 2.5 to 3, which rules out any honest figure.
+- Chosen: the first option (2026-11-12, Q25). Refined in PR 2: fridge items keep the fridge's own weight, so the debit stays correct (Q26).
 
 ### 5. What do meals generated before the weight rule show?
 - Options:

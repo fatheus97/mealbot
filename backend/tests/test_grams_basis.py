@@ -35,7 +35,15 @@ class TestPromptRule:
             for language, needs_name_en in (("cs", True), ("en", False)):
                 line = _rule_line(_render(t, language=language, needs_name_en=needs_name_en))
                 assert "DRY weight, never cooked" in line, t
-                assert '"cooked" or "canned" in its name' in line, t
+                assert 'its name says "cooked" or "canned"' in line, t
+
+    def test_fridge_items_keep_the_fridge_weight(self) -> None:
+        # The fridge stores what was bought (a 1 kg bone-in pack is 1000 g). An
+        # edible weight written for a fridge item would leave the bone and peel
+        # behind as stock the next plan cooks from, so the fridge's own terms win.
+        for t in TEMPLATES:
+            line = _rule_line(_render(t, language="cs", needs_name_en=True))
+            assert "taken from the fridge list is weighed the way the list weighs it" in line, t
 
     def test_the_rule_holds_with_spices_included(self) -> None:
         # include_spices switches a whole block of rules; the weight rule must
@@ -46,18 +54,16 @@ class TestPromptRule:
             )
             assert _RULE in out, t
 
-    def test_name_en_is_the_name_as_bought(self) -> None:
-        # name_en is also the allergen key, so the as-bought wording is pinned
-        # on the same line as the SAFETY-CRITICAL instruction it extends.
+    def test_name_en_keeps_its_preparation_words(self) -> None:
+        # Nutrition would like bare keys ("potatoes"), but name_en is what the
+        # infant and allergen screens read on non-English plans, and their terms
+        # ARE preparation words: "soft-boiled egg", "cheese cube", "in batter".
+        # Variants become explicit alias rows instead (docs/nutrition-design.md,
+        # Matching step 3), so this line must never ask the model to drop them.
         for t in TEMPLATES:
             out = _render(t, language="cs", needs_name_en=True)
             line = next(x for x in out.splitlines() if "SAFETY-CRITICAL" in x and '"name_en"' in x)
-            assert 'Name it as bought, without cutting or preparation words' in line, t
-            assert 'keep "cooked" or "canned"' in line, t
-
-    def test_english_plans_get_no_name_en_wording(self) -> None:
-        for t in TEMPLATES:
-            assert "Name it as bought" not in _render(t, language="en", needs_name_en=False), t
+            assert "preparation words" not in line and "cutting" not in line, t
 
 
 def _generated(name: str) -> GeneratedMeal:
