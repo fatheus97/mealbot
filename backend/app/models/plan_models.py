@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import (
     BaseModel,
@@ -755,6 +755,13 @@ class GeneratedMeal(BaseModel):
         return v
 
 
+# The weight rule the prompt templates give for quantity_grams: the edible part,
+# raw, as it goes into the pan; rice, pasta, grains and dried legumes dry; a
+# product bought cooked or canned says so in its name. Bump it only together
+# with a changed rule, so a stored meal always names the rule it was written to.
+GRAMS_BASIS: Final = 1
+
+
 class PlannedMeal(GeneratedMeal):
     """A meal as stored and served: the generated content plus server-assigned
     fields the LLM never produces.
@@ -785,6 +792,13 @@ class PlannedMeal(GeneratedMeal):
     # meal. Client-write paths (/recipe/cook, /recipe/favorite) take it from the
     # server's own generation row, never from the client.
     generated_by: str | None = Field(default=None, max_length=120)
+    # Which weight rule the prompt gave for quantity_grams (GRAMS_BASIS). Same
+    # life cycle as generated_by: the server stamps it after generation, an
+    # edit keeps it, and /recipe/cook and /recipe/favorite copy it from the
+    # generation row. None = written before the rule, so its grams may be
+    # cooked or as-bought weights and nutrition (docs/nutrition-design.md)
+    # must not compute a figure from them.
+    grams_basis: int | None = Field(default=None, ge=1)
 
     @property
     def is_leftover(self) -> bool:
@@ -886,10 +900,14 @@ class LlmDayResponse(BaseModel):
 
     def to_planned_day(self, generated_by: str | None = None) -> SingleDayResponse:
         """Widen raw model output into stored meals (leftover_of defaults None),
-        each stamped with the model that wrote it."""
+        each stamped with the model that wrote it and the weight rule it was
+        given. Unconditional: both prompt templates carry that rule, and a mock
+        answer is demo content whose fixtures already use dry grains."""
         return SingleDayResponse(
             meals=[
-                PlannedMeal.model_validate({**m.model_dump(), "generated_by": generated_by})
+                PlannedMeal.model_validate({
+                    **m.model_dump(), "generated_by": generated_by, "grams_basis": GRAMS_BASIS,
+                })
                 for m in self.meals
             ]
         )

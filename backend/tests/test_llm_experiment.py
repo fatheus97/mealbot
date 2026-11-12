@@ -13,7 +13,13 @@ import app.llm.experiment as experiment
 from app.core.config import LLMProvider, ModelEntry, Settings, settings
 from app.core.meal_types import MealType
 from app.llm.client import _first_choice
-from app.models.plan_models import IngredientAmount, MealPlanRequest, PlannedMeal, SingleDayResponse
+from app.models.plan_models import (
+    GRAMS_BASIS,
+    IngredientAmount,
+    MealPlanRequest,
+    PlannedMeal,
+    SingleDayResponse,
+)
 from app.services.meal_planner import generate_single_day
 
 FLASH = ModelEntry(provider=LLMProvider.GEMINI, model="gemini-2.5-flash")
@@ -196,6 +202,7 @@ class TestGeneratedBy:
     ) -> None:
         stamped = _meal()
         stamped.generated_by = LITE.label
+        stamped.grams_basis = GRAMS_BASIS
         mock_gen.return_value = SingleDayResponse(meals=[stamped])
         plan = await client.post("/api/plan?days=1", headers=auth_headers,
                                  json={"meals_per_day": 1, "people_count": 2})
@@ -206,6 +213,7 @@ class TestGeneratedBy:
                   "steps": ["Boil"], "total_time_minutes": 20},
         )
         assert resp.status_code == 200
-        assert resp.json()["generated_by"] == LITE.label
+        assert (resp.json()["generated_by"], resp.json()["grams_basis"]) == (LITE.label, GRAMS_BASIS)
         detail = await client.get(f"/api/plan/{plan_id}", headers=auth_headers)
-        assert detail.json()["days"][0]["meals"][0]["generated_by"] == LITE.label
+        stored = detail.json()["days"][0]["meals"][0]
+        assert (stored["generated_by"], stored["grams_basis"]) == (LITE.label, GRAMS_BASIS)
