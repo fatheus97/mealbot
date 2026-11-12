@@ -26,7 +26,7 @@ from app.core.i18n import Locale
 
 #: Keep in sync with the "Last updated" line in frontend/terms.html and
 #: frontend/privacy.html — pinned by tests/test_legal_version.py.
-TERMS_VERSION = "2026-11-08"
+TERMS_VERSION = "2026-11-12"
 
 #: The version of the explicit consent (GDPR Art. 9(2)(a)) to process diets,
 #: allergens and ingredients to avoid: the sentence the SPA shows next to the
