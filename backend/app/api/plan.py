@@ -22,6 +22,7 @@ from app.core.country_whitelist import normalize_country
 from app.core.dietary_reference import ALLERGEN_INFO
 from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
+from app.core.nutrition_reference import NutritionReference, nutrition_reference
 from app.core.rate_limit import limiter, user_id_key_func
 from app.db import get_session
 from app.llm.client import first_choice
@@ -45,6 +46,7 @@ from app.models.plan_models import (
     MealPlanResponse,
     MealPlanSummary,
     PlannedMeal,
+    PlanNutrition,
     PlanRepeatRequest,
     PlanScheduleResponse,
     PlanScheduleUpdate,
@@ -89,6 +91,7 @@ from app.services.leftovers import (
     validate_leftover_graph,
 )
 from app.services.meal_planner import generate_partial_day
+from app.services.nutrition import plan_nutrition, unavailable
 from app.services.pantry_service import load_staple_keys
 from app.services.plan_repeat import (
     PlanHealthDataRemovedError,
@@ -339,6 +342,31 @@ async def get_plan_detail(
     # row, not inside response_json.
     plan_obj.start_date = plan.start_date
     return plan_obj
+
+
+@router.get("/{plan_id}/nutrition", response_model=PlanNutrition)
+async def get_plan_nutrition(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    ref: NutritionReference = Depends(nutrition_reference),
+) -> PlanNutrition:
+    """Approximate energy and macros per meal and per day, computed now from
+    the stored plan and the reviewed Ciqual table (app.services.nutrition).
+
+    Kitchen-scoped like every plan read, so household members see the same
+    figures, and drafts work because they have a plan row. Cook Now plans
+    record no language, so their ingredients cannot be keyed: unavailable."""
+    plan = await load_plan(session, Kitchen.of(current_user), plan_id)
+    if plan.kind == "cook_now":
+        return unavailable("cook_now")
+    try:
+        plan_obj = MealPlanResponse.model_validate_json(plan.response_json)
+        request = MealPlanRequest.model_validate_json(await stored_request_json(session, plan))
+    except ValidationError as exc:
+        logger.exception("Failed to parse plan %d for nutrition", plan_id)
+        raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
+    return plan_nutrition(request, plan_obj.days, people_count=plan.people_count, ref=ref)
 
 
 # POST /api/plan/{plan_id}/repeat — copy a plan forward to a new date

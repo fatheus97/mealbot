@@ -934,6 +934,82 @@ class MealPlanResponse(BaseModel):
     shopping_list: list[ShoppingListItem]
 
 
+# ── Nutrition (GET /api/plan/{id}/nutrition, docs/nutrition-design.md) ──────────
+# Computed on every read from the stored plan and the reviewed Ciqual table, and
+# never stored, so an edit or a regenerate shows on the next read. Values are
+# unrounded so anyone can redo the arithmetic from the provenance rows; the UI
+# rounds. These models live here and NEVER on GeneratedMeal or PlannedMeal.
+
+class NutrientValues(BaseModel):
+    """Energy and the three macros, per 100 g, per dish or per serving."""
+    kcal: float
+    kj: float
+    protein: float
+    fat: float
+    carbohydrate: float
+
+
+IngredientStatus = Literal["counted", "seasoning", "water", "not_counted"]
+NotCountedReason = Literal["not_recognised", "not_in_table", "amount_not_given", "frying_fat"]
+MealWithheldReason = Literal["legacy", "coverage", "leftover_unresolved"]
+PlanUnavailableReason = Literal["cook_now", "infant", "health_data_removed"]
+
+
+class IngredientNutrition(BaseModel):
+    """One ingredient's line in the provenance table."""
+    name: str
+    grams: float
+    status: IngredientStatus
+    reason: NotCountedReason | None = None
+    alim_code: int | None = None
+    source_name: str | None = None
+    state: str | None = None
+    confidence: str | None = None
+    per_100g: NutrientValues | None = None
+    # What this ingredient adds to the whole dish (not per serving).
+    contribution: NutrientValues | None = None
+
+
+class MealNutrition(BaseModel):
+    day_index: int
+    meal_index: int
+    # None when no figure is shown; withheld_reason then says why.
+    per_serving: NutrientValues | None
+    withheld_reason: MealWithheldReason | None = None
+    # people_count x (1 + the meals that are leftovers of this one).
+    servings: int
+    # Nothing was left out (water and covered seasonings do not count as left out).
+    complete: bool
+    # Counted grams over all grams except water and 1 g seasoning placeholders.
+    coverage: float
+    ingredients: list[IngredientNutrition]
+    # Set on a leftover, whose figure is its source's.
+    leftover_of: LeftoverRef | None = None
+
+
+class DayNutrition(BaseModel):
+    day_index: int
+    # Sum of the day's per-serving figures, shown only when every meal has one.
+    per_person: NutrientValues | None
+    # Some figure that went into per_person is an "at least".
+    partial: bool
+    meals: list[MealNutrition]
+
+
+class SourceAttribution(BaseModel):
+    name: str
+    publisher: str
+    published: date
+    doi: str
+
+
+class PlanNutrition(BaseModel):
+    available: bool
+    unavailable_reason: PlanUnavailableReason | None = None
+    days: list[DayNutrition]
+    source: SourceAttribution
+
+
 class ConfirmPlanRequest(BaseModel):
     """Optional body for POST /plan/{id}/confirm — lets the user pin (or
     override) the plan's calendar start date at confirm time. The whole body is
