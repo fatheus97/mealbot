@@ -290,6 +290,12 @@ Each PR ships on its own. PRs 3 and 5 wait for the owner's sign-off, so auto-mer
 
 Order as built: PR 4 shipped before PR 3, on an empty table, while the Ciqual download waited for the owner (2026-11-12). Until the reviewed rows land it counts nothing, so no meal gets a figure. `nutrition_gaps.py` and the `nutrition_coverage` grader move to PR 3, where the table makes them say something.
 
+PR 6 as built (2026-11-12) differs from the slice below in four places:
+- MealPlanner owns the query and hands each MealCard its own entry, the way it already hands down leftoverSource. The plan is MealPlanner state rather than a cached query, so there was nothing for a card to select from, and the card stays free of data hooks.
+- The provenance table has no separate state column. The Ciqual food name already says raw, cooked or dried, and the alias states are free text until PR 3 fixes their list. It shows kcal per 100 g and kcal in the dish as whole numbers, so the sum can be redone; only the headline figures round to 10 kcal.
+- Plans whose diet data was removed get the same one-line notice as infant plans, each with its own reason in the hint. The line sits after the days, not above them, because it appears when the figures arrive and would otherwise shift the cards.
+- It merges after PR 3 and PR 5. On an empty table every meal reads "Not enough data for nutrition", which is accurate but useless.
+
 1. **docs(nutrition): decision record.** Adds this file as docs/nutrition-design.md. The ROADMAP nutrition row links to it and stays ⬜ until code exists (it moves to 🟡 with PR 2); the reference-KB row names Ciqual 2025 (ANSES) as the recommended source, pending the owner's choice. Docs only.
 
 2. **feat(plan): pin the weight basis and stamp it on each meal.**
