@@ -18,12 +18,14 @@ from dataclasses import dataclass
 
 from app.core.dietary import Allergen, DietType
 from app.core.meal_types import MealType
-from app.models.plan_models import IngredientAmount, MealPlanRequest, PlannedMeal
+from app.core.nutrition_reference import nutrition_reference
+from app.models.plan_models import IngredientAmount, MealPlanRequest, PlannedMeal, SingleDayResponse
 from app.services.allergen_screen import (
     is_english_language,
     screen_meals_for_allergens,
 )
 from app.services.infant_screen import screen_meals_for_infant
+from app.services.nutrition import day_nutrition, is_placeholder
 
 
 @dataclass(frozen=True)
@@ -244,9 +246,34 @@ def check_fridge_use(req: MealPlanRequest, meals: Sequence[PlannedMeal]) -> Chec
                  score=len(used) / len(urgent))
 
 
+def check_nutrition_coverage(req: MealPlanRequest, meals: Sequence[PlannedMeal]) -> Check:
+    """Share of the day's ingredient grams the nutrition table counts, keyed
+    exactly as the endpoint keys them (water and "to taste" lines left out of
+    both sides). A measurement of the table, not of the model: it falls when a
+    prompt change brings spellings the reviewed aliases do not hold."""
+    [day] = day_nutrition([SingleDayResponse(meals=list(meals))], language=req.language,
+                          people_count=req.people_count, ref=nutrition_reference())
+    counted = weighed = 0.0
+    missing: list[str] = []
+    for meal, figure in zip(meals, day.meals, strict=True):
+        if meal.leftover_of is not None:
+            continue  # its grams were cooked, and counted, with its source
+        for ing, row in zip(meal.ingredients, figure.ingredients, strict=True):
+            if row.status == "water" or is_placeholder(ing):
+                continue
+            weighed += ing.quantity_grams
+            if row.status == "counted":
+                counted += ing.quantity_grams
+            else:
+                missing.append(f"{ing.name_en or ing.name} ({ing.quantity_grams:g} g)")
+    share = counted / weighed if weighed > 0 else 0.0
+    return Check("nutrition_coverage", True, "not counted: " + ", ".join(missing) if missing else "",
+                 score=share)
+
+
 GRADERS: tuple[Callable[[MealPlanRequest, Sequence[PlannedMeal]], Check | None], ...] = (
     check_meal_count, check_allergens, check_infant, check_diets, check_avoid, check_name_en,
-    check_language, check_stock_only, check_fridge_use,
+    check_language, check_stock_only, check_fridge_use, check_nutrition_coverage,
 )
 
 #: Checks whose failure would hurt someone, not just disappoint them.

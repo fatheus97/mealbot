@@ -7,10 +7,12 @@ grams, and the recipe's own number of servings.
 
 The rules that decide what counts, per ingredient:
 
-* key: ``name_en`` in the English index when the server wrote one; else the
-  name itself, in the English index on an English plan or the Czech index on a
-  Czech plan; else "not recognised". The indexes stay apart on purpose: Czech
-  "paprika" is a bell pepper, English "paprika" the spice.
+* key: on a Czech plan, the Czech name in the Czech index when that index
+  knows it (not for a spice line); else ``name_en`` in the English index when
+  the server wrote one; else the name itself, in the English index on an
+  English plan or the Czech index on a Czech plan; else "not recognised". The
+  indexes stay apart on purpose: Czech "paprika" is a bell pepper, English
+  "paprika" the spice.
 * a 1 g ``is_spice`` placeholder stands for "to taste": covered at 0 when its
   row is flagged as a seasoning, "amount not given" otherwise.
 * a fat of 80 g or more per 100 g used at over 50 g per serving is frying fat,
@@ -53,9 +55,15 @@ FRYING_FAT_PER_100G: Final = 80.0
 FRYING_FAT_GRAMS_PER_SERVING: Final = 50.0
 PLACEHOLDER_GRAMS: Final = 1.0
 
+# Water, optionally with what it is for ("water for the rice", "voda na
+# rýži", "water (for the dough)"): a fullmatch, so "water chestnuts" and
+# "coconut water" stay ingredients, and a bracket offering another liquid
+# ("water (or milk)") is not water.
 _WATER = re.compile(
     r"(?:(?:cold|hot|warm|boiling|lukewarm|tap|ice|filtered)\s+)?water"
+    r"(?:\s+for(?:\s+\w+){1,3}|\s*\((?!\s*or\b)[^)]*\))?"
     r"|(?:(?:studená|teplá|horká|vroucí|vlažná)\s+)?voda"
+    r"(?:\s+na(?:\s+\w+){1,3}|\s*\((?!\s*nebo\b)[^)]*\))?"
 )
 _ZERO: Final = NutrientValues(kcal=0.0, kj=0.0, protein=0.0, fat=0.0, carbohydrate=0.0)
 
@@ -103,8 +111,15 @@ class _Language:
             czech=locale_for_language(language) == "cs",
         )
 
-    def key(self, ing: IngredientAmount) -> tuple[Lang, str] | None:
+    def key(self, ing: IngredientAmount, ref: NutritionReference) -> tuple[Lang, str] | None:
         name_en = (ing.name_en or "").strip()
+        # On a Czech plan the Czech name decides when the reviewed Czech index
+        # knows it: it is the model's own words, and name_en its translation,
+        # which can drop a state or a fat level ("vařené bílé fazole" came
+        # back as "white beans"). A spice line keeps name_en: Czech "paprika"
+        # is the vegetable in the Czech index, but a spice line means powder.
+        if self.czech and not ing.is_spice and ref.lookup("cs", ing.name) is not None:
+            return "cs", ing.name
         if name_en:
             return "en", name_en
         if self.english:
@@ -117,7 +132,7 @@ class _Language:
 def _ingredient(
     ing: IngredientAmount, *, servings: int, lang: _Language, ref: NutritionReference
 ) -> IngredientNutrition:
-    key = lang.key(ing)
+    key = lang.key(ing, ref)
     base = IngredientNutrition(name=ing.name, grams=ing.quantity_grams, status="not_counted")
     if key is not None and _WATER.fullmatch(normalize_key(key[1])):
         return base.model_copy(update={"status": "water"})
@@ -134,7 +149,7 @@ def _ingredient(
         "confidence": food.confidence,
         "per_100g": _per_100g(food),
     })
-    if ing.is_spice and ing.quantity_grams == PLACEHOLDER_GRAMS:
+    if is_placeholder(ing):
         if alias.seasoning:
             return found.model_copy(update={"status": "seasoning", "contribution": _ZERO})
         return found.model_copy(update={"reason": "amount_not_given"})
@@ -146,8 +161,24 @@ def _ingredient(
     })
 
 
-def _is_placeholder(ing: IngredientAmount) -> bool:
+def is_placeholder(ing: IngredientAmount) -> bool:
+    """A 1 g is_spice line: the recipe's "to taste", with no real amount."""
     return ing.is_spice and ing.quantity_grams == PLACEHOLDER_GRAMS
+
+
+def missing_key(
+    ing: IngredientAmount, language: str | None, ref: NutritionReference
+) -> tuple[Lang, str] | None:
+    """The normalised table key of an ingredient that is "not in the table",
+    keyed exactly as the endpoint keys it; None for anything else (counted,
+    water, unrecognised). The gaps report ranks these."""
+    key = _Language.of(language).key(ing, ref)
+    if key is None:
+        return None
+    lang, name = key[0], normalize_key(key[1])
+    if _WATER.fullmatch(name) or ref.lookup(lang, name) is not None:
+        return None
+    return lang, name
 
 
 def _dish(
@@ -157,7 +188,7 @@ def _dish(
     rows = [_ingredient(ing, servings=servings, lang=lang, ref=ref) for ing in meal.ingredients]
     weighed = [
         (ing, row) for ing, row in zip(meal.ingredients, rows, strict=True)
-        if row.status != "water" and not _is_placeholder(ing)
+        if row.status != "water" and not is_placeholder(ing)
     ]
     denominator = sum(ing.quantity_grams for ing, _ in weighed)
     counted = sum(ing.quantity_grams for ing, row in weighed if row.status == "counted")

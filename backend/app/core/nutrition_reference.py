@@ -13,8 +13,9 @@ call on the request path. A key the table does not hold is "not counted", which
 is the honest answer; a plural or a variant becomes its own reviewed alias row,
 because an implicit rule cannot be reviewed.
 
-Both files hold only their header until the reviewed snapshot lands (PR 3), so
-until then every ingredient is "not counted" and no meal gets a figure.
+foods.csv is written by ``app/scripts/ciqual_snapshot.py`` from the pinned
+Ciqual files, never by hand; aliases.csv is reviewed by hand, and
+tests/test_nutrition_reference.py holds the gates every row must pass.
 """
 
 from __future__ import annotations
@@ -81,7 +82,9 @@ class Food:
     organic_acids: float | None
     # Some value is "traces" or "< x", stored as 0, so a sum stays a true lower bound.
     below_detection: bool
-    # The lowest Ciqual confidence code (A best, D worst) among the shown values.
+    # The lowest Ciqual confidence code (A best, D worst) of protein, fat and
+    # carbohydrate. Energy is computed from them, and Ciqual rates it D for all
+    # but one of its foods.
     confidence: str
 
 
