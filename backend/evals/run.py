@@ -263,9 +263,15 @@ def scorecard(results: Sequence[RunResult]) -> str:
 
     for name in check_names:
         row(name, pass_rate(name))
-    row("urgent fridge items used", lambda rs: (
-        f"{100 * statistics.mean(s):.0f}%" if (s := [c.score for r in rs for c in r.checks
-                                                     if c.score is not None]) else "-"))
+    def mean_score(name: str) -> Callable[[list[RunResult]], str]:
+        # One row per scored check: a mean across two measurements means nothing.
+        return lambda rs: (
+            f"{100 * statistics.mean(s):.0f}%"
+            if (s := [c.score for r in rs for c in r.checks if c.name == name and c.score is not None])
+            else "-")
+
+    row("urgent fridge items used", mean_score("fridge_use"))
+    row("ingredient grams the nutrition table counts", mean_score("nutrition_coverage"))
     row("seconds p50 / p95", lambda rs: (
         f"{statistics.median(t):.1f} / {sorted(t)[max(0, round(0.95 * len(t)) - 1)]:.1f}"
         if (t := [r.seconds for r in rs if r.ok]) else "-"))
