@@ -705,7 +705,7 @@ export const en = {
   "nutrition.colConfidence": "Confidence",
   "nutrition.toTaste": "to taste",
   "nutrition.confidenceHint":
-    "Confidence: the lowest reliability rating Ciqual gives the values of that food, from A (most reliable) to D (least reliable).",
+    "Confidence: the lowest reliability rating Ciqual gives the protein, fat and carbohydrate values of that food, from A (most reliable) to D (least reliable).",
   "nutrition.captionCalculated":
     "Calculated from the Ciqual 2025 food composition table for the ingredient weights in this recipe, split evenly between the servings.",
   "nutrition.captionRealValues": "Real values depend on the product, the cut and how you cook it.",

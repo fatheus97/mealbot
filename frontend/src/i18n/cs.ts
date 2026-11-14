@@ -632,7 +632,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "nutrition.colConfidence": "Spolehlivost",
   "nutrition.toTaste": "dle chuti",
   "nutrition.confidenceHint":
-    "Spolehlivost: nejhorší hodnocení, které Ciqual dává hodnotám dané potraviny, od A (nejspolehlivější) po D (nejméně spolehlivé).",
+    "Spolehlivost: nejhorší hodnocení, které Ciqual dává bílkovinám, tukům a sacharidům dané potraviny, od A (nejspolehlivější) po D (nejméně spolehlivé).",
   "nutrition.captionCalculated":
     "Spočítáno z tabulky složení potravin Ciqual 2025 podle hmotností surovin v tomto receptu a rozděleno rovným dílem na porce.",
   "nutrition.captionRealValues":
