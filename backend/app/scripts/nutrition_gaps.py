@@ -96,8 +96,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         plans = asyncio.run(_stored_plans())
-    except SQLAlchemyError as exc:
-        raise SystemExit(f"could not read the stored plans: {type(exc).__name__}: {exc}") from exc
+    except (SQLAlchemyError, OSError) as exc:
+        # The driver's own error, not SQLAlchemy's str(), which appends the
+        # statement and its parameters. A refused connect is a bare OSError.
+        cause = getattr(exc, "orig", None) or exc
+        raise SystemExit(f"could not read the stored plans: {type(exc).__name__}: {cause}") from exc
     ranked, unreadable = rank_gaps(plans, nutrition_reference())
     print(f"{len(ranked)} keys missing in at least {MIN_HOUSEHOLDS} households; "
           f"{unreadable} plans could not be read")

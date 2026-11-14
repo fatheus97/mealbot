@@ -483,10 +483,17 @@ class TestGaps:
         broken = StoredPlan(household_id=1, request_json="{}", response_json="not json")
         assert rank_gaps([broken], REF) == ([], 1)
 
-    def test_a_database_error_exits_with_a_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(("error", "name"), [
+        (OperationalError("SELECT secret_column", {}, Exception("server closed the connection")), "OperationalError"),
+        (ConnectionRefusedError(111, "Connection refused"), "ConnectionRefusedError"),
+    ])
+    def test_a_database_error_exits_with_a_message(
+        self, monkeypatch: pytest.MonkeyPatch, error: Exception, name: str,
+    ) -> None:
         async def unreachable() -> list[StoredPlan]:
-            raise OperationalError("SELECT", {}, Exception("connection refused"))
+            raise error
 
         monkeypatch.setattr(nutrition_gaps, "_stored_plans", unreachable)
-        with pytest.raises(SystemExit, match="could not read the stored plans: OperationalError"):
+        with pytest.raises(SystemExit, match=f"could not read the stored plans: {name}") as exit_info:
             nutrition_gaps.main([])
+        assert "secret_column" not in str(exit_info.value)  # the statement stays out
