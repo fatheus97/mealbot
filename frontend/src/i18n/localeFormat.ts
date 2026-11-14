@@ -35,6 +35,16 @@ export function localeTags(
   return [...regional, locale];
 }
 
+/**
+ * A number in the user's language: a decimal comma and a no-break space between
+ * thousands in Czech ("1 850,5"), "1,850.5" in English. Rounds to
+ * `maximumFractionDigits`; a caller that wants a coarser step (the nutrition
+ * figures' nearest 10 kcal) rounds before calling.
+ */
+export function formatNumber(value: number, locale: Locale, maximumFractionDigits = 0): string {
+  return new Intl.NumberFormat(localeTags(locale), { maximumFractionDigits }).format(value);
+}
+
 /** A medium-length date in the user's language, or "" for a null/invalid input. */
 export function formatDate(iso: string | null, locale: Locale): string {
   if (!iso) return "";

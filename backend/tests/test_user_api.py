@@ -323,6 +323,23 @@ class TestProfile:
         assert resp.status_code == 200
         assert resp.json()["waste_tracking_enabled"] is False
 
+    async def test_patch_show_nutrition(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        resp = await client.get("/api/users", headers=auth_headers)
+        # Opt-in (nutrition design, owner decision 3): nobody sees a calorie
+        # figure they did not ask for.
+        assert resp.json()["show_nutrition"] is False
+
+        for value in (True, False):
+            resp = await client.patch(
+                "/api/users", headers=auth_headers, json={"show_nutrition": value}
+            )
+            assert resp.status_code == 200
+            assert resp.json()["show_nutrition"] is value
+            resp = await client.get("/api/users", headers=auth_headers)
+            assert resp.json()["show_nutrition"] is value
+
     async def test_patch_invalid_measurement(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:

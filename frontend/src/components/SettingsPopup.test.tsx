@@ -213,6 +213,31 @@ describe('SettingsPopup', () => {
   });
 
   // Same class of bug as show_pieces above.
+  it('sends the nutrition preference when it is toggled on', async () => {
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    mockedUpdateProfile.mockResolvedValueOnce({ ...mockProfile, show_nutrition: true });
+    const user = userEvent.setup();
+
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByDisplayValue('Germany')).toBeInTheDocument());
+    await waitFor(() => expect(mockedAuthFetch).toHaveBeenCalledWith('/countries'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /save preferences/i })).toBeEnabled(),
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: /show approximate nutrition/i }));
+    await user.click(screen.getByRole('button', { name: /save preferences/i }));
+
+    await waitFor(() => {
+      expect(mockedUpdateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ show_nutrition: true }),
+      );
+    });
+  });
+
+  // Same class of bug as show_pieces above.
   it('sends the need-to-use preference when it is toggled off', async () => {
     loginUser();
     mockedFetchProfile.mockResolvedValue(mockProfile);
@@ -347,6 +372,7 @@ describe('SettingsPopup', () => {
         measurement_system: 'metric',
         include_spices: true,
         show_pieces: false,
+        show_nutrition: false,
         track_snacks: true,
         need_to_use_enabled: true,
         waste_tracking_enabled: false,

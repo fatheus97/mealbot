@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealCard } from "./MealCard";
 import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
 import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { CookTimerProvider } from "../contexts/CookTimerContext";
-import type { MealEntrySummary, PlannedMeal } from "../types";
+import type { IngredientNutrition, MealEntrySummary, MealNutrition, PlannedMeal, SourceAttribution } from "../types";
 
 // MealCard is purely presentational — no hooks, no react-query, no auth — so it
 // renders bare. These tests pin the affordance-gating matrix (which button shows
@@ -381,5 +381,287 @@ describe("MealCard — leftovers", () => {
   it("shows no badge on an ordinary meal", () => {
     renderCard({ leftoverSource: null });
     expect(screen.queryByText(/Leftovers/)).not.toBeInTheDocument();
+  });
+});
+
+// ── Nutrition chip and panel (docs/nutrition-design.md, "What the user sees") ──
+
+const SOURCE: SourceAttribution = {
+  name: "Ciqual 2025",
+  publisher: "Anses",
+  published: "2025-11-19",
+  doi: "10.57745/RDMHWY",
+};
+
+function ing(over: Partial<IngredientNutrition>): IngredientNutrition {
+  return {
+    name: "chicken", grams: 400, status: "counted", reason: null, alim_code: 36018,
+    source_name: "Chicken, breast, raw", state: "raw", confidence: "A",
+    per_100g: { kcal: 121.1, kj: 510.2, protein: 23.4, fat: 2.1, carbohydrate: 0 },
+    contribution: { kcal: 484.4, kj: 2040.8, protein: 93.6, fat: 8.4, carbohydrate: 0 },
+    ...over,
+  };
+}
+
+const FIGURE: MealNutrition = {
+  day_index: 0,
+  meal_index: 0,
+  // 1856 and 7756 round UP to 1,860 / 7,760 when complete and DOWN to
+  // 1,850 / 7,750 as a lower bound, so truncation fails both cases.
+  per_serving: { kcal: 1856, kj: 7756, protein: 42.3, fat: 0.3, carbohydrate: 120.6 },
+  withheld_reason: null,
+  servings: 4,
+  complete: true,
+  coverage: 1,
+  ingredients: [
+    ing({}),
+    ing({
+      name: "black pepper", grams: 1, status: "seasoning", alim_code: 11014, source_name: "Pepper, black",
+      confidence: "C", per_100g: { kcal: 251, kj: 1050, protein: 10.4, fat: 3.3, carbohydrate: 38.7 },
+      contribution: { kcal: 0, kj: 0, protein: 0, fat: 0, carbohydrate: 0 },
+    }),
+    ing({
+      name: "water", grams: 200, status: "water", alim_code: null, source_name: null,
+      state: null, confidence: null, per_100g: null, contribution: null,
+    }),
+  ],
+  leftover_of: null,
+};
+
+const PARTIAL: MealNutrition = {
+  ...FIGURE,
+  complete: false,
+  coverage: 0.9,
+  ingredients: [
+    ing({}),
+    ing({ name: "honey", grams: 1, status: "not_counted", reason: "amount_not_given", contribution: null }),
+    ing({ name: "oil", grams: 240, status: "not_counted", reason: "frying_fat", contribution: null }),
+  ],
+};
+
+const panelOf = (chip: HTMLElement): HTMLElement => {
+  const panel = document.getElementById(chip.getAttribute("aria-controls") ?? "");
+  if (!panel) throw new Error("the chip controls no panel");
+  return panel;
+};
+
+describe("MealCard nutrition", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it("shows no chip without figures (setting off, loading, or none)", () => {
+    renderCard();
+    expect(screen.queryByRole("button", { name: /kcal|nutrition/i })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["a meal from before the weight rule", "legacy" as const],
+    ["a leftover whose source is gone", "leftover_unresolved" as const],
+  ])("shows nothing for %s", (_label, reason) => {
+    renderCard({ nutrition: { ...FIGURE, per_serving: null, withheld_reason: reason }, nutritionSource: SOURCE });
+    expect(screen.queryByRole("button", { name: /kcal|nutrition/i })).not.toBeInTheDocument();
+  });
+
+  it("rounds a complete figure to 10 kcal and opens the panel from the chip", async () => {
+    const user = userEvent.setup();
+    renderCard({ nutrition: FIGURE, nutritionSource: SOURCE });
+
+    const chip = screen.getByRole("button", { name: "≈ 1,860 kcal per serving" });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    // No reference to a panel that is not in the DOM.
+    expect(chip).not.toHaveAttribute("aria-controls");
+    expect(screen.queryByText("Per serving, approximately")).not.toBeInTheDocument();
+
+    await user.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    const panel = within(panelOf(chip));
+    const text = panelOf(chip).textContent ?? "";
+    expect(text).toContain("Per serving, approximately");
+    expect(panel.getByRole("cell", { name: "1,860 kcal (7,760 kJ)" })).toBeInTheDocument();
+    expect(panel.getByRole("cell", { name: "42 g" })).toBeInTheDocument();
+    expect(panel.getByRole("cell", { name: "<1 g" })).toBeInTheDocument(); // fat 0.3 g
+    expect(panel.getByRole("cell", { name: "121 g" })).toBeInTheDocument();
+    expect(text).toContain("The dish is split into 4 equal servings.");
+    expect(text).toContain("not what any one person eats");
+    // Provenance: Ciqual name and code, whole kcal so the sum can be redone.
+    expect(panel.getByRole("cell", { name: "Chicken, breast, raw (36018)" })).toBeInTheDocument();
+    expect(panel.getByRole("cell", { name: "484" })).toBeInTheDocument();
+    expect(panel.getByRole("cell", { name: "121" })).toBeInTheDocument();
+    // A seasoning placeholder states no amount, as the recipe states none.
+    expect(panel.getByRole("cell", { name: "to taste" })).toBeInTheDocument();
+    expect(panel.queryByRole("cell", { name: "1 g" })).not.toBeInTheDocument();
+    expect(text).toContain("Confidence: the lowest reliability rating");
+    // Water never reaches the table: it is neither counted nor left out.
+    expect(panel.getByRole("cell", { name: "chicken" })).toBeInTheDocument();
+    expect(panel.queryByRole("cell", { name: "water" })).not.toBeInTheDocument();
+    expect(text).toMatch(/insulin/);
+
+    await user.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Per serving, approximately")).not.toBeInTheDocument();
+  });
+
+  it("carries the attribution, with the DOI link and the update date", async () => {
+    const user = userEvent.setup();
+    renderCard({ nutrition: FIGURE, nutritionSource: SOURCE });
+    await user.click(screen.getByRole("button", { name: /kcal per serving/ }));
+
+    const link = screen.getByRole("link", { name: "Ciqual 2025 (Anses)" });
+    expect(link).toHaveAttribute("href", "https://doi.org/10.57745/RDMHWY");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link.parentElement?.textContent).toBe("Source: Ciqual 2025 (Anses), updated Nov 19, 2025");
+  });
+
+  it("marks a partial figure 'at least' and names what was left out", async () => {
+    const user = userEvent.setup();
+    renderCard({ nutrition: PARTIAL, nutritionSource: SOURCE });
+
+    await user.click(screen.getByRole("button", { name: "At least 1,850 kcal per serving" }));
+    expect(screen.getByText("Per serving, at least")).toBeInTheDocument();
+    expect(
+      screen.getByText("Not counted: honey (amount not given), oil (frying fat, amount eaten unknown)"),
+    ).toBeInTheDocument();
+  });
+
+  it("says 'not enough data' below the coverage floor, and still explains why", async () => {
+    const user = userEvent.setup();
+    renderCard({
+      nutrition: { ...PARTIAL, per_serving: null, withheld_reason: "coverage", coverage: 0.4 },
+      nutritionSource: SOURCE,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Not enough data for nutrition" }));
+    expect(screen.getByText(/Too few of this meal's ingredients/)).toBeInTheDocument();
+    expect(screen.queryByText(/Per serving/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Not counted: honey/)).toBeInTheDocument();
+    // The panel names its source whatever it shows.
+    expect(screen.getByRole("link", { name: "Ciqual 2025 (Anses)" })).toBeInTheDocument();
+  });
+
+  it("gives a leftover its source's figure and points back to the original", async () => {
+    const user = userEvent.setup();
+    const link = { day_index: 0, meal_index: 0 };
+    renderCard({
+      meal: { ...MEAL, leftover_of: link },
+      leftoverSource: "Day 1 · Chicken curry",
+      nutrition: { ...FIGURE, ingredients: [], leftover_of: link },
+      nutritionSource: SOURCE,
+    });
+
+    await user.click(screen.getByRole("button", { name: "≈ 1,860 kcal per serving" }));
+    expect(screen.getByText(/Leftovers of an earlier meal/)).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /Ingredient/ })).not.toBeInTheDocument();
+  });
+
+  it("rounds an 'at least' figure down, so the minimum is never overstated", async () => {
+    const user = userEvent.setup();
+    renderCard({
+      nutrition: { ...PARTIAL, per_serving: { kcal: 1859, kj: 7759, protein: 0.4, fat: 0.9, carbohydrate: 120.9 } },
+      nutritionSource: SOURCE,
+    });
+
+    const chip = screen.getByRole("button", { name: "At least 1,850 kcal per serving" });
+    await user.click(chip);
+    const panel = within(panelOf(chip));
+    expect(panel.getByRole("cell", { name: "1,850 kcal (7,750 kJ)" })).toBeInTheDocument();
+    expect(panel.getByRole("cell", { name: "120 g" })).toBeInTheDocument();
+    // A lower bound below 1 g is 0, not the "<1" trace of an approximate figure.
+    expect(panel.getAllByRole("cell", { name: "0 g" })).toHaveLength(2);
+    expect(panel.queryByRole("cell", { name: "<1 g" })).not.toBeInTheDocument();
+  });
+
+  it("shows a trace of energy as <10 kcal rather than 0", () => {
+    renderCard({
+      nutrition: { ...FIGURE, per_serving: { kcal: 4, kj: 17, protein: 0, fat: 0, carbohydrate: 1 } },
+      nutritionSource: SOURCE,
+    });
+    expect(screen.getByRole("button", { name: "≈ <10 kcal per serving" })).toBeInTheDocument();
+  });
+
+  it("hides the chip and the open panel while the meal is edited", async () => {
+    const user = userEvent.setup();
+    const { props, rerender } = renderCard({ nutrition: FIGURE, nutritionSource: SOURCE });
+    await user.click(screen.getByRole("button", { name: "≈ 1,860 kcal per serving" }));
+    expect(screen.getByText("Per serving, approximately")).toBeInTheDocument();
+
+    // The figure describes the saved meal, not the draft in the editor.
+    const editing = { ...props, isEditing: true };
+    rerender(
+      <CookTimerProvider>
+        <MealCard {...editing} />
+      </CookTimerProvider>,
+    );
+    expect(screen.queryByRole("button", { name: /kcal/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Per serving, approximately")).not.toBeInTheDocument();
+
+    // Cancel hands back the same meal, so the card returns as it was. A save
+    // hands back a new one, which closes the panel (next test).
+    rerender(
+      <CookTimerProvider>
+        <MealCard {...props} />
+      </CookTimerProvider>,
+    );
+    expect(screen.getByRole("button", { name: "≈ 1,860 kcal per serving" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("closes the panel when the card shows a different meal", async () => {
+    const user = userEvent.setup();
+    const { props, rerender } = renderCard({ nutrition: FIGURE, nutritionSource: SOURCE });
+    await user.click(screen.getByRole("button", { name: "≈ 1,860 kcal per serving" }));
+    expect(screen.getByText("Per serving, approximately")).toBeInTheDocument();
+
+    // Regenerate swaps the meal under the same card.
+    const swapped = { ...props, meal: { ...MEAL, name: "Lentil soup" } };
+    rerender(
+      <CookTimerProvider>
+        <MealCard {...swapped} />
+      </CookTimerProvider>,
+    );
+    expect(screen.queryByText("Per serving, approximately")).not.toBeInTheDocument();
+  });
+
+  it("holds the chip's place with an invisible stand-in while figures load", () => {
+    const { container } = renderCard({ nutritionPending: true });
+    // Nothing a screen reader or the keyboard can reach...
+    expect(screen.queryByRole("button", { name: /kcal|nutrition/i })).not.toBeInTheDocument();
+    // ...but a box that takes the chip's space, so nothing jumps when it lands.
+    const standIn = container.querySelector('button[aria-hidden="true"]');
+    expect(standIn).toBeInstanceOf(HTMLButtonElement);
+    expect(standIn).toBeDisabled();
+    expect(standIn).toHaveAttribute("tabindex", "-1");
+    expect((standIn as HTMLElement).style.visibility).toBe("hidden");
+  });
+
+  it("drops the stand-in once figures arrive", () => {
+    const { container } = renderCard({ nutritionPending: true, nutrition: FIGURE, nutritionSource: SOURCE });
+    expect(container.querySelector('button[aria-hidden="true"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "≈ 1,860 kcal per serving" })).toBeInTheDocument();
+  });
+
+  it("shows no stand-in in the editor", () => {
+    const { container } = renderCard({ nutritionPending: true, isEditing: true });
+    expect(container.querySelector('button[aria-hidden="true"]')).toBeNull();
+  });
+
+  it("shortens the chip to kcal on mobile", () => {
+    renderCard({ nutrition: PARTIAL, nutritionSource: SOURCE, isMobile: true });
+    expect(screen.getByRole("button", { name: "At least 1,850 kcal" })).toBeInTheDocument();
+  });
+
+  it("formats Czech numbers and leaves no English behind", async () => {
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    const user = userEvent.setup();
+    renderCard({ nutrition: PARTIAL, nutritionSource: SOURCE });
+
+    // U+00A0 between thousands: Intl's Czech grouping separator.
+    const chip = screen.getByRole("button", { name: "Nejméně 1 850 kcal na porci" });
+    await user.click(chip);
+    const text = panelOf(chip).textContent ?? "";
+    expect(text).toContain("Jídlo je rozdělené na 4 stejné porce.");
+    expect(text).toContain("aktualizace 19. 11. 2025");
+    expect(text).toContain("honey (množství není uvedené)");
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
   });
 });

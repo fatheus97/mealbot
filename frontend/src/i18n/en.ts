@@ -409,6 +409,9 @@ export const en = {
   "prefs.showPieces": "Show pieces instead of grams",
   "prefs.showPiecesHint":
     "For things you buy whole — \"2 eggs\" rather than \"120g\". Only where the amount matches whole pieces; everything else stays in grams, and the exact grams are always in the tooltip.",
+  "prefs.showNutrition": "Show approximate nutrition",
+  "prefs.showNutritionHint":
+    "Energy, protein, fat and carbohydrate per serving on plan meals, calculated from the Ciqual 2025 food table. Meals planned on or before 12 November 2026, and copies of them made with Repeat, may show none.",
   "prefs.trackSnacks": "Track snacks from receipts",
   "prefs.trackSnacksHint":
     "If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts",
@@ -663,6 +666,60 @@ export const en = {
   "calendar.leftoverFromDateAndName": "Leftovers from {date} — {name}",
   "calendar.leftoverFromDate": "Leftovers from {date}",
   "calendar.leftoverFromName": "Leftovers — {name}",
+
+  // ─── Nutrition (MealNutrition.tsx; docs/nutrition-design.md) ─────────────
+  // Words the design allows: "≈", approximate, calculated from, at least, not
+  // counted, per serving. Never accurate, exact, healthy, balanced, recommended
+  // or any claim of suitability; i18n.test.ts scans every key below. Every
+  // figure is Mealbot's calculation from Ciqual data, never an Anses figure.
+  "nutrition.chip": "≈ {kcal} kcal per serving",
+  "nutrition.chipShort": "≈ {kcal} kcal",
+  "nutrition.chipAtLeast": "At least {kcal} kcal per serving",
+  "nutrition.chipAtLeastShort": "At least {kcal} kcal",
+  "nutrition.chipNoData": "Not enough data for nutrition",
+  "nutrition.perServing": "Per serving, approximately",
+  "nutrition.perServingAtLeast": "Per serving, at least",
+  "nutrition.energy": "Energy",
+  "nutrition.protein": "Protein",
+  "nutrition.fat": "Fat",
+  "nutrition.carbohydrate": "Carbohydrate",
+  "nutrition.kcalUnit": "kcal",
+  "nutrition.kjUnit": "kJ",
+  "nutrition.servings_one": "The dish is one serving.",
+  "nutrition.servings_other": "The dish is split into {count} equal servings.",
+  "nutrition.servingNote": "A serving is an equal share of the dish, not what any one person eats.",
+  "nutrition.notEnoughData":
+    "Too few of this meal's ingredients could be counted to give a figure.",
+  "nutrition.leftoverNote":
+    "Leftovers of an earlier meal: the figures and their sources are the ones shown there.",
+  "nutrition.notCounted": "Not counted: {names}",
+  "nutritionReason.not_recognised": "not recognised",
+  "nutritionReason.not_in_table": "not in the food table",
+  "nutritionReason.amount_not_given": "amount not given",
+  "nutritionReason.frying_fat": "frying fat, amount eaten unknown",
+  "nutrition.colIngredient": "Ingredient",
+  "nutrition.colGrams": "Weight",
+  "nutrition.colFood": "Ciqual food",
+  "nutrition.colPer100": "kcal per 100 g",
+  "nutrition.colDish": "kcal in the dish",
+  "nutrition.colConfidence": "Confidence",
+  "nutrition.toTaste": "to taste",
+  "nutrition.confidenceHint":
+    "Confidence: the lowest reliability rating Ciqual gives the protein, fat and carbohydrate values of that food, from A (most reliable) to D (least reliable).",
+  "nutrition.captionCalculated":
+    "Calculated from the Ciqual 2025 food composition table for the ingredient weights in this recipe, split evenly between the servings.",
+  "nutrition.captionRealValues": "Real values depend on the product, the cut and how you cook it.",
+  "nutrition.captionNotAdvice":
+    "Not dietary or medical advice. Do not use these figures to dose insulin or any other medicine.",
+  // {source} is the link to the dataset's DOI, its text "Ciqual 2025 (Anses)"
+  // from the API; Etalab 2.0 asks for the grantor and the date of the update.
+  "nutrition.source": "Source: {source}, updated {date}",
+  "nutrition.unavailable": "Nutrition figures are not shown for this plan.",
+  "nutrition.unavailableHintLabel": "Why this plan has none",
+  "nutrition.unavailableInfantHint":
+    "This plan includes baby food. An equal split between adult and baby servings would mean nothing, so it shows no figures.",
+  "nutrition.unavailableRemovedHint":
+    "The diets and allergies this plan was made for were removed, so Mealbot cannot tell whether it included baby food, and it shows no figures.",
 
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":

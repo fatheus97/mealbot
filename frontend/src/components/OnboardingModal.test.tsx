@@ -36,6 +36,7 @@ const freshProfile: UserProfile = {
   include_spices: true,
   track_snacks: true,
   show_pieces: false,
+  show_nutrition: false,
   need_to_use_enabled: true,
   waste_tracking_enabled: false,
   onboarding_completed: false,
@@ -56,6 +57,7 @@ const resetProfile: UserProfile = {
   include_spices: false,
   track_snacks: false,
   show_pieces: true,
+  show_nutrition: true,
   need_to_use_enabled: false,
   waste_tracking_enabled: true,
   default_day_layout: ['sweet_breakfast', 'main_course'],
@@ -232,6 +234,7 @@ describe('OnboardingModal', () => {
         measurement_system: 'metric',
         include_spices: true,
         show_pieces: false,
+        show_nutrition: false,
         track_snacks: true,
         need_to_use_enabled: true,
         waste_tracking_enabled: false,
@@ -275,12 +278,37 @@ describe('OnboardingModal', () => {
         measurement_system: 'metric',
         include_spices: true,
         show_pieces: false,
+        show_nutrition: false,
         track_snacks: true,
         need_to_use_enabled: true,
         waste_tracking_enabled: false,
         default_day_layout: [],
         onboarding_completed: true,
       });
+    });
+  });
+
+  it('sends the nutrition preference when it is ticked', async () => {
+    // This builder rebuilds the PATCH body field by field, and Partial<Pick>
+    // type-checks a dropped field, so only the API call proves it is sent.
+    loginUser();
+    const user = userEvent.setup();
+    mockedUpdateProfile.mockResolvedValueOnce({
+      ...freshProfile,
+      show_nutrition: true,
+      onboarding_completed: true,
+    });
+
+    render(<OnboardingModal onStartRestock={() => {}} />, { wrapper: createWrapper() });
+    const box = await screen.findByRole('checkbox', { name: /show approximate nutrition/i });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    await user.click(screen.getByRole('button', { name: /get started/i }));
+
+    await waitFor(() => {
+      expect(mockedUpdateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ show_nutrition: true }),
+      );
     });
   });
 
@@ -319,6 +347,7 @@ describe('OnboardingModal', () => {
         measurement_system: 'imperial',
         include_spices: false,
         show_pieces: true,
+        show_nutrition: true,
         track_snacks: false,
         need_to_use_enabled: false,
         waste_tracking_enabled: true,
@@ -367,6 +396,7 @@ describe('OnboardingModal stock step', () => {
     measurement_system: 'metric',
     include_spices: true,
     show_pieces: false,
+    show_nutrition: false,
     track_snacks: true,
     need_to_use_enabled: true,
     waste_tracking_enabled: false,
