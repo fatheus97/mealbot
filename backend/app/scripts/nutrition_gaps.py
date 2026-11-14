@@ -24,6 +24,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import col, select
 
 from app.core.nutrition_reference import Lang, NutritionReference, nutrition_reference
@@ -93,7 +94,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Rank unmapped nutrition keys by grams.")
     parser.add_argument("--top", type=int, default=100, help="rows to print (default 100)")
     args = parser.parse_args(argv)
-    ranked, unreadable = rank_gaps(asyncio.run(_stored_plans()), nutrition_reference())
+    try:
+        plans = asyncio.run(_stored_plans())
+    except SQLAlchemyError as exc:
+        raise SystemExit(f"could not read the stored plans: {type(exc).__name__}: {exc}") from exc
+    ranked, unreadable = rank_gaps(plans, nutrition_reference())
     print(f"{len(ranked)} keys missing in at least {MIN_HOUSEHOLDS} households; "
           f"{unreadable} plans could not be read")
     print("lang\tkey\tcount\tgrams")

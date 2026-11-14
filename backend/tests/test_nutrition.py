@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dietary import DietType
@@ -38,6 +39,7 @@ from app.models.plan_models import (
     MealPlanResponse,
     SingleDayResponse,
 )
+from app.scripts import nutrition_gaps
 from app.scripts.nutrition_gaps import MIN_HOUSEHOLDS, StoredPlan, rank_gaps
 from app.services.nutrition import day_nutrition, plan_nutrition
 from tests.conftest import TEST_PASSWORD
@@ -480,3 +482,11 @@ class TestGaps:
     def test_counts_an_unreadable_plan_instead_of_failing(self) -> None:
         broken = StoredPlan(household_id=1, request_json="{}", response_json="not json")
         assert rank_gaps([broken], REF) == ([], 1)
+
+    def test_a_database_error_exits_with_a_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def unreachable() -> list[StoredPlan]:
+            raise OperationalError("SELECT", {}, Exception("connection refused"))
+
+        monkeypatch.setattr(nutrition_gaps, "_stored_plans", unreachable)
+        with pytest.raises(SystemExit, match="could not read the stored plans: OperationalError"):
+            nutrition_gaps.main([])
