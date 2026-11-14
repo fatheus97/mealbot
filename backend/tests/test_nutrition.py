@@ -160,6 +160,20 @@ class TestKeys:
         meal = _first(_days([_meal({"name": "  Chicken   Breast ", "quantity_grams": 300})]))
         assert meal.ingredients[0].status == "counted"
 
+    def test_an_english_plural_finds_the_singular_row(self) -> None:
+        meal = _first(_days([_meal({"name": "Chicken Breasts", "quantity_grams": 300})]))
+        assert meal.ingredients[0].alim_code == 2
+
+    def test_the_singular_rule_reads_english_only(self) -> None:
+        assert REF.lookup("en", "bell peppers") is not None
+        assert REF.lookup("cs", "paprikas") is None
+
+    def test_a_plural_never_lands_on_a_seasoning_row(self) -> None:
+        # "peppers" are the vegetable: as black pepper, 300 g would add 750 kcal.
+        assert REF.lookup("en", "black pepper") is not None
+        meal = _first(_days([_meal(RICE, {"name": "black peppers", "quantity_grams": 300})]))
+        assert meal.ingredients[1].reason == "not_in_table"
+
 
 class TestSeasoningAndFat:
     def test_a_seasoning_placeholder_is_covered_at_zero(self) -> None:
@@ -295,6 +309,14 @@ class TestLoader:
         hit = ref.lookup("en", " Rice ")
         assert hit is not None and hit[1].name == "Rice, white, raw" and hit[1].polyols is None
 
+    def test_a_plural_on_another_food_keeps_its_own_row(self, tmp_path: Path) -> None:
+        # A homograph: the singular rule reads neither row for a third spelling.
+        pepper = "2,\"Sweet pepper, raw\",30,126,1,0,6,,1.2,0.3,,,0,A"
+        ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD, pepper], [
+            "en,cayenne pepper,1,raw,0,", "en,cayenne peppers,2,raw,0,"]))
+        hits = [ref.lookup("en", k) for k in ("cayenne pepper", "cayenne peppers", "cayennes peppers")]
+        assert [hit[1].alim_code if hit else None for hit in hits] == [1, 2, None]
+
     def test_a_decomposed_name_finds_the_composed_alias(self, tmp_path: Path) -> None:
         ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD], ["cs,r\u00fd\u017ee,1,raw,0,"]))
         assert ref.lookup("cs", "ry\u0301z\u030ce") is not None
@@ -302,6 +324,7 @@ class TestLoader:
     @pytest.mark.parametrize(("foods", "aliases"), [
         ([GOOD_FOOD], ["en,rice,2,raw,0,"]),                      # alias points at no food
         ([GOOD_FOOD], ["en,rice,1,raw,0,", "en,rice,1,raw,0,"]),  # duplicate key
+        ([GOOD_FOOD], ["en,rice,1,raw,0,", "en,rices,1,raw,0,"]),  # same key in its singular
         ([GOOD_FOOD], ["en,Rice,1,raw,0,"]),                      # key not normalised
         ([GOOD_FOOD], ["de,rice,1,raw,0,"]),                      # unknown language
         ([GOOD_FOOD], ["en,rice,1,raw,yes,"]),                    # flag not 0/1
@@ -473,6 +496,16 @@ class TestGaps:
         plans += [self._stored(h, {"name": "Grünkohl", "quantity_grams": 300}, language="German")
                   for h in range(3)]
         assert rank_gaps(plans, REF)[0] == []
+
+    def test_plural_and_singular_rank_as_one_key(self) -> None:
+        plans = [self._stored(h, {"name": "kale" if h else "Kales", "quantity_grams": 100}) for h in range(3)]
+        assert [(g.key, g.count) for g in rank_gaps(plans, REF)[0]] == [("kale", 3)]
+
+    def test_a_plural_the_singular_rule_skips_is_reported_as_written(self) -> None:
+        # "black pepper" is a row, so reporting "black peppers" under it
+        # would name a key the table already has.
+        plans = [self._stored(h, {"name": "Black Peppers", "quantity_grams": 100}) for h in range(3)]
+        assert [g.key for g in rank_gaps(plans, REF)[0]] == ["black peppers"]
 
     def test_a_czech_plan_without_name_en_reports_the_czech_key(self) -> None:
         plans = [self._stored(h, {"name": "Kedlubna", "quantity_grams": 150}, language="Czech")

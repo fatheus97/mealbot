@@ -115,12 +115,14 @@ _WORD: Final = re.compile(r"[a-z]+")
 def singular(word: str) -> str:
     """Crude singular, shared with the word gate: berries -> berry,
     tomatoes -> tomato, leeks -> leek. Wrong now and then by design; a
-    reviewed override_note covers the rest."""
+    reviewed override_note covers the rest. A copy of the lookup's
+    nutrition_reference.singular (this file cannot import the app); a test
+    pins the two together."""
     if len(word) > 4 and word.endswith("ies"):
         return word[:-3] + "y"
     if len(word) > 4 and word.endswith("oes"):
         return word[:-2]
-    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us")):
         return word[:-1]
     return word
 

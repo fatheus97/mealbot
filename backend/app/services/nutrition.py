@@ -12,7 +12,9 @@ The rules that decide what counts, per ingredient:
   the server wrote one; else the name itself, in the English index on an
   English plan or the Czech index on a Czech plan; else "not recognised". The
   indexes stay apart on purpose: Czech "paprika" is a bell pepper, English
-  "paprika" the spice.
+  "paprika" the spice. An English key is also read as its words in the
+  singular ("potatoes" finds "potato", "long-grain rice" "long grain rice"),
+  never onto a seasoning row ("peppers" are not black pepper).
 * a 1 g ``is_spice`` placeholder stands for "to taste": covered at 0 when its
   row is flagged as a seasoning, "amount not given" otherwise.
 * a fat of 80 g or more per 100 g used at over 50 g per serving is frying fat,
@@ -33,7 +35,14 @@ from typing import Final
 
 from app.core.dietary import DietType
 from app.core.i18n import locale_for_language
-from app.core.nutrition_reference import SOURCE, Food, Lang, NutritionReference, normalize_key
+from app.core.nutrition_reference import (
+    SOURCE,
+    Food,
+    Lang,
+    NutritionReference,
+    english_form,
+    normalize_key,
+)
 from app.models.plan_models import (
     DayNutrition,
     IngredientAmount,
@@ -169,8 +178,9 @@ def is_placeholder(ing: IngredientAmount) -> bool:
 def missing_key(
     ing: IngredientAmount, language: str | None, ref: NutritionReference
 ) -> tuple[Lang, str] | None:
-    """The normalised table key of an ingredient that is "not in the table",
-    keyed exactly as the endpoint keys it; None for anything else (counted,
+    """The table key of an ingredient that is "not in the table", keyed
+    exactly as the endpoint keys it (an English key in its singular, so
+    "kales" and "kale" rank together); None for anything else (counted,
     water, unrecognised). The gaps report ranks these."""
     key = _Language.of(language).key(ing, ref)
     if key is None:
@@ -178,7 +188,12 @@ def missing_key(
     lang, name = key[0], normalize_key(key[1])
     if _WATER.fullmatch(name) or ref.lookup(lang, name) is not None:
         return None
-    return lang, name
+    if lang == "cs":
+        return lang, name
+    # A plural the singular rule may not read ("peppers" next to the spice
+    # "pepper") is reported as written, never as the row it is not.
+    form = english_form(name)
+    return lang, (name if ref.lookup("en", form) is not None else form)
 
 
 def _dish(

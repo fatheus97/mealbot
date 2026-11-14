@@ -21,8 +21,10 @@ from app.core.nutrition_reference import (
     Alias,
     Food,
     Lang,
+    english_form,
     load_reference,
     normalize_key,
+    singular,
 )
 from app.scripts import ciqual_snapshot
 from app.scripts.ciqual_snapshot import first_segment, words
@@ -203,6 +205,61 @@ def test_confidence_is_the_worst_of_protein_fat_and_carbohydrate(letters: dict[s
 def test_a_food_missing_a_core_value_is_refused() -> None:
     with pytest.raises(ciqual_snapshot.CiqualError, match="fat"):
         ciqual_snapshot.food_row(_ciqual_food({}, fat=None))
+
+
+SINGULAR_CASES = [
+    ("potatoes", "potato"), ("tomatoes", "tomato"), ("berries", "berry"), ("eggs", "egg"),
+    ("chickpeas", "chickpea"), ("glass", "glass"), ("couscous", "couscous"), ("asparagus", "asparagus"),
+    ("hummus", "hummus"), ("peas", "pea"), ("oats", "oat"), ("leeks", "leek"), ("fries", "fry"),
+]
+
+
+@pytest.mark.parametrize(("word", "expected"), SINGULAR_CASES)
+def test_the_singular_rule(word: str, expected: str) -> None:
+    assert singular(word) == expected
+
+
+@pytest.mark.parametrize(("key", "expected"), [
+    ("Chicken thighs, boneless, skinless", "chicken thigh boneless skinless"),
+    ("chicken thighs (boneless, skinless)", "chicken thigh boneless skinless"),
+    ("long-grain rice", "long grain rice"),
+    ("potato (type C)", "potato type c"),
+    ("heavy cream 33%", "heavy cream 33%"),
+    ("milk 1,5%", "milk 1,5%"),
+    ("jalapeños", "jalapeño"),
+])
+def test_the_english_form_ignores_plurals_and_punctuation(key: str, expected: str) -> None:
+    assert english_form(key) == expected
+
+
+def test_the_word_gate_and_the_lookup_read_plurals_the_same_way() -> None:
+    # The snapshot tool runs isolated and keeps its own copy. Every word of
+    # the shipped table, plus the length edges of each branch, so a guard
+    # that drifts in one copy shows.
+    edges = {"pies", "ties", "toes", "hoes", "mangoes", "gas", "bus", "yes", "us", "bass"}
+    table = {w for a in ALIASES if a.lang == "en" for w in re.findall(r"[a-z]+", a.key)}
+    table |= {w for f in REF.foods.values() for w in re.findall(r"[a-z]+", f.name.lower())}
+    vocabulary = sorted(table | edges | {w for w, _ in SINGULAR_CASES})
+    assert [ciqual_snapshot.singular(w) for w in vocabulary] == [singular(w) for w in vocabulary]
+
+
+def test_a_plural_never_lands_on_a_seasoning_row() -> None:
+    # Bell "peppers" as ground black pepper would be 331 kcal per 100 g.
+    assert REF.lookup("en", "pepper") is not None
+    assert REF.lookup("en", "peppers") is None
+    assert REF.lookup("en", "cayenne peppers") is None
+
+
+def test_the_shipped_plurals_find_their_singular_row() -> None:
+    # The table holds "potato"; the 40 plural and punctuation spellings it
+    # used to hold as rows of their own now reach the same food this way.
+    for spelling, row in [("potatoes", "potato"), ("eggs", "egg"), ("chicken breasts", "chicken breast"),
+                          ("boneless, skinless chicken thighs", "boneless skinless chicken thigh"),
+                          ("long-grain rice", "long grain rice"),
+                          ("chicken thighs, boneless, skinless", "chicken thighs boneless skinless")]:
+        hit = REF.lookup("en", spelling)
+        assert hit is not None and hit[0].key == row, spelling
+        assert english_form(spelling) == english_form(row)
 
 
 def test_source_is_cited() -> None:
