@@ -90,13 +90,19 @@ export type NutritionIngredientStatus = "counted" | "seasoning" | "water" | "not
 export type NotCountedReason = "not_recognised" | "not_in_table" | "amount_not_given" | "frying_fat";
 export type MealWithheldReason = "legacy" | "coverage" | "leftover_unresolved";
 export type PlanNutritionUnavailableReason = "cook_now" | "infant" | "health_data_removed";
+// The table a provenance row comes from: Ciqual 2025 or an Open Food Facts label median.
+export type NutritionFoodSource = "ciqual" | "off";
 
 export interface IngredientNutrition {
   name: string;
   grams: number;
   status: NutritionIngredientStatus;
   reason: NotCountedReason | null;
+  // Which of the two ids is set says the source.
   alim_code: number | null;
+  off_id: string | null;
+  // Open Food Facts only: how many labels the medians are of.
+  label_products: number | null;
   // Ciqual's own (English) food name, shown as provenance.
   source_name: string | null;
   state: string | null;
@@ -121,6 +127,8 @@ export interface MealNutrition {
   // Empty on a leftover, whose figure is its source's.
   ingredients: IngredientNutrition[];
   leftover_of: LeftoverRef | null;
+  // Sorted distinct sources of the counted and seasoning rows; a leftover carries its source dish's.
+  sources: NutritionFoodSource[];
 }
 
 export interface DayNutrition {

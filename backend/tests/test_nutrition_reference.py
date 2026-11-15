@@ -12,10 +12,12 @@ stopped rejecting anything would go red here.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
 from app.core.nutrition_reference import (
+    DATA_DIR,
     FOOD_COLUMNS,
     SOURCE,
     Alias,
@@ -125,7 +127,7 @@ def energy_ok(food: Food) -> bool:
 
 
 def gate_failures(alias: Alias) -> list[str]:
-    food = REF.foods[alias.alim_code]
+    food = REF.foods[alias.food]
     failures = []
     if alias.lang == "en" and not word_gate(alias.key, food.name):
         failures.append("word")
@@ -141,7 +143,7 @@ def _alias_id(alias: Alias) -> str:
 
 
 def _food_id(food: Food) -> str:
-    return str(food.alim_code)
+    return food.id
 
 
 # ── the table as a whole ────────────────────────────────────────────────────
@@ -205,6 +207,27 @@ def test_confidence_is_the_worst_of_protein_fat_and_carbohydrate(letters: dict[s
 def test_a_food_missing_a_core_value_is_refused() -> None:
     with pytest.raises(ciqual_snapshot.CiqualError, match="fat"):
         ciqual_snapshot.food_row(_ciqual_food({}, fat=None))
+
+
+def test_the_snapshot_tool_skips_open_food_facts_ids(tmp_path: Path) -> None:
+    # An off: id names an Open Food Facts row, not a Ciqual food: int() on it
+    # would crash the snapshot, and Ciqual has no such code to copy.
+    aliases = tmp_path / "aliases.csv"
+    aliases.write_text(
+        "lang,key,food,state,seasoning,override_note\n"
+        "en,rice,9100,raw,0,\nen,bread dumpling,off:houskovy-knedlik,neutral,0,\n"
+        "cs,rýže,9100,raw,0,\nen,skim quark,off:tvaroh-odtucneny,neutral,0,\nen,feta,12066,neutral,0,\n",
+        encoding="utf-8",
+    )
+    assert ciqual_snapshot.referenced_codes(aliases) == [9100, 12066]
+
+
+def test_the_snapshot_tool_reads_the_shipped_alias_column() -> None:
+    # The fixture above writes its own header, so it cannot see the tool's
+    # column name drift from the loader's; the shipped file can.
+    assert set(ciqual_snapshot.referenced_codes(DATA_DIR / "aliases.csv")) == {
+        food.alim_code for food in REF.foods.values() if food.source == "ciqual"
+    }
 
 
 SINGULAR_CASES = [
@@ -276,20 +299,68 @@ def test_the_first_round_is_in() -> None:
 
 def test_every_food_is_referenced() -> None:
     # The snapshot writes only referenced codes; an orphan means a hand edit.
-    assert set(REF.foods) == {a.alim_code for a in ALIASES}
+    assert set(REF.foods) == {a.food for a in ALIASES}
 
 
 def test_every_czech_row_shares_its_food_with_an_english_row() -> None:
     # The Czech index is seeded from eval pairs (name, name_en), so each row
     # inherits a reviewed English row's food; a Czech-only code is unreviewed.
-    english_codes = {a.alim_code for a in EN_ALIASES}
-    assert [a.key for a in CS_ALIASES if a.alim_code not in english_codes] == []
+    # An Open Food Facts row is exempt: it is reviewed directly from Czech labels.
+    english_codes = {a.food for a in EN_ALIASES}
+    assert [a.key for a in CS_ALIASES
+            if a.food not in english_codes and REF.foods[a.food].source == "ciqual"] == []
+
+
+# The alias keys whose override note quotes Open Food Facts label figures
+# (#607, credited in #608). Frozen: the LICENSE paragraph covers these ten,
+# and ODbL 6.2 warns that repeated extraction adds up, so new label evidence
+# goes into backend/data/nutrition/off/, never into another Ciqual note.
+LABEL_NOTES = frozenset({
+    ("en", "bryndza"), ("en", "full-fat quark"), ("en", "half-fat quark"), ("en", "old rolls"),
+    ("en", "potato dumpling"), ("en", "roll (stale)"), ("en", "sauerkraut"), ("en", "smoked meat"),
+    ("en", "smoked pork"), ("en", "stale white rolls"),
+})
+
+
+# A note quoting label figures may say so in any of these words, not only
+# "label": an eleventh note that named only the database would pass otherwise.
+_CITING_WORDS = ("label", "etiket", "open food facts", "odbl")
+
+
+def _label_notes(aliases: list[Alias]) -> tuple[set[tuple[str, str]], list[str]]:
+    """The keys whose note cites label figures (any of _CITING_WORDS, in any
+    case), and the keys among them whose note does not name Open Food Facts,
+    the database (ODbL) the figures come from."""
+    citing = [a for a in aliases if any(word in a.override_note.lower() for word in _CITING_WORDS)]
+    return {(a.lang, a.key) for a in citing}, [a.key for a in citing if "Open Food Facts" not in a.override_note]
+
+
+def test_the_label_citing_notes_are_frozen_and_credit_open_food_facts() -> None:
+    citing, uncredited = _label_notes(ALIASES)
+    assert citing == LABEL_NOTES
+    assert uncredited == []
+
+
+@pytest.mark.parametrize(("note", "citing", "uncredited"), [
+    ("Within 2% of the median of 9 labels. The labels are from Open Food Facts (ODbL).", True, False),
+    ("Within 2% of the median of 9 Czech Labels.", True, True),
+    ("Within 3% of the median of 12 Open Food Facts entries.", True, False),
+    ("Within 3% of the median of 12 Czech etiket values.", True, True),
+    ("Median of 9 products (ODbL).", True, True),
+    ("Plain Ciqual row, nearest by energy.", False, False),
+])
+def test_the_label_note_check_reads_a_note(note: str, citing: bool, uncredited: bool) -> None:
+    # Each half of the check above needs its own control: a check that found
+    # no note at all would still pass its credit half.
+    alias = Alias(lang="en", key="x", food="1", state="raw", seasoning=False, override_note=note)
+    found, missing = _label_notes([alias])
+    assert (bool(found), bool(missing)) == (citing, uncredited)
 
 
 def test_no_row_points_at_water() -> None:
     # Water is left out of both sides of the coverage ratio by its name
     # (services/nutrition.py); a row for it would count its grams instead.
-    assert [a.key for a in ALIASES if first_segment(REF.foods[a.alim_code].name) == "Water"] == []
+    assert [a.key for a in ALIASES if first_segment(REF.foods[a.food].name) == "Water"] == []
 
 
 @pytest.mark.parametrize("alias", ALIASES, ids=_alias_id)
@@ -305,7 +376,7 @@ def test_alias_row_is_well_formed(alias: Alias) -> None:
 def test_a_row_failing_a_gate_says_why(alias: Alias) -> None:
     failures = gate_failures(alias)
     if failures:
-        assert alias.override_note, f"{alias.key!r} -> {REF.foods[alias.alim_code].name!r} fails {failures}"
+        assert alias.override_note, f"{alias.key!r} -> {REF.foods[alias.food].name!r} fails {failures}"
     else:
         assert not alias.override_note, f"{alias.key!r}: override_note explains no failing gate"
 
@@ -319,12 +390,12 @@ def test_no_alias_needs_refuse_arithmetic(alias: Alias) -> None:
     "alias", [a for a in ALIASES if a.seasoning], ids=_alias_id
 )
 def test_seasoning_rows_stay_in_bounds(alias: Alias) -> None:
-    assert seasoning_ok(REF.foods[alias.alim_code])
+    assert seasoning_ok(REF.foods[alias.food])
 
 
 @pytest.mark.parametrize("food", [REF.foods[code] for code in sorted(REF.foods)], ids=_food_id)
 def test_energy_identity(food: Food) -> None:
-    assert energy_ok(food), f"{food.alim_code} {food.name}"
+    assert energy_ok(food), f"{food.id} {food.name}"
 
 
 # ── negative controls: the gates reject real Ciqual near-misses ────────────
@@ -402,23 +473,23 @@ def test_czech_state_gate_accepts(key: str, ciqual_name: str) -> None:
 
 
 @pytest.mark.parametrize(("lang", "key", "code", "failures"), [
-    ("en", "garlic powder", 11000, ["state"]),  # Garlic, raw
-    ("cs", "cizrna z konzervy", 20516, ["state"]),  # Chick pea, dried
-    ("en", "carp", 20516, ["word"]),
-    ("cs", "cizrna", 20516, []),  # the word gate cannot read Czech, so it is not run
+    ("en", "garlic powder", "11000", ["state"]),  # Garlic, raw
+    ("cs", "cizrna z konzervy", "20516", ["state"]),  # Chick pea, dried
+    ("en", "carp", "20516", ["word"]),
+    ("cs", "cizrna", "20516", []),  # the word gate cannot read Czech, so it is not run
 ])
 def test_gate_failures_runs_each_gate_for_its_language(
-    lang: Lang, key: str, code: int, failures: list[str],
+    lang: Lang, key: str, code: str, failures: list[str],
 ) -> None:
     # Through gate_failures, on shipped foods: the per-row test sees only
     # what this function returns, so each branch needs its own control.
-    alias = Alias(lang=lang, key=key, alim_code=code, state="raw", seasoning=False, override_note="")
+    alias = Alias(lang=lang, key=key, food=code, state="raw", seasoning=False, override_note="")
     assert gate_failures(alias) == failures
 
 
 def _food(kcal: float, fat: float, sugars: float | None) -> Food:
     return Food(
-        alim_code=0, name="x", kcal=kcal, kj=kcal * 4.184, protein=0, fat=fat, carbohydrate=0,
+        id="0", name="x", kcal=kcal, kj=kcal * 4.184, protein=0, fat=fat, carbohydrate=0,
         polyols=None, fibre=None, sugars=sugars, alcohol=None, organic_acids=None,
         below_detection=False, confidence="A",
     )
@@ -466,7 +537,7 @@ def test_energy_identity_catches_the_wrong_protein_column(protein: float, holds:
     # Soy protein (20903) is the one Ciqual food where the two protein columns
     # differ enough to move energy past the tolerance.
     soy = Food(
-        alim_code=20903, name="Soy protein", kcal=402, kj=1700, protein=protein, fat=3.39, carbohydrate=1.76,
+        id="20903", name="Soy protein", kcal=402, kj=1700, protein=protein, fat=3.39, carbohydrate=1.76,
         polyols=None, fibre=5.6, sugars=0, alcohol=0, organic_acids=0,
         below_detection=True, confidence="C",
     )
@@ -479,7 +550,7 @@ def test_energy_identity_catches_the_wrong_protein_column(protein: float, holds:
 ])
 def test_energy_identity_catches_fibre_counted_in_carbohydrate(fibre: float, holds: bool) -> None:
     bran = Food(
-        alim_code=9621, name="Wheat bran", kcal=270, kj=1120, protein=14.7, fat=3.88, carbohydrate=22.7,
+        id="9621", name="Wheat bran", kcal=270, kj=1120, protein=14.7, fat=3.88, carbohydrate=22.7,
         polyols=0, fibre=fibre, sugars=2.39, alcohol=0, organic_acids=0,
         below_detection=False, confidence="C",
     )
