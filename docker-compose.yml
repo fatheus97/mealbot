@@ -9,7 +9,7 @@
 # and the discard behaviour rather than inventing a number of days.
 #
 # 10MB x 3 files = 30MB ceiling per container. Applies on container RECREATION,
-# not reload — deploy.sh runs `up -d --build`, so it lands on the next deploy.
+# not reload — deploy.sh builds, then runs `up -d`, so it lands on the next deploy.
 x-logging: &default-logging
   driver: json-file
   options:
@@ -92,7 +92,8 @@ services:
     # silently stays behind. Read-only because migrate only reads
     # revisions; it writes to alembic_version via the db, not the fs.
     # In prod the host path is identical to the image layer (deploy.sh
-    # does `git pull` before `up --build`) so the overlay is a no-op.
+    # resets to origin/main, then builds every service, migrate included)
+    # so the overlay is a no-op.
     volumes:
       - ./backend/alembic:/app/alembic:ro
     env_file:
