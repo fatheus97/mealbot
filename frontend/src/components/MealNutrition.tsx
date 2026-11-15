@@ -208,9 +208,12 @@ function Provenance({ figure }: { figure: MealNutrition }) {
   if (rows.length === 0) return null;
   return (
     <>
-      {/* Six columns do not fit 375px; the table scrolls inside the panel. */}
+      {/* Six columns do not fit 375px; the table scrolls inside the panel.
+          The plan around it sets word-break: break-word, which lets every cell
+          break between any two letters, so the table squeezed into the box
+          ("ho/us/ko/vý") and never scrolled. normal breaks only between words. */}
       <div style={{ overflowX: "auto", margin: "0.35rem 0" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", wordBreak: "normal" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid #ccc" }}>
               <th scope="col" style={th}>{t("nutrition.colIngredient")}</th>

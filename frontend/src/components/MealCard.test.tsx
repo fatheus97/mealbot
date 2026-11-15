@@ -553,6 +553,11 @@ describe("MealCard nutrition", () => {
     expect(screen.getByRole("columnheader", { name: "Matched food" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "label median, 13 products" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "A" })).toBeInTheDocument();
+    // The plan sets break-word, which crushed this table to letter-wide columns at
+    // 375px instead of letting it scroll (measured in the browser; jsdom has no layout).
+    expect(screen.getByRole("columnheader", { name: "Matched food" }).closest("table")).toHaveStyle({
+      wordBreak: "normal",
+    });
     // One hint per kind of row listed.
     expect(screen.getByText(/^Confidence: the lowest reliability rating/)).toBeInTheDocument();
     expect(screen.getByText(/^Label median: each value is the middle one/)).toBeInTheDocument();
