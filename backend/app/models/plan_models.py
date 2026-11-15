@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import (
     BaseModel,
@@ -755,6 +755,16 @@ class GeneratedMeal(BaseModel):
         return v
 
 
+# The weight rule the prompt templates give for quantity_grams: the edible part,
+# raw, as it goes into the pan; rice, pasta, grains and dried legumes dry. Two
+# exceptions: a product bought cooked or canned is weighed as used and says so in
+# its name, and an ingredient taken from the fridge list keeps the list's weight
+# (as stored, which is as bought), so the fridge debit stays right. Bump it only
+# together with a changed rule, so a stored meal always names the rule it was
+# written to.
+GRAMS_BASIS: Final = 1
+
+
 class PlannedMeal(GeneratedMeal):
     """A meal as stored and served: the generated content plus server-assigned
     fields the LLM never produces.
@@ -785,6 +795,14 @@ class PlannedMeal(GeneratedMeal):
     # meal. Client-write paths (/recipe/cook, /recipe/favorite) take it from the
     # server's own generation row, never from the client.
     generated_by: str | None = Field(default=None, max_length=120)
+    # Which weight rule the prompt gave for quantity_grams (GRAMS_BASIS). Same
+    # life cycle as generated_by: the server stamps it after generation, an
+    # edit keeps it, and /recipe/cook and /recipe/favorite copy it from the
+    # generation row. None = written before the rule, so its grams may be
+    # cooked or as-bought weights and nutrition (docs/nutrition-design.md)
+    # must not compute a figure from them; also None on a leftover, which the
+    # server builds without ingredients and which takes its source's figure.
+    grams_basis: int | None = Field(default=None, ge=1)
 
     @property
     def is_leftover(self) -> bool:
@@ -886,10 +904,14 @@ class LlmDayResponse(BaseModel):
 
     def to_planned_day(self, generated_by: str | None = None) -> SingleDayResponse:
         """Widen raw model output into stored meals (leftover_of defaults None),
-        each stamped with the model that wrote it."""
+        each stamped with the model that wrote it and the weight rule it was
+        given. Unconditional: both prompt templates carry that rule, and a mock
+        answer is demo content whose fixtures already use dry grains."""
         return SingleDayResponse(
             meals=[
-                PlannedMeal.model_validate({**m.model_dump(), "generated_by": generated_by})
+                PlannedMeal.model_validate({
+                    **m.model_dump(), "generated_by": generated_by, "grams_basis": GRAMS_BASIS,
+                })
                 for m in self.meals
             ]
         )
@@ -910,6 +932,82 @@ class MealPlanResponse(BaseModel):
     start_date: date | None = None
     days: list[SingleDayResponse]
     shopping_list: list[ShoppingListItem]
+
+
+# ── Nutrition (GET /api/plan/{id}/nutrition, docs/nutrition-design.md) ──────────
+# Computed on every read from the stored plan and the reviewed Ciqual table, and
+# never stored, so an edit or a regenerate shows on the next read. Values are
+# unrounded so anyone can redo the arithmetic from the provenance rows; the UI
+# rounds. These models live here and NEVER on GeneratedMeal or PlannedMeal.
+
+class NutrientValues(BaseModel):
+    """Energy and the three macros, per 100 g, per dish or per serving."""
+    kcal: float
+    kj: float
+    protein: float
+    fat: float
+    carbohydrate: float
+
+
+IngredientStatus = Literal["counted", "seasoning", "water", "not_counted"]
+NotCountedReason = Literal["not_recognised", "not_in_table", "amount_not_given", "frying_fat"]
+MealWithheldReason = Literal["legacy", "coverage", "leftover_unresolved"]
+PlanUnavailableReason = Literal["cook_now", "infant", "health_data_removed"]
+
+
+class IngredientNutrition(BaseModel):
+    """One ingredient's line in the provenance table."""
+    name: str
+    grams: float
+    status: IngredientStatus
+    reason: NotCountedReason | None = None
+    alim_code: int | None = None
+    source_name: str | None = None
+    state: str | None = None
+    confidence: str | None = None
+    per_100g: NutrientValues | None = None
+    # What this ingredient adds to the whole dish (not per serving).
+    contribution: NutrientValues | None = None
+
+
+class MealNutrition(BaseModel):
+    day_index: int
+    meal_index: int
+    # None when no figure is shown; withheld_reason then says why.
+    per_serving: NutrientValues | None
+    withheld_reason: MealWithheldReason | None = None
+    # people_count x (1 + the meals that are leftovers of this one).
+    servings: int
+    # Nothing was left out (water and covered seasonings do not count as left out).
+    complete: bool
+    # Counted grams over all grams except water and 1 g seasoning placeholders.
+    coverage: float
+    ingredients: list[IngredientNutrition]
+    # Set on a leftover, whose figure is its source's.
+    leftover_of: LeftoverRef | None = None
+
+
+class DayNutrition(BaseModel):
+    day_index: int
+    # Sum of the day's per-serving figures, shown only when every meal has one.
+    per_person: NutrientValues | None
+    # Some figure that went into per_person is an "at least".
+    partial: bool
+    meals: list[MealNutrition]
+
+
+class SourceAttribution(BaseModel):
+    name: str
+    publisher: str
+    published: date
+    doi: str
+
+
+class PlanNutrition(BaseModel):
+    available: bool
+    unavailable_reason: PlanUnavailableReason | None = None
+    days: list[DayNutrition]
+    source: SourceAttribution
 
 
 class ConfirmPlanRequest(BaseModel):

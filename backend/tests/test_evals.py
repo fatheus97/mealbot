@@ -19,7 +19,7 @@ from app.core.dietary import Allergen, DietType
 from app.core.meal_types import MealType
 from app.llm.client import llm_client
 from app.models.plan_models import IngredientAmount, LlmDayResponse, MealPlanRequest, PlannedMeal
-from evals.graders import DIET_RULES, GRADERS, grade
+from evals.graders import DIET_RULES, GRADERS, Check, grade
 from evals.meal_plan_cases import CASES, stock
 from evals.run import (
     Pacer,
@@ -144,6 +144,31 @@ class TestContractGraders:
         assert use.score == 1.0  # spinach used; the milk is rightly left alone
 
 
+    def test_nutrition_coverage_is_the_share_of_grams_the_table_counts(self) -> None:
+        # Real shipped rows: rice and chicken breast are in the table, the
+        # made-up food is not; water and a 1 g "to taste" line weigh nothing.
+        req = MealPlanRequest(meals_per_day=1, language="English")
+        day = meal(
+            IngredientAmount(name="rice", quantity_grams=100),
+            IngredientAmount(name="chicken breast", quantity_grams=100),
+            IngredientAmount(name="unobtainium", quantity_grams=200),
+            IngredientAmount(name="water", quantity_grams=500),
+            IngredientAmount(name="salt", quantity_grams=1, is_spice=True),
+        )
+        [cov] = [c for c in grade(req, [day]) if c.name == "nutrition_coverage"]
+        assert cov.passed is True  # a measurement, never a failure
+        assert cov.score == pytest.approx(0.5)
+        assert cov.detail == "not counted: unobtainium (200 g)"
+
+    def test_nutrition_coverage_reads_a_czech_plan_through_name_en_and_its_czech_index(self) -> None:
+        req = MealPlanRequest(meals_per_day=1, language="Czech")
+        rice = IngredientAmount(name="rýže jasmínová", name_en="rice", quantity_grams=80)
+        # No name_en: only the Czech index, reached through the plan's language, counts it.
+        carrot = IngredientAmount(name="mrkev", quantity_grams=80)
+        [cov] = [c for c in grade(req, [meal(rice, carrot)]) if c.name == "nutrition_coverage"]
+        assert cov.score == 1.0
+
+
 class TestTheSuite:
     def test_case_ids_are_unique(self) -> None:
         ids = [c.id for c in CASES]
@@ -159,7 +184,7 @@ class TestTheSuite:
         probe = [meal("rice")]
         applied = {c.name for case in CASES for c in grade(case.request, probe)}
         assert applied == {"meal_count", "allergens", "infant", "diet", "avoid", "name_en", "language",
-                           "stock_only", "fridge_use"}
+                           "stock_only", "fridge_use", "nutrition_coverage"}
         assert len(applied) == len(GRADERS)  # a new grader needs a case, and a name here
 
 
@@ -181,6 +206,14 @@ class TestTheRunner:
         assert len(results) == 3 and all(r.ok for r in results), [r.error for r in results]
         card = scorecard(results)
         assert "gemini/mock" in card and "safety clean" in card
+
+    def test_each_scored_check_gets_its_own_row(self) -> None:
+        # Averaging fridge use and nutrition coverage together would mean nothing.
+        results = [RunResult(model="m", case_id="c", repeat=0, ok=True, checks=[
+            Check("fridge_use", True, score=1.0), Check("nutrition_coverage", True, score=0.5)])]
+        card = scorecard(results)
+        assert "| urgent fridge items used | 100% |" in card
+        assert "| ingredient grams the nutrition table counts | 50% |" in card
 
     async def test_saved_results_reload_into_the_same_scorecard(self, tmp_path: Path) -> None:
         entry = ModelEntry(provider=LLMProvider.GEMINI, model="mock")

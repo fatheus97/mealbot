@@ -112,19 +112,24 @@ def _recipe_was_edited(stored_output_json: str, submitted_json: str) -> bool:
 
 
 def _stamp_from_generation(recipe: PlannedMeal, gen: MachineGeneration | None) -> None:
-    """Set recipe.generated_by from the server's own record of the generation.
+    """Set recipe.generated_by and recipe.grams_basis from the server's own
+    record of the generation.
 
-    The field is server-assigned, so the client's copy is never kept: it would
-    let a user attribute any recipe to any model. Plain nulling is wrong too: the
-    stored generation carries the stamp, so _recipe_was_edited would see every
+    Both fields are server-assigned, so the client's copy is never kept: it
+    would let a user attribute any recipe to any model, or pass off weights
+    written to no rule as nutrition-ready. Plain nulling is wrong too: the
+    stored generation carries the stamps, so _recipe_was_edited would see every
     untouched recipe as edited and write a phantom correction.
     """
     recipe.generated_by = None
+    recipe.grams_basis = None
     if gen is None:
         return
-    # An unreadable row has no known author, which None already says.
+    # An unreadable row has no known author or rule, which None already says.
     with contextlib.suppress(ValidationError):
-        recipe.generated_by = PlannedMeal.model_validate_json(gen.output_json).generated_by
+        stored = PlannedMeal.model_validate_json(gen.output_json)
+        recipe.generated_by = stored.generated_by
+        recipe.grams_basis = stored.grams_basis
 
 
 def _build_plan_request(req: SingleRecipeRequest, user: User) -> MealPlanRequest:
