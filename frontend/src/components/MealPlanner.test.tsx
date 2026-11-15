@@ -1773,6 +1773,7 @@ describe('MealPlanner nutrition (opt-in)', () => {
   };
   const plan = { plan_id: 99, start_date: null, days: [{ meals: [meal] }], shopping_list: [] };
   const SOURCE = { name: 'Ciqual 2025', publisher: 'Anses', published: '2025-11-19', doi: '10.57745/RDMHWY' };
+  const NOT_ADVICE = 'Not dietary or medical advice. Do not use these figures to dose insulin or any other medicine.';
   // Typed, so tsc flags a field the API gains and this mock lacks.
   const figure = (kcal: number): PlanNutrition => ({
     available: true,
@@ -1912,6 +1913,50 @@ describe('MealPlanner nutrition (opt-in)', () => {
     await waitFor(() => expect(mockedFetchNutrition).toHaveBeenCalledWith(99));
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByText(/not shown for this plan/)).not.toBeInTheDocument();
+    expect(screen.queryByText(NOT_ADVICE)).not.toBeInTheDocument();
+  });
+
+  // The plan's own source line: a chip and a day total carry no attribution,
+  // and a meal panel carries it only while open.
+  it('names the source and says it is not advice at the end of the plan once a meal has a figure', async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue(dayFigure(DAY, false));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    // Every panel is closed, so the plan-end box is the only place these show.
+    expect(await screen.findByText(NOT_ADVICE)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ciqual 2025 (Anses)' }))
+      .toHaveAttribute('href', 'https://doi.org/10.57745/RDMHWY');
+    expect(screen.getByText(/^Source: .*, updated /)).toBeInTheDocument();
+  });
+
+  it('shows no source box when no meal of the plan has a figure', async () => {
+    withProfile(true);
+    const base = figure(540);
+    mockedFetchNutrition.mockResolvedValue({
+      ...base,
+      days: [{
+        ...base.days[0],
+        meals: [{ ...base.days[0].meals[0], per_serving: null, withheld_reason: 'coverage' }],
+      }],
+    });
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    // The withheld meal's chip lands, so the figures have arrived.
+    expect(await screen.findByRole('button', { name: /Not enough data/ })).toBeInTheDocument();
+    expect(screen.queryByText(NOT_ADVICE)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Ciqual 2025 (Anses)' })).not.toBeInTheDocument();
+  });
+
+  it('shows no source box while the setting is off', async () => {
+    withProfile(false);
+    mockedFetchNutrition.mockResolvedValue(dayFigure(DAY, false));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    await screen.findByText('Opened Meal');
+    await waitFor(() => expect(mockedFetchProfile).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText(NOT_ADVICE)).not.toBeInTheDocument();
   });
 
   it('refetches after a meal edit, so the card shows the edited figure', async () => {
