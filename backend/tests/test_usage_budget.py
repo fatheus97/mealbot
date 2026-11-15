@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_generation_budget
@@ -278,6 +279,23 @@ async def test_trial_window_excludes_usage_before_window_start(
     st = await usage_budget.get_budget_status(db_session, test_user)
     assert st.tier == "trial"
     assert st.used_eur == pytest.approx(0.2, rel=2e-2)  # only the in-window row
+
+
+async def test_window_start_means_utc_whatever_the_session_timezone(
+    test_user: User, db_session: AsyncSession
+) -> None:
+    # LlmUsage.created_at is TIMESTAMPTZ while window_start is naive UTC. Bound
+    # naive, Postgres reads it in the session's TimeZone: in New York the window
+    # would open five hours late and this in-window row would not count.
+    await db_session.execute(text("SET LOCAL TIME ZONE 'America/New_York'"))
+    assert test_user.id is not None
+    await _seed(
+        db_session, test_user.id, 1000, created_at=datetime(2026, 11, 1, 13, 0, tzinfo=UTC)
+    )
+    used = await llm_cost.compute_window_cost(
+        db_session, user_id=test_user.id, window_start=datetime(2026, 11, 1, 12, 0)
+    )
+    assert used > 0
 
 
 async def test_require_generation_budget_blocks_over_cap(
