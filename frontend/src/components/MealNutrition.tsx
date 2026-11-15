@@ -304,7 +304,7 @@ function SourceLine({ source }: { source: SourceAttribution }) {
  *  an attribution, and a panel carries it only while open, so the end of the
  *  plan carries it once while any meal has a figure. It sets the panel's own
  *  surface and colour, like the panel, so it does not depend on the plan
- *  block it lands in (a light card in both themes today). */
+ *  block it lands in. */
 export function NutritionSources({ days, source }: { days: DayNutrition[]; source: SourceAttribution }) {
   const { t } = useI18n();
   if (!days.some((day) => day.meals.some((meal) => meal.per_serving !== null))) return null;
