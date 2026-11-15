@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    Text,
     UniqueConstraint,
     event,
     text,
@@ -157,15 +158,17 @@ class User(SQLModel, table=True):
     # preferred output language for LLM responses; whitelisted against
     # app.core.language_whitelist at the API layer. Capped at 50 chars to
     # bound prompt-token use and guard against pathological input.
-    language: str = Field(default="English", max_length=50)
+    language: str = Field(
+        default="English", max_length=50, sa_column_kwargs={"server_default": "English"}
+    )
 
     # include snacks/ready-to-eat items from receipt scans
-    track_snacks: bool = Field(default=True)
+    track_snacks: bool = Field(default=True, sa_column_kwargs={"server_default": "true"})
 
     # Show countable ingredients as a piece count ("2 eggs") instead of grams.
     # DISPLAY ONLY — grams stay the single stored quantity and the only thing any
     # arithmetic reads, so this can never change what a plan buys or debits.
-    show_pieces: bool = Field(default=False)
+    show_pieces: bool = Field(default=False, sa_column_kwargs={"server_default": "false"})
 
     # Show approximate energy and macros per serving on plan meals
     # (docs/nutrition-design.md). DISPLAY ONLY: the figures are computed on
@@ -183,7 +186,7 @@ class User(SQLModel, table=True):
     # triage this per-ingredient can turn it off in one place. StockItem rows
     # keep their real stored value untouched, so re-enabling instantly restores
     # whatever was there before.
-    need_to_use_enabled: bool = Field(default=True)
+    need_to_use_enabled: bool = Field(default=True, sa_column_kwargs={"server_default": "true"})
 
     # Master switch for food-waste capture (WasteRecord). When False the client
     # hides every "ate it / threw it out" prompt AND the /fridge/waste endpoint
@@ -202,7 +205,9 @@ class User(SQLModel, table=True):
     # if false, frontend shows onboarding popup
     onboarding_completed: bool = Field(default=False, index=True)
 
-    is_demo: bool = Field(default=False, index=True)
+    is_demo: bool = Field(
+        default=False, index=True, sa_column_kwargs={"server_default": "false"}
+    )
 
     # Preferred per-day meal-slot shape, e.g.
     #   ["sweet_breakfast", "snack", "main_course", "hot_dinner"]
@@ -384,14 +389,24 @@ class AuthSession(SQLModel, table=True):
     refresh_token_hash: str = Field(
         sa_column=Column(String(64), unique=True, index=True, nullable=False),
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
-    last_used_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    last_used_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
     # Indexed (standalone) so the periodic cleanup sweep — a global
     # DELETE ... WHERE expires_at < cutoff — is index-served. The existing
     # composite (user_id, expires_at) index is user_id-leading and can't serve
     # a filter on expires_at alone. See services/authsession_cleanup.
-    expires_at: datetime = Field(nullable=False, index=True)
-    revoked_at: datetime | None = Field(default=None)
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True)
+    )
+    revoked_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
     # Truncated User-Agent for future "Active sessions" UI; pure metadata,
     # never trusted for auth decisions.
     user_agent: str | None = Field(default=None, max_length=256)
@@ -410,6 +425,13 @@ class AuthSession(SQLModel, table=True):
     )
 
     user: User = Relationship(back_populates="auth_sessions")
+
+    __table_args__ = (
+        # Both mirror the migration (p6q7r8s9t0u1). The constraint duplicates the
+        # unique index on refresh_token_hash; prod has both, so the model does.
+        UniqueConstraint("refresh_token_hash"),
+        Index("ix_authsession_user_expires", "user_id", "expires_at"),
+    )
 
 
 class PasswordResetToken(SQLModel, table=True):
@@ -899,7 +921,9 @@ class MealEntry(SQLModel, table=True):
     # JSON list[ConsumedBatch]. NULL on legacy rows (pre-migration); finish_plan
     # falls back to a lossy name+grams restore via restore_consumed_batches for
     # those — expiration_date and need_to_use are not recoverable.
-    consumed_snapshot_json: str | None = Field(default=None)
+    consumed_snapshot_json: str | None = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
 
     # --- Leftover projection (see app/services/leftovers.py) ---
     #
@@ -1050,7 +1074,8 @@ class MachineGeneration(SQLModel, table=True):
     # input) — see telemetry.GENERATION_SURFACES.
     surface: str = Field(index=True, nullable=False)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), index=True, nullable=False),
     )
     # Loose link to the owning plan when the surface has one (meal_plan,
     # regenerate); NULL for plan-less surfaces (receipt_scan, single_recipe).
@@ -1118,7 +1143,8 @@ class LlmUsage(SQLModel, table=True):
     completion_tokens: int = Field(nullable=False)
     total_tokens: int = Field(nullable=False)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), index=True, nullable=False),
     )
     # Loose link to the owning plan when the surface has one (meal_plan,
     # regenerate); NULL otherwise. SET NULL so deleting a plan doesn't destroy
@@ -1155,7 +1181,8 @@ class MachineCorrection(SQLModel, table=True):
     # telemetry.CORRECTION_SURFACES.
     surface: str = Field(index=True, nullable=False)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC), index=True, nullable=False
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), index=True, nullable=False),
     )
     # CASCADE: a correction is meaningless once its generation is gone.
     generation_id: int | None = Field(
