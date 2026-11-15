@@ -722,7 +722,7 @@ export const en = {
   "nutrition.labelMedian_one": "label median, {count} product",
   "nutrition.labelMedian_other": "label median, {count} products",
   "nutrition.labelMedianHint":
-    "Label median: each value is the middle one of the nutrition labels of that many packaged products sold in Czechia or Slovakia, and a recipe sold under several brands counts once.",
+    "Label median: each value is the middle one of the nutrition labels of that many packaged products sold in Czechia or Slovakia (with an even number, the average of the two middle ones), and a recipe sold under several brands counts once.",
   // Follows captionCalculated when a meal uses an Open Food Facts row.
   "nutrition.captionLabels":
     "Rows marked \"label median\" use the median of the nutrition labels of packaged products instead.",

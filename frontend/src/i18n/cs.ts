@@ -645,7 +645,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "nutrition.labelMedian_many": "medián z etiket, {count} výrobku",
   "nutrition.labelMedian_other": "medián z etiket, {count} výrobků",
   "nutrition.labelMedianHint":
-    "Medián z etiket: každá hodnota je ta prostřední z nutričních údajů na etiketách uvedeného počtu balených výrobků prodávaných v Česku nebo na Slovensku a stejný recept pod více značkami se počítá jen jednou.",
+    "Medián z etiket: každá hodnota je ta prostřední z nutričních údajů na etiketách uvedeného počtu balených výrobků prodávaných v Česku nebo na Slovensku (při sudém počtu průměr dvou prostředních) a stejný recept pod více značkami se počítá jen jednou.",
   "nutrition.captionLabels":
     "Řádky označené „medián z etiket“ místo toho vycházejí z mediánu údajů na etiketách balených výrobků.",
   "nutrition.captionRealValues":
