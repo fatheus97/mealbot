@@ -703,6 +703,9 @@ export const en = {
   "nutritionReason.not_in_table": "not in the food table",
   "nutritionReason.amount_not_given": "amount not given",
   "nutritionReason.frying_fat": "frying fat, amount eaten unknown",
+  // The accessible name of the provenance table's scroll box, which takes
+  // keyboard focus so its clipped columns can be scrolled into view.
+  "nutrition.provenanceLabel": "Where each value comes from",
   "nutrition.colIngredient": "Ingredient",
   "nutrition.colGrams": "Weight",
   "nutrition.colFood": "Matched food",
@@ -734,7 +737,7 @@ export const en = {
   // Food Facts", "Open Database License (ODbL)"), set in the component;
   // {folder} links to the published rows, its text the key below.
   "nutrition.offNotice": "Contains information from {off}, which is made available here under the {odbl}.",
-  "nutrition.offRows": "We publish the label values we use under the same licence {folder}.",
+  "nutrition.offRows": "We publish the label values we use, under the same licence, {folder}.",
   "nutrition.offRows.folderLink": "in our public repository",
   "nutrition.unavailable": "Nutrition figures are not shown for this plan.",
   "nutrition.unavailableHintLabel": "Why this plan has none",

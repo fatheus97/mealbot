@@ -628,6 +628,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "nutritionReason.not_in_table": "není v tabulce potravin",
   "nutritionReason.amount_not_given": "množství není uvedené",
   "nutritionReason.frying_fat": "tuk na smažení, snědené množství nelze určit",
+  "nutrition.provenanceLabel": "Odkud jednotlivé hodnoty pocházejí",
   "nutrition.colIngredient": "Surovina",
   "nutrition.colGrams": "Hmotnost",
   "nutrition.colFood": "Přiřazená potravina",

@@ -506,7 +506,7 @@ describe("MealCard nutrition", () => {
   // ODbL 4.3 and 4.6 (docs/nutrition-design.md, "Open Food Facts label rows").
   const OFF_NOTICE =
     "Contains information from Open Food Facts, which is made available here under the Open Database License (ODbL). " +
-    "We publish the label values we use under the same licence in our public repository.";
+    "We publish the label values we use, under the same licence, in our public repository.";
   const OFF_HREFS: [string, string][] = [
     ["Open Food Facts", "https://world.openfoodfacts.org"],
     ["Open Database License (ODbL)", "https://opendatacommons.org/licenses/odbl/1-0/"],
@@ -553,6 +553,11 @@ describe("MealCard nutrition", () => {
     expect(screen.getByRole("columnheader", { name: "Matched food" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "label median, 13 products" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "A" })).toBeInTheDocument();
+    // The table may be wider than the panel and scroll; its box takes focus, so a
+    // keyboard user can scroll it where the browser does not focus scrollers (Safari).
+    const scroller = screen.getByRole("region", { name: "Where each value comes from" });
+    expect(scroller).toHaveAttribute("tabindex", "0");
+    expect(within(scroller).getByRole("columnheader", { name: "Matched food" })).toBeInTheDocument();
     // One hint per kind of row listed.
     expect(screen.getByText(/^Confidence: the lowest reliability rating/)).toBeInTheDocument();
     expect(screen.getByText(/^Label median: each value is the middle one/)).toBeInTheDocument();

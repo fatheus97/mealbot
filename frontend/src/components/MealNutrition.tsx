@@ -211,8 +211,16 @@ function Provenance({ figure }: { figure: MealNutrition }) {
       {/* Six columns do not fit 375px; the table scrolls inside the panel.
           The plan around it sets word-break: break-word, which lets every cell
           break between any two letters, so the table squeezed into the box
-          ("ho/us/ko/vý") and never scrolled. normal breaks only between words. */}
-      <div style={{ overflowX: "auto", margin: "0.35rem 0" }}>
+          ("ho/us/ko/vý") and never scrolled. normal breaks only between words.
+          The box holds no focusable element, so it takes focus itself:
+          Safari does not make a scroller focusable, and without this a
+          keyboard user there could not reach the clipped columns. */}
+      <div
+        role="region"
+        aria-label={t("nutrition.provenanceLabel")}
+        tabIndex={0}
+        style={{ overflowX: "auto", margin: "0.35rem 0" }}
+      >
         <table style={{ borderCollapse: "collapse", width: "100%", wordBreak: "normal" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid #ccc" }}>
