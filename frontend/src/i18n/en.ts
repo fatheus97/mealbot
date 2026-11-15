@@ -411,7 +411,7 @@ export const en = {
     "For things you buy whole — \"2 eggs\" rather than \"120g\". Only where the amount matches whole pieces; everything else stays in grams, and the exact grams are always in the tooltip.",
   "prefs.showNutrition": "Show approximate nutrition",
   "prefs.showNutritionHint":
-    "Energy, protein, fat and carbohydrate per serving on plan meals, calculated from the Ciqual 2025 food table. Meals planned on or before 12 November 2026, and copies of them made with Repeat, may show none.",
+    "Energy, protein, fat and carbohydrate per serving on plan meals, calculated from the Ciqual 2025 food table and, for a few packaged Czech foods, from product labels in Open Food Facts. Meals planned on or before 12 November 2026, and copies of them made with Repeat, may show none.",
   "prefs.trackSnacks": "Track snacks from receipts",
   "prefs.trackSnacksHint":
     "If off, ready-to-eat items (desserts, snacks, drinks) are excluded when scanning receipts",

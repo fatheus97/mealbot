@@ -352,7 +352,8 @@ async def get_plan_nutrition(
     ref: NutritionReference = Depends(nutrition_reference),
 ) -> PlanNutrition:
     """Approximate energy and macros per meal and per day, computed now from
-    the stored plan and the reviewed Ciqual table (app.services.nutrition).
+    the stored plan and the reviewed table, Ciqual plus a few Open Food Facts
+    label medians (app.services.nutrition).
 
     Kitchen-scoped like every plan read, so household members see the same
     figures, and drafts work because they have a plan row. Cook Now plans

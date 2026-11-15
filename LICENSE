@@ -16,3 +16,22 @@ You MAY NOT:
 - Use this code as a base or template for other projects
 
 For licensing inquiries, contact: frantisekblaha01@gmail.com
+
+Exceptions: data from third parties
+
+"All rights reserved" above covers the author's own code and text. It does not
+cover the data below, which is made available under its own licence:
+
+- The files in backend/data/nutrition/off/ are made available under the Open
+  Database License 1.0 (https://opendatacommons.org/licenses/odbl/1-0/), and
+  their contents under the Database Contents License 1.0
+  (https://opendatacommons.org/licenses/dbcl/1-0/). See the README in that
+  folder.
+- The rows of backend/data/nutrition/aliases.csv whose food is an "off:" id,
+  and the Open Food Facts label figures quoted in its override notes, are made
+  available under the Open Database License 1.0. Contains information from
+  Open Food Facts (https://world.openfoodfacts.org), which is made available
+  here under the Open Database License (ODbL).
+- The values in backend/data/nutrition/foods.csv come from the Ciqual 2025
+  food composition table (Anses, https://doi.org/10.57745/RDMHWY) and are
+  reused under the Licence Ouverte / Etalab 2.0.

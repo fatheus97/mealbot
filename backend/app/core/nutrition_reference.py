@@ -1,12 +1,15 @@
 """The food composition table behind nutrition figures (docs/nutrition-design.md).
 
-Two reviewed CSV files in ``backend/data/nutrition``, kept apart so each can be
+Reviewed CSV files in ``backend/data/nutrition``, kept apart so each can be
 audited on its own:
 
 * ``foods.csv``: one row per Ciqual 2025 food that an alias references, values
   per 100 g of edible portion copied verbatim from the Anses files;
-* ``aliases.csv``: one row per (language, ingredient key) naming the Ciqual
-  food it means.
+* ``off/foods.csv``: one row per packaged Czech food Ciqual lacks, the median
+  of several Open Food Facts labels (``off/labels.csv`` lists every label and
+  ``off/README.md`` the rules); the folder is under the ODbL;
+* ``aliases.csv``: one row per (language, ingredient key) naming the food it
+  means, by Ciqual alim_code or by off_id.
 
 Lookup is EXACT on a normalised key: no fuzzy matching, no embedding and no LLM
 call on the request path. A key the table does not hold is "not counted", which
@@ -16,8 +19,9 @@ per thing, and two English rows that read the same refuse to load. Czech has no
 such rule (brambory, brambora); its forms are rows of their own.
 
 foods.csv is written by ``app/scripts/ciqual_snapshot.py`` from the pinned
-Ciqual files, never by hand; aliases.csv is reviewed by hand, and
-tests/test_nutrition_reference.py holds the gates every row must pass.
+Ciqual files and off/foods.csv by ``app/scripts/off_rows.py`` from its labels,
+never by hand; aliases.csv is reviewed by hand. tests/test_nutrition_reference.py
+holds the gates every row must pass, tests/test_off_rows.py those of the labels.
 """
 
 from __future__ import annotations
@@ -43,7 +47,7 @@ FOOD_COLUMNS: Final = (
     "polyols", "fibre", "sugars", "alcohol", "organic_acids", "below_detection", "confidence",
 )
 # off/foods.csv: one Open Food Facts row per food, the medians of the labels
-# in off/labels.csv. The file is optional; no row exists yet.
+# in off/labels.csv. The loader reads it when it exists.
 OFF_FOOD_COLUMNS: Final = (
     "off_id", "name", "kcal", "kj", "protein", "fat", "carbohydrate", "fibre", "sugars", "products", "note",
 )

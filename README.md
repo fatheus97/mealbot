@@ -239,3 +239,5 @@ docs/               # dietary reference, landing-page plan
 ## License
 
 Proprietary. Source is public for portfolio and review purposes only — see [LICENSE](LICENSE).
+
+The nutrition data in `backend/data/nutrition/` is the exception: the Open Food Facts rows in `off/` are under the Open Database License (ODbL) and the Ciqual values under the Licence Ouverte / Etalab 2.0, as [LICENSE](LICENSE) states.

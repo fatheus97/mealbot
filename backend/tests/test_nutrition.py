@@ -636,6 +636,33 @@ class TestEndpoint:
         assert meal["per_serving"]["kcal"] == pytest.approx(515)
         assert meal["complete"] is True
 
+    @pytest.mark.parametrize(("language", "ingredient"), [
+        ("Czech", {"name": "houskový knedlík"}),  # the Czech index
+        ("English", {"name": "bread dumpling"}),
+        # Slovak maps to no locale, so only name_en is read (there are no Slovak keys).
+        ("Slovak", {"name": "žemľová knedľa", "name_en": "bread dumpling"}),
+    ])
+    async def test_the_shipped_table_counts_a_bread_dumpling_on_its_label_row(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+        language: str, ingredient: dict[str, object],
+    ) -> None:
+        # The Open Food Facts row end to end: off/foods.csv through the loader,
+        # the lookup and the endpoint, as a plan in each language writes it.
+        from app.main import app
+        app.dependency_overrides.pop(nutrition_reference, None)
+        row = load_reference().foods["off:houskovy-knedlik"]
+        plan = await _plan(
+            db_session, test_user, request=MealPlanRequest(language=language),
+            response=_response(_meal({**ingredient, "quantity_grams": 300})),
+        )
+        meal = (await client.get(f"/api/plan/{plan.id}/nutrition")).json()["days"][0]["meals"][0]
+        [counted] = meal["ingredients"]
+        assert (counted["status"], counted["off_id"], counted["alim_code"]) == ("counted", "off:houskovy-knedlik", None)
+        assert (counted["label_products"], counted["confidence"]) == (row.products, None)
+        assert meal["sources"] == ["off"]
+        # 300 g at the row's median, split between 2 people.
+        assert meal["per_serving"]["kcal"] == pytest.approx(3 * row.kcal / 2)
+
 
 # Modules that may import the nutrition table or figures, relative to backend/:
 # the endpoint, the figures themselves, offline scripts and the evals. Nothing

@@ -113,6 +113,23 @@ describe.skipIf(!hasBuild)("legal pages", () => {
     expect(new Set(dates).size, `dates: ${dates}`).toBe(1);
   });
 
+  it("each prints the date its attribute holds, in its own language", () => {
+    // The check above and the `legal version` CI job compare only the
+    // attribute, but a reader sees the prose: a bump that moved only the
+    // attribute would print the old date under the new version.
+    for (const p of PAGES) {
+      const match = html[p.dist].match(/<time datetime="(\d{4}-\d{2}-\d{2})">([^<]+)<\/time>/);
+      if (!match) throw new Error(`${p.dist}: no <time datetime> with a printed date`);
+      const printed = new Intl.DateTimeFormat(p.locale === "en" ? "en-GB" : "cs", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(new Date(`${match[1]}T00:00:00Z`));
+      expect(match[2].trim(), p.dist).toBe(printed);
+    }
+  });
+
   it("the Czech editions make no safety claim the English does not", () => {
     for (const p of PAGES.filter((x) => x.locale === "cs")) {
       for (const pattern of FORBIDDEN_CS) {

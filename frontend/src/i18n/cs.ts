@@ -369,7 +369,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "U věcí, které kupujete celé — „2 vejce“ místo „120 g“. Jen tam, kde množství odpovídá celým kusům; jinde zůstávají gramy a přesná gramáž je vždy v popisku.",
   "prefs.showNutrition": "Zobrazovat přibližné výživové hodnoty",
   "prefs.showNutritionHint":
-    "Energie, bílkoviny, tuky a sacharidy na porci u jídel v jídelníčku, spočítané z tabulky potravin Ciqual 2025. Jídla naplánovaná do 12. listopadu 2026 včetně a jejich kopie vytvořené přes Zopakovat hodnoty mít nemusí.",
+    "Energie, bílkoviny, tuky a sacharidy na porci u jídel v jídelníčku, spočítané z tabulky potravin Ciqual 2025 a u několika balených českých potravin z etiket výrobků v Open Food Facts. Jídla naplánovaná do 12. listopadu 2026 včetně a jejich kopie vytvořené přes Zopakovat hodnoty mít nemusí.",
   "prefs.trackSnacks": "Sledovat sladkosti a snacky z účtenek",
   "prefs.trackSnacksHint":
     "Když je volba vypnutá, hotové výrobky (dezerty, snacky, nápoje) se při skenování účtenek přeskočí",

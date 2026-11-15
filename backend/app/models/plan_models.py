@@ -935,7 +935,8 @@ class MealPlanResponse(BaseModel):
 
 
 # ── Nutrition (GET /api/plan/{id}/nutrition, docs/nutrition-design.md) ──────────
-# Computed on every read from the stored plan and the reviewed Ciqual table, and
+# Computed on every read from the stored plan and the reviewed table (Ciqual, plus
+# a few Open Food Facts label medians), and
 # never stored, so an edit or a regenerate shows on the next read. Values are
 # unrounded so anyone can redo the arithmetic from the provenance rows; the UI
 # rounds. These models live here and NEVER on GeneratedMeal or PlannedMeal.
