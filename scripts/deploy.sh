@@ -28,7 +28,13 @@ echo "    now at $(git rev-parse --short HEAD) ($(git log -1 --pretty=%s))"
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 
 echo "==> Building images"
-$COMPOSE build backend frontend
+# No service list: compose builds every service with a build: section. The
+# list this used to carry named backend and frontend, so migrate kept an image
+# last built under Python 3.11 (the Dockerfile is on 3.14) and ran it with
+# today's alembic/ mounted over it. That held until env.py imported a name the
+# old app/ lacked (#606), and every deploy after it failed. migrate shares
+# backend's Dockerfile and context, so its build reuses backend's layer cache.
+$COMPOSE build
 
 echo "==> Running migrations (old stack still serving traffic)"
 # Because the old stack still serves, a migration can find a table held by a

@@ -623,6 +623,20 @@ jobs:
           check lock-timeout-every-time 1 5 "15 30 45 60" "$lt" "$lt" "$lt" "$lt" "$lt" ok
           exit "$failed"
 
+      - name: deploy.sh builds every service it runs
+        # A service list in the build command goes stale. It named backend and
+        # frontend, so migrate kept an old image (Python 3.11 under a 3.14
+        # Dockerfile) with the new alembic/ mounted over it, and every deploy
+        # after #606 failed on an import. A bare build covers every service
+        # that has a build: section, including ones added later.
+        run: |
+          set -uo pipefail
+          builds=$(grep -E '^[[:space:]]*\$COMPOSE build([[:space:]]|$)' scripts/deploy.sh || true)
+          if [ "$builds" != '$COMPOSE build' ]; then
+            echo "::error::scripts/deploy.sh must build with a bare \$COMPOSE build, no service list (found: ${builds:-no build line})"
+            exit 1
+          fi
+
       - name: Backup scripts are executable
         # systemd ExecStart= runs the file directly; a non-executable script
         # fails at runtime on the box, long after CI was green.
