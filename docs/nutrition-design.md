@@ -547,12 +547,12 @@ Columns of `off/labels.csv` (header pinned in a test):
 - `used` (0 or 1) and `reason`. Every unused row says why: not plain, filled or flavoured, another fat level, a light or protein variant, a failed check, a product not sold in Czechia or Slovakia, or "same recipe as <code>".
 
 Columns of `off/foods.csv`:
-- `off_id`: `off:` and an ASCII slug of the Czech product name, matching `off:[a-z0-9]+(-[a-z0-9]+)*`, for example `off:houskovy-knedlik`. A Ciqual alim_code is digits only, so the two cannot collide. A retired id is never reused.
+- `off_id`: `off:` and an ASCII slug of the Czech product name, matching `off:[a-z0-9]+(-[a-z0-9]+)*`, for example `off:houskovy-knedlik`. A Ciqual alim_code is digits only, so the two cannot collide. A retired id is never reused: `off/README.md` lists retired ids, and a test refuses one in foods.csv.
 - `name`: our English row name with the Czech name in brackets, for example "Bread dumpling (houskový knedlík), packaged". It carries no cooking word, for the state gate.
 - `kcal`, `kj`, `protein`, `fat`, `carbohydrate`: medians over the used labels.
 - `fibre`, `sugars`: medians when at least half the used labels declare them, else empty. The energy identity then counts fibre as 0, like a Ciqual "-".
 - `products`: the number of used labels, which after the recipe rule means distinct recipes.
-- `note`: the reviewed reason for the row: the nearest Ciqual food by code and name with its difference on energy and protein, and what was excluded and why.
+- `note`: the reviewed reason for the row: the nearest Ciqual food by code and name with its difference on energy and protein, and what was excluded and why. A row within a point or two of a spread bar says so, because a refresh may drop it (odtučněný and cottage today).
 
 Brand counts, quartiles and the export date are not stored. The tests derive the first two from labels.csv, and the README holds the third.
 
@@ -624,6 +624,7 @@ New in `backend/tests/test_off_rows.py` (OFF 4):
 - The bar on every row.
 - Each used label: the four values and kJ present; kcal within 10% or 5 kcal of 4 x carbohydrate + 4 x protein + 9 x fat + 2 x fibre (labels declare no polyols, and the extract has no polyols column); a barcode of 8 to 14 digits, once per file. The 10% is looser than the row's 5% because a label rounds each value. kJ is not checked against kcal: labels compute it with their own factors, and 5 of the 29 odtučněný labels sit more than 10 kJ off 4.184 x kcal.
 - No two used labels of one row share the four values; every unused label has a reason.
+- No id in foods.csv is on the README's list of retired ids.
 - The pinned labels.csv header.
 - The barcode, digit and frozen-notes guards above.
 - Negative controls that must fail: kJ typed into kcal (916 for a knedlík), a row of 4 recipes, the eight měkký labels as one row, a used duplicate recipe, `off:Knedlík` and `off_houskovy` as ids, and an alias on `off:missing`.
@@ -690,8 +691,8 @@ The Terms state no bar numbers and no claim about who entered the labels. OFF en
 Privacy: no text change. No personal data goes to OFF, and nothing is fetched at runtime. The rows are a CSV in the backend image, read once into memory (`nutrition_reference`, lru_cache). The panel's new links are ordinary links like the DOI link, and no OFF image or script loads. So privacy.html and cs/privacy.html change only their printed date.
 
 Material or not: not material. The change adds a data source and its attribution to an opt-in display, takes away no right, and brings no new personal data, recipient or purpose: the reasoning of owner decision 9. `terms_notice_due` (legal.py:111-126) reads only MATERIAL_CHANGE_VERSION (:64), so no banner and no email; HEALTH_CONSENT_VERSION stays. TERMS_VERSION (legal.py:29) moves to the merge date, with eight edits on four pages, because the `legal version` job (ci.yml:262) and legalPages.test.ts:108-113 compare only the `datetime` attribute while users read the prose date:
-- terms.html:138 and privacy.html:141: the attribute and "12 November 2026";
-- cs/terms.html:148 and cs/privacy.html:151: the attribute and "12. listopadu 2026".
+- terms.html:138 and privacy.html:141: the attribute and the English date, both set to the merge date (today they hold 2026-11-12, "12 November 2026");
+- cs/terms.html:148 and cs/privacy.html:151: the attribute and the Czech date, both set to the merge date (today 2026-11-12, "12. listopadu 2026").
 A new Vitest in legalPages.test.ts asserts each page's visible date is its attribute formatted in that page's language (`Intl.DateTimeFormat` en-GB or cs, day numeric, month long, year numeric, time zone UTC), so a forgotten prose date fails CI.
 
 ### Building and refreshing rows
