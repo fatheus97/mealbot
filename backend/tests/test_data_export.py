@@ -118,6 +118,15 @@ async def _fetch(client: AsyncClient) -> tuple[Any, str]:
     return resp.json(), resp.text
 
 
+def _leaves(node: object) -> list[object]:
+    """Every scalar value in a parsed JSON document."""
+    if isinstance(node, dict):
+        return [leaf for value in node.values() for leaf in _leaves(value)]
+    if isinstance(node, list):
+        return [leaf for value in node for leaf in _leaves(value)]
+    return [node]
+
+
 class TestExportDelivery:
     async def test_is_served_as_a_download(
         self, client: AsyncClient, test_user: User
@@ -246,11 +255,13 @@ class TestExportLeaksNothing:
         # The user's own words and attachment are theirs. The advisory LLM triage
         # notes and which admin reviewed them are state ABOUT the report.
         await _seed(db_session, test_user)
-        _, raw = await _fetch(client)
+        data, raw = await _fetch(client)
         assert "INTERNAL: reporter seems confused" not in raw
         assert "triage_summary" not in raw
         assert "reviewed_by_admin_id" not in raw
-        assert "4242" not in raw
+        # Compare values, not text: "4242" also turns up inside a timestamp or
+        # an id now and then, which made this test fail at random.
+        assert not [leaf for leaf in _leaves(data) if leaf in (4242, "4242")]
 
     async def test_omits_other_users_rows(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
