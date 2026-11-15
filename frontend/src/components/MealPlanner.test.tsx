@@ -1928,6 +1928,28 @@ describe('MealPlanner nutrition (opt-in)', () => {
     expect(screen.getByRole('link', { name: 'Ciqual 2025 (Anses)' }))
       .toHaveAttribute('href', 'https://doi.org/10.57745/RDMHWY');
     expect(screen.getByText(/^Source: .*, updated /)).toBeInTheDocument();
+    // Every meal used Ciqual only, so nothing credits Open Food Facts.
+    expect(screen.queryByText(/Open Food Facts/)).not.toBeInTheDocument();
+  });
+
+  // ODbL 4.3: a chip or day total built on a label median shows the notice too.
+  it('credits Open Food Facts at the end of the plan once any meal used a label median', async () => {
+    withProfile(true);
+    const base = figure(540);
+    mockedFetchNutrition.mockResolvedValue({
+      ...base,
+      days: [{ ...base.days[0], meals: [{ ...base.days[0].meals[0], sources: ['ciqual', 'off'] }] }],
+    });
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText(NOT_ADVICE)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Food Facts' }))
+      .toHaveAttribute('href', 'https://world.openfoodfacts.org');
+    expect(screen.getByRole('link', { name: 'Open Database License (ODbL)' }))
+      .toHaveAttribute('href', 'https://opendatacommons.org/licenses/odbl/1-0/');
+    expect(screen.getByRole('link', { name: 'in our public repository' }))
+      .toHaveAttribute('href', 'https://github.com/fatheus97/mealbot/tree/main/backend/data/nutrition/off');
+    expect(screen.getByRole('link', { name: 'Ciqual 2025 (Anses)' })).toBeInTheDocument();
   });
 
   it('shows no source box when no meal of the plan has a figure', async () => {

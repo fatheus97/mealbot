@@ -630,7 +630,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "nutritionReason.frying_fat": "tuk na smažení, snědené množství nelze určit",
   "nutrition.colIngredient": "Surovina",
   "nutrition.colGrams": "Hmotnost",
-  "nutrition.colFood": "Potravina v Ciqual",
+  "nutrition.colFood": "Přiřazená potravina",
   "nutrition.colPer100": "kcal na 100 g",
   "nutrition.colDish": "kcal v jídle",
   "nutrition.colConfidence": "Spolehlivost",
@@ -639,11 +639,22 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Spolehlivost: nejhorší hodnocení, které Ciqual dává bílkovinám, tukům a sacharidům dané potraviny, od A (nejspolehlivější) po D (nejméně spolehlivé).",
   "nutrition.captionCalculated":
     "Spočítáno z tabulky složení potravin Ciqual 2025 podle hmotností surovin v tomto receptu a rozděleno rovným dílem na porce.",
+  "nutrition.labelMedian_one": "medián z etiket, {count} výrobek",
+  "nutrition.labelMedian_few": "medián z etiket, {count} výrobky",
+  "nutrition.labelMedian_many": "medián z etiket, {count} výrobku",
+  "nutrition.labelMedian_other": "medián z etiket, {count} výrobků",
+  "nutrition.labelMedianHint":
+    "Medián z etiket: každá hodnota je ta prostřední z nutričních údajů na etiketách uvedeného počtu balených výrobků prodávaných v Česku nebo na Slovensku a stejný recept pod více značkami se počítá jen jednou.",
+  "nutrition.captionLabels":
+    "Řádky označené „medián z etiket“ místo toho vycházejí z mediánu údajů na etiketách balených výrobků.",
   "nutrition.captionRealValues":
     "Skutečné hodnoty závisí na konkrétním výrobku, kusu masa a způsobu přípravy.",
   "nutrition.captionNotAdvice":
     "Nejde o výživové ani lékařské doporučení. Hodnoty nepoužívejte k dávkování inzulinu ani jiných léků.",
   "nutrition.source": "Zdroj: {source}, aktualizace {date}",
+  "nutrition.offNotice": "Obsahuje informace z databáze {off}, která je zde k dispozici pod licencí {odbl}.",
+  "nutrition.offRows": "Hodnoty z etiket, které používáme, zveřejňujeme pod stejnou licencí {folder}.",
+  "nutrition.offRows.folderLink": "v našem veřejném repozitáři",
   "nutrition.unavailable": "U tohoto jídelníčku se výživové hodnoty nezobrazují.",
   "nutrition.unavailableHintLabel": "Proč tu hodnoty nejsou",
   "nutrition.unavailableInfantHint":
