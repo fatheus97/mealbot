@@ -953,6 +953,9 @@ IngredientStatus = Literal["counted", "seasoning", "water", "not_counted"]
 NotCountedReason = Literal["not_recognised", "not_in_table", "amount_not_given", "frying_fat"]
 MealWithheldReason = Literal["legacy", "coverage", "leftover_unresolved"]
 PlanUnavailableReason = Literal["cook_now", "infant", "health_data_removed"]
+# The table a provenance row comes from: Ciqual 2025, or an Open Food Facts
+# label median (backend/data/nutrition/off).
+FoodSource = Literal["ciqual", "off"]
 
 
 class IngredientNutrition(BaseModel):
@@ -961,7 +964,13 @@ class IngredientNutrition(BaseModel):
     grams: float
     status: IngredientStatus
     reason: NotCountedReason | None = None
+    # Which of the two ids is set says the source: alim_code for a Ciqual
+    # food, off_id for an Open Food Facts row.
     alim_code: int | None = None
+    off_id: str | None = None
+    # Open Food Facts only: how many labels the medians are of. confidence,
+    # a Ciqual letter, is then None.
+    label_products: int | None = None
     source_name: str | None = None
     state: str | None = None
     confidence: str | None = None
@@ -985,6 +994,10 @@ class MealNutrition(BaseModel):
     ingredients: list[IngredientNutrition]
     # Set on a leftover, whose figure is its source's.
     leftover_of: LeftoverRef | None = None
+    # The sorted distinct sources of the counted and seasoning rows, set
+    # whether or not a figure is shown (provenance still lists the rows). A
+    # leftover carries its source dish's; an unresolved one has none.
+    sources: list[FoodSource] = Field(default_factory=list)
 
 
 class DayNutrition(BaseModel):
