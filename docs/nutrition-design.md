@@ -371,6 +371,8 @@ The pre-push review added these behaviours, which the slice did not spell out:
 
 7. **feat(ui): day totals.** Adds the per-person day line in the MealPlanner day header, and `Day {idx + 1}` moves to i18n. Vitest covers a complete day, a partial day and a withheld day.
 
+   PR 7 as built (2026-11-15) adds two things to the slice. On a phone the line shows energy only ("≈ 1,050 kcal per person"), because the three macros do not fit a 375px header; the per-meal panel still has them. And while the figures load, the header holds an invisible copy of the line, the same move as the chip placeholder in PR 6, so it does not reflow when they arrive. `Day {n}` reuses the existing `planner.day` key.
+
 Follow-ups, not scheduled:
 - Cook Now and the cookbook. Their plans must first record a language, because SingleRecipeRequest has none; the cookbook then joins MealEntry.meal_plan_id to the plan.
 - CookMode.

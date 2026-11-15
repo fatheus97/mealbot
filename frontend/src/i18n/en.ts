@@ -677,6 +677,11 @@ export const en = {
   "nutrition.chipAtLeast": "At least {kcal} kcal per serving",
   "nutrition.chipAtLeastShort": "At least {kcal} kcal",
   "nutrition.chipNoData": "Not enough data for nutrition",
+  // The day header: one serving of each meal that day, added up.
+  "nutrition.dayTotal": "≈ {kcal} kcal · {protein} g protein · {fat} g fat · {carbohydrate} g carbohydrate per person",
+  "nutrition.dayTotalAtLeast": "At least {kcal} kcal · {protein} g protein · {fat} g fat · {carbohydrate} g carbohydrate per person",
+  "nutrition.dayTotalShort": "≈ {kcal} kcal per person",
+  "nutrition.dayTotalAtLeastShort": "At least {kcal} kcal per person",
   "nutrition.perServing": "Per serving, approximately",
   "nutrition.perServingAtLeast": "Per serving, at least",
   "nutrition.energy": "Energy",

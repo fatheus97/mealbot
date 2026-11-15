@@ -8,7 +8,7 @@ import { AuthProvider } from '../contexts/AuthContext';
 import { usePreferencesStore, DEFAULT_PREFERENCES } from '../store/usePreferencesStore';
 import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
 import { dayDateLabel, todayISO, addDaysISO } from '../utils/planDates';
-import { setColorScheme } from '../test/media';
+import { setColorScheme, setMobileViewport } from '../test/media';
 import { PAGE_TEXT } from '../constants/theme';
 import type { ReactNode } from 'react';
 
@@ -1842,6 +1842,71 @@ describe('MealPlanner nutrition (opt-in)', () => {
     await user.hover(screen.getByRole('button', { name: 'Why this plan has none' }));
     expect(await screen.findByRole('tooltip')).toHaveTextContent(hint);
     expect(screen.queryByRole('button', { name: /kcal/ })).not.toBeInTheDocument();
+  });
+
+  // Day totals (design decision 10): one serving of each meal, added up.
+  const dayFigure = (perPerson: { kcal: number; protein: number; fat: number; carbohydrate: number } | null,
+    partial: boolean) => {
+    const base = figure(540);
+    return {
+      ...base,
+      days: [{
+        ...base.days[0],
+        partial,
+        per_person: perPerson && { ...perPerson, kj: perPerson.kcal * 4.184 },
+      }],
+    };
+  };
+  const DAY = { kcal: 1846, protein: 95.4, fat: 70.6, carbohydrate: 190.2 };
+
+  it('shows the per-person day total in the day header', async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue(dayFigure(DAY, false));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    const line = await screen.findByText(
+      '≈ 1,850 kcal · 95 g protein · 71 g fat · 190 g carbohydrate per person');
+    expect(line.closest('h4')).toHaveTextContent(/^Day 1/);
+  });
+
+  it('rounds a partial day down and says "at least"', async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue(dayFigure(DAY, true));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText(
+      'At least 1,840 kcal · 95 g protein · 70 g fat · 190 g carbohydrate per person')).toBeInTheDocument();
+  });
+
+  it('shows no day total for a day the server withheld', async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue(dayFigure(null, false));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    // The meal's own chip lands, so the figures have arrived.
+    expect(await screen.findByRole('button', { name: '≈ 540 kcal per serving' })).toBeInTheDocument();
+    expect(screen.queryByText(/per person/)).not.toBeInTheDocument();
+  });
+
+  it('shows only kcal for the day on a phone', async () => {
+    setMobileViewport(true);
+    withProfile(true);
+    mockedFetchNutrition.mockResolvedValue(dayFigure(DAY, false));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('≈ 1,850 kcal per person')).toBeInTheDocument();
+    expect(screen.queryByText(/g protein/)).not.toBeInTheDocument();
+  });
+
+  it("holds the day line's place, unseen, while the figures load", async () => {
+    withProfile(true);
+    mockedFetchNutrition.mockReturnValue(new Promise(() => {}));
+    render(<MealPlanner initialPlan={plan} />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(mockedFetchNutrition).toHaveBeenCalledWith(99));
+    const holder = await screen.findByText(/per person/);
+    expect(holder).toHaveAttribute('aria-hidden', 'true');
+    expect(holder).toHaveStyle({ visibility: 'hidden' });
   });
 
   it('shows nothing for a Cook Now plan', async () => {

@@ -9,6 +9,7 @@ import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import { formatAmount } from "../utils/pieces";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile, usePlanNutrition, cachedShelf, ShelfChangedError, type ShelfData } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
+import { DayNutritionLine, DayNutritionPlaceholder } from "./MealNutrition";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
 import { DayLayoutEditor } from "./DayLayoutEditor";
@@ -1035,7 +1036,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           {currentPlan.days.map((dayPlan, idx) => (
              <div key={idx} style={{ marginBottom: "1.5rem" }}>
                <h4 style={{ borderBottom: "1px solid #ddd", paddingBottom: "0.5rem" }}>
-                 Day {idx + 1}
+                 {t("planner.day", { n: idx + 1 })}
                  {/* Pre-confirm, the date follows the (editable) Start-date field
                      so the preview updates live; once confirmed or viewing an
                      opened plan, it reads the server value on currentPlan (which
@@ -1046,6 +1047,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                      {dayDateLabel(isConfirmed ? currentPlan.start_date : startDate, idx, locale)}
                    </span>
                  )}
+                 {showNutrition && nutritionLoading && <DayNutritionPlaceholder isMobile={isMobile} />}
+                 {nutritionDays?.[idx] && <DayNutritionLine day={nutritionDays[idx]} isMobile={isMobile} />}
                </h4>
                {dayPlan.meals.map((meal, mealIdx) => {
                  const isFrozen = frozenMeals.has(`${idx}-${mealIdx}`);
