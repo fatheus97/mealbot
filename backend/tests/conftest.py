@@ -54,8 +54,9 @@ def _worker_database_url(worker: str | None) -> URL:
     )
 
 
-async def _ensure_database(url: URL) -> None:
-    """Create the per-worker database if it does not exist yet.
+async def _ensure_database(url: URL, *, fresh: bool = False) -> None:
+    """Create the per-worker database if it does not exist yet. With ``fresh``,
+    drop it first, so nothing from an earlier run survives.
 
     Connects to the always-present base test database as a maintenance DB and
     issues CREATE DATABASE, serialised cluster-wide with a Postgres advisory
@@ -72,14 +73,19 @@ async def _ensure_database(url: URL) -> None:
                 text("SELECT pg_advisory_lock(:k)"), {"k": _CREATE_DB_LOCK_KEY}
             )
             try:
+                if fresh:
+                    await conn.execute(
+                        text(f'DROP DATABASE IF EXISTS "{url.database}" WITH (FORCE)')
+                    )
                 already_exists = await conn.scalar(
                     text("SELECT 1 FROM pg_database WHERE datname = :name"),
                     {"name": url.database},
                 )
                 if not already_exists:
                     # url.database is derived from PYTEST_XDIST_WORKER (gw0, gw1,
-                    # …), never user input, so interpolating it as a quoted
-                    # identifier is safe — and CREATE DATABASE can't be bound.
+                    # …) plus fixed suffixes, never user input, so interpolating
+                    # it as a quoted identifier is safe — and CREATE/DROP
+                    # DATABASE can't be bound.
                     await conn.execute(text(f'CREATE DATABASE "{url.database}"'))
             finally:
                 await conn.execute(

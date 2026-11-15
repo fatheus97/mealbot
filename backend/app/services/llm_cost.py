@@ -15,7 +15,7 @@ over-estimation fails safe.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -139,8 +139,12 @@ async def compute_window_cost(
     One grouped query over (provider, model) folded through the rate map — exact
     (no counter drift) and index-served by ix_llmusage_user_created. Cheap at this
     scale; revisit with a materialized counter only at ~10^4–10^5 active users.
-    ``window_start`` MUST be naive UTC to match the tz-naive created_at column.
+    ``window_start`` is naive UTC (the usage_budget convention). created_at is
+    TIMESTAMPTZ, so it is bound as aware UTC: Postgres would read a naive value
+    in the session's TimeZone.
     """
+    if window_start.tzinfo is None:
+        window_start = window_start.replace(tzinfo=UTC)
     result = await session.execute(
         select(
             col(LlmUsage.provider),

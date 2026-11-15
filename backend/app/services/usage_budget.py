@@ -5,10 +5,12 @@ require_generation_budget dependency (enforcement). The cap bounds LLM spend per
 user per month so a power user, a trial farmer, or a runaway-generation bug can't
 burn the box's provider budget — without scary token metering for the user.
 
-All datetimes here are NAIVE UTC to match the stored columns: LlmUsage.created_at
-and User.current_period_end are TIMESTAMP WITHOUT TIME ZONE, so mixing an aware
+All datetimes here are NAIVE UTC to match User.created_at and
+User.current_period_end (TIMESTAMP WITHOUT TIME ZONE), so mixing an aware
 datetime.now(UTC) into a comparison/subtraction would raise TypeError or silently
 offset. Values read back from the DB are coerced via _as_naive as a belt.
+LlmUsage.created_at is TIMESTAMPTZ; llm_cost.compute_window_cost makes the
+window aware before it reaches SQL.
 """
 
 from dataclasses import dataclass
