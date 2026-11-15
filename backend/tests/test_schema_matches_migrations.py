@@ -105,4 +105,6 @@ async def test_create_all_schema_matches_migrations(test_engine: AsyncEngine) ->
     # The catalogs match, so autogenerate must see nothing to do. It fails when
     # env.py stops importing the models: every table then reads as removed.
     check = _alembic("check", url=migrated_url)
-    assert check.returncode == 0, check.stdout[-2000:] + check.stderr[-4000:]
+    # stdout opens with the operations autogenerate would emit; a crash has
+    # only a traceback, at the end of stderr.
+    assert check.returncode == 0, check.stdout[:3000] or check.stderr[-3000:]
