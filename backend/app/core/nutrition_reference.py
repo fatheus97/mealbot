@@ -19,8 +19,9 @@ per thing, and two English rows that read the same refuse to load. Czech has no
 such rule (brambory, brambora); its forms are rows of their own.
 
 foods.csv is written by ``app/scripts/ciqual_snapshot.py`` from the pinned
-Ciqual files and off/foods.csv by ``app/scripts/off_rows.py`` from its labels,
-never by hand; aliases.csv is reviewed by hand. tests/test_nutrition_reference.py
+Ciqual files and the figures of off/foods.csv by ``app/scripts/off_rows.py``
+from its labels, never by hand (its ``name`` and ``note`` are written by
+hand); aliases.csv is reviewed by hand. tests/test_nutrition_reference.py
 holds the gates every row must pass, tests/test_off_rows.py those of the labels.
 """
 

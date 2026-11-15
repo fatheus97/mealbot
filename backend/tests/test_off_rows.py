@@ -12,6 +12,7 @@ anything would go red.
 from __future__ import annotations
 
 import csv
+import math
 import re
 import statistics
 from collections.abc import Iterable, Mapping, Sequence
@@ -81,12 +82,19 @@ def label_problems(labels: Iterable[Row]) -> list[str]:
                 problems.append(f"{code}: unused without a reason")
             continue
         try:
-            kcal, protein, fat, carbohydrate = _four(label)
-            float(label["kj"])
+            values = {name: float(label[name]) for name in ("kcal", "kj", "protein", "fat", "carbohydrate")}
+            values |= {name: float(label[name]) for name in ("fibre", "sugars") if label[name].strip()}
         except ValueError:
-            problems.append(f"{code}: a used label needs kcal, kJ, protein, fat and carbohydrate")
+            problems.append(f"{code}: a used label needs kcal, kJ, protein, fat and carbohydrate, as numbers")
             continue
-        fibre = float(label["fibre"]) if label["fibre"].strip() else 0.0
+        # float() reads "nan", "inf" and "-1", and every comparison with NaN is
+        # False, so without this a nonsense label would pass the energy check
+        # and hide inside a finite median.
+        if not all(math.isfinite(v) and v >= 0 for v in values.values()):
+            problems.append(f"{code}: a value is negative or not a finite number")
+            continue
+        kcal, protein, fat, carbohydrate = _four(label)
+        fibre = values.get("fibre", 0.0)
         expected = 4 * carbohydrate + 4 * protein + 9 * fat + 2 * fibre
         if abs(kcal - expected) > max(5.0, LABEL_ENERGY_TOLERANCE * kcal):
             problems.append(f"{code}: {kcal} kcal against {expected:.1f} from its macros")
@@ -109,7 +117,8 @@ def bar_problems(labels: Iterable[Row]) -> list[str]:
         if len(group) < MIN_RECIPES:
             problems.append(f"{off_id}: {len(group)} recipes, fewer than {MIN_RECIPES}")
             continue
-        brands = {_brand(label) for label in group}
+        # An empty brands field names no brand, so it cannot make up the floor.
+        brands = {brand for brand in map(_brand, group) if brand}
         if len(brands) < MIN_BRANDS:
             problems.append(f"{off_id}: {len(brands)} brands, fewer than {MIN_BRANDS}")
         kcal = _spread([float(label["kcal"]) for label in group])
@@ -164,8 +173,9 @@ def test_no_retired_id_is_reused() -> None:
 
 
 def test_no_barcode_leaves_the_folder() -> None:
-    # The OFF-derived content outside off/ is limited to the alias rows that
-    # point at an off: id and the ten frozen notes (LICENSE covers both).
+    # Among the data files, the OFF-derived content outside off/ is limited to
+    # the alias rows that point at an off: id and the ten frozen notes (LICENSE
+    # covers both). The label fixtures in this file are synthetic.
     codes = {label["code"] for label in LABELS}
     for path in DATA_DIR.rglob("*"):
         if path.is_file() and OFF_DIR not in path.parents:
@@ -200,18 +210,20 @@ GOOD = [
     _label("8590000000004", "d", 220, 931, 7.1, 1, 44.8),
     _label("8590000000005", "e", 223, 944, 6.9, 1.2, 45.2),
 ]
-# The eight labels named "měkký tvaroh" in the extract: two products in one
-# word (classic 0.5% near 67 kcal, high dry matter near 89 kcal), which is why
-# the design leaves the name out instead of shipping a row for it.
+# Eight synthetic labels shaped like the eight named "měkký tvaroh" in the
+# extract (made-up barcodes, brands and values, so no Open Food Facts record
+# sits outside off/): two products in one word, classic 0.5% near 68 kcal and
+# high dry matter near 88 kcal, which is why the design leaves the name out
+# instead of shipping a row for it. The first two are one recipe.
 MEKKY = [
-    _label("8594003967108", "Clever", 67, 283, 12, 0.5, 4),
-    _label("8594031176237", "Globus", 67, 283, 12, 0.5, 4),
-    _label("8593807886561", "Olma", 71, 278, 12, 0.3, 3.7),
-    _label("8590421044308", "Albert", 87, 364, 16.9, 0.5, 3.7),
-    _label("8594005856905", "Bohemilk", 89, 372, 17, 0.5, 4),
-    _label("4049727009282", "Jarmark", 95, 397, 17, 0.5, 3.7),
-    _label("4049727020034", "Jarmark", 87, 368.7, 16.9, 0.5, 3.7),
-    _label("4056489724438", "pilos", 87, 364, 17, 0.5, 3.6),
+    _label("8590000000101", "f", 68, 285, 12.1, 0.5, 4),
+    _label("8590000000102", "g", 68, 285, 12.1, 0.5, 4),
+    _label("8590000000103", "h", 70, 293, 12.2, 0.4, 3.8),
+    _label("8590000000104", "i", 87, 364, 16.8, 0.5, 3.8),
+    _label("8590000000105", "j", 89, 372, 17.1, 0.4, 4),
+    _label("8590000000106", "k", 94, 393, 17.3, 0.6, 3.7),
+    _label("8590000000107", "k", 86, 360, 16.6, 0.5, 3.6),
+    _label("8590000000108", "l", 88, 368, 16.9, 0.5, 3.8),
 ]
 
 
@@ -226,6 +238,11 @@ def test_the_controls_pass_when_nothing_is_wrong() -> None:
         # kJ typed into the kcal column: the energy check catches it.
         pytest.param([*GOOD[:4], {**GOOD[4], "kcal": "916"}], "kcal against", id="kj-in-kcal"),
         pytest.param([*GOOD[:4], {**GOOD[4], "kj": ""}], "needs kcal, kJ", id="missing-kj"),
+        pytest.param([*GOOD[:4], {**GOOD[4], "fibre": "x"}], "needs kcal, kJ", id="fibre-not-a-number"),
+        pytest.param([*GOOD[:4], {**GOOD[4], "kcal": "nan"}], "not a finite number", id="kcal-nan"),
+        pytest.param([*GOOD[:4], {**GOOD[4], "kj": "inf"}], "not a finite number", id="kj-inf"),
+        pytest.param([*GOOD[:4], {**GOOD[4], "fat": "-1"}], "negative", id="negative-fat"),
+        pytest.param([*GOOD[:4], {**GOOD[4], "sugars": "-0.5"}], "negative", id="negative-sugars"),
         pytest.param([*GOOD, {**GOOD[0], "code": "8590000000009"}], "same recipe as", id="used-duplicate-recipe"),
         pytest.param([*GOOD, {**GOOD[0]}], "listed twice", id="barcode-twice"),
         pytest.param([*GOOD[:4], {**GOOD[4], "code": "12345"}], "8 to 14 digits", id="short-barcode"),
@@ -241,6 +258,9 @@ def test_a_bad_label_is_refused(labels: list[dict[str, str]], expected: str) -> 
     [
         pytest.param(GOOD[:4], "fewer than 5", id="four-recipes"),
         pytest.param([{**label, "brands": "same"} for label in GOOD], "brands, fewer than", id="one-brand"),
+        # Two named brands and three labels without one: still two brands.
+        pytest.param([{**label, "brands": b} for label, b in zip(GOOD, ("a", "b", "", "", " "), strict=True)],
+                     "brands, fewer than", id="blank-brands"),
         pytest.param([{**label, "off_id": "off:tvaroh-mekky"} for label in MEKKY], "kcal spread", id="mekky-as-one-row"),
         # One outlier among five leaves the interquartile range alone; a spread
         # across the middle labels is what the bar refuses.
@@ -253,8 +273,8 @@ def test_a_row_below_the_bar_is_refused(labels: list[dict[str, str]], expected: 
 
 
 def test_the_mekky_labels_also_hold_a_duplicate_recipe() -> None:
-    # Clever and Globus carry the same four values: one recipe, two barcodes.
-    assert any("same recipe as 8594003967108" in p for p in label_problems(MEKKY))
+    # The first two carry the same four values: one recipe, two barcodes.
+    assert any("same recipe as 8590000000101" in p for p in label_problems(MEKKY))
 
 
 def test_a_retired_id_is_read_from_the_readme() -> None:

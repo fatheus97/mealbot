@@ -25,7 +25,7 @@ A label can be looked up at `https://world.openfoodfacts.org/product/<code>`. Th
 
 A label is used only when it is the food the row names, plain (not filled or flavoured), at the right fat level and not a light or protein variant, sold in Czechia or Slovakia, and passes its own energy check: kcal within 10% or 5 kcal of 4 x carbohydrate + 4 x protein + 9 x fat + 2 x fibre. Every unused label says why.
 
-The recipe rule: a manufacturer's recipe sold under several barcodes counts once. The first barcode carries it, and the others are unused with "same recipe as <code>".
+The recipe rule: a manufacturer's recipe sold under several barcodes counts once. One barcode carries it (`used` 1), and the others are unused with "same recipe as <code>".
 
 The bar, which `backend/tests/test_off_rows.py` enforces (`MIN_RECIPES` and the constants beside it): at least 5 recipes and 3 brands, and an interquartile width of at most 10% of the median for energy and 15% for protein. A food that does not meet it gets no row.
 

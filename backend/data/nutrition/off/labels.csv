@@ -98,7 +98,7 @@ off:houskovy-knedlik,8590421031735,Lázeňský Knedlík,Albert,195,816,7.1,1.3,3
 off:houskovy-knedlik,8590421059432,Houskový Knedlík,Albert,211,883,6.4,0.8,43,,1.2,2025-03-16T22:14:12Z,0,same recipe as 20074357 (near duplicate: Svoboda recipe 211 kcal)
 off:houskovy-knedlik,8590421079416,Svíčková omáčka s houskovým knedlíkem,Albert,165,679.3,8.6,4.3,22,,2.7,2026-06-29T15:11:00Z,0,not this food: ready meal svíčková with dumpling
 off:houskovy-knedlik,8590421079768,Polévkové knedlíčky,Ah terra,160,666,12,7.5,7.7,7.1,1.7,2025-04-19T13:06:12Z,0,not this food: meat-free soup dumplings
-off:houskovy-knedlik,8592784901847,Knedlík Houskový,Karlova Koruna,212,869.4,6.4,0.8,43,,1.2,2026-03-15T12:13:31Z,0,same recipe as 20074357
+off:houskovy-knedlik,8592784901847,Knedlík Houskový,Karlova Koruna,212,869.4,6.4,0.8,43,,1.2,2026-03-15T12:13:31Z,0,same recipe as 20074357 (near duplicate: 43 vs 43.4 g carbohydrate)
 off:houskovy-knedlik,8593837244065,Polévka Do Hrnečku S Játrovými Knedlíčky,Vitana,27,113,0.9,1,3.3,,0.8,2024-12-05T20:56:38Z,0,not this food: cup soup with liver dumplings
 off:houskovy-knedlik,8593837870042,Knedlíky s burizony,Vitana,,,,,,,,2025-04-03T20:04:53Z,0,not this food: Vitana dumpling mix with puffed rice
 off:houskovy-knedlik,8593837870080,Houskové knedlíky,,170,711,6.5,1.1,32.1,,0.7,2024-09-30T16:32:33Z,0,not this food: likely a Vitana mix (barcode prefix) at 170 kcal
@@ -109,8 +109,8 @@ off:houskovy-knedlik,8594006668194,Knedlíky s celozrnnou moukou a špaldovými 
 off:houskovy-knedlik,8594013675826,Houskový knedlík,Vltavotýnské lahůdky,,,,,,,,2023-10-28T18:53:13Z,0,a failed check: complete (no nutrition values)
 off:houskovy-knedlik,8594017540014,Moravský houskový knedlík,Svoboda,216,910.5,6.6,0.9,45,,0.8,2026-03-22T09:00:57Z,1,
 off:houskovy-knedlik,8594017540021,Moravský Knedlík,Svoboda,216,904,6.6,0.9,45,,0.8,2025-03-16T22:11:33Z,0,same recipe as 8594017540014
-off:houskovy-knedlik,8594017540212,Knedlík Houskový,Svoboda,211,883,6.4,0.8,43,,1.2,2025-03-16T22:16:21Z,0,same recipe as 20074357
-off:houskovy-knedlik,8594017540939,Houskový knedlík,,211,883,6.4,0.8,43,,1.2,2024-09-24T10:21:35Z,0,same recipe as 20074357
+off:houskovy-knedlik,8594017540212,Knedlík Houskový,Svoboda,211,883,6.4,0.8,43,,1.2,2025-03-16T22:16:21Z,0,same recipe as 20074357 (near duplicate: Svoboda's own label at 211 vs 212 kcal and 43 vs 43.4 g carbohydrate)
+off:houskovy-knedlik,8594017540939,Houskový knedlík,,211,883,6.4,0.8,43,,1.2,2024-09-24T10:21:35Z,0,same recipe as 20074357 (near duplicate: 211 vs 212 kcal and 43 vs 43.4 g carbohydrate)
 off:houskovy-knedlik,8594022690018,Kynutý knedlík,Václav Nedvěd,,,,,,,,2024-09-11T21:16:38Z,0,not this food: kynutý knedlík (no values either)
 off:houskovy-knedlik,8594022690049,Krájený houskový knedlík,Václav Nedvěd,236,1001,7.6,1,48,1.3,0.3,2026-06-11T16:56:08Z,1,
 off:houskovy-knedlik,8594025075591,Hovězí guláš s houskovým knedlíkem,KM-Produkt,118,502,7,2.2,17,0,0.8,2025-03-26T22:41:32Z,0,not this food: ready meal goulash with dumpling

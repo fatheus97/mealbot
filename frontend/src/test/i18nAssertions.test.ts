@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { untranslatedEnglishIn } from "./i18nAssertions";
+import { en } from "../i18n/en";
 
 function node(text: string): HTMLElement {
   const div = document.createElement("div");
@@ -14,5 +15,10 @@ describe("untranslatedEnglishIn", () => {
     // The control: the same word as a label of its own is a missed translation.
     expect(untranslatedEnglishIn(node("Open"))).toContain("plans.open: Open");
     expect(untranslatedEnglishIn(node("Open Food Facts · Open"))).toContain("plans.open: Open");
+  });
+
+  it("still reports a key whose own English value contains a proper name", () => {
+    const keys = untranslatedEnglishIn(node(en["prefs.showNutritionHint"])).map((f) => f.split(":")[0]);
+    expect(keys).toContain("prefs.showNutritionHint");
   });
 });

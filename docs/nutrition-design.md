@@ -556,9 +556,9 @@ Columns of `off/foods.csv`:
 
 Brand counts, quartiles and the export date are not stored. The tests derive the first two from labels.csv, and the README holds the third.
 
-`app/scripts/off_rows.py` is one pure function, `food_rows(labels)`, and a `main` that rewrites foods.csv from labels.csv, keeping `name` and `note` by id. Medians use `statistics.median`, quartiles `statistics.quantiles(n=4, method="inclusive")`. Every derived value is rounded to 2 decimals and written without trailing zeros, because medians over the export's float strings otherwise produce noise such as 3.5200000000000005 (the export holds values like 4.59999990463257). It reads only labels.csv, opens no connection and imports nothing that could, and runs in the backend container like any module.
+`app/scripts/off_rows.py` is one pure function, `food_rows(labels)`, and a `main` that rewrites foods.csv from labels.csv, keeping `name` and `note` by id. Medians use `statistics.median`, quartiles `statistics.quantiles(n=4, method="inclusive")`. Every derived value is rounded to 2 decimals and written without trailing zeros, because medians over the export's float strings otherwise produce noise such as 3.5200000000000005 (the export holds values like 4.59999990463257). It reads only labels.csv and the existing foods.csv, opens no connection and imports nothing that could, and runs in the backend container like any module.
 
-The recipe rule: a manufacturer's recipe sold under several barcodes counts once. Odtučněný tvaroh shows why: its 29 barcodes are 16 recipes. The reviewer marks the extra barcodes `used=0` with "same recipe as <code>", and a test refuses two used labels of one row with the same four values. Near duplicates (one dairy's 119 kcal cottage under three slightly different labels) are the reviewer's call.
+The recipe rule: a manufacturer's recipe sold under several barcodes counts once. Odtučněný tvaroh shows why: as built, 14 of its 31 labels are further barcodes of recipes already counted. The reviewer marks the extra barcodes `used=0` with "same recipe as <code>", and a test refuses two used labels of one row with the same four values. Near duplicates (one dairy's 119 kcal cottage under three slightly different labels) are the reviewer's call.
 
 Reproducibility: labels.csv holds every input of every median, so CI re-derives foods.csv from the repo alone. The first labels.csv is written from the CZ and SK extract of the label round (29,633 products tagged Czechia or Slovakia out of 4,912,665 in the export downloaded on 2026-11-15, newest entry 2026-11-14), which is still in the session scratchpad. If it is gone, building waits for the owner's yes to a new download. A label can be looked up at https://world.openfoodfacts.org/product/<code>, though it may have changed since `last_modified`; the README says so.
 
@@ -599,17 +599,17 @@ The cottage line is a first read, not the build. The 44 barcodes named cottage, 
 
 The brands field is noisy: one knedlík label's brand is "Neviem" (Slovak for "I don't know"), and private labels come from a few dairies. The brand minimum is therefore a floor, not the guard; the spread bar and the recipe rule are.
 
-As built (OFF 4), from the reviewed labels.csv; `test_off_rows.py` recomputes the bar on every run:
+As built (OFF 4), from the reviewed labels.csv; `test_off_rows.py` recomputes the bar on every run, and a label with an empty brands field counts as no brand:
 
-| off_id | labels read / used | brands | kcal, P, F, C | kcal IQR (width) | protein IQR (width) | energy identity | nearest Ciqual |
+| off_id | labels read / used | named brands | kcal, P, F, C | kcal IQR (width) | protein IQR (width) | energy identity | nearest Ciqual |
 |---|---|---|---|---|---|---|---|
 | `off:houskovy-knedlik` | 69 / 5 | 5 | 219, 7, 0.8, 45 | 216 to 219 (1.4%) | 6.6 to 7.1 (7.1%) | 215.2 against 219 | 7261 French bread: 10% higher on energy, 25% higher on protein |
 | `off:tvaroh-odtucneny` | 31 / 10 | 8 | 66.2, 12, 0.5, 4 | 63 to 69.25 (9.4%) | 11.25 to 12 (6.2%) | 68.5 against 66.2 | 19663 petit-suisse 0%: 15% low on energy, 19% low on protein |
-| `off:tvaroh-jemny` | 17 / 7 | 7 | 101, 16.5, 2.1, 4.1 | 100.5 to 103 (2.5%) | 16 to 17 (6.1%) | 101.3 against 101 | 19664 petit-suisse 4%: 13% low on energy, 42% low on protein |
-| `off:cottage` | 74 / 10 | 8 | 99, 11.45, 4.35, 2.75 | 93.25 to 100.75 (7.6%) | 11 to 12 (8.7%) | 95.9 against 99 | none; 19664 is 11% low on energy, 17% low on protein |
+| `off:tvaroh-jemny` | 17 / 7 | 6 | 101, 16.5, 2.1, 4.1 | 100.5 to 103 (2.5%) | 16 to 17 (6.1%) | 101.3 against 101 | 19664 petit-suisse 4%: 13% low on energy, 42% low on protein |
+| `off:cottage` | 74 / 10 | 7 | 99, 11.45, 4.35, 2.75 | 93.25 to 100.75 (7.6%) | 11 to 12 (8.7%) | 95.9 against 99 | none; 19664 is 11% low on energy, 17% low on protein |
 
 Where the build differs from the first read:
-- Knedlík has 5 recipes, not 13. The first read also counted yeast dumplings without rolls (kynutý, parená knedľa), karlovarský and other types; the row keeps plain houskový knedlík made with bread rolls, and one recipe sold under Svoboda's own label and four store brands counts once. It sits at the floor of 5, so a refresh that loses a label loses the row. 26265 semolina gnocchi (9% lower on energy, 11% on protein) and 7106 whole-grain rye bread (3% and 11% lower) are near in numbers but are other foods, so the row stays.
+- Knedlík has 5 recipes, not 13. The first read also counted yeast dumplings without rolls (kynutý, parená knedľa), karlovarský and other types; the row keeps plain houskový knedlík made with bread rolls, and seven barcodes (Svoboda's own label, store brands and one without a brand) whose labels differ by at most 1 kcal and 0.4 g carbohydrate count as one recipe. It sits at the floor of 5, so a refresh that loses a label loses the row. 26265 semolina gnocchi (9% lower on energy, 11% on protein) and 7106 whole-grain rye bread (3% and 11% lower) are near in numbers but are other foods, so the row stays.
 - Odtučněný has 10 recipes, not 16: the recipe rule, and the high-dry-matter tvaroh sold under the same name (about 87 kcal, 17 g protein) left out. Its energy spread is 9.4% against the 10% bar.
 - Jemný has 7 recipes, not 13: the recipe rule, and the other fat levels sold as jemný left out.
 - Cottage has 10 recipes from 74 labels read, at 7.6%. The 7 g fat recipe sold under Madeta and three store brands is used once; a first pass had filtered it out by fat, and the review put it back.
@@ -637,11 +637,11 @@ The gates in test_nutrition_reference.py run unchanged on OFF aliases: the word 
 New in `backend/tests/test_off_rows.py` (OFF 4):
 - foods.csv equals what `food_rows` derives from labels.csv, number formatting included.
 - The bar on every row.
-- Each used label: the four values and kJ present; kcal within 10% or 5 kcal of 4 x carbohydrate + 4 x protein + 9 x fat + 2 x fibre (labels declare no polyols, and the extract has no polyols column); a barcode of 8 to 14 digits, once per file. The 10% is looser than the row's 5% because a label rounds each value. kJ is not checked against kcal: labels compute it with their own factors, and 5 of the 29 odtučněný labels sit more than 10 kJ off 4.184 x kcal.
+- Each used label: the four values and kJ present; kcal within 10% or 5 kcal of 4 x carbohydrate + 4 x protein + 9 x fat + 2 x fibre (labels declare no polyols, and the extract has no polyols column); a barcode of 8 to 14 digits, once per file. The 10% is looser than the row's 5% because a label rounds each value. kJ is not checked against kcal: labels compute it with their own factors, and 3 of the 30 odtučněný labels with values sit more than 10 kJ off 4.184 x kcal.
 - No two used labels of one row share the four values; every unused label has a reason.
 - No id in foods.csv is on the README's list of retired ids.
 - The pinned labels.csv header.
-- The barcode, digit and frozen-notes guards above.
+- The barcode and digit guards above. The frozen-notes guard is OFF 2's `test_the_label_citing_notes_are_frozen_and_credit_open_food_facts` in test_nutrition_reference.py.
 - Negative controls that must fail: kJ typed into kcal (916 for a knedlík), a row of 4 recipes, the eight měkký labels as one row, a used duplicate recipe, `off:Knedlík` and `off_houskovy` as ids, and an alias on `off:missing`. As built, the id and alias controls sit with OFF 2's loader tests in test_nutrition.py. test_off_rows.py adds a missing kJ, a barcode listed twice, a short barcode, an unused label without a reason, one brand, a protein spread across the middle labels (one outlier leaves an interquartile range alone, so it cannot be the control), float noise in a median, and a test that every label belongs to a shipped row.
 
 A GS1 country-prefix rule was dropped. Its "000 to 139 is US and Canada" reading would refuse an EAN-8 such as 00050685 and the in-store prefixes 020 to 029 and 040 to 049 that EU shops use. US conventions differ from EU ones only by fibre, which is near zero for these foods, and a product not sold here is the reviewer's "used=0" reason.
@@ -684,7 +684,7 @@ Strings, one key per sentence; the cs drafts go through humanizer-cs. `{off}` an
 | `nutrition.colFood` (changed) | Matched food | Přiřazená potravina | OFF 3 |
 | `nutrition.provenanceLabel` (new, the name of the table's scroll region) | Where each value comes from | Odkud jednotlivé hodnoty pocházejí | OFF 3 |
 | `nutrition.labelMedian_one` / `_other`; cs `_one`, `_few`, `_many`, `_other` | label median, {count} product / label median, {count} products | medián z etiket, {count} výrobek / výrobky / výrobku / výrobků | OFF 3 |
-| `nutrition.labelMedianHint` | Label median: each value is the middle one of the nutrition labels of that many packaged products sold in Czechia or Slovakia, and a recipe sold under several brands counts once. | Medián z etiket: každá hodnota je ta prostřední z nutričních údajů na etiketách uvedeného počtu balených výrobků prodávaných v Česku nebo na Slovensku a stejný recept pod více značkami se počítá jen jednou. | OFF 3 |
+| `nutrition.labelMedianHint` | Label median: each value is the middle one of the nutrition labels of that many packaged products sold in Czechia or Slovakia (with an even number, the average of the two middle ones), and a recipe sold under several brands counts once. | Medián z etiket: každá hodnota je ta prostřední z nutričních údajů na etiketách uvedeného počtu balených výrobků prodávaných v Česku nebo na Slovensku (při sudém počtu průměr dvou prostředních) a stejný recept pod více značkami se počítá jen jednou. | OFF 3 |
 | `nutrition.captionLabels` | Rows marked "label median" use the median of the nutrition labels of packaged products instead. | Řádky označené „medián z etiket“ místo toho vycházejí z mediánu údajů na etiketách balených výrobků. | OFF 3 |
 | `nutrition.offNotice` | Contains information from {off}, which is made available here under the {odbl}. | Obsahuje informace z databáze {off}, která je zde k dispozici pod licencí {odbl}. | OFF 3 |
 | `nutrition.offRows` | We publish the label values we use, under the same licence, {folder}. | Hodnoty z etiket, které používáme, zveřejňujeme pod stejnou licencí {folder}. | OFF 3 |
