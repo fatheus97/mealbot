@@ -76,6 +76,76 @@ export interface PlannedMeal {
   leftover_of?: LeftoverRef | null;
 }
 
+// GET /plan/{id}/nutrition (backend/app/models/plan_models.py, PlanNutrition).
+// Values are unrounded so the arithmetic can be redone; the UI rounds.
+export interface NutrientValues {
+  kcal: number;
+  kj: number;
+  protein: number;
+  fat: number;
+  carbohydrate: number;
+}
+
+export type NutritionIngredientStatus = "counted" | "seasoning" | "water" | "not_counted";
+export type NotCountedReason = "not_recognised" | "not_in_table" | "amount_not_given" | "frying_fat";
+export type MealWithheldReason = "legacy" | "coverage" | "leftover_unresolved";
+export type PlanNutritionUnavailableReason = "cook_now" | "infant" | "health_data_removed";
+
+export interface IngredientNutrition {
+  name: string;
+  grams: number;
+  status: NutritionIngredientStatus;
+  reason: NotCountedReason | null;
+  alim_code: number | null;
+  // Ciqual's own (English) food name, shown as provenance.
+  source_name: string | null;
+  state: string | null;
+  // Ciqual confidence code, A (best) to D.
+  confidence: string | null;
+  per_100g: NutrientValues | null;
+  // What this ingredient adds to the whole dish, not per serving.
+  contribution: NutrientValues | null;
+}
+
+export interface MealNutrition {
+  // 0-based, like the plan's days/meals arrays.
+  day_index: number;
+  meal_index: number;
+  // null when no figure is shown; withheld_reason then says why.
+  per_serving: NutrientValues | null;
+  withheld_reason: MealWithheldReason | null;
+  servings: number;
+  // Nothing was left out; false means the figure is an "at least".
+  complete: boolean;
+  coverage: number;
+  // Empty on a leftover, whose figure is its source's.
+  ingredients: IngredientNutrition[];
+  leftover_of: LeftoverRef | null;
+}
+
+export interface DayNutrition {
+  day_index: number;
+  per_person: NutrientValues | null;
+  partial: boolean;
+  meals: MealNutrition[];
+}
+
+export interface SourceAttribution {
+  name: string;
+  publisher: string;
+  // "YYYY-MM-DD"
+  published: string;
+  // Bare DOI, no https://doi.org/ prefix.
+  doi: string;
+}
+
+export interface PlanNutrition {
+  available: boolean;
+  unavailable_reason: PlanNutritionUnavailableReason | null;
+  days: DayNutrition[];
+  source: SourceAttribution;
+}
+
 export interface SingleDayPlan {
   meals: PlannedMeal[];
 }
@@ -308,6 +378,7 @@ export interface AuthLoginResponse {
   include_spices: boolean;
   track_snacks: boolean;
   show_pieces: boolean;
+  show_nutrition: boolean;
   need_to_use_enabled: boolean;
   waste_tracking_enabled: boolean;
   onboarding_completed: boolean;
@@ -451,6 +522,7 @@ export interface UserProfile {
   include_spices: boolean;
   track_snacks: boolean;
   show_pieces: boolean;
+  show_nutrition: boolean;
   need_to_use_enabled: boolean;
   waste_tracking_enabled: boolean;
   onboarding_completed: boolean;

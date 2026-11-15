@@ -23,6 +23,8 @@ export function preferencesFromProfile(profile: UserProfile): PreferencesFormVal
     // ?? false like the billing fields: a payload cached before this field
     // existed would otherwise send undefined and look like a no-op save.
     show_pieces: profile.show_pieces ?? false,
+    // Opt-in, like waste tracking: never show calorie figures nobody chose.
+    show_nutrition: profile.show_nutrition ?? false,
     track_snacks: profile.track_snacks,
     // ?? true (not false): the feature already exists and defaults on, so a
     // payload cached before this field existed should read as "still

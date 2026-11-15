@@ -18,6 +18,7 @@ const defaultValues: PreferencesFormValues = {
   measurement_system: 'metric',
   include_spices: true,
   show_pieces: false,
+  show_nutrition: false,
   track_snacks: true,
   need_to_use_enabled: true,
   waste_tracking_enabled: false,
@@ -118,6 +119,7 @@ describe('PreferencesForm', () => {
       measurement_system: 'metric',
       include_spices: false,
       show_pieces: false,
+      show_nutrition: false,
       track_snacks: true,
       need_to_use_enabled: true,
       waste_tracking_enabled: false,
@@ -138,6 +140,7 @@ describe('PreferencesForm', () => {
           measurement_system: 'metric',
           include_spices: true,
           show_pieces: false,
+          show_nutrition: false,
           track_snacks: true,
           need_to_use_enabled: true,
           waste_tracking_enabled: false,
@@ -160,6 +163,7 @@ describe('PreferencesForm', () => {
       measurement_system: 'metric',
       include_spices: true,
       show_pieces: false,
+      show_nutrition: false,
       track_snacks: true,
       need_to_use_enabled: true,
       waste_tracking_enabled: false,
@@ -181,13 +185,37 @@ describe('PreferencesForm', () => {
 
     // Same pattern as the other boolean prefs above: nested hint text inside
     // the label makes getByLabelText unreliable, so target by checkbox order
-    // (include_spices, show_pieces, track_snacks, need_to_use_enabled).
+    // (include_spices, show_pieces, show_nutrition, track_snacks,
+    // need_to_use_enabled).
     const checkboxes = screen.getAllByRole('checkbox');
-    await user.click(checkboxes[3]);
+    await user.click(checkboxes[4]);
     await user.click(screen.getByRole('button', { name: /save/i }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ need_to_use_enabled: false }),
+    );
+  });
+
+  it('toggles show_nutrition on and submits the change', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(
+      <PreferencesForm
+        initialValues={defaultValues}
+        onSubmit={onSubmit}
+        submitLabel="Save"
+      />,
+    );
+
+    // Opt-in (nutrition design, owner decision 3): starts unticked.
+    const box = screen.getByRole('checkbox', { name: /show approximate nutrition/i });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ show_nutrition: true }),
     );
   });
 
@@ -203,11 +231,11 @@ describe('PreferencesForm', () => {
       />,
     );
 
-    // Fifth checkbox, after include_spices / show_pieces / track_snacks /
-    // need_to_use_enabled. Starts UNticked — it is the one opt-in preference.
+    // Sixth checkbox, after include_spices / show_pieces / show_nutrition /
+    // track_snacks / need_to_use_enabled. Starts UNticked (opt-in).
     const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes[4]).not.toBeChecked();
-    await user.click(checkboxes[4]);
+    expect(checkboxes[5]).not.toBeChecked();
+    await user.click(checkboxes[5]);
     await user.click(screen.getByRole('button', { name: /save/i }));
 
     expect(onSubmit).toHaveBeenCalledWith(
@@ -320,6 +348,7 @@ describe('PreferencesForm', () => {
           measurement_system: 'metric',
           include_spices: true,
           show_pieces: false,
+          show_nutrition: false,
           track_snacks: true,
           need_to_use_enabled: true,
           waste_tracking_enabled: false,
