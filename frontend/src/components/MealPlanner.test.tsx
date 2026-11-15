@@ -719,12 +719,27 @@ describe('MealPlanner', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
-  it('does not scroll on mount when no initialPlan is provided', () => {
+  it('does not scroll when a plan is generated on the same mount', async () => {
+    // The scroll is for a plan opened from elsewhere. A plan generated here
+    // lands under the form the user is already looking at. Asserting on a bare
+    // mount instead proved nothing: with no plan the container isn't rendered,
+    // so there is nothing to scroll even if the component tried.
     loginUser();
-
+    const plan = {
+      plan_id: 42,
+      start_date: null,
+      days: [{ meals: [{ name: 'Fresh Meal', meal_type: 'lunch', ingredients: [], steps: [] }] }],
+      shopping_list: [],
+    };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(plan) });
+    });
     const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     render(<MealPlanner />, { wrapper: createWrapper() });
+    await userEvent.click(screen.getByRole('button', { name: /generate plan/i }));
+    await screen.findByText('Fresh Meal');
 
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
