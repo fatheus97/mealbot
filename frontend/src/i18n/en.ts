@@ -677,11 +677,12 @@ export const en = {
   "nutrition.chipAtLeast": "At least {kcal} kcal per serving",
   "nutrition.chipAtLeastShort": "At least {kcal} kcal",
   "nutrition.chipNoData": "Not enough data for nutrition",
-  // The day header: one serving of each meal that day, added up.
-  "nutrition.dayTotal": "≈ {kcal} kcal · {protein} g protein · {fat} g fat · {carbohydrate} g carbohydrate per person",
-  "nutrition.dayTotalAtLeast": "At least {kcal} kcal · {protein} g protein · {fat} g fat · {carbohydrate} g carbohydrate per person",
-  "nutrition.dayTotalShort": "≈ {kcal} kcal per person",
-  "nutrition.dayTotalAtLeastShort": "At least {kcal} kcal per person",
+  // The day header: one serving of each meal that day, added up. A no-break space keeps
+  // a number with its unit when the line wraps at the " · " separators.
+  "nutrition.dayTotal": "≈\u00a0{kcal}\u00a0kcal · {protein}\u00a0g protein · {fat}\u00a0g fat · {carbohydrate}\u00a0g carbohydrate per person",
+  "nutrition.dayTotalAtLeast": "At least\u00a0{kcal}\u00a0kcal · {protein}\u00a0g protein · {fat}\u00a0g fat · {carbohydrate}\u00a0g carbohydrate per person",
+  "nutrition.dayTotalShort": "≈\u00a0{kcal}\u00a0kcal per person",
+  "nutrition.dayTotalAtLeastShort": "At least\u00a0{kcal}\u00a0kcal per person",
   "nutrition.perServing": "Per serving, approximately",
   "nutrition.perServingAtLeast": "Per serving, at least",
   "nutrition.energy": "Energy",
