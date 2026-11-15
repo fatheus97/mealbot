@@ -626,13 +626,8 @@ describe('MealPlanner', () => {
   it('scrolls to the plan on mount when initialPlan is provided', () => {
     loginUser();
 
-    const scrollIntoView = vi.fn();
-    // scrollIntoView isn't implemented in jsdom — stub it on the prototype so
-    // any element's call lands on the spy.
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: scrollIntoView,
-    });
+    // On the prototype, so any element's call lands on the spy.
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     const initialPlan = {
       plan_id: 99,
@@ -666,10 +661,6 @@ describe('MealPlanner', () => {
     [false, null],
   ])('shows the unchecked notice after an edit only when the server says so (%s)', async (removed, text) => {
     loginUser();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: vi.fn(),
-    });
     const meal = {
       name: 'Opened Meal',
       meal_type: 'lunch',
@@ -731,11 +722,7 @@ describe('MealPlanner', () => {
   it('does not scroll on mount when no initialPlan is provided', () => {
     loginUser();
 
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: scrollIntoView,
-    });
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     render(<MealPlanner />, { wrapper: createWrapper() });
 
@@ -1401,13 +1388,6 @@ describe('MealPlanner info hints (U-9)', () => {
 describe('MealPlanner — expired-item review after finishing', () => {
   const PLAN_ID = 900;
 
-  beforeEach(() => {
-    // Not otherwise guaranteed when a test here runs alone: jsdom has no layout.
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true, writable: true, value: vi.fn(),
-    });
-  });
-
   const initialPlan = {
     plan_id: PLAN_ID,
     start_date: null,
@@ -1794,7 +1774,6 @@ describe('MealPlanner nutrition (opt-in)', () => {
 
   function withProfile(showNutrition: boolean) {
     loginUser();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
     mockedFetchProfile.mockResolvedValue({
       id: 1, email: 'test@test.com', country: null, language: 'English',
       measurement_system: 'metric', variability: 'traditional', include_spices: true,
