@@ -214,8 +214,12 @@ def food_row(food: CiqualFood) -> dict[str, str]:
 
 
 def referenced_codes(aliases: Path) -> list[int]:
+    """The Ciqual codes aliases.csv points at. Its food column also holds
+    off: ids, which name Open Food Facts rows, not Ciqual foods; the loader
+    refuses any id of neither shape."""
     with aliases.open(encoding="utf-8", newline="") as handle:
-        return sorted({int(row["alim_code"]) for row in csv.DictReader(handle)})
+        ids = {row["food"].strip() for row in csv.DictReader(handle)}
+    return sorted(int(food_id) for food_id in ids if food_id.isascii() and food_id.isdigit())
 
 
 def render(rows: Iterable[dict[str, str]]) -> str:

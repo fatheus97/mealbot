@@ -45,6 +45,7 @@ from app.core.nutrition_reference import (
 )
 from app.models.plan_models import (
     DayNutrition,
+    FoodSource,
     IngredientAmount,
     IngredientNutrition,
     MealNutrition,
@@ -153,6 +154,8 @@ def _ingredient(
     alias, food = hit
     found = base.model_copy(update={
         "alim_code": food.alim_code,
+        "off_id": food.id if food.source == "off" else None,
+        "label_products": food.products,
         "source_name": food.name,
         "state": alias.state,
         "confidence": food.confidence,
@@ -168,6 +171,10 @@ def _ingredient(
         "status": "counted",
         "contribution": _scaled(_per_100g(food), ing.quantity_grams / 100),
     })
+
+
+def _row_source(row: IngredientNutrition) -> FoodSource:
+    return "off" if row.off_id is not None else "ciqual"
 
 
 def is_placeholder(ing: IngredientAmount) -> bool:
@@ -209,6 +216,8 @@ def _dish(
     counted = sum(ing.quantity_grams for ing, row in weighed if row.status == "counted")
     coverage = counted / denominator if denominator > 0 else 0.0
     complete = all(row.status != "not_counted" for row in rows)
+    # The tables behind the rows provenance lists, figure or not.
+    sources = sorted({_row_source(row) for row in rows if row.status in ("counted", "seasoning")})
     withheld: MealWithheldReason | None = None
     per_serving: NutrientValues | None = None
     if meal.grams_basis is None:
@@ -227,6 +236,7 @@ def _dish(
         complete=complete,
         coverage=coverage,
         ingredients=rows,
+        sources=sources,
     )
 
 

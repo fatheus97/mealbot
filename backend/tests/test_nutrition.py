@@ -6,10 +6,12 @@ redo; the shipped Ciqual rows have their own gates in test_nutrition_reference.p
 """
 from __future__ import annotations
 
+import ast
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from httpx import AsyncClient
@@ -22,8 +24,10 @@ from app.core.nutrition_reference import (
     ALIAS_COLUMNS,
     DATA_DIR,
     FOOD_COLUMNS,
+    OFF_FOOD_COLUMNS,
     Alias,
     Food,
+    FoodSource,
     Lang,
     NutritionDataError,
     NutritionReference,
@@ -39,6 +43,7 @@ from app.models.plan_models import (
     MealPlanResponse,
     SingleDayResponse,
 )
+from app.models.plan_models import FoodSource as ApiFoodSource
 from app.scripts import nutrition_gaps
 from app.scripts.nutrition_gaps import MIN_HOUSEHOLDS, StoredPlan, rank_gaps
 from app.services.nutrition import day_nutrition, plan_nutrition
@@ -47,25 +52,32 @@ from tests.conftest import TEST_PASSWORD
 
 def _food(code: int, name: str, kcal: float, protein: float, fat: float, carb: float) -> Food:
     return Food(
-        alim_code=code, name=name, kcal=kcal, kj=kcal * 4.184, protein=protein, fat=fat,
+        id=str(code), name=name, kcal=kcal, kj=kcal * 4.184, protein=protein, fat=fat,
         carbohydrate=carb, polyols=None, fibre=None, sugars=None, alcohol=None,
         organic_acids=None, below_detection=False, confidence="A",
     )
 
 
+# An Open Food Facts row: a label median, with a product count and no letter.
+DUMPLING_ID = "off:houskovy-knedlik"
 FOODS = {
-    1: _food(1, "Rice, white, raw", 350, 7, 1, 78),
-    2: _food(2, "Chicken, breast, without skin, raw", 110, 23, 2, 0),
-    3: _food(3, "Sweet pepper, raw", 30, 1, 0, 6),
-    4: _food(4, "Paprika, powder", 300, 14, 13, 54),
-    5: _food(5, "Black pepper, ground", 250, 10, 3, 64),
-    6: _food(6, "Honey", 320, 0, 0, 80),
-    7: _food(7, "Sunflower oil", 900, 0, 100, 0),
+    "1": _food(1, "Rice, white, raw", 350, 7, 1, 78),
+    "2": _food(2, "Chicken, breast, without skin, raw", 110, 23, 2, 0),
+    "3": _food(3, "Sweet pepper, raw", 30, 1, 0, 6),
+    "4": _food(4, "Paprika, powder", 300, 14, 13, 54),
+    "5": _food(5, "Black pepper, ground", 250, 10, 3, 64),
+    "6": _food(6, "Honey", 320, 0, 0, 80),
+    "7": _food(7, "Sunflower oil", 900, 0, 100, 0),
+    DUMPLING_ID: Food(
+        id=DUMPLING_ID, name="Bread dumpling (houskový knedlík), packaged", kcal=221, kj=936, protein=7,
+        fat=1, carbohydrate=45, polyols=None, fibre=None, sugars=None, alcohol=None, organic_acids=None,
+        below_detection=False, confidence=None, products=13,
+    ),
 }
 
 
-def _alias(lang: Lang, key: str, code: int, *, seasoning: bool = False) -> tuple[tuple[Lang, str], Alias]:
-    return (lang, key), Alias(lang=lang, key=key, alim_code=code, state="raw",
+def _alias(lang: Lang, key: str, food: int | str, *, seasoning: bool = False) -> tuple[tuple[Lang, str], Alias]:
+    return (lang, key), Alias(lang=lang, key=key, food=str(food), state="raw",
                               seasoning=seasoning, override_note="")
 
 
@@ -81,6 +93,8 @@ REF = NutritionReference(
         _alias("en", "sunflower oil", 7),
         _alias("cs", "paprika", 3),
         _alias("cs", "rýže", 1),
+        _alias("en", "bread dumpling", DUMPLING_ID),
+        _alias("cs", "houskový knedlík", DUMPLING_ID),
     ]),
 )
 
@@ -104,6 +118,7 @@ def _first(days: list[SingleDayResponse], *, language: str = "English", people: 
 
 RICE = {"name": "rice", "quantity_grams": 200}
 CHICKEN = {"name": "chicken breast", "quantity_grams": 300}
+DUMPLING = {"name": "bread dumpling", "quantity_grams": 300}
 
 
 class TestKeys:
@@ -253,7 +268,13 @@ class TestLeftoversAndDays:
     def test_an_unresolvable_leftover_has_no_figure_and_never_throws(self) -> None:
         days = _days([_meal(name="Leftovers", leftover_of={"day_index": 5, "meal_index": 0})])
         meal = _first(days)
-        assert (meal.per_serving, meal.withheld_reason) == (None, "leftover_unresolved")
+        assert (meal.per_serving, meal.withheld_reason, meal.sources) == (None, "leftover_unresolved", [])
+
+    def test_a_leftover_keeps_its_source_dish_sources(self) -> None:
+        days = _days([_meal(RICE, DUMPLING, name="Batch")],
+                     [_meal(name="Leftovers", leftover_of={"day_index": 0, "meal_index": 0})])
+        batch, leftover = (day.meals[0] for day in day_nutrition(days, language="English", people_count=2, ref=REF))
+        assert batch.sources == leftover.sources == ["ciqual", "off"]
 
     def test_a_day_is_withheld_when_one_meal_has_no_figure(self) -> None:
         day = day_nutrition(_days([_meal(RICE), _meal(RICE, basis=None)]),
@@ -266,6 +287,53 @@ class TestLeftoversAndDays:
                             language="English", people_count=2, ref=REF)[0]
         assert day.per_person is not None and day.per_person.kcal == pytest.approx(350 + 165)
         assert day.partial is True
+
+
+class TestSources:
+    """Which table each provenance row comes from, and so which the meal used."""
+
+    def test_counted_ciqual_rows_carry_their_code_and_the_meal_its_source(self) -> None:
+        meal = _first(_days([_meal(RICE, CHICKEN, {"name": "black pepper", "quantity_grams": 1, "is_spice": True})]))
+        assert [(i.status, i.alim_code, i.off_id, i.label_products) for i in meal.ingredients] == [
+            ("counted", 1, None, None), ("counted", 2, None, None), ("seasoning", 5, None, None),
+        ]
+        assert meal.sources == ["ciqual"]
+
+    def test_an_open_food_facts_row_carries_its_id_and_product_count(self) -> None:
+        meal = _first(_days([_meal(RICE, DUMPLING)]))
+        row = meal.ingredients[1]
+        assert (row.status, row.alim_code, row.off_id, row.label_products, row.confidence) == (
+            "counted", None, DUMPLING_ID, 13, None,
+        )
+        assert row.source_name == "Bread dumpling (houskový knedlík), packaged"
+        # (350 x 2 + 221 x 3) / 2 servings: the same arithmetic as a Ciqual row.
+        assert meal.per_serving is not None and meal.per_serving.kcal == pytest.approx(681.5)
+        assert meal.sources == ["ciqual", "off"]
+
+    def test_a_czech_plan_reaches_the_open_food_facts_row_through_the_czech_index(self) -> None:
+        meal = _first(_days([_meal({"name": "houskový knedlík", "quantity_grams": 300})]), language="Czech")
+        assert (meal.ingredients[0].off_id, meal.sources) == (DUMPLING_ID, ["off"])
+
+    def test_sources_are_set_when_no_figure_is_shown(self) -> None:
+        # Below the coverage floor provenance still lists the row's values.
+        meal = _first(_days([_meal(DUMPLING, {"name": "kohlrabi", "quantity_grams": 100})]))
+        assert (meal.per_serving, meal.withheld_reason, meal.sources) == (None, "coverage", ["off"])
+
+    def test_a_matched_row_that_is_not_counted_adds_no_source(self) -> None:
+        # A 1 g placeholder of a non-seasoning food is "amount not given":
+        # matched, so it has an id, but provenance does not list it.
+        meal = _first(_days([_meal(RICE, {**DUMPLING, "quantity_grams": 1, "is_spice": True})]))
+        assert (meal.ingredients[1].reason, meal.ingredients[1].off_id) == ("amount_not_given", DUMPLING_ID)
+        assert meal.sources == ["ciqual"]
+
+    def test_a_meal_with_nothing_matched_has_no_source(self) -> None:
+        assert _first(_days([_meal({"name": "kohlrabi", "quantity_grams": 100})])).sources == []
+
+    def test_the_api_and_the_loader_name_the_same_two_sources(self) -> None:
+        # plan_models keeps its own copy (it may not import the loader), and
+        # services/nutrition.py reads a row with no off_id as Ciqual. A third
+        # source must fail here first, so that reading is changed with it.
+        assert get_args(ApiFoodSource) == get_args(FoodSource) == ("ciqual", "off")
 
 
 class TestPlanAvailability:
@@ -283,7 +351,7 @@ class TestPlanAvailability:
 class TestLoader:
     def test_the_shipped_table_loads(self) -> None:
         ref = load_reference()
-        assert set(ref.foods) >= {a.alim_code for a in ref.aliases.values()}
+        assert set(ref.foods) >= {a.food for a in ref.aliases.values()}
 
     def test_the_shipped_czech_row_beats_a_less_precise_name_en(self) -> None:
         # The eval answer that showed it: cooked beans translated as plain
@@ -296,13 +364,96 @@ class TestLoader:
                                   people_count=2, ref=ref)
         assert english.meals[0].ingredients[0].alim_code == 20501  # Haricot bean, dried
 
-    def _write(self, tmp_path: Path, foods: list[str], aliases: list[str]) -> Path:
+    def _write(self, tmp_path: Path, foods: list[str], aliases: list[str], off: list[str] | None = None) -> Path:
         (tmp_path / "foods.csv").write_text("\n".join([",".join(FOOD_COLUMNS), *foods]) + "\n", encoding="utf-8")
         (tmp_path / "aliases.csv").write_text("\n".join([",".join(ALIAS_COLUMNS), *aliases]) + "\n",
                                               encoding="utf-8")
+        if off is not None:
+            (tmp_path / "off").mkdir()
+            (tmp_path / "off" / "foods.csv").write_text(
+                "\n".join([",".join(OFF_FOOD_COLUMNS), *off]) + "\n", encoding="utf-8")
         return tmp_path
 
     GOOD_FOOD = "1,\"Rice, white, raw\",350,1464,7,1,78,,1.2,0.3,,,0,A"
+    GOOD_OFF = "off:houskovy-knedlik,\"Bread dumpling (houskový knedlík), packaged\",221,936,7,1,45,,2.1,13,Nearest is 7261"
+    OFF_ALIAS = "en,bread dumpling,off:houskovy-knedlik,neutral,0,"
+
+    def test_an_open_food_facts_row_loads_beside_the_ciqual_rows(self, tmp_path: Path) -> None:
+        ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD], ["en,rice,1,raw,0,", self.OFF_ALIAS],
+                                         off=[self.GOOD_OFF]))
+        dumpling, rice = ref.lookup("en", "bread dumplings"), ref.lookup("en", "rice")
+        assert dumpling is not None and rice is not None
+        food = dumpling[1]
+        assert (food.id, food.source, food.alim_code, food.products, food.confidence) == (
+            "off:houskovy-knedlik", "off", None, 13, None,
+        )
+        assert (food.kcal, food.fibre, food.sugars, food.polyols, food.below_detection) == (221, None, 2.1, None, False)
+        assert (rice[1].id, rice[1].source, rice[1].alim_code, rice[1].products) == ("1", "ciqual", 1, None)
+
+    def test_the_open_food_facts_file_is_optional(self, tmp_path: Path) -> None:
+        ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD], ["en,rice,1,raw,0,"]))
+        assert list(ref.foods) == ["1"]
+
+    # Each case names the refusal it expects, so a case cannot stay green
+    # because some other check fired first.
+    UNDEFINED = "which no foods file defines"
+    NO_SHAPE = "neither a Ciqual alim_code"
+    NOT_A_COUNT = "is not a whole number of at least 1"
+
+    @pytest.mark.parametrize(("off", "aliases", "match"), [
+        pytest.param(None, [OFF_ALIAS], UNDEFINED, id="alias on an off id, no off file"),
+        pytest.param([GOOD_OFF], ["en,bread dumpling,off:missing,neutral,0,"], UNDEFINED, id="off:missing"),
+        pytest.param([GOOD_OFF], ["en,bread dumpling,off:Knedlík,neutral,0,"], UNDEFINED, id="alias off:Knedlík"),
+        pytest.param([GOOD_OFF], ["en,bread dumpling,x123,neutral,0,"], UNDEFINED, id="alias x123"),
+        pytest.param([GOOD_OFF], ["en,bread dumpling,19664.0,neutral,0,"], UNDEFINED, id="alias 19664.0"),
+        pytest.param([GOOD_OFF], ["en,bread dumpling,09100,neutral,0,"], UNDEFINED, id="alias 09100"),
+        pytest.param([GOOD_OFF.replace("off:houskovy-knedlik", "off:Knedlík")], [], NO_SHAPE, id="id off:Knedlík"),
+        pytest.param([GOOD_OFF.replace("off:houskovy-knedlik", "off_houskovy")], [], NO_SHAPE, id="id off_houskovy"),
+        pytest.param([GOOD_OFF.replace("off:houskovy-knedlik", "7261")], [], "a Ciqual food needs",
+                     id="a Ciqual code in the off file"),
+        pytest.param([GOOD_OFF, GOOD_OFF], [], "appears twice", id="duplicate row"),
+        pytest.param([GOOD_OFF.replace(",13,", ",0,")], [], NOT_A_COUNT, id="products 0"),
+        pytest.param([GOOD_OFF.replace(",13,", ",13.0,")], [], NOT_A_COUNT, id="products 13.0"),
+        pytest.param([GOOD_OFF.replace(",13,", ",,")], [], NOT_A_COUNT, id="products empty"),
+        pytest.param([GOOD_OFF.replace(",221,", ",-221,")], [], "kcal=-221.0 is not a finite", id="negative"),
+        pytest.param([GOOD_OFF.replace(",221,", ",nan,")], [], "kcal=nan is not a finite", id="nan"),
+        pytest.param([GOOD_OFF.replace(",221,", ",,")], [], "kcal is empty", id="energy missing"),
+        pytest.param([GOOD_OFF.replace(",2.1,", ",two,")], [], "sugars='two' is not a number", id="sugars two"),
+        pytest.param([GOOD_OFF.rsplit(",", 1)[0]], [], "expected 11 fields", id="short row"),
+    ])
+    def test_an_open_food_facts_defect_refuses_to_load(
+        self, tmp_path: Path, off: list[str] | None, aliases: list[str], match: str,
+    ) -> None:
+        with pytest.raises(NutritionDataError, match=match):
+            load_reference(self._write(tmp_path, [self.GOOD_FOOD], aliases, off=off))
+
+    def test_a_changed_open_food_facts_header_refuses_to_load(self, tmp_path: Path) -> None:
+        self._write(tmp_path, [self.GOOD_FOOD], [], off=[])
+        (tmp_path / "off" / "foods.csv").write_text(",".join(OFF_FOOD_COLUMNS[:-1]) + "\n", encoding="utf-8")
+        with pytest.raises(NutritionDataError):
+            load_reference(tmp_path)
+
+    @pytest.mark.parametrize(("food_id", "confidence", "products", "match"), [
+        pytest.param("19664", None, None, "a Ciqual food needs", id="Ciqual without its letter"),
+        pytest.param("19664", "E", None, "a Ciqual food needs", id="a letter Ciqual does not use"),
+        pytest.param("19664", "A", 13, "a Ciqual food needs", id="Ciqual with a product count"),
+        pytest.param("off:tvaroh-jemny", "A", 13, "an Open Food Facts food needs", id="off with a Ciqual letter"),
+        pytest.param("off:tvaroh-jemny", None, None, "an Open Food Facts food needs", id="off without its count"),
+        pytest.param("off:tvaroh-jemny", None, 0, "an Open Food Facts food needs", id="off with count 0"),
+        pytest.param("off:Knedlík", None, 13, NO_SHAPE, id="off:Knedlík"),
+        pytest.param("off_houskovy", None, 13, NO_SHAPE, id="off_houskovy"),
+        pytest.param("x123", "A", None, NO_SHAPE, id="x123"),
+        pytest.param("19664.0", "A", None, NO_SHAPE, id="19664.0"),
+    ])
+    def test_a_food_pairs_its_id_with_its_source_fields(
+        self, food_id: str, confidence: str | None, products: int | None, match: str,
+    ) -> None:
+        with pytest.raises(NutritionDataError, match=match):
+            Food(
+                id=food_id, name="x", kcal=1, kj=4, protein=0, fat=0, carbohydrate=0, polyols=None, fibre=None,
+                sugars=None, alcohol=None, organic_acids=None, below_detection=False,
+                confidence=confidence, products=products,
+            )
 
     def test_a_good_table_loads(self, tmp_path: Path) -> None:
         ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD], ["en,rice,1,raw,0,"]))
@@ -342,6 +493,14 @@ class TestLoader:
     def test_a_defect_refuses_to_load(self, tmp_path: Path, foods: list[str], aliases: list[str]) -> None:
         with pytest.raises(NutritionDataError):
             load_reference(self._write(tmp_path, foods, aliases))
+
+    @pytest.mark.parametrize(("food", "match"), [
+        pytest.param(GOOD_FOOD.replace("1,", "off:rice,", 1), "an Open Food Facts food needs", id="off:rice"),
+        pytest.param(GOOD_FOOD.replace("1,", "1.0,", 1), NO_SHAPE, id="1.0"),
+    ])
+    def test_the_ciqual_file_refuses_an_id_of_another_shape(self, tmp_path: Path, food: str, match: str) -> None:
+        with pytest.raises(NutritionDataError, match=match):
+            load_reference(self._write(tmp_path, [food], []))
 
     def test_a_changed_header_refuses_to_load(self, tmp_path: Path) -> None:
         self._write(tmp_path, [], [])
@@ -385,6 +544,22 @@ def synthetic_table() -> Iterator[None]:
 
 @pytest.mark.usefixtures("synthetic_table")
 class TestEndpoint:
+    async def test_an_open_food_facts_row_reaches_the_response_and_its_leftover(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ) -> None:
+        response = MealPlanResponse.model_validate({"plan_id": None, "shopping_list": [], "days": [
+            {"meals": [_meal(RICE, DUMPLING, name="Batch")]},
+            {"meals": [_meal(name="Leftovers", leftover_of={"day_index": 0, "meal_index": 0})]},
+        ]}).model_dump_json()
+        plan = await _plan(db_session, test_user, response=response)
+        body = (await client.get(f"/api/plan/{plan.id}/nutrition")).json()
+        batch, leftover = body["days"][0]["meals"][0], body["days"][1]["meals"][0]
+        assert [(i["alim_code"], i["off_id"], i["label_products"], i["confidence"]) for i in batch["ingredients"]] == [
+            (1, None, None, "A"), (None, DUMPLING_ID, 13, None),
+        ]
+        assert batch["sources"] == leftover["sources"] == ["ciqual", "off"]
+        assert leftover["ingredients"] == [] and leftover["per_serving"] == batch["per_serving"]
+
     async def test_a_plan_gets_its_figures(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ) -> None:
@@ -460,6 +635,67 @@ class TestEndpoint:
         # (200 g x 350 + 300 g x 110) / 100, split between 2 people.
         assert meal["per_serving"]["kcal"] == pytest.approx(515)
         assert meal["complete"] is True
+
+
+# Modules that may import the nutrition table or figures, relative to backend/:
+# the endpoint, the figures themselves, offline scripts and the evals. Nothing
+# on a planning, diet, infant or allergen path, and no prompt, may read them:
+# Open Food Facts values are display only.
+_NUTRITION_MODULES = ("app.core.nutrition_reference", "app.services.nutrition")
+_ALLOWED_IMPORTERS = ("app/api/plan.py", "app/services/nutrition.py", "app/scripts/", "evals/")
+BACKEND = Path(__file__).resolve().parents[1]
+
+
+def _imported_modules(source: str, module: str) -> set[str]:
+    """Every module a file named ``module`` imports. ``from a.b import c``
+    counts as a.b and as a.b.c, since c may be a module; a relative import is
+    resolved against the file's package."""
+    package = module.split(".")[:-1]
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            base = package[: len(package) - node.level + 1] if node.level else []
+            parent = ".".join([*base, *([node.module] if node.module else [])])
+            names.add(parent)
+            names |= {f"{parent}.{alias.name}" for alias in node.names}
+    return names
+
+
+def _reads_nutrition(source: str, module: str) -> bool:
+    return any(name == target or name.startswith(f"{target}.")
+               for name in _imported_modules(source, module) for target in _NUTRITION_MODULES)
+
+
+class TestImporters:
+    def test_only_the_endpoint_scripts_and_evals_import_the_nutrition_modules(self) -> None:
+        importers: set[str] = set()
+        for path in sorted([*(BACKEND / "app").rglob("*.py"), *(BACKEND / "evals").rglob("*.py")]):
+            relative = path.relative_to(BACKEND).as_posix()
+            module = relative.removesuffix(".py").replace("/", ".")
+            if _reads_nutrition(path.read_text(encoding="utf-8"), module):
+                importers.add(relative)
+        assert sorted(p for p in importers if not p.startswith(_ALLOWED_IMPORTERS)) == []
+        # The scan sees today's importers, so an empty result above is not a blind one.
+        assert {"app/api/plan.py", "app/services/nutrition.py", "evals/graders.py"} <= importers
+
+    @pytest.mark.parametrize(("source", "module", "reads"), [
+        ("import app.services.nutrition", "app.services.planner", True),
+        ("import app.core.nutrition_reference as ref", "app.services.planner", True),
+        ("from app.services.nutrition import plan_nutrition", "app.services.planner", True),
+        ("from app.services import nutrition", "app.services.planner", True),
+        ("from app.core import dietary, nutrition_reference", "app.llm.prompts", True),
+        ("from . import nutrition", "app.services.planner", True),
+        ("from ..core.nutrition_reference import SOURCE", "app.services.planner", True),
+        ("def f() -> None:\n    from app.services.nutrition import day_nutrition", "app.services.planner", True),
+        ("from app.services import nutrition_gaps", "app.services.planner", False),
+        ("from app.services.allergen_screen import is_english_language", "app.services.planner", False),
+        ("import app.services", "app.services.planner", False),
+        ("from . import allergen_screen", "app.services.planner", False),
+    ])
+    def test_the_import_scan_reads_every_form(self, source: str, module: str, reads: bool) -> None:
+        assert _reads_nutrition(source, module) is reads
 
 
 class TestGaps:

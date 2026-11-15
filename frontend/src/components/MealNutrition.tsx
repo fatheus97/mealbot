@@ -194,7 +194,8 @@ function PerServing({ values, complete }: { values: NutrientValues; complete: bo
 function Provenance({ figure }: { figure: MealNutrition }) {
   const { t, locale } = useI18n();
   const rows = figure.ingredients.filter(
-    (ing) => (ing.status === "counted" || ing.status === "seasoning") && ing.alim_code !== null,
+    (ing) =>
+      (ing.status === "counted" || ing.status === "seasoning") && (ing.alim_code !== null || ing.off_id !== null),
   );
   if (rows.length === 0) return null;
   return (
@@ -223,7 +224,7 @@ function Provenance({ figure }: { figure: MealNutrition }) {
                     ? t("nutrition.toTaste")
                     : `${roundedGrams(ing.grams, locale, false)} ${t("editor.grams")}`}
                 </td>
-                <td style={td}>{ing.source_name} ({ing.alim_code})</td>
+                <td style={td}>{ing.source_name} ({ing.alim_code ?? ing.off_id})</td>
                 <td style={num}>{ing.per_100g ? formatNumber(ing.per_100g.kcal, locale) : ""}</td>
                 <td style={num}>{ing.contribution ? formatNumber(ing.contribution.kcal, locale) : ""}</td>
                 <td style={td}>{ing.confidence}</td>

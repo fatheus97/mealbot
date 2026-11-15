@@ -31,7 +31,7 @@ vi.mock('../api', () => ({
 
 import { authFetch, fetchHousehold, fetchPlanNutrition, fetchUserProfile, recordWaste, updateMeal } from '../api';
 import * as AuthCtx from '../contexts/AuthContext';
-import type { AuthState } from '../types';
+import type { AuthState, PlanNutrition } from '../types';
 
 const mockedAuthFetch = authFetch as ReturnType<typeof vi.fn>;
 const mockedFetchProfile = fetchUserProfile as ReturnType<typeof vi.fn>;
@@ -1774,7 +1774,8 @@ describe('MealPlanner nutrition (opt-in)', () => {
   const plan = { plan_id: 99, start_date: null, days: [{ meals: [meal] }], shopping_list: [] };
   const SOURCE = { name: 'Ciqual 2025', publisher: 'Anses', published: '2025-11-19', doi: '10.57745/RDMHWY' };
   const NOT_ADVICE = 'Not dietary or medical advice. Do not use these figures to dose insulin or any other medicine.';
-  const figure = (kcal: number) => ({
+  // Typed, so tsc flags a field the API gains and this mock lacks.
+  const figure = (kcal: number): PlanNutrition => ({
     available: true,
     unavailable_reason: null,
     source: SOURCE,
@@ -1783,7 +1784,7 @@ describe('MealPlanner nutrition (opt-in)', () => {
       meals: [{
         day_index: 0, meal_index: 0, withheld_reason: null, servings: 2, complete: true, coverage: 1,
         per_serving: { kcal, kj: kcal * 4.184, protein: 10, fat: 5, carbohydrate: 60 },
-        ingredients: [], leftover_of: null,
+        ingredients: [], leftover_of: null, sources: ['ciqual'],
       }],
     }],
   });

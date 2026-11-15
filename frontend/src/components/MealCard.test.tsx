@@ -395,7 +395,7 @@ const SOURCE: SourceAttribution = {
 
 function ing(over: Partial<IngredientNutrition>): IngredientNutrition {
   return {
-    name: "chicken", grams: 400, status: "counted", reason: null, alim_code: 36018,
+    name: "chicken", grams: 400, status: "counted", reason: null, alim_code: 36018, off_id: null, label_products: null,
     source_name: "Chicken, breast, raw", state: "raw", confidence: "A",
     per_100g: { kcal: 121.1, kj: 510.2, protein: 23.4, fat: 2.1, carbohydrate: 0 },
     contribution: { kcal: 484.4, kj: 2040.8, protein: 93.6, fat: 8.4, carbohydrate: 0 },
@@ -426,6 +426,7 @@ const FIGURE: MealNutrition = {
     }),
   ],
   leftover_of: null,
+  sources: ["ciqual"],
 };
 
 const PARTIAL: MealNutrition = {
@@ -500,6 +501,24 @@ describe("MealCard nutrition", () => {
     await user.click(chip);
     expect(chip).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("Per serving, approximately")).not.toBeInTheDocument();
+  });
+
+  it("lists a row by either id, so an Open Food Facts row reaches provenance", async () => {
+    const user = userEvent.setup();
+    const dumpling = ing({
+      name: "houskový knedlík", grams: 300, alim_code: null, off_id: "off:houskovy-knedlik", label_products: 13,
+      source_name: "Bread dumpling (houskový knedlík), packaged", state: "neutral", confidence: null,
+    });
+    renderCard({
+      nutrition: { ...FIGURE, ingredients: [ing({}), dumpling], sources: ["ciqual", "off"] },
+      nutritionSource: SOURCE,
+    });
+    await user.click(screen.getByRole("button", { name: /kcal per serving/ }));
+
+    expect(screen.getByRole("cell", { name: "Chicken, breast, raw (36018)" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("cell", { name: "Bread dumpling (houskový knedlík), packaged (off:houskovy-knedlik)" }),
+    ).toBeInTheDocument();
   });
 
   it("carries the attribution, with the DOI link and the update date", async () => {
