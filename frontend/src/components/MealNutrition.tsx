@@ -4,7 +4,7 @@ import { Trans } from "../i18n/Trans";
 import { formatNumber } from "../i18n/localeFormat";
 import { formatISODate } from "../utils/planDates";
 import type { Locale } from "../store/useLocaleStore";
-import type { MealNutrition, NutrientValues, SourceAttribution } from "../types";
+import type { DayNutrition, MealNutrition, NutrientValues, SourceAttribution } from "../types";
 
 // The per-meal nutrition chip and its inline panel (docs/nutrition-design.md,
 // "What the user sees"). Both render inside MealCard, on MealPlanner's explicit
@@ -91,6 +91,47 @@ export function NutritionChipPlaceholder({ isMobile }: { isMobile: boolean }) {
       {t(isMobile ? "nutrition.chipShort" : "nutrition.chip", { kcal: formatNumber(1000, locale) })}
     </button>
   );
+}
+
+// The day header's own look: the date beside it uses the same size and weight.
+// No colour of its own: it inherits the header's, like the "Day 1" next to it.
+const dayLineStyle: CSSProperties = {
+  marginLeft: "0.6rem",
+  fontSize: "0.85rem",
+  fontWeight: 400,
+  whiteSpace: "nowrap",
+};
+
+/** The per-person day total in the day header (design decision 10): one
+ *  serving of each meal that day, added up. The server sends it only when
+ *  every meal of the day has a figure, and marks it partial when any meal is
+ *  an "at least". Descriptive only: no targets, no colours. */
+export function DayNutritionLine({ day, isMobile }: { day: DayNutrition; isMobile: boolean }) {
+  const { t, locale } = useI18n();
+  const values = day.per_person;
+  if (!values) return null;
+  const atLeast = day.partial;
+  const kcal = roundedKcal(values.kcal, locale, atLeast);
+  const text = isMobile
+    ? t(atLeast ? "nutrition.dayTotalAtLeastShort" : "nutrition.dayTotalShort", { kcal })
+    : t(atLeast ? "nutrition.dayTotalAtLeast" : "nutrition.dayTotal", {
+        kcal,
+        protein: roundedGrams(values.protein, locale, atLeast),
+        fat: roundedGrams(values.fat, locale, atLeast),
+        carbohydrate: roundedGrams(values.carbohydrate, locale, atLeast),
+      });
+  return <span style={dayLineStyle}>{text}</span>;
+}
+
+/** The day line's box, invisible, held while the figures load, so the header
+ *  does not reflow when they arrive. */
+export function DayNutritionPlaceholder({ isMobile }: { isMobile: boolean }) {
+  const { t, locale } = useI18n();
+  const n = formatNumber(100, locale);
+  const text = isMobile
+    ? t("nutrition.dayTotalShort", { kcal: formatNumber(1000, locale) })
+    : t("nutrition.dayTotal", { kcal: formatNumber(1000, locale), protein: n, fat: n, carbohydrate: n });
+  return <span aria-hidden="true" style={{ ...dayLineStyle, visibility: "hidden" }}>{text}</span>;
 }
 
 const panelStyle: CSSProperties = {
