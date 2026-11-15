@@ -248,7 +248,7 @@ export function NutritionPanel({
   figure: MealNutrition;
   source: SourceAttribution;
 }) {
-  const { t, tn, locale } = useI18n();
+  const { t, tn } = useI18n();
   const notCounted = figure.ingredients
     .filter((ing) => ing.status === "not_counted" && ing.reason !== null)
     .map((ing) => `${ing.name} (${t(`nutritionReason.${ing.reason}` as TranslationKey)})`);
@@ -275,19 +275,43 @@ export function NutritionPanel({
       </p>
       {/* Rendered here, inside the panel, so no surface can show a figure
           without its attribution (Etalab 2.0: grantor and update date). */}
-      <p style={{ ...muted, marginBottom: 0 }}>
-        <Trans
-          k="nutrition.source"
-          nodes={{
-            source: (
-              <a href={`https://doi.org/${source.doi}`} target="_blank" rel="noopener noreferrer" style={link}>
-                {source.name} ({source.publisher})
-              </a>
-            ),
-          }}
-          vars={{ date: formatISODate(source.published, locale) }}
-        />
-      </p>
+      <SourceLine source={source} />
+    </div>
+  );
+}
+
+function SourceLine({ source }: { source: SourceAttribution }) {
+  const { locale } = useI18n();
+  return (
+    <p style={{ ...muted, marginBottom: 0 }}>
+      <Trans
+        k="nutrition.source"
+        nodes={{
+          source: (
+            <a href={`https://doi.org/${source.doi}`} target="_blank" rel="noopener noreferrer" style={link}>
+              {source.name} ({source.publisher})
+            </a>
+          ),
+        }}
+        vars={{ date: formatISODate(source.published, locale) }}
+      />
+    </p>
+  );
+}
+
+/** The plan's own source line (docs/nutrition-design.md, "Open Food Facts
+ *  label rows", OFF 1). A chip and a day total show figures with no room for
+ *  an attribution, and a panel carries it only while open, so the end of the
+ *  plan carries it once while any meal has a figure. It sets the panel's own
+ *  surface and colour, like the panel, so it does not depend on the plan
+ *  block it lands in. */
+export function NutritionSources({ days, source }: { days: DayNutrition[]; source: SourceAttribution }) {
+  const { t } = useI18n();
+  if (!days.some((day) => day.meals.some((meal) => meal.per_serving !== null))) return null;
+  return (
+    <div style={{ ...panelStyle, margin: "1rem 0 0 0" }}>
+      <p style={{ ...muted, marginTop: 0 }}>{t("nutrition.captionNotAdvice")}</p>
+      <SourceLine source={source} />
     </div>
   );
 }
