@@ -9,7 +9,7 @@ import { PAGE_TEXT, MUTED_PAGE_TEXT } from "../constants/theme";
 import { formatAmount } from "../utils/pieces";
 import { useGeneratePlan, useRegeneratePlan, useConfirmPlan, useUnconfirmPlan, useMealEntries, useCookMeal, useUncookMeal, useFinishPlan, useReopenPlan, useFavoriteMeal, useUpdateMeal, useFridge, useUpdateFridge, useRecordWaste, useUserProfile, usePlanNutrition, cachedShelf, ShelfChangedError, type ShelfData } from "../hooks/useServerState";
 import { MealCard } from "./MealCard";
-import { DayNutritionLine, DayNutritionPlaceholder } from "./MealNutrition";
+import { DayNutritionLine, DayNutritionPlaceholder, NutritionSources } from "./MealNutrition";
 import { IngredientChipInput } from "./IngredientChipInput";
 import { FIELD_LIMITS } from "../constants/fieldLimits";
 import { DayLayoutEditor } from "./DayLayoutEditor";
@@ -1176,6 +1176,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
               anywhere above the cards or the shopping list it would shift
               controls the user may be reaching for. A Cook Now plan needs no
               line (it never shows figures anywhere). */}
+          {nutritionDays && nutrition && <NutritionSources days={nutritionDays} source={nutrition.source} />}
           {showNutrition && nutrition && !nutrition.available &&
             (nutrition.unavailable_reason === "infant" || nutrition.unavailable_reason === "health_data_removed") && (
             <p style={{ fontSize: "0.85em", color: "#666", margin: "1rem 0 0 0" }}>
