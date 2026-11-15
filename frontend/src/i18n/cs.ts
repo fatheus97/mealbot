@@ -367,6 +367,9 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "prefs.showPieces": "Zobrazovat kusy místo gramů",
   "prefs.showPiecesHint":
     "U věcí, které kupujete celé — „2 vejce“ místo „120 g“. Jen tam, kde množství odpovídá celým kusům; jinde zůstávají gramy a přesná gramáž je vždy v popisku.",
+  "prefs.showNutrition": "Zobrazovat přibližné výživové hodnoty",
+  "prefs.showNutritionHint":
+    "Energie, bílkoviny, tuky a sacharidy na porci u jídel v jídelníčku, spočítané z tabulky potravin Ciqual 2025. Jídla naplánovaná do 12. listopadu 2026 včetně a jejich kopie vytvořené přes Zopakovat hodnoty mít nemusí.",
   "prefs.trackSnacks": "Sledovat sladkosti a snacky z účtenek",
   "prefs.trackSnacksHint":
     "Když je volba vypnutá, hotové výrobky (dezerty, snacky, nápoje) se při skenování účtenek přeskočí",
@@ -592,6 +595,57 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "calendar.leftoverFromDateAndName": "Zbytky z {date}: {name}",
   "calendar.leftoverFromDate": "Zbytky z {date}",
   "calendar.leftoverFromName": "Zbytky: {name}",
+
+  // ─── Výživové hodnoty (MealNutrition.tsx) ─────────────────────────────────
+  "nutrition.chip": "≈ {kcal} kcal na porci",
+  "nutrition.chipShort": "≈ {kcal} kcal",
+  "nutrition.chipAtLeast": "Nejméně {kcal} kcal na porci",
+  "nutrition.chipAtLeastShort": "Nejméně {kcal} kcal",
+  "nutrition.chipNoData": "Na výpočet není dost údajů",
+  "nutrition.perServing": "Na porci, přibližně",
+  "nutrition.perServingAtLeast": "Na porci, nejméně",
+  "nutrition.energy": "Energie",
+  "nutrition.protein": "Bílkoviny",
+  "nutrition.fat": "Tuky",
+  "nutrition.carbohydrate": "Sacharidy",
+  "nutrition.kcalUnit": "kcal",
+  "nutrition.kjUnit": "kJ",
+  "nutrition.servings_one": "Jídlo je jedna porce.",
+  "nutrition.servings_few": "Jídlo je rozdělené na {count} stejné porce.",
+  "nutrition.servings_many": "Jídlo je rozdělené na {count} stejné porce.",
+  "nutrition.servings_other": "Jídlo je rozdělené na {count} stejných porcí.",
+  "nutrition.servingNote": "Porce je stejný díl jídla, ne to, kolik sní konkrétní člověk.",
+  "nutrition.notEnoughData":
+    "U tohoto jídla se dá započítat příliš málo surovin, proto hodnoty neuvádíme.",
+  "nutrition.leftoverNote":
+    "Zbytky z dřívějšího jídla: hodnoty a jejich zdroje najdete u něj.",
+  "nutrition.notCounted": "Nezapočteno: {names}",
+  "nutritionReason.not_recognised": "nerozpoznáno",
+  "nutritionReason.not_in_table": "není v tabulce potravin",
+  "nutritionReason.amount_not_given": "množství není uvedené",
+  "nutritionReason.frying_fat": "tuk na smažení, snědené množství nelze určit",
+  "nutrition.colIngredient": "Surovina",
+  "nutrition.colGrams": "Hmotnost",
+  "nutrition.colFood": "Potravina v Ciqual",
+  "nutrition.colPer100": "kcal na 100 g",
+  "nutrition.colDish": "kcal v jídle",
+  "nutrition.colConfidence": "Spolehlivost",
+  "nutrition.toTaste": "dle chuti",
+  "nutrition.confidenceHint":
+    "Spolehlivost: nejhorší hodnocení, které Ciqual dává bílkovinám, tukům a sacharidům dané potraviny, od A (nejspolehlivější) po D (nejméně spolehlivé).",
+  "nutrition.captionCalculated":
+    "Spočítáno z tabulky složení potravin Ciqual 2025 podle hmotností surovin v tomto receptu a rozděleno rovným dílem na porce.",
+  "nutrition.captionRealValues":
+    "Skutečné hodnoty závisí na konkrétním výrobku, kusu masa a způsobu přípravy.",
+  "nutrition.captionNotAdvice":
+    "Nejde o výživové ani lékařské doporučení. Hodnoty nepoužívejte k dávkování inzulinu ani jiných léků.",
+  "nutrition.source": "Zdroj: {source}, aktualizace {date}",
+  "nutrition.unavailable": "U tohoto jídelníčku se výživové hodnoty nezobrazují.",
+  "nutrition.unavailableHintLabel": "Proč tu hodnoty nejsou",
+  "nutrition.unavailableInfantHint":
+    "Jídelníček obsahuje příkrmy. Dělit jídlo rovným dílem mezi porce dospělých a dítěte nedává smysl, proto hodnoty nezobrazujeme.",
+  "nutrition.unavailableRemovedHint":
+    "Typy stravy a alergie, pro které jídelníček vznikl, byly odstraněny, takže nevíme, jestli neobsahoval příkrmy. Proto hodnoty nezobrazujeme.",
 
   // ─── Cook Now form ────────────────────────────────────────────────────────
   "cookNow.intro":

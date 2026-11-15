@@ -12,6 +12,7 @@ export interface PreferencesFormValues {
   measurement_system: MeasurementSystem;
   include_spices: boolean;
   show_pieces: boolean;
+  show_nutrition: boolean;
   track_snacks: boolean;
   need_to_use_enabled: boolean;
   waste_tracking_enabled: boolean;
@@ -80,6 +81,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
   );
   const [includeSpices, setIncludeSpices] = useState(initialValues.include_spices);
   const [showPieces, setShowPieces] = useState(initialValues.show_pieces);
+  const [showNutrition, setShowNutrition] = useState(initialValues.show_nutrition);
   const [trackSnacks, setTrackSnacks] = useState(initialValues.track_snacks);
   const [needToUseEnabled, setNeedToUseEnabled] = useState(initialValues.need_to_use_enabled);
   const [wasteTrackingEnabled, setWasteTrackingEnabled] = useState(
@@ -114,6 +116,7 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
       measurement_system: measurementSystem,
       include_spices: includeSpices,
       show_pieces: showPieces,
+      show_nutrition: showNutrition,
       track_snacks: trackSnacks,
       need_to_use_enabled: needToUseEnabled,
       waste_tracking_enabled: wasteTrackingEnabled,
@@ -277,6 +280,22 @@ export function PreferencesForm({ initialValues, onSubmit, submitLabel, loading 
           <br />
           <span style={{ fontSize: "0.85rem", color: "#666" }}>
             {t("prefs.showPiecesHint")}
+          </span>
+        </span>
+      </label>
+
+      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={showNutrition}
+          onChange={(e) => setShowNutrition(e.target.checked)}
+          style={{ width: "18px", height: "18px" }}
+        />
+        <span>
+          <span style={{ fontWeight: 600 }}>{t("prefs.showNutrition")}</span>
+          <br />
+          <span style={{ fontSize: "0.85rem", color: "#666" }}>
+            {t("prefs.showNutritionHint")}
           </span>
         </span>
       </label>
