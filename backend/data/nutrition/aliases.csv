@@ -59,7 +59,7 @@ en,brown lentil,20359,dried,0,
 en,brown lentils dry,20359,dried,0,
 en,brown rice,9102,raw,0,
 en,brown sugar,31017,neutral,0,
-en,bryndza,12066,neutral,0,"Bryndza is a soft, salted ewe's milk cheese and Ciqual has none. Feta, a salted ewe's milk cheese, is within 2% on energy and 1.5 g on fat of the median of 29 bryndza labels sold in Slovakia and Czechia, and reads protein about 3 g (16%) low."
+en,bryndza,12066,neutral,0,"Bryndza is a soft, salted ewe's milk cheese and Ciqual has none. Feta, a salted ewe's milk cheese, is within 2% on energy and 1.5 g on fat of the median of 29 bryndza labels sold in Slovakia and Czechia, and reads protein about 3 g (16%) low. The labels are from Open Food Facts (ODbL)."
 en,bryndza cheese,12066,neutral,0,
 en,bryndza sheep cheese,12066,neutral,0,
 en,buckwheat groats,9380,raw,0,
@@ -188,7 +188,7 @@ en,frozen corn,20233,raw,0,
 en,frozen peas,20084,raw,0,
 en,frying oil,17001,neutral,0,
 en,full-fat coconut milk,18041,neutral,0,
-en,full-fat quark,19666,neutral,0,"Czech full-fat tvaroh (tučný, about 9% fat) has no Ciqual match: Quark, plain, 7-8% fat (19711) is a softer French quark that reads 11% low on energy and 42% low on protein. The plain petit-suisse at around 10% fat is within 5% on energy and 0.4 g on protein of the median of 22 Czech tučný labels. Slovak tučný tvaroh is the drier hrudkovitý kind (median of 7 labels 187 kcal and 15 g protein) and reads about 27% low on energy and 40% low on protein here."
+en,full-fat quark,19666,neutral,0,"Czech full-fat tvaroh (tučný, about 9% fat) has no Ciqual match: Quark, plain, 7-8% fat (19711) is a softer French quark that reads 11% low on energy and 42% low on protein. The plain petit-suisse at around 10% fat is within 5% on energy and 0.4 g on protein of the median of 22 Czech tučný labels. Slovak tučný tvaroh is the drier hrudkovitý kind (median of 7 labels 187 kcal and 15 g protein) and reads about 27% low on energy and 40% low on protein here. The labels are from Open Food Facts (ODbL)."
 en,fusilli pasta,9810,raw,0,
 en,garlic,11000,raw,0,
 en,garlic clove,11000,raw,0,
@@ -222,7 +222,7 @@ en,halal beef broth,25930,neutral,0,
 en,halal chicken breast,36017,raw,0,
 en,halal chicken broth,25947,neutral,0,
 en,halal chicken thighs,36019,raw,0,
-en,half-fat quark,19664,neutral,0,"Czech semi-fat tvaroh (polotučný) is drained quark at about 3.5 to 4% fat. Ciqual's plain fresh cheese at that fat level is the petit-suisse type, within 2 kcal and 0.5 g protein of the median of 17 Czech polotučný labels. Quark, plain, 2-3% fat (19646), the row before, reads 12% low on energy and 29% low on protein."
+en,half-fat quark,19664,neutral,0,"Czech semi-fat tvaroh (polotučný) is drained quark at about 3.5 to 4% fat. Ciqual's plain fresh cheese at that fat level is the petit-suisse type, within 2 kcal and 0.5 g protein of the median of 17 Czech polotučný labels. Quark, plain, 2-3% fat (19646), the row before, reads 12% low on energy and 29% low on protein. The labels are from Open Food Facts (ODbL)."
 en,ham,28900,neutral,0,"Ham (sunka) is the deli cooked ham sold ready to eat; the key means that product, not a cooked raw cut."
 en,hard cheese (e.g. edam),12729,neutral,0,
 en,hard-boiled eggs,22010,cooked,0,
@@ -282,7 +282,7 @@ en,oat milk,18899,neutral,0,
 en,oats,32140,raw,0,
 en,oil,17001,neutral,0,
 en,oil for frying,17001,neutral,0,
-en,old rolls,7001,neutral,0,"Ciqual has no rohlík or houska. Both are white wheat yeast dough like baguette, with a little added fat; baguette is within 4% on energy and 0.5 g on protein of the median of 10 plain Czech rohlík, houska and veka labels, with fat 2.5 g lower. A stale roll is the same food."
+en,old rolls,7001,neutral,0,"Ciqual has no rohlík or houska. Both are white wheat yeast dough like baguette, with a little added fat; baguette is within 4% on energy and 0.5 g on protein of the median of 10 plain Czech rohlík, houska and veka labels, with fat 2.5 g lower. A stale roll is the same food. The labels are from Open Food Facts (ODbL)."
 en,olive oil,17270,neutral,0,
 en,onion,20034,raw,0,
 en,orange,13034,raw,0,
@@ -322,7 +322,7 @@ en,pork sausage,30051,raw,0,
 en,pork shoulder,28001,raw,0,
 en,potato,4008,raw,0,
 en,potato (type c),4008,raw,0,
-en,potato dumpling,26264,neutral,0,"Czech bramborový knedlík is a potato dough dumpling and Ciqual has no knedlík; potato gnocchi is the same kind of dough. The raw gnocchi row matches the median energy, protein and fat of 5 Czech labels, which vary widely (124 to 193 kcal), and is about 6 g high on carbohydrate. The cooked row (25510) has the same energy but more fat and would also fail the state gate."
+en,potato dumpling,26264,neutral,0,"Czech bramborový knedlík is a potato dough dumpling and Ciqual has no knedlík; potato gnocchi is the same kind of dough. The raw gnocchi row matches the median energy, protein and fat of 5 Czech labels, which vary widely (124 to 193 kcal), and is about 6 g high on carbohydrate. The cooked row (25510) has the same energy but more fat and would also fail the state gate. The labels are from Open Food Facts (ODbL)."
 en,potato starch,4090,neutral,0,
 en,potatoes for boiling,4008,raw,0,
 en,potatoes for dumplings,4008,raw,0,
@@ -367,7 +367,7 @@ en,ripe avocado,13004,raw,0,
 en,ripe mango,13025,raw,0,
 en,ripe tomato,20385,raw,0,
 en,roasted turkey breast,36308,cooked,0,
-en,roll (stale),7001,neutral,0,"Ciqual has no rohlík or houska. Both are white wheat yeast dough like baguette, with a little added fat; baguette is within 4% on energy and 0.5 g on protein of the median of 10 plain Czech rohlík, houska and veka labels, with fat 2.5 g lower. A stale roll is the same food."
+en,roll (stale),7001,neutral,0,"Ciqual has no rohlík or houska. Both are white wheat yeast dough like baguette, with a little added fat; baguette is within 4% on energy and 0.5 g on protein of the median of 10 plain Czech rohlík, houska and veka labels, with fat 2.5 g lower. A stale roll is the same food. The labels are from Open Food Facts (ODbL)."
 en,rolled oats,32140,raw,0,
 en,roma tomato,20385,raw,0,
 en,romaine lettuce,20171,raw,0,
@@ -378,7 +378,7 @@ en,rye bread,7125,neutral,0,
 en,salmon fillet,26036,raw,0,
 en,salt,11017,neutral,1,
 en,sandwich bread,7200,neutral,0,
-en,sauerkraut,20308,neutral,0,"Ciqual has sauerkraut only as cooked dishes with meat or bacon. Plain sauerkraut is fermented white cabbage, and boiled white cabbage is within 0.5 kcal per 100 g on energy and 0.5 g on each macro of the median of 13 plain white sauerkraut labels sold in Czechia and Slovakia."
+en,sauerkraut,20308,neutral,0,"Ciqual has sauerkraut only as cooked dishes with meat or bacon. Plain sauerkraut is fermented white cabbage, and boiled white cabbage is within 0.5 kcal per 100 g on energy and 0.5 g on each macro of the median of 13 plain white sauerkraut labels sold in Czechia and Slovakia. The labels are from Open Food Facts (ODbL)."
 en,sausage,30780,neutral,0,
 en,scallion,11003,raw,0,Scallion = spring onion; Ciqual's fresh spring onion row is named 'Chive or spring onion'.
 en,semolina,9610,raw,0,
@@ -393,9 +393,9 @@ en,sliced white bread,7200,neutral,0,Sliced white bread is the Ciqual sandwich l
 en,slices of bread,7000,neutral,0,
 en,small potatoes,4023,raw,0,
 en,smoked bacon,28502,raw,0,"Smoked bacon (seen as uzena slanina, Raeucherspeck, bucek) = cured smoked pork belly."
-en,smoked meat,28803,neutral,0,"Czech uzené maso is cured smoked pork, which Ciqual lists only as belly and ham. Cooked smoked ham is within 2% on energy and 0.1 g on protein of the median of 16 Czech and Slovak smoked pork labels (leg, loin, Moravian style, neck), with fat 1.6 g higher, so a cut left unnamed sits here; leg-named Czech keys sit on Cooked ham, superior quality (28900). In English the key can also mean smoked beef, which this row does not cover."
+en,smoked meat,28803,neutral,0,"Czech uzené maso is cured smoked pork, which Ciqual lists only as belly and ham. Cooked smoked ham is within 2% on energy and 0.1 g on protein of the median of 16 Czech and Slovak smoked pork labels (leg, loin, Moravian style, neck), with fat 1.6 g higher, so a cut left unnamed sits here; leg-named Czech keys sit on Cooked ham, superior quality (28900). In English the key can also mean smoked beef, which this row does not cover. The labels are from Open Food Facts (ODbL)."
 en,smoked paprika,11049,powder,1,"Smoked paprika is sold only as a ground spice, so it is a paprika powder."
-en,smoked pork,28803,neutral,0,"Czech uzené maso is cured smoked pork, which Ciqual lists only as belly and ham. Cooked smoked ham is within 2% on energy and 0.1 g on protein of the median of 16 Czech and Slovak smoked pork labels (leg, loin, Moravian style, neck), with fat 1.6 g higher, so a cut left unnamed sits here; leg-named Czech keys sit on Cooked ham, superior quality (28900). In English the key can also mean bacon, which has its own rows (bacon, smoked bacon)."
+en,smoked pork,28803,neutral,0,"Czech uzené maso is cured smoked pork, which Ciqual lists only as belly and ham. Cooked smoked ham is within 2% on energy and 0.1 g on protein of the median of 16 Czech and Slovak smoked pork labels (leg, loin, Moravian style, neck), with fat 1.6 g higher, so a cut left unnamed sits here; leg-named Czech keys sit on Cooked ham, superior quality (28900). In English the key can also mean bacon, which has its own rows (bacon, smoked bacon). The labels are from Open Food Facts (ODbL)."
 en,smoked salmon,26037,neutral,0,
 en,smoked sausage,30780,neutral,0,
 en,smoked tofu,20912,neutral,0,
@@ -412,7 +412,7 @@ en,spinach,20059,raw,0,
 en,spirit vinegar,11018,neutral,0,
 en,spring onion,11003,raw,0,
 en,stale bread,7000,neutral,0,
-en,stale white rolls,7001,neutral,0,"Ciqual has no rohlík or houska. Both are white wheat yeast dough like baguette, with a little added fat; baguette is within 4% on energy and 0.5 g on protein of the median of 10 plain Czech rohlík, houska and veka labels, with fat 2.5 g lower. A stale roll is the same food."
+en,stale white rolls,7001,neutral,0,"Ciqual has no rohlík or houska. Both are white wheat yeast dough like baguette, with a little added fat; baguette is within 4% on energy and 0.5 g on protein of the median of 10 plain Czech rohlík, houska and veka labels, with fat 2.5 g lower. A stale roll is the same food. The labels are from Open Food Facts (ODbL)."
 en,strawberries,13014,raw,0,
 en,strawberry jam,31024,neutral,0,
 en,sugar,31016,neutral,0,
