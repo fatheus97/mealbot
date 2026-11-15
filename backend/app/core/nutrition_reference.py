@@ -10,11 +10,14 @@ audited on its own:
 
 Lookup is EXACT on a normalised key: no fuzzy matching, no embedding and no LLM
 call on the request path. A key the table does not hold is "not counted", which
-is the honest answer; a plural or a variant becomes its own reviewed alias row,
-because an implicit rule cannot be reviewed.
+is the honest answer. The one rule on top: an English key is read with every
+word in its singular ("potatoes" finds "potato"), so the table holds one row
+per thing, and two English rows that read the same refuse to load. Czech has no
+such rule (brambory, brambora); its forms are rows of their own.
 
-Both files hold only their header until the reviewed snapshot lands (PR 3), so
-until then every ingredient is "not counted" and no meal gets a figure.
+foods.csv is written by ``app/scripts/ciqual_snapshot.py`` from the pinned
+Ciqual files, never by hand; aliases.csv is reviewed by hand, and
+tests/test_nutrition_reference.py holds the gates every row must pass.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import math
 import re
 import unicodedata
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -81,7 +84,9 @@ class Food:
     organic_acids: float | None
     # Some value is "traces" or "< x", stored as 0, so a sum stays a true lower bound.
     below_detection: bool
-    # The lowest Ciqual confidence code (A best, D worst) among the shown values.
+    # The lowest Ciqual confidence code (A best, D worst) of protein, fat and
+    # carbohydrate. Energy is computed from them, and Ciqual rates it D for all
+    # but one of its foods.
     confidence: str
 
 
@@ -110,13 +115,55 @@ def normalize_key(name: str) -> str:
     return _SPACES.sub(" ", unicodedata.normalize("NFC", name).strip().lower())
 
 
+# A word (any letters, so "jalapeños" stays one) or a number ("type 405",
+# "33%"); everything else (commas, brackets, hyphens) only separates them.
+_TOKEN = re.compile(r"[^\W\d_]+|\d+(?:[.,]\d+)?%?")
+
+
+def singular(word: str) -> str:
+    """Crude English singular: berries -> berry, tomatoes -> tomato, eggs ->
+    egg. It leaves -ss and -us alone (glass, couscous, asparagus). Wrong now
+    and then ("leaves" -> "leave"), but the same on both sides of a lookup,
+    and the loader refuses two rows it would merge onto one food."""
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 4 and word.endswith("oes"):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us")):
+        return word[:-1]
+    return word
+
+
+def english_form(name: str) -> str:
+    """The normalised key as its words, each in the singular, so a plural or
+    punctuation never makes a second key: "Chicken thighs, boneless" and
+    "chicken thigh (boneless)" are "chicken thigh boneless"."""
+    return " ".join(singular(t) if t.isalpha() else t for t in _TOKEN.findall(normalize_key(name)))
+
+
 @dataclass(frozen=True)
 class NutritionReference:
     foods: Mapping[int, Food]
     aliases: Mapping[tuple[Lang, str], Alias]
+    _english: Mapping[str, Alias] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        # The singular fallback: an English key the table lacks as written is
+        # read in its singular ("potatoes" finds "potato"). It never lands on
+        # a seasoning row, whose plural is usually the vegetable ("peppers"
+        # are not black pepper, "cayenne peppers" not the powder), nor on a
+        # singular two rows share as different foods: that would be a guess.
+        forms: dict[str, list[Alias]] = {}
+        for (lang, _), alias in self.aliases.items():
+            if lang == "en":
+                forms.setdefault(english_form(alias.key), []).append(alias)
+        english = {form: rows[0] for form, rows in forms.items() if len(rows) == 1 and not rows[0].seasoning}
+        object.__setattr__(self, "_english", english)
 
     def lookup(self, lang: Lang, name: str) -> tuple[Alias, Food] | None:
         alias = self.aliases.get((lang, normalize_key(name)))
+        if alias is None and lang == "en":
+            alias = self._english.get(english_form(name))
         if alias is None:
             return None
         return alias, self.foods[alias.alim_code]
@@ -200,6 +247,7 @@ def load_reference(data_dir: Path = DATA_DIR) -> NutritionReference:
             confidence=confidence,
         )
     aliases: dict[tuple[Lang, str], Alias] = {}
+    english_keys: dict[str, list[tuple[str, tuple[int, str]]]] = {}
     for row in _rows(data_dir / "aliases.csv", ALIAS_COLUMNS):
         lang = row["lang"].strip()
         if lang not in LANGS:
@@ -216,6 +264,18 @@ def load_reference(data_dir: Path = DATA_DIR) -> NutritionReference:
         typed: Lang = "en" if lang == "en" else "cs"
         if (typed, key) in aliases:
             raise NutritionDataError(f"aliases.csv: ({lang}, {key!r}) appears twice")
+        if typed == "en":
+            # One row per thing: "potatoes" next to "potato" on the same food
+            # would be a second, separately reviewed row for a key the singular
+            # rule already reads. A plural that is another food ("peppers", the
+            # vegetable, next to "pepper", the spice) may have its own row.
+            form, food = english_form(key), (code, row["state"].strip())
+            for twin, twin_food in english_keys.get(form, []):
+                if twin_food == food:
+                    raise NutritionDataError(
+                        f"aliases.csv: {key!r} and {twin!r} are the same English key ({form!r}) on the same food"
+                    )
+            english_keys.setdefault(form, []).append((key, food))
         aliases[(typed, key)] = Alias(
             lang=typed,
             key=key,

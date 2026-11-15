@@ -1,8 +1,8 @@
 """Nutrition figures (docs/nutrition-design.md): the table loader, the per-meal
 and per-day arithmetic, and GET /api/plan/{id}/nutrition.
 
-The shipped table is empty until the reviewed Ciqual snapshot lands, so every
-rule here runs on a small synthetic table whose numbers are easy to redo.
+Every rule here runs on a small synthetic table whose numbers are easy to
+redo; the shipped Ciqual rows have their own gates in test_nutrition_reference.py.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dietary import DietType
@@ -38,6 +39,8 @@ from app.models.plan_models import (
     MealPlanResponse,
     SingleDayResponse,
 )
+from app.scripts import nutrition_gaps
+from app.scripts.nutrition_gaps import MIN_HOUSEHOLDS, StoredPlan, rank_gaps
 from app.services.nutrition import day_nutrition, plan_nutrition
 from tests.conftest import TEST_PASSWORD
 
@@ -120,6 +123,22 @@ class TestKeys:
         meal = _first(_days([_meal({"name": "rýže", "quantity_grams": 100})]), language=language)
         assert meal.ingredients[0].status == "counted"
 
+    def test_a_czech_name_the_czech_index_knows_wins_over_name_en(self) -> None:
+        # The translation can drop what the Czech name says; here the Czech
+        # row (bell pepper) and the English one (the spice) differ.
+        meal = _first(_days([_meal({"name": "paprika", "name_en": "paprika", "quantity_grams": 150})]),
+                      language="Czech")
+        assert meal.ingredients[0].alim_code == 3
+
+    def test_a_czech_spice_line_keeps_name_en(self) -> None:
+        meal = _first(_days([_meal(RICE, {"name": "paprika", "name_en": "paprika", "quantity_grams": 3,
+                                          "is_spice": True})]), language="Czech")
+        assert meal.ingredients[1].alim_code == 4
+
+    def test_an_english_plan_never_reads_the_czech_index(self) -> None:
+        meal = _first(_days([_meal({"name": "rýže", "name_en": "chicken breast", "quantity_grams": 150})]))
+        assert meal.ingredients[0].alim_code == 2
+
     def test_a_czech_name_without_name_en_uses_the_czech_index(self) -> None:
         # An ingredient renamed in the editor has lost name_en; Czech "paprika"
         # is a bell pepper, never the spice the English key means.
@@ -140,6 +159,20 @@ class TestKeys:
     def test_keys_are_normalised(self) -> None:
         meal = _first(_days([_meal({"name": "  Chicken   Breast ", "quantity_grams": 300})]))
         assert meal.ingredients[0].status == "counted"
+
+    def test_an_english_plural_finds_the_singular_row(self) -> None:
+        meal = _first(_days([_meal({"name": "Chicken Breasts", "quantity_grams": 300})]))
+        assert meal.ingredients[0].alim_code == 2
+
+    def test_the_singular_rule_reads_english_only(self) -> None:
+        assert REF.lookup("en", "bell peppers") is not None
+        assert REF.lookup("cs", "paprikas") is None
+
+    def test_a_plural_never_lands_on_a_seasoning_row(self) -> None:
+        # "peppers" are the vegetable: as black pepper, 300 g would add 750 kcal.
+        assert REF.lookup("en", "black pepper") is not None
+        meal = _first(_days([_meal(RICE, {"name": "black peppers", "quantity_grams": 300})]))
+        assert meal.ingredients[1].reason == "not_in_table"
 
 
 class TestSeasoningAndFat:
@@ -170,10 +203,23 @@ class TestSeasoningAndFat:
                                    {"name": "sunflower oil", "quantity_grams": 100})]))
         assert meal.ingredients[1].status == "counted"
 
-    def test_water_is_left_out_of_the_ratio(self) -> None:
-        meal = _first(_days([_meal(RICE, {"name": "boiling water", "quantity_grams": 800})]))
+    @pytest.mark.parametrize("water", [
+        "boiling water", "water for rice", "water for the pasta", "water (for the dough)",
+    ])
+    def test_water_is_left_out_of_the_ratio(self, water: str) -> None:
+        meal = _first(_days([_meal(RICE, {"name": water, "quantity_grams": 800})]))
         assert meal.ingredients[1].status == "water"
         assert (meal.coverage, meal.complete) == (1.0, True)
+
+    def test_czech_water_for_a_purpose_is_water(self) -> None:
+        meal = _first(_days([_meal({"name": "rýže", "quantity_grams": 200},
+                                   {"name": "voda na rýži", "quantity_grams": 400})]), language="Czech")
+        assert [i.status for i in meal.ingredients] == ["counted", "water"]
+
+    @pytest.mark.parametrize("name", ["water chestnuts", "coconut water", "water (or milk)"])
+    def test_a_food_named_after_water_is_not_water(self, name: str) -> None:
+        meal = _first(_days([_meal(RICE, {"name": name, "quantity_grams": 100})]))
+        assert meal.ingredients[1].status == "not_counted"
 
 
 class TestWithheld:
@@ -239,6 +285,17 @@ class TestLoader:
         ref = load_reference()
         assert set(ref.foods) >= {a.alim_code for a in ref.aliases.values()}
 
+    def test_the_shipped_czech_row_beats_a_less_precise_name_en(self) -> None:
+        # The eval answer that showed it: cooked beans translated as plain
+        # "white beans", which the English index reads as dried (2.7x the energy).
+        ref = load_reference()
+        beans = {"name": "vařené bílé fazole", "name_en": "white beans", "quantity_grams": 240}
+        [czech] = day_nutrition(_days([_meal(beans)]), language="Czech", people_count=2, ref=ref)
+        assert czech.meals[0].ingredients[0].alim_code == 20502  # Haricot bean, boiled/cooked in water
+        [english] = day_nutrition(_days([_meal({**beans, "name": "white beans"})]), language="English",
+                                  people_count=2, ref=ref)
+        assert english.meals[0].ingredients[0].alim_code == 20501  # Haricot bean, dried
+
     def _write(self, tmp_path: Path, foods: list[str], aliases: list[str]) -> Path:
         (tmp_path / "foods.csv").write_text("\n".join([",".join(FOOD_COLUMNS), *foods]) + "\n", encoding="utf-8")
         (tmp_path / "aliases.csv").write_text("\n".join([",".join(ALIAS_COLUMNS), *aliases]) + "\n",
@@ -252,6 +309,14 @@ class TestLoader:
         hit = ref.lookup("en", " Rice ")
         assert hit is not None and hit[1].name == "Rice, white, raw" and hit[1].polyols is None
 
+    def test_a_plural_on_another_food_keeps_its_own_row(self, tmp_path: Path) -> None:
+        # A homograph: the singular rule reads neither row for a third spelling.
+        pepper = "2,\"Sweet pepper, raw\",30,126,1,0,6,,1.2,0.3,,,0,A"
+        ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD, pepper], [
+            "en,cayenne pepper,1,raw,0,", "en,cayenne peppers,2,raw,0,"]))
+        hits = [ref.lookup("en", k) for k in ("cayenne pepper", "cayenne peppers", "cayennes peppers")]
+        assert [hit[1].alim_code if hit else None for hit in hits] == [1, 2, None]
+
     def test_a_decomposed_name_finds_the_composed_alias(self, tmp_path: Path) -> None:
         ref = load_reference(self._write(tmp_path, [self.GOOD_FOOD], ["cs,r\u00fd\u017ee,1,raw,0,"]))
         assert ref.lookup("cs", "ry\u0301z\u030ce") is not None
@@ -259,6 +324,7 @@ class TestLoader:
     @pytest.mark.parametrize(("foods", "aliases"), [
         ([GOOD_FOOD], ["en,rice,2,raw,0,"]),                      # alias points at no food
         ([GOOD_FOOD], ["en,rice,1,raw,0,", "en,rice,1,raw,0,"]),  # duplicate key
+        ([GOOD_FOOD], ["en,rice,1,raw,0,", "en,rices,1,raw,0,"]),  # same key in its singular
         ([GOOD_FOOD], ["en,Rice,1,raw,0,"]),                      # key not normalised
         ([GOOD_FOOD], ["de,rice,1,raw,0,"]),                      # unknown language
         ([GOOD_FOOD], ["en,rice,1,raw,yes,"]),                    # flag not 0/1
@@ -373,12 +439,94 @@ class TestEndpoint:
         plan = await _plan(db_session, stranger)
         assert (await client.get(f"/api/plan/{plan.id}/nutrition")).status_code == 404
 
-    async def test_the_shipped_empty_table_counts_nothing(
-        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    @pytest.mark.parametrize(("language", "rice", "chicken"), [
+        ("English", "rice", "chicken breast"),
+        ("Czech", "rýže", "kuřecí prsa"),  # no name_en: the Czech index
+    ])
+    async def test_the_shipped_table_counts_a_plain_meal(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+        language: str, rice: str, chicken: str,
     ) -> None:
-        # Inert until the reviewed snapshot lands; PR 3 replaces this test.
+        # The real Ciqual rows, end to end: raw white rice 9100 (350 kcal) and
+        # raw skinless chicken breast 36017 (110 kcal) per 100 g.
         from app.main import app
         app.dependency_overrides.pop(nutrition_reference, None)
-        plan = await _plan(db_session, test_user)
+        plan = await _plan(
+            db_session, test_user, request=MealPlanRequest(language=language),
+            response=_response(_meal({**RICE, "name": rice}, {**CHICKEN, "name": chicken})),
+        )
         meal = (await client.get(f"/api/plan/{plan.id}/nutrition")).json()["days"][0]["meals"][0]
-        assert (meal["per_serving"], meal["withheld_reason"]) == (None, "coverage")
+        assert [i["alim_code"] for i in meal["ingredients"]] == [9100, 36017]
+        # (200 g x 350 + 300 g x 110) / 100, split between 2 people.
+        assert meal["per_serving"]["kcal"] == pytest.approx(515)
+        assert meal["complete"] is True
+
+
+class TestGaps:
+    """app/scripts/nutrition_gaps.py: what the next mapping round works from."""
+
+    @staticmethod
+    def _stored(household: int, *ingredients: dict[str, object], language: str = "English",
+                basis: int | None = GRAMS_BASIS) -> StoredPlan:
+        return StoredPlan(household_id=household,
+                          request_json=MealPlanRequest(language=language).model_dump_json(),
+                          response_json=_response(_meal(*ingredients, basis=basis)))
+
+    def test_ranks_missing_keys_by_grams_once_enough_households_share_them(self) -> None:
+        plans = [
+            *(self._stored(h, RICE, {"name": "Quinoa ", "quantity_grams": 80}) for h in range(MIN_HOUSEHOLDS)),
+            *(self._stored(h, {"name": "kale", "quantity_grams": 300}) for h in range(MIN_HOUSEHOLDS)),
+        ]
+        ranked, unreadable = rank_gaps(plans, REF)
+        assert [(g.lang, g.key, g.count, g.grams) for g in ranked] == [
+            ("en", "kale", 3, 900), ("en", "quinoa", 3, 240),
+        ]
+        assert unreadable == 0
+
+    def test_a_key_from_fewer_households_stays_on_the_server(self) -> None:
+        # One household's free text (and the diet it hints at) is never printed,
+        # however often that household used it.
+        plans = [self._stored(h, {"name": "lion's mane", "quantity_grams": 200})
+                 for h in (1, 1, 1, 2)]
+        assert rank_gaps(plans, REF)[0] == []
+
+    def test_skips_water_unstamped_meals_and_other_languages(self) -> None:
+        plans = [self._stored(h, {"name": "water", "quantity_grams": 500}) for h in range(3)]
+        plans += [self._stored(h, {"name": "kale", "quantity_grams": 300}, basis=None) for h in range(3)]
+        plans += [self._stored(h, {"name": "Grünkohl", "quantity_grams": 300}, language="German")
+                  for h in range(3)]
+        assert rank_gaps(plans, REF)[0] == []
+
+    def test_plural_and_singular_rank_as_one_key(self) -> None:
+        plans = [self._stored(h, {"name": "kale" if h else "Kales", "quantity_grams": 100}) for h in range(3)]
+        assert [(g.key, g.count) for g in rank_gaps(plans, REF)[0]] == [("kale", 3)]
+
+    def test_a_plural_the_singular_rule_skips_is_reported_as_written(self) -> None:
+        # "black pepper" is a row, so reporting "black peppers" under it
+        # would name a key the table already has.
+        plans = [self._stored(h, {"name": "Black Peppers", "quantity_grams": 100}) for h in range(3)]
+        assert [g.key for g in rank_gaps(plans, REF)[0]] == ["black peppers"]
+
+    def test_a_czech_plan_without_name_en_reports_the_czech_key(self) -> None:
+        plans = [self._stored(h, {"name": "Kedlubna", "quantity_grams": 150}, language="Czech")
+                 for h in range(3)]
+        assert [(g.lang, g.key) for g in rank_gaps(plans, REF)[0]] == [("cs", "kedlubna")]
+
+    def test_counts_an_unreadable_plan_instead_of_failing(self) -> None:
+        broken = StoredPlan(household_id=1, request_json="{}", response_json="not json")
+        assert rank_gaps([broken], REF) == ([], 1)
+
+    @pytest.mark.parametrize(("error", "name"), [
+        (OperationalError("SELECT secret_column", {}, Exception("server closed the connection")), "OperationalError"),
+        (ConnectionRefusedError(111, "Connection refused"), "ConnectionRefusedError"),
+    ])
+    def test_a_database_error_exits_with_a_message(
+        self, monkeypatch: pytest.MonkeyPatch, error: Exception, name: str,
+    ) -> None:
+        async def unreachable() -> list[StoredPlan]:
+            raise error
+
+        monkeypatch.setattr(nutrition_gaps, "_stored_plans", unreachable)
+        with pytest.raises(SystemExit, match=f"could not read the stored plans: {name}") as exit_info:
+            nutrition_gaps.main([])
+        assert "secret_column" not in str(exit_info.value)  # the statement stays out
