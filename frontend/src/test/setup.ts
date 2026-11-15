@@ -35,6 +35,13 @@ function createMemoryStorage(): Storage {
 vi.stubGlobal('localStorage', createMemoryStorage());
 vi.stubGlobal('sessionStorage', createMemoryStorage());
 
+// jsdom does no layout, so it does not implement scrollIntoView, and a component
+// that calls it on mount throws. Without this, such a test only passed when an
+// earlier test in the file had stubbed the prototype and never put it back.
+// A test that asserts on the call should `vi.spyOn(Element.prototype,
+// 'scrollIntoView')`; the restoreAllMocks below hands this no-op back.
+Element.prototype.scrollIntoView = () => {};
+
 afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();

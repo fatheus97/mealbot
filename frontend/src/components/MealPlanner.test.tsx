@@ -626,13 +626,8 @@ describe('MealPlanner', () => {
   it('scrolls to the plan on mount when initialPlan is provided', () => {
     loginUser();
 
-    const scrollIntoView = vi.fn();
-    // scrollIntoView isn't implemented in jsdom — stub it on the prototype so
-    // any element's call lands on the spy.
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: scrollIntoView,
-    });
+    // On the prototype, so any element's call lands on the spy.
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     const initialPlan = {
       plan_id: 99,
@@ -666,10 +661,6 @@ describe('MealPlanner', () => {
     [false, null],
   ])('shows the unchecked notice after an edit only when the server says so (%s)', async (removed, text) => {
     loginUser();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: vi.fn(),
-    });
     const meal = {
       name: 'Opened Meal',
       meal_type: 'lunch',
@@ -728,16 +719,27 @@ describe('MealPlanner', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
-  it('does not scroll on mount when no initialPlan is provided', () => {
+  it('does not scroll when a plan is generated on the same mount', async () => {
+    // The scroll is for a plan opened from elsewhere. A plan generated here
+    // lands under the form the user is already looking at. Asserting on a bare
+    // mount instead proved nothing: with no plan the container isn't rendered,
+    // so there is nothing to scroll even if the component tried.
     loginUser();
-
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: scrollIntoView,
+    const plan = {
+      plan_id: 42,
+      start_date: null,
+      days: [{ meals: [{ name: 'Fresh Meal', meal_type: 'lunch', ingredients: [], steps: [] }] }],
+      shopping_list: [],
+    };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(plan) });
     });
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     render(<MealPlanner />, { wrapper: createWrapper() });
+    await userEvent.click(screen.getByRole('button', { name: /generate plan/i }));
+    await screen.findByText('Fresh Meal');
 
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
@@ -1401,13 +1403,6 @@ describe('MealPlanner info hints (U-9)', () => {
 describe('MealPlanner — expired-item review after finishing', () => {
   const PLAN_ID = 900;
 
-  beforeEach(() => {
-    // Not otherwise guaranteed when a test here runs alone: jsdom has no layout.
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true, writable: true, value: vi.fn(),
-    });
-  });
-
   const initialPlan = {
     plan_id: PLAN_ID,
     start_date: null,
@@ -1794,7 +1789,6 @@ describe('MealPlanner nutrition (opt-in)', () => {
 
   function withProfile(showNutrition: boolean) {
     loginUser();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
     mockedFetchProfile.mockResolvedValue({
       id: 1, email: 'test@test.com', country: null, language: 'English',
       measurement_system: 'metric', variability: 'traditional', include_spices: true,
