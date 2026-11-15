@@ -95,11 +95,16 @@ export function NutritionChipPlaceholder({ isMobile }: { isMobile: boolean }) {
 
 // The day header's own look: the date beside it uses the same size and weight.
 // No colour of its own: it inherits the header's, like the "Day 1" next to it.
+// An inline-block, because nothing between the date and "≈" is a place to
+// break: when the line does not fit beside the date (a Czech "Nejméně" day
+// just above the phone breakpoint), it moves to its own row as one piece, and
+// wraps only at the " · " separators (the keys hold number and unit together
+// with no-break spaces).
 const dayLineStyle: CSSProperties = {
+  display: "inline-block",
   marginLeft: "0.6rem",
   fontSize: "0.85rem",
   fontWeight: 400,
-  whiteSpace: "nowrap",
 };
 
 /** The per-person day total in the day header (design decision 10): one
