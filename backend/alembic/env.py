@@ -9,6 +9,7 @@ from sqlmodel import SQLModel
 import app.models.db_models  # noqa: F401  registers every table on SQLModel.metadata
 from alembic import context
 from app.core.config import settings
+from app.db import SESSION_UTC
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -80,6 +81,7 @@ async def run_async_migrations() -> None:
         configuration=configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=SESSION_UTC,
     )
 
     async with connectable.connect() as connection:

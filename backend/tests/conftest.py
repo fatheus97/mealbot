@@ -16,7 +16,7 @@ from app.core.email_normalize import normalize_email
 from app.core.legal import HEALTH_CONSENT_VERSION
 from app.core.rate_limit import limiter
 from app.core.security import get_password_hash
-from app.db import get_session
+from app.db import SESSION_UTC, get_session
 from app.models.db_models import User
 from app.services.fridge_service import _KITCHEN_LOCKED
 
@@ -102,7 +102,7 @@ async def test_engine() -> AsyncGenerator[AsyncEngine]:
     if worker:
         await _ensure_database(db_url)
 
-    engine = create_async_engine(db_url, echo=False)
+    engine = create_async_engine(db_url, echo=False, connect_args=SESSION_UTC)
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

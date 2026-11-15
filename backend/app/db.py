@@ -1,18 +1,37 @@
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import URL
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import settings
 
+# Every session runs in UTC, whatever the server's or database's TimeZone
+# setting. Naive columns hold UTC, while code binds aware datetimes to them (and
+# a few naive ones to TIMESTAMPTZ columns); Postgres converts between the two in
+# the session TimeZone. The pgvector image already defaults to Etc/UTC; this
+# keeps every comparison right if that ever changes.
+SESSION_UTC = {"options": "-c timezone=UTC"}
+
+
+def make_engine(url: str | URL) -> AsyncEngine:
+    return create_async_engine(
+        url,                        # The dialect MUST be postgresql+psycopg to utilise the new async driver.
+        echo=settings.db_echo,      # False in production to prevent SQL injection logs
+        pool_size=10,               # Minimum connections to keep open
+        max_overflow=20,            # Burst capacity
+        pool_recycle=3600,          # Recycle connections to prevent stale handles
+        pool_pre_ping=True,         # Health check connections before handing them out
+        connect_args=SESSION_UTC,
+    )
+
+
 # The Async Engine: The heart of the persistence layer
-engine = create_async_engine(
-    settings.database_url,      # The dialect MUST be postgresql+psycopg to utilise the new async driver.
-    echo=settings.db_echo,      # False in production to prevent SQL injection logs
-    pool_size=10,               # Minimum connections to keep open
-    max_overflow=20,            # Burst capacity
-    pool_recycle=3600,          # Recycle connections to prevent stale handles
-    pool_pre_ping=True          # Health check connections before handing them out
-)
+engine = make_engine(settings.database_url)
 
 # The Factory: Generates sessions for each request
 async_session_factory = async_sessionmaker(
