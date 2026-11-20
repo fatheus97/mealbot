@@ -503,14 +503,35 @@ describe("MealCard nutrition", () => {
     expect(screen.queryByText("Per serving, approximately")).not.toBeInTheDocument();
   });
 
-  it("lists a row by either id, so an Open Food Facts row reaches provenance", async () => {
-    const user = userEvent.setup();
-    const dumpling = ing({
+  // ODbL 4.3 and 4.6 (docs/nutrition-design.md, "Open Food Facts label rows").
+  const OFF_NOTICE =
+    "Contains information from Open Food Facts, which is made available here under the Open Database License (ODbL). " +
+    "We publish the label values we use, under the same licence, in our public repository.";
+  const OFF_HREFS: [string, string][] = [
+    ["Open Food Facts", "https://world.openfoodfacts.org"],
+    ["Open Database License (ODbL)", "https://opendatacommons.org/licenses/odbl/1-0/"],
+    ["in our public repository", "https://github.com/fatheus97/mealbot/tree/main/backend/data/nutrition/off"],
+  ];
+  const dumpling = (over: Partial<IngredientNutrition> = {}) =>
+    ing({
       name: "houskový knedlík", grams: 300, alim_code: null, off_id: "off:houskovy-knedlik", label_products: 13,
       source_name: "Bread dumpling (houskový knedlík), packaged", state: "neutral", confidence: null,
+      ...over,
     });
+  const expectOffNotice = () => {
+    for (const [name, href] of OFF_HREFS) {
+      const a = screen.getByRole("link", { name });
+      expect(a).toHaveAttribute("href", href);
+      expect(a).toHaveAttribute("target", "_blank");
+      expect(a).toHaveAttribute("rel", "noopener noreferrer");
+    }
+    expect(screen.getByRole("link", { name: "Open Food Facts" }).parentElement?.textContent).toBe(OFF_NOTICE);
+  };
+
+  it("lists a row by either id, so an Open Food Facts row reaches provenance", async () => {
+    const user = userEvent.setup();
     renderCard({
-      nutrition: { ...FIGURE, ingredients: [ing({}), dumpling], sources: ["ciqual", "off"] },
+      nutrition: { ...FIGURE, ingredients: [ing({}), dumpling()], sources: ["ciqual", "off"] },
       nutritionSource: SOURCE,
     });
     await user.click(screen.getByRole("button", { name: /kcal per serving/ }));
@@ -519,6 +540,86 @@ describe("MealCard nutrition", () => {
     expect(
       screen.getByRole("cell", { name: "Bread dumpling (houskový knedlík), packaged (off:houskovy-knedlik)" }),
     ).toBeInTheDocument();
+  });
+
+  it("credits Open Food Facts and counts the products when a row is a label median", async () => {
+    const user = userEvent.setup();
+    renderCard({
+      nutrition: { ...FIGURE, ingredients: [ing({}), dumpling()], sources: ["ciqual", "off"] },
+      nutritionSource: SOURCE,
+    });
+    await user.click(screen.getByRole("button", { name: /kcal per serving/ }));
+
+    expect(screen.getByRole("columnheader", { name: "Matched food" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "label median, 13 products" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "A" })).toBeInTheDocument();
+    // The table may be wider than the panel and scroll; its box takes focus, so a
+    // keyboard user can scroll it where the browser does not focus scrollers (Safari).
+    const scroller = screen.getByRole("region", { name: "Where each value comes from" });
+    expect(scroller).toHaveAttribute("tabindex", "0");
+    expect(within(scroller).getByRole("columnheader", { name: "Matched food" })).toBeInTheDocument();
+    // One hint per kind of row listed.
+    expect(screen.getByText(/^Confidence: the lowest reliability rating/)).toBeInTheDocument();
+    expect(screen.getByText(/^Label median: each value is the middle one/)).toBeInTheDocument();
+    expect(screen.getByText(/Rows marked "label median" use the median of the nutrition labels/)).toBeInTheDocument();
+    expectOffNotice();
+    // The Ciqual attribution stays beside it.
+    expect(screen.getByRole("link", { name: "Ciqual 2025 (Anses)" })).toBeInTheDocument();
+  });
+
+  it("never credits Open Food Facts for a meal that used only Ciqual", async () => {
+    const user = userEvent.setup();
+    renderCard({ nutrition: FIGURE, nutritionSource: SOURCE });
+    await user.click(screen.getByRole("button", { name: /kcal per serving/ }));
+
+    expect(screen.getByText(/^Confidence: the lowest reliability rating/)).toBeInTheDocument();
+    expect(screen.queryByText(/Open Food Facts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/label median/i)).not.toBeInTheDocument();
+    for (const [name] of OFF_HREFS) expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
+  });
+
+  it("explains only the label median when every listed row is one", async () => {
+    const user = userEvent.setup();
+    renderCard({
+      nutrition: { ...FIGURE, ingredients: [dumpling()], sources: ["off"] },
+      nutritionSource: SOURCE,
+    });
+    await user.click(screen.getByRole("button", { name: /kcal per serving/ }));
+
+    expect(screen.getByText(/^Label median: each value/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Confidence: the lowest reliability rating/)).not.toBeInTheDocument();
+    expectOffNotice();
+  });
+
+  it.each<[string, Partial<MealNutrition>, RegExp]>([
+    // Provenance still lists per-100 g values below the coverage floor.
+    ["below the coverage floor", { per_serving: null, withheld_reason: "coverage", coverage: 0.4 }, /Not enough data/],
+    // A leftover has no rows of its own, only its source dish's sources.
+    ["on a leftover", { ingredients: [], leftover_of: { day_index: 0, meal_index: 0 } }, /kcal per serving/],
+  ])("credits Open Food Facts %s", async (_label, over, chipName) => {
+    const user = userEvent.setup();
+    renderCard({
+      nutrition: { ...FIGURE, ingredients: [dumpling()], sources: ["off"], ...over },
+      nutritionSource: SOURCE,
+    });
+    await user.click(screen.getByRole("button", { name: chipName }));
+    expectOffNotice();
+  });
+
+  it("counts the products in Czech with the form for five and up", async () => {
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    const user = userEvent.setup();
+    renderCard({
+      nutrition: { ...FIGURE, ingredients: [dumpling({ label_products: 16 })], sources: ["off"] },
+      nutritionSource: SOURCE,
+    });
+    await user.click(screen.getByRole("button", { name: /kcal/ }));
+
+    expect(screen.getByRole("cell", { name: "medián z etiket, 16 výrobků" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "v našem veřejném repozitáři" })).toHaveAttribute(
+      "href",
+      "https://github.com/fatheus97/mealbot/tree/main/backend/data/nutrition/off",
+    );
   });
 
   it("carries the attribution, with the DOI link and the update date", async () => {

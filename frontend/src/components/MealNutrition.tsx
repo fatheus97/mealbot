@@ -156,6 +156,14 @@ const row: CSSProperties = { borderBottom: "1px solid #eee" };
 // index.css paints links #646cff, which fails AA on this white panel.
 const link: CSSProperties = { color: "#1d4ed8", textDecoration: "underline" };
 
+// The Open Food Facts attribution (docs/nutrition-design.md, "Open Food Facts
+// label rows"). Fixed text, so it lives here and not in the API. ODbL 4.3 asks
+// for the notice wherever a figure from it is shown, 4.6 for an offer of the
+// rows themselves: the public folder.
+const OFF_DATABASE_URL = "https://world.openfoodfacts.org";
+const ODBL_URL = "https://opendatacommons.org/licenses/odbl/1-0/";
+const OFF_ROWS_URL = "https://github.com/fatheus97/mealbot/tree/main/backend/data/nutrition/off";
+
 function PerServing({ values, complete }: { values: NutrientValues; complete: boolean }) {
   const { t, locale } = useI18n();
   const atLeast = !complete;
@@ -192,7 +200,7 @@ function PerServing({ values, complete }: { values: NutrientValues; complete: bo
 }
 
 function Provenance({ figure }: { figure: MealNutrition }) {
-  const { t, locale } = useI18n();
+  const { t, tn, locale } = useI18n();
   const rows = figure.ingredients.filter(
     (ing) =>
       (ing.status === "counted" || ing.status === "seasoning") && (ing.alim_code !== null || ing.off_id !== null),
@@ -200,9 +208,20 @@ function Provenance({ figure }: { figure: MealNutrition }) {
   if (rows.length === 0) return null;
   return (
     <>
-      {/* Six columns do not fit 375px; the table scrolls inside the panel. */}
-      <div style={{ overflowX: "auto", margin: "0.35rem 0" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+      {/* Six columns do not fit 375px; the table scrolls inside the panel.
+          The plan around it sets word-break: break-word, which lets every cell
+          break between any two letters, so the table squeezed into the box
+          ("ho/us/ko/vý") and never scrolled. normal breaks only between words.
+          The box holds no focusable element, so it takes focus itself:
+          Safari does not make a scroller focusable, and without this a
+          keyboard user there could not reach the clipped columns. */}
+      <div
+        role="region"
+        aria-label={t("nutrition.provenanceLabel")}
+        tabIndex={0}
+        style={{ overflowX: "auto", margin: "0.35rem 0" }}
+      >
+        <table style={{ borderCollapse: "collapse", width: "100%", wordBreak: "normal" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid #ccc" }}>
               <th scope="col" style={th}>{t("nutrition.colIngredient")}</th>
@@ -227,16 +246,51 @@ function Provenance({ figure }: { figure: MealNutrition }) {
                 <td style={td}>{ing.source_name} ({ing.alim_code ?? ing.off_id})</td>
                 <td style={num}>{ing.per_100g ? formatNumber(ing.per_100g.kcal, locale) : ""}</td>
                 <td style={num}>{ing.contribution ? formatNumber(ing.contribution.kcal, locale) : ""}</td>
-                <td style={td}>{ing.confidence}</td>
+                {/* Ciqual's own letter, or for a label median the number of
+                    products behind it: a letter derived from counts would read
+                    as Ciqual's rating. */}
+                <td style={td}>
+                  {ing.label_products !== null ? tn("nutrition.labelMedian", ing.label_products) : ing.confidence}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       {/* Outside the scroll box: anything that pops out of it (an InfoHint
-          bubble) is clipped, since overflow-x:auto makes overflow-y auto too. */}
-      <p style={muted}>{t("nutrition.confidenceHint")}</p>
+          bubble) is clipped, since overflow-x:auto makes overflow-y auto too.
+          Each hint explains a kind of row the table lists. */}
+      {rows.some((ing) => ing.alim_code !== null) && <p style={muted}>{t("nutrition.confidenceHint")}</p>}
+      {rows.some((ing) => ing.off_id !== null) && <p style={muted}>{t("nutrition.labelMedianHint")}</p>}
     </>
+  );
+}
+
+const externalLink = (href: string, text: string) => (
+  <a href={href} target="_blank" rel="noopener noreferrer" style={link}>
+    {text}
+  </a>
+);
+
+/** The ODbL 4.3 notice and the 4.6 offer of the rows. Visible text, never only
+ *  inside a hint, on every surface that shows an Open Food Facts value. The
+ *  two names are proper names, so they stay untranslated. */
+function OffNotice() {
+  const { t } = useI18n();
+  return (
+    <p style={{ ...muted, marginBottom: 0 }}>
+      <Trans
+        k="nutrition.offNotice"
+        nodes={{
+          off: externalLink(OFF_DATABASE_URL, "Open Food Facts"),
+          odbl: externalLink(ODBL_URL, "Open Database License (ODbL)"),
+        }}
+      />{" "}
+      <Trans
+        k="nutrition.offRows"
+        nodes={{ folder: externalLink(OFF_ROWS_URL, t("nutrition.offRows.folderLink")) }}
+      />
+    </p>
   );
 }
 
@@ -250,6 +304,7 @@ export function NutritionPanel({
   source: SourceAttribution;
 }) {
   const { t, tn } = useI18n();
+  const usesOff = figure.sources.includes("off");
   const notCounted = figure.ingredients
     .filter((ing) => ing.status === "not_counted" && ing.reason !== null)
     .map((ing) => `${ing.name} (${t(`nutritionReason.${ing.reason}` as TranslationKey)})`);
@@ -271,12 +326,16 @@ export function NutritionPanel({
       )}
       <Provenance figure={figure} />
       <p style={muted}>
-        {t("nutrition.captionCalculated")} {t("nutrition.captionRealValues")}{" "}
-        {t("nutrition.captionNotAdvice")}
+        {t("nutrition.captionCalculated")} {usesOff && `${t("nutrition.captionLabels")} `}
+        {t("nutrition.captionRealValues")} {t("nutrition.captionNotAdvice")}
       </p>
       {/* Rendered here, inside the panel, so no surface can show a figure
-          without its attribution (Etalab 2.0: grantor and update date). */}
+          without its attribution (Etalab 2.0: grantor and update date; ODbL
+          4.3 for a label median). `sources` is set even below the coverage
+          floor, where provenance still lists per-100 g values, and a leftover
+          copies its source dish's. */}
       <SourceLine source={source} />
+      {usesOff && <OffNotice />}
     </div>
   );
 }
@@ -303,16 +362,19 @@ function SourceLine({ source }: { source: SourceAttribution }) {
 /** The plan's own source line (docs/nutrition-design.md, "Open Food Facts
  *  label rows", OFF 1). A chip and a day total show figures with no room for
  *  an attribution, and a panel carries it only while open, so the end of the
- *  plan carries it once while any meal has a figure. It sets the panel's own
+ *  plan carries it once while any meal has a figure, with the Open Food Facts
+ *  notice when any meal used a label median (OFF 3). It sets the panel's own
  *  surface and colour, like the panel, so it does not depend on the plan
  *  block it lands in. */
 export function NutritionSources({ days, source }: { days: DayNutrition[]; source: SourceAttribution }) {
   const { t } = useI18n();
-  if (!days.some((day) => day.meals.some((meal) => meal.per_serving !== null))) return null;
+  const meals = days.flatMap((day) => day.meals);
+  if (!meals.some((meal) => meal.per_serving !== null)) return null;
   return (
     <div style={{ ...panelStyle, margin: "1rem 0 0 0" }}>
       <p style={{ ...muted, marginTop: 0 }}>{t("nutrition.captionNotAdvice")}</p>
       <SourceLine source={source} />
+      {meals.some((meal) => meal.sources.includes("off")) && <OffNotice />}
     </div>
   );
 }
