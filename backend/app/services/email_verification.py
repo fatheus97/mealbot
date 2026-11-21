@@ -172,11 +172,7 @@ async def find_redeemable(
         # though the caller just sees "invalid or expired".
         logger.warning("email_verification_token_replayed user_id=%s", row.user_id)
         return None
-    expires_at = row.expires_at
-    if expires_at.tzinfo is None:
-        # Stored naive-UTC by the DB; compare in the same frame as `now`.
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= now:
+    if row.expires_at <= now:
         return None
     return row
 

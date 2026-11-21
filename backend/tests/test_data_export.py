@@ -97,7 +97,7 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
                 expiration_date=date(2026, 8, 3),
                 reason="thrown_out",
                 source="fridge_delete",
-                created_at=datetime(2026, 8, 6),
+                created_at=datetime(2026, 8, 6, tzinfo=UTC),
             ),
             SaleRefund(
                 stripe_refund_id=f"re_export_{uid}",
@@ -105,7 +105,7 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
                 amount_cents=200,
                 currency="eur",
                 status="succeeded",
-                occurred_at=datetime(2026, 8, 5),
+                occurred_at=datetime(2026, 8, 5, tzinfo=UTC),
             ),
         ]
     )
@@ -185,7 +185,7 @@ class TestExportContents:
                 "amount_cents": 200,
                 "currency": "eur",
                 "status": "succeeded",
-                "occurred_at": "2026-08-05T00:00:00",
+                "occurred_at": "2026-08-05T00:00:00Z",
             }
         ]
 
@@ -202,7 +202,7 @@ class TestExportContents:
                 "expiration_date": "2026-08-03",
                 "reason": "thrown_out",
                 "source": "fridge_delete",
-                "created_at": "2026-08-06T00:00:00",
+                "created_at": "2026-08-06T00:00:00Z",
             }
         ]
 

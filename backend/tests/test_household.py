@@ -217,9 +217,9 @@ def _migration() -> ModuleType:
         Path(__file__).resolve().parents[1]
         / "alembic"
         / "versions"
-        / "household_01_give_every_account_a_household.py"
+        / "utc_timestamps_01_timestamptz_columns.py"
     )
-    spec = importlib.util.spec_from_file_location("household_01", path)
+    spec = importlib.util.spec_from_file_location("utc_timestamps_01", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -227,6 +227,7 @@ def _migration() -> ModuleType:
 
 
 def test_the_migration_installs_the_same_triggers_as_the_test_schema() -> None:
-    """The migration keeps a frozen copy, as migrations must; until a later
+    """The latest migration to install the triggers (utc_timestamps_01; first
+    household_01) keeps a frozen copy, as migrations must; until a later
     migration changes the triggers, prod and the test schema run the same SQL."""
     assert _migration().TRIGGERS_SQL == HOUSEHOLD_TRIGGERS_SQL
