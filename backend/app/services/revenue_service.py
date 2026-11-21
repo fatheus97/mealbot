@@ -68,8 +68,7 @@ _RECENT_LIMIT = 10
 
 def _extract_paid_at(invoice: dict[str, Any], event_created: int | None) -> datetime:
     """Best economic timestamp for the sale: the invoice's paid_at, else the
-    event time, else now — all as naive UTC, which Postgres reads as UTC
-    (every session runs in UTC, app/db.py)."""
+    event time, else now, in UTC."""
     epoch: int | None = None
     transitions = invoice.get("status_transitions")
     if isinstance(transitions, dict) and isinstance(transitions.get("paid_at"), int):
@@ -79,8 +78,8 @@ def _extract_paid_at(invoice: dict[str, Any], event_created: int | None) -> date
     elif event_created is not None:
         epoch = event_created
     if epoch is not None:
-        return datetime.fromtimestamp(epoch, tz=UTC).replace(tzinfo=None)
-    return datetime.now(UTC).replace(tzinfo=None)
+        return datetime.fromtimestamp(epoch, tz=UTC)
+    return datetime.now(UTC)
 
 
 async def record_sale_from_invoice(
@@ -201,7 +200,7 @@ async def record_refund(session: AsyncSession, refund: dict[str, Any]) -> bool:
             datetime.fromtimestamp(created, tz=UTC)
             if isinstance(created, int)
             else datetime.now(UTC)
-        ).replace(tzinfo=None)
+        )
         # ON CONFLICT: two deliveries of one refund can race past the lookup above.
         await session.execute(
             pg_insert(SaleRefund)
@@ -245,7 +244,7 @@ def _ledger() -> Subquery:
     subtracts nothing, since that sale was never added. The currency is the
     refund's own, so a non-EUR refund never touches the EUR sums.
     """
-    sales: Select[tuple[str | None, bool, str, int, int, datetime]] = select(
+    sales: Select[str | None, bool, str, int, int, datetime] = select(
         col(SaleRecord.country).label("country"),
         col(SaleRecord.is_business).label("is_business"),
         col(SaleRecord.currency).label("currency"),
@@ -302,11 +301,11 @@ async def compute_revenue_stats(
     the reporting categories in Python (sale volume is low — one row per paid
     invoice). Only EUR sales feed the monetary totals; other-currency sales are
     counted separately so the UI can flag them. ``now`` is injectable for
-    deterministic tests (defaults to the current UTC time; the window is naive
-    UTC, which Postgres reads as UTC in the session).
+    deterministic tests (aware; defaults to the current UTC time). The
+    calendar year is the UTC one.
     """
-    ref = (now or datetime.now(UTC)).replace(tzinfo=None)
-    year_start = datetime(ref.year, 1, 1)
+    ref = (now or datetime.now(UTC)).astimezone(UTC)
+    year_start = datetime(ref.year, 1, 1, tzinfo=UTC)
     rolling_start = ref - timedelta(days=365)
     ledger = _ledger()
     grouped = (

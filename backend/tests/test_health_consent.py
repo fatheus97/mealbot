@@ -58,10 +58,6 @@ from tests.test_plan_repeat import _response_json
 REFUSED = ERROR_COPY["en"]["health_consent_required"]
 
 
-def _naive(ts: datetime) -> datetime:
-    return ts.replace(tzinfo=None) if ts.tzinfo else ts
-
-
 async def _without_consent(db_session: AsyncSession, user: User) -> None:
     user.health_consent_at = None
     user.health_consent_version = None
@@ -222,7 +218,7 @@ class TestGrant:
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
     ) -> None:
         await _without_consent(db_session, test_user)
-        before = datetime.now(UTC).replace(tzinfo=None)
+        before = datetime.now(UTC)
         resp = await client.post(
             "/api/users/health-consent", json={"version": HEALTH_CONSENT_VERSION}
         )
@@ -231,7 +227,7 @@ class TestGrant:
         await db_session.refresh(test_user)
         assert test_user.health_consent_version == HEALTH_CONSENT_VERSION
         assert test_user.health_consent_at is not None
-        assert _naive(test_user.health_consent_at) >= before - timedelta(seconds=1)
+        assert test_user.health_consent_at >= before - timedelta(seconds=1)
         events = await _events(db_session, test_user)
         assert [(e.granted, e.version) for e in events] == [(True, HEALTH_CONSENT_VERSION)]
 
@@ -268,7 +264,7 @@ class TestGrant:
         )
         await db_session.refresh(test_user)
         assert test_user.health_consent_at is not None
-        assert _naive(test_user.health_consent_at).year > 2001
+        assert test_user.health_consent_at.year > 2001
 
 
 class TestWithdraw:

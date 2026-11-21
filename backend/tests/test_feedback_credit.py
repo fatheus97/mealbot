@@ -7,7 +7,7 @@ uncredited + retryable).
 """
 
 from contextlib import AbstractContextManager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.models.db_models import FeedbackReport, User
 from app.services import feedback_credit
 
-_NOW = datetime(2026, 7, 25, 12, 0, 0)  # naive UTC, matches the stored column frame
+_NOW = datetime(2026, 7, 25, 12, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -78,6 +78,26 @@ async def _prep_user(db_session: AsyncSession, test_user: User, **over: object) 
 
 
 class TestGrants:
+    async def test_grants_on_the_real_clock(
+        self, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Accept in the admin panel passes no ``now``, so the grant reads the real
+        clock. credit_granted_at refuses a naive time, and the rate-cap window is
+        compared with it in SQL, so a naive default would fail every Accept."""
+        await _prep_user(db_session, test_user)
+        assert test_user.id is not None
+        report = await _add_report(db_session, test_user.id)
+        ctx, grant = _mock_stripe(pending=0)
+        before = datetime.now(UTC)
+        with ctx:
+            ok = await feedback_credit.maybe_grant_credit(db_session, report, test_user)
+        assert ok is True
+        grant.assert_awaited_once()
+        await db_session.flush()
+        await db_session.refresh(report)
+        assert report.credit_granted_at is not None
+        assert report.credit_granted_at >= before - timedelta(seconds=1)
+
     async def test_grants_when_eligible(
         self, db_session: AsyncSession, test_user: User
     ) -> None:

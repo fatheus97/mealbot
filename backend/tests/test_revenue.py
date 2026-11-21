@@ -54,7 +54,7 @@ def _sale(
     country: str | None,
     is_business: bool = False,
     currency: str = "eur",
-    occurred_at: datetime = datetime(2026, 1, 1),
+    occurred_at: datetime = datetime(2026, 1, 1, tzinfo=UTC),
 ) -> SaleRecord:
     return SaleRecord(
         stripe_invoice_id=invoice_id,
@@ -158,13 +158,13 @@ async def test_compute_revenue_stats_aggregates(db_session: AsyncSession, monkey
     monkeypatch.setattr(settings, "vat_eu_oss_threshold_eur", 10_000.0)
     monkeypatch.setattr(settings, "vat_cz_domestic_threshold_czk", 2_000_000.0)
     # All sales dated within the current year / rolling 12 months of `now`.
-    now = datetime(2026, 6, 1)
+    now = datetime(2026, 6, 1, tzinfo=UTC)
     db_session.add_all([
-        _sale("de_b2c", 1000, "DE", is_business=False, occurred_at=datetime(2026, 1, 1)),
-        _sale("fr_b2c", 2000, "FR", is_business=False, occurred_at=datetime(2026, 1, 1)),
-        _sale("de_b2b", 5000, "DE", is_business=True, occurred_at=datetime(2026, 1, 1)),  # B2B → not cross-border
-        _sale("cz", 3000, "CZ", is_business=False, occurred_at=datetime(2026, 1, 1)),  # domestic
-        _sale("us", 4000, "US", is_business=False, occurred_at=datetime(2026, 1, 1)),  # non-EU
+        _sale("de_b2c", 1000, "DE", is_business=False, occurred_at=datetime(2026, 1, 1, tzinfo=UTC)),
+        _sale("fr_b2c", 2000, "FR", is_business=False, occurred_at=datetime(2026, 1, 1, tzinfo=UTC)),
+        _sale("de_b2b", 5000, "DE", is_business=True, occurred_at=datetime(2026, 1, 1, tzinfo=UTC)),  # B2B → not cross-border
+        _sale("cz", 3000, "CZ", is_business=False, occurred_at=datetime(2026, 1, 1, tzinfo=UTC)),  # domestic
+        _sale("us", 4000, "US", is_business=False, occurred_at=datetime(2026, 1, 1, tzinfo=UTC)),  # non-EU
     ])
     await db_session.flush()
 
@@ -194,11 +194,11 @@ async def test_thresholds_are_time_windowed(db_session: AsyncSession, monkeypatc
     """EU OSS = current calendar year; CZ = rolling 12 months. Older sales fall
     out of the threshold windows (but still count in the all-time totals)."""
     monkeypatch.setattr(settings, "eur_czk_rate", 25.0)
-    now = datetime(2026, 6, 1)
+    now = datetime(2026, 6, 1, tzinfo=UTC)
     db_session.add_all([
-        _sale("old_de", 5000, "DE", occurred_at=datetime(2024, 3, 1)),  # prior year
-        _sale("new_de", 1000, "DE", occurred_at=datetime(2026, 3, 1)),  # this year
-        _sale("old_fr", 8000, "FR", occurred_at=datetime(2024, 3, 1)),  # >12mo ago
+        _sale("old_de", 5000, "DE", occurred_at=datetime(2024, 3, 1, tzinfo=UTC)),  # prior year
+        _sale("new_de", 1000, "DE", occurred_at=datetime(2026, 3, 1, tzinfo=UTC)),  # this year
+        _sale("old_fr", 8000, "FR", occurred_at=datetime(2024, 3, 1, tzinfo=UTC)),  # >12mo ago
     ])
     await db_session.flush()
 
@@ -292,7 +292,7 @@ async def test_webhook_invoice_paid_records_sale(
 # refunds
 # --------------------------------------------------------------------------- #
 def _epoch(dt: datetime) -> int:
-    return int(dt.replace(tzinfo=UTC).timestamp())
+    return int(dt.timestamp())
 
 
 def _refund(
@@ -301,7 +301,7 @@ def _refund(
     currency: str = "eur",
     payment_intent: str | None = "pi_1",
     status: str = "succeeded",
-    created: datetime = datetime(2026, 4, 1),
+    created: datetime = datetime(2026, 4, 1, tzinfo=UTC),
 ) -> dict[str, Any]:
     return {
         "id": id,
@@ -370,13 +370,13 @@ async def test_refund_webhook_nets_the_totals_and_both_vat_bars(
 ) -> None:
     """The reported bug: a refunded sale stayed counted everywhere, VAT bars too."""
     monkeypatch.setattr(settings, "eur_czk_rate", 25.0)
-    db_session.add(_sale("in_r", 1000, "DE", occurred_at=datetime(2026, 3, 1)))
+    db_session.add(_sale("in_r", 1000, "DE", occurred_at=datetime(2026, 3, 1, tzinfo=UTC)))
     await db_session.flush()
     _stripe_finds_invoice(monkeypatch, "in_r")
 
     assert await _post_refund_event(client, monkeypatch, _refund(amount=1000)) == 200
 
-    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
     assert stats.total_cents == 0
     assert stats.eu_cross_border_b2c_cents == 0
     assert stats.by_country[0].amount_cents == 0
@@ -390,14 +390,14 @@ async def test_refund_webhook_nets_the_totals_and_both_vat_bars(
 async def test_partial_refunds_net_only_what_went_back(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_session.add(_sale("in_p", 1000, "CZ", occurred_at=datetime(2026, 3, 1)))
+    db_session.add(_sale("in_p", 1000, "CZ", occurred_at=datetime(2026, 3, 1, tzinfo=UTC)))
     await db_session.flush()
     _stripe_finds_invoice(monkeypatch, "in_p")
 
     assert await _post_refund_event(client, monkeypatch, _refund(id="re_a", amount=300)) == 200
     assert await _post_refund_event(client, monkeypatch, _refund(id="re_b", amount=200)) == 200
 
-    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
     assert stats.total_cents == 500
     assert stats.cz_domestic_cents == 500
     assert stats.by_country[0].amount_cents == 500
@@ -406,7 +406,7 @@ async def test_partial_refunds_net_only_what_went_back(
 async def test_replayed_refund_event_subtracts_once_and_skips_the_lookup(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_session.add(_sale("in_dup", 1000, "DE", occurred_at=datetime(2026, 3, 1)))
+    db_session.add(_sale("in_dup", 1000, "DE", occurred_at=datetime(2026, 3, 1, tzinfo=UTC)))
     await db_session.flush()
     calls = _stripe_finds_invoice(monkeypatch, "in_dup")
 
@@ -418,7 +418,7 @@ async def test_replayed_refund_event_subtracts_once_and_skips_the_lookup(
     assert calls == [
         {"payment": {"type": "payment_intent", "payment_intent": "pi_1"}, "limit": 1}
     ]
-    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
     assert stats.total_cents == 600
 
 
@@ -429,20 +429,20 @@ async def test_refund_counts_in_the_period_it_was_made(
     sale in 2026 lowers 2026's windows, the way a VAT correction lands."""
     monkeypatch.setattr(settings, "eur_czk_rate", 25.0)
     db_session.add_all([
-        _sale("in_old", 5000, "DE", occurred_at=datetime(2024, 3, 1)),  # outside both windows
-        _sale("in_new", 1000, "DE", occurred_at=datetime(2026, 3, 1)),
+        _sale("in_old", 5000, "DE", occurred_at=datetime(2024, 3, 1, tzinfo=UTC)),  # outside both windows
+        _sale("in_new", 1000, "DE", occurred_at=datetime(2026, 3, 1, tzinfo=UTC)),
         SaleRefund(
             stripe_refund_id="re_old",
             stripe_invoice_id="in_old",
             amount_cents=500,
             currency="eur",
             status="succeeded",
-            occurred_at=datetime(2026, 4, 1),
+            occurred_at=datetime(2026, 4, 1, tzinfo=UTC),
         ),
     ])
     await db_session.flush()
 
-    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
     eu = next(t for t in stats.thresholds if t.key == "eu_oss")
     cz = next(t for t in stats.thresholds if t.key == "cz_domestic")
     assert eu.current == (1000 - 500) / 100
@@ -458,11 +458,11 @@ async def test_refund_counts_in_the_period_it_was_made(
             amount_cents=1000,
             currency="eur",
             status="succeeded",
-            occurred_at=datetime(2027, 1, 15),
+            occurred_at=datetime(2027, 1, 15, tzinfo=UTC),
         )
     )
     await db_session.flush()
-    stats_2027 = await revenue_service.compute_revenue_stats(db_session, now=datetime(2027, 2, 1))
+    stats_2027 = await revenue_service.compute_revenue_stats(db_session, now=datetime(2027, 2, 1, tzinfo=UTC))
     eu_2027 = next(t for t in stats_2027.thresholds if t.key == "eu_oss")
     assert eu_2027.current == 0
     assert eu_2027.pct == 0
@@ -474,7 +474,7 @@ async def test_refund_counts_in_the_period_it_was_made(
 async def test_refund_of_a_payment_with_no_invoice_is_acked_and_ignored(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_session.add(_sale("in_k", 1000, "DE", occurred_at=datetime(2026, 3, 1)))
+    db_session.add(_sale("in_k", 1000, "DE", occurred_at=datetime(2026, 3, 1, tzinfo=UTC)))
     await db_session.flush()
     _stripe_finds_invoice(monkeypatch, None)
 
@@ -487,7 +487,7 @@ async def test_refund_of_a_payment_with_no_invoice_is_acked_and_ignored(
     assert calls == []
 
     assert (await db_session.execute(select(SaleRefund))).scalars().first() is None
-    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
     assert stats.total_cents == 1000
 
 
@@ -497,26 +497,26 @@ async def test_refund_arriving_before_its_sale_counts_once_the_sale_lands(
     _stripe_finds_invoice(monkeypatch, "in_late")
     assert await _post_refund_event(client, monkeypatch, _refund(id="re_early", amount=300)) == 200
 
-    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
     assert stats.total_cents == 0  # nothing to net against yet, and never negative
     assert stats.by_country == []
 
     await revenue_service.record_sale_from_invoice(
-        db_session, _invoice(id="in_late", amount_paid=1000, paid_at=_epoch(datetime(2026, 3, 1)))
+        db_session, _invoice(id="in_late", amount_paid=1000, paid_at=_epoch(datetime(2026, 3, 1, tzinfo=UTC)))
     )
-    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+    stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
     assert stats.total_cents == 700
 
 
 async def test_failed_refund_stops_counting_and_a_late_replay_cannot_revive_it(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_session.add(_sale("in_f", 1000, "DE", occurred_at=datetime(2026, 3, 1)))
+    db_session.add(_sale("in_f", 1000, "DE", occurred_at=datetime(2026, 3, 1, tzinfo=UTC)))
     await db_session.flush()
     _stripe_finds_invoice(monkeypatch, "in_f")
 
     async def total() -> int:
-        stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1))
+        stats = await revenue_service.compute_revenue_stats(db_session, now=datetime(2026, 6, 1, tzinfo=UTC))
         return stats.total_cents
 
     assert await _post_refund_event(client, monkeypatch, _refund(id="re_f", amount=400)) == 200
@@ -554,7 +554,7 @@ async def test_non_eur_refund_never_touches_the_eur_totals(db_session: AsyncSess
             amount_cents=5000,
             currency="usd",
             status="succeeded",
-            occurred_at=datetime(2026, 2, 1),
+            occurred_at=datetime(2026, 2, 1, tzinfo=UTC),
         ),
     ])
     await db_session.flush()

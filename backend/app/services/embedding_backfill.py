@@ -57,6 +57,7 @@ async def backfill_missing_embeddings(session: AsyncSession) -> BackfillCounts:
 
     embedded = unreadable = failed = 0
     for entry_id, name, meal_json in rows:
+        assert entry_id is not None  # a selected primary key
         probe = EmbedProbe(name=name, meal_json=meal_json)
         try:
             await embed_meal_entry(probe)

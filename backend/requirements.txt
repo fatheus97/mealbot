@@ -20,12 +20,15 @@ google-genai~=2.17
 jsonref~=1.1
 
 #For DB
-# Exact pin: `~=0.0.39` let CI pull 0.0.45+, which rejects naive datetimes
-# (tests red). 0.0.44 is the last release before that; a bump past it needs the
-# tz-aware datetime migration first (ROADMAP "Held dependency upgrades", and the
-# sqlmodel ignore in .github/dependabot.yml). Strict constructor typing came in
-# 0.0.44 and is adopted (#530).
-sqlmodel==0.0.44
+# sqlmodel maps a plain `datetime` field to UTCDateTime (timestamptz, refuses a
+# naive value) since 0.0.45; every column was made timestamptz first (#627).
+# The asyncio extra pulls SQLAlchemy[asyncio], i.e. greenlet, which the async
+# engine needs and SQLAlchemy 2.1 no longer installs by default.
+sqlmodel[asyncio]==0.0.50
+# Explicit, because nothing else caps it: sqlmodel 0.0.50 allows <2.2, and its
+# select() typing is written for 2.1's Select[*Ts]; on 2.0 every query result
+# types as Any.
+SQLAlchemy[asyncio]~=2.1.9
 psycopg[binary,pool]~=3.3
 alembic~=1.19
 pydantic[email]~=2.13

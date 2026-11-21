@@ -1233,7 +1233,7 @@ async def list_invites(
                 select(col(User.id), col(User.email)).where(col(User.id).in_(redeemer_ids))
             )
         ).all()
-        emails = {int(uid): email for uid, email in rows}
+        emails = {uid: email for uid, email in rows if uid is not None}
 
     return InviteListResponse(
         invites=[

@@ -69,7 +69,7 @@ async def check_abuse(
 
     Read-only (no writes, no commit). ``now`` is injectable for deterministic tests.
     """
-    now = now or datetime.now(UTC).replace(tzinfo=None)
+    now = now or datetime.now(UTC)
 
     open_count = (
         await session.execute(
