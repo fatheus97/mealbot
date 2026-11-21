@@ -222,11 +222,7 @@ async def find_redeemable(
     if row.used_at is not None:
         logger.warning("password_reset_token_replayed user_id=%s", row.user_id)
         return None
-    # Stored naive-UTC by the DB; compare in the same frame as `now`.
-    expires_at = row.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= now:
+    if row.expires_at <= now:
         return None
     return row
 

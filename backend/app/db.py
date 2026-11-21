@@ -11,10 +11,10 @@ from sqlalchemy.ext.asyncio import (
 from app.core.config import settings
 
 # Every session runs in UTC, whatever the server's or database's TimeZone
-# setting. Naive columns hold UTC, while code binds aware datetimes to them (and
-# a few naive ones to TIMESTAMPTZ columns); Postgres converts between the two in
-# the session TimeZone. The pgvector image already defaults to Etc/UTC; this
-# keeps every comparison right if that ever changes.
+# setting. Every timestamp column is TIMESTAMPTZ (utc_timestamps_01), and a few
+# code paths still bind naive UTC values to them, which Postgres reads in the
+# session TimeZone. The pgvector image already defaults to Etc/UTC; this keeps
+# every comparison right if that ever changes.
 SESSION_UTC = {"options": "-c timezone=UTC"}
 
 

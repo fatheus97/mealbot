@@ -42,7 +42,8 @@ _CATALOG = {
         FROM pg_constraint WHERE connamespace = 'public'::regnamespace
     """,
     # The household triggers are hand-mirrored (HOUSEHOLD_TRIGGERS_SQL vs a
-    # frozen copy in household_01), so their functions are compared too.
+    # frozen copy in the latest migration that installs them), so their
+    # functions are compared too.
     "trigger": """
         SELECT tgrelid::regclass::text, pg_get_triggerdef(oid), pg_get_functiondef(tgfoid)
         FROM pg_trigger WHERE NOT tgisinternal

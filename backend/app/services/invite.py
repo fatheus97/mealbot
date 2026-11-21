@@ -9,7 +9,7 @@ normal case (one link per invitee).
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,11 +89,7 @@ async def find_redeemable_invite(
     if row.revoked_at is not None:
         logger.warning("invite_token_revoked_use invite_id=%s", row.id)
         return None
-    # Stored naive-UTC by the DB; compare in the same frame as `now`.
-    expires_at = row.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= now:
+    if row.expires_at <= now:
         return None
     return row
 
@@ -123,9 +119,6 @@ def invite_status(
         return "used"
     if invite.revoked_at is not None:
         return "revoked"
-    expires_at = invite.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= now:
+    if invite.expires_at <= now:
         return "expired"
     return "live"

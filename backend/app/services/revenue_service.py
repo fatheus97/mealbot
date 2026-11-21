@@ -68,7 +68,8 @@ _RECENT_LIMIT = 10
 
 def _extract_paid_at(invoice: dict[str, Any], event_created: int | None) -> datetime:
     """Best economic timestamp for the sale: the invoice's paid_at, else the
-    event time, else now — all as UTC-naive to match the column."""
+    event time, else now — all as naive UTC, which Postgres reads as UTC
+    (every session runs in UTC, app/db.py)."""
     epoch: int | None = None
     transitions = invoice.get("status_transitions")
     if isinstance(transitions, dict) and isinstance(transitions.get("paid_at"), int):
@@ -301,8 +302,8 @@ async def compute_revenue_stats(
     the reporting categories in Python (sale volume is low — one row per paid
     invoice). Only EUR sales feed the monetary totals; other-currency sales are
     counted separately so the UI can flag them. ``now`` is injectable for
-    deterministic tests (defaults to the current UTC time, naive to match the
-    column).
+    deterministic tests (defaults to the current UTC time; the window is naive
+    UTC, which Postgres reads as UTC in the session).
     """
     ref = (now or datetime.now(UTC)).replace(tzinfo=None)
     year_start = datetime(ref.year, 1, 1)

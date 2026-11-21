@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import (
@@ -1351,26 +1351,11 @@ class MealPlanSummary(BaseModel):
     cooked_meals: int
     finished_at: datetime | None = None
 
-    @field_validator("created_at", "finished_at", mode="before")
-    @classmethod
-    def ensure_utc(cls, v: datetime | None) -> datetime | None:
-        if isinstance(v, datetime) and v.tzinfo is None:
-            return v.replace(tzinfo=UTC)
-        return v
-
 
 class FinishPlanResponse(BaseModel):
     status: Literal["finished"]
     finished_at: datetime
     returned_meals: int
-
-    @field_validator("finished_at", mode="before")
-    @classmethod
-    def ensure_utc(cls, v: datetime) -> datetime:
-        """DB may return naive datetimes — attach UTC so serialization is consistent."""
-        if isinstance(v, datetime) and v.tzinfo is None:
-            return v.replace(tzinfo=UTC)
-        return v
 
 
 class FavoriteToggleRequest(BaseModel):
@@ -1483,15 +1468,6 @@ class DietaryProfileRead(BaseModel):
     allergens: list[str]
     avoid_ingredients: list[str]
     updated_at: datetime | None
-
-    @field_validator("updated_at", mode="before")
-    @classmethod
-    def ensure_utc(cls, v: datetime | None) -> datetime | None:
-        """The column is naive; a save returns the aware value it just wrote.
-        Attach UTC so the PUT, the GET and the export serialise one row alike."""
-        if isinstance(v, datetime) and v.tzinfo is None:
-            return v.replace(tzinfo=UTC)
-        return v
 
 
 def avoid_ingredients_cap(model: type[BaseModel]) -> int:

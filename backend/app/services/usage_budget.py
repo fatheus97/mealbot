@@ -5,12 +5,11 @@ require_generation_budget dependency (enforcement). The cap bounds LLM spend per
 user per month so a power user, a trial farmer, or a runaway-generation bug can't
 burn the box's provider budget — without scary token metering for the user.
 
-All datetimes here are NAIVE UTC to match User.created_at and
-User.current_period_end (TIMESTAMP WITHOUT TIME ZONE), so mixing an aware
-datetime.now(UTC) into a comparison/subtraction would raise TypeError or silently
-offset. Values read back from the DB are coerced via _as_naive as a belt.
-LlmUsage.created_at is TIMESTAMPTZ; llm_cost.compute_window_cost makes the
-window aware before it reaches SQL.
+All datetimes here are NAIVE UTC, a convention of this module: User.created_at
+and User.current_period_end come back aware and are made naive via _as_naive,
+so mixing an aware datetime.now(UTC) into a comparison/subtraction would raise
+TypeError. llm_cost.compute_window_cost makes the window aware before it
+reaches SQL.
 """
 
 from dataclasses import dataclass
@@ -47,7 +46,7 @@ def _now_naive_utc() -> datetime:
 
 
 def _as_naive(dt: datetime) -> datetime:
-    """Coerce a possibly-aware datetime to naive UTC (columns are tz-naive)."""
+    """Coerce a possibly-aware datetime to naive UTC, this module's frame."""
     if dt.tzinfo is not None:
         return dt.astimezone(UTC).replace(tzinfo=None)
     return dt

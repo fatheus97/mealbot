@@ -71,9 +71,8 @@ async def sweep_expired_reset_tokens(
     abandoned reset request for all time — which is most of them. Expiry is the
     property every row eventually acquires.
 
-    ``now`` is aware UTC (the cleanup script's clock). The column is a naive
-    TIMESTAMP holding UTC, so Postgres converts the aware value in the session
-    TimeZone: correct while that is UTC, the database image's default.
+    ``now`` is aware UTC (the cleanup script's clock); the column is
+    ``TIMESTAMPTZ``.
     """
     if retention_days < 0:
         raise ValueError("retention_days must be non-negative")

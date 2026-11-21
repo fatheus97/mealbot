@@ -245,7 +245,7 @@ class TestResetPassword:
         await _request_reset(unauthed_client)
         token = _token_from(sent)
         row = (await db_session.execute(select(PasswordResetToken))).scalars().one()
-        row.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1)
+        row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
         db_session.add(row)
         await db_session.flush()
 
@@ -302,7 +302,7 @@ class TestOutstandingTokenInvalidation:
 
         # Lapse the cooldown so a second request really mints.
         row = (await db_session.execute(select(PasswordResetToken))).scalars().one()
-        row.created_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
+        row.created_at = datetime.now(UTC) - timedelta(minutes=5)
         db_session.add(row)
         await db_session.flush()
         await _request_reset(unauthed_client)
@@ -427,7 +427,7 @@ class TestOneLiveTokenPerUserIsEnforcedByTheDatabase:
         self, db_session: AsyncSession, test_user: User
     ) -> None:
         assert test_user.id is not None
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         for plain in ("live-one", "live-two"):
             db_session.add(
                 PasswordResetToken(
@@ -447,7 +447,7 @@ class TestOneLiveTokenPerUserIsEnforcedByTheDatabase:
         """The index is partial (WHERE used_at IS NULL) — consumed rows must
         not stop the user ever resetting again."""
         assert test_user.id is not None
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         db_session.add(
             PasswordResetToken(
                 user_id=test_user.id,
@@ -481,13 +481,12 @@ class TestOneLiveTokenPerUserIsEnforcedByTheDatabase:
 
         assert test_user.id is not None
         now = datetime.now(UTC)
-        naive = now.replace(tzinfo=None)
         db_session.add(
             PasswordResetToken(
                 user_id=test_user.id,
                 token_hash=hash_refresh_token("the-winner"),
-                created_at=naive - timedelta(minutes=5),  # past the cooldown
-                expires_at=naive + timedelta(minutes=30),
+                created_at=now - timedelta(minutes=5),  # past the cooldown
+                expires_at=now + timedelta(minutes=30),
             )
         )
         await db_session.flush()
@@ -525,7 +524,7 @@ class TestResendCooldown:
     ) -> None:
         await _request_reset(unauthed_client)
         row = (await db_session.execute(select(PasswordResetToken))).scalars().one()
-        row.created_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
+        row.created_at = datetime.now(UTC) - timedelta(minutes=5)
         db_session.add(row)
         await db_session.flush()
 

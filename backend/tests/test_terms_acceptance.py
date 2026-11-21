@@ -56,7 +56,7 @@ class TestRegistrationRecordsConsent:
     async def test_register_stamps_time_and_version(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        before = datetime.now(UTC).replace(tzinfo=None)
+        before = datetime.now(UTC)
         with patch.object(settings, "registration_enabled", True):
             resp = await unauthed_client.post(
                 "/api/users/register",
