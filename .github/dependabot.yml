@@ -12,11 +12,6 @@ updates:
       # instructor's `anthropic` extra moves past 0.93.
       - dependency-name: anthropic
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
-      # 0.0.45 makes datetime fields timezone-aware: Postgres needs a
-      # timestamp -> timestamptz migration first (ROADMAP "Held dependency
-      # upgrades"). Lift in the PR that does that migration.
-      - dependency-name: sqlmodel
-        versions: [">=0.0.45"]
       # openai 3.x needs jiter>=0.16, instructor 1.17 caps jiter<0.15, so pip
       # cannot resolve (closed #620). Lift when instructor allows jiter 0.16.
       - dependency-name: openai

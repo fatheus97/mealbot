@@ -650,12 +650,17 @@ async def _lock_people(
         )
     ).all()
     present = {
-        user_id for user_id, household_id, _, _ in rows if household_id == kitchen.household_id
+        user_id
+        for user_id, household_id, _, _ in rows
+        if user_id is not None and household_id == kitchen.household_id
     }
     consenting = {
         user_id
         for user_id, _, consent_at, version in rows
-        if user_id in present and consent_at is not None and version == HEALTH_CONSENT_VERSION
+        if user_id is not None
+        and user_id in present
+        and consent_at is not None
+        and version == HEALTH_CONSENT_VERSION
     }
     return present, consenting
 
@@ -859,7 +864,9 @@ async def anyone_lacks_consent(
             ).where(col(MealPlan.household_id).in_(household_ids))
         )
     ).all()
-    rows = await plan_health_rows(session, [plan_id for plan_id, _, _ in plans])
+    rows = await plan_health_rows(
+        session, [plan_id for plan_id, _, _ in plans if plan_id is not None]
+    )
     holders: set[int] = set()
     for plan_id, request_json, creator in plans:
         if plan_id in rows:

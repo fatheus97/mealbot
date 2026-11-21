@@ -23,8 +23,7 @@ async def main() -> None:
     if not alerts_configured():
         print("Alert email not configured (RESEND_API_KEY / ALERT_EMAIL_TO); skipping.")
         return
-    # Naive UTC, the frame of the aggregation window (revenue_service).
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     async with async_session_factory() as session:
         fired = await run_billing_alerts(session, now, send_email, stripe_fees_charged)
     print(f"billing_alerts: sent {len(fired)} alert(s): {fired}")

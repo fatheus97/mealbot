@@ -56,7 +56,7 @@ async def maybe_grant_credit(
     if stripe_service.is_annual(user):
         return False  # annual is already the discounted tier — excluded
     assert report.id is not None  # a persisted report always has an id
-    now = now or datetime.now(UTC).replace(tzinfo=None)
+    now = now or datetime.now(UTC)
 
     # Serialize per-user credit grants with a Postgres transaction-level ADVISORY lock
     # (keyed on user_id), so the cap check + never-€0 floor read + grant are atomic per

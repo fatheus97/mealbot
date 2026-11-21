@@ -800,8 +800,8 @@ _FEE_TRANSACTION_TYPES = frozenset({"stripe_fee", "stripe_fx_fee", "tax_fee"})
 
 
 def _unix(dt: datetime) -> int:
-    """Unix seconds for a datetime, reading a NAIVE one as UTC (the billing jobs' frame).
-    ``naive.timestamp()`` would read it as the host's local time instead."""
+    """Unix seconds for a datetime, reading a NAIVE one as UTC: ``naive.timestamp()``
+    would read it as the host's local time instead."""
     return int((dt if dt.tzinfo else dt.replace(tzinfo=UTC)).timestamp())
 
 

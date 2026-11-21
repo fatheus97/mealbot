@@ -1,6 +1,5 @@
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -24,7 +23,7 @@ async def get_meal_history(
     stmt = (
         select(MealEntry)
         .where(col(MealEntry.household_id) == kitchen.household_id)
-        .order_by(desc(MealEntry.created_at))  # type: ignore[arg-type]
+        .order_by(col(MealEntry.created_at).desc())
         .limit(limit)
     )
     result = await session.execute(stmt)

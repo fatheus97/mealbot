@@ -258,7 +258,7 @@ async def test_trial_window_excludes_usage_before_window_start(
     # a converting user's pre-trial usage must NOT count toward the trial cap.
     monkeypatch.setattr(settings, "trial_period_days", 10)
     monkeypatch.setattr(settings, "usage_cap_trial_eur", 0.75)
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     test_user.subscription_status = "trialing"
     test_user.current_period_end = now + timedelta(days=5)  # trial start ≈ now − 5d
     test_user.created_at = now - timedelta(days=90)  # account 90 days old

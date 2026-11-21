@@ -50,7 +50,6 @@ class Household(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),
         nullable=False,
     )
@@ -145,7 +144,6 @@ class User(SQLModel, table=True):
     hashed_password: str = Field(nullable=False)
 
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),
     )
 
@@ -266,7 +264,7 @@ class User(SQLModel, table=True):
     # leaving existing rows NULL would silently lock every current user out of
     # generation the moment this deploys, for an address they never had a
     # chance to confirm. New accounts start NULL and must verify.
-    email_verified_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    email_verified_at: datetime | None = Field(default=None)
 
     # When the user ticked the box accepting the Terms and Privacy Policy, and
     # which published version they were shown (app.core.legal.TERMS_VERSION).
@@ -279,7 +277,7 @@ class User(SQLModel, table=True):
     # created before the checkbox existed, and for the operator-created paths
     # (POST /admin/users, the create_user CLI) where the user is not present to
     # consent at all. It means "no explicit record", not "refused".
-    terms_accepted_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    terms_accepted_at: datetime | None = Field(default=None)
     terms_version: str | None = Field(default=None, max_length=32)
 
     # The user's CURRENT explicit consent (GDPR Art. 9(2)(a)) to process diets,
@@ -288,7 +286,7 @@ class User(SQLModel, table=True):
     # every account until its owner ticks the box: never backfilled, for the
     # same reason as terms_accepted_at. Withdrawal sets both back to NULL; the
     # history (who granted and withdrew what, when) is HealthConsentEvent.
-    health_consent_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    health_consent_at: datetime | None = Field(default=None)
     health_consent_version: str | None = Field(default=None, max_length=32)
 
     # When this person last answered the "start fresh" question (either button),
@@ -308,7 +306,7 @@ class User(SQLModel, table=True):
     subscription_status: str = Field(
         default="none", sa_column_kwargs={"server_default": "none"}, nullable=False
     )
-    current_period_end: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    current_period_end: datetime | None = Field(default=None)
     # Mirror of Stripe's cancel_at_period_end: True once the customer has canceled
     # but still has access until current_period_end. Status stays trialing/active
     # in this window, so this flag is what distinguishes "will renew" from "will
@@ -474,11 +472,10 @@ class PasswordResetToken(SQLModel, table=True):
         sa_column=Column(String(64), unique=True, index=True, nullable=False),
     )
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
-    expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False, index=True)
-    used_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    expires_at: datetime = Field(nullable=False, index=True)
+    used_at: datetime | None = Field(default=None)
 
     __table_args__ = (
         # "At most one LIVE token per user", enforced by the database rather
@@ -522,13 +519,12 @@ class EmailVerificationToken(SQLModel, table=True):
         sa_column=Column(String(64), unique=True, index=True, nullable=False),
     )
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
     # Indexed standalone for a future retention sweep, mirroring
     # PasswordResetToken.expires_at.
-    expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False, index=True)
-    used_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    expires_at: datetime = Field(nullable=False, index=True)
+    used_at: datetime | None = Field(default=None)
 
     __table_args__ = (
         # Same rationale as uq_passwordresettoken_one_live_per_user: the mint
@@ -557,7 +553,6 @@ class AdminAuditLog(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False, index=True
     )
     # The admin who performed the action. Bare id (no FK) + email snapshot; see
@@ -603,7 +598,6 @@ class TrialFingerprint(SQLModel, table=True):
     first_user_id: int | None = Field(default=None, index=True)
     stripe_customer_id: str | None = Field(default=None)
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
 
@@ -662,12 +656,11 @@ class InviteToken(SQLModel, table=True):
         default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
     )
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
-    expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False, index=True)
-    used_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
-    revoked_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    expires_at: datetime = Field(nullable=False, index=True)
+    used_at: datetime | None = Field(default=None)
+    revoked_at: datetime | None = Field(default=None)
 
 
 class AccessRequest(SQLModel, table=True):
@@ -726,10 +719,9 @@ class AccessRequest(SQLModel, table=True):
     # new state needs no migration — same choice as FeedbackReport.status.
     status: str = Field(default="pending", nullable=False, index=True)
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False, index=True
     )
-    handled_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    handled_at: datetime | None = Field(default=None)
     handled_by_admin_id: int | None = Field(default=None)
 
 
@@ -796,7 +788,6 @@ class WasteRecord(SQLModel, table=True):
     # Same loose-str reasoning as `reason`.
     source: str
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
 
@@ -842,7 +833,6 @@ class MealPlan(SQLModel, table=True):
         default=None, foreign_key="user.id", index=True, ondelete="SET NULL"
     )
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),
     )
     days: int
@@ -872,8 +862,8 @@ class MealPlan(SQLModel, table=True):
     # For simplicity, we persist the raw request/response as JSON blobs.
     request_json: str  # store MealPlanRequest.model_dump_json()
     response_json: str  # store MealPlanResponse.model_dump_json()
-    confirmed_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
-    finished_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    confirmed_at: datetime | None = Field(default=None)
+    finished_at: datetime | None = Field(default=None)
     stock_after_json: str | None = Field(default=None)
 
     __table_args__ = (
@@ -916,10 +906,9 @@ class MealEntry(SQLModel, table=True):
     # frontend's mealTypeLabel() helper can render.
     meal_type: str = Field(index=True)
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC)
     )
-    cooked_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    cooked_at: datetime | None = Field(default=None)
     # Cookbook membership: starring a meal sets this True and triggers embedding
     # generation; un-starring clears both. Replaces the legacy 1–5 rating column —
     # we lost the granularity intentionally to keep the cookbook UX a single bit.
@@ -1065,7 +1054,6 @@ class DietaryProfile(SQLModel, table=True):
     allergens: list[str] = Field(sa_column=Column(JSONB, nullable=False))
     avoid_ingredients: list[str] = Field(sa_column=Column(JSONB, nullable=False))
     updated_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),
         nullable=False,
     )
@@ -1271,7 +1259,6 @@ class SaleRecord(SQLModel, table=True):
     # Economic time of the sale (Stripe invoice paid time). Indexed for
     # rolling-window aggregation.
     occurred_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), index=True, nullable=False
     )
 
@@ -1304,7 +1291,7 @@ class SaleRefund(SQLModel, table=True):
     status: str | None = Field(default=None)
     # When the refund was made (Stripe's ``created``). A refund counts
     # in THIS period, not the sale's: that is how a VAT correction lands.
-    occurred_at: datetime = Field(sa_type=DateTime(timezone=True), index=True, nullable=False)
+    occurred_at: datetime = Field(index=True, nullable=False)
 
 
 class FeedbackReport(SQLModel, table=True):
@@ -1361,7 +1348,6 @@ class FeedbackReport(SQLModel, table=True):
         default="new", sa_column_kwargs={"server_default": "new"}, nullable=False, index=True
     )
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), index=True, nullable=False
     )
 
@@ -1384,7 +1370,7 @@ class FeedbackReport(SQLModel, table=True):
     # --- Moderation bookkeeping ---
     # Bare id, no FK (survives a later admin hard-delete — see class docstring).
     reviewed_by_admin_id: int | None = Field(default=None)
-    reviewed_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    reviewed_at: datetime | None = Field(default=None)
 
     # --- 6b: credit + ticket (set on admin ACCEPT only; NEVER by the LLM/triage) ---
     # The Stripe invoice-item credit ("Feedback reward" line) queued for this accepted
@@ -1394,7 +1380,7 @@ class FeedbackReport(SQLModel, table=True):
     # rolling-window rate cap. Both stay NULL when the credit is disabled/ineligible/
     # capped, or the grant failed (retryable via a repeat Accept).
     credit_cents: int | None = Field(default=None)
-    credit_granted_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    credit_granted_at: datetime | None = Field(default=None)
     # URL of the GitHub Issue opened for this report in the private tickets repo. NULL
     # when ticketing is unconfigured or the create failed (retryable). Never the raw
     # issue body — just the link.
@@ -1420,7 +1406,6 @@ class HealthConsentEvent(SQLModel, table=True):
     # The consent text version shown (grant) or held at withdrawal.
     version: str = Field(max_length=32, nullable=False)
     created_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
 
@@ -1441,7 +1426,6 @@ class BillingAlert(SQLModel, table=True):
     )
     kind: str = Field(nullable=False)  # "threshold" | "vat_reminder"
     sent_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
 
@@ -1475,11 +1459,10 @@ class EmailCampaignSend(SQLModel, table=True):
     campaign: str = Field(nullable=False, max_length=64)
     user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     claimed_at: datetime = Field(
-        sa_type=DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC), nullable=False
     )
     # NULL = claimed but not confirmed sent (in flight, or the process died).
-    sent_at: datetime | None = Field(sa_type=DateTime(timezone=True), default=None)
+    sent_at: datetime | None = Field(default=None)
 
 
 def _install_household_triggers(target: MetaData, connection: Connection, **kw: object) -> None:

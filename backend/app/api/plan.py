@@ -194,6 +194,7 @@ async def list_plans(
             finished_at=plan.finished_at,
         )
         for plan, total_meals, cooked_meals in rows
+        if plan.id is not None  # a selected row always has one
     ]
 
 

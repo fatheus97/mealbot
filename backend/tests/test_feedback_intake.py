@@ -15,7 +15,7 @@ from app.core.security import get_password_hash
 from app.models.db_models import FeedbackReport, User
 from app.services.feedback_intake import FeedbackAbuse, check_abuse
 
-_NOW = datetime(2026, 7, 24, 12, 0, 0)  # naive UTC, matches the stored column frame
+_NOW = datetime(2026, 7, 24, 12, 0, 0, tzinfo=UTC)
 
 
 async def _add_report(
@@ -141,7 +141,7 @@ async def test_now_defaults_to_real_clock(
         db_session,
         user_id=test_user.id,
         message="A fresh, unique report body.",
-        created_at=datetime.now(UTC).replace(tzinfo=None),
+        created_at=datetime.now(UTC),
     )
     result = await check_abuse(
         db_session, user_id=test_user.id, message="A fresh, unique report body."

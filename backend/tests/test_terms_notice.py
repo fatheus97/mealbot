@@ -21,10 +21,6 @@ from app.core.legal import (
 from app.models.db_models import User
 
 
-def _naive(ts: datetime) -> datetime:
-    return ts.replace(tzinfo=None) if ts.tzinfo else ts
-
-
 class TestTermsNoticeDue:
     @pytest.mark.parametrize(
         ("recorded", "due"),
@@ -95,8 +91,8 @@ class TestAccept:
         await db_session.refresh(test_user)
         assert test_user.terms_version == TERMS_VERSION
         assert test_user.terms_accepted_at is not None
-        now = datetime.now(UTC).replace(tzinfo=None)
-        assert abs(_naive(test_user.terms_accepted_at) - now) < timedelta(minutes=1)
+        now = datetime.now(UTC)
+        assert abs(test_user.terms_accepted_at - now) < timedelta(minutes=1)
 
     async def test_stale_version_is_409_and_records_nothing(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
@@ -124,7 +120,7 @@ class TestAccept:
         assert resp.status_code == 200
         await db_session.refresh(test_user)
         assert test_user.terms_accepted_at is not None
-        assert _naive(test_user.terms_accepted_at) == _naive(first)
+        assert test_user.terms_accepted_at == first
 
     async def test_demo_records_nothing(
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
