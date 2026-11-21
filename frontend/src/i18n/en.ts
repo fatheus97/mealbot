@@ -703,9 +703,12 @@ export const en = {
   "nutritionReason.not_in_table": "not in the food table",
   "nutritionReason.amount_not_given": "amount not given",
   "nutritionReason.frying_fat": "frying fat, amount eaten unknown",
+  // The accessible name of the provenance table's scroll box, which takes
+  // keyboard focus so its clipped columns can be scrolled into view.
+  "nutrition.provenanceLabel": "Where each value comes from",
   "nutrition.colIngredient": "Ingredient",
   "nutrition.colGrams": "Weight",
-  "nutrition.colFood": "Ciqual food",
+  "nutrition.colFood": "Matched food",
   "nutrition.colPer100": "kcal per 100 g",
   "nutrition.colDish": "kcal in the dish",
   "nutrition.colConfidence": "Confidence",
@@ -714,12 +717,28 @@ export const en = {
     "Confidence: the lowest reliability rating Ciqual gives the protein, fat and carbohydrate values of that food, from A (most reliable) to D (least reliable).",
   "nutrition.captionCalculated":
     "Calculated from the Ciqual 2025 food composition table for the ingredient weights in this recipe, split evenly between the servings.",
+  // An Open Food Facts row (docs/nutrition-design.md, "Open Food Facts label
+  // rows"): its confidence cell names how many products the median is of.
+  "nutrition.labelMedian_one": "label median, {count} product",
+  "nutrition.labelMedian_other": "label median, {count} products",
+  "nutrition.labelMedianHint":
+    "Label median: each value is the middle one of the nutrition labels of that many packaged products sold in Czechia or Slovakia (with an even number, the average of the two middle ones), and a recipe sold under several brands counts once.",
+  // Follows captionCalculated when a meal uses an Open Food Facts row.
+  "nutrition.captionLabels":
+    "Rows marked \"label median\" use the median of the nutrition labels of packaged products instead.",
   "nutrition.captionRealValues": "Real values depend on the product, the cut and how you cook it.",
   "nutrition.captionNotAdvice":
     "Not dietary or medical advice. Do not use these figures to dose insulin or any other medicine.",
   // {source} is the link to the dataset's DOI, its text "Ciqual 2025 (Anses)"
   // from the API; Etalab 2.0 asks for the grantor and the date of the update.
   "nutrition.source": "Source: {source}, updated {date}",
+  // The ODbL 4.3 notice and the 4.6 offer, shown wherever an Open Food Facts
+  // value is. {off} and {odbl} are links whose text is a proper name ("Open
+  // Food Facts", "Open Database License (ODbL)"), set in the component;
+  // {folder} links to the published rows, its text the key below.
+  "nutrition.offNotice": "Contains information from {off}, which is made available here under the {odbl}.",
+  "nutrition.offRows": "We publish the label values we use, under the same licence, {folder}.",
+  "nutrition.offRows.folderLink": "in our public repository",
   "nutrition.unavailable": "Nutrition figures are not shown for this plan.",
   "nutrition.unavailableHintLabel": "Why this plan has none",
   "nutrition.unavailableInfantHint":
