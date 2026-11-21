@@ -5,9 +5,10 @@ clock: the app writes ``datetime.now(UTC)`` and every session runs in UTC
 (#606). Ten other columns were already ``timestamptz``. Mixing the two made
 reads return naive values from some columns and aware ones from others, so the
 API sent the same kind of instant with and without a ``Z``, and the browser
-read the bare ones as local time (admin times showed 1 to 2 hours early). It is
-also what holds sqlmodel at 0.0.44: from 0.0.45 a plain ``datetime`` field maps
-to a timezone-aware type that refuses naive values.
+read the bare ones as local time (admin times showed 1 to 2 hours early). It
+was also what held sqlmodel at 0.0.44 until the 0.0.50 bump that followed: from
+0.0.45 a plain ``datetime`` field maps to a timezone-aware type that refuses
+naive values.
 
 How, and why this form:
 
