@@ -1,6 +1,7 @@
 """Approximate energy and macros for a stored plan (docs/nutrition-design.md).
 
-Pure functions over the plan as stored and the reviewed Ciqual table. Nothing
+Pure functions over the plan as stored and the reviewed table (Ciqual 2025,
+plus a few Open Food Facts label medians for packaged Czech foods). Nothing
 is stored, so an edit or a regenerate shows on the next read. Every figure can
 be redone by hand from three inputs: one table row per 100 g, the recipe's own
 grams, and the recipe's own number of servings.

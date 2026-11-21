@@ -12,6 +12,14 @@ import type { TranslationKey } from '../i18n';
 const EXPECTED_IN_EVERY_LOCALE: readonly TranslationKey[] = ['prefs.languagePlaceholder'];
 
 /**
+ * Proper names the Czech copy keeps in English, cut out of the rendered text
+ * before matching. "Open Food Facts" is a database's name, and its "Open"
+ * otherwise matches `plans.open`. The PHRASE is exempt, never the key: an
+ * untranslated "Open" button elsewhere still fails.
+ */
+export const PROPER_NAMES: readonly string[] = ['Open Food Facts', 'Open Database License (ODbL)'];
+
+/**
  * Every English string still visible in `root` after switching to Czech.
  *
  * ⚠️ SCOPE 1 — only what is IN THE DOM when it runs. Anything behind a
@@ -82,7 +90,12 @@ export function untranslatedEnglishIn(
   // shorter ones inside it. Every entry is a genuine match; the LENGTH is not
   // a count of things to fix. Read the failure, do not tally it.
   const found: string[] = [];
-  const haystacks = visibleStrings(root);
+  // A space in place of each name keeps the word boundaries on both sides. The
+  // needle is cut the same way, so a value that CONTAINS a name ("…labels in
+  // Open Food Facts.") still matches its own untranslated render.
+  const withoutNames = (text: string): string =>
+    PROPER_NAMES.reduce((acc, name) => acc.split(name).join(' '), text);
+  const haystacks = visibleStrings(root).map(withoutNames);
 
   for (const [key, english] of Object.entries(en) as [TranslationKey, string][]) {
     if (EXPECTED_IN_EVERY_LOCALE.includes(key)) continue;
@@ -91,7 +104,7 @@ export function untranslatedEnglishIn(
     // proves nothing either way.
     if (cs[key] === english) continue;
     // Placeholders are filled at render, so compare the literal prefix only.
-    const literal = english.split('{')[0].trim();
+    const literal = withoutNames(english.split('{')[0]).trim();
     if (literal.length < minLength) continue;
     const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // Anchor on "not a letter" rather than \b — a value can start or end on

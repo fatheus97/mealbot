@@ -103,7 +103,8 @@ export interface IngredientNutrition {
   off_id: string | null;
   // Open Food Facts only: how many labels the medians are of.
   label_products: number | null;
-  // Ciqual's own (English) food name, shown as provenance.
+  // The matched row's English name, shown as provenance: Ciqual's own, or ours
+  // for an Open Food Facts row.
   source_name: string | null;
   state: string | null;
   // Ciqual confidence code, A (best) to D.

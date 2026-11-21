@@ -82,7 +82,7 @@ Measured read-only on the eval corpus: the 2026-10-31 runs, 563 synthetic answer
 
 ## Recommended source and why
 
-Use Ciqual 2025 as the only source for v1.
+Use Ciqual 2025 as the only source for v1. As built: since OFF 4, four packaged Czech foods that Ciqual lacks count on rows built from Open Food Facts label medians (see "Open Food Facts label rows").
 
 1. The licence is the only one in the list that explicitly allows commercial in-app use, derived figures and redistribution. That matters because the mealbot repo is public: the reviewed value subset can live in git next to recipes.json. CC0 would allow the same for FDC, but see point 2.
 2. The numbers follow the EU label conventions Czech users compare against on packs. In const_2025_11_03.xml, energy per Reg. 1169/2011 is its own column (codes 327 kJ and 328 kcal). Carbohydrate (31000), fibre (34100), sugars (32000), polyols (34000), fat (40000), alcohol (60000) and organic acids (65000) are separate columns, and so is salt (10004). Protein comes twice: N x Jones (25000) and crude N x 6.25 (25003). USDA FDC would need a conversion formula on every row (carbohydrate minus fibre, energy recomputed), and the figure would then no longer be the source's own value.
@@ -94,9 +94,9 @@ Rejected for v1:
 - NutriDatabaze.cz: no licence grant, and the repo is public. Reconsider it only after ÚZEI gives written consent, and then only as a private import into the prod database.
 - CoFID: stale, and its conventions differ.
 - EuroFIR: paid, with unpublished terms and no Czech data for commercial clients.
-- Open Food Facts: branded crowd data, share-alike, and its own medical-use exclusion.
+- Open Food Facts: branded crowd data, share-alike, and its own medical-use exclusion. Rejected as the table; since OFF 4 it fills four foods Ciqual lacks, one median row each.
 
-Known gaps shown as "not counted" in v1: bread dumplings (houskový knedlík), unspecified beef, bone-in cuts and parsley root. Potato knedlík, smoked pork (uzené) and plain sauerkraut are counted on near Ciqual foods since the label round (see "PR 3 as built"), and Czech bread on Ciqual's rye and wheat bread (PR 3). Liquid broth and stock are a bigger gap, because they carry 12% of all ingredient grams; owner decision 6 covers them (PR 3 maps them, see "PR 3 as built").
+Known gaps shown as "not counted" in v1: unspecified beef, bone-in cuts and parsley root. Bread dumplings (houskový knedlík) were one until OFF 4 counted them on a label-median row. Potato knedlík, smoked pork (uzené) and plain sauerkraut are counted on near Ciqual foods since the label round (see "PR 3 as built"), and Czech bread on Ciqual's rye and wheat bread (PR 3). Liquid broth and stock are a bigger gap, because they carry 12% of all ingredient grams; owner decision 6 covers them (PR 3 maps them, see "PR 3 as built").
 
 PR 3 must verify three things in the data before anything ships:
 - that Ciqual's carbohydrate column (31000) excludes fibre;
@@ -117,10 +117,10 @@ At runtime the lookup is exact and deterministic. There is no fuzzy matching, no
    - Otherwise the ingredient is not counted.
    The English path is the same rule as `screenable_names(english=..., include_localized=False)`. The two indexes stay separate on purpose, so Czech "paprika" resolves to "Sweet pepper, green, yellow or red, raw" and never to "Paprika, powder".
 3. The key is normalised by stripping, lowercasing and collapsing whitespace, the same folding as `_normalize_canonical_key`. There is no stemming and no removal of preparation words. Plurals and variants ("potatoes", "canned chickpeas, drained") are explicit alias rows, because an implicit rule cannot be reviewed.
-4. A hit in the alias table gives a Ciqual alim_code, and the food table gives its per-100 g values.
+4. A hit in the alias table gives a food id (a Ciqual alim_code, or since OFF 2 an `off:` id), and the food table gives its per-100 g values.
 
 Data files, with the mapping kept separate from the values so each can be audited on its own:
-- `backend/data/nutrition/aliases.csv` has one row per (lang, key) with the columns lang (en or cs), key, alim_code, state, seasoning, override_note.
+- `backend/data/nutrition/aliases.csv` has one row per (lang, key) with the columns lang (en or cs), key, food (named alim_code until OFF 2), state, seasoning, override_note.
 - `backend/data/nutrition/foods.csv` has one row per Ciqual code that any alias references. Columns:
   - the Ciqual English name;
   - kcal, kJ, protein, fat, carbohydrate, plus polyols, fibre, sugars, alcohol and organic acids where present;
@@ -303,11 +303,11 @@ PR 3 as built (2026-11-14) differs from the earlier sections (the source table, 
 - The lookup order changed for Czech plans: the Czech name decides when the reviewed Czech index knows it, and name_en is used otherwise. The eval answers translated "vařené bílé fazole" as plain "white beans", so with name_en first the repaired Czech rows would never have been read. A spice line keeps name_en, because a Czech spice name like "paprika" is the vegetable in the Czech index. On the corpus's 3,266 Czech lines, 122 change: 92 that were not counted are now counted, and 30 move to the food their Czech name names (the repaired rows, plus "hrubá mouka", "smetana ke šlehání" and "kližka", which the English pair translated less precisely).
 - The owner's first read of the table (2026-11-14) found plural keys without Czech names and common Czech names missing. An English key is now also read as its words in the singular, punctuation ignored ("potatoes" finds "potato", "long-grain rice" finds "long grain rice"), so 40 plural and punctuation spellings merged into one row each and the table holds 372 English keys. The loader refuses two English rows with the same form on the same food; a plural that is another food may keep its own row, and the form then reads neither. The fallback never lands on a seasoning row: "peppers" are the vegetable, not ground black pepper. A Czech name the eval translated several ways now stays when every translation lands on one food (22 names, among them "brambory" and "kuřecí vývar"); before, any second translation dropped it. Then one agent wrote the common Czech names for every English row and a second tried to refute each one. A name was left out when it could reach two foods, could mean another state, variety or fat level (bare "cizrna" and "bílé fazole" are bought canned as often as dried), or failed a gate. A second read dropped six more: generic canned tuna (brine or oil, so the model's name_en should decide), "hovězí slabina" (the fatty soup cut, not flank steak) and "kuřecí horní stehna" (sold with skin and bone). The table holds 1,129 Czech keys: 236 from the eval pairs, 22 recovered, 10 repaired and 861 written. Czech tvaroh stays on Ciqual's 2-3% quark: Czech semi-fat labels give 85 to 90 kcal and 10 g protein per 100 g, so the row reads about 15% low on energy and 30% low on protein, and Ciqual has no Czech-style quark. (The label round below moved it.)
 - In sample, with the new grader, the table counts 89 to 94% of ingredient grams per model; 84% of meals get a figure, 55 to 56% a complete one, and 62 to 63% of days get a day total. These are in-sample numbers, so real plans will do somewhat worse.
-- The label round (2026-11-15) mapped the gap keys of Czech plans to existing Ciqual foods and checked each against Czech and Slovak Open Food Facts labels. No Open Food Facts row is in the repo; ten override notes (bryndza, full-fat and half-fat quark, the three roll keys, potato dumpling, sauerkraut, smoked meat and smoked pork) cite how a Ciqual food compares with a label median as review evidence, and each ends by crediting Open Food Facts (ODbL). Two defaults the owner can overrule: unqualified Czech tvaroh is read as polotučný, and bare beef stays not counted, because Ciqual's raw beef cuts run from 111 to 287 kcal per 100 g. Where rows now differ by plan language or carry a known bias:
-  - Tvaroh: "tvaroh" and "polotučný tvaroh" sit on the 4% petit-suisse (19664), "tučný tvaroh" on the 10% one (19666). "měkký tvaroh" and English "quark" stay on the 2-3% quark (19646), so a Slovak tvaroh, read through name_en, reads about 12% low on energy and 29% low on protein. Slovak tučný tvaroh is the drier hrudkovitý kind and reads about 27% low on energy and 40% low on protein on 19666. A later round decides měkký, odtučněný and jemný tvaroh and English "quark".
+- The label round (2026-11-15) mapped the gap keys of Czech plans to existing Ciqual foods and checked each against Czech and Slovak Open Food Facts labels. No Open Food Facts row was in the repo then (OFF 4 added four, in `backend/data/nutrition/off/`); ten override notes (bryndza, full-fat and half-fat quark, the three roll keys, potato dumpling, sauerkraut, smoked meat and smoked pork) cite how a Ciqual food compares with a label median as review evidence, and each ends by crediting Open Food Facts (ODbL). Two defaults: unqualified Czech tvaroh is read as polotučný, and bare beef stays not counted (the owner kept this on 2026-11-15, check-in Q31), because Ciqual's raw beef cuts run from 111 to 287 kcal per 100 g. Where rows now differ by plan language or carry a known bias:
+  - Tvaroh: "tvaroh" and "polotučný tvaroh" sit on the 4% petit-suisse (19664), "tučný tvaroh" on the 10% one (19666). "měkký tvaroh" and English "quark" stay on the 2-3% quark (19646), so a Slovak tvaroh, read through name_en, reads about 12% low on energy and 29% low on protein. Slovak tučný tvaroh is the drier hrudkovitý kind and reads about 27% low on energy and 40% low on protein on 19666. OFF 4 decided them: odtučněný and jemný tvaroh count on label-median rows, "měkký tvaroh" and "tvaroh měkký" left the table so name_en decides, and English "quark" stays on 19646.
   - Rye bread: Czech "žitný chléb" moved from rye and wheat bread (7125) to whole grain rye bread (7106), whose 213 kcal match the median of 14 Czech labels (210 kcal). English "rye bread" stays on 7125, so a Slovak rye bread, read through name_en, reads about 24% above that median.
   - Smoked pork: an unnamed cut sits on smoked cooked ham (28803), keys that name the leg (kýta, moravské uzené) on superior cooked ham (28900), and bacon and belly stay on 28502.
-  - Potato knedlík sits on raw potato gnocchi (26264); bread knedlík stays not counted.
+  - Potato knedlík sits on raw potato gnocchi (26264); bread knedlík stayed not counted until its OFF 4 row.
   - Krupice: Czech krupice is soft wheat, the coarsest grade of the milling that gives hladká and hrubá mouka, so the Czech krupice keys sit on wheat flour type 55 (9436), within 1% on energy and 0.4 g on protein of the median of 15 plain Czech and Slovak krupice labels. English "semolina" stays on durum semolina (9610), so a Slovak krupica read through name_en reads protein about 26% high.
   - Kept although they read high, because Ciqual has no closer row and the lines are small: mustard (Ciqual's is Dijon style, about 40% above Czech plnotučná hořčice on energy and twice its fat, about 9 kcal per 20 g line), cocoa powder (Ciqual's is full fat and Czech holandské kakao has 10 to 12% fat, so energy reads about 30% high, about 9 kcal per 10 g), and beer and wine, counted with the energy of their alcohol, which errs high when the dish boils it off (500 g of beer in a braise is 195 kcal, 125 of it alcohol). Bare Czech "kakao" has no row, because it also names the drink; name_en decides.
 
@@ -508,7 +508,7 @@ Ciqual 2025 has no liquid vegetable, chicken or beef broth. It has only dehydrat
 
 Contains information from [Open Food Facts](https://world.openfoodfacts.org), which is made available here under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/1-0/). The medians and label counts in this section come from it.
 
-Status: proposed on 2026-11-15, after the owner's decisions Q28 (use Open Food Facts label values for packaged Czech foods Ciqual lacks, after the ODbL check) and Q29 (the export was downloaded once, counted and deleted; no recurring download), on the default of check-in Q30, which is open for the owner to overrule (a small file, only for foods where Ciqual has nothing within about 10% on energy and protein). Revised after a legal and an engineering review. Line numbers are from main after #607 (d7ae5d3).
+Status: proposed on 2026-11-15, after the owner's decisions Q28 (use Open Food Facts label values for packaged Czech foods Ciqual lacks, after the ODbL check) and Q29 (the export was downloaded once, counted and deleted; no recurring download), on the default of check-in Q30, which the owner kept on 2026-11-15 (a small file, only for foods where Ciqual has nothing within about 10% on energy and protein). Revised after a legal and an engineering review. Line numbers are from main after #607 (d7ae5d3). Built as OFF 1 (#610), OFF 2 (#611), OFF 3 (#613) and OFF 4 (#614); the as-built notes below say where the build differs.
 
 Ciqual 2025 stays the table. Open Food Facts (OFF) fills a handful of foods, each as one row: the median of the nutrition labels of several products and brands, with every barcode listed. Nothing else about the runtime changes. The lookup stays exact, nothing is fetched, and figures are still computed on read. OFF values are display only: they never feed planning, a diet, infant or allergen check, or a prompt.
 
@@ -552,13 +552,13 @@ Columns of `off/foods.csv`:
 - `kcal`, `kj`, `protein`, `fat`, `carbohydrate`: medians over the used labels.
 - `fibre`, `sugars`: medians when at least half the used labels declare them, else empty. The energy identity then counts fibre as 0, like a Ciqual "-".
 - `products`: the number of used labels, which after the recipe rule means distinct recipes.
-- `note`: the reviewed reason for the row: the nearest Ciqual food by code and name with its difference on energy and protein, and what was excluded and why. A row within a point or two of a spread bar says so, because a refresh may drop it (odtučněný and cottage today).
+- `note`: the reviewed reason for the row: the nearest Ciqual food by code and name with its difference on energy and protein, and what was excluded and why. A row within a point or two of a spread bar says so, because a refresh may drop it (as built, odtučněný at 9.4% against 10%; the knedlík note names its recipe floor).
 
 Brand counts, quartiles and the export date are not stored. The tests derive the first two from labels.csv, and the README holds the third.
 
-`app/scripts/off_rows.py` is one pure function, `food_rows(labels)`, and a `main` that rewrites foods.csv from labels.csv, keeping `name` and `note` by id. Medians use `statistics.median`, quartiles `statistics.quantiles(n=4, method="inclusive")`. Every derived value is rounded to 2 decimals and written without trailing zeros, because medians over the export's float strings otherwise produce noise such as 3.5200000000000005 (the export holds values like 4.59999990463257). It reads only labels.csv, opens no connection and imports nothing that could, and runs in the backend container like any module.
+`app/scripts/off_rows.py` is one pure function, `food_rows(labels)`, and a `main` that rewrites foods.csv from labels.csv, keeping `name` and `note` by id. Medians use `statistics.median`, quartiles `statistics.quantiles(n=4, method="inclusive")`. Every derived value is rounded to 2 decimals and written without trailing zeros, because medians over the export's float strings otherwise produce noise such as 3.5200000000000005 (the export holds values like 4.59999990463257). It reads only labels.csv and the existing foods.csv, opens no connection and imports nothing that could, and runs in the backend container like any module.
 
-The recipe rule: a manufacturer's recipe sold under several barcodes counts once. Odtučněný tvaroh shows why: its 29 barcodes are 16 recipes. The reviewer marks the extra barcodes `used=0` with "same recipe as <code>", and a test refuses two used labels of one row with the same four values. Near duplicates (one dairy's 119 kcal cottage under three slightly different labels) are the reviewer's call.
+The recipe rule: a manufacturer's recipe sold under several barcodes counts once. Odtučněný tvaroh shows why: as built, 14 of its 31 labels are further barcodes of recipes already counted. The reviewer marks the extra barcodes `used=0` with "same recipe as <code>", and a test refuses two used labels of one row with the same four values. Near duplicates (one dairy's 119 kcal cottage under three slightly different labels) are the reviewer's call.
 
 Reproducibility: labels.csv holds every input of every median, so CI re-derives foods.csv from the repo alone. The first labels.csv is written from the CZ and SK extract of the label round (29,633 products tagged Czechia or Slovakia out of 4,912,665 in the export downloaded on 2026-11-15, newest entry 2026-11-14), which is still in the session scratchpad. If it is gone, building waits for the owner's yes to a new download. A label can be looked up at https://world.openfoodfacts.org/product/<code>, though it may have changed since `last_modified`; the README says so.
 
@@ -599,6 +599,21 @@ The cottage line is a first read, not the build. The 44 barcodes named cottage, 
 
 The brands field is noisy: one knedlík label's brand is "Neviem" (Slovak for "I don't know"), and private labels come from a few dairies. The brand minimum is therefore a floor, not the guard; the spread bar and the recipe rule are.
 
+As built (OFF 4), from the reviewed labels.csv; `test_off_rows.py` recomputes the bar on every run, and a label with an empty brands field counts as no brand:
+
+| off_id | labels read / used | named brands | kcal, P, F, C | kcal IQR (width) | protein IQR (width) | energy identity | nearest Ciqual |
+|---|---|---|---|---|---|---|---|
+| `off:houskovy-knedlik` | 69 / 5 | 5 | 219, 7, 0.8, 45 | 216 to 219 (1.4%) | 6.6 to 7.1 (7.1%) | 215.2 against 219 | 7261 French bread: 10% higher on energy, 25% higher on protein |
+| `off:tvaroh-odtucneny` | 31 / 10 | 8 | 66.2, 12, 0.5, 4 | 63 to 69.25 (9.4%) | 11.25 to 12 (6.2%) | 68.5 against 66.2 | 19663 petit-suisse 0%: 15% low on energy, 19% low on protein |
+| `off:tvaroh-jemny` | 17 / 7 | 6 | 101, 16.5, 2.1, 4.1 | 100.5 to 103 (2.5%) | 16 to 17 (6.1%) | 101.3 against 101 | 19664 petit-suisse 4%: 13% low on energy, 42% low on protein |
+| `off:cottage` | 74 / 10 | 7 | 99, 11.45, 4.35, 2.75 | 93.25 to 100.75 (7.6%) | 11 to 12 (8.7%) | 95.9 against 99 | none; 19664 is 11% low on energy, 17% low on protein |
+
+Where the build differs from the first read:
+- Knedlík has 5 recipes, not 13. The first read also counted yeast dumplings without rolls (kynutý, parená knedľa), karlovarský and other types; the row keeps plain houskový knedlík made with bread rolls, and seven barcodes (Svoboda's own label, store brands and one without a brand) whose labels differ by at most 1 kcal and 0.4 g carbohydrate count as one recipe. It sits at the floor of 5, so a refresh that loses a label loses the row. 26265 semolina gnocchi (9% lower on energy, 11% on protein) and 7106 whole-grain rye bread (3% and 11% lower) are near in numbers but are other foods, so the row stays.
+- Odtučněný has 10 recipes, not 16: the recipe rule, and the high-dry-matter tvaroh sold under the same name (about 87 kcal, 17 g protein) left out. Its energy spread is 9.4% against the 10% bar.
+- Jemný has 7 recipes, not 13: the recipe rule, and the other fat levels sold as jemný left out.
+- Cottage has 10 recipes from 74 labels read, at 7.6%. The 7 g fat recipe sold under Madeta and three store brands is used once; a first pass had filtered it out by fat, and the review put it back.
+
 Keys, each checked against the existing gates in OFF 4:
 - knedlík: cs houskový knedlík, houskové knedlíky, knedlík houskový, knedlíky houskové, žemlový knedlík, žemlové knedlíky; en bread dumpling, white bread dumpling, czech bread dumpling, sliced bread dumpling. Out: "steamed bread dumpling" ("steamed" is a cooking word, so the state gate fails against a row name without one), "kynutý knedlík" (also a fruit dumpling), bare "knedlík" (potato or bread), and every Slovak spelling (see below).
 - odtučněný: cs odtučněný tvaroh, tvaroh odtučněný; en skim quark, skimmed quark, low-fat quark, fat-free quark. "nízkotučný tvaroh" stays out: one Slovak label under that name is the 1.7% fine type.
@@ -622,12 +637,12 @@ The gates in test_nutrition_reference.py run unchanged on OFF aliases: the word 
 New in `backend/tests/test_off_rows.py` (OFF 4):
 - foods.csv equals what `food_rows` derives from labels.csv, number formatting included.
 - The bar on every row.
-- Each used label: the four values and kJ present; kcal within 10% or 5 kcal of 4 x carbohydrate + 4 x protein + 9 x fat + 2 x fibre (labels declare no polyols, and the extract has no polyols column); a barcode of 8 to 14 digits, once per file. The 10% is looser than the row's 5% because a label rounds each value. kJ is not checked against kcal: labels compute it with their own factors, and 5 of the 29 odtučněný labels sit more than 10 kJ off 4.184 x kcal.
+- Each used label: the four values and kJ present; kcal within 10% or 5 kcal of 4 x carbohydrate + 4 x protein + 9 x fat + 2 x fibre (labels declare no polyols, and the extract has no polyols column); a barcode of 8 to 14 digits, once per file. The 10% is looser than the row's 5% because a label rounds each value. kJ is not checked against kcal: labels compute it with their own factors, and 3 of the 30 odtučněný labels with values sit more than 10 kJ off 4.184 x kcal.
 - No two used labels of one row share the four values; every unused label has a reason.
 - No id in foods.csv is on the README's list of retired ids.
 - The pinned labels.csv header.
-- The barcode, digit and frozen-notes guards above.
-- Negative controls that must fail: kJ typed into kcal (916 for a knedlík), a row of 4 recipes, the eight měkký labels as one row, a used duplicate recipe, `off:Knedlík` and `off_houskovy` as ids, and an alias on `off:missing`.
+- The barcode and digit guards above. The frozen-notes guard is OFF 2's `test_the_label_citing_notes_are_frozen_and_credit_open_food_facts` in test_nutrition_reference.py.
+- Negative controls that must fail: kJ typed into kcal (916 for a knedlík), a row of 4 recipes, the eight měkký labels as one row, a used duplicate recipe, `off:Knedlík` and `off_houskovy` as ids, and an alias on `off:missing`. As built, the id and alias controls sit with OFF 2's loader tests in test_nutrition.py. test_off_rows.py adds a missing kJ, a barcode listed twice, a short barcode, an unused label without a reason, one brand, a protein spread across the middle labels (one outlier leaves an interquartile range alone, so it cannot be the control), float noise in a median, and a test that every label belongs to a shipped row.
 
 A GS1 country-prefix rule was dropped. Its "000 to 139 is US and Canada" reading would refuse an EAN-8 such as 00050685 and the in-store prefixes 020 to 029 and 040 to 049 that EU shops use. US conventions differ from EU ones only by fibre, which is near zero for these foods, and a product not sold here is the reviewer's "used=0" reason.
 
@@ -664,14 +679,15 @@ The Settings hint `prefs.showNutritionHint` (en.ts:413) states backend behaviour
 
 Strings, one key per sentence; the cs drafts go through humanizer-cs. `{off}` and `{odbl}` are links whose text is a proper name ("Open Food Facts", "Open Database License (ODbL)"), set in the component; `{folder}` is a link whose text is its own key, per the `auth.acceptTerms.termsLink` pattern, so Czech can decline it.
 
-| key | en | cs (draft) | slice |
+| key | en | cs (as built) | slice |
 |---|---|---|---|
 | `nutrition.colFood` (changed) | Matched food | Přiřazená potravina | OFF 3 |
-| `nutrition.labelMedian_one` / `_other`; cs `_one`, `_few`, `_many`, `_other` | label median, {count} product / label median, {count} products | medián etiket, {count} výrobek / výrobky / výrobku / výrobků | OFF 3 |
-| `nutrition.labelMedianHint` | Label median: each value is the middle one of the nutrition labels of that many packaged products sold in Czechia or Slovakia, and a recipe sold under several brands counts once. | Medián etiket: každá hodnota je prostřední z údajů na etiketách tolika balených výrobků prodávaných v Česku nebo na Slovensku, přičemž stejný recept pod několika značkami počítáme jednou. | OFF 3 |
-| `nutrition.captionLabels` | Rows marked "label median" use the median of the nutrition labels of packaged products instead. | Řádky označené „medián etiket“ místo toho vycházejí z mediánu údajů na etiketách balených výrobků. | OFF 3 |
+| `nutrition.provenanceLabel` (new, the name of the table's scroll region) | Where each value comes from | Odkud jednotlivé hodnoty pocházejí | OFF 3 |
+| `nutrition.labelMedian_one` / `_other`; cs `_one`, `_few`, `_many`, `_other` | label median, {count} product / label median, {count} products | medián z etiket, {count} výrobek / výrobky / výrobku / výrobků | OFF 3 |
+| `nutrition.labelMedianHint` | Label median: each value is the middle one of the nutrition labels of that many packaged products sold in Czechia or Slovakia (with an even number, the average of the two middle ones), and a recipe sold under several brands counts once. | Medián z etiket: každá hodnota je ta prostřední z nutričních údajů na etiketách uvedeného počtu balených výrobků prodávaných v Česku nebo na Slovensku (při sudém počtu průměr dvou prostředních) a stejný recept pod více značkami se počítá jen jednou. | OFF 3 |
+| `nutrition.captionLabels` | Rows marked "label median" use the median of the nutrition labels of packaged products instead. | Řádky označené „medián z etiket“ místo toho vycházejí z mediánu údajů na etiketách balených výrobků. | OFF 3 |
 | `nutrition.offNotice` | Contains information from {off}, which is made available here under the {odbl}. | Obsahuje informace z databáze {off}, která je zde k dispozici pod licencí {odbl}. | OFF 3 |
-| `nutrition.offRows` | We publish the label values we use under the same licence {folder}. | Hodnoty z etiket, které používáme, zveřejňujeme pod stejnou licencí {folder}. | OFF 3 |
+| `nutrition.offRows` | We publish the label values we use, under the same licence, {folder}. | Hodnoty z etiket, které používáme, zveřejňujeme pod stejnou licencí {folder}. | OFF 3 |
 | `nutrition.offRows.folderLink` | in our public repository | v našem veřejném repozitáři | OFF 3 |
 | `prefs.showNutritionHint` (first sentence) | Energy, protein, fat and carbohydrate per serving on plan meals, calculated from the Ciqual 2025 food table and, for a few packaged Czech foods, from product labels in Open Food Facts. | Energie, bílkoviny, tuky a sacharidy na porci u jídel v jídelníčku, spočítané z tabulky potravin Ciqual 2025 a u několika balených českých potravin z etiket výrobků v Open Food Facts. | OFF 4 |
 
@@ -712,17 +728,17 @@ In merge order, named OFF 1 to OFF 4 so they do not clash with the nutrition PRs
 
 - **#608 (done):** each of the ten override notes that quote label medians (bryndza, full-fat quark, half-fat quark, old rolls, potato dumpling, roll (stale), sauerkraut, smoked meat, smoked pork, stale white rolls) ends with "The labels are from Open Food Facts (ODbL).", and the label-round entry says what is in the repo. Data wording only.
 
-- **OFF 1, fix(ui): a plan-end nutrition sources box.** Independent of OFF; can ship now. Auto-merge.
+- **OFF 1, fix(ui): a plan-end nutrition sources box.** Independent of OFF; can ship now. Auto-merge. Merged as #610.
    - `NutritionSources` in the plan-end slot on `panelStyle`: the Ciqual source line and `nutrition.captionNotAdvice`, while any meal has a figure. Existing keys only, so no new text to read.
    - Vitest: shown with the Ciqual link and the not-advice sentence when a meal has a figure; absent with the setting off, with `available=false`, and when no meal has a figure.
    - Two-theme browser pass and 375px, including the infant line beside it in dark mode.
 
-- **OFF 2, refactor(nutrition): food ids that name their source.** Backend and types, inert. Auto-merge.
+- **OFF 2, refactor(nutrition): food ids that name their source.** Backend and types, inert. Auto-merge. Merged as #611.
    - aliases.csv header `alim_code` to `food`, no data change. `Food.id` with derived `source` and `alim_code`, `Alias.food`, the id pattern, the Ciqual/OFF field pairing, the optional read of `off/foods.csv`, `referenced_codes` keeping digit ids. `IngredientNutrition.off_id` and `label_products`, `MealNutrition.sources`; the frontend types and the provenance filter on either id.
    - Tests: the loader refuses `off:Knedlík`, `x123`, `19664.0` and an alias on an undefined `off:` id; a synthetic OFF food in a temporary data dir loads with the pairing enforced; counted Ciqual rows carry `alim_code` and a meal `sources == ["ciqual"]`; a synthetic OFF food in a swapped `nutrition_reference` dependency fills `off_id`, `label_products` and `sources`, and a leftover of its dish keeps `sources`; `referenced_codes` skips an `off:` row; the importer tripwire; the frozen set of label-citing notes. The test count goes up, never down.
    - Local check in the PR body: `ciqual_snapshot verify` passes and foods.csv is byte-identical.
 
-- **OFF 3, feat(ui): Open Food Facts provenance, notice and plan-end lines.** Frontend, inert in prod (no OFF row exists). Waits for the owner's read of its strings; auto-merge is armed after his yes.
+- **OFF 3, feat(ui): Open Food Facts provenance, notice and plan-end lines.** Frontend, inert in prod (no OFF row exists). Waits for the owner's read of its strings; auto-merge is armed after his yes. Opened as #613.
    - The food and confidence cells, `labelMedianHint`, `captionLabels`, the panel notice and folder sentence, the OFF lines in `NutritionSources`, the OFF attribution constant, the en and cs keys (except the Settings hint).
    - Vitest: the notice and its three hrefs only when `sources` includes "off", never for a Ciqual-only meal; a leftover panel; the plan-end OFF lines only when some meal used OFF; the cs `_other` form for 16; keyUsage, the banned words and the contrast suite.
    - Browser pass in both themes and at 375px with `GET /api/plan/{id}/nutrition` stubbed to a response that has an OFF ingredient and `sources: ["ciqual", "off"]`, since no file defines an OFF food yet. The PR body says so.
@@ -736,7 +752,7 @@ In merge order, named OFF 1 to OFF 4 so they do not clash with the nutrition PRs
 ### Risks
 
 - OFF values are crowd-entered transcriptions of labels, and labels carry legal tolerances. The median, the per-label energy check, the spread bar and the listed barcodes limit a bad entry's effect and let anyone audit a row. They do not remove it.
-- Packaged recipes change, and the rows age. A refresh needs the owner's yes, so stale rows are the accepted cost of Q29. Odtučněný and cottage sit near the spread bar, so a refresh may drop them.
+- Packaged recipes change, and the rows age. A refresh needs the owner's yes, so stale rows are the accepted cost of Q29. As built, odtučněný sits near the spread bar (9.4% against 10%) and knedlík at the recipe floor (5), so a refresh may drop either.
 - The brands field overstates independence (private labels from a few dairies, a "Neviem" brand). The spread bar and the recipe rule are the guard.
 - The 4.6 offer and the 4.7b exception live in the public repo. If the repo ever goes private, the rows must first be published elsewhere (a static file on trymealbot.com) with no login and no Terms acceptance, linked from the panel and the Terms, and live before the switch; otherwise both 4.6 and 4.7 break.
 - Any future export, print or share of figures (none exists: the GDPR export, the shopping-list copy and share carry no nutrition, and there is no print stylesheet) must carry the 4.3 notice, with plain URIs where links are not possible.

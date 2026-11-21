@@ -1,0 +1,192 @@
+off_id,code,product_name,brands,kcal,kj,protein,fat,carbohydrate,fibre,sugars,last_modified,used,reason
+off:cottage,0859922005064,Whole milk cottage cheese,Good culture,100,418,12.727272727272727,4.090909090909091,2.727272727272727,,,2025-07-24T21:26:06Z,0,not sold in Czechia or Slovakia: US Good Culture product (UPC)
+off:cottage,0859984005149,Cottage  Cheese,Good culture,120,502,19,3,3,,,2024-03-25T15:47:14Z,0,not sold in Czechia or Slovakia: US Good Culture (also 19 g protein)
+off:cottage,0859988445064,Whole Milk Cottage cheese,Good culture,100,418,12.7,4.09,2.73,,2.73,2025-08-31T14:51:39Z,0,not sold in Czechia or Slovakia: US Good Culture product (UPC)
+off:cottage,0859988445149,Good Culture Cottage Cheese,Good culture,80,335,12.666666666666666,2,2,,2,2023-08-14T17:17:50Z,0,not sold in Czechia or Slovakia: US Good Culture (also 2 g fat)
+off:cottage,4049727003235,Cottage Cheese Light,K-Ckassic,67,281.7,11,2.1,1,0,1,2026-10-19T17:27:22Z,0,a light or protein variant: light 2.1 g fat
+off:cottage,4056489529354,Cottage cheese - Pilos,Pilos,92,386.6,12,4.2,1.6,0,1.6,2026-10-28T14:04:08Z,1,
+off:cottage,4056489529361,Cottage cheese,Pilos,66.9,282,11,2.1,1,0,1,2026-10-24T06:39:02Z,0,a light or protein variant: light 2.1 g fat no cream
+off:cottage,4056489855460,Cottage Cheese Vanilla,Pilos,112.99999999999999,473,11,3.8,8.6,0,8.1,2024-08-21T08:05:27Z,0,filled or flavoured: vanilla
+off:cottage,5051007127233,Half Fat Cottage Cheese,Tesco,98,410,12,3.8,4,,2.6,2025-10-02T18:28:54Z,0,a light or protein variant: labelled half fat
+off:cottage,5900120071964,cottage sýr,Melina,83,349,11,3,3,,2.8,2025-03-06T09:06:28Z,0,another fat level: 3 g (light recipe beside 5900120071971)
+off:cottage,5900120071971,Cottage Chesse,Melina,101,423,11,5,3,,2.8,2026-08-25T07:03:29Z,1,
+off:cottage,5900120072299,Cottage sýr,Boni,101,422,11,5,3,,2.8,2025-12-28T22:52:25Z,0,same recipe as 5900120071971
+off:cottage,5900120073104,Cottage sýr,Váš Výběr,101,422,11,5,3,,2.8,2025-10-22T10:17:35Z,0,same recipe as 5900120071971
+off:cottage,5901005007566,Delicate cottage cheese,,99,414.5,11,5,2.5,0,2.5,2026-09-28T15:05:26Z,1,
+off:cottage,5902495002178,Cottage Cheese Natural,Pilos,92,388,14,3,2.3,0,2.3,2026-10-28T14:04:16Z,0,another fat level: 3 g (with 14 g protein)
+off:cottage,7593804311968,Cottage,Madeta,119,497,11,7,3,,3,2026-06-19T21:25:33Z,0,same recipe as 8593803311470 (759 prefix looks mistyped)
+off:cottage,7640166798880,COTTAGE PEARLS,züger,102,425,6,6.9,3.3,1.5,0.5,2026-10-10T18:12:17Z,0,not this food: plant-based soy and almond cheese substitute
+off:cottage,8584444002957,cottage cheese chilli,Billa,102,427,11,4.2,4.9,,4.1,2023-08-18T08:40:07Z,0,filled or flavoured: chilli
+off:cottage,8584444002988,Cottage cheese,Billa,92,385,11,4.2,2.5,,2.3,2023-11-21T17:49:22Z,1,
+off:cottage,8585002506375,Lakto free Cottage Cheese biely,"RAJO, rajo",92,407,12,4.2,2.8,0,1.5,2026-06-15T12:44:18Z,1,
+off:cottage,8585002506610,Cottage cheese,Meggle,67,281.7,11,2.1,1,,1,2026-06-18T13:35:26Z,0,same recipe as 4049727003235 (light)
+off:cottage,8585002506634,Cottage Cheese,Meggle,92,384.9,12,4.2,1.5,,1.5,2026-07-22T10:59:47Z,0,same recipe as 4056489529354 (near duplicate: 1.5 vs 1.6 g carb Meggle)
+off:cottage,8585002511515,Cottage Cheese,Rajo,39.44444444444444,164.66666666666666,7.777777777777778,0.1111111111111111,1.6666666666666667,0.0,1.6666666666666667,2026-06-27T05:11:44Z,0,another fat level: 0.1 g (values look wrong)
+off:cottage,8585002516114,Cottage cheese,,92,400.9,12,4.2,1.5,2,1.5,2026-11-07T07:25:05Z,0,same recipe as 4056489529354
+off:cottage,8585002519498,Cottage Cheese XXL biely,"RAJO, Rajo",92,387,12,4.2,1.5,0,1.5,2026-06-03T20:34:55Z,0,same recipe as 4056489529354
+off:cottage,8585002519511,Cottage cheese přírodní,Meggle,92,385,12,4.2,1.6,,1.6,2023-11-20T17:36:57Z,0,same recipe as 4056489529354
+off:cottage,8585002522443,COTTAGE CHEESE – Mäkký čerstvý nízkotučný syr jahodový,rajo,111,470.4,11,3.8,8.4,,8,2026-09-08T13:57:58Z,0,filled or flavoured: strawberry
+off:cottage,8585002522467,Cottage Cheese Yummy vanilka,RAJO,112,473.8,11,3.8,8.6,,8.1,2026-06-07T09:25:03Z,0,filled or flavoured: vanilla
+off:cottage,8585002524973,Cottage cheese - caramel,,112,468,11,3.7,9,1,8.3,2025-10-17T06:53:15Z,0,filled or flavoured: caramel
+off:cottage,8585002527226,Cottage Cheese grilovaná paprika,"RAJO, Rajo",90,372.4,11,4,2.2,,1.9,2026-06-07T09:25:05Z,0,filled or flavoured: grilled pepper
+off:cottage,8585002575555,Cottage Cheese biely,"RAJO, rajo",100,424.0,12,4.2,3.8,0,3.8,2026-07-08T08:31:17Z,1,
+off:cottage,8585002575562,Cottage Cheese pažítka,"RAJO, Rajo",90,378,11,4,2.5,,2.3,2026-10-27T19:01:46Z,0,filled or flavoured: chives
+off:cottage,8585002575593,Cottage Cheese chilli,"RAJO, Rajo",91.5391969263,382.6,11,4,2.8,,2.1,2026-06-07T09:29:45Z,0,filled or flavoured: chilli
+off:cottage,8586000750906,Cottage Cheese,Sabi,99,414,11.9,4,4.4,,2.4,2025-07-05T06:55:42Z,1,
+off:cottage,8586000750982,Cottage cheese biely,Rajo,101,424.9,12.5,4.5,2.7,,0.7,2026-07-11T06:11:50Z,1,
+off:cottage,8586000751033,Cottage cheese s pazitkou,Sabi,100,418,12,4.5,2.700000047683716,,0.800000011920929,2022-02-15T19:57:14Z,0,filled or flavoured: chives
+off:cottage,8586015415289,Treska s cottage,Tauris,149,620.22,7.9,10.73,5.23,,1.46,2026-10-13T09:01:16Z,0,not this food: cod salad with cottage
+off:cottage,8588000250677,Treska Cottage Exklusiv,Preto Ryba Žilina,178.0,744,10.0,13.0,8.8,,3.0,2025-07-15T18:00:58Z,0,not this food: cod salad with cottage
+off:cottage,8588000435609,Treska Cottage Exklusiv s feferonmi,Ryba Zilina,179.9713192833,753,8.8,13,6.7,,3.4,2025-03-10T08:16:17Z,0,not this food: cod salad with cottage and peppers
+off:cottage,8588000604715,Treska Cottage Exklusive,Radoma,148,606.3,8,10,5.9,,,2026-03-01T18:39:39Z,0,not this food: cod salad with cottage
+off:cottage,8590345402475,Cottage,Billa,119,498,11,7,3,,3,2023-11-19T22:32:40Z,0,same recipe as 8593803311470
+off:cottage,8590421040768,Cottage,Nature’s Promise,119,497,11,7,3,,,2026-04-11T13:05:24Z,0,same recipe as 8593803311470
+off:cottage,8590421065341,Cottage bílý,Albert,92,384,12,4.2,1.6,,1.6,2025-10-01T04:52:27Z,0,same recipe as 4056489529354
+off:cottage,8590421065358,Cottage cheese pažitka,Albert,90,377,11,4,2.5,,2.3,2025-08-31T18:28:36Z,0,same recipe as 8585002575562 (chives)
+off:cottage,8590421065365,Cottage Cheese Light,Albert,67,281.7,11,2.1,1,0,1,2026-09-17T17:30:33Z,0,same recipe as 4049727003235 (light)
+off:cottage,8590421329252,cottage cheese bílý,albert,,,,,,,,2024-06-24T20:06:19Z,0,a failed check: complete (no values)
+off:cottage,8593802000474,Cottage,Laktos,97,406,11,5,2,,2,2026-10-03T18:42:46Z,1,
+off:cottage,8593803311050,COTTAGE - Čerstvý sýr ve smetaně,Globus,119,497,11,7,3,,3,2026-07-08T14:18:38Z,0,same recipe as 8593803311470
+off:cottage,8593803311074,Protein Cottage,"MADETA, Madeta",98,401.5,12,3.5,4,0,4,2026-10-28T14:00:13Z,0,a light or protein variant: protein
+off:cottage,8593803311470,Jihočeský Cottage,Madeta,119,497,11,7,3,,3,2026-08-04T20:45:56Z,1,
+off:cottage,8593803311517,Jihočeský Cottage syr biely,"MADETA, Madeta",119,497,11,7,3,,3,2026-07-18T17:48:58Z,0,same recipe as 8593803311470
+off:cottage,8593803311531,Jihočeský  Cottage Cheese,Madeta,119,498,11,4.59999990463257,3,,3,2023-01-18T11:52:08Z,0,a failed check: energy_ok (119 kcal vs 97 computed)
+off:cottage,8593803311722,Jihocesky Cottage Chilli,MADETA,112,469,9.7,5.5,6,,,2025-09-01T21:32:57Z,0,filled or flavoured: chilli
+off:cottage,8593803311814,Cottage bez příchuti,Báječny česky,,,,,,,,2024-10-31T21:42:31Z,0,a failed check: complete (no values)
+off:cottage,8593803311883,Cottage biely,FINE LIFE,119,497,,7,3,,3,2026-09-12T16:23:50Z,0,a failed check: complete (no protein)
+off:cottage,8593803311968,Cottage,Madeta,119.0,497,10.4,6.6,2.8,,1.8,2025-12-28T22:53:32Z,0,same recipe as 8593803311470 (near duplicate: 10.4 g protein 6.6 g fat)
+off:cottage,8593803331447,Jihočeský cottage fit,Madeta,93,389.6,11,3.5,4.3,,4.3,2026-03-05T08:54:19Z,0,a light or protein variant: fit 3.5 g fat
+off:cottage,8594005856929,olesnice cottage 🧀 whole milk 🍼,Moravia,,,,,,,,2024-08-30T07:07:58Z,0,a failed check: complete (no values)
+off:cottage,8594007096033,Cottage cheese,Meggle,92,386.6,12,4.2,1.6,,1.6,2026-10-28T14:03:17Z,0,same recipe as 4056489529354
+off:cottage,8594007096040,Cottage Cheese Pažitka,Meggle,90,377.5,11,4,2.5,,2.3,2026-10-01T10:57:45Z,0,same recipe as 8585002575562 (chives)
+off:cottage,8594007096132,Cottage Cheese Chilli,Meggle,91,383,11,4,2.8,,2.1,2026-09-06T12:44:01Z,0,filled or flavoured: chilli
+off:cottage,8594008278759,Fresh cottage cheese with chives,Lučina,223,923,5.3,21,3.3,,2,2025-07-18T22:49:47Z,0,filled or flavoured: chives (fresh cheese 21 g fat)
+off:cottage,8594008278780,pribinacek cottage cheese bar,"Pribináček, Savencia",353,1469,10,25,22,0,22,2026-03-30T19:13:55Z,0,not this food: cocoa coated frozen bar
+off:cottage,8594174612388,Cottage,Bio Vavřinec,233,969,11,18.6,5.5,,5.5,2025-03-20T02:50:47Z,0,another fat level: 18.6 g
+off:cottage,8595121822867,Cottage cheese Natur,Milki,97,406,11,5,2,,2,2025-01-14T13:01:31Z,0,same recipe as 8593802000474
+off:cottage,8595121823697,Blaník cottage light,Blaník,,,,,,,,2023-02-23T13:13:38Z,0,a light or protein variant: light (no values)
+off:cottage,8595121823703,Cottage cheese,Blaník,97,405,11,5,2,,2,2025-02-01T07:36:49Z,0,same recipe as 8593802000474
+off:cottage,8595121829637,Cottage s tuňákem,,286,1197,11,26,2.1,,1.9,2024-10-02T06:56:17Z,0,filled or flavoured: tuna
+off:cottage,8595121829644,Cottage krajan,Krajánek,,,,,,,,2023-02-04T13:31:29Z,0,a failed check: complete (no values)
+off:cottage,8595121834570,Pomazánka cottage s tvaricky,Krajánek,222,929,12,18,3,,2.5,2024-09-28T16:14:21Z,0,not this food: cottage spread with tvarůžky
+off:cottage,8595121834600,Trio pomazánek Cottage,,,,,,,,,2025-02-04T15:23:11Z,0,not this food: trio of spreads (no values)
+off:cottage,8595643810564,COTTAGE CHEESE,Miil,92,387,12,4.2,1.6,0.2224,1.6,2026-10-06T08:50:58Z,0,same recipe as 4056489529354
+off:cottage,9008684046926,Cottage cheese classic,Clever,80,336,12,2.2,3,0,3,2026-10-28T14:02:53Z,0,another fat level: 2.2 g
+off:cottage,9008684051364,Cottage Cheese With Chives,Clever,76,318,11,2.2,3,,3,2025-09-21T17:23:10Z,0,filled or flavoured: chives
+off:houskovy-knedlik,0858246020531,Soup dumplings (Xiao Long Bao),Synear (Costco),180,753,10,7,19,,2,2024-03-19T00:00:28Z,0,not this food: Chinese soup dumplings (xiao long bao)
+off:houskovy-knedlik,20003258,semmelknödel,"Alpenfest style, Lidl",131,554.7,4.4,0.7,26,1.5,1.4,2026-09-18T10:43:11Z,0,not this food: German Semmelknödel bound with egg and parsley
+off:houskovy-knedlik,20074357,Houskovy knedlik,Lidl,212,894.6,6.4,0.8,43.4,2.3,1.2,2026-03-28T11:31:06Z,1,
+off:houskovy-knedlik,20105457,Kynuté Knedlíky,Naš Kraj,200,837,6,1,42,,,2024-04-21T10:20:19Z,0,not this food: kynuté knedlíky (plain yeast dumpling no rolls shown)
+off:houskovy-knedlik,20394479,Houskovy Knedlik,Chef Select By Lidl,211,876.2,6.4,0.8,43.4,,,2026-06-01T16:23:29Z,0,same recipe as 20074357 (near duplicate: 211 vs 212 kcal)
+off:houskovy-knedlik,2151013003194,Houskový knedlík,Globus,219,916,7,0.6,46.3,,2.2,2025-01-19T12:37:23Z,1,
+off:houskovy-knedlik,2151064005499,Karlovarsky Knedlik,Globus,216,917.7,9.2,3.3,37.6,,2.9,2026-03-16T20:22:16Z,0,not this food: karlovarský knedlík
+off:houskovy-knedlik,4049727004393,Kynutý knedlík,K-Classic,221,936,7,1.6,45,,1.3,2023-11-20T00:36:11Z,0,not this food: kynutý knedlík (plain yeast dumpling no rolls shown)
+off:houskovy-knedlik,4049727013050,Svíčková na smetaně s knedlíkem,"Bapa, Jarmark",,,,,,,,2025-02-05T00:45:01Z,0,not this food: ready meal svíčková with dumpling
+off:houskovy-knedlik,4049727025329,Houskový knedlík,Jarmark,,,,,,,,2026-03-05T17:27:21Z,0,a failed check: complete (no nutrition values)
+off:houskovy-knedlik,4056489855323,Knedla Parena,Neviem,230,962,6.7,2.5,44.4,,3,2025-07-04T11:17:50Z,0,not this food: parená knedľa (no bread rolls shown)
+off:houskovy-knedlik,4335619061521,Hovězí Guláš S Houskovým Knedlíkem,Lidl,162,678,7.1,5.7,20,,2.2,2025-07-29T22:36:09Z,0,not this food: ready meal goulash with dumpling
+off:houskovy-knedlik,4610095481149,Veal Dumplings,Miratorg,290.0,1213,18.0,11.0,29.0,,,2025-11-12T06:27:32Z,0,not this food: veal pelmeni
+off:houskovy-knedlik,5051007126069,Houskový Knedlík,Tesco,212,887,6.4,0.8,43,2.3,1.2,2025-03-16T22:12:23Z,0,same recipe as 20074357 (near duplicate: 43 vs 43.4 g carbohydrate)
+off:houskovy-knedlik,5901398086599,Knedlicky s kapustou a hubami,U Jędrusia,146,616,3.9,3.8,22.9,2.5,1.8,2025-07-15T10:50:53Z,0,not this food: filled dumplings with cabbage and mushrooms
+off:houskovy-knedlik,5901398086605,Knedlíčky so syrovo-špenátovou náplňou,U Jędrusia,155,655,5.2,3.4,24.7,2.6,2.4,2025-07-04T14:39:00Z,0,not this food: pierogi filled with cheese and spinach
+off:houskovy-knedlik,6921665733321,Dumplings cabbage and beancurd,Synear,174,728,6.8000001907349,7,21,,2.2999999523163,2022-04-11T12:12:29Z,0,not this food: Chinese cabbage and beancurd dumplings
+off:houskovy-knedlik,8588001079543,Knedličky,Stará Mama,181,757,3.8,0.5,40.2,,10.5,2025-10-07T17:17:35Z,0,not this food: small knedličky with 10.5 g sugar
+off:houskovy-knedlik,8588002537080,Slatinská Knedľa,Reštaurácia Očová,232,982.97,7.55,1.71,46.55,,2.35,2026-06-17T10:42:01Z,0,not this food: untyped Slovak knedľa with no rolls shown
+off:houskovy-knedlik,8588003089014,Parená knedľa,Gabdi,222,942,6.8,1.2,46,,0.8,2026-07-23T10:20:12Z,0,not this food: parená knedľa (no bread rolls shown)
+off:houskovy-knedlik,8590345413419,Houskový knedlík,Srdce Domova,219,894.5999999999999,7.1,0.7,44,,1.3,2026-07-13T15:40:37Z,1,
+off:houskovy-knedlik,8590421031735,Lázeňský Knedlík,Albert,195,816,7.1,1.3,39,,3.6,2024-11-29T20:19:53Z,0,not this food: lázeňský knedlík (karlovarský type)
+off:houskovy-knedlik,8590421059432,Houskový Knedlík,Albert,211,883,6.4,0.8,43,,1.2,2025-03-16T22:14:12Z,0,same recipe as 20074357 (near duplicate: Svoboda recipe 211 kcal)
+off:houskovy-knedlik,8590421079416,Svíčková omáčka s houskovým knedlíkem,Albert,165,679.3,8.6,4.3,22,,2.7,2026-06-29T15:11:00Z,0,not this food: ready meal svíčková with dumpling
+off:houskovy-knedlik,8590421079768,Polévkové knedlíčky,Ah terra,160,666,12,7.5,7.7,7.1,1.7,2025-04-19T13:06:12Z,0,not this food: meat-free soup dumplings
+off:houskovy-knedlik,8592784901847,Knedlík Houskový,Karlova Koruna,212,869.4,6.4,0.8,43,,1.2,2026-03-15T12:13:31Z,0,same recipe as 20074357 (near duplicate: 43 vs 43.4 g carbohydrate)
+off:houskovy-knedlik,8593837244065,Polévka Do Hrnečku S Játrovými Knedlíčky,Vitana,27,113,0.9,1,3.3,,0.8,2024-12-05T20:56:38Z,0,not this food: cup soup with liver dumplings
+off:houskovy-knedlik,8593837870042,Knedlíky s burizony,Vitana,,,,,,,,2025-04-03T20:04:53Z,0,not this food: Vitana dumpling mix with puffed rice
+off:houskovy-knedlik,8593837870080,Houskové knedlíky,,170,711,6.5,1.1,32.1,,0.7,2024-09-30T16:32:33Z,0,not this food: likely a Vitana mix (barcode prefix) at 170 kcal
+off:houskovy-knedlik,8594000901051,Knedliky,Amylon,330,1380,13.8800001144409,2.57999992370605,60,4.11999988555908,6,2023-01-30T09:02:49Z,0,not this food: Amylon dry mix (330 kcal per 100 g)
+off:houskovy-knedlik,8594001040476,Masové knedlíčky ve svíčkové omáčce,Dobroty babičky Kláry,,,,,,,,2023-02-10T21:06:26Z,0,not this food: meat dumplings in svíčková sauce
+off:houskovy-knedlik,8594001043682,Játrové knedlíčky,Dobroty babičky Kláry,243,983.5,11.6,13.9,16,,12,2026-06-17T18:03:46Z,0,not this food: liver dumplings
+off:houskovy-knedlik,8594006668194,Knedlíky s celozrnnou moukou a špaldovými pukanci,Amylon,205,870,7,1,42,,0.5,2023-12-06T19:44:15Z,0,not this food: Amylon wholegrain mix with spelt puffs and no rolls
+off:houskovy-knedlik,8594013675826,Houskový knedlík,Vltavotýnské lahůdky,,,,,,,,2023-10-28T18:53:13Z,0,a failed check: complete (no nutrition values)
+off:houskovy-knedlik,8594017540014,Moravský houskový knedlík,Svoboda,216,910.5,6.6,0.9,45,,0.8,2026-03-22T09:00:57Z,1,
+off:houskovy-knedlik,8594017540021,Moravský Knedlík,Svoboda,216,904,6.6,0.9,45,,0.8,2025-03-16T22:11:33Z,0,same recipe as 8594017540014
+off:houskovy-knedlik,8594017540212,Knedlík Houskový,Svoboda,211,883,6.4,0.8,43,,1.2,2025-03-16T22:16:21Z,0,same recipe as 20074357 (near duplicate: Svoboda's own label at 211 vs 212 kcal and 43 vs 43.4 g carbohydrate)
+off:houskovy-knedlik,8594017540939,Houskový knedlík,,211,883,6.4,0.8,43,,1.2,2024-09-24T10:21:35Z,0,same recipe as 20074357 (near duplicate: 211 vs 212 kcal and 43 vs 43.4 g carbohydrate)
+off:houskovy-knedlik,8594022690018,Kynutý knedlík,Václav Nedvěd,,,,,,,,2024-09-11T21:16:38Z,0,not this food: kynutý knedlík (no values either)
+off:houskovy-knedlik,8594022690049,Krájený houskový knedlík,Václav Nedvěd,236,1001,7.6,1,48,1.3,0.3,2026-06-11T16:56:08Z,1,
+off:houskovy-knedlik,8594025075591,Hovězí guláš s houskovým knedlíkem,KM-Produkt,118,502,7,2.2,17,0,0.8,2025-03-26T22:41:32Z,0,not this food: ready meal goulash with dumpling
+off:houskovy-knedlik,8594025075607,Svíčková na smetaně s houskovým knedlíkem,KM-Produkt,148,625,7.2,2.6,24,,5.1,2025-03-26T22:41:17Z,0,not this food: ready meal svíčková with dumpling
+off:houskovy-knedlik,8594028470027,Hausknechtův knedlík,HaKne,212,890.5,6.9,1.6,42,,2.2,2026-07-29T10:45:22Z,0,not this food: untyped knedlík with no ingredients shown
+off:houskovy-knedlik,8594029414334,Knedlík houskový,Lahůdky Besednice,,,,,,,,2023-02-26T14:52:14Z,0,a failed check: complete (no nutrition values)
+off:houskovy-knedlik,8594029414365,Babiččin knedlík,Jednota Kaplice,,,,,,,,2023-05-12T09:24:13Z,0,a failed check: complete (untyped and no values)
+off:houskovy-knedlik,8594035222251,Alpsky knedlik,Apetit,,,,,,,,2025-03-25T12:59:56Z,0,not this food: Alpine dumpling microwave meal
+off:houskovy-knedlik,8594035224040,Svíčková na smetaně,Karlova koruna,111,466,4,2.8,16.9,,4.2,2025-02-01T17:48:58Z,0,not this food: ready meal svíčková with dumplings
+off:houskovy-knedlik,8594038131017,Knedľa kysnutá,"Knedlik, LEF",219,916,,0.7,45,,1.3,2026-06-04T22:08:41Z,0,not this food: kysnutá knedľa (no protein value either)
+off:houskovy-knedlik,8594038131031,Knedľa žemlová,"LEF, Lef",219,894.6,7.1,0.7,44,,1.3,2026-06-04T22:08:40Z,0,same recipe as 8590345413419
+off:houskovy-knedlik,8594038131291,Knedľa prílohová krájaná,LEF,221.6,913.3,7.2,0.7,45,,1.3,2026-09-06T14:38:34Z,0,not this food: untyped prílohová knedľa with no rolls shown
+off:houskovy-knedlik,8594038131574,Knedlík Karlovarský,LEF,197.4,831.8,7.1,1.3,39,,3.6,2026-09-06T14:38:11Z,0,not this food: karlovarský knedlík
+off:houskovy-knedlik,8594038135015,Knedľa žemľová,ARO,222,928,,0.8,47,,0.8,2026-09-06T14:37:23Z,0,a failed check: complete (no protein value)
+off:houskovy-knedlik,8594038135084,Knedľa prílohová,ARO,219,916,,0.7,45,,1.3,2026-09-06T14:37:47Z,0,not this food: untyped prílohová knedľa (no protein value either)
+off:houskovy-knedlik,8594056250509,Sazavsky knedlík,,224,937,7.3,3.9000000000000004,39,,2.8,2024-11-26T10:40:16Z,0,not this food: sázavský knedlík (3.9 g fat)
+off:houskovy-knedlik,8594066410306,Knedlíčková polévka,Náhlík a Náhlík,41,171,3.3,0.5,5.8,,0.6000000000000001,2026-06-11T16:59:47Z,0,not this food: dumpling soup
+off:houskovy-knedlik,8594066411204,Knedlíčková polévka,Karlova koruna,41,171,3.3,0.5,5.8,,0.6,2026-07-25T08:49:45Z,0,not this food: dumpling soup
+off:houskovy-knedlik,8594171273360,Žemlové knedlíky,Beskyd Fryčovice,,,,,,,,2023-02-20T14:22:39Z,0,a failed check: complete (no nutrition values)
+off:houskovy-knedlik,8594173550025,Knedlík od nevoránků,,200,837,6.7,1,41,,0.3,2024-10-11T10:55:09Z,0,not this food: untyped knedlík with no ingredients shown
+off:houskovy-knedlik,8594180670099,Karlovarský knedlík,Knedlíky Láznička,153,627,5,5,21,,2.5,2026-10-30T11:08:23Z,0,not this food: karlovarský knedlík
+off:houskovy-knedlik,8594192503217,Vepřo knedlo zelo,Karlova koruna,137,578,5.9,4.1,19,,3.4,2024-08-06T12:29:39Z,0,not this food: ready meal pork with cabbage and dumpling
+off:houskovy-knedlik,8594201830327,"Hovězí maso s koprovou omáčkou, houskový knedlík",Hotové dobroty Ježek,154.25,645.39,5.86,5.04,21.28,,7.13,2025-09-22T09:10:23Z,0,not this food: ready meal beef in dill sauce with dumpling
+off:houskovy-knedlik,8595139794651,Segedínský guláš s houskovým knedlíkem,,133,556,4.6,4.9,16.7,,3.5,2024-09-23T20:25:50Z,0,not this food: ready meal segedín goulash with dumpling
+off:houskovy-knedlik,8595139798901,Segedínský guláš,Karlova koruna,145,607,4.9,7.1,14.5,,2.5,2025-02-01T19:03:25Z,0,not this food: ready meal segedín goulash with dumplings
+off:houskovy-knedlik,8595627322717,Hovězí guláš s majoránkou a houskovým knedlíkem,,168,703,7.2,6.1,20,,2.2,2025-03-15T11:53:57Z,0,not this food: ready meal goulash with dumpling
+off:houskovy-knedlik,8595643801098,Moravský vrabec - vepřové kousky s bílým zelím a houskovým knedlíkem,Bez Kompromisu,111.0,457.9,6.8,1.9,16.0,,2.1,2026-10-22T10:01:31Z,0,not this food: ready meal pork with cabbage and dumpling
+off:houskovy-knedlik,8595643801111,Rohlík.cz Segedínský guláš s vepřovým a knedlíkem,Rohlík BEZ KOMPROMISU,182,762,8.4,7,20,,3.21,2024-07-11T00:50:51Z,0,not this food: ready meal segedín goulash with dumpling
+off:houskovy-knedlik,8595692202280,Masové Knedlíčky,Novaco,111,453.7,4.6,5.6,9.9,,7.5,2026-08-04T12:34:54Z,0,not this food: meat dumplings
+off:houskovy-knedlik,8595692202303,Játrové knedlíčky,Nowaco,218,912,11,11,17,,2,2025-03-20T23:55:01Z,0,not this food: liver dumplings
+off:houskovy-knedlik,8595692202709,Játrové knedlíčky,Nowaco,218,883,11,11,17,,2,2026-09-01T13:12:39Z,0,not this food: liver dumplings
+off:tvaroh-jemny,20097653,Tvaroh jemný hrudkovitý,Pilos,131,545.5,9,9,3.5,0,3.5,2026-03-20T09:59:04Z,0,not this food: hrudkovitý label with tučný values (9 g fat)
+off:tvaroh-jemny,4049727020058,Tvaroh jemny,jarmak,103,435,17,2.1,4,,2,2026-10-22T03:40:02Z,1,
+off:tvaroh-jemny,4056489529156,Tvaroh jemný hrudkovitý,Pilos,102,431.8,17.5,1.7,4.2,,2.8,2026-05-28T20:29:11Z,0,not this food: hrudkovitý label (the word reaches two foods)
+off:tvaroh-jemny,4056489724506,Tvaroh jemný,Pilos,103,431,17,2,4,,2,2026-11-09T21:03:59Z,0,same recipe as 4049727020058 (near duplicate: 230 g pack fat 2 vs 2.1)
+off:tvaroh-jemny,5051007106320,Tvaroh Jemný,Tesco,103,436.4,17,2.1,4.1,,4.1,2026-09-10T10:56:01Z,1,
+off:tvaroh-jemny,8585002520623,Tvaroh Jemný,Rajo,101,423,17,1.7,4.2,,4.2,2025-02-09T07:27:41Z,1,
+off:tvaroh-jemny,8585002575036,Tvaroh jemný hrudkovitý,Rajo,101,423.3,17,1.7,4.2,0.0048,5,2026-03-13T06:47:45Z,0,same recipe as 8585002520623 (also a hrudkovitý label)
+off:tvaroh-jemny,8586015912993,"Nitriansky tvaroh 1.7%, jemny hrudkovity (curd/farmer's cheese)",Agro Tami,102,431.8,17.5,1.7,4.2,0,2.8,2026-07-02T13:35:17Z,0,not this food: hrudkovitý label (Nitriansky 1.7%)
+off:tvaroh-jemny,8590421074671,Tvaroh jemný,Albert,103,430,17,2.1,4,,2,2024-10-25T19:47:00Z,0,same recipe as 4049727020058
+off:tvaroh-jemny,8593807159009,Tvaroh jemný,"Boni,Olma",101,423,15,2.7,4,,4,2023-02-08T17:16:33Z,1,
+off:tvaroh-jemny,8593807276874,Tvaroh jemný polotučný,Fine Life,85.0860420650096,355.6,9.8,3.5,3.5,,3.5,2026-09-22T18:04:00Z,0,another fat level: 3.5 g (jemný polotučný)
+off:tvaroh-jemny,8594000781509,Jaroměřický jemný tvaroh na pečení,Jaroměřická mlékárna,103,431,16.5,2.5,3.5,,3.5,2023-02-23T22:49:02Z,1,
+off:tvaroh-jemny,8594003214011,Choceňsky tvaroh jemný,,100,418,16,2,4.3,,4.2,2024-10-05T11:30:13Z,1,
+off:tvaroh-jemny,8594005856912,Olešnický tvaroh jemný,Moravia,103,435,17,2.1,4,,2,2025-08-09T18:09:40Z,0,same recipe as 4049727020058
+off:tvaroh-jemny,8594005857308,Olešnický tvaroh jemný,Moravia,102,432.7,17,2,4.1,,4.1,2026-03-31T09:05:56Z,0,same recipe as 4049727020058 (near duplicate: Olešnice 300 g rounding)
+off:tvaroh-jemny,8595012234045,Špičky tvarohové a makové,Pekárna Srnín,,,,,,,,2023-04-24T11:16:15Z,0,not this food: tvarohové a makové špičky pastry (no values)
+off:tvaroh-jemny,8595121823437,Tvaroh jemný,Clever,98,410,16,2,4.1,,4.1,2023-11-20T17:36:45Z,1,
+off:tvaroh-odtucneny,20074043,Tvaroh odtucneny,pilos,67,280,12,0.5,4,,,2025-12-12T22:00:50Z,1,
+off:tvaroh-odtucneny,20838539,Tvaroh odtučněný,Pilos,,,,,,,,2023-11-17T18:20:52Z,0,a failed check: complete (no nutrition values on the label)
+off:tvaroh-odtucneny,4049727009244,Tvaroh odtučnený,"K-Classic, Kaufland",66,281,12,0.2,4.1,,4.1,2026-06-14T19:23:42Z,1,
+off:tvaroh-odtucneny,4049727009268,Tvaroh odtučnený,K-Classic,66,276,12,0.2,4.1,,4.1,2025-03-19T19:03:32Z,0,same recipe as 4049727009244
+off:tvaroh-odtucneny,4049729004261,Tvaroh Nizkotucny Hrudkovity,kaufland,102,431.8,17.5,1.7,4.2,,2.8,2026-05-19T12:34:47Z,0,not this food: grainy hrudkovitý 1.7 g fat 102 kcal 17.5 g protein
+off:tvaroh-odtucneny,4056489724438,tvaroh makky 0.5%,pilos,87,364,17,0.5,3.6,0,3.6,2025-05-23T12:13:21Z,0,not this food: měkký high-dry-matter type 87 kcal 17 g protein
+off:tvaroh-odtucneny,4056489911340,Tvaroh 0.5% Fat,Pilos,63,263.3,11,0.5,3.4,0,3.4,2026-10-28T09:16:30Z,1,
+off:tvaroh-odtucneny,5051007152532,Tvaroh odtučněný,Tesco,64.0535372848948,267,11,0.5,3.4,,,2024-11-18T09:13:39Z,0,same recipe as 4056489911340 (near: same P F C and kcal 64 is a kJ conversion)
+off:tvaroh-odtucneny,5900120072916,Tvaroh odtučnený,Pilos,85,356,16,0,4.5,,3.1,2024-06-18T18:23:04Z,0,not this food: 85 kcal 16 g protein so a higher-dry-matter type
+off:tvaroh-odtucneny,8586015913716,Tvaroh odtučnený roztierateľný,Coop jednota,66,279.4,12.1,0.2,3.9,,3.8,2026-06-15T09:15:48Z,0,not this food: spreadable tvaroh (roztíratelný)
+off:tvaroh-odtucneny,8588000361373,Tvaroh Odtučnený,Tami,70,307.5,13,0.5,4,,2.6,2026-03-27T09:30:13Z,1,
+off:tvaroh-odtucneny,8588007623801,Tvaroh Odtučnený Bezlaktózový,Tami,70,293,12,0.5,4.8,,3.2,2026-01-19T07:06:24Z,1,
+off:tvaroh-odtucneny,8590345422220,TVAROH ODTUČNĚNÝ,SRDCE DOMOVA,63,263,11,0.5,4.2,,,2026-02-17T11:33:47Z,1,
+off:tvaroh-odtucneny,8590421036266,NP tvaroh odtučněný,Nature´s promise,67,280,12,0.5,4,,4,2026-01-22T16:07:36Z,0,same recipe as 20074043
+off:tvaroh-odtucneny,8590421335192,Tvaroh skimmed,"Albert, Polabské mlékárny",67,283,12,0.5,4,,4,2026-06-16T16:59:49Z,0,same recipe as 20074043
+off:tvaroh-odtucneny,85905962,tvaroh z Poděbrad odtučněný,Milko,67,280,12,0.5,4,,4,2026-01-17T06:38:53Z,0,same recipe as 20074043
+off:tvaroh-odtucneny,85924482,"0,5% Organic Custart",Milko,67,280,12,0.5,4,,4,2024-09-08T05:03:46Z,0,same recipe as 20074043
+off:tvaroh-odtucneny,8592784900482,Tvaroh odtučněný,Boni,67,283,12,0.49,4,,4,2023-08-27T09:10:18Z,0,same recipe as 20074043 (near: fat 0.49 vs 0.5 both Polabské mlékárny)
+off:tvaroh-odtucneny,8592784906972,Tvaroh Odtučněný,Karlova Koruna,66.4,279.08,12.0,0.32,3.7200000000000006,,3.7200000000000006,2026-07-27T15:56:03Z,1,
+off:tvaroh-odtucneny,8593803611143,No fat tvaroh fresh cheese,Madeta,63,266,11,0.2,4.2,,4.2,2026-04-16T22:19:31Z,1,
+off:tvaroh-odtucneny,8593803611310,Tvaroh Odtučněný,Váš Výběr,63,265.8,11,0.2,4.2,,4.2,2026-06-08T19:15:32Z,0,same recipe as 8593803611143
+off:tvaroh-odtucneny,8593807099992,Tvaroh Olma 0.3 %,OLMA,87,363,17,0.3,3.7,0,3.7,2024-01-05T15:21:22Z,0,not this food: high-dry-matter type 87 kcal 17 g protein
+off:tvaroh-odtucneny,8593807276867,Tvaroh jemný odtučnený,Fine Life,71,285.4,12,0.5,3.7,,3.7,2026-09-12T16:17:08Z,1,
+off:tvaroh-odtucneny,8594001247509,Tvaroh odtucneny,Kapucin,63,267.05,12.5,0.05,3.1,,3.1,2026-04-04T09:49:05Z,1,
+off:tvaroh-odtucneny,8594003965807,Tvaroh odtučněný,Karlova Koruna,67,290.5,12,0.5,4,,4,2026-04-19T09:41:17Z,0,same recipe as 20074043
+off:tvaroh-odtucneny,8594003967535,Tvaroh Odtuceny,Metro Chef,53.6,232.4,9.6,0.4,3.2,,3.2,2026-06-21T06:17:45Z,0,a failed check: values are 0.8 x 20074043 (67 12 0.5 4) not per 100 g
+off:tvaroh-odtucneny,8594006848251,Tvaroh odtučňelý Tatra,Tatra,63,264,11,0.5,3.4,,3.4,2025-11-22T07:39:39Z,0,same recipe as 4056489911340
+off:tvaroh-odtucneny,8594006848923,Tvaroh odtučněný,malko,63,263.3,11,0.5,3.4,,3.4,2026-11-11T07:38:14Z,0,same recipe as 4056489911340
+off:tvaroh-odtucneny,8594006848992,Tvaroh Odtučněný,Tatra,63,263.3,11,0.5,3.4,,3.4,2026-09-27T19:30:24Z,0,same recipe as 4056489911340
+off:tvaroh-odtucneny,8594067384422,Odtučněný Tvaroh,JIP Východočeská a.s.,63,264,11,0.5,3.4,,3.4,2025-09-14T21:18:21Z,0,same recipe as 4056489911340
+off:tvaroh-odtucneny,8595643814647,Curd Cheese Skimmed,Mill,66,281.1,12,0.2,4.1,,4.1,2026-09-19T14:39:35Z,0,same recipe as 4049727009244
