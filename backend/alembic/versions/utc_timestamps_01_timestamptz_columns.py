@@ -24,9 +24,16 @@ How, and why this form:
   household_02 and restock_01 do, and the lock wait gives up after 5 s for the
   deploy to retry.
 
-The old app keeps working against the new columns during the deploy window: it
-binds naive UTC values, which Postgres reads in the UTC session, and every path
-that compares a value read back already makes it aware first.
+During the deploy window the old app's queries stay correct against the new
+columns: it binds naive UTC values, which Postgres reads in the UTC session, and
+every path that compares a value read back already makes it aware first. One
+thing does fail, once per pooled connection: psycopg prepares a statement on the
+server after its fifth run on a connection, and a prepared SELECT whose result
+holds a converted column (the auth lookup on "user") raises "cached plan must
+not change result type" the first time it runs after this commits. That request
+gets a 500 and rolls back, the rollback clears the connection's cache, and the
+new containers open fresh connections a few seconds later. Reproduced before
+merge; accepted rather than turning prepared statements off for every query.
 
 The household trigger inserted ``timezone('utc', now())``, a naive UTC value.
 Into a timestamptz column Postgres would cast that in the inserting session's
