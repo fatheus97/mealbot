@@ -89,7 +89,7 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 - **Planner.** Food past its date is left out of generation and of Cook Now, with one line: "2 items past their date were left out. Check them in the Fridge." (owner decision 2)
 - **"Anything past its date?" dialog.** For `use_by` the "Still fine" button is hidden. For `best_before` it stays, with the European Commission's look, smell and taste wording. Legacy rows keep today's wording.
 - **Leftover card and cook mode.** A static i18n line, never stored in the steps: "Keep in the fridge and eat within 2 days, or freeze. Reheat once, until steaming hot throughout (core at least 75 °C); bring soups and sauces to the boil." The sources follow on the same line.
-- **Baby leftovers.** "Put the extra portions in the freezer within 2 hours of cooking. Thaw them in the fridge, use within 24 hours and reheat once. Throw away anything left in the bowl." Sources: FSA, the MZe answer key, NHS.
+- **Baby leftovers.** "Let the extra portions cool in small containers, then put them in the freezer within 2 hours of cooking. Thaw them in the fridge, use within 24 hours and reheat once. Throw away anything left in the bowl." Sources: FSA, the MZe answer key, NHS. The copy says cool first, so it never reads as putting hot food in the freezer.
 - **Cooking temperatures in cook mode.** One line under the steps per matched `cook_category`, for example "Poultry: cook until the middle reaches at least 75 °C (or 70 °C for 2 minutes). Sources: SZÚ, UK FSA, EFSA." Ingredients are matched through the nutrition path (name_en against the English index, else the user's language) and then map.csv. The LLM's text is never parsed for this.
 - **People at higher risk.** One line for everyone: "Pregnant, over 65, cooking for a baby, or a weakened immune system? Stricter advice applies." It links the NHS/FSA and SZÚ pages and collects nothing.
 
@@ -98,7 +98,7 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 1. Food with `expiration_date < today` is absent from both the urgent and the normal stock lists in the plan prompt and the Cook Now prompt, through one shared helper. Negative control: an item dated today is still listed as urgent.
 2. A table suggestion never writes a date on an item whose kind is `use_by` or `best_before`.
 3. A suggested date is the base date plus the low end of the range, and only Hours, Days and Weeks produce one.
-4. An opened item from a food photo never gets the unopened shelf life. Its date stays empty unless an after-opening row matches, and that date is capped by any printed date.
+4. An opened item from a food photo never gets the unopened shelf life. Its date stays empty unless an after-opening row matches, and that date is capped by any printed date. An opened item that gets no date is saved with `need_to_use` set, so it still goes into the next plan first instead of sitting in the fridge with no urgency.
 5. The adult leftover lookback stays at 1 day. A baby policy with a lookback above 1 day requires the freeze line's i18n key to exist and be referenced.
 6. Data gates: the pinned sha256, every `fk_id` present in the JSON, every `food` present in nutrition foods.csv, every rules.csv row with a URL, a quote and a confidence label.
 7. Every displayed temperature is in °C and comes from rules.csv.
@@ -117,7 +117,7 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 ## Legal and privacy
 
 - **Terms §8** gets a paragraph "Storage times and cooking temperatures" after "Nutrition figures" (frontend/terms.html:412), and by hand in frontend/cs/terms.html, which is hand-edited source. It covers the sources and their dates; that the pack date wins and nothing is suggested past a use-by date; that estimates are information, not advice; what the app cannot see (how the food was stored, the fridge temperature, the cold chain, when a pack was opened); the at-risk pointer; that no authority endorses Mealbot; and that AI estimates are labelled as such. It ships with the first slice that shows a figure, not before.
-- **Terms §10** stays as it is, with no new exclusion: Czech law disregards advance exclusions of liability for harm to health (§ 2898 of the Civil Code), and so does the new Product Liability Directive.
+- **Terms §10** stays as it is, with no new exclusion. Adding none is the cautious default and does not depend on any reading of the law. For context only: the opening clause of § 2898 of the Civil Code (the part read so far) disregards agreements that exclude liability in advance for harm to a person's natural rights, health included, and the new Product Liability Directive has a similar rule. The rest of § 2898 is not read yet, so nothing in §10 relies on it until the legal read in owner decision 11.
 - **TERMS_VERSION** is bumped. Whether the change is material is owner decision 11.
 - **Privacy:** no change. Fridge contents are already disclosed, and item names already reach the AI providers on a scan.
 - **Product Liability Directive (EU) 2024/2853** applies to products placed on the market after 9 December 2026, and software counts as a product. The exposure is in deterministic code paths, which is why the F1 fix comes first.
@@ -125,6 +125,8 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 ## PR slices
 
 1. **fix(planner):** leave past-dated food out of the plan and Cook Now prompts, with the planner line. No migration.
+   - Before merging, count the past-dated rows in prod, so the PR says how much food the change takes out of planning. Until slice 4 every date counts as `use_by` (legacy NULL), so best-before food is left out too.
+   - "Still fine" is the way back in: it moves the date to today + 7, and the item returns as ordinary stock. Until slice 4 the button cannot tell use-by from best-before, so a user can confirm a use-by item back in. The PR states that this is accepted for the closed group, and slice 4 closes it.
 2. **fix(i18n):** neutral date labels in Czech (F3).
 3. **feat(leftovers):** the i18n keep-and-reheat line, the baby freeze-and-discard line, and the Terms paragraph with the TERMS_VERSION bump. Stored steps stay unchanged.
 4. **feat(fridge):** `date_kind` with its migration and every construction site, the kind picker on manual add, and the dialog by kind.
