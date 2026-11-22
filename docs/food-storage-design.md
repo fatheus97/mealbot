@@ -138,7 +138,8 @@ Each slice re-checks the file:line citations it relies on against its own base; 
 7. **feat(cook):** temperature lines in cook mode.
    - Known gaps, accepted for v1. Terms §8 says a missing line does not mean a food needs less cooking, and the at-risk line shows on every step.
      - The leg keys on 28900 (uzená kýta, kýta uzená, uzená vepřová kýta, moravské uzené, moravské uzené maso) resolve to Cooked ham, which is `none`, so a raw-smoked leg gets no pork line. aliases.csv keeps them there on purpose for the nutrition figures, and mapping 28900 to pork would put a cook line under every cold šunka.
-     - No alias yet for plain chicken, whole chicken, pork chops, salmon, mleté maso and other common raw meats. Adding them changes nutrition figures too, so they go through nutrition's gates in a follow-up.
+     - Whole birds and bone-in pieces (whole chicken, celé kuře, bone-in chicken thighs, whole duck) get no line. Nutrition's waste gate keeps such keys out of aliases.csv, so they never resolve. In the eval corpus they are about one poultry gram in eight. A follow-up gives cook mode a short list of its own for exactly those keys.
+     - Raw meats the nutrition table does not know yet (ground lamb, duck thighs, pork knuckle and others) get their line once nutrition's gaps loop aliases them, through nutrition's gates.
      - A recipe in a language other than English or Czech matches only through `name_en`, which an ingredient renamed or added in an edit does not have.
 
 Later: after-opening times, a freezer place, a gaps script like nutrition_gaps.py, and calibration of the table against WasteRecord's `still_fine` and `thrown_out` by date kind.
