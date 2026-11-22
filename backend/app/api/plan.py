@@ -416,14 +416,17 @@ def _cook_category(
     ing: IngredientAmount, language: str, ref: NutritionReference, storage: StorageReference,
     cook_keys: Mapping[tuple[str, str], CookCategory],
 ) -> CookCategory | None:
-    """An ingredient's cook category: map.csv's for the food the nutrition
-    resolver finds, else cook_keys.csv's for a name it can never find (the
-    whole birds and fish and bone-in pieces listed there, which nutrition's
-    waste gate keeps out of aliases.csv). None for no category."""
-    # A Czech name in the list decides first, as the Czech index does for
-    # nutrition: name_en can drop the bone ("celá kachna" comes back as
-    # "duck"). No cook key is in the Czech index, so this never overrides a
-    # nutrition match.
+    """An ingredient's cook category, None for none. cook_keys.csv holds the
+    whole birds and fish and bone-in pieces nutrition's waste gate keeps out
+    of aliases.csv. On a Czech recipe a Czech name in it is read first; any
+    other ingredient takes map.csv's category for the food the nutrition
+    resolver finds, else cook_keys.csv's for the key the resolver used."""
+    # The Czech name first, as the Czech index goes first for nutrition:
+    # name_en can drop the bone ("celá kachna" comes back as "duck"). No cook
+    # key is in the Czech index (a gate), so this never overrides a Czech
+    # match. It does override a name_en match, on purpose: "kuřecí stehna s
+    # kostí" sent as "chicken thighs" resolves to a food. Nothing checks the
+    # two agree; today both say poultry.
     if reads_czech_first(language) and (category := cook_keys.get(("cs", sorted_form("cs", ing.name)))):
         return category
     key = recipe_key(ing, language, ref)
@@ -450,9 +453,9 @@ async def get_cook_temperatures(
     """The cooking-temperature lines for a dish in cook mode
     (docs/food-storage-design.md, slice 7). Each ingredient goes through the
     nutrition resolver in the language the recipe is written in, then
-    map.csv, or cook_keys.csv for the whole birds and fish and bone-in pieces
-    listed there; every matched category with a figure gives one line, in
-    rules.csv order.
+    map.csv; the whole birds and fish and bone-in pieces the resolver never
+    finds go through cook_keys.csv instead (_cook_category has the order).
+    Every matched category with a figure gives one line, in rules.csv order.
 
     The ingredients come from the client, so an unsaved Cook Now edit counts
     too. A meal_entry_id only names the plan whose language to use; it is

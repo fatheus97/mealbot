@@ -1,6 +1,7 @@
 """POST /api/plan/cook-temperatures (docs/food-storage-design.md, slice 7):
-ingredients go through the nutrition resolver, then map.csv (or cook_keys.csv
-for a key the resolver can never find), then rules.csv."""
+ingredients go through the nutrition resolver, then map.csv, then rules.csv;
+the names the resolver never finds go through cook_keys.csv, a Czech one on a
+Czech recipe before the resolver."""
 
 from __future__ import annotations
 

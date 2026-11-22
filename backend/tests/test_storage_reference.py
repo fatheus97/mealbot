@@ -152,8 +152,9 @@ FOLDED = {(lang, sorted_form(lang, key)): category for (lang, key), category in 
 class TestShippedCookKeys:
     """cook_keys.csv is only for what nutrition's waste gate bars (bone,
     shell or peel arithmetic): a name the nutrition table could hold belongs
-    in aliases.csv, where its figures are reviewed too, and one it already
-    resolves would mostly never be read."""
+    in aliases.csv, where its figures are reviewed too. One it already
+    resolves would never be read in English, and in Czech would override the
+    reviewed alias."""
 
     def test_every_key_is_one_the_waste_gate_bars(self) -> None:
         # Every row loaded, and the gate must not pass by seeing nothing.
