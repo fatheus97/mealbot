@@ -27,10 +27,21 @@ NUTRITION = load_reference()
 # override_note saying why (cooked, cured, canned...), so a raw meat added to
 # the nutrition table cannot silently go without a temperature line.
 ANIMAL = re.compile(
-    r"\b(chicken|turkey|duck|goose|poultry|pork|beef|lamb|veal|meat|minced|sausage|frankfurter|ham|bacon"
-    r"|salami|serrano|lard|liver|egg|fish|salmon|cod|tuna|trout|carp|shrimp|prawn|mussel|squid|crab)\b",
+    r"\b(chicken|turkey|duck|goose|poultry|pork|beef|lamb|mutton|veal|rabbit|venison|meat|minced|sausage"
+    r"|frankfurter|ham|bacon|salami|serrano|lard|liver|egg|fish|salmon|cod|tuna|trout|carp|mackerel|herring"
+    r"|sardine|pollock|hake|pangasius|tilapia|anchov(?:y|ie)|shrimp|prawn|mussel|squid|octopus|lobster"
+    r"|scallop|clam|crab|crayfish)(?:e?s)?\b",
     re.IGNORECASE,
 )
+RAW = re.compile(r"\braw\b", re.IGNORECASE)
+
+
+def _figure_in(figure: int, text: str, *, note: bool) -> bool:
+    """The whole number, not the 62 of 62.8 or the 2 of 2.5. A note counts
+    only when it opens with the figure ("63 is the quote's 62.8 °C"), so a
+    stray digit such as "owner decision 6" never vouches for one."""
+    number = re.compile(rf"(?<![\d.]){figure}(?!\d|\.\d)")
+    return bool(number.match(text) if note else number.search(text))
 
 
 class TestShippedRules:
@@ -43,11 +54,26 @@ class TestShippedRules:
                 if figure is None:
                     continue
                 checked += 1
-                number = re.compile(rf"(?<![\d.]){figure}(?![\d])")
-                assert any(number.search(c.quote) for c in rule.citations) or any(
-                    number.search(c.override_note) for c in rule.citations
+                assert any(_figure_in(figure, c.quote, note=False) for c in rule.citations) or any(
+                    _figure_in(figure, c.override_note, note=True) for c in rule.citations
                 ), (rule.category, figure)
         assert checked >= 13  # the gate must not pass by seeing nothing
+
+    @pytest.mark.parametrize(
+        ("figure", "text", "note", "found"),
+        [
+            (63, "Fish & Shellfish 145 degrees F (62.8 degrees C)", False, False),
+            (62, "Fish & Shellfish 145 degrees F (62.8 degrees C)", False, False),  # rounded down
+            (8, "(62.8 degrees C)", False, False),
+            (70, "reach a temperature of 70°C for 2 minutes", False, True),
+            (2, "reach a temperature of 70°C for 2 minutes", False, True),
+            (63, "63 is the quote's 62.8 °C to the whole degree", True, True),
+            (62, "63 is the quote's 62.8 °C to the whole degree", True, False),
+            (6, "applied to eggs (owner decision 6).", True, False),
+        ],
+    )
+    def test_the_figure_match(self, figure: int, text: str, note: bool, found: bool) -> None:
+        assert _figure_in(figure, text, note=note) is found
 
     def test_temperatures_are_celsius(self) -> None:
         """No °F value can pass for a core temperature: 145 °F or 165 °F would be
@@ -87,8 +113,14 @@ class TestShippedMap:
     def test_a_categorised_food_that_is_not_raw_says_why(self) -> None:
         for row in STORAGE.foods.values():
             name = NUTRITION.foods[row.food].name
-            if row.cook_category is not None and "raw" not in name.lower():
+            if row.cook_category is not None and not RAW.search(name):
                 assert row.override_note, (row.food, name)
+
+    def test_a_categorised_food_is_an_animal_product(self) -> None:
+        """A shifted row cannot give "Carrot, raw" a poultry line."""
+        for row in STORAGE.foods.values():
+            name = NUTRITION.foods[row.food].name
+            assert row.cook_category is None or ANIMAL.search(name), (row.food, name)
 
     def test_an_animal_food_without_a_category_says_why(self) -> None:
         flagged = 0
@@ -136,6 +168,7 @@ class TestLoaderRefuses:
         ("rules", "foods"),
         [
             ([RULE, RULE.replace(",75,70,", ",80,70,")], [FOOD]),  # one category, two figures
+            ([RULE, RULE.replace(",verified,", ",sourced,")], [FOOD]),  # a repeated cited sentence
             ([RULE.replace("poultry,", "game,")], [FOOD]),
             ([RULE.replace(",75,70,2,", ",,70,2,")], [FOOD]),  # a hold without the core
             ([RULE.replace(",70,2,", ",70,,")], [FOOD]),  # hold_c without hold_min

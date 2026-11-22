@@ -14,7 +14,7 @@ The data behind the cooking temperatures in cook mode (docs/food-storage-design.
 
 ## Which figure wins
 
-The strictest figure among the EU, UK and Czech authorities. A US figure is used only where none of them gives a number, and the line says so. Owner decision 6 in the design sets the cooking figures:
+The strictest figure among the EU, UK and Czech authorities. A US figure is used only where none of them gives a number, and the line says so. Owner decision 6 in the design sets the cooking figures, and leaves out the stricter Czech 75 °C held for 5 minutes because a home cook cannot check a hold time:
 
 - 75 °C in the core, or 70 °C for 2 minutes, for poultry, minced meat and sausages, pork and eggs;
 - no number for whole cuts of beef, only the FSA's note that they can be served pink;
@@ -25,11 +25,11 @@ The strictest figure among the EU, UK and Czech authorities. A US figure is used
 | Code | Source | Reuse |
 |---|---|---|
 | szu | SZÚ (Czech National Institute of Public Health), summary on food-borne infections, updated 7.6.2022 | No licence seen. Cite, do not copy |
-| fsa | UK Food Standards Agency: "Cooking your food" (published 18 Dec 2017) and "Home food fact checker" | Open Government Licence v3.0 |
+| fsa | UK Food Standards Agency: "Cooking your food" (published 18 Dec 2017) and "Home food fact checker" | [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/) |
 | efsa | EFSA Safe2Eat, "Food poisoning" | Reuse terms not checked. Cite, do not copy |
 | usda | USDA FSIS, Safe Minimum Internal Temperature Chart (updated 14 Apr 2025) | US public domain |
 
-Each row holds only a short quote, enough to find the sentence on the page, never a copied passage. Contains public sector information licensed under the Open Government Licence v3.0 (the fsa rows).
+Each row holds only a short quote, enough to find the sentence on the page, never a copied passage. Contains public sector information licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/) (the fsa rows).
 
 `retrieved` is the day the sentence was read. For every row that was 2026-11-22: the FSA "Cooking your food" sentences were re-read on that day, and the rest were read during the design research the same day.
 

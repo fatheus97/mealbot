@@ -1,6 +1,6 @@
 category,core_c,hold_c,hold_min,us_only,source,url,quote,retrieved,confidence,override_note
-poultry,75,70,2,0,szu,https://szu.gov.cz/wp-content/uploads/2023/02/alim_nakazy_shrnuti_FIN_2022.pdf,"aby teplota uvnitř potraviny dosáhla 75 °C, nebo 70°C po dobu dvou minut",2026-11-22,verified,
-poultry,75,70,2,0,fsa,https://www.gov.uk/government/publications/cooking-your-food/cooking-your-food,the middle of the food should reach a temperature of 70°C for 2 minutes,2026-11-22,verified,
+poultry,75,70,2,0,szu,https://szu.gov.cz/wp-content/uploads/2023/02/alim_nakazy_shrnuti_FIN_2022.pdf,"aby teplota uvnitř potraviny dosáhla 75 °C, nebo 70°C po dobu dvou minut",2026-11-22,sourced,"SZÚ's general rule for cooking food through, applied to poultry."
+poultry,75,70,2,0,fsa,https://www.gov.uk/government/publications/cooking-your-food/cooking-your-food,the middle of the food should reach a temperature of 70°C for 2 minutes,2026-11-22,sourced,
 poultry,75,70,2,0,fsa,https://www.gov.uk/government/publications/cooking-your-food/cooking-your-food,"Poultry (such as chicken, turkey, duck, and game birds) and pork can have bacteria all the way through the meat.",2026-11-22,verified,
 poultry,75,70,2,0,efsa,https://www.efsa.europa.eu/en/safe2eat/food-poisoning,ensure it reaches an internal temperature of 75°C,2026-11-22,verified,
 minced,75,70,2,0,szu,https://szu.gov.cz/wp-content/uploads/2023/02/alim_nakazy_shrnuti_FIN_2022.pdf,"aby teplota uvnitř potraviny dosáhla 75 °C, nebo 70°C po dobu dvou minut",2026-11-22,sourced,"SZÚ's general rule for cooking food through, applied to minced meat."

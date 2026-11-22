@@ -238,7 +238,7 @@ food,fk_id,fk_field,cook_category,confidence,override_note
 28502,,,pork,curated,"Cured, smoked belly (bacon, slanina) is sold raw, so the pork line."
 28803,,,pork,curated,"Its keys include uzené maso, often sold raw-smoked in Czechia, so the pork line."
 28845,,,none,curated,"Dry-cured ham, sold ready to eat."
-28900,,,none,curated,"Cooked ham, sold ready to eat. Its raw-smoked Czech keys (uzená kýta, moravské uzené) need a row of their own to get the pork line."
+28900,,,none,curated,"Cooked ham, sold ready to eat. Its leg keys (uzená kýta and the like) can also name raw-smoked meat; slice 7 settles those before it ships (design)."
 28927,,,minced,curated,"Minced poultry: the minced line, which gives the same figure as poultry."
 30051,,,minced,curated,Raw sausage meat: the FSA lists sausages with minced meat.
 30134,,,none,curated,Frankfurters (párky) are sold cooked.

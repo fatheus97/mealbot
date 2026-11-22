@@ -166,6 +166,8 @@ def _rule_rows(path: Path) -> dict[CookCategory, CookRule]:
             rules[category] = CookRule(category, *figures, row["us_only"] == "1", (citation,))
         elif (held.core_c, held.hold_c, held.hold_min, held.us_only) != (*figures, row["us_only"] == "1"):
             raise StorageDataError(f"{where}: every row of a category carries the same figures")
+        elif any((c.source, c.url, c.quote) == (citation.source, citation.url, citation.quote) for c in held.citations):
+            raise StorageDataError(f"{where}: {citation.source} row repeats a cited sentence")
         else:
             rules[category] = CookRule(
                 category, held.core_c, held.hold_c, held.hold_min, held.us_only, (*held.citations, citation),
