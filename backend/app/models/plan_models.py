@@ -962,7 +962,9 @@ class MealPlanResponse(BaseModel):
         through this model, so the next write stores the corrected value. A
         legacy baby plan whose links are all single and one day back stays
         "fridge": nothing short of its consent-gated diet can tell it apart.
-        Only ever upgrades.
+        Only ever upgrades. It assigns to the LeftoverRef children in place,
+        so LeftoverRef must stay unfrozen; freezing it would make this raise
+        on every legacy baby plan read (test_leftovers pins the upgrade).
         """
         links = [
             (day_index, meal.leftover_of)

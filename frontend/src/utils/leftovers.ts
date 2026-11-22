@@ -63,6 +63,12 @@ export const LEFTOVER_KEEP_KEY: Record<LeftoverStorage, TranslationKey> = {
   freezer: "storage.leftoversFreezer",
 };
 
+/** Where a link's portions wait. A link stored before the backend stamped
+ *  `storage` reads as the fridge, the one place both callers default it. */
+export function storageOf(ref: LeftoverRef): LeftoverStorage {
+  return ref.storage ?? "fridge";
+}
+
 /**
  * Where the extra portions of the meal at (dayIndex, mealIndex) wait, when
  * later meals in the plan are its leftovers; null when none are. One source
@@ -78,7 +84,7 @@ export function leftoverStorageOf(
     for (const meal of day.meals ?? []) {
       const ref = meal.leftover_of;
       if (ref && ref.day_index === dayIndex && ref.meal_index === mealIndex) {
-        return ref.storage ?? "fridge";
+        return storageOf(ref);
       }
     }
   }
