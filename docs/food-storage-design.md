@@ -1,6 +1,6 @@
 # Food storage times and cooking temperatures: design
 
-Status: proposed on 2026-11-22, the design step of the owner's answer to Q35 ("Food storage"). No code is written yet. Line numbers are from main at 1f06e3a. The research behind this doc read the primary sources listed under "Sources", and the figures that decide the design were re-checked by hand (FoodKeeper licence, EFSA's 75 °C, the SZÚ and ministry PDFs, and every file:line cited here).
+Status: proposed on 2026-11-22 as the design step of the owner's answer to Q35 ("Food storage"), approved the same day (Q36) and being built in the slices below. Line numbers are from main at 1f06e3a. The research behind this doc read the primary sources listed under "Sources", and the figures that decide the design were re-checked by hand (FoodKeeper licence, EFSA's 75 °C, the SZÚ and ministry PDFs, and every file:line cited here).
 
 ## Goal
 
@@ -58,7 +58,7 @@ For each topic the app shows **the strictest figure among the EU, UK and Czech a
 | Cooked leftovers in the fridge | eat within 2 days (cooked rice: 1 day), otherwise freeze | FSA; MZe answer key |
 | Thawed food | use within 24 h, do not refreeze | FSA; EFSA |
 | Cooling | into the fridge within 2 h (rice: 1 h), in shallow portions | FSA, USDA, SZÚ |
-| Poultry, minced meat, pork, sausages, egg dishes | core at least 75 °C, or 70 °C for 2 minutes | SZÚ, FSA, EFSA |
+| Poultry, minced meat, pork, sausages, egg dishes | core at least 75 °C, or 70 °C for 2 minutes | SZÚ, FSA; EFSA gives its 75 °C for poultry only |
 | Reheating | once, until steaming hot throughout, core at least 75 °C; soups and sauces to the boil | SZÚ, FSA, MZe; also meets USDA's 73.9 °C |
 | Whole beef, lamb and veal cuts | no number; FSA's note that they can be served pink | FSA |
 | Fish | 63 °C, labelled as US guidance (owner decision 6) | USDA |
@@ -74,7 +74,7 @@ FoodKeeper assumes a fridge at 4.4 °C (40 °F); EU advice allows up to 5 °C. T
 Reuse the nutrition idiom (backend/app/core/nutrition_reference.py, backend/data/nutrition/):
 
 - **`backend/data/storage/foodkeeper_en_v128.json`**, committed verbatim (about 630 kB, CC0), with a README giving the URL, licence, Last-Modified date and sha256. A test pins the hash, and `.gitattributes` marks the file `-text` so a CRLF worktree cannot change it. No snapshot script: the file has not changed since 2018 and FSIS answers scripts with 403.
-- **`backend/data/storage/map.csv`**, one row per food: `food` (a nutrition foods.csv id), `fk_id`, `fk_field` (DOP_Refrigerate, Refrigerate or Refrigerate_After_Opening), `cook_category` (poultry, minced, pork, whole_cut, fish, egg or none), `confidence` (verified, sourced or curated) and `override_note`.
+- **`backend/data/storage/map.csv`**, one row per food: `food` (a nutrition foods.csv id), `fk_id`, `fk_field` (DOP_Refrigerate, Refrigerate or Refrigerate_After_Opening), `cook_category` (poultry, minced, pork, whole_cut, fish, egg or none; sausages count as minced, as the FSA lists them), `confidence` (verified, sourced or curated) and `override_note`.
 - **Names go through `backend/data/nutrition/aliases.csv` as it stands**: name, then food, then storage row. One name index serves two value tables, and fridge-only names enter aliases.csv through its existing gates.
 - **`backend/data/storage/rules.csv`**, about ten category rules from the table above, each with URL, a short quote, the retrieved date and a confidence label.
 - **`backend/app/core/storage_reference.py`**: stdlib only, frozen dataclasses, `@lru_cache`. Only Hours, Days and Weeks produce a date. "Package use-by date" becomes "use the date on the pack". "Not Recommended" is shown as such. Months and Years in a fridge field produce no date.
@@ -91,7 +91,7 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 - **"Anything past its date?" dialog.** For `use_by` the "Still fine" button is hidden. For `best_before` it stays, renamed "Keep it", with EFSA's wording (Safe2Eat, food date labelling): a best-before date is about quality, so check by look, smell or taste. The Commission's date-marking page has no such wording. Estimates and unknown (legacy) kinds lose the button too, since neither says what the pack prints (ledger Q38); the hint says how to set the kind in the Fridge.
 - **Leftover card and cook mode.** A static i18n line, never stored in the steps: "Keep in the fridge and eat within 2 days, or freeze. Reheat once, until steaming hot throughout (core at least 75 °C); bring soups and sauces to the boil." The sources follow on the same line.
 - **Baby leftovers.** "Let the extra portions cool in small containers, then put them in the freezer within 2 hours of cooking (cooked rice within 1 hour). Thaw them in the fridge, use within 24 hours and reheat once. Throw away anything left in the bowl." Sources: FSA, the MZe answer key, NHS. The copy says cool first, so it never reads as putting hot food in the freezer.
-- **Cooking temperatures in cook mode.** One line under the steps per matched `cook_category`, for example "Poultry: cook until the middle reaches at least 75 °C (or 70 °C for 2 minutes). Sources: SZÚ, UK FSA, EFSA." Ingredients are matched through the nutrition path (name_en against the English index, else the user's language) and then map.csv. The LLM's text is never parsed for this.
+- **Cooking temperatures in cook mode.** One line under the steps per matched `cook_category`, for example "Poultry: cook until the middle reaches at least 75 °C (or 70 °C for 2 minutes). Sources: SZÚ, UK FSA, EFSA." Ingredients are matched through the nutrition resolver (services/nutrition.py: on a Czech plan a name the Czech index knows comes first, then name_en, then the plan's own language) and then map.csv. The LLM's text is never parsed for this.
 - **People at higher risk.** One line for everyone: "Pregnant, over 65, cooking for a baby, or a weakened immune system? Stricter advice applies." It links the NHS/FSA and SZÚ pages and collects nothing.
 
 ## Deterministic checks
@@ -133,7 +133,7 @@ Each slice re-checks the file:line citations it relies on against its own base; 
 2. **fix(i18n):** neutral date labels in Czech (F3).
 3. **feat(leftovers):** the i18n keep-and-reheat line, the baby freeze-and-discard line, and the Terms paragraph with the TERMS_VERSION bump. Stored steps stay unchanged.
 4. **feat(fridge):** `date_kind` with its migration and every construction site, the kind picker on manual add, and the dialog by kind.
-5. **data(storage):** the pinned FoodKeeper JSON, map.csv, rules.csv, the loader and the gates. No UI.
+5. **data(storage):** the pinned FoodKeeper JSON, map.csv, rules.csv, the loader and the gates. No UI. Built in two parts: first rules.csv with the cook rows, map.csv with every food's cook category (fk columns empty), the loader and the gates, which slice 7 needs; then the FoodKeeper file and the fk columns, once the owner allows the download (ledger Q39).
 6. **feat(fridge):** table-backed suggestions for scans and manual adds, the row InfoHints, and the opened-photo fix.
 7. **feat(cook):** temperature lines in cook mode.
 
@@ -155,7 +155,7 @@ Each has a recommendation. The ones marked "default" are taken unless he objects
 3. **Precedence** (default). The strictest of the EU, UK and Czech authorities; US only where they are silent, labelled as US.
 4. **Leftover keep time** (default). 2 days, rice 1 day, as the FSA and the Czech ministry both say; not the US 3 to 4 days.
 5. **Baby purees planned up to 3 days later** (default). Keep the 3-day batch and tell parents to freeze the portions, thaw in the fridge, use within 24 hours and discard what is left in the bowl. The planner already assumes freezing; nobody tells the parent.
-6. **Cooking numbers** (default). 75 °C in the core (or 70 °C for 2 minutes) for poultry, minced meat, pork, sausages, egg dishes and reheating. Whole beef and lamb cuts get no number, only the FSA's pink note. Fish gets 63 °C labelled as US: no European source gives a fish number, and 75 °C would contradict recipes the app writes. SZÚ's stricter teaching variant, 75 °C held for 5 minutes, is left out because a home cook cannot check a hold time.
+6. **Cooking numbers** (default). 75 °C in the core (or 70 °C for 2 minutes) for poultry, minced meat, pork, sausages, egg dishes and reheating. Whole beef and lamb cuts get no number, only the FSA's pink note. Fish gets 63 °C labelled as US: no European source gives a fish number, and 75 °C would contradict recipes the app writes. The stricter Czech variant, 75 °C held for 5 minutes (the MZe answer key and an SZPI leaflet, not SZÚ), is left out because a home cook cannot check a hold time.
 7. **"Still fine" on use-by food** (default, part of slice 4). Hidden; it stays for best-before.
 8. **Table value for an undated item** (default). The short end of the range.
 9. **Setting or on for everyone** (default). On for everyone: it collects nothing, and cautious defaults only protect people when they are on.
