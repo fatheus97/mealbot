@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isExpired, STILL_FINE_EXTENSION_DAYS } from "./expiry";
+import { isExpired, plannableNames, STILL_FINE_EXTENSION_DAYS } from "./expiry";
 import { todayISO, addDaysISO } from "./planDates";
 import type { StockItem } from "../types";
 
@@ -48,5 +48,22 @@ describe("STILL_FINE_EXTENSION_DAYS", () => {
     expect(STILL_FINE_EXTENSION_DAYS).toBeGreaterThan(0);
     const pushed = addDaysISO(todayISO(), STILL_FINE_EXTENSION_DAYS);
     expect(isExpired(item({ expiration_date: pushed }))).toBe(false);
+  });
+});
+
+describe("plannableNames", () => {
+  it("offers everything except food past its date", () => {
+    // The server leaves past-dated food out of every generation, so a chip
+    // for it would ask the model to plan around it anyway.
+    const names = plannableNames([
+      item({ name: "old milk", expiration_date: addDaysISO(todayISO(), -1) }),
+      item({ name: "yogurt", expiration_date: todayISO() }),
+      item({ name: "oats", expiration_date: null }),
+    ]);
+    expect(names).toEqual(["yogurt", "oats"]);
+  });
+
+  it("is empty while the fridge has not loaded", () => {
+    expect(plannableNames(undefined)).toEqual([]);
   });
 });

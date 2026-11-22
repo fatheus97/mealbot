@@ -14,7 +14,7 @@ raises one itself.
 import json
 import logging
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from fastapi import HTTPException
@@ -26,7 +26,7 @@ from sqlmodel import col, select
 from app.core.config import settings
 from app.llm.client import first_choice
 from app.llm.experiment import pick_arm
-from app.models.db_models import MealEntry, MealPlan, StockItem, User
+from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
     ConsumedBatch,
     IngredientAmount,
@@ -46,6 +46,7 @@ from app.services.fridge_service import (
     group_and_sort_fridge,
     replace_fridge_items,
     restore_consumed_batches,
+    stock_for_generation,
 )
 from app.services.kitchen import HouseholdId, Kitchen
 from app.services.leftovers import (
@@ -242,6 +243,8 @@ async def confirm_plan_fridge(
     assert plan.id is not None  # loaded plan always has an id
     fridge = await get_fridge_items(session, household_id)
     batches_by_name = group_and_sort_fridge(fridge)
+    # The plan was generated without past-dated food, so it takes none of it.
+    today = date.today()
     snapshots: dict[tuple[int, int], list[ConsumedBatch]] = {}
     for day_index, day in enumerate(plan_obj.days, start=1):
         for meal_index, meal in enumerate(day.meals, start=1):
@@ -250,9 +253,9 @@ async def confirm_plan_fridge(
                 # food. allocate_fifo NEVER raises on shortage (missing name ->
                 # continue, short stock -> silent partial allocation), so that
                 # double-debit would return 200 and stay invisible until someone
-                # diffs the fridge by hand — and generate_plan_days reads
-                # StockItem directly, so the NEXT plan would be generated against
-                # a phantom-empty fridge.
+                # diffs the fridge by hand — and the NEXT plan reads the fridge
+                # as stored, so it would be generated against a phantom-empty
+                # fridge.
                 #
                 # Write the empty list EXPLICITLY. persist_meal_entries uses
                 # .get((d, m), []) so omitting the key happens to produce "[]"
@@ -262,7 +265,7 @@ async def confirm_plan_fridge(
                 continue
             meal_ingredients = [ing for ing in meal.ingredients if not ing.is_spice]
             snapshots[(day_index, meal_index)] = allocate_fifo(
-                batches_by_name, meal_ingredients
+                batches_by_name, meal_ingredients, skip_dated_before=today
             )
     await replace_fridge_items(
         session, household_id, flatten_fridge_batches(batches_by_name), commit=False
@@ -370,6 +373,8 @@ async def reopen_plan_fridge(
     batches_by_name = group_and_sort_fridge(fridge)
     new_snapshots: list[list[ConsumedBatch]] = []
     for targets in targets_per_entry:
+        # No skip_dated_before: a reopen takes back what the finish returned,
+        # whatever its date now. Skipping would turn that into a 409 shortage.
         allocations = allocate_fifo(batches_by_name, targets)
 
         allocated_by_name: dict[str, float] = {}
@@ -568,12 +573,12 @@ async def generate_plan_days(
     user: User,
     payload: MealPlanRequest,
     days: int,
-) -> tuple[list[SingleDayResponse], list[ShoppingListItem], list[StockItemDTO]]:
+) -> tuple[list[SingleDayResponse], list[ShoppingListItem], int]:
     """Generate a day-by-day meal plan.
 
-    Returns (days, shopping_list, initial_fridge_snapshot). The snapshot is
-    the fridge state BEFORE any subtraction — used by the caller for storage
-    and for recomputing the shopping list later.
+    Returns (days, shopping_list, past_dated_left_out): the last is how many
+    fridge rows were kept away from the model because their date had passed
+    (stock_for_generation), for the planner's notice.
 
     Honors ``payload.stock_only``: when true, drops any shopping-list items
     the LLM hallucinated (and warns, since it means the LLM ignored the
@@ -586,19 +591,12 @@ async def generate_plan_days(
         raise ValueError("generate_plan_days requires a persisted user")
 
     kitchen = Kitchen.of(user)
-    result = await session.execute(
-        select(StockItem).where(col(StockItem.household_id) == kitchen.household_id)
+    # Past-dated food is left out of what the model sees and of the fridge the
+    # shopping list subtracts: a recipe that needs milk when the only milk is
+    # past its date puts milk on the list.
+    remaining_ingredients, past_dated_left_out = await stock_for_generation(
+        session, kitchen.household_id, user.need_to_use_enabled
     )
-    db_items = result.scalars().all()
-
-    remaining_ingredients: list[StockItemDTO] = [
-        StockItemDTO(
-            name=item.name,
-            quantity_grams=item.quantity_grams,
-            need_to_use=item.need_to_use and user.need_to_use_enabled,
-        )
-        for item in db_items
-    ]
     initial_fridge: list[StockItemDTO] = [ing.model_copy() for ing in remaining_ingredients]
 
     past_meals: list[str] = list(payload.past_meals)
@@ -777,7 +775,7 @@ async def generate_plan_days(
             )
         shopping_items = []
 
-    return meal_plan, shopping_items, initial_fridge
+    return meal_plan, shopping_items, past_dated_left_out
 
 
 async def clear_unconfirmed_plans(session: AsyncSession, kitchen: Kitchen) -> None:

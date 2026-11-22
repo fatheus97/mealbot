@@ -28,6 +28,7 @@ import { EaterPicker } from "./EaterPicker";
 import { useEaterChoice } from "../hooks/useEaterChoice";
 import { HealthConsentCheckbox } from "./HealthConsentCheckbox";
 import { useI18n, useMealTypeLabel } from "../i18n";
+import { plannableNames } from "../utils/expiry";
 import type {
   Allergen,
   CookRecipeRequest,
@@ -52,7 +53,7 @@ const hintedLabelRow: CSSProperties = {
 // full PlannedMeal through /recipe/cook so the server doesn't re-invoke the
 // LLM on the cook action — it just persists + debits fridge + marks cooked.
 export function CookNowForm() {
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   // The avoid field's label binds by htmlFor: its InfoHint must sit OUTSIDE the
   // <label>, or the label would address two controls (see MealPlanner).
   const avoidId = useId();
@@ -70,10 +71,7 @@ export function CookNowForm() {
   const favoriteRecipeMutation = useFavoriteRecipe();
   const removeFromCookbookMutation = useRemoveFromCookbook();
 
-  const fridgeSuggestions = useMemo(
-    () => (Array.isArray(fridgeItems) ? fridgeItems.map((i) => i.name) : []),
-    [fridgeItems],
-  );
+  const fridgeSuggestions = useMemo(() => plannableNames(fridgeItems), [fridgeItems]);
 
   const [mealType, setMealType] = useState<MealType>("main_course");
   const [dietTypes, setDietTypes] = useState<DietType[]>([]);
@@ -110,6 +108,8 @@ export function CookNowForm() {
   // cook/favorite so the server can link any edits to what was generated.
   // Stays fixed across inline edits — the edit IS the delta we want to capture.
   const [generationId, setGenerationId] = useState<number | null>(null);
+  // Fridge rows the server left out of this recipe's stock (past their date).
+  const [pastDatedLeftOut, setPastDatedLeftOut] = useState(0);
   const [cookedEntry, setCookedEntry] = useState<{ id: number; name: string } | null>(null);
   // Once the user stars a generated recipe, the server returns a meal_entry_id
   // and we treat the recipe as "saved." Subsequent star toggles route through
@@ -144,6 +144,7 @@ export function CookNowForm() {
     const req = buildRequest();
     setRecipe(null);
     setGenerationId(null);
+    setPastDatedLeftOut(0);
     setCookedEntry(null);
     setSavedEntry(null);
     setEditing(false);
@@ -165,6 +166,7 @@ export function CookNowForm() {
       onSuccess: (data) => {
         setRecipe(data.recipe);
         setGenerationId(data.generation_id);
+        setPastDatedLeftOut(data.past_dated_left_out ?? 0);
       },
     });
   };
@@ -505,6 +507,12 @@ export function CookNowForm() {
                 ? t("cookNow.favoriteFailed")
                 : t("cookNow.unfavoriteFailed")}
             </div>
+          )}
+
+          {pastDatedLeftOut > 0 && (
+            <p style={{ fontSize: "0.85em", color: "#6b7280", margin: "0.5rem 0 0" }}>
+              {tn("expired.leftOut", pastDatedLeftOut)}
+            </p>
           )}
 
           {editing ? (

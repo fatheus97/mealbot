@@ -25,7 +25,7 @@ import { type MealType } from "../constants/mealTypes";
 import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, PlannedMeal, IngredientAmount, StockItem, WasteEntry } from "../types";
 import { todayISO, dayDateLabel, addDaysISO } from "../utils/planDates";
 import { ExpiredReviewDialog, type ExpiredDecision } from "./ExpiredReviewDialog";
-import { isExpired, STILL_FINE_EXTENSION_DAYS } from "../utils/expiry";
+import { isExpired, plannableNames, STILL_FINE_EXTENSION_DAYS } from "../utils/expiry";
 import { leftoverSourceLabel } from "../utils/leftovers";
 
 // Fallback seed for a single day when the user has no saved default layout.
@@ -99,7 +99,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   const { userId, healthConsent } = useAuth();
   // Shared households: who this plan is for (EaterPicker).
   const eaterChoice = useEaterChoice();
-  const { t, locale } = useI18n();
+  const { t, tn, locale } = useI18n();
   const showPieces = useShowPieces();
   const isMobile = useIsMobile();
   // The tab bar and the inline error sit on the adaptive page background, which
@@ -173,10 +173,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // live fridge query) so the list the user is answering about can't shift
   // underneath them mid-dialog.
   const [expiredReview, setExpiredReview] = useState<StockItem[] | null>(null);
-  const fridgeSuggestions = useMemo(
-    () => (Array.isArray(fridgeItems) ? fridgeItems.map((i) => i.name) : []),
-    [fridgeItems],
-  );
+  const fridgeSuggestions = useMemo(() => plannableNames(fridgeItems), [fridgeItems]);
   const userDefaultLayout: MealType[] = useMemo(
     () => (profile?.default_day_layout && profile.default_day_layout.length > 0
       ? profile.default_day_layout
@@ -1027,6 +1024,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                 ? t("expired.changedElsewhere")
                 : t("expired.saveFailed")}
             </div>
+          )}
+          {(currentPlan.past_dated_left_out ?? 0) > 0 && (
+            <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>
+              {tn("expired.leftOut", currentPlan.past_dated_left_out ?? 0)}
+            </p>
           )}
           {!isConfirmed && frozenMeals.size > 0 && (
             <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>

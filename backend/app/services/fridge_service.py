@@ -343,6 +343,30 @@ async def get_fridge_items(
     return items
 
 
+def plannable_stock(
+    items: list[StockItemDTO], today: date
+) -> tuple[list[StockItemDTO], int]:
+    """``items`` without the ones dated before ``today``, and how many rows that
+    left out. Undated items are always kept. Pure, so tests pass the date."""
+    kept = [i for i in items if i.expiration_date is None or i.expiration_date >= today]
+    return kept, len(items) - len(kept)
+
+
+async def stock_for_generation(
+    session: AsyncSession, household_id: HouseholdId, need_to_use_enabled: bool,
+) -> tuple[list[StockItemDTO], int]:
+    """The fridge as a new plan, a regenerate, a repeat's shopping list and Cook
+    Now see it: get_fridge_items (so urgency is the one the Fridge shows) minus
+    food past its date, plus the count of rows left out for the UI
+    (docs/food-storage-design.md, slice 1).
+
+    Read-only on purpose. Every fridge writer reads get_fridge_items, never this,
+    so the left-out rows stay in the fridge for the user to check: a filtered
+    list passed to replace_fridge_items would delete them."""
+    items = await get_fridge_items(session, household_id, need_to_use_enabled)
+    return plannable_stock(items, date.today())
+
+
 async def replace_fridge_items(
     session: AsyncSession,
     household_id: HouseholdId,
@@ -456,10 +480,16 @@ async def restore_consumed_batches(
 def allocate_fifo(
     batches_by_name: dict[str, list[StockItemDTO]],
     ingredients: list[IngredientAmount],
+    *,
+    skip_dated_before: date | None = None,
 ) -> list[ConsumedBatch]:
     """Deduct `ingredients` from `batches_by_name` in-place (FIFO: earliest expiration first)
     and return the per-batch debits actually applied. Caller owns the dict and is responsible
-    for the initial sort and final flattening."""
+    for the initial sort and final flattening.
+
+    Batches dated before `skip_dated_before` are never touched: the meal was
+    generated without them (stock_for_generation), so the user is still to check
+    them in the Fridge. They stay in the dict, so the flattened write keeps them."""
     allocations: list[ConsumedBatch] = []
     for ing in ingredients:
         key = ing.name.strip().lower()
@@ -471,6 +501,12 @@ def allocate_fifo(
             if remaining <= 0:
                 break
             if batch.quantity_grams <= 0:
+                continue
+            if (
+                skip_dated_before is not None
+                and batch.expiration_date is not None
+                and batch.expiration_date < skip_dated_before
+            ):
                 continue
             deducted = min(remaining, batch.quantity_grams)
             batch.quantity_grams = batch.quantity_grams - deducted

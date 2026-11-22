@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -41,7 +41,6 @@ from app.models.plan_models import (
     SingleDayResponse,
     SingleRecipeRequest,
     SingleRecipeResponse,
-    StockItemDTO,
 )
 from app.services.allergen_screen import ScreenError
 from app.services.fridge_service import (
@@ -51,6 +50,7 @@ from app.services.fridge_service import (
     group_and_sort_fridge,
     lock_kitchen,
     replace_fridge_items,
+    stock_for_generation,
 )
 from app.services.health_consent import (
     eater_entries,
@@ -219,19 +219,10 @@ async def generate_recipe(
     plan_req = _build_plan_request(eaten_for, current_user)
     # Pre-load the fridge so the LLM can use available stock. Unlike the plan
     # flow we don't allocate here — just feed the names+grams in so the LLM
-    # prefers them.
-    fridge = await get_fridge_items(
+    # prefers them. Past-dated food is left out, as for a plan.
+    plan_req.stock_items, past_dated_left_out = await stock_for_generation(
         session, kitchen.household_id, current_user.need_to_use_enabled
     )
-    plan_req.stock_items = [
-        StockItemDTO(
-            name=item.name,
-            quantity_grams=item.quantity_grams,
-            need_to_use=item.need_to_use,
-            expiration_date=item.expiration_date,
-        )
-        for item in fridge
-    ]
 
     try:
         day_response = await generate_single_day(
@@ -290,7 +281,11 @@ async def generate_recipe(
         )
         await session.rollback()
 
-    return SingleRecipeResponse(recipe=recipe, generation_id=generation_id)
+    return SingleRecipeResponse(
+        recipe=recipe,
+        generation_id=generation_id,
+        past_dated_left_out=past_dated_left_out,
+    )
 
 
 @router.post("/cook", response_model=MealEntrySummary)
@@ -400,7 +395,10 @@ async def cook_recipe(
     meal_ings: list[IngredientAmount] = [
         ing for ing in payload.recipe.ingredients if not ing.is_spice
     ]
-    allocations: list[ConsumedBatch] = allocate_fifo(batches_by_name, meal_ings)
+    # The recipe was generated without past-dated food, so it takes none of it.
+    allocations: list[ConsumedBatch] = allocate_fifo(
+        batches_by_name, meal_ings, skip_dated_before=date.today()
+    )
 
     final_state = flatten_fridge_batches(batches_by_name)
     await replace_fridge_items(session, kitchen.household_id, final_state, commit=False)

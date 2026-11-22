@@ -288,6 +288,33 @@ class TestRepeatRecomputesTheShoppingList:
         )
         assert [i.name for i in original.shopping_list] == ["lentils"]
 
+    async def test_past_dated_stock_does_not_take_food_off_the_list(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Generation leaves food past its date out of the fridge it plans with
+        (fridge_service.stock_for_generation); repeat recomputes its list
+        through the same helper, so old lentils do not count as lentils."""
+        source = await _plan(db_session, test_user)
+        db_session.add(
+            StockItem(
+                household_id=Kitchen.of(test_user).household_id,
+                name="lentils",
+                quantity_grams=500,
+                expiration_date=date(2000, 1, 1),
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            ENDPOINT.format(source.id), json={}, headers=auth_headers
+        )
+        assert resp.status_code == 200
+        assert "lentils" in {i["name"] for i in resp.json()["shopping_list"]}
+
     async def test_ingredients_since_used_up_reappear_on_the_list(
         self,
         client: AsyncClient,

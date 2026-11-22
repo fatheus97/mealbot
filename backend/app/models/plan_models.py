@@ -932,6 +932,11 @@ class MealPlanResponse(BaseModel):
     start_date: date | None = None
     days: list[SingleDayResponse]
     shopping_list: list[ShoppingListItem]
+    # Fridge rows left out of THIS generation because their date had passed
+    # (fridge_service.stock_for_generation). Stamped after response_json is
+    # serialized, like start_date, so every stored copy and every read says 0
+    # and a reopened plan never repeats the notice.
+    past_dated_left_out: int = 0
 
 
 # ── Nutrition (GET /api/plan/{id}/nutrition, docs/nutrition-design.md) ──────────
@@ -1310,6 +1315,8 @@ class SingleRecipeResponse(BaseModel):
     """
     recipe: PlannedMeal
     generation_id: int | None = None
+    # Fridge rows left out of this recipe's stock because their date had passed.
+    past_dated_left_out: int = 0
 
 
 class CookRecipeRequest(SingleRecipeRequest):

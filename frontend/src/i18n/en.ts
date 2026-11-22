@@ -615,7 +615,7 @@ export const en = {
   "planner.shareLabel": "Share shopping list",
   "planner.shoppingListHintLabel": "About the shopping list",
   "planner.shoppingListHint":
-    "Worked out when the plan was generated, minus what your fridge held then and your pantry staples. Later edits don't update it, and ticks aren't saved.",
+    "Worked out when the plan was generated, minus what your fridge held then that wasn't past its date, and your pantry staples. Later edits don't update it, and ticks aren't saved.",
 
   "chips.remove": "Remove {chip}",
   "chips.count": "{count} of {max}",
@@ -820,7 +820,7 @@ export const en = {
   "fridge.title": "Fridge",
   "fridge.titleHintLabel": "How the fridge changes",
   "fridge.titleHint":
-    "Confirming a plan, or marking a Cook Now recipe as cooked, takes ingredients from here, soonest date first. Finishing a plan puts back what wasn't cooked.",
+    "Confirming a plan, or marking a Cook Now recipe as cooked, takes ingredients from here, soonest date first, and never takes anything past its date. Finishing a plan puts back what wasn't cooked.",
   "fridge.loginPrompt": "Please log in to view and edit your fridge.",
   "fridge.loading": "Loading inventory...",
   "fridge.connecting": "Connecting to server…",
@@ -890,6 +890,10 @@ export const en = {
   // nowhere else to be reported.
   "expired.saveFailed": "Could not update your fridge — nothing was changed. Try again from the Fridge panel.",
   "expired.changedElsewhere": "The fridge changed in the meantime, so nothing was updated. Remove or re-date these items in the Fridge panel.",
+  // Under a generated plan or Cook Now recipe: food past its date never
+  // reaches the model (backend fridge_service.stock_for_generation).
+  "expired.leftOut_one": "1 item past its date was left out. Check it in the Fridge panel.",
+  "expired.leftOut_other": "{count} items past their date were left out. Check them in the Fridge panel.",
 
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Add Ingredient",

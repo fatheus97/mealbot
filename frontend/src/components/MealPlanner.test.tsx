@@ -254,6 +254,68 @@ describe('MealPlanner', () => {
     });
   });
 
+  // Food past its date never reaches the model (backend
+  // stock_for_generation); the plan says how many fridge rows that was.
+  async function generateWith(extra: Record<string, unknown>) {
+    loginUser();
+    const planResponse = {
+      plan_id: 1,
+      days: [{ meals: [{ name: 'Porridge', meal_type: 'breakfast', ingredients: [{ name: 'oats', quantity_grams: 100 }], steps: ['Cook'] }] }],
+      shopping_list: [],
+      ...extra,
+    };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(planResponse),
+      } as unknown as Response);
+    });
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await user.click(screen.getByRole('button', { name: /generate plan/i }));
+    await waitFor(() => expect(screen.getByText('Porridge')).toBeInTheDocument());
+  }
+
+  it('says how many past-dated fridge items the generation left out', async () => {
+    await generateWith({ past_dated_left_out: 2 });
+    expect(
+      screen.getByText('2 items past their date were left out. Check them in the Fridge panel.'),
+    ).toBeInTheDocument();
+  });
+
+  it('says nothing about past-dated food when none was left out', async () => {
+    await generateWith({});
+    expect(screen.queryByText(/past (its|their) date (was|were) left out/)).not.toBeInTheDocument();
+  });
+
+  it('does not offer past-dated fridge food as a "use up" suggestion', async () => {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/fridge'
+          ? ({
+              ok: true,
+              status: 200,
+              json: () =>
+                Promise.resolve([
+                  { id: 1, name: 'old milk', quantity_grams: 500, need_to_use: true, expiration_date: '2000-01-01' },
+                  { id: 2, name: 'oat milk', quantity_grams: 300, need_to_use: false, expiration_date: null },
+                ]),
+            } as unknown as Response)
+          : okEmpty(),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await waitFor(() => expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge'));
+
+    await user.type(screen.getByPlaceholderText(/fridge items auto-suggest/), 'milk');
+    expect(await screen.findByRole('option', { name: 'oat milk' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'old milk' })).not.toBeInTheDocument();
+  });
+
   it('renders plan and freeze/unfreeze toggles meal', async () => {
     loginUser();
 

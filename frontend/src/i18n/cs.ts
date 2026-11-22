@@ -551,7 +551,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.shareLabel": "Sdílet nákupní seznam",
   "planner.shoppingListHintLabel": "O nákupním seznamu",
   "planner.shoppingListHint":
-    "Seznam se sestaví při vytvoření jídelníčku a nezahrnuje to, co tehdy bylo v lednici, ani zásoby spíže. Pozdější úpravy ho nezmění a odškrtnuté položky se neukládají.",
+    "Seznam se sestaví při vytvoření jídelníčku a nezahrnuje to, co tehdy bylo v lednici a nebylo po datu, ani zásoby spíže. Pozdější úpravy ho nezmění a odškrtnuté položky se neukládají.",
 
   "chips.remove": "Odebrat {chip}",
   "chips.count": "{count} z {max}",
@@ -737,7 +737,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.title": "Lednice",
   "fridge.titleHintLabel": "Jak se mění obsah lednice",
   "fridge.titleHint":
-    "Když potvrdíte jídelníček nebo označíte recept z režimu „Uvařit hned“ jako uvařený, suroviny se odtud odeberou, nejdříve ty s nejbližším datem spotřeby. Po dokončení jídelníčku se vrátí to, co se neuvařilo.",
+    "Když potvrdíte jídelníček nebo označíte recept z režimu „Uvařit hned“ jako uvařený, suroviny se odtud odeberou, nejdříve ty s nejbližším datem spotřeby. Položky po datu se neodebírají. Po dokončení jídelníčku se vrátí to, co se neuvařilo.",
   "fridge.loginPrompt": "Pro zobrazení a úpravu lednice se prosím přihlaste.",
   "fridge.loading": "Načítání zásob...",
   "fridge.connecting": "Připojování k serveru…",
@@ -823,6 +823,11 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "Lednici se nepodařilo upravit — nic se nezměnilo. Zkuste to znovu v sekci Lednice.",
   "expired.changedElsewhere":
     "Lednice se mezitím změnila, takže se nic neupravilo. Odeberte tyto položky nebo jim změňte datum v sekci Lednice.",
+  // Accusative after "vynechali jsme": 1 položku / 2–4 položky / 5+ položek.
+  "expired.leftOut_one": "Vynechali jsme 1 položku po uvedeném datu. Zkontrolujte ji v sekci Lednice.",
+  "expired.leftOut_few": "Vynechali jsme {count} položky po uvedeném datu. Zkontrolujte je v sekci Lednice.",
+  "expired.leftOut_many": "Vynechali jsme {count} položky po uvedeném datu. Zkontrolujte je v sekci Lednice.",
+  "expired.leftOut_other": "Vynechali jsme {count} položek po uvedeném datu. Zkontrolujte je v sekci Lednice.",
 
   // ─── Fridge item modal ────────────────────────────────────────────────────
   "fridgeItem.addTitle": "Přidat surovinu",
