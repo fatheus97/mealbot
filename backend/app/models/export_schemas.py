@@ -57,6 +57,7 @@ class ExportedFridgeItem(BaseModel):
     quantity_grams: float
     need_to_use: bool
     expiration_date: date | None
+    date_kind: str | None
 
 
 class ExportedFeedback(BaseModel):
@@ -107,6 +108,7 @@ class ExportedWasteRecord(BaseModel):
     name: str
     quantity_grams: float
     expiration_date: date | None
+    date_kind: str | None
     reason: str
     source: str
     created_at: datetime

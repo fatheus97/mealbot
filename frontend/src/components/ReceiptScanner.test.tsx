@@ -346,7 +346,7 @@ describe('ReceiptScanner', () => {
 
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
-        { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null },
+        { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null, date_kind: null },
       ], [7], expect.anything());
       expect(screen.getByText(/items added to fridge/i)).toBeInTheDocument();
     });
@@ -371,7 +371,7 @@ describe('ReceiptScanner', () => {
 
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
-        { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null },
+        { name: 'olive oil', quantity_grams: 500, need_to_use: false, expiration_date: null, date_kind: null },
       ], [], expect.anything());
     });
   });
@@ -397,8 +397,8 @@ describe('ReceiptScanner', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0]).toEqual([
       [
-        { name: 'Eggs', quantity_grams: 100, need_to_use: false, expiration_date: null },
-        { name: 'Milk', quantity_grams: 100, need_to_use: false, expiration_date: null },
+        { name: 'Eggs', quantity_grams: 100, need_to_use: false, expiration_date: null, date_kind: null },
+        { name: 'Milk', quantity_grams: 100, need_to_use: false, expiration_date: null, date_kind: null },
       ],
       [],
     ]);
@@ -551,7 +551,7 @@ describe('ReceiptScanner', () => {
 
     await waitFor(() => {
       expect(mockedMergeFridge).toHaveBeenCalledWith([
-        { name: 'yeast', quantity_grams: 12.5, need_to_use: false, expiration_date: null },
+        { name: 'yeast', quantity_grams: 12.5, need_to_use: false, expiration_date: null, date_kind: null },
       ], [7], expect.anything());
     });
   });
@@ -581,6 +581,35 @@ describe('ReceiptScanner', () => {
 
     expect(screen.queryByDisplayValue('chicken')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('rice')).toBeInTheDocument();
+  });
+
+  it('saves a scan date as the AI estimate it is, and a retyped date as unknown', async () => {
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'milk', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const,
+          expiration_date: '2099-01-10', date_kind: 'estimated_ai' as const },
+        { name: 'ham', quantity_grams: 200, need_to_use: false, item_type: 'ingredient' as const,
+          expiration_date: '2099-01-05', date_kind: 'estimated_ai' as const },
+      ],
+    });
+    mockedMergeFridge.mockResolvedValue([]);
+
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await screen.findByDisplayValue('ham');
+
+    // The user corrects ham's date from the pack, without saying which kind.
+    fireEvent.change(screen.getByDisplayValue('2099-01-05'), { target: { value: '2099-01-08' } });
+    await user.click(screen.getByRole('button', { name: /add to fridge/i }));
+
+    await waitFor(() => {
+      expect(mockedMergeFridge).toHaveBeenCalledWith([
+        { name: 'milk', quantity_grams: 1000, need_to_use: false, expiration_date: '2099-01-10', date_kind: 'estimated_ai' },
+        { name: 'ham', quantity_grams: 200, need_to_use: false, expiration_date: '2099-01-08', date_kind: null },
+      ], [7], expect.anything());
+    });
   });
 
   describe('several scans in one list', () => {

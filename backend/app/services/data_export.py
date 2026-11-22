@@ -249,6 +249,7 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
                 quantity_grams=f.quantity_grams,
                 need_to_use=f.need_to_use,
                 expiration_date=f.expiration_date,
+                date_kind=f.date_kind,
             )
             for f in fridge
         ],
@@ -296,6 +297,7 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
                 name=w.name,
                 quantity_grams=w.quantity_grams,
                 expiration_date=w.expiration_date,
+                date_kind=w.date_kind,
                 reason=w.reason,
                 source=w.source,
                 created_at=w.created_at,

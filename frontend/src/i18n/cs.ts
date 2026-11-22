@@ -817,13 +817,15 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "expired.body_many": "V lednici je {count} položky po uvedeném datu.",
   "expired.body_other": "V lednici je {count} položek po uvedeném datu.",
   "expired.itemMeta": "{grams} g · datum {date}",
-  "expired.stillFine": "Ještě dobré",
+  "expired.stillFine": "Ponechat",
   "expired.thrownOut": "Vyhodili jsme to",
   "expired.apply": "Uložit",
   "expired.applying": "Ukládám…",
   "expired.skip": "Přeskočit",
+  "expired.bestBeforeHint":
+    "Datum minimální trvanlivosti se týká kvality (EFSA): potravina skladovaná podle pokynů na obalu může po něm ztratit na chuti nebo struktuře. Prohlédněte si ji, přivoňte k ní a trochu ochutnejte. „Ponechat“ posune datum o týden.",
   "expired.optionalHint":
-    "Nepovinné — co si nejste jistí, přeskočte. „Ještě dobré“ položku ponechá a posune datum o týden.",
+    "Nepovinné: co si nejste jistí, přeskočte. Ponechat lze jen potraviny s datem minimální trvanlivosti z obalu. To nastavíte při úpravě položky v sekci Lednice.",
   "expired.saveFailed":
     "Lednici se nepodařilo upravit — nic se nezměnilo. Zkuste to znovu v sekci Lednice.",
   "expired.changedElsewhere":
@@ -842,6 +844,10 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridgeItem.namePlaceholder": "např. kuřecí prsa",
   "fridgeItem.quantity": "Množství (g)",
   "fridgeItem.expiration": "Datum",
+  "fridgeItem.dateKind": "Datum z obalu?",
+  "fridgeItem.dateKindNone": "Ne",
+  "fridgeItem.dateKindUseBy": "Ano, Spotřebujte do",
+  "fridgeItem.dateKindBestBefore": "Ano, Minimální trvanlivost do",
   "fridgeItem.needToUse": "Spotřebovat brzy",
   "fridgeItem.ok": "OK",
   "fridgeItem.cancel": "Zrušit",

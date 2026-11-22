@@ -3,6 +3,7 @@ import type { StockItem } from "../types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useI18n } from "../i18n";
 import { formatISODate } from "../utils/planDates";
+import { allowsStillFine } from "../utils/expiry";
 
 export type ExpiredChoice = "thrown_out" | "still_fine";
 
@@ -86,10 +87,13 @@ export function ExpiredReviewDialog({
               })}
             </p>
             <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap" }}>
-              {([
-                ["still_fine", "expired.stillFine"],
-                ["thrown_out", "expired.thrownOut"],
-              ] as const).map(([value, labelKey]) => (
+              {/* "Keep it" only for a best-before date: past a use-by date,
+                  or one whose kind is unknown, the only answers are
+                  "threw it out" or none. */}
+              {(allowsStillFine(item)
+                ? ([["still_fine", "expired.stillFine"], ["thrown_out", "expired.thrownOut"]] as const)
+                : ([["thrown_out", "expired.thrownOut"]] as const)
+              ).map(([value, labelKey]) => (
                 <label
                   key={value}
                   style={{
@@ -117,6 +121,11 @@ export function ExpiredReviewDialog({
           </fieldset>
         ))}
       </div>
+      {items.some(allowsStillFine) && (
+        <p style={{ fontSize: "0.78rem", color: "#374151", margin: "0 0 0.5rem" }}>
+          {t("expired.bestBeforeHint")}
+        </p>
+      )}
       <p style={{ fontSize: "0.78rem", color: "#374151", margin: "0 0 1rem" }}>
         {t("expired.optionalHint")}
       </p>

@@ -371,7 +371,7 @@ describe('Fridge', () => {
     await waitFor(() => {
       expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', {
         method: 'PUT',
-        body: JSON.stringify([{ name: 'Butter', quantity_grams: 100, need_to_use: false, expiration_date: null }]),
+        body: JSON.stringify([{ name: 'Butter', quantity_grams: 100, need_to_use: false, expiration_date: null, date_kind: null }]),
       });
     });
   });
@@ -517,7 +517,7 @@ describe('Fridge', () => {
     await waitFor(() => {
       expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', {
         method: 'PUT',
-        body: JSON.stringify([{ name: 'Cream', quantity_grams: 500, need_to_use: false, expiration_date: null }]),
+        body: JSON.stringify([{ name: 'Cream', quantity_grams: 500, need_to_use: false, expiration_date: null, date_kind: null }]),
       });
     });
   });
@@ -585,6 +585,7 @@ describe('Fridge — food-waste capture', () => {
           name: 'Spinach',
           quantity_grams: 200,
           expiration_date: '2026-08-01',
+          date_kind: null,
           reason: 'thrown_out',
           source: 'fridge_delete',
         },

@@ -14,6 +14,8 @@ function item(over: Partial<StockItem> = {}): StockItem {
     quantity_grams: 500,
     need_to_use: false,
     expiration_date: addDaysISO(todayISO(), -3),
+    // The one kind that may be kept; the kind tests below override it.
+    date_kind: "best_before",
     ...over,
   };
 }
@@ -54,7 +56,7 @@ describe("ExpiredReviewDialog", () => {
     );
 
     const rows = screen.getAllByRole("group");
-    within(rows[0]).getByRole("radio", { name: /still fine/i }).click();
+    within(rows[0]).getByRole("radio", { name: /keep it/i }).click();
     within(rows[1]).getByRole("radio", { name: /threw it out/i }).click();
     // Row 2 (Cheese) deliberately left alone.
     screen.getByRole("button", { name: /^save$/i }).click();
@@ -82,11 +84,11 @@ describe("ExpiredReviewDialog", () => {
     );
 
     const rows = screen.getAllByRole("group");
-    await user.click(within(rows[0]).getByRole("radio", { name: /still fine/i }));
-    await user.click(within(rows[1]).getByRole("radio", { name: /still fine/i }));
+    await user.click(within(rows[0]).getByRole("radio", { name: /keep it/i }));
+    await user.click(within(rows[1]).getByRole("radio", { name: /keep it/i }));
 
-    expect(within(rows[0]).getByRole("radio", { name: /still fine/i })).toBeChecked();
-    expect(within(rows[1]).getByRole("radio", { name: /still fine/i })).toBeChecked();
+    expect(within(rows[0]).getByRole("radio", { name: /keep it/i })).toBeChecked();
+    expect(within(rows[1]).getByRole("radio", { name: /keep it/i })).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: /^save$/i }));
     expect(onApply.mock.calls[0][0]).toHaveLength(2);
@@ -119,7 +121,7 @@ describe("ExpiredReviewDialog", () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it("tells the user what \"still fine\" will do to the date", () => {
+  it("tells the user what \"keep it\" will do to the date", () => {
     // Moving the stored date is a real edit to their fridge; doing it silently
     // would read as a bug.
     render(<ExpiredReviewDialog items={[item()]} onApply={vi.fn()} onSkip={vi.fn()} />);
@@ -145,5 +147,36 @@ describe("ExpiredReviewDialog", () => {
       />,
     );
     expect(untranslatedEnglishIn(screen.getByRole("dialog"))).toEqual([]);
+  });
+
+  it.each([["use_by"], ["estimated_ai"], ["estimated_table"], [null]] as const)(
+    "offers only \"threw it out\" for a %s date",
+    (kind) => {
+      // Past a use-by date the food must not be eaten, and an estimate or an
+      // unknown kind says nothing about the pack, so "Keep it" is not offered.
+      render(
+        <ExpiredReviewDialog items={[item({ date_kind: kind })]} onApply={vi.fn()} onSkip={vi.fn()} />,
+      );
+      const radios = screen.getAllByRole("radio");
+      expect(radios).toHaveLength(1);
+      expect(radios[0]).toHaveAccessibleName(/threw it out/i);
+      expect(screen.queryByText(/moves its date on a week/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/only food with a best-before date/i)).toBeInTheDocument();
+    },
+  );
+
+  it("offers \"keep it\" per row, by each row's own kind", () => {
+    render(
+      <ExpiredReviewDialog
+        items={[item({ id: 1, name: "Pasta" }), item({ id: 2, name: "Ham", date_kind: "use_by" })]}
+        onApply={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+    );
+    const [pasta, ham] = screen.getAllByRole("group");
+    expect(within(pasta).getByRole("radio", { name: /keep it/i })).toBeInTheDocument();
+    expect(within(ham).queryByRole("radio", { name: /keep it/i })).not.toBeInTheDocument();
+    // One kept-able row is enough for the best-before advice to show.
+    expect(screen.getByText(/best-before date is about quality \(EFSA\)/i)).toBeInTheDocument();
   });
 });

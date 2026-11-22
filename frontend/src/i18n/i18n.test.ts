@@ -170,15 +170,22 @@ describe('Czech date labels', () => {
     // trvanlivost do“ (best before) for the date printed on a pack. The app
     // stores one date, mostly an estimate, and does not know its kind, so its
     // labels stay neutral: „Datum“, „Odhad“, „Datum na obalu“
-    // (docs/food-storage-design.md, F3). A label that names the kind the user
-    // picked from the pack goes on an explicit allowlist here.
+    // (docs/food-storage-design.md, F3). Where the words name the kind the
+    // user picked from the pack, the key is on the list below, and the list
+    // must match exactly, so a stale entry cannot hide a new hit.
     // \s also matches a non-breaking space; \p{L}* takes every case of
     // „datum“ (data, datu, datem, datům, datech).
     const statutory = /spotřeb(ujte|ovat)\s+do|dat\p{L}*\s+spotřeby|minimální\s+trvanlivost/iu;
+    const NAMES_THE_PACK_KIND = [
+      'fridgeItem.dateKindUseBy',
+      'fridgeItem.dateKindBestBefore',
+      'expired.bestBeforeHint',
+      'expired.optionalHint',
+    ];
     const hits = Object.entries(cs)
       .filter(([, text]) => statutory.test(text))
       .map(([key]) => key);
-    expect(hits).toEqual([]);
+    expect(hits.sort()).toEqual([...NAMES_THE_PACK_KIND].sort());
   });
 });
 
@@ -188,11 +195,21 @@ describe('storage advice wording', () => {
   // cannot see the food, its storage or its cold chain.
   const EN = /\bsafe|still good|\bfresh\b|ok to eat/i;
   const CS = /bezpečn|v pořádku|čerstv/i;
-  const storageKeys = (Object.keys(en) as TranslationKey[]).filter((k) => k.startsWith('storage.'));
+  const storageKeys = (Object.keys(en) as TranslationKey[]).filter(
+    (k) => k.startsWith('storage.') || k.startsWith('expired.') || k.startsWith('fridgeItem.dateKind'),
+  );
 
-  it('covers the keep-and-reheat lines', () => {
-    // A rename out of the storage.* prefix would silently empty the lint.
-    expect(storageKeys).toEqual(expect.arrayContaining(['storage.leftoversFridge', 'storage.leftoversFreezer']));
+  it('covers the keep-and-reheat lines, the past-date dialog and the kind picker', () => {
+    // A rename out of these prefixes would silently empty the lint.
+    expect(storageKeys).toEqual(
+      expect.arrayContaining([
+        'storage.leftoversFridge',
+        'storage.leftoversFreezer',
+        'expired.stillFine',
+        'expired.bestBeforeHint',
+        'fridgeItem.dateKindBestBefore',
+      ]),
+    );
   });
 
   it('never claims food is safe, in either language', () => {

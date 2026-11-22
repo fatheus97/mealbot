@@ -735,6 +735,11 @@ class StockItem(SQLModel, table=True):
     quantity_grams: float = Field(ge=0)
     need_to_use: bool = Field(default=False, index=True)
     expiration_date: date | None = Field(default=None, index=True)
+    # What expiration_date is: "use_by" or "best_before" printed on the pack, or
+    # "estimated_table" / "estimated_ai", our guess (docs/food-storage-design.md).
+    # NULL is legacy or unknown, and every check treats it as use_by. A loose str
+    # like WasteRecord.reason; StockItemDTO's Literal stops anything else.
+    date_kind: str | None = Field(default=None)
 
 
 class WasteRecord(SQLModel, table=True):
@@ -773,6 +778,10 @@ class WasteRecord(SQLModel, table=True):
     # (or before) the date survives — that gap against created_at is the whole
     # shelf-life calibration signal.
     expiration_date: date | None = Field(default=None)
+    # The item's StockItem.date_kind when it left, so the storage table can later
+    # be checked against still_fine and thrown_out by kind (the design's "Later").
+    # NULL for rows from before it existed, and for unknown kinds.
+    date_kind: str | None = Field(default=None)
     # "thrown_out" | "eaten" | "still_fine". Loose str, not an enum column, so a
     # further disposition needs no migration — the same choice FeedbackReport.status
     # and AccessRequest.status made, and "still_fine" is that bet already paying

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FridgeItemModal } from "./FridgeItemModal";
 import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
 import { untranslatedEnglishIn } from "../test/i18nAssertions";
 
-const defaultValues = { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false };
+const defaultValues = { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false, date_kind: null };
 
 describe("FridgeItemModal", () => {
   beforeEach(() => {
@@ -43,7 +43,7 @@ describe("FridgeItemModal", () => {
     render(
       <FridgeItemModal
         mode="edit"
-        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: "2026-04-01", need_to_use: true }}
+        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: "2026-04-01", need_to_use: true, date_kind: null }}
         onOk={vi.fn()}
         onCancel={vi.fn()}
       />,
@@ -69,6 +69,7 @@ describe("FridgeItemModal", () => {
       quantity_grams: 100,
       expiration_date: null,
       need_to_use: false,
+      date_kind: null,
     });
   });
 
@@ -159,6 +160,7 @@ describe("FridgeItemModal", () => {
       quantity_grams: 12.5,
       expiration_date: null,
       need_to_use: false,
+      date_kind: null,
     });
   });
 
@@ -166,7 +168,7 @@ describe("FridgeItemModal", () => {
     render(
       <FridgeItemModal
         mode="edit"
-        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: null, need_to_use: true }}
+        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: null, need_to_use: true, date_kind: null }}
         onOk={vi.fn()}
         onCancel={vi.fn()}
         needToUseEnabled={false}
@@ -184,7 +186,7 @@ describe("FridgeItemModal", () => {
     render(
       <FridgeItemModal
         mode="edit"
-        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: null, need_to_use: true }}
+        initialValues={{ name: "Eggs", quantity_grams: 200, expiration_date: null, need_to_use: true, date_kind: null }}
         onOk={onOk}
         onCancel={vi.fn()}
         needToUseEnabled={false}
@@ -198,6 +200,7 @@ describe("FridgeItemModal", () => {
       quantity_grams: 200,
       expiration_date: null,
       need_to_use: true,
+      date_kind: null,
     });
   });
 
@@ -212,5 +215,101 @@ describe("FridgeItemModal", () => {
     await user.keyboard("abc");
 
     expect(qty.value).toBe("100");
+  });
+});
+
+describe("FridgeItemModal date kind", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  const dateInput = (container: HTMLElement) =>
+    container.querySelector('input[type="date"]') as HTMLInputElement;
+  const picker = () => screen.getByRole("combobox", { name: "Date from the pack?" });
+  const estimated = {
+    name: "Carrot", quantity_grams: 300, expiration_date: "2026-12-01",
+    need_to_use: false, date_kind: "estimated_ai" as const,
+  };
+
+  it("asks only once there is a date, and saves the kind picked from the pack", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={onOk} onCancel={vi.fn()} />,
+    );
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), "Pasta");
+    fireEvent.change(dateInput(container), { target: { value: "2027-03-01" } });
+    expect(picker()).toHaveValue("");
+    await user.selectOptions(picker(), "best_before");
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+    expect(onOk).toHaveBeenCalledWith(
+      expect.objectContaining({ expiration_date: "2027-03-01", date_kind: "best_before" }),
+    );
+  });
+
+  it("keeps an estimate while its date is untouched", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    render(<FridgeItemModal mode="edit" initialValues={estimated} onOk={onOk} onCancel={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+    expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ date_kind: "estimated_ai" }));
+  });
+
+  it("makes a retyped date unknown unless the pack names its kind", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <FridgeItemModal mode="edit" initialValues={estimated} onOk={onOk} onCancel={vi.fn()} />,
+    );
+    fireEvent.change(dateInput(container), { target: { value: "2026-12-05" } });
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+    expect(onOk).toHaveBeenCalledWith(
+      expect.objectContaining({ expiration_date: "2026-12-05", date_kind: null }),
+    );
+  });
+
+  it("shows a pack kind and drops it when the user says No", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FridgeItemModal
+        mode="edit"
+        initialValues={{ ...estimated, date_kind: "use_by" }}
+        onOk={onOk}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(picker()).toHaveValue("use_by");
+    await user.selectOptions(picker(), "");
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+    expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ date_kind: null }));
+  });
+
+  it("saves no kind without a date", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <FridgeItemModal
+        mode="edit"
+        initialValues={{ ...estimated, date_kind: "best_before" }}
+        onOk={onOk}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.change(dateInput(container), { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+    expect(onOk).toHaveBeenCalledWith(
+      expect.objectContaining({ expiration_date: null, date_kind: null }),
+    );
+  });
+
+  it("leaves no untranslated English in the picker in Czech", () => {
+    useLocaleStore.setState({ locale: "cs", explicit: true });
+    const { container } = render(
+      <FridgeItemModal mode="edit" initialValues={estimated} onOk={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(container.querySelector("select")).not.toBeNull();
+    expect(untranslatedEnglishIn(container)).toEqual([]);
   });
 });

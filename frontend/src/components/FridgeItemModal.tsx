@@ -1,12 +1,20 @@
 import { useState } from "react";
 import { useI18n } from "../i18n";
+import type { DateKind } from "../types";
 
 export interface FridgeItemValues {
   name: string;
   quantity_grams: number;
   expiration_date: string | null;
   need_to_use: boolean;
+  date_kind: DateKind | null;
 }
+
+// What the picker can say: a pack prints a use-by or a best-before date, and
+// "" is "not from the pack".
+type PackKind = "use_by" | "best_before" | "";
+const packKindOf = (kind: DateKind | null): PackKind =>
+  kind === "use_by" || kind === "best_before" ? kind : "";
 
 interface FridgeItemModalProps {
   mode: "add" | "edit";
@@ -26,6 +34,7 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
   const [quantity, setQuantity] = useState(String(initialValues.quantity_grams));
   const [expiration, setExpiration] = useState(initialValues.expiration_date ?? "");
   const [needToUse, setNeedToUse] = useState(initialValues.need_to_use);
+  const [packKind, setPackKind] = useState<PackKind>(packKindOf(initialValues.date_kind));
   const [error, setError] = useState("");
   const [quantityError, setQuantityError] = useState("");
 
@@ -39,11 +48,17 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
       setQuantityError(t("fridgeItem.quantityPositive"));
       return;
     }
+    const date = expiration || null;
+    // "No" keeps an estimate only while its date is untouched: a date typed by
+    // hand is unknown unless the pack says which kind it is.
+    const was = initialValues.date_kind;
+    const unpacked = packKindOf(was) === "" && date === initialValues.expiration_date ? was : null;
     onOk({
       name: name.trim(),
       quantity_grams: parsedQuantity,
-      expiration_date: expiration || null,
+      expiration_date: date,
       need_to_use: needToUse,
+      date_kind: date === null ? null : packKind || unpacked,
     });
   };
 
@@ -120,6 +135,21 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
               style={{ width: "160px" }}
             />
           </label>
+
+          {expiration && (
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              {t("fridgeItem.dateKind")}
+              <select
+                value={packKind}
+                onChange={(e) => setPackKind(e.target.value as PackKind)}
+                style={{ width: "220px" }}
+              >
+                <option value="">{t("fridgeItem.dateKindNone")}</option>
+                <option value="use_by">{t("fridgeItem.dateKindUseBy")}</option>
+                <option value="best_before">{t("fridgeItem.dateKindBestBefore")}</option>
+              </select>
+            </label>
+          )}
 
           {needToUseEnabled && (
             <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

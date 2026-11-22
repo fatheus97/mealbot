@@ -322,6 +322,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
             name: item.name,
             quantity_grams: item.quantity_grams,
             expiration_date: item.expiration_date ?? null,
+            date_kind: item.date_kind ?? null,
             reason: wasteAnswer,
             source: "fridge_delete",
           }))
@@ -350,6 +351,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
           quantity_grams: values.quantity_grams,
           need_to_use: values.need_to_use,
           expiration_date: values.expiration_date,
+          date_kind: values.date_kind,
           _editId: assignId(),
         },
       ];
@@ -361,6 +363,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
         quantity_grams: values.quantity_grams,
         need_to_use: values.need_to_use,
         expiration_date: values.expiration_date,
+        date_kind: values.date_kind,
       };
     } else {
       setModalState(null);
@@ -810,8 +813,9 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
                   quantity_grams: fridge[modalState.editIndex].quantity_grams,
                   expiration_date: fridge[modalState.editIndex].expiration_date ?? null,
                   need_to_use: fridge[modalState.editIndex].need_to_use,
+                  date_kind: fridge[modalState.editIndex].date_kind ?? null,
                 }
-              : { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false }
+              : { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false, date_kind: null }
           }
           onOk={handleModalOk}
           onCancel={handleModalCancel}

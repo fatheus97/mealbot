@@ -886,15 +886,21 @@ export const en = {
   "expired.body_one": "1 item in your fridge is past the date on it.",
   "expired.body_other": "{count} items in your fridge are past the date on them.",
   "expired.itemMeta": "{grams} g · dated {date}",
-  "expired.stillFine": "Still fine",
+  // Only for a best-before date (allowsStillFine). Says what the user decides,
+  // never that the food is fine: the app cannot see it.
+  "expired.stillFine": "Keep it",
   "expired.thrownOut": "Threw it out",
   "expired.apply": "Save",
   "expired.applying": "Saving…",
   "expired.skip": "Skip",
-  // Says what "Still fine" DOES, because moving the date is a real edit to
-  // their fridge and a silent one would read as a bug.
+  // Shown when a row offers "Keep it". EFSA's Safe2Eat food date labelling
+  // page: the date is about quality, so check with look, smell and taste. Says
+  // what "Keep it" DOES, because moving the date is a real edit to their
+  // fridge and a silent one would read as a bug.
+  "expired.bestBeforeHint":
+    "A best-before date is about quality (EFSA): food stored as the pack says may have lost some taste or texture after it. Look at it, smell it and taste a little to check. \"Keep it\" moves its date on a week.",
   "expired.optionalHint":
-    "Optional — skip anything you're not sure about. \"Still fine\" keeps the item and moves its date on a week.",
+    "Optional: skip anything you're not sure about. Only food with a best-before date from the pack can be kept here; you can set that when you edit it in the Fridge panel.",
   // The dialog closes as soon as it is answered, so a failed fridge write has
   // nowhere else to be reported.
   "expired.saveFailed": "Could not update your fridge — nothing was changed. Try again from the Fridge panel.",
@@ -911,7 +917,13 @@ export const en = {
   "fridgeItem.quantityPositive": "Enter a quantity greater than 0",
   "fridgeItem.namePlaceholder": "e.g. Chicken breast",
   "fridgeItem.quantity": "Quantity (g)",
-  "fridgeItem.expiration": "Expiration date",
+  "fridgeItem.expiration": "Date",
+  // The kind picker (docs/food-storage-design.md, manual add). "No" keeps a
+  // scan's estimate while its date is untouched; see FridgeItemModal.
+  "fridgeItem.dateKind": "Date from the pack?",
+  "fridgeItem.dateKindNone": "No",
+  "fridgeItem.dateKindUseBy": "Yes, Use by",
+  "fridgeItem.dateKindBestBefore": "Yes, Best before",
   "fridgeItem.needToUse": "Need to use",
   "fridgeItem.ok": "OK",
   "fridgeItem.cancel": "Cancel",
