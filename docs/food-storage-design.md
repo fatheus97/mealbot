@@ -45,6 +45,7 @@ Not in v1:
 | Ministry of Agriculture, food-safety department, 2023 teaching answer key (ISBN 978-80-7434-691-0) | © MZe | Leftovers within two days, discard infant leftovers after the feeding, reheat once | Czech citation for leftovers |
 | Regulation (EU) 1169/2011, Art. 24 and Annex X | EU law | After the use-by date food is deemed unsafe; the label words | Hard rules |
 | USDA FSIS temperature chart and leftovers page | US public domain | Temperatures in °F/°C, leftovers 3 to 4 days | Gaps only, always labelled as US |
+| NHS (nhs.uk) baby food and at-risk pages | Reuse terms not checked; cite, do not copy | Throw away half-eaten portions; stricter advice for pregnancy, babies and weakened immunity | The baby-leftovers line and the at-risk link |
 
 Articles on bezpecnostpotravin.cz are written by different authors, mostly the NGO Fórum zdravé výživy, on the ministry's portal. They are not cited as the ministry's view.
 
@@ -95,7 +96,7 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 
 ## Deterministic checks
 
-1. Food with `expiration_date < today` is absent from both the urgent and the normal stock lists in the plan prompt and the Cook Now prompt, through one shared helper. Negative control: an item dated today is still listed as urgent.
+1. Food with `expiration_date < today` is absent from both the urgent and the normal stock lists in the plan prompt and the Cook Now prompt, through one shared helper. Negative control: an item dated today is still listed as urgent. An undated item is never left out, and one with `need_to_use` set stays in the urgent list (meal_plan.jinja:24 selects on `need_to_use` alone), which is what check 4 relies on.
 2. A table suggestion never writes a date on an item whose kind is `use_by` or `best_before`.
 3. A suggested date is the base date plus the low end of the range, and only Hours, Days and Weeks produce one.
 4. An opened item from a food photo never gets the unopened shelf life. Its date stays empty unless an after-opening row matches, and that date is capped by any printed date. An opened item that gets no date is saved with `need_to_use` set, so it still goes into the next plan first instead of sitting in the fridge with no urgency.
@@ -123,6 +124,8 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 - **Product Liability Directive (EU) 2024/2853** applies to products placed on the market after 9 December 2026, and software counts as a product. The exposure is in deterministic code paths, which is why the F1 fix comes first.
 
 ## PR slices
+
+Each slice re-checks the file:line citations it relies on against its own base; the numbers in this doc are a snapshot.
 
 1. **fix(planner):** leave past-dated food out of the plan and Cook Now prompts, with the planner line. No migration.
    - Before merging, count the past-dated rows in prod, so the PR says how much food the change takes out of planning. Until slice 4 every date counts as `use_by` (legacy NULL), so best-before food is left out too.
