@@ -192,11 +192,26 @@ def singular(word: str) -> str:
     return word
 
 
+def words(name: str) -> list[str]:
+    """The normalised name's words and numbers, in order; commas, brackets
+    and hyphens only separate them."""
+    return _TOKEN.findall(normalize_key(name))
+
+
 def english_form(name: str) -> str:
     """The normalised key as its words, each in the singular, so a plural or
     punctuation never makes a second key: "Chicken thighs, boneless" and
     "chicken thigh (boneless)" are "chicken thigh boneless"."""
-    return " ".join(singular(t) if t.isalpha() else t for t in _TOKEN.findall(normalize_key(name)))
+    return " ".join(singular(t) if t.isalpha() else t for t in words(name))
+
+
+def sorted_form(lang: str, name: str) -> str:
+    """A name's words sorted, English ones in the singular as english_form
+    reads them, so neither word order nor punctuation tells two names apart:
+    "bone-in, skin-on chicken thighs" and "chicken thigh (skin-on, bone-in)"
+    are one. Czech words keep their form ("stehno" and "stehna" differ).
+    Cook mode matches storage's cook_keys.csv this way."""
+    return " ".join(sorted(english_form(name).split() if lang == "en" else words(name)))
 
 
 @dataclass(frozen=True)

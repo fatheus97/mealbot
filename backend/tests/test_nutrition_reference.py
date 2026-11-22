@@ -63,7 +63,7 @@ CS_COOKED = re.compile(
 # kosti" is boneless, so it is allowed).
 WASTE = re.compile(
     r"\b(?:bone-in|bone in|bones?\b(?![ -](?:broth|stock))|on the bone"
-    r"|whole (?:[\w-]+ )?(?:chicken|duck|fish|turkey)s?|in (?:the )?shells?|unpeeled)\b"
+    r"|whole (?:[\w-]+ )?(?:(?:chicken|duck|fish|turkey)s?|goose|geese)|in (?:the )?shells?|unpeeled)\b"
     r"|(?<!bez )\bkost[ií]\b|\bcel[áéý] (?:kuře|kachna|krůta|husa|ryba|kapr|pstruh)\b|\bve skořápce\b|\bneloupan"
 )
 _TOKENS = re.compile(r"[a-z]+")
@@ -515,6 +515,7 @@ def test_seasoning_bounds_reject(name: str, food: Food) -> None:
     "hovězí kosti", "celá kachna", "celé kuře", "hovězí maso s kostí", "kuřecí stehna s kůží a kostí",
     # spelling variants of the same
     "whole chickens", "whole free-range chicken", "vejce ve skořápce", "neloupané brambory",
+    "whole goose", "whole geese",  # celá husa was caught, its English twin was not
 ])
 def test_waste_gate_rejects(key: str) -> None:
     assert WASTE.search(key)

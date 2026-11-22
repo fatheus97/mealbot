@@ -12,10 +12,10 @@ README.md):
   same ids) naming its cook category, or ``none``. ``fk_id`` and ``fk_field``
   stay empty until the FoodKeeper rows arrive.
 * ``cook_keys.csv``: ingredient names the nutrition table can never resolve,
-  because its waste gate keeps keys that need bone arithmetic out of
-  aliases.csv (whole birds, bone-in pieces), with their cook category. Keys
-  are stored in the form the endpoint looks them up in: English in
-  ``english_form``, Czech in ``normalize_key``.
+  because its waste gate keeps names that need bone, shell or peel arithmetic
+  out of aliases.csv, with their cook category: whole birds and fish and
+  bone-in pieces. Written as a recipe would write them; the endpoint
+  matches their words in any order (nutrition_reference.sorted_form).
 
 Stdlib only and never imports the nutrition modules: the food ids join the
 two tables in the tests, and the endpoint that resolves ingredient names
@@ -101,7 +101,7 @@ class FoodRow:
 class StorageReference:
     rules: Mapping[CookCategory, CookRule]  # in rules.csv order
     foods: Mapping[str, FoodRow]
-    cook_keys: Mapping[tuple[str, str], CookCategory]  # (lang, key) as stored
+    cook_keys: Mapping[tuple[str, str], CookCategory]  # (lang, key) as written
 
     def cook_rules(self, categories: Iterable[CookCategory | None]) -> list[CookRule]:
         """The rules for these categories, each once and in rules.csv order."""

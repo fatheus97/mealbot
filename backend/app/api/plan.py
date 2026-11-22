@@ -1,6 +1,7 @@
 import json
 import logging
 import unicodedata
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
 
@@ -22,12 +23,7 @@ from app.core.country_whitelist import normalize_country
 from app.core.dietary_reference import ALLERGEN_INFO
 from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
-from app.core.nutrition_reference import (
-    NutritionReference,
-    english_form,
-    normalize_key,
-    nutrition_reference,
-)
+from app.core.nutrition_reference import NutritionReference, nutrition_reference, sorted_form
 from app.core.rate_limit import limiter, user_id_key_func
 from app.core.storage_reference import CookCategory, StorageReference, storage_reference
 from app.db import get_session
@@ -101,7 +97,7 @@ from app.services.leftovers import (
     validate_leftover_graph,
 )
 from app.services.meal_planner import generate_partial_day
-from app.services.nutrition import plan_nutrition, recipe_key, unavailable
+from app.services.nutrition import plan_nutrition, reads_czech_first, recipe_key, unavailable
 from app.services.pantry_service import load_staple_keys
 from app.services.plan_repeat import (
     PlanHealthDataRemovedError,
@@ -411,22 +407,34 @@ async def _recipe_language(session: AsyncSession, user: User, meal_entry_id: int
     return normalize_language(stored or "") or fallback
 
 
+def _cook_keys(storage: StorageReference) -> dict[tuple[str, str], CookCategory]:
+    """cook_keys.csv by its rows' words, as names are matched against it."""
+    return {(lang, sorted_form(lang, key)): category for (lang, key), category in storage.cook_keys.items()}
+
+
 def _cook_category(
     ing: IngredientAmount, language: str, ref: NutritionReference, storage: StorageReference,
+    cook_keys: Mapping[tuple[str, str], CookCategory],
 ) -> CookCategory | None:
     """An ingredient's cook category: map.csv's for the food the nutrition
-    resolver finds, else cook_keys.csv's for a key it can never find (whole
-    birds and bone-in pieces, which nutrition's waste gate keeps out of
-    aliases.csv). None for no category."""
+    resolver finds, else cook_keys.csv's for a name it can never find (the
+    whole birds and fish and bone-in pieces listed there, which nutrition's
+    waste gate keeps out of aliases.csv). None for no category."""
+    # A Czech name in the list decides first, as the Czech index does for
+    # nutrition: name_en can drop the bone ("celá kachna" comes back as
+    # "duck"). No cook key is in the Czech index, so this never overrides a
+    # nutrition match.
+    if reads_czech_first(language) and (category := cook_keys.get(("cs", sorted_form("cs", ing.name)))):
+        return category
     key = recipe_key(ing, language, ref)
     if key is None:
         return None
-    lang, name = key
-    hit = ref.lookup(lang, name)
+    hit = ref.lookup(*key)
     if hit is not None:
         row = storage.foods.get(hit[1].id)
         return row.cook_category if row is not None else None
-    return storage.cook_keys.get((lang, english_form(name) if lang == "en" else normalize_key(name)))
+    lang, name = key
+    return cook_keys.get((lang, sorted_form(lang, name)))
 
 
 @router.post("/cook-temperatures", response_model=CookTemperatures)
@@ -442,8 +450,9 @@ async def get_cook_temperatures(
     """The cooking-temperature lines for a dish in cook mode
     (docs/food-storage-design.md, slice 7). Each ingredient goes through the
     nutrition resolver in the language the recipe is written in, then
-    map.csv, or cook_keys.csv for a whole bird or a bone-in piece; every
-    matched category with a figure gives one line, in rules.csv order.
+    map.csv, or cook_keys.csv for the whole birds and fish and bone-in pieces
+    listed there; every matched category with a figure gives one line, in
+    rules.csv order.
 
     The ingredients come from the client, so an unsaved Cook Now edit counts
     too. A meal_entry_id only names the plan whose language to use; it is
@@ -455,7 +464,8 @@ async def get_cook_temperatures(
     advice is the FSA's note that they can be served pink: adult advice, and
     cook mode cannot tell a baby's plan from an adult's (design decision 6)."""
     language = await _recipe_language(session, current_user, body.meal_entry_id)
-    rules = storage.cook_rules(_cook_category(ing, language, ref, storage) for ing in body.ingredients)
+    cook_keys = _cook_keys(storage)
+    rules = storage.cook_rules(_cook_category(ing, language, ref, storage, cook_keys) for ing in body.ingredients)
     return CookTemperatures(lines=[
         CookTemperatureLine(
             category=rule.category, core_c=rule.core_c, hold_c=rule.hold_c, hold_min=rule.hold_min,

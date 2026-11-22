@@ -168,15 +168,24 @@ class TestShippedTable:
         # Nutrition counts none of these (its waste gate), so cook_keys.csv
         # carries them, read in the singular like the nutrition index.
         await _speak(db_session, test_user, "English")
-        for name in ("whole chicken", "Whole Chickens", "chicken thighs (bone-in, skin-on)", "whole duck"):
+        for name in (
+            "whole chicken", "Whole Chickens", "chicken thighs (bone-in, skin-on)", "bone-in, skin-on chicken thighs",
+            "whole duck",
+        ):
             assert [line["category"] for line in await _lines(client, _ing(name))] == ["poultry"], name
+        assert [line["category"] for line in await _lines(client, _ing("whole fish"))] == ["fish"]
         assert await _lines(client, _ing("beef bones")) == []  # not a cook key: bones go into stock
 
     async def test_a_czech_whole_bird_matches_with_or_without_name_en(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User,
     ) -> None:
         await _speak(db_session, test_user, "Czech")
-        for ing in (_ing("celé kuře"), _ing("celé kuře", "whole chicken"), _ing("Celá kachna")):
+        # A generated Czech line always carries name_en, and it can drop the
+        # bone: the Czech name decides, as it does for nutrition.
+        for ing in (
+            _ing("celé kuře"), _ing("celé kuře", "whole chicken"), _ing("celé kuře", "chicken"),
+            _ing("Celá kachna", "duck"), _ing("kuřecí stehna s kostí a kůží", "chicken thighs with bone and skin"),
+        ):
             assert [line["category"] for line in await _lines(client, ing)] == ["poultry"], ing
         # Another language reaches the list through name_en only.
         await _speak(db_session, test_user, "Slovak")
@@ -184,6 +193,7 @@ class TestShippedTable:
             "poultry"
         ]
         assert await _lines(client, _ing("celé kuře")) == []
+        assert await _lines(client, _ing("celé kuře", "chicken")) == []  # the Czech list is for Czech plans
 
     async def test_an_empty_dish_gives_no_line(self, client: AsyncClient) -> None:
         assert await _lines(client) == []

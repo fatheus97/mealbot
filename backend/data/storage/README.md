@@ -11,9 +11,9 @@ The data behind the cooking temperatures in cook mode (docs/food-storage-design.
 - **map.csv** has one row per nutrition food (the ids of `../nutrition/foods.csv` and `../nutrition/off/foods.csv`) naming its cook category, or `none`.
   - A categorised food whose name is not raw, and an animal food left at `none`, need an `override_note` saying why.
   - `fk_id` and `fk_field` stay empty until the FoodKeeper rows arrive (slice 5).
-- **cook_keys.csv** has one row per ingredient name the nutrition table can never resolve, with its cook category: whole birds and bone-in pieces, which nutrition's waste gate keeps out of `../nutrition/aliases.csv` because their figures would need bone arithmetic. Cook mode reads it only when the nutrition table finds nothing.
-  - English keys are written as the lookup reads them: singular words, no punctuation ("chicken thigh bone in skin on" covers "chicken thighs, bone-in, skin-on"). Czech keys are lowercase.
-  - A key that needs no bone arithmetic belongs in aliases.csv, where its figures are reviewed too. The tests refuse it here, and refuse a key the nutrition table already resolves.
+- **cook_keys.csv** has one row per ingredient name the nutrition table can never resolve, with its cook category: whole birds and fish and bone-in pieces, which nutrition's waste gate keeps out of `../nutrition/aliases.csv` because their figures would need bone, shell or peel arithmetic. Cook mode reads it for cook categories only; a Czech name in it decides first on a Czech recipe, an English one when nutrition finds nothing.
+  - Names are written as a recipe writes them. A row matches its words in any order, English words in the singular: "chicken thighs, bone-in, skin-on" also covers "bone-in, skin-on chicken thighs". Czech words keep their form, so "stehno" and "stehna" need a row each. The tests refuse two rows with the same words.
+  - A name the waste gate would let into aliases.csv belongs there, where its figures are reviewed too. The tests refuse it here, and refuse a name the nutrition table already resolves.
 
 ## Which figure wins
 

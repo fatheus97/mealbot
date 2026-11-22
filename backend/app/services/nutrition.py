@@ -212,6 +212,12 @@ def recipe_key(ing: IngredientAmount, language: str | None, ref: NutritionRefere
     return _Language.of(language).key(ing, ref)
 
 
+def reads_czech_first(language: str | None) -> bool:
+    """Whether a recipe in `language` is read through the Czech index before
+    name_en, as recipe_key reads it."""
+    return _Language.of(language).czech
+
+
 def _dish(
     meal: PlannedMeal, *, day_index: int, meal_index: int, servings: int,
     lang: _Language, ref: NutritionReference,
