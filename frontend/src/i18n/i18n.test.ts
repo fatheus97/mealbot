@@ -172,7 +172,9 @@ describe('Czech date labels', () => {
     // labels stay neutral: „Datum“, „Odhad“, „Datum na obalu“
     // (docs/food-storage-design.md, F3). A label that names the kind the user
     // picked from the pack goes on an explicit allowlist here.
-    const statutory = /spotřeb(ujte|ovat) do|dat(um|u|em) spotřeby|minimální trvanlivost/i;
+    // \s also matches a non-breaking space; \p{L}* takes every case of
+    // „datum“ (data, datu, datem, datům, datech).
+    const statutory = /spotřeb(ujte|ovat)\s+do|dat\p{L}*\s+spotřeby|minimální\s+trvanlivost/iu;
     const hits = Object.entries(cs)
       .filter(([, text]) => statutory.test(text))
       .map(([key]) => key);
