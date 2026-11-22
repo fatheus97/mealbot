@@ -4,7 +4,7 @@
 // 0-based, addressing positions inside MealPlanResponse.days.
 
 import { mealTypeLabel } from "../constants/mealTypes";
-import type { LeftoverRef, MealPlanResponse } from "../types";
+import type { LeftoverRef, LeftoverStorage, MealPlanResponse } from "../types";
 import { dayDateLabel } from "./planDates";
 import type { TranslationKey } from "../i18n";
 import type { Locale } from "../store/useLocaleStore";
@@ -53,6 +53,42 @@ export function leftoverSourceLabel(
     t("planner.day", { n: ref.day_index + 1 });
   const slot = mealTypeLabel(source.meal_type, source.meal_type_label);
   return `${day} · ${slot} — ${source.name}`;
+}
+
+/** The keep-and-reheat line for each place leftovers wait. Sources and
+ *  figures: docs/food-storage-design.md (the strictest of the UK FSA, SZÚ and
+ *  the Czech Ministry of Agriculture; the NHS for the baby line). */
+export const LEFTOVER_KEEP_KEY: Record<LeftoverStorage, TranslationKey> = {
+  fridge: "storage.leftoversFridge",
+  freezer: "storage.leftoversFreezer",
+};
+
+/** Where a link's portions wait. A link stored before the backend stamped
+ *  `storage` reads as the fridge, the one place both callers default it. */
+export function storageOf(ref: LeftoverRef): LeftoverStorage {
+  return ref.storage ?? "fridge";
+}
+
+/**
+ * Where the extra portions of the meal at (dayIndex, mealIndex) wait, when
+ * later meals in the plan are its leftovers; null when none are. One source
+ * feeds leftovers of one plan, so they all share a policy and the first
+ * link answers for the rest.
+ */
+export function leftoverStorageOf(
+  plan: MealPlanResponse | null | undefined,
+  dayIndex: number,
+  mealIndex: number,
+): LeftoverStorage | null {
+  for (const day of plan?.days ?? []) {
+    for (const meal of day.meals ?? []) {
+      const ref = meal.leftover_of;
+      if (ref && ref.day_index === dayIndex && ref.meal_index === mealIndex) {
+        return storageOf(ref);
+      }
+    }
+  }
+  return null;
 }
 
 // The compact narrow-screen label moved to the i18n dictionary

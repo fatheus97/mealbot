@@ -670,6 +670,9 @@ class ConsumedBatch(BaseModel):
     need_to_use: bool = False
 
 
+LeftoverStorage = Literal["fridge", "freezer"]
+
+
 class LeftoverRef(BaseModel):
     """Pointer to the SOURCE meal a leftover was cooked as part of.
 
@@ -686,6 +689,14 @@ class LeftoverRef(BaseModel):
     """
     day_index: int = Field(ge=0, description="0-based day index within THIS plan.")
     meal_index: int = Field(ge=0, description="0-based meal index within that day.")
+    # Where the extra portions wait until this meal, which picks the keep-and-
+    # reheat line the UI shows (docs/food-storage-design.md, slice 3). Baby
+    # food plans purees up to 3 days later on the assumption that they are
+    # frozen, so its links say "freezer". Stamped from the leftover policy when
+    # the link is made, so a read never needs the diet, which is consent-gated
+    # health data. A link stored before this field reads as "fridge" unless
+    # MealPlanResponse can tell its plan was baby food (see its validator).
+    storage: LeftoverStorage = "fridge"
 
 
 # NOTE: a model's docstring becomes the `description` of its JSON schema, and
@@ -937,6 +948,35 @@ class MealPlanResponse(BaseModel):
     # serialized, like start_date, so every stored copy and every read says 0
     # and a reopened plan never repeats the notice.
     past_dated_left_out: int = 0
+
+    @model_validator(mode="after")
+    def _baby_links_wait_in_the_freezer(self) -> MealPlanResponse:
+        """Mark every link of a baby-food plan "freezer", even one stored before
+        LeftoverRef.storage existed (which reads as "fridge").
+
+        Only BABY_FOOD_LEFTOVER_POLICY links a meal more than one day back or
+        points two leftovers at one source: the adult policy has always been
+        lookback 1 and fan-in 1. One policy makes every link in a plan
+        (regenerate only keeps or drops links, repeat copies them), so either
+        shape proves the whole plan. Every read, edit and repeat validates
+        through this model, so the next write stores the corrected value. A
+        legacy baby plan whose links are all single and one day back stays
+        "fridge": nothing short of its consent-gated diet can tell it apart.
+        Only ever upgrades. It assigns to the LeftoverRef children in place,
+        so LeftoverRef must stay unfrozen; freezing it would make this raise
+        on every legacy baby plan read (test_leftovers pins the upgrade).
+        """
+        links = [
+            (day_index, meal.leftover_of)
+            for day_index, day in enumerate(self.days)
+            for meal in day.meals
+            if meal.leftover_of is not None
+        ]
+        sources = [(ref.day_index, ref.meal_index) for _, ref in links]
+        if any(day - ref.day_index > 1 for day, ref in links) or len(set(sources)) < len(sources):
+            for _, ref in links:
+                ref.storage = "freezer"
+        return self
 
 
 # ── Nutrition (GET /api/plan/{id}/nutrition, docs/nutrition-design.md) ──────────

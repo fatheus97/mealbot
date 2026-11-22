@@ -7,6 +7,7 @@ These tests pin the rules before anything can violate them.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -775,6 +776,61 @@ class TestBabyFoodBatches:
         links = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
         assert len(links) == 1
         assert (links[0].day_index, links[0].source.day_index) == (3, 0)
+
+    def test_its_links_say_the_portions_wait_in_the_freezer(self) -> None:
+        # The 3-day lookback is only sound for frozen purees; the link carries
+        # that, so the UI shows the freezer line, never the 2-day fridge one.
+        layouts: list[list[str] | None] = [["main_course"], ["light_lunch"], ["light_lunch"]]
+        baby = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
+        adult = plan_leftover_links(layouts)
+        assert baby and adult
+        assert {a.source.storage for a in baby} == {"freezer"}
+        assert {a.source.storage for a in adult} == {"fridge"}
+
+    def test_a_link_stored_before_the_field_reads_as_fridge(self) -> None:
+        ref = LeftoverRef.model_validate_json('{"day_index": 0, "meal_index": 1}')
+        assert ref.storage == "fridge"
+
+    @staticmethod
+    def _stored_plan(links: dict[tuple[int, int], tuple[int, int]], days: int) -> str:
+        """A plan blob as stored before LeftoverRef.storage existed: two meals a
+        day, `links` maps (day, meal) of a leftover to its source."""
+        meal = {"name": "Puree", "meal_type": "main_course", "ingredients": [], "steps": ["Blend"]}
+        out_days = []
+        for d in range(days):
+            meals = []
+            for m in range(2):
+                src = links.get((d, m))
+                ref = {"day_index": src[0], "meal_index": src[1]} if src else None
+                meals.append({**meal, "leftover_of": ref})
+            out_days.append({"meals": meals})
+        return json.dumps({"plan_id": 1, "days": out_days, "shopping_list": []})
+
+    @staticmethod
+    def _storages(blob: str) -> list[str]:
+        plan = MealPlanResponse.model_validate_json(blob)
+        return [m.leftover_of.storage for d in plan.days for m in d.meals if m.leftover_of]
+
+    def test_a_stored_link_more_than_a_day_back_marks_the_plan_freezer(self) -> None:
+        # Only the baby policy reaches back 3 days, and one policy makes every
+        # link, so the 1-day link in the same plan is baby food too.
+        blob = self._stored_plan({(3, 0): (0, 0), (1, 1): (0, 1)}, days=4)
+        assert self._storages(blob) == ["freezer", "freezer"]
+
+    def test_a_stored_source_feeding_two_leftovers_marks_the_plan_freezer(self) -> None:
+        blob = self._stored_plan({(1, 0): (0, 0), (1, 1): (0, 0)}, days=2)
+        assert self._storages(blob) == ["freezer", "freezer"]
+
+    def test_a_stored_adult_plan_stays_fridge(self) -> None:
+        blob = self._stored_plan({(1, 1): (0, 0), (2, 1): (1, 0)}, days=3)
+        assert self._storages(blob) == ["fridge", "fridge"]
+
+    def test_the_correction_survives_a_write(self) -> None:
+        """An edit or a repeat re-serializes the blob; it must keep freezer."""
+        blob = self._stored_plan({(3, 0): (0, 0)}, days=4)
+        rewritten = MealPlanResponse.model_validate_json(blob).model_dump_json()
+        assert self._storages(rewritten) == ["freezer"]
+        assert json.loads(rewritten)["days"][3]["meals"][0]["leftover_of"]["storage"] == "freezer"
 
     def test_never_reaches_back_beyond_its_own_window(self) -> None:
         # One day past the 3-day window: day 4 <- day 0 must NOT be emitted.

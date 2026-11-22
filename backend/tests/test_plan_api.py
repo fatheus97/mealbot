@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, TypedDict
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -995,7 +995,7 @@ class TestLeftoverPolicyEndToEnd:
         )
         assert resp.status_code == 200
         assert resp.json()["days"][1]["meals"][1]["leftover_of"] == {
-            "day_index": 0, "meal_index": 0,
+            "day_index": 0, "meal_index": 0, "storage": "fridge",
         }
         # And the source day was told to cook a double batch.
         assert mock_gen.await_args_list[0].kwargs["slot_portions"] == [2, 1]
@@ -1070,7 +1070,7 @@ class TestLeftoverPolicyEndToEnd:
         )
         assert resp.status_code == 200
         assert resp.json()["days"][1]["meals"][1]["leftover_of"] == {
-            "day_index": 0, "meal_index": 0,
+            "day_index": 0, "meal_index": 0, "storage": "fridge",
         }, "client opted out of an enabled feature"
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
@@ -1089,7 +1089,7 @@ class TestLeftoverPolicyEndToEnd:
 
         # Day 1 (0-based) lunch is leftovers of day 0's dinner.
         leftover = body["days"][1]["meals"][1]
-        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0, "storage": "fridge"}
         assert leftover["ingredients"] == []
         assert "Leftovers" in leftover["name"]
         # meal_type is preserved — the slot taxonomy is untouched by the link.
@@ -1261,7 +1261,7 @@ class TestRegenerateIsLeftoverSafe:
         body: dict[str, Any] = resp.json()
         # day1.meal1 is leftovers of day0.meal0
         assert body["days"][1]["meals"][1]["leftover_of"] == {
-            "day_index": 0, "meal_index": 0,
+            "day_index": 0, "meal_index": 0, "storage": "fridge",
         }
         return body
 
@@ -1298,7 +1298,7 @@ class TestRegenerateIsLeftoverSafe:
         assert new_body["days"][0]["meals"][0]["name"] == body["days"][0]["meals"][0]["name"]
         # And the link still points at the same dish.
         leftover = new_body["days"][1]["meals"][1]
-        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0, "storage": "fridge"}
         assert leftover["name"] == body["days"][1]["meals"][1]["name"]
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
@@ -1358,7 +1358,7 @@ class TestRegenerateIsLeftoverSafe:
         )
         assert resp.status_code == 200
         assert resp.json()["days"][1]["meals"][1]["leftover_of"] == {
-            "day_index": 0, "meal_index": 0,
+            "day_index": 0, "meal_index": 0, "storage": "fridge",
         }
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
@@ -1462,7 +1462,7 @@ class TestEditSourceFansOutToLeftovers:
         leftover = plan_resp.json()["days"][1]["meals"][1]
         assert leftover["name"] == "Leftovers: Renamed Roast"
         assert "Renamed Roast" in leftover["steps"][0]
-        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0, "storage": "fridge"}
 
         # The projection the calendar and plan list read from must agree.
         entries = (
@@ -1581,7 +1581,7 @@ class TestEditSourceFansOutToLeftovers:
             "Pack cold, add dressing at the office."
         ], "user's steps were clobbered"
         # The link itself survives — only the display text was the user's.
-        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0}
+        assert leftover["leftover_of"] == {"day_index": 0, "meal_index": 0, "storage": "fridge"}
 
 
 def _fake_main_and_snack_day() -> SingleDayResponse:
@@ -1609,6 +1609,12 @@ def _fake_main_and_snack_day() -> SingleDayResponse:
     )
 
 
+class _LinkRef(TypedDict):
+    day_index: int
+    meal_index: int
+    storage: str
+
+
 class TestLeftoverPolicyWiring:
     """The one line that makes the diet-keyed policy reachable by a real user:
     ``leftover_policy_for(payload.diet_types)`` in generate_plan_days.
@@ -1633,7 +1639,7 @@ class TestLeftoverPolicyWiring:
         auth_headers: dict[str, str],
         body: dict[str, object],
         days: int = 4,
-    ) -> list[tuple[int, dict[str, int]]]:
+    ) -> list[tuple[int, _LinkRef]]:
         """POST a plan and return (target_day, leftover_of) for every link."""
         mock_gen.reset_mock()
         mock_gen.side_effect = lambda *a, **kw: _fake_main_and_snack_day()
@@ -1674,6 +1680,11 @@ class TestLeftoverPolicyWiring:
         assert baby_spans - {1}, (
             f"baby-food plan never reached back more than one day: {baby}"
         )
+        # Each link says where its portions wait, so the UI shows the freezer
+        # line for the puree that reheats days later and the fridge line for
+        # the adult dinner (docs/food-storage-design.md, slice 3).
+        assert {ref["storage"] for _, ref in adult} == {"fridge"}
+        assert {ref["storage"] for _, ref in baby} == {"freezer"}
 
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
     async def test_baby_food_fans_one_batch_into_a_triple_portion(

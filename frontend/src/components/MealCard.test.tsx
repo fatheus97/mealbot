@@ -221,6 +221,12 @@ describe("MealCard", () => {
       expect(screen.getByRole("button", { name: "Mark as cooked" })).toBeInTheDocument();
     });
 
+    it("hands cook mode the keep line for a dish that later meals reheat", () => {
+      // One step, so cook mode opens on its last step, where the note shows.
+      renderCard({ isConfirmed: true, isCooking: true, entry: ENTRY, meal: ONE_STEP, leftoverStorage: "freezer" });
+      expect(screen.getByText(/planned as leftovers\. Let the extra portions cool/)).toBeInTheDocument();
+    });
+
     it("does not render CookMode without an entry", () => {
       renderCard({ isCooking: true, entry: null, meal: ONE_STEP });
       expect(screen.queryByRole("button", { name: "Mark as cooked" })).not.toBeInTheDocument();
@@ -285,6 +291,24 @@ describe("MealCard — leftovers", () => {
     // A stale link in a stored plan resolves to null rather than throwing.
     renderCard({ meal: LEFTOVER, leftoverSource: null, isMobile: false });
     expect(screen.getByText("↻ Leftovers")).toBeInTheDocument();
+  });
+
+  it("says how to keep and reheat it, by where the portions wait", () => {
+    // Rendered from i18n under the stored reheat step, never written into it.
+    const { unmount } = renderCard({ meal: LEFTOVER, leftoverSource: SOURCE_LABEL, leftoverStorage: "fridge" });
+    expect(screen.getByText(/eat within 2 days .*at least 75 °C/)).toBeInTheDocument();
+    expect(screen.queryByText(/Throw away anything left in the bowl/)).not.toBeInTheDocument();
+    unmount();
+
+    renderCard({ meal: LEFTOVER, leftoverSource: SOURCE_LABEL, leftoverStorage: "freezer" });
+    expect(screen.getByText(/in the freezer within 2 hours .*Throw away anything left in the bowl/)).toBeInTheDocument();
+    expect(screen.queryByText(/eat within 2 days/)).not.toBeInTheDocument();
+  });
+
+  it("shows no keep line on an ordinary meal, even one that later meals reheat", () => {
+    // That one gets it on cook mode's last step instead.
+    renderCard({ leftoverStorage: "fridge" });
+    expect(screen.queryByText(/eat within 2 days/)).not.toBeInTheDocument();
   });
 
   it("replaces the ingredients list with a provenance line", () => {

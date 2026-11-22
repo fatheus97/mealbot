@@ -49,7 +49,13 @@ export interface MealPlanRequest {
 export interface LeftoverRef {
   day_index: number;
   meal_index: number;
+  // Where the extra portions wait until this meal: "freezer" for baby food,
+  // which is planned up to 3 days later. Absent in plans stored before the
+  // backend stamped it; read that as "fridge".
+  storage?: LeftoverStorage;
 }
+
+export type LeftoverStorage = "fridge" | "freezer";
 
 /** One allergen the user's own edit reintroduced. A warning, never a block. */
 export interface AllergenWarning {

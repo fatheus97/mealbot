@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MealPlanner } from './MealPlanner';
 import { AuthProvider } from '../contexts/AuthContext';
+import { CookTimerProvider } from '../contexts/CookTimerContext';
 import { usePreferencesStore, DEFAULT_PREFERENCES } from '../store/usePreferencesStore';
 import { useLocaleStore, DEFAULT_LOCALE } from '../store/useLocaleStore';
 import { dayDateLabel, todayISO, addDaysISO } from '../utils/planDates';
@@ -283,6 +284,77 @@ describe('MealPlanner', () => {
     expect(
       screen.getByText('2 items past their date were left out. Check them in the Fridge panel.'),
     ).toBeInTheDocument();
+  });
+
+  it("hands each leftover its own link's keep line", async () => {
+    // The baby-food link says freezer; the card must get it from the plan.
+    await generateWith({
+      days: [
+        { meals: [{ name: 'Porridge', meal_type: 'breakfast', ingredients: [{ name: 'oats', quantity_grams: 100 }], steps: ['Cook'] }] },
+        {
+          meals: [{
+            name: 'Leftovers: Porridge', meal_type: 'breakfast', ingredients: [],
+            steps: ['Reheat the Porridge you cooked earlier and serve.'],
+            leftover_of: { day_index: 0, meal_index: 0, storage: 'freezer' },
+          }],
+        },
+      ],
+    });
+    expect(screen.getByText(/in the freezer within 2 hours of cooking/)).toBeInTheDocument();
+    expect(screen.queryByText(/eat within 2 days/)).not.toBeInTheDocument();
+  });
+
+  it("hands a dish that later meals reheat its keep line in cook mode", async () => {
+    // Source at day 0, meal 1, so swapped indices would miss it.
+    loginUser();
+    const initialPlan = {
+      plan_id: 61,
+      start_date: null,
+      days: [
+        {
+          meals: [
+            { name: 'Toast', meal_type: 'breakfast', ingredients: [], steps: [] },
+            { name: 'Lentil puree', meal_type: 'main_course', ingredients: [], steps: ['Blend'] },
+          ],
+        },
+        {
+          meals: [{
+            name: 'Leftovers: Lentil puree', meal_type: 'main_course', ingredients: [],
+            steps: ['Reheat the Lentil puree you cooked earlier and serve.'],
+            leftover_of: { day_index: 0, meal_index: 1, storage: 'freezer' as const },
+          }],
+        },
+      ],
+      shopping_list: [],
+    };
+    const initialSummary = {
+      id: 61, start_date: null, created_at: new Date().toISOString(), days: 2,
+      meals_per_day: 2, people_count: 2, status: 'active' as const,
+      total_meals: 3, cooked_meals: 0, finished_at: null,
+    };
+    const entry = {
+      id: 2, day_index: 1, meal_index: 2, name: 'Lentil puree',
+      meal_type: 'main_course', cooked_at: null, is_favorite: false,
+    };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      if (url.includes('/meals')) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([entry]) } as unknown as Response);
+      }
+      return Promise.resolve(okEmpty());
+    });
+    const user = userEvent.setup();
+    // Cook mode's timers live in the app shell's provider.
+    render(
+      <CookTimerProvider>
+        <MealPlanner initialPlan={initialPlan} initialSummary={initialSummary} />
+      </CookTimerProvider>,
+      { wrapper: createWrapper() },
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Start cooking' }));
+    // One step, so cook mode opens on its last step, where the note shows.
+    expect(await screen.findByText(/planned as leftovers\. Let the extra portions cool/)).toBeInTheDocument();
   });
 
   it('says nothing about past-dated food when none was left out', async () => {

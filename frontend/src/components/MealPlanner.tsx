@@ -26,7 +26,7 @@ import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, Pl
 import { todayISO, dayDateLabel, addDaysISO } from "../utils/planDates";
 import { ExpiredReviewDialog, type ExpiredDecision } from "./ExpiredReviewDialog";
 import { isExpired, plannableNames, STILL_FINE_EXTENSION_DAYS } from "../utils/expiry";
-import { leftoverSourceLabel } from "../utils/leftovers";
+import { leftoverSourceLabel, leftoverStorageOf, storageOf } from "../utils/leftovers";
 
 // Fallback seed for a single day when the user has no saved default layout.
 // main_course is the least opinionated single-meal day; the editor lets the
@@ -1079,6 +1079,11 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                        locale,
                        t,
                      )}
+                     leftoverStorage={
+                       meal.leftover_of
+                         ? storageOf(meal.leftover_of)
+                         : leftoverStorageOf(currentPlan, idx, mealIdx)
+                     }
                      isMobile={isMobile}
                      cookStorageKey={`cookmode:${planId}:${idx}:${mealIdx}`}
                      nutrition={nutritionDays?.[idx]?.meals[mealIdx] ?? null}

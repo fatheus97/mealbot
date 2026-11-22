@@ -8,7 +8,8 @@ import { MealEditor } from "./recipe/MealEditor";
 import { CookMode } from "./recipe/CookMode";
 import { useReopenTarget } from "../contexts/CookTimerContext";
 import { useI18n, useMealTypeLabel } from "../i18n";
-import type { MealEntrySummary, MealNutrition, PlannedMeal, SourceAttribution } from "../types";
+import type { LeftoverStorage, MealEntrySummary, MealNutrition, PlannedMeal, SourceAttribution } from "../types";
+import { LEFTOVER_KEEP_KEY } from "../utils/leftovers";
 
 // One meal inside a rendered plan: the action row (freeze / cook / edit /
 // start-cooking / favorite), the ingredients+steps body (or the inline editor),
@@ -40,6 +41,10 @@ interface MealCardProps {
   // for a leftover whose source can't be resolved — the card degrades to a
   // bare marker rather than breaking.
   leftoverSource?: string | null;
+  // Where leftover portions wait: for a leftover, its own link's; for a meal
+  // that later meals reheat, theirs; null otherwise. Picks the keep-and-
+  // reheat line on the leftover card and on cook mode's last step.
+  leftoverStorage?: LeftoverStorage | null;
   // Drives the compact badge; the full label stays in `title`.
   isMobile?: boolean;
   // localStorage key for cook-mode progress, owned by the parent so the
@@ -87,6 +92,7 @@ export function MealCard({
   isConfirmed,
   isFinished,
   leftoverSource = null,
+  leftoverStorage = null,
   isMobile = false,
   cookStorageKey,
   nutrition = null,
@@ -360,6 +366,13 @@ export function MealCard({
           <div style={{ fontSize: "0.9em" }}>
             <RecipeSteps steps={meal.steps ?? []} timerLabel={meal.name} reopenKey={cookStorageKey} />
           </div>
+          {/* Rendered from i18n, never written into the steps: the stored
+              reheat step is an identity key (leftovers.leftover_steps). */}
+          {isLeftover && leftoverStorage && (
+            <p style={{ margin: "0.25rem 0 0", fontSize: "0.85em", color: "#444" }}>
+              {t(LEFTOVER_KEEP_KEY[leftoverStorage])}
+            </p>
+          )}
         </>
       )}
       {/* Fullscreen cooking overlay (portals to <body>). */}
@@ -370,6 +383,11 @@ export function MealCard({
           onDone={onFinishCooking}
           onClose={onStopCooking}
           doneLabel={t("meal.markCooked")}
+          note={
+            !isLeftover && leftoverStorage
+              ? `${t("cook.leftoversNote")} ${t(LEFTOVER_KEEP_KEY[leftoverStorage])}`
+              : null
+          }
           donePending={cookPending}
           doneError={
             cookFailed
