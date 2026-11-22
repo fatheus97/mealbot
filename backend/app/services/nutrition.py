@@ -206,8 +206,9 @@ def missing_key(
 
 def food_for(ing: IngredientAmount, language: str | None, ref: NutritionReference) -> Food | None:
     """The table row an ingredient resolves to, keyed exactly as the figures
-    key it, so cook mode's temperature lines and the nutrition panel never
-    disagree about what an ingredient is. None when nothing matches."""
+    key it in the same language, so cook mode's temperature lines and the
+    nutrition panel agree about what an ingredient is. None when nothing
+    matches."""
     key = _Language.of(language).key(ing, ref)
     hit = ref.lookup(*key) if key is not None else None
     return hit[1] if hit is not None else None

@@ -676,9 +676,11 @@ export const en = {
   "storage.sourceFsa": "UK FSA",
   "storage.sourceEfsa": "EFSA (EU)",
   "storage.sourceUsda": "US Department of Agriculture (USDA)",
-  // {nhs} and {szu} are links named as the bodies call themselves.
+  // {nhs} and {szu} are links named as the bodies call themselves; the NHS
+  // page is about pregnancy, SZÚ's covers every group.
   "storage.atRisk":
-    "Pregnant, over 65, cooking for a baby or with a weakened immune system? Stricter advice applies, for example from the {nhs} or {szu}.",
+    "Pregnant, over 65, cooking for a baby or with a weakened immune system? Stricter advice applies, for example from {szu} or, in pregnancy, from the {nhs}.",
+  "storage.cookLookupFailed": "Cooking temperatures could not be loaded for this dish.",
   "meal.ingredients": "Ingredients:",
   // The ↻ glyph carries the meaning on narrow screens; the word is the label.
   "meal.leftoversShort": "↻ Leftovers",

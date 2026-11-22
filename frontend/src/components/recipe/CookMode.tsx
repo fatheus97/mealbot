@@ -22,6 +22,9 @@ interface Props {
   // Shown on the last step, where the cook is about to put food away (the
   // keep-and-reheat line for a dish that later meals reheat).
   note?: string | null;
+  // The planned meal being cooked, so its temperature lines match in its
+  // plan's language; absent for an unsaved Cook Now recipe.
+  mealEntryId?: number | null;
 }
 
 // Tags each mount's pushed history entry so its cleanup only ever pops the
@@ -92,6 +95,7 @@ export function CookMode({
   onClose,
   doneLabel,
   note = null,
+  mealEntryId = null,
   donePending = false,
   doneError = null,
 }: Props) {
@@ -362,13 +366,14 @@ export function CookMode({
           </p>
         </div>
 
-        {/* Cooking temperatures on every step, then the leftovers note on the
-            last one. One box with its own scroll, so neither squeezes the
-            step text on a short screen; lines arriving late shrink the step
+        {/* On the last step the leftovers note comes first, as the one line
+            new there; then the cooking temperatures, on every step. One box
+            with its own scroll, capped at 22vh, so on a short screen the
+            step text keeps the rest; lines arriving late shrink the step
             area instead of moving the timers and the footer. */}
         <div style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.85rem", maxHeight: "22vh", overflowY: "auto", margin: "0.25rem 0 0.5rem" }}>
-          <CookTemperatures ingredients={meal.ingredients} />
-          {isLast && note && <p style={{ margin: 0, fontSize: "0.9rem" }}>{note}</p>}
+          {isLast && note && <p style={{ margin: "0 0 0.35rem", fontSize: "0.9rem" }}>{note}</p>}
+          <CookTemperatures ingredients={meal.ingredients} mealEntryId={mealEntryId} />
         </div>
 
         {/* Timer bar (bottom). Every running timer is listed — a second one is

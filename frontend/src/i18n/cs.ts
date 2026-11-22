@@ -603,7 +603,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "storage.sourceEfsa": "evropský úřad EFSA",
   "storage.sourceUsda": "ministerstvo zemědělství USA (USDA)",
   "storage.atRisk":
-    "Jste těhotná, je vám přes 65 let, vaříte pro kojence nebo máte oslabenou imunitu? Platí přísnější doporučení, například od {nhs} nebo {szu}.",
+    "Jste těhotná, je vám přes 65 let, vaříte pro kojence nebo máte oslabenou imunitu? Platí přísnější doporučení, například od {szu}, v těhotenství také od britské {nhs}.",
+  "storage.cookLookupFailed": "Teploty pro tepelnou úpravu tohoto jídla se nepodařilo načíst.",
   "meal.ingredients": "Suroviny:",
   "meal.leftoversShort": "↻ Zbytky",
   "meal.leftoversFromTitle": "Zbytky z jídla „{source}“",

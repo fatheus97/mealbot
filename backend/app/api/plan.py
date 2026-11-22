@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -376,29 +376,63 @@ async def get_plan_nutrition(
     return plan_nutrition(request, plan_obj.days, people_count=plan.people_count, ref=ref)
 
 
+class _PlanLanguage(BaseModel):
+    """The one field cook mode reads from a stored plan request: never its
+    diets, which are health data."""
+
+    language: str | None = None
+
+
+async def _recipe_language(session: AsyncSession, user: User, meal_entry_id: int | None) -> str:
+    """The language a dish's ingredient names are written in: its plan's for a
+    planned meal, which a household member or a later setting may not share,
+    else the user's, which Cook Now writes in. Normalised as generation
+    normalises it, so a legacy value such as "cs" reads as English there too."""
+    fallback = normalize_language(user.language or "") or "English"
+    if meal_entry_id is None:
+        return fallback
+    kitchen = Kitchen.of(user)
+    entry = await session.get(MealEntry, meal_entry_id)
+    if entry is None or entry.household_id != kitchen.household_id:
+        raise LocalizedHTTPException(404, "plan_meal_not_found")
+    plan = await load_plan(session, kitchen, entry.meal_plan_id)
+    if plan.kind == "cook_now":  # a Cook Now plan records no language
+        return fallback
+    try:
+        stored = _PlanLanguage.model_validate_json(plan.request_json).language
+    except ValidationError:
+        logger.warning("Plan %d has an unreadable request; cook mode uses the user's language", plan.id)
+        return fallback
+    return normalize_language(stored or "") or fallback
+
+
 @router.post("/cook-temperatures", response_model=CookTemperatures)
 @limiter.limit("60/minute", key_func=user_id_key_func)
 async def get_cook_temperatures(
     request: Request,
     body: CookTemperaturesRequest,
     current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
     ref: NutritionReference = Depends(nutrition_reference),
     storage: StorageReference = Depends(storage_reference),
 ) -> CookTemperatures:
     """The cooking-temperature lines for a dish in cook mode
     (docs/food-storage-design.md, slice 7). Each ingredient goes through the
-    nutrition resolver in the user's language, then map.csv; every matched
-    category with a figure gives one line, in rules.csv order.
+    nutrition resolver in the language the recipe is written in, then
+    map.csv; every matched category with a figure gives one line, in
+    rules.csv order.
 
-    Stateless and not kitchen-scoped: it reads no plan, diet or health data,
-    so a planned meal and an unsaved Cook Now edit are served alike. A
-    client-written name_en is trusted here, unlike in the allergen screen:
-    it only changes advice its own sender sees, and nothing is stored.
+    The ingredients come from the client, so an unsaved Cook Now edit counts
+    too. A meal_entry_id only names the plan whose language to use; it is
+    kitchen-scoped, and no diet or health data is read. A client-written
+    name_en is trusted here, unlike in the allergen screen: it only changes
+    advice its own sender sees, and nothing is stored.
 
     A category with no figure gives no line. That is whole cuts, whose only
     advice is the FSA's note that they can be served pink: adult advice, and
     cook mode cannot tell a baby's plan from an adult's (design decision 6)."""
-    foods = (food_for(ing, current_user.language, ref) for ing in body.ingredients)
+    language = await _recipe_language(session, current_user, body.meal_entry_id)
+    foods = (food_for(ing, language, ref) for ing in body.ingredients)
     rules = storage.cook_rules(food.id for food in foods if food is not None)
     return CookTemperatures(lines=[
         CookTemperatureLine(

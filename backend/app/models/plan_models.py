@@ -1098,6 +1098,9 @@ class CookTemperaturesRequest(BaseModel):
     mode as the client holds them, so an unsaved Cook Now edit counts too.
     Same cap as MealEditRequest."""
     ingredients: list[IngredientAmount] = Field(..., max_length=40)
+    # The planned meal on screen, so its names match in its plan's language;
+    # None for an unsaved Cook Now recipe, written in the user's language.
+    meal_entry_id: int | None = Field(default=None, ge=1)
 
 
 class CookTemperatureLine(BaseModel):

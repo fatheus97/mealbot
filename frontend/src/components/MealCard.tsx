@@ -380,6 +380,7 @@ export function MealCard({
         <CookMode
           meal={meal}
           storageKey={cookStorageKey}
+          mealEntryId={entry.id}
           onDone={onFinishCooking}
           onClose={onStopCooking}
           doneLabel={t("meal.markCooked")}

@@ -17,7 +17,7 @@ The data behind the cooking temperatures in cook mode (docs/food-storage-design.
 The strictest figure among the EU, UK and Czech authorities. A US figure is used only where none of them gives a number, and the line says so. Owner decision 6 in the design sets the cooking figures, and leaves out the stricter Czech 75 °C held for 5 minutes because a home cook cannot check a hold time:
 
 - 75 °C in the core, or 70 °C for 2 minutes, for poultry, minced meat and sausages, pork and eggs;
-- no number for whole cuts of beef, only the FSA's note that they can be served pink;
+- no number for whole cuts of beef and no line in cook mode: the FSA's note that they can be served pink is adult advice (ledger Q40);
 - 63 °C for fish, as US guidance.
 
 ## Sources

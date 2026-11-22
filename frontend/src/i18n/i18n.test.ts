@@ -233,6 +233,7 @@ describe('storage advice wording', () => {
       'storage.cookHold', 'storage.cookCore', 'storage.cookSources', 'storage.cookSourceUs',
       'storage.foodPoultry', 'storage.foodMinced', 'storage.foodPork', 'storage.foodEgg', 'storage.foodFish',
       'storage.sourceSzu', 'storage.sourceFsa', 'storage.sourceEfsa', 'storage.sourceUsda',
+      'storage.cookLookupFailed',
     ];
     const hits = COOK_KEYS.filter((k) => /\d|°F/.test(en[k]) || /\d|°F/.test(cs[k]));
     expect(hits).toEqual([]);

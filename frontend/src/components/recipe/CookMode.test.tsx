@@ -86,7 +86,12 @@ describe('CookMode cooking temperatures', () => {
     await user.click(screen.getByRole('button', { name: /Next/ }));
     expect(screen.getByText(/at least 81 °C/)).toBeInTheDocument();
     expect(fetchCookTemperatures).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(fetchCookTemperatures).mock.calls[0][0]).toEqual(sampleMeal().ingredients);
+    expect(vi.mocked(fetchCookTemperatures).mock.calls[0]).toEqual([sampleMeal().ingredients, null]);
+  });
+
+  it('names the planned meal, so the server matches in its plan\'s language', async () => {
+    renderCookMode({ mealEntryId: 42 });
+    await waitFor(() => expect(fetchCookTemperatures).toHaveBeenCalledWith(sampleMeal().ingredients, 42));
   });
 
   it('always shows the line for people at higher risk, with links in a new tab', async () => {
@@ -98,13 +103,16 @@ describe('CookMode cooking temperatures', () => {
       const link = screen.getByRole('link', { name });
       expect(link).toHaveAttribute('target', '_blank');
       expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+      // Not marked by colour alone (WCAG 1.4.1): the global style drops underlines.
+      expect(link).toHaveStyle({ textDecoration: 'underline' });
     }
   });
 
-  it('keeps the higher-risk line when the lookup fails', async () => {
+  it('says the lookup failed and keeps the higher-risk line', async () => {
+    // Silence would read as "nothing here needs cooking through".
     vi.mocked(fetchCookTemperatures).mockRejectedValue(new Error('down'));
     renderCookMode();
-    await waitFor(() => expect(fetchCookTemperatures).toHaveBeenCalled());
+    expect(await screen.findByText('Cooking temperatures could not be loaded for this dish.')).toBeInTheDocument();
     expect(screen.getByText(/Stricter advice applies/)).toBeInTheDocument();
     expect(screen.queryByText(/cook until the middle/)).not.toBeInTheDocument();
   });
@@ -163,6 +171,16 @@ describe('CookMode translation', () => {
 });
 
 describe('CookMode note', () => {
+  it('puts the note before the cooking lines on the last step', async () => {
+    const user = userEvent.setup();
+    renderCookMode({ note: 'Some of this dish is planned as leftovers.' });
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    const note = screen.getByText(/planned as leftovers/);
+    const risk = screen.getByText(/Stricter advice applies/);
+    expect(note.compareDocumentPosition(risk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('shows the note on the last step only', async () => {
     const user = userEvent.setup();
     renderCookMode({ note: 'Some of this dish is planned as leftovers.' });

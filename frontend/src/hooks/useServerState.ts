@@ -247,17 +247,19 @@ export function usePlanNutrition(planId: number | null, enabled: boolean) {
 
 // The cooking-temperature lines for the dish in cook mode
 // (docs/food-storage-design.md, slice 7). Keyed on what the server matches
-// on, so an unsaved edit refetches and a change of amount does not.
-// gcTime 0 ties the answer to the open cook mode: the server matches in the
-// user's language, so the next opening after a language change asks again.
+// on: names, English keys and the meal whose plan language decides. A
+// change of amount alone does not refetch.
+// gcTime 0 ties the answer to the open cook mode, so the next opening after
+// a language change (Cook Now matches in the user's language) asks again.
 // On for everyone, unlike nutrition (owner decision 9).
-export function useCookTemperatures(ingredients: IngredientAmount[]) {
+export function useCookTemperatures(ingredients: IngredientAmount[], mealEntryId: number | null) {
   return useQuery({
     queryKey: [
       'cookTemperatures',
+      mealEntryId,
       ingredients.map((i) => [i.name, i.name_en ?? null, i.is_spice ?? false]),
     ],
-    queryFn: ingredients.length > 0 ? () => fetchCookTemperatures(ingredients) : skipToken,
+    queryFn: ingredients.length > 0 ? () => fetchCookTemperatures(ingredients, mealEntryId) : skipToken,
     gcTime: 0,
   });
 }

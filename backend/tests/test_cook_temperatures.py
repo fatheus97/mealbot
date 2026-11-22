@@ -11,11 +11,13 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.nutrition_reference import load_reference
+from app.core.security import get_password_hash
 from app.core.storage_reference import MAP_COLUMNS, RULE_COLUMNS, load_storage, storage_reference
-from app.models.db_models import User
-from app.models.plan_models import IngredientAmount
+from app.models.db_models import MealEntry, MealPlan, User
+from app.models.plan_models import IngredientAmount, MealPlanRequest
 from app.services import nutrition
 from app.services.nutrition import _Language, food_for
+from tests.conftest import TEST_PASSWORD
 
 URL = "/api/plan/cook-temperatures"
 REF = load_reference()
@@ -25,8 +27,10 @@ def _ing(name: str, name_en: str | None = None, *, grams: float = 200, spice: bo
     return {"name": name, "name_en": name_en, "quantity_grams": grams, "is_spice": spice}
 
 
-async def _lines(client: AsyncClient, *ings: dict[str, object]) -> list[dict[str, object]]:
-    resp = await client.post(URL, json={"ingredients": list(ings)})
+async def _lines(
+    client: AsyncClient, *ings: dict[str, object], entry: int | None = None,
+) -> list[dict[str, object]]:
+    resp = await client.post(URL, json={"ingredients": list(ings), "meal_entry_id": entry})
     assert resp.status_code == 200, resp.text
     lines: list[dict[str, object]] = resp.json()["lines"]
     return lines
@@ -35,6 +39,27 @@ async def _lines(client: AsyncClient, *ings: dict[str, object]) -> list[dict[str
 async def _speak(session: AsyncSession, user: User, language: str) -> None:
     user.language = language
     await session.flush()
+
+
+async def _meal(session: AsyncSession, owner: User, *, language: str, kind: str = "planned") -> int:
+    """A stored meal in owner's kitchen, from a plan written in `language`."""
+    assert owner.id is not None and owner.household_id is not None
+    plan = MealPlan(
+        household_id=owner.household_id, created_by_user_id=owner.id, days=1, meals_per_day=1,
+        people_count=2, kind=kind, request_json=MealPlanRequest(language=language).model_dump_json(),
+        response_json="{}",
+    )
+    session.add(plan)
+    await session.flush()
+    assert plan.id is not None
+    entry = MealEntry(
+        household_id=owner.household_id, meal_plan_id=plan.id, day_index=0, meal_index=0,
+        name="Chicken", meal_type="lunch", meal_json="{}",
+    )
+    session.add(entry)
+    await session.flush()
+    assert entry.id is not None
+    return entry.id
 
 
 KILL = {"core_c": 75, "hold_c": 70, "hold_min": 2, "us_only": False}
@@ -86,6 +111,49 @@ class TestShippedTable:
             "poultry"
         ]
         assert await _lines(client, _ing("kuracie prsia")) == []
+
+    async def test_a_planned_meal_matches_in_its_plans_language(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        # A Czech member cooks an English plan: English plans carry no
+        # name_en, and the Czech index does not know "chicken breast".
+        await _speak(db_session, test_user, "Czech")
+        entry = await _meal(db_session, test_user, language="English")
+        assert await _lines(client, _ing("chicken breast")) == []
+        assert [line["category"] for line in await _lines(client, _ing("chicken breast"), entry=entry)] == [
+            "poultry"
+        ]
+
+    async def test_a_cook_now_plan_uses_the_users_language(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        await _speak(db_session, test_user, "Czech")
+        entry = await _meal(db_session, test_user, language="English", kind="cook_now")
+        assert [line["category"] for line in await _lines(client, _ing("kuřecí prsa"), entry=entry)] == [
+            "poultry"
+        ]
+
+    async def test_a_legacy_language_reads_as_english_like_generation(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        await _speak(db_session, test_user, "cs")
+        assert [line["category"] for line in await _lines(client, _ing("chicken breast"))] == ["poultry"]
+
+    async def test_a_meal_outside_the_kitchen_is_not_found(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ) -> None:
+        stranger = User(
+            email="stranger@example.com", normalized_email="stranger@example.com",
+            hashed_password=get_password_hash(TEST_PASSWORD),
+        )
+        db_session.add(stranger)
+        await db_session.flush()
+        await db_session.refresh(stranger)  # the insert trigger gives it a household of its own
+        theirs = await _meal(db_session, stranger, language="English")
+        resp = await client.post(URL, json={"ingredients": [_ing("egg")], "meal_entry_id": theirs})
+        assert resp.status_code == 404
+        resp = await client.post(URL, json={"ingredients": [_ing("egg")], "meal_entry_id": theirs + 1000})
+        assert resp.status_code == 404
 
     async def test_an_empty_dish_gives_no_line(self, client: AsyncClient) -> None:
         assert await _lines(client) == []

@@ -89,8 +89,25 @@ export function MealEditor({ meal, onSave, onCancel, saving = false, error = nul
   };
 
   const nameTrimmed = name.trim();
+  // The server's _keep_english_keys rule, which a Cook Now recipe never
+  // reaches: an ingredient whose name is unchanged keeps the model's English
+  // keys (cook-mode temperature lines and pieces read them); a renamed or new
+  // one gets none, or "voda" renamed to "mléko" would still read as water.
+  // A planned meal's edit is re-keyed on the server, which ignores these.
+  const nameKey = (s: string) => s.trim().normalize("NFC").toLowerCase();
+  const byName = new Map(meal.ingredients.map((i) => [nameKey(i.name), i] as const));
   const cleanedIngredients: IngredientAmount[] = ingredients
-    .map((i) => ({ name: i.name.trim(), quantity_grams: i.quantity_grams, is_spice: i.is_spice }))
+    .map((i) => {
+      const name = i.name.trim();
+      const same = byName.get(nameKey(name));
+      return {
+        name,
+        quantity_grams: i.quantity_grams,
+        is_spice: i.is_spice,
+        ...(same?.name_en ? { name_en: same.name_en } : {}),
+        ...(same?.canonical_name ? { canonical_name: same.canonical_name } : {}),
+      };
+    })
     .filter((i) => i.name.length > 0);
   // Backend requires quantity_grams > 0 for every ingredient (spices included).
   // Block the save client-side so the user gets an inline message instead of a

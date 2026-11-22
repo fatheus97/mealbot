@@ -20,13 +20,14 @@ const SOURCE_KEY: Record<CookSource, TranslationKey> = {
   usda: "storage.sourceUsda",
 };
 
-// Pages for people at higher risk (docs/food-storage-design.md). Constants, so
-// the line still renders when the lookup fails or nothing matched.
+// Pages for people at higher risk (docs/food-storage-design.md): SZÚ's 2022
+// summary names all four groups, the NHS page is the one for pregnancy, and
+// the sentence says so. Constants, so the line renders whatever the lookup does.
 export const NHS_AT_RISK_URL = "https://www.nhs.uk/pregnancy/keeping-well/foods-to-avoid/";
 export const SZU_AT_RISK_URL = "https://szu.gov.cz/wp-content/uploads/2023/02/alim_nakazy_shrnuti_FIN_2022.pdf";
 
 // Light enough on cook mode's #0b1220; the app's usual link blue is not.
-const link: React.CSSProperties = { color: "#93c5fd" };
+const link: React.CSSProperties = { color: "#93c5fd", textDecoration: "underline" };
 const line: React.CSSProperties = { margin: "0 0 0.35rem" };
 
 const externalLink = (href: string, text: string) => (
@@ -39,9 +40,16 @@ const externalLink = (href: string, text: string) => (
 /** How hot the dish's meat, fish and eggs are cooked, one line per matched
  *  category, then the line for people at higher risk. Every number comes from
  *  the server's table (design check 7); none is written here. */
-export function CookTemperatures({ ingredients }: { ingredients: IngredientAmount[] }) {
+export function CookTemperatures({
+  ingredients,
+  mealEntryId,
+}: {
+  ingredients: IngredientAmount[];
+  /** The planned meal, whose plan's language the names match in; null for Cook Now. */
+  mealEntryId: number | null;
+}) {
   const { t } = useI18n();
-  const { data } = useCookTemperatures(ingredients);
+  const { data, isError } = useCookTemperatures(ingredients, mealEntryId);
 
   const text = (row: CookTemperatureLine): string => {
     const food = t(FOOD_KEY[row.category]);
@@ -66,6 +74,7 @@ export function CookTemperatures({ ingredients }: { ingredients: IngredientAmoun
           {text(row)}
         </p>
       ))}
+      {isError && <p style={line}>{t("storage.cookLookupFailed")}</p>}
       <p style={line}>
         <Trans
           k="storage.atRisk"
