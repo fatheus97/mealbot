@@ -13,7 +13,12 @@ openai~=2.53
 anthropic~=0.93.0
 # 3.x defaults to the v1 API, where the -latest model aliases our chains name
 # do not exist; gemini_instructor pins v1beta (test_requests_use_the_v1beta_api).
+# CI mocks the LLM: on a genai bump, run the evals with --repeats 1 against
+# each chain model (backend/evals/README.md) before merging.
 google-genai~=3.6
+# genai 3's fallback transport, imported by app/llm/client.py for its timeout
+# class. Declared because we import it, not just genai.
+httpx2~=2.16
 # REQUIRED by instructor's Gemini structured-output path — it derefs the $refs
 # in nested Pydantic schemas (e.g. MealPlanResponse) before sending to Gemini.
 # NOT dead code: without it every real Gemini call raises ConfigurationError →
