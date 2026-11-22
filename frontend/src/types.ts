@@ -166,6 +166,9 @@ export interface MealPlanResponse {
   start_date: string | null;
   days: SingleDayPlan[];
   shopping_list: IngredientAmount[];
+  // Fridge rows left out of THIS generation because their date had passed.
+  // Only a generate or regenerate response carries it; reads say 0.
+  past_dated_left_out?: number;
 }
 
 export interface FrozenMeal {
@@ -316,6 +319,8 @@ export interface CookRecipeRequest extends SingleRecipeRequest {
 export interface SingleRecipeResponse {
   recipe: PlannedMeal;
   generation_id: number | null;
+  // Fridge rows left out of this recipe's stock because their date had passed.
+  past_dated_left_out?: number;
 }
 
 export type ScannedItemType = "ingredient" | "ready_to_eat";

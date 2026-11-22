@@ -89,7 +89,8 @@ describe('CookNowForm', () => {
       steps: ['Vařit', 'Podávat'],
       total_time_minutes: 20,
     };
-    mockedGenerate.mockResolvedValueOnce({ recipe: czechRecipe, generation_id: 7 });
+    // A left-out count, so the Czech plural line is part of what is checked.
+    mockedGenerate.mockResolvedValueOnce({ recipe: czechRecipe, generation_id: 7, past_dated_left_out: 3 });
     mockedCook.mockResolvedValueOnce({ id: 42, name: 'Rajská polévka', is_favorite: false });
     useLocaleStore.setState({ locale: 'cs', explicit: true });
 
@@ -99,12 +100,65 @@ describe('CookNowForm', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Rajská polévka' })).toBeInTheDocument(),
     );
+    expect(
+      screen.getByText('Vynechali jsme 3 položky po uvedeném datu. Zkontrolujte je v sekci Lednice.'),
+    ).toBeInTheDocument();
     expect(untranslatedEnglishIn(document.body)).toEqual([]);
 
     // …and the post-cook state, which swaps the button row for a "Cooked" mark.
     await user.click(screen.getByRole('button', { name: 'Označit jako uvařené' }));
     await waitFor(() => expect(screen.getByText(/Uvařeno/)).toBeInTheDocument());
     expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
+
+  it('says when a past-dated fridge item was left out of the recipe, and drops it on the next generate', async () => {
+    loginUser();
+    const recipe = {
+      name: 'Porridge',
+      meal_type: 'breakfast',
+      ingredients: [{ name: 'oats', quantity_grams: 100, is_spice: false }],
+      steps: ['Cook'],
+    };
+    mockedGenerate
+      .mockResolvedValueOnce({ recipe, generation_id: 1, past_dated_left_out: 1 })
+      .mockResolvedValueOnce({ recipe, generation_id: 2 });
+    const user = userEvent.setup();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    const line = '1 item past its date was left out. Check it in the Fridge panel.';
+
+    await user.click(screen.getByRole('button', { name: 'Generate recipe' }));
+    await waitFor(() => expect(screen.getByText(line)).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Generate recipe' }));
+    await waitFor(() => expect(mockedGenerate).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Porridge' })).toBeInTheDocument());
+    expect(screen.queryByText(line)).not.toBeInTheDocument();
+  });
+
+  it('does not offer past-dated fridge food as a "use up" suggestion', async () => {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/fridge'
+          ? ({
+              ok: true,
+              status: 200,
+              json: () =>
+                Promise.resolve([
+                  { id: 1, name: 'old milk', quantity_grams: 500, need_to_use: true, expiration_date: '2000-01-01' },
+                  { id: 2, name: 'oat milk', quantity_grams: 300, need_to_use: false, expiration_date: null },
+                ]),
+            } as unknown as Response)
+          : okEmpty(),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<CookNowForm />, { wrapper: createWrapper() });
+    await waitFor(() => expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge'));
+
+    await user.type(screen.getByPlaceholderText('Type an ingredient and press Enter'), 'milk');
+    expect(await screen.findByRole('option', { name: 'oat milk' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'old milk' })).not.toBeInTheDocument();
   });
 
   it('keeps full-width fields inside their container on narrow screens (#10)', () => {

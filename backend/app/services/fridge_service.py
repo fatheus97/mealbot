@@ -343,6 +343,30 @@ async def get_fridge_items(
     return items
 
 
+def plannable_stock(
+    items: list[StockItemDTO], today: date
+) -> tuple[list[StockItemDTO], int]:
+    """``items`` without the ones dated before ``today``, and how many rows that
+    left out. Undated items are always kept. Pure, so tests pass the date."""
+    kept = [i for i in items if i.expiration_date is None or i.expiration_date >= today]
+    return kept, len(items) - len(kept)
+
+
+async def stock_for_generation(
+    session: AsyncSession, household_id: HouseholdId, need_to_use_enabled: bool,
+) -> tuple[list[StockItemDTO], int]:
+    """The fridge as a new plan, a regenerate, a repeat's shopping list and Cook
+    Now see it: get_fridge_items (so urgency is the one the Fridge shows) minus
+    food past its date, plus the count of rows left out for the UI
+    (docs/food-storage-design.md, slice 1).
+
+    Read-only on purpose. Every fridge writer reads get_fridge_items, never this,
+    so the left-out rows stay in the fridge for the user to check: a filtered
+    list passed to replace_fridge_items would delete them."""
+    items = await get_fridge_items(session, household_id, need_to_use_enabled)
+    return plannable_stock(items, date.today())
+
+
 async def replace_fridge_items(
     session: AsyncSession,
     household_id: HouseholdId,

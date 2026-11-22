@@ -28,7 +28,7 @@ from app.db import get_session
 from app.llm.client import first_choice
 from app.llm.experiment import pick_arm
 from app.llm.usage import LlmCallUsage
-from app.models.db_models import MealEntry, MealPlan, StockItem, User
+from app.models.db_models import MealEntry, MealPlan, User
 from app.models.plan_models import (
     AllergenWarning,
     CalendarDay,
@@ -64,6 +64,7 @@ from app.services.allergen_screen import (
 from app.services.fridge_service import (
     get_fridge_items,
     lock_kitchen,
+    stock_for_generation,
 )
 from app.services.health_consent import (
     CONTRIBUTORS,
@@ -587,7 +588,7 @@ async def plan_meals_for_user(
     generation_request, health_entries = await resolve_eaters(session, current_user, payload)
 
     try:
-        meal_plan, shopping_items, _initial_fridge = await generate_plan_days(
+        meal_plan, shopping_items, past_dated_left_out = await generate_plan_days(
             session, current_user, generation_request, days,
         )
     except ScreenError as exc:
@@ -659,6 +660,8 @@ async def plan_meals_for_user(
     await session.refresh(plan)
     response_obj.plan_id = plan.id
     response_obj.start_date = plan.start_date
+    # After response_json was serialized, so the stored copy keeps 0.
+    response_obj.past_dated_left_out = past_dated_left_out
 
     return response_obj
 
@@ -757,20 +760,10 @@ async def regenerate_plan(
         original_resp.start_date = plan.start_date
         return original_resp
 
-    # 5) Re-load current fridge from DB
-    result = await session.execute(
-        select(StockItem).where(col(StockItem.household_id) == kitchen.household_id)
+    # 5) Re-load current fridge from DB, past-dated food left out (as for a new plan)
+    remaining_ingredients, past_dated_left_out = await stock_for_generation(
+        session, kitchen.household_id, current_user.need_to_use_enabled
     )
-    db_items = result.scalars().all()
-
-    remaining_ingredients: list[StockItemDTO] = [
-        StockItemDTO(
-            name=item.name,
-            quantity_grams=item.quantity_grams,
-            need_to_use=item.need_to_use and current_user.need_to_use_enabled,
-        )
-        for item in db_items
-    ]
     initial_fridge: list[StockItemDTO] = [ing.model_copy() for ing in remaining_ingredients]
 
     past_meals: list[str] = list(original_req.past_meals)
@@ -976,6 +969,7 @@ async def regenerate_plan(
     # while the returned response still honors the "every read carries
     # start_date" contract. Read pre-commit while the attribute is loaded.
     response_obj.start_date = plan.start_date
+    response_obj.past_dated_left_out = past_dated_left_out
 
     # Telemetry: a regenerate replaces response_json, so it is a *new* machine
     # generation. Recording it keeps latest_generation_id() — and thus a later

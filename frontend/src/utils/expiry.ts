@@ -31,3 +31,15 @@ export const STILL_FINE_EXTENSION_DAYS = 7;
 export function isExpired(item: Pick<StockItem, "expiration_date">): boolean {
   return item.expiration_date != null && item.expiration_date < todayISO();
 }
+
+/**
+ * Fridge item names to offer as "use up" suggestions before generating.
+ *
+ * Food past its date is left out of every generation on the server
+ * (`fridge_service.stock_for_generation`), so it is not offered here either:
+ * picking it would ask the model to plan around it anyway. Tolerates a
+ * not-yet-loaded (or, in tests, non-array) fridge query.
+ */
+export function plannableNames(items: readonly StockItem[] | undefined): string[] {
+  return Array.isArray(items) ? items.filter((i) => !isExpired(i)).map((i) => i.name) : [];
+}

@@ -129,7 +129,7 @@ Each slice re-checks the file:line citations it relies on against its own base; 
 
 1. **fix(planner):** leave past-dated food out of the plan and Cook Now prompts, with the planner line. No migration.
    - Before merging, count the past-dated rows in prod, so the PR says how much food the change takes out of planning. Until slice 4 every date counts as `use_by` (legacy NULL), so best-before food is left out too.
-   - "Still fine" is the way back in: it moves the date to today + 7, and the item returns as ordinary stock. Until slice 4 the button cannot tell use-by from best-before, so a user can confirm a use-by item back in. The PR states that this is accepted for the closed group, and slice 4 closes it.
+   - "Still fine" is the way back in: it moves the date to today + 7, and the item returns to planning still marked use-soon (the dialog saves the flag the Fridge showed for it), so the next plan uses it first. Until slice 4 the button cannot tell use-by from best-before, so a user can confirm a use-by item back in. The PR states that this is accepted for the closed group, and slice 4 closes it.
 2. **fix(i18n):** neutral date labels in Czech (F3).
 3. **feat(leftovers):** the i18n keep-and-reheat line, the baby freeze-and-discard line, and the Terms paragraph with the TERMS_VERSION bump. Stored steps stay unchanged.
 4. **feat(fridge):** `date_kind` with its migration and every construction site, the kind picker on manual add, and the dialog by kind.

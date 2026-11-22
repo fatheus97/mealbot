@@ -13,6 +13,7 @@ import { FloatingAlert } from "./FloatingAlert";
 import { InfoHint } from "./InfoHint";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { useI18n } from "../i18n";
+import { isExpired } from "../utils/expiry";
 
 type PendingRemoval =
   | { kind: "item"; index: number; name: string; quantity: number }
@@ -422,7 +423,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
       <tr key={item._editId} style={{ borderBottom: "1px solid #eee" }}>
         <td>{item.name}</td>
         <td>{Math.round(item.quantity_grams)}</td>
-        <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}</td>
+        <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}{isExpired(item) && <span style={{ ...useSoonBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
         {needToUseEnabled && <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>}
         <td style={{ display: "flex", gap: "0.25rem" }}>
           <button onClick={() => openEditModal(idx)}>{t("meal.edit")}</button>
@@ -470,6 +471,12 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
         <td style={{ color: rowMuted }}>{Math.round(group.totalQuantity)}</td>
         <td style={{ fontSize: "0.85rem", color: rowMuted }}>
           {formatDate(group.earliestExpiration)}
+          {isExpired({ expiration_date: group.earliestExpiration }) && (
+            // Expanded, this row pins #1e293b, so the badge must pin a light colour too.
+            <span style={{ ...(isExpanded ? onDarkBadge : useSoonBadge), marginLeft: "0.4rem" }}>
+              {t("receipt.pastDate")}
+            </span>
+          )}
         </td>
         {needToUseEnabled && <td>{group.needToUse ? t("fridge.yes") : t("fridge.no")}</td>}
         <td>
@@ -504,7 +511,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
               </span>
             </td>
             <td>{Math.round(item.quantity_grams)}</td>
-            <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}</td>
+            <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}{isExpired(item) && <span style={{ ...onDarkBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
             {needToUseEnabled && <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>}
             <td style={{ display: "flex", gap: "0.25rem" }}>
               <button onClick={() => openEditModal(flatIdx)}>{t("meal.edit")}</button>
@@ -563,7 +570,9 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
       <div key={item._editId} style={cardStyle}>
         <div style={cardHeaderRow}>
           <strong>{item.name || "—"}</strong>
-          {needToUseEnabled && item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
+          {isExpired(item)
+            ? <span style={useSoonBadge}>{t("receipt.pastDate")}</span>
+            : needToUseEnabled && item.need_to_use && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
           <span>{Math.round(item.quantity_grams)} g</span>
@@ -588,7 +597,9 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
           <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.8rem" }}>{isExpanded ? "▼" : "▶"}</span>
           <strong>{group.displayName}</strong>
           <span style={{ fontSize: "0.8rem", color: PAGE_TEXT.muted[scheme] }}>{tn("fridge.batches", group.batchCount)}</span>
-          {needToUseEnabled && group.needToUse && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
+          {group.flatIndices.some((i) => isExpired(fridge[i]))
+            ? <span style={useSoonBadge}>{t("receipt.pastDate")}</span>
+            : needToUseEnabled && group.needToUse && <span style={useSoonBadge}>{t("fridge.useSoon")}</span>}
         </div>
         <div style={cardMeta}>
           <span>{t("fridge.gramsTotal", { grams: Math.round(group.totalQuantity) })}</span>
@@ -606,7 +617,9 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
             >
               <div style={cardHeaderRow}>
                 <span style={{ color: ON_DARK_MUTED }}>{t("fridge.batchN", { n: batchIdx + 1 })}</span>
-                {needToUseEnabled && item.need_to_use && <span style={onDarkBadge}>{t("fridge.useSoon")}</span>}
+                {isExpired(item)
+                  ? <span style={onDarkBadge}>{t("receipt.pastDate")}</span>
+                  : needToUseEnabled && item.need_to_use && <span style={onDarkBadge}>{t("fridge.useSoon")}</span>}
               </div>
               {/* This card pins #0f172a in BOTH themes, so it must NOT take the
                   theme-following `cardMeta` colour — #475569 on #0f172a is

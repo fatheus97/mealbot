@@ -34,18 +34,17 @@ from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, select
 
 from app.core.dietary import Allergen, DietType
-from app.models.db_models import MealPlan, StockItem, User
+from app.models.db_models import MealPlan, User
 from app.models.plan_models import (
     MealPlanRequest,
     MealPlanResponse,
     PlannedMeal,
     ShoppingListItem,
-    StockItemDTO,
 )
 from app.services.allergen_screen import is_english_language, screen_meals_for_allergens
+from app.services.fridge_service import stock_for_generation
 from app.services.health_consent import (
     HealthEntry,
     merge_entries,
@@ -210,22 +209,11 @@ async def repeat_plan(
         entries = for_eaters
         _screen_for_eaters(original, entries, request.language, request.allergens)
 
-    # Today's fridge, in the same shape generation uses. `need_to_use` is masked
-    # by the user's master toggle exactly as generate_plan_days masks it, so the
-    # two paths cannot disagree about what the fridge contains.
-    rows = (
-        await session.execute(
-            select(StockItem).where(col(StockItem.household_id) == kitchen.household_id)
-        )
-    ).scalars().all()
-    fridge: list[StockItemDTO] = [
-        StockItemDTO(
-            name=item.name,
-            quantity_grams=item.quantity_grams,
-            need_to_use=item.need_to_use and user.need_to_use_enabled,
-        )
-        for item in rows
-    ]
+    # Today's fridge, through the same helper generation uses (past-dated food
+    # left out), so the two paths cannot disagree about what the fridge contains.
+    fridge, _ = await stock_for_generation(
+        session, kitchen.household_id, user.need_to_use_enabled
+    )
 
     staple_keys = await load_staple_keys(session, kitchen.household_id)
     shopping_items: list[ShoppingListItem] = compute_shopping_list_from_plan(

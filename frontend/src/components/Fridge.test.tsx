@@ -144,6 +144,30 @@ describe('Fridge', () => {
     expect(screen.getByText('Chicken')).toBeInTheDocument();
   });
 
+  it.each([true, false])(
+    'marks a past-dated item "Past its date" instead of "use soon" (mobile: %s)',
+    async (mobile) => {
+      // The planner's left-out line sends the user here, so the row must say
+      // why that food was skipped, not nudge them to use it.
+      loginUser();
+      setMobileViewport(mobile);
+      mockedAuthFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { name: 'Old milk', quantity_grams: 500, need_to_use: true, expiration_date: '2000-01-01' },
+          ]),
+      });
+
+      render(<Fridge />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getByText('Old milk')).toBeInTheDocument());
+
+      expect(screen.getByText('Past its date')).toBeInTheDocument();
+      expect(screen.queryByText(/use soon/i)).not.toBeInTheDocument();
+    },
+  );
+
   it('renders items as cards (not a table) on a mobile viewport', async () => {
     loginUser();
     setMobileViewport(true);
