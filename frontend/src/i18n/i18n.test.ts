@@ -164,6 +164,22 @@ describe('translation parity', () => {
   });
 });
 
+describe('Czech date labels', () => {
+  it('never use the statutory use-by or best-before words', () => {
+    // Regulation 1169/2011 reserves „Spotřebujte do“ (use by) and „Minimální
+    // trvanlivost do“ (best before) for the date printed on a pack. The app
+    // stores one date, mostly an estimate, and does not know its kind, so its
+    // labels stay neutral: „Datum“, „Odhad“, „Datum na obalu“
+    // (docs/food-storage-design.md, F3). A label that names the kind the user
+    // picked from the pack goes on an explicit allowlist here.
+    const statutory = /spotřeb(ujte|ovat) do|dat(um|u|em) spotřeby|minimální trvanlivost/i;
+    const hits = Object.entries(cs)
+      .filter(([, text]) => statutory.test(text))
+      .map(([key]) => key);
+    expect(hits).toEqual([]);
+  });
+});
+
 describe('locale store', () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
