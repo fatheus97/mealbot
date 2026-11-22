@@ -11,14 +11,16 @@ from pathlib import Path
 
 import pytest
 
-from app.core.nutrition_reference import load_reference
+from app.core.nutrition_reference import english_form, load_reference, normalize_key
 from app.core.storage_reference import (
+    COOK_KEY_COLUMNS,
     DATA_DIR,
     MAP_COLUMNS,
     RULE_COLUMNS,
     StorageDataError,
     load_storage,
 )
+from tests.test_nutrition_reference import WASTE
 
 STORAGE = load_storage()
 NUTRITION = load_reference()
@@ -140,29 +142,65 @@ class TestShippedMap:
         assert STORAGE.foods[food].cook_category == category
 
 
+class TestShippedCookKeys:
+    """cook_keys.csv is only for what nutrition's waste gate bars: a key the
+    nutrition table could hold belongs in aliases.csv, where its figures are
+    reviewed too, and one it already resolves would never be read."""
+
+    def test_every_key_needs_bone_arithmetic(self) -> None:
+        assert len(STORAGE.cook_keys) >= 10  # the gate must not pass by seeing nothing
+        assert [key for _, key in STORAGE.cook_keys if not WASTE.search(key)] == []
+
+    def test_no_key_resolves_in_the_nutrition_table(self) -> None:
+        assert [key for lang, key in STORAGE.cook_keys if NUTRITION.lookup("en" if lang == "en" else "cs", key)] == []
+
+    def test_keys_are_stored_in_the_form_they_are_looked_up_in(self) -> None:
+        for lang, key in STORAGE.cook_keys:
+            assert key == (english_form(key) if lang == "en" else normalize_key(key)), (lang, key)
+
+    def test_every_key_shows_a_line(self) -> None:
+        assert [k for k, c in STORAGE.cook_keys.items() if STORAGE.rules[c].core_c is None] == []
+
+
 class TestCookRules:
     def test_each_rule_once_in_file_order(self) -> None:
-        rules = STORAGE.cook_rules(["26036", "22000", "36017", "36002", "unknown", "36018"])
-        assert [r.category for r in rules] == ["poultry", "egg", "fish"]
+        rules = STORAGE.cook_rules(["fish", "egg", None, "poultry", "poultry", "whole_cut"])
+        assert [r.category for r in rules] == ["poultry", "egg", "whole_cut", "fish"]
 
     def test_sources_are_unique_in_file_order(self) -> None:
         assert STORAGE.rules["poultry"].sources == ("szu", "fsa", "efsa")
 
 
-def _write(tmp: Path, rules: list[str], foods: list[str]) -> Path:
+def _write(tmp: Path, rules: list[str], foods: list[str], keys: tuple[str, ...] = ()) -> Path:
     (tmp / "rules.csv").write_text("\n".join([",".join(RULE_COLUMNS), *rules]) + "\n", encoding="utf-8")
     (tmp / "map.csv").write_text("\n".join([",".join(MAP_COLUMNS), *foods]) + "\n", encoding="utf-8")
+    (tmp / "cook_keys.csv").write_text("\n".join([",".join(COOK_KEY_COLUMNS), *keys]) + "\n", encoding="utf-8")
     return tmp
 
 
 RULE = "poultry,75,70,2,0,szu,https://example.org/a,quote 75 70 2,2026-11-22,verified,"
 FOOD = "1,,,poultry,curated,"
+KEY = "en,whole chicken,poultry"
 
 
 class TestLoaderRefuses:
-    def test_a_good_pair_loads(self, tmp_path: Path) -> None:
-        loaded = load_storage(_write(tmp_path, [RULE], [FOOD]))
+    def test_a_good_set_loads(self, tmp_path: Path) -> None:
+        loaded = load_storage(_write(tmp_path, [RULE], [FOOD], (KEY, "cs,celé kuře,poultry")))
         assert loaded.rules["poultry"].core_c == 75
+        assert loaded.cook_keys == {("en", "whole chicken"): "poultry", ("cs", "celé kuře"): "poultry"}
+
+    @pytest.mark.parametrize("keys", [
+        (KEY, KEY),
+        ("en,,poultry",),
+        ("de,ganzes hähnchen,poultry",),
+        ("en,whole chicken,game",),
+        ("en,whole chicken,none",),  # a key with no category has no reason to be listed
+        ("en,whole fish,fish",),  # a category with no rule
+        ("en,whole chicken",),  # a short row
+    ])
+    def test_a_bad_cook_key(self, tmp_path: Path, keys: tuple[str, ...]) -> None:
+        with pytest.raises(StorageDataError):
+            load_storage(_write(tmp_path, [RULE], [FOOD], keys))
 
     @pytest.mark.parametrize(
         ("rules", "foods"),
