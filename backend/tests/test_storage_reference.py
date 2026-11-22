@@ -173,6 +173,8 @@ class TestLoaderRefuses:
             ([RULE.replace(",75,70,2,", ",,70,2,")], [FOOD]),  # a hold without the core
             ([RULE.replace(",70,2,", ",70,,")], [FOOD]),  # hold_c without hold_min
             ([RULE.replace(",75,", ",75.5,")], [FOOD]),
+            ([RULE.replace(",75,", ",7²,")], [FOOD]),  # a digit that is not ASCII
+            ([RULE.replace(",75,", ",٧٥,")], [FOOD]),  # Arabic-Indic 75
             ([RULE.replace("https://", "http://")], [FOOD]),
             ([RULE.replace(",szu,", ",who,")], [FOOD]),
             ([RULE.replace(",2026-11-22,", ",22.11.2026,")], [FOOD]),
@@ -180,6 +182,7 @@ class TestLoaderRefuses:
             ([RULE], ["1,,,fish,curated,"]),  # a category with no rule
             ([RULE], ["1,123,,poultry,curated,"]),  # fk_id without fk_field
             ([RULE], ["1,123,Freeze,poultry,curated,"]),
+            ([RULE], ["1,١٢,Refrigerate,poultry,curated,"]),  # a non-ASCII fk_id
             ([RULE], [FOOD, FOOD]),
             ([RULE], ["1,,,poultry,curated"]),  # a short row
         ],

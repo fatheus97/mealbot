@@ -128,7 +128,9 @@ def _one_of[T: str](raw: str, allowed: tuple[T, ...], where: str) -> T:
 def _degrees(raw: str, where: str) -> int | None:
     if not raw:
         return None
-    if not raw.isdigit():
+    # isdigit alone passes "²" and other non-ASCII digits, which int() then
+    # misreads or refuses with a bare ValueError.
+    if not (raw.isascii() and raw.isdigit()):
         raise StorageDataError(f"{where}: {raw!r} is not a whole number")
     return int(raw)
 
@@ -184,7 +186,8 @@ def _map_rows(path: Path) -> dict[str, FoodRow]:
             raise StorageDataError(f"{where}: empty or repeated food id")
         if bool(row["fk_id"]) != bool(row["fk_field"]):
             raise StorageDataError(f"{where}: fk_id and fk_field go together")
-        if row["fk_id"] and (not row["fk_id"].isdigit() or row["fk_field"] not in FK_FIELDS):
+        fk_id = row["fk_id"]
+        if fk_id and (not (fk_id.isascii() and fk_id.isdigit()) or row["fk_field"] not in FK_FIELDS):
             raise StorageDataError(f"{where}: fk_id must be digits and fk_field one of {sorted(FK_FIELDS)}")
         raw = row["cook_category"]
         foods[food] = FoodRow(
