@@ -737,7 +737,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridge.title": "Lednice",
   "fridge.titleHintLabel": "Jak se mění obsah lednice",
   "fridge.titleHint":
-    "Když potvrdíte jídelníček nebo označíte recept z režimu „Uvařit hned“ jako uvařený, suroviny se odtud odeberou, nejdříve ty s nejbližším datem spotřeby. Po dokončení jídelníčku se vrátí to, co se neuvařilo.",
+    "Když potvrdíte jídelníček nebo označíte recept z režimu „Uvařit hned“ jako uvařený, suroviny se odtud odeberou, nejdříve ty s nejbližším datem spotřeby. Položky po datu se neodebírají. Po dokončení jídelníčku se vrátí to, co se neuvařilo.",
   "fridge.loginPrompt": "Pro zobrazení a úpravu lednice se prosím přihlaste.",
   "fridge.loading": "Načítání zásob...",
   "fridge.connecting": "Připojování k serveru…",

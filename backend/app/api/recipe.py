@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -395,7 +395,10 @@ async def cook_recipe(
     meal_ings: list[IngredientAmount] = [
         ing for ing in payload.recipe.ingredients if not ing.is_spice
     ]
-    allocations: list[ConsumedBatch] = allocate_fifo(batches_by_name, meal_ings)
+    # The recipe was generated without past-dated food, so it takes none of it.
+    allocations: list[ConsumedBatch] = allocate_fifo(
+        batches_by_name, meal_ings, skip_dated_before=date.today()
+    )
 
     final_state = flatten_fridge_batches(batches_by_name)
     await replace_fridge_items(session, kitchen.household_id, final_state, commit=False)

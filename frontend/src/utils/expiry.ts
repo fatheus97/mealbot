@@ -39,6 +39,10 @@ export function isExpired(item: Pick<StockItem, "expiration_date">): boolean {
  * (`fridge_service.stock_for_generation`), so it is not offered here either:
  * picking it would ask the model to plan around it anyway. Tolerates a
  * not-yet-loaded (or, in tests, non-array) fridge query.
+ *
+ * Not an exact mirror: this uses the browser's date and the server its own
+ * (UTC). For an hour or two after local midnight east of UTC, food dated the
+ * day before is hidden here while the server still plans with it.
  */
 export function plannableNames(items: readonly StockItem[] | undefined): string[] {
   return Array.isArray(items) ? items.filter((i) => !isExpired(i)).map((i) => i.name) : [];

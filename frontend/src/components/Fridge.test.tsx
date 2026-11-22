@@ -10,6 +10,7 @@ import { AuthProvider } from '../contexts/AuthContext';
 import { setMobileViewport } from '../test/test-utils';
 import type { ReactNode } from 'react';
 import type { StockItem } from '../types';
+import { addDaysISO, todayISO } from '../utils/planDates';
 
 vi.mock('../api', () => ({
   authFetch: vi.fn(),
@@ -97,8 +98,11 @@ describe('Fridge', () => {
           Promise.resolve([
             { name: 'Kuřecí maso', quantity_grams: 500, need_to_use: false },
             // Two batches of the same name exercise the group row + plural.
-            { name: 'Rýže', quantity_grams: 1000, need_to_use: true, expiration_date: '2026-09-01' },
-            { name: 'Rýže', quantity_grams: 400, need_to_use: false, expiration_date: '2026-10-01' },
+            // Relative dates: a fixed one goes past and swaps "use soon" for "Po datu".
+            { name: 'Rýže', quantity_grams: 1000, need_to_use: true, expiration_date: addDaysISO(todayISO(), 1) },
+            { name: 'Rýže', quantity_grams: 400, need_to_use: false, expiration_date: addDaysISO(todayISO(), 30) },
+            // And one past its date, for that badge.
+            { name: 'Mléko', quantity_grams: 500, need_to_use: false, expiration_date: '2000-01-01' },
           ]),
       });
 
@@ -165,6 +169,40 @@ describe('Fridge', () => {
 
       expect(screen.getByText('Past its date')).toBeInTheDocument();
       expect(screen.queryByText(/use soon/i)).not.toBeInTheDocument();
+      if (!mobile) {
+        // The desktop table's "Need to use?" column must not say Yes either.
+        const row = screen.getByText('Old milk').closest('tr');
+        expect(row).not.toBeNull();
+        expect(within(row as HTMLElement).queryByText('Yes')).not.toBeInTheDocument();
+        expect(within(row as HTMLElement).getByText('\u2014')).toBeInTheDocument();
+      }
+    },
+  );
+
+  it.each([true, false])(
+    'marks a past-dated batch group and each of its batches (mobile: %s)',
+    async (mobile) => {
+      loginUser();
+      setMobileViewport(mobile);
+      mockedAuthFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { name: 'Old milk', quantity_grams: 500, need_to_use: true, expiration_date: '2000-01-01' },
+            { name: 'Old milk', quantity_grams: 300, need_to_use: true, expiration_date: '2000-01-05' },
+          ]),
+      });
+
+      render(<Fridge />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getByText('Old milk')).toBeInTheDocument());
+      expect(screen.getAllByText('Past its date')).toHaveLength(1);
+
+      await userEvent.click(screen.getByText('Old milk'));
+      // The group header plus one per batch.
+      await waitFor(() => expect(screen.getAllByText('Past its date')).toHaveLength(3));
+      expect(screen.queryByText(/use soon/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('Yes')).not.toBeInTheDocument();
     },
   );
 

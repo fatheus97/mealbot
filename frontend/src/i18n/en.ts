@@ -820,7 +820,7 @@ export const en = {
   "fridge.title": "Fridge",
   "fridge.titleHintLabel": "How the fridge changes",
   "fridge.titleHint":
-    "Confirming a plan, or marking a Cook Now recipe as cooked, takes ingredients from here, soonest date first. Finishing a plan puts back what wasn't cooked.",
+    "Confirming a plan, or marking a Cook Now recipe as cooked, takes ingredients from here, soonest date first, and never takes anything past its date. Finishing a plan puts back what wasn't cooked.",
   "fridge.loginPrompt": "Please log in to view and edit your fridge.",
   "fridge.loading": "Loading inventory...",
   "fridge.connecting": "Connecting to server…",

@@ -480,10 +480,16 @@ async def restore_consumed_batches(
 def allocate_fifo(
     batches_by_name: dict[str, list[StockItemDTO]],
     ingredients: list[IngredientAmount],
+    *,
+    skip_dated_before: date | None = None,
 ) -> list[ConsumedBatch]:
     """Deduct `ingredients` from `batches_by_name` in-place (FIFO: earliest expiration first)
     and return the per-batch debits actually applied. Caller owns the dict and is responsible
-    for the initial sort and final flattening."""
+    for the initial sort and final flattening.
+
+    Batches dated before `skip_dated_before` are never touched: the meal was
+    generated without them (stock_for_generation), so the user is still to check
+    them in the Fridge. They stay in the dict, so the flattened write keeps them."""
     allocations: list[ConsumedBatch] = []
     for ing in ingredients:
         key = ing.name.strip().lower()
@@ -495,6 +501,12 @@ def allocate_fifo(
             if remaining <= 0:
                 break
             if batch.quantity_grams <= 0:
+                continue
+            if (
+                skip_dated_before is not None
+                and batch.expiration_date is not None
+                and batch.expiration_date < skip_dated_before
+            ):
                 continue
             deducted = min(remaining, batch.quantity_grams)
             batch.quantity_grams = batch.quantity_grams - deducted

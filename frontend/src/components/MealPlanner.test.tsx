@@ -290,6 +290,32 @@ describe('MealPlanner', () => {
     expect(screen.queryByText(/past (its|their) date (was|were) left out/)).not.toBeInTheDocument();
   });
 
+  it('does not offer past-dated fridge food as a "use up" suggestion', async () => {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/fridge'
+          ? ({
+              ok: true,
+              status: 200,
+              json: () =>
+                Promise.resolve([
+                  { id: 1, name: 'old milk', quantity_grams: 500, need_to_use: true, expiration_date: '2000-01-01' },
+                  { id: 2, name: 'oat milk', quantity_grams: 300, need_to_use: false, expiration_date: null },
+                ]),
+            } as unknown as Response)
+          : okEmpty(),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await waitFor(() => expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge'));
+
+    await user.type(screen.getByPlaceholderText(/fridge items auto-suggest/), 'milk');
+    expect(await screen.findByRole('option', { name: 'oat milk' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'old milk' })).not.toBeInTheDocument();
+  });
+
   it('renders plan and freeze/unfreeze toggles meal', async () => {
     loginUser();
 

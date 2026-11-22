@@ -14,7 +14,7 @@ raises one itself.
 import json
 import logging
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from fastapi import HTTPException
@@ -243,6 +243,8 @@ async def confirm_plan_fridge(
     assert plan.id is not None  # loaded plan always has an id
     fridge = await get_fridge_items(session, household_id)
     batches_by_name = group_and_sort_fridge(fridge)
+    # The plan was generated without past-dated food, so it takes none of it.
+    today = date.today()
     snapshots: dict[tuple[int, int], list[ConsumedBatch]] = {}
     for day_index, day in enumerate(plan_obj.days, start=1):
         for meal_index, meal in enumerate(day.meals, start=1):
@@ -251,9 +253,9 @@ async def confirm_plan_fridge(
                 # food. allocate_fifo NEVER raises on shortage (missing name ->
                 # continue, short stock -> silent partial allocation), so that
                 # double-debit would return 200 and stay invisible until someone
-                # diffs the fridge by hand — and generate_plan_days reads
-                # StockItem directly, so the NEXT plan would be generated against
-                # a phantom-empty fridge.
+                # diffs the fridge by hand — and the NEXT plan reads the fridge
+                # as stored, so it would be generated against a phantom-empty
+                # fridge.
                 #
                 # Write the empty list EXPLICITLY. persist_meal_entries uses
                 # .get((d, m), []) so omitting the key happens to produce "[]"
@@ -263,7 +265,7 @@ async def confirm_plan_fridge(
                 continue
             meal_ingredients = [ing for ing in meal.ingredients if not ing.is_spice]
             snapshots[(day_index, meal_index)] = allocate_fifo(
-                batches_by_name, meal_ingredients
+                batches_by_name, meal_ingredients, skip_dated_before=today
             )
     await replace_fridge_items(
         session, household_id, flatten_fridge_batches(batches_by_name), commit=False
@@ -371,6 +373,8 @@ async def reopen_plan_fridge(
     batches_by_name = group_and_sort_fridge(fridge)
     new_snapshots: list[list[ConsumedBatch]] = []
     for targets in targets_per_entry:
+        # No skip_dated_before: a reopen takes back what the finish returned,
+        # whatever its date now. Skipping would turn that into a 409 shortage.
         allocations = allocate_fifo(batches_by_name, targets)
 
         allocated_by_name: dict[str, float] = {}

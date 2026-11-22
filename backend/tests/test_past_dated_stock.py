@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from httpx import AsyncClient
 
 from app.core.meal_types import MealType
@@ -20,7 +21,11 @@ from app.models.plan_models import (
     SingleDayResponse,
     StockItemDTO,
 )
-from app.services.fridge_service import plannable_stock
+from app.services.fridge_service import (
+    allocate_fifo,
+    group_and_sort_fridge,
+    plannable_stock,
+)
 from tests.test_meal_planner_service import _make_llm_day_response
 
 TODAY = date(2026, 11, 22)
@@ -62,6 +67,43 @@ class TestPlannableStock:
         kept, left_out = plannable_stock(items, TODAY)
         assert [i.expiration_date for i in kept] == [TODAY + timedelta(days=3)]
         assert left_out == 2
+
+
+def _milk(grams: float, expires: date) -> StockItemDTO:
+    return StockItemDTO(name="milk", quantity_grams=grams, expiration_date=expires)
+
+
+class TestTheDebitSkipsPastDatedFood:
+    """FIFO takes the earliest date first, so without the skip the debit would
+    eat exactly the row the left-out notice sends the user to check."""
+
+    def test_fresh_stock_is_taken_and_the_past_dated_row_kept(self) -> None:
+        by_name = group_and_sort_fridge(
+            [_milk(500, TODAY - timedelta(days=1)), _milk(1000, TODAY)]
+        )
+        taken = allocate_fifo(
+            by_name, [IngredientAmount(name="milk", quantity_grams=700)],
+            skip_dated_before=TODAY,
+        )
+        assert [(a.quantity_grams, a.expiration_date) for a in taken] == [(700, TODAY)]
+        assert [b.quantity_grams for b in by_name["milk"]] == [500, 300]
+
+    def test_only_past_dated_stock_means_nothing_is_taken(self) -> None:
+        by_name = group_and_sort_fridge([_milk(500, TODAY - timedelta(days=1))])
+        taken = allocate_fifo(
+            by_name, [IngredientAmount(name="milk", quantity_grams=300)],
+            skip_dated_before=TODAY,
+        )
+        assert taken == []
+        assert by_name["milk"][0].quantity_grams == 500
+
+    def test_without_the_cutoff_fifo_is_unchanged(self) -> None:
+        """Reopen passes no cutoff: it takes back what the finish returned."""
+        by_name = group_and_sort_fridge(
+            [_milk(500, TODAY - timedelta(days=1)), _milk(1000, TODAY)]
+        )
+        taken = allocate_fifo(by_name, [IngredientAmount(name="milk", quantity_grams=700)])
+        assert [a.quantity_grams for a in taken] == [500, 200]
 
 
 def _fridge() -> list[dict[str, Any]]:
@@ -168,20 +210,70 @@ class TestNewPlan:
         assert by_name["anchovies"]["expiration_date"] == "2000-01-01"
         assert by_name["old milk"]["quantity_grams"] == 500
 
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_confirm_takes_a_same_named_fresh_row_never_the_past_dated_one(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """The plan uses \"old milk\", and the fridge holds a past-dated row and a
+        fresh one of that name. FIFO alone would drain the past-dated row first."""
+        fresh = {"name": "old milk", "quantity_grams": 1000, "expiration_date": "2099-04-25"}
+        put = await client.put("/api/fridge", headers=auth_headers, json=[*_fridge(), fresh])
+        assert put.status_code == 200
+        mock_gen.return_value = _day("old milk")
+        resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers, json={"meals_per_day": 1, "people_count": 2}
+        )
+        confirm = await client.post(
+            f"/api/plan/{resp.json()['plan_id']}/confirm", headers=auth_headers
+        )
+        assert confirm.status_code == 200
+
+        fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+        milk = {i["expiration_date"]: i["quantity_grams"] for i in fridge if i["name"] == "old milk"}
+        assert milk == {"2000-01-01": 500, "2099-04-25": 900}
+
+    @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
+    async def test_confirm_takes_nothing_when_only_past_dated_stock_matches(
+        self, mock_gen: AsyncMock, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """The shopping list asked the user to buy it, so the old row stays."""
+        await _seed(client, auth_headers)
+        mock_gen.return_value = _day("old milk")
+        resp = await client.post(
+            "/api/plan?days=1", headers=auth_headers, json={"meals_per_day": 1, "people_count": 2}
+        )
+        confirm = await client.post(
+            f"/api/plan/{resp.json()['plan_id']}/confirm", headers=auth_headers
+        )
+        assert confirm.status_code == 200
+
+        fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+        assert {i["name"]: i["quantity_grams"] for i in fridge}["old milk"] == 500
+
 
 class TestRegenerate:
+    @pytest.mark.parametrize(
+        ("mask_on", "expected"),
+        [
+            (True, _EXPECTED_STOCK),
+            (False, {"oats": False, "eggs": False, "spinach": False}),
+        ],
+    )
     @patch("app.api.plan.generate_partial_day", new_callable=AsyncMock)
     @patch("app.services.plan_service.generate_single_day", new_callable=AsyncMock)
-    async def test_past_dated_food_is_left_out_with_the_mask_still_applied(
+    async def test_past_dated_food_is_left_out_and_urgency_matches_the_fridge(
         self,
         mock_gen: AsyncMock,
         mock_partial: AsyncMock,
+        mask_on: bool,
+        expected: dict[str, bool],
         client: AsyncClient,
         auth_headers: dict[str, str],
         test_user: User,
     ) -> None:
         """Regenerate re-reads the fridge on its own, a sibling call site that
-        once missed the need_to_use mask; it must miss nothing here either."""
+        once missed the need_to_use mask. With the mask on it must see the
+        computed urgency (spinach), with it off no urgency at all."""
         await _seed(client, auth_headers)
         mock_gen.return_value = SingleDayResponse(meals=[*_day("oats").meals, *_day("eggs").meals])
         plan = await client.post(
@@ -189,7 +281,7 @@ class TestRegenerate:
         )
         assert plan.status_code == 200
 
-        test_user.need_to_use_enabled = False
+        test_user.need_to_use_enabled = mask_on
         mock_partial.return_value = _day("spinach")
         regen = await client.post(
             f"/api/plan/{plan.json()['plan_id']}/regenerate",
@@ -197,7 +289,7 @@ class TestRegenerate:
             json={"frozen_meals": [{"day_index": 0, "meal_index": 0}]},
         )
         assert regen.status_code == 200
-        assert _stock_of(mock_partial.call_args) == {"oats": False, "eggs": False, "spinach": False}
+        assert _stock_of(mock_partial.call_args) == expected
         assert regen.json()["past_dated_left_out"] == 2
 
 
@@ -219,6 +311,25 @@ class TestCookNow:
         assert call is not None
         assert _stock_of(call) == _EXPECTED_STOCK
         assert resp.json()["past_dated_left_out"] == 2
+
+    async def test_cooking_takes_a_same_named_fresh_row_never_the_past_dated_one(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        fresh = {"name": "old milk", "quantity_grams": 1000, "expiration_date": "2099-04-25"}
+        put = await client.put("/api/fridge", headers=auth_headers, json=[*_fridge(), fresh])
+        assert put.status_code == 200
+        recipe = _day("old milk").meals[0].model_dump(mode="json")
+
+        cook = await client.post(
+            "/api/recipe/cook",
+            headers=auth_headers,
+            json={"meal_type": recipe["meal_type"], "people_count": 2, "recipe": recipe},
+        )
+        assert cook.status_code == 200
+
+        fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+        milk = {i["expiration_date"]: i["quantity_grams"] for i in fridge if i["name"] == "old milk"}
+        assert milk == {"2000-01-01": 500, "2099-04-25": 900}
 
 
 def _fence(prompt: str, kind: str) -> str:

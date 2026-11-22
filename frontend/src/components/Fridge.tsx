@@ -416,6 +416,14 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
       return aDate.localeCompare(bDate);
     });
 
+  // Past-dated food is out of planning until the user re-dates it, so "use
+  // soon: yes" would contradict its badge. A group answers for its in-date batches.
+  const needToUseLabel = (items: readonly EditableStockItem[]) => {
+    const inDate = items.filter((i) => !isExpired(i));
+    if (inDate.length === 0) return "\u2014";
+    return inDate.some((i) => i.need_to_use) ? t("fridge.yes") : t("fridge.no");
+  };
+
   const renderSingleRow = (group: GroupedItem) => {
     const idx = group.flatIndices[0];
     const item = fridge[idx];
@@ -424,7 +432,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
         <td>{item.name}</td>
         <td>{Math.round(item.quantity_grams)}</td>
         <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}{isExpired(item) && <span style={{ ...useSoonBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
-        {needToUseEnabled && <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>}
+        {needToUseEnabled && <td>{needToUseLabel([item])}</td>}
         <td style={{ display: "flex", gap: "0.25rem" }}>
           <button onClick={() => openEditModal(idx)}>{t("meal.edit")}</button>
           <button onClick={() => requestRemoveItem(idx)}>{t("fridge.remove")}</button>
@@ -478,7 +486,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
             </span>
           )}
         </td>
-        {needToUseEnabled && <td>{group.needToUse ? t("fridge.yes") : t("fridge.no")}</td>}
+        {needToUseEnabled && <td>{needToUseLabel(group.flatIndices.map((i) => fridge[i]))}</td>}
         <td>
           <button onClick={(e) => { e.stopPropagation(); requestRemoveGroup(group); }}>
             {t("fridge.removeAll")}
@@ -512,7 +520,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
             </td>
             <td>{Math.round(item.quantity_grams)}</td>
             <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}{isExpired(item) && <span style={{ ...onDarkBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
-            {needToUseEnabled && <td>{item.need_to_use ? t("fridge.yes") : t("fridge.no")}</td>}
+            {needToUseEnabled && <td>{needToUseLabel([item])}</td>}
             <td style={{ display: "flex", gap: "0.25rem" }}>
               <button onClick={() => openEditModal(flatIdx)}>{t("meal.edit")}</button>
               <button onClick={() => requestRemoveItem(flatIdx)}>{t("fridge.remove")}</button>
