@@ -588,7 +588,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "storage.leftoversFridge":
     "Uchovávejte v lednici a snězte do 2 dnů (vařenou rýži do 24 hodin), nebo dejte do mrazáku. Ohřívejte jen jednou, a to tak, aby bylo horké i uprostřed (aspoň 75 °C). Polévky a omáčky přiveďte k varu. Zdroje: Státní zdravotní ústav (SZÚ), Ministerstvo zemědělství, britská agentura FSA.",
   "storage.leftoversFreezer":
-    "Zbylé porce nechte vychladnout v malých nádobách a do 2 hodin od uvaření je dejte do mrazáku. Rozmrazujte je v lednici, podejte do 24 hodin a ohřívejte jen jednou. Co dítě v misce nedojí, vyhoďte. Zdroje: Ministerstvo zemědělství, britské úřady FSA a NHS.",
+    "Zbylé porce nechte vychladnout v malých nádobách a do 2 hodin od uvaření (vařenou rýži do 1 hodiny) je dejte do mrazáku. Rozmrazujte je v lednici, podejte do 24 hodin a ohřívejte jen jednou. Co dítě v misce nedojí, vyhoďte. Zdroje: Ministerstvo zemědělství, britské úřady FSA a NHS.",
   "meal.ingredients": "Suroviny:",
   "meal.leftoversShort": "↻ Zbytky",
   "meal.leftoversFromTitle": "Zbytky z jídla „{source}“",

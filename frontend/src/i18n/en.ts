@@ -660,7 +660,7 @@ export const en = {
   "storage.leftoversFridge":
     "Keep in the fridge and eat within 2 days (cooked rice within 24 hours), or put it in the freezer. Reheat only once, until it is steaming hot in the middle (at least 75 °C). Bring soups and sauces to the boil. Sources: UK FSA, Czech National Institute of Public Health (SZÚ), Czech Ministry of Agriculture.",
   "storage.leftoversFreezer":
-    "Let the extra portions cool in small containers, then put them in the freezer within 2 hours of cooking. Thaw them in the fridge, serve within 24 hours and reheat only once. Throw away anything left in the bowl. Sources: UK FSA, Czech Ministry of Agriculture, NHS.",
+    "Let the extra portions cool in small containers, then put them in the freezer within 2 hours of cooking (cooked rice within 1 hour). Thaw them in the fridge, serve within 24 hours and reheat only once. Throw away anything left in the bowl. Sources: UK FSA, Czech Ministry of Agriculture, NHS.",
   "meal.ingredients": "Ingredients:",
   // The ↻ glyph carries the meaning on narrow screens; the word is the label.
   "meal.leftoversShort": "↻ Leftovers",

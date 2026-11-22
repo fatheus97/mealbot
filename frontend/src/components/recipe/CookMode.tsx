@@ -430,7 +430,9 @@ export function CookMode({
         </div>
 
         {isLast && note && (
-          <p style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.9rem", margin: "0 0 0.6rem" }}>
+          // Scrolls on its own, like the timer list, so a long note never
+          // squeezes the step text above on a short screen.
+          <p style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.9rem", margin: "0 0 0.6rem", maxHeight: "20vh", overflowY: "auto" }}>
             {note}
           </p>
         )}
