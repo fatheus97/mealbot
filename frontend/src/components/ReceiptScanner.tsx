@@ -3,7 +3,7 @@ import type { ChangeEvent } from "react";
 import { useScanReceipt, useMergeFridge } from "../hooks/useServerState";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
-import type { ScanSource, ScannedItemType, StockItem } from "../types";
+import type { DateKind, ScanSource, ScannedItemType, StockItem } from "../types";
 import { InfoHint } from "./InfoHint";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 import { useI18n, type TranslationKey } from "../i18n";
@@ -28,6 +28,9 @@ interface ReviewItem {
   needToUse: boolean;
   itemType?: ScannedItemType;
   expirationDate: string | null;
+  // "estimated_ai" from the scan. A date the user retypes becomes null
+  // (unknown): it may come from the pack, but not which kind it is.
+  dateKind: DateKind | null;
   // Set for an opened package from a food photo: its full size in grams. The
   // row asks how much is left, and addedQty starts empty until answered.
   packageGrams?: number;
@@ -52,7 +55,7 @@ const parseQty = (s: string): number => {
 // demo always shows dates relative to today — no stale "expired yesterday"
 // rows for recruiters who open the demo weeks after the build.
 const DEMO_SCAN_TEMPLATE: Array<
-  Omit<ReviewItem, "expirationDate" | "name" | "scan"> & { nameKey: TranslationKey; shelfLifeDays: number }
+  Omit<ReviewItem, "expirationDate" | "dateKind" | "name" | "scan"> & { nameKey: TranslationKey; shelfLifeDays: number }
 > = [
   { nameKey: "receipt.demo.milk",     addedQty: "1000", existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 7 },
   { nameKey: "receipt.demo.eggs",     addedQty: "360",  existingQty: 0, needToUse: false, itemType: "ingredient", shelfLifeDays: 21 },
@@ -75,7 +78,7 @@ const buildDemoScanItems = (t: (key: TranslationKey) => string): ReviewItem[] =>
     const y = exp.getFullYear();
     const m = String(exp.getMonth() + 1).padStart(2, "0");
     const d = String(exp.getDate()).padStart(2, "0");
-    return { ...item, name: t(nameKey), expirationDate: `${y}-${m}-${d}`, scan: 1 };
+    return { ...item, name: t(nameKey), expirationDate: `${y}-${m}-${d}`, dateKind: "estimated_ai", scan: 1 };
   });
 };
 
@@ -300,6 +303,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
           needToUse: existing?.need_to_use ?? false,
           itemType: scanned.item_type,
           expirationDate: expDate,
+          dateKind: scanned.date_kind ?? null,
           packageGrams: scanned.opened ? scanned.quantity_grams : undefined,
           scan: scanCount + 1,
         };
@@ -367,6 +371,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
       quantity_grams: parseQty(item.addedQty),
       need_to_use: item.needToUse,
       expiration_date: item.expirationDate,
+      date_kind: item.dateKind,
     }));
 
     // The server compares the scans it can resolve with the WHOLE list, so one
@@ -418,6 +423,12 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
     value: ReviewItem[K],
   ) => {
     setReviewItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+  };
+
+  const updateReviewDate = (index: number, value: string | null) => {
+    setReviewItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, expirationDate: value, dateKind: null } : item)),
+    );
   };
 
   const removeReviewItem = (index: number) => {
@@ -677,7 +688,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                               <input
                                 type="date"
                                 value={item.expirationDate ?? ""}
-                                onChange={(e) => updateReviewItem(index, "expirationDate", e.target.value || null)}
+                                onChange={(e) => updateReviewDate(index, e.target.value || null)}
                                 aria-label={t("receipt.itemExpiration", { n: index + 1 })}
                               />
                             </label>
@@ -748,7 +759,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                             <input
                               type="date"
                               value={item.expirationDate ?? ""}
-                              onChange={(e) => updateReviewItem(index, "expirationDate", e.target.value || null)}
+                              onChange={(e) => updateReviewDate(index, e.target.value || null)}
                               style={{ width: "130px" }}
                             />
                           </td>

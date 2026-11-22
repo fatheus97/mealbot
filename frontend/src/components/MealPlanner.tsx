@@ -498,6 +498,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
         name: d.item.name,
         quantity_grams: d.item.quantity_grams,
         expiration_date: d.item.expiration_date ?? null,
+        date_kind: d.item.date_kind ?? null,
         reason: d.choice,
         source: "finish_plan",
       }));

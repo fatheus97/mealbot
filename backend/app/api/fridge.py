@@ -443,6 +443,7 @@ async def scan_receipt(
             need_to_use=False,
             item_type=item.item_type,
             expiration_date=base_date + timedelta(days=item.shelf_life_days),
+            date_kind="estimated_ai",
             opened=isinstance(item, FoodPhotoItem) and item.opened,
         )
         for item in items

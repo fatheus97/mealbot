@@ -33,6 +33,18 @@ export function isExpired(item: Pick<StockItem, "expiration_date">): boolean {
 }
 
 /**
+ * May the user keep this past-dated item ("Keep it" in the dialog)?
+ *
+ * Only for a best-before date from the pack: that date is about quality
+ * (EFSA), while food past a use-by date must not be eaten, and an estimate or
+ * an unknown kind says nothing about the pack (docs/food-storage-design.md,
+ * owner decision 7 and ledger Q38).
+ */
+export function allowsStillFine(item: Pick<StockItem, "date_kind">): boolean {
+  return item.date_kind === "best_before";
+}
+
+/**
  * Fridge item names to offer as "use up" suggestions before generating.
  *
  * Food past its date is left out of every generation on the server

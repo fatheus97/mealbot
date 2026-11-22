@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from itertools import chain
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 from sqlalchemy import event, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,7 @@ from app.core.errors import LocalizedHTTPException
 from app.models.db_models import Household, StockItem, User, WasteRecord
 from app.models.plan_models import (
     ConsumedBatch,
+    DateKind,
     IngredientAmount,
     StockItemDTO,
     WasteEntryDTO,
@@ -254,12 +255,28 @@ def record_waste_entries(
                 name=entry.name.strip(),
                 quantity_grams=entry.quantity_grams,
                 expiration_date=entry.expiration_date,
+                date_kind=entry.date_kind,
                 reason=entry.reason,
                 source=entry.source,
             )
         )
         staged += 1
     return staged
+
+
+# Which kind a fold keeps: the strictest. None (legacy or unknown) counts as
+# use_by, so only a printed use-by outranks it.
+_KIND_RANK: Final[dict[DateKind | None, int]] = {
+    "use_by": 0,
+    None: 1,
+    "best_before": 2,
+    "estimated_table": 3,
+    "estimated_ai": 4,
+}
+
+
+def stricter_kind(a: DateKind | None, b: DateKind | None) -> DateKind | None:
+    return a if _KIND_RANK[a] <= _KIND_RANK[b] else b
 
 
 def merge_into_fridge_buckets(
@@ -269,7 +286,8 @@ def merge_into_fridge_buckets(
     """Merge ``incoming`` into ``existing`` fridge buckets keyed by
     (name.strip().lower(), expiration_date).
 
-    On a key match, quantities sum and need_to_use ORs; otherwise the incoming
+    On a key match, quantities sum, need_to_use ORs and the stricter date kind
+    wins (``stricter_kind``); otherwise the incoming
     item starts a fresh bucket. The single source of truth for the merge key,
     shared by POST /fridge/merge (StockItemDTO input) and consumed-batch restore
     (ConsumedBatch input) so the two paths can never key the fridge differently.
@@ -286,6 +304,7 @@ def merge_into_fridge_buckets(
                 quantity_grams=merged[key].quantity_grams + item.quantity_grams,
                 need_to_use=merged[key].need_to_use or item.need_to_use,
                 expiration_date=merged[key].expiration_date,
+                date_kind=stricter_kind(merged[key].date_kind, item.date_kind),
             )
         else:
             merged[key] = StockItemDTO(
@@ -293,6 +312,7 @@ def merge_into_fridge_buckets(
                 quantity_grams=item.quantity_grams,
                 need_to_use=item.need_to_use,
                 expiration_date=item.expiration_date,
+                date_kind=item.date_kind,
             )
     return list(merged.values())
 
@@ -339,6 +359,8 @@ async def get_fridge_items(
             quantity_grams=float(r.quantity_grams),
             need_to_use=need_to_use_enabled and (r.need_to_use or is_expiring),
             expiration_date=r.expiration_date,
+            # A loose str column; the DTO still validates it at runtime.
+            date_kind=cast("DateKind | None", r.date_kind),
         ))
     return items
 
@@ -402,6 +424,12 @@ async def replace_fridge_items(
     A key with no existing match by either (a genuinely new item) has no
     stored value to preserve, so it falls back to False.
 
+    ``date_kind`` gets the same protection from a client that predates it: an
+    item whose payload has no ``date_kind`` key keeps the stored kind, matched
+    by id while its date is unchanged (a new date drops it to unknown), else by
+    (name, expiration_date) among the rows no item claims by id, strictest
+    first. An explicit null still clears it.
+
     The caller must hold ``lock_kitchen`` for this household in this transaction,
     taken before it read whatever ``items`` was computed from. Writing without
     it raises: an unlocked whole-fridge rewrite races every other writer.
@@ -441,6 +469,31 @@ async def replace_fridge_items(
 
         items = [it.model_copy(update={"need_to_use": _preserved(it)}) for it in items]
 
+    if any("date_kind" not in it.model_fields_set for it in items):
+        stored = await get_fridge_items(session, household_id)
+        stored_by_row = {s.id: s for s in stored if s.id is not None}
+        # A row the payload already carries by id is not up for a key match: an
+        # id-less item beside it is a new batch, and its kind is unknown.
+        claimed = {it.id for it in items if it.id is not None}
+        kind_by_key: dict[tuple[str, date | None], DateKind | None] = {}
+        for s in stored:
+            if s.id in claimed:
+                continue
+            k = (s.name.strip().lower(), s.expiration_date)
+            kind_by_key[k] = stricter_kind(kind_by_key[k], s.date_kind) if k in kind_by_key else s.date_kind
+
+        def _stored_kind(it: StockItemDTO) -> DateKind | None:
+            row = stored_by_row.get(it.id) if it.id is not None else None
+            if row is not None:
+                return row.date_kind if row.expiration_date == it.expiration_date else None
+            return kind_by_key.get((it.name.strip().lower(), it.expiration_date))
+
+        items = [
+            it if "date_kind" in it.model_fields_set
+            else it.model_copy(update={"date_kind": _stored_kind(it)})
+            for it in items
+        ]
+
     await session.execute(delete(StockItem).where(col(StockItem.household_id) == household_id))
 
     for it in items:
@@ -455,6 +508,7 @@ async def replace_fridge_items(
                 quantity_grams=qty,
                 need_to_use=it.need_to_use,
                 expiration_date=it.expiration_date,
+                date_kind=it.date_kind,
             )
         )
 
@@ -516,6 +570,7 @@ def allocate_fifo(
                 quantity_grams=deducted,
                 expiration_date=batch.expiration_date,
                 need_to_use=batch.need_to_use,
+                date_kind=batch.date_kind,
             ))
     return allocations
 

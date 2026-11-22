@@ -83,6 +83,8 @@ class TestScanEndpoint:
         # Verify expiration_date = purchase_date + shelf_life_days
         assert by_name["chicken breast"]["expiration_date"] == "2026-03-13"  # +3 days
         assert by_name["rice"]["expiration_date"] == "2027-03-10"  # +365 days
+        # No scan reads a printed date: every one is labelled the model's guess.
+        assert {item["date_kind"] for item in data} == {"estimated_ai"}
         mock_extract.assert_awaited_once()
 
     @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)

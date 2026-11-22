@@ -331,6 +331,13 @@ export interface SingleRecipeResponse {
 
 export type ScannedItemType = "ingredient" | "ready_to_eat";
 
+/**
+ * What a fridge date is (StockItem.date_kind on the server): printed on the
+ * pack as use-by or best-before, or an estimate from the storage table or the
+ * scan. null is legacy or unknown, and every check treats it as use-by.
+ */
+export type DateKind = "use_by" | "best_before" | "estimated_table" | "estimated_ai";
+
 export interface StockItem {
   // Round-tripped GET -> edit -> PUT so the backend can match an edited item
   // back to its row even if name/expiration_date (its only other identity)
@@ -342,6 +349,8 @@ export interface StockItem {
   need_to_use: boolean;
   item_type?: ScannedItemType;
   expiration_date?: string | null;
+  // Absent only from fixtures and pre-field caches; the server always sends it.
+  date_kind?: DateKind | null;
 }
 
 // GET /fridge/restock (mirrors backend RestockStatus): whether to ask once to
@@ -582,6 +591,8 @@ export interface WasteEntry {
   quantity_grams: number;
   /** The item's expiry at the moment it left, when it had one. */
   expiration_date: string | null;
+  /** The item's date kind as it left, for calibrating the storage table later. */
+  date_kind: DateKind | null;
   reason: WasteReason;
   source: WasteSource;
 }

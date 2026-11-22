@@ -226,6 +226,11 @@ def _reconcile_diet_fields(
     return (diet_types[0] if diet_types else None), diet_types
 
 
+# What a fridge date is (StockItem.date_kind): printed on the pack, or our
+# estimate. None is legacy or unknown, and counts as use_by everywhere.
+DateKind = Literal["use_by", "best_before", "estimated_table", "estimated_ai"]
+
+
 class StockItemDTO(BaseModel):
     # Client-controlled on PUT /fridge and POST /fridge/merge, and each name is
     # templated into the LLM system prompt — so bound it like the other hostile-
@@ -238,6 +243,10 @@ class StockItemDTO(BaseModel):
     quantity_grams: float = Field(..., ge=0, allow_inf_nan=False)
     need_to_use: bool = Field(default=False)
     expiration_date: date | None = None
+    # A missing key (a client from before the field) keeps the stored kind on
+    # PUT, an explicit null clears it: see replace_fridge_items. With no date
+    # there is nothing for a kind to describe, so it is dropped.
+    date_kind: DateKind | None = None
     # StockItem.id, round-tripped GET -> edit -> PUT so fridge_service can match
     # an incoming item back to the row it came from even if name/expiration_date
     # (its only other identity) changed in the same edit — see
@@ -251,6 +260,14 @@ class StockItemDTO(BaseModel):
     @classmethod
     def _strip_fence_tags(cls, v: object) -> object:
         return _strip_prompt_fence_tags(v)
+
+    @model_validator(mode="after")
+    def _no_kind_without_a_date(self) -> StockItemDTO:
+        # Only assigned when set: an assignment marks the field as sent, and a
+        # field an older client never sent must stay unsent (replace_fridge_items).
+        if self.expiration_date is None and self.date_kind is not None:
+            self.date_kind = None
+        return self
 
 
 class PantryStapleDTO(BaseModel):
@@ -297,6 +314,8 @@ class WasteEntryDTO(BaseModel):
     # one. Kept (rather than a "was expired" bool) so the gap against the write
     # time survives — see WasteRecord for what that gap is for.
     expiration_date: date | None = None
+    # The item's date kind as it left (see WasteRecord.date_kind).
+    date_kind: DateKind | None = None
     reason: Literal["thrown_out", "eaten", "still_fine"]
     source: Literal["fridge_delete", "finish_plan"]
 
@@ -668,6 +687,8 @@ class ConsumedBatch(BaseModel):
     quantity_grams: float
     expiration_date: date | None = None
     need_to_use: bool = False
+    # Defaults to None so snapshots stored before the field still parse.
+    date_kind: DateKind | None = None
 
 
 LeftoverStorage = Literal["fridge", "freezer"]
@@ -1256,6 +1277,9 @@ class ScannedItemDTO(BaseModel):
     # Food photos only: an opened package. quantity_grams is the full package
     # size, and the review step asks the user how much is left.
     opened: bool = False
+    # "estimated_ai": no scan reads a printed date, every one is the model's
+    # shelf-life guess. Defaults to None so stored scan output still parses.
+    date_kind: DateKind | None = None
 
 
 class ScannedItemsResponse(BaseModel):

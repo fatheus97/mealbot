@@ -1553,6 +1553,7 @@ describe('MealPlanner — expired-item review after finishing', () => {
   const EXPIRED = {
     id: 11, name: 'Yogurt', quantity_grams: 500,
     need_to_use: true, expiration_date: addDaysISO(todayISO(), -4),
+    date_kind: 'best_before' as const,
   };
   const FRESH = {
     id: 12, name: 'Rice', quantity_grams: 900,
@@ -1669,6 +1670,7 @@ describe('MealPlanner — expired-item review after finishing', () => {
         name: 'Yogurt',
         quantity_grams: 500,
         expiration_date: EXPIRED.expiration_date,
+        date_kind: 'best_before',
         reason: 'thrown_out',
         source: 'finish_plan',
       },
@@ -1679,7 +1681,7 @@ describe('MealPlanner — expired-item review after finishing', () => {
     const user = await finishPlan({ waste_tracking_enabled: true }, [EXPIRED, FRESH]);
     await screen.findByText(/anything past its date/i);
 
-    await user.click(screen.getByRole('radio', { name: /still fine/i }));
+    await user.click(screen.getByRole('radio', { name: /keep it/i }));
     await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
@@ -1689,6 +1691,8 @@ describe('MealPlanner — expired-item review after finishing', () => {
       expect(sent!.map((i: { id: number }) => i.id)).toEqual([EXPIRED.id, FRESH.id]);
       // ...with its date moved on a week from TODAY, not from the stale date.
       expect(sent![0].expiration_date).toBe(addDaysISO(todayISO(), 7));
+      // The kind rides along: it describes the product, which has not changed.
+      expect((sent![0] as { date_kind?: string }).date_kind).toBe('best_before');
       // The untouched batch is passed through unchanged.
       expect(sent![1].expiration_date).toBe(FRESH.expiration_date);
     });
@@ -1698,6 +1702,15 @@ describe('MealPlanner — expired-item review after finishing', () => {
     await waitFor(() => expect(mockedRecordWaste).toHaveBeenCalledWith([
       expect.objectContaining({ reason: 'still_fine', source: 'finish_plan' }),
     ]));
+  });
+
+  it('offers no "keep it" for an item whose date kind came back as use-by', async () => {
+    // The kind travels from GET /fridge to the dialog untouched; the dialog
+    // decides by it (ExpiredReviewDialog.test.tsx covers every kind).
+    await finishPlan({ waste_tracking_enabled: true }, [{ ...EXPIRED, date_kind: 'use_by' }, FRESH]);
+    await screen.findByText(/anything past its date/i);
+    expect(screen.getByRole('checkbox', { name: /threw it out/i })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /keep it/i })).not.toBeInTheDocument();
   });
 
   it('surfaces a failed fridge write instead of closing silently', async () => {

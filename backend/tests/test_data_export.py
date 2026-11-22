@@ -72,6 +72,7 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
                 quantity_grams=250.0,
                 need_to_use=True,
                 expiration_date=date(2026, 8, 10),
+                date_kind="best_before",
             ),
             PantryStaple(household_id=hid, name="salt"),
             FeedbackReport(
@@ -95,6 +96,7 @@ async def _seed(db_session: AsyncSession, user: User) -> None:
                 name="milk",
                 quantity_grams=200.0,
                 expiration_date=date(2026, 8, 3),
+                date_kind="use_by",
                 reason="thrown_out",
                 source="fridge_delete",
                 created_at=datetime(2026, 8, 6, tzinfo=UTC),
@@ -171,6 +173,7 @@ class TestExportContents:
                 "quantity_grams": 250.0,
                 "need_to_use": True,
                 "expiration_date": "2026-08-10",
+                "date_kind": "best_before",
             }
         ]
         assert body["pantry_staples"] == ["salt"]
@@ -200,6 +203,7 @@ class TestExportContents:
                 "name": "milk",
                 "quantity_grams": 200.0,
                 "expiration_date": "2026-08-03",
+                "date_kind": "use_by",
                 "reason": "thrown_out",
                 "source": "fridge_delete",
                 "created_at": "2026-08-06T00:00:00Z",
