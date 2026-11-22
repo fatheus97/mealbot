@@ -653,6 +653,14 @@ export const en = {
   // it — "z Guláš" would be wrong and "z Guláše" is unknowable from here.
   "meal.leftoverFrom": "Uses leftovers from {source} — nothing extra to buy.",
   "meal.leftoverFromUnknown": "Uses leftovers from an earlier meal — nothing extra to buy.",
+  // Keep-and-reheat lines (docs/food-storage-design.md, slice 3): the
+  // strictest figure of the UK FSA, SZÚ and the Czech Ministry of
+  // Agriculture, sources on the same line. Every storage.* key passes the
+  // wording lint in i18n.test.ts.
+  "storage.leftoversFridge":
+    "Keep in the fridge and eat within 2 days (cooked rice within 24 hours), or put it in the freezer. Reheat only once, until it is steaming hot in the middle (at least 75 °C). Bring soups and sauces to the boil. Sources: UK FSA, Czech National Institute of Public Health (SZÚ), Czech Ministry of Agriculture.",
+  "storage.leftoversFreezer":
+    "Let the extra portions cool in small containers, then put them in the freezer within 2 hours of cooking. Thaw them in the fridge, serve within 24 hours and reheat only once. Throw away anything left in the bowl. Sources: UK FSA, Czech Ministry of Agriculture, NHS.",
   "meal.ingredients": "Ingredients:",
   // The ↻ glyph carries the meaning on narrow screens; the word is the label.
   "meal.leftoversShort": "↻ Leftovers",
@@ -774,6 +782,7 @@ export const en = {
 
   // ─── Cook mode ────────────────────────────────────────────────────────────
   "cook.done": "Done cooking",
+  "cook.leftoversNote": "Some of this dish is planned as leftovers.",
   "cook.closeTitle": "Close cooking mode",
   "cook.ingredients": "Ingredients",
   "cook.hideIngredients": "Hide ingredients",

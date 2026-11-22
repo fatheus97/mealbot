@@ -585,6 +585,10 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   // "z jídla „X“" — název jídla zůstává nesklonovaný v uvozovkách.
   "meal.leftoverFrom": "Využívá zbytky z jídla „{source}“ — není potřeba nic dokupovat.",
   "meal.leftoverFromUnknown": "Využívá zbytky z dřívějšího jídla — není potřeba nic dokupovat.",
+  "storage.leftoversFridge":
+    "Uchovávejte v lednici a snězte do 2 dnů (vařenou rýži do 24 hodin), nebo dejte do mrazáku. Ohřívejte jen jednou, a to tak, aby bylo horké i uprostřed (aspoň 75 °C). Polévky a omáčky přiveďte k varu. Zdroje: Státní zdravotní ústav (SZÚ), Ministerstvo zemědělství, britská agentura FSA.",
+  "storage.leftoversFreezer":
+    "Zbylé porce nechte vychladnout v malých nádobách a do 2 hodin od uvaření je dejte do mrazáku. Rozmrazujte je v lednici, podejte do 24 hodin a ohřívejte jen jednou. Co dítě v misce nedojí, vyhoďte. Zdroje: Ministerstvo zemědělství, britské úřady FSA a NHS.",
   "meal.ingredients": "Suroviny:",
   "meal.leftoversShort": "↻ Zbytky",
   "meal.leftoversFromTitle": "Zbytky z jídla „{source}“",
@@ -691,6 +695,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
 
   // ─── Cook mode ────────────────────────────────────────────────────────────
   "cook.done": "Dovařeno",
+  "cook.leftoversNote": "Část tohoto jídla je v plánu jako zbytky na později.",
   "cook.closeTitle": "Zavřít režim vaření",
   "cook.ingredients": "Suroviny",
   "cook.hideIngredients": "Skrýt suroviny",

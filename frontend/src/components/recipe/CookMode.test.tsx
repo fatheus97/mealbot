@@ -63,6 +63,25 @@ describe('CookMode translation', () => {
   });
 });
 
+describe('CookMode note', () => {
+  it('shows the note on the last step only', async () => {
+    const user = userEvent.setup();
+    renderCookMode({ note: 'Some of this dish is planned as leftovers.' });
+    expect(screen.queryByText(/planned as leftovers/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    expect(screen.getByText(/planned as leftovers/)).toBeInTheDocument();
+  });
+
+  it('shows nothing without a note', async () => {
+    const user = userEvent.setup();
+    renderCookMode();
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    expect(screen.queryByText(/planned as leftovers/)).not.toBeInTheDocument();
+  });
+});
+
 describe('parseDurationSeconds', () => {
   it('parses minutes and hours; rejects bare numbers', () => {
     expect(parseDurationSeconds('Simmer for 10 minutes')).toBe(600);

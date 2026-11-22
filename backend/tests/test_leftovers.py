@@ -776,6 +776,20 @@ class TestBabyFoodBatches:
         assert len(links) == 1
         assert (links[0].day_index, links[0].source.day_index) == (3, 0)
 
+    def test_its_links_say_the_portions_wait_in_the_freezer(self) -> None:
+        # The 3-day lookback is only sound for frozen purees; the link carries
+        # that, so the UI shows the freezer line, never the 2-day fridge one.
+        layouts: list[list[str] | None] = [["main_course"], ["light_lunch"], ["light_lunch"]]
+        baby = plan_leftover_links(layouts, policy=BABY_FOOD_LEFTOVER_POLICY)
+        adult = plan_leftover_links(layouts)
+        assert baby and adult
+        assert {a.source.storage for a in baby} == {"freezer"}
+        assert {a.source.storage for a in adult} == {"fridge"}
+
+    def test_a_link_stored_before_the_field_reads_as_fridge(self) -> None:
+        ref = LeftoverRef.model_validate_json('{"day_index": 0, "meal_index": 1}')
+        assert ref.storage == "fridge"
+
     def test_never_reaches_back_beyond_its_own_window(self) -> None:
         # One day past the 3-day window: day 4 <- day 0 must NOT be emitted.
         layouts: list[list[str] | None] = [

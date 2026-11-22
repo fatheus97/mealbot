@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { leftoverSourceLabel, calendarLeftoverTitle, lowerFirst } from "./leftovers";
+import { leftoverSourceLabel, leftoverStorageOf, calendarLeftoverTitle, lowerFirst } from "./leftovers";
 import { formatISODate } from "./planDates";
 import type { MealPlanResponse } from "../types";
 
@@ -44,6 +44,23 @@ function plan(): MealPlanResponse {
     shopping_list: [],
   };
 }
+
+describe("leftoverStorageOf", () => {
+  it("answers for a meal that a later meal reheats, from that link", () => {
+    const p = plan();
+    p.days[1].meals[0].leftover_of = { day_index: 0, meal_index: 0, storage: "freezer" };
+    expect(leftoverStorageOf(p, 0, 0)).toBe("freezer");
+  });
+
+  it("reads a link stored before the field as the fridge", () => {
+    expect(leftoverStorageOf(plan(), 0, 0)).toBe("fridge");
+  });
+
+  it("is null for a meal nothing reheats, and for no plan", () => {
+    expect(leftoverStorageOf(plan(), 1, 0)).toBeNull();
+    expect(leftoverStorageOf(null, 0, 0)).toBeNull();
+  });
+});
 
 describe("leftoverSourceLabel", () => {
   it("resolves the source day, slot and dish", () => {

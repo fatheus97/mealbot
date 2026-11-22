@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 from app.core.dietary import DietType
 from app.core.meal_types import MealType
-from app.models.plan_models import LeftoverRef, MealPlanResponse
+from app.models.plan_models import LeftoverRef, LeftoverStorage, MealPlanResponse
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,9 @@ class LeftoverPolicy:
     lookback_days: int
     #: How many leftovers may point at ONE source. 1 = no fan-in.
     max_per_source: int
+    #: Where the portions wait, stamped on every link this policy makes. It
+    #: follows from the lookback: only frozen food keeps for 3 days.
+    storage: LeftoverStorage
 
 
 #: Adult cooking. Exactly the behaviour that shipped in #226-235.
@@ -83,6 +86,7 @@ ADULT_LEFTOVER_POLICY = LeftoverPolicy(
     max_links=DEFAULT_MAX_LEFTOVERS_PER_PLAN,
     lookback_days=1,
     max_per_source=1,
+    storage="fridge",
 )
 
 #: Infant purees (``diet_type="baby_food"``).
@@ -107,6 +111,7 @@ BABY_FOOD_LEFTOVER_POLICY = LeftoverPolicy(
     max_links=4,
     lookback_days=3,
     max_per_source=2,
+    storage="freezer",
 )
 
 
@@ -256,7 +261,9 @@ def plan_leftover_links(
                 day_index=day_index,
                 meal_index=target_index,
                 source=LeftoverRef(
-                    day_index=source_day, meal_index=source_index
+                    day_index=source_day,
+                    meal_index=source_index,
+                    storage=policy.storage,
                 ),
                 source_meal_type=source_slot,
                 target_meal_type=today[target_index],

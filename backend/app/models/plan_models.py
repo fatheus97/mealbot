@@ -670,6 +670,9 @@ class ConsumedBatch(BaseModel):
     need_to_use: bool = False
 
 
+LeftoverStorage = Literal["fridge", "freezer"]
+
+
 class LeftoverRef(BaseModel):
     """Pointer to the SOURCE meal a leftover was cooked as part of.
 
@@ -686,6 +689,13 @@ class LeftoverRef(BaseModel):
     """
     day_index: int = Field(ge=0, description="0-based day index within THIS plan.")
     meal_index: int = Field(ge=0, description="0-based meal index within that day.")
+    # Where the extra portions wait until this meal, which picks the keep-and-
+    # reheat line the UI shows (docs/food-storage-design.md, slice 3). Baby
+    # food plans purees up to 3 days later on the assumption that they are
+    # frozen, so its links say "freezer". Stamped from the leftover policy when
+    # the link is made, so a read never needs the diet, which is consent-gated
+    # health data. Plans from before this field read as "fridge".
+    storage: LeftoverStorage = "fridge"
 
 
 # NOTE: a model's docstring becomes the `description` of its JSON schema, and

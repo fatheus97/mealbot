@@ -18,6 +18,9 @@ interface Props {
   doneLabel?: string;
   donePending?: boolean;
   doneError?: string | null; // shown inside the overlay when a cook attempt fails
+  // Shown on the last step, where the cook is about to put food away (the
+  // keep-and-reheat line for a dish that later meals reheat).
+  note?: string | null;
 }
 
 // Tags each mount's pushed history entry so its cleanup only ever pops the
@@ -87,6 +90,7 @@ export function CookMode({
   onDone,
   onClose,
   doneLabel,
+  note = null,
   donePending = false,
   doneError = null,
 }: Props) {
@@ -424,6 +428,12 @@ export function CookMode({
             </button>
           </div>
         </div>
+
+        {isLast && note && (
+          <p style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.9rem", margin: "0 0 0.6rem" }}>
+            {note}
+          </p>
+        )}
 
         {doneError && (
           <div role="alert" style={{ color: "#f87171", textAlign: "center", fontSize: "0.9rem", marginBottom: "0.4rem" }}>

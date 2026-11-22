@@ -285,6 +285,24 @@ describe('MealPlanner', () => {
     ).toBeInTheDocument();
   });
 
+  it("hands each leftover its own link's keep line", async () => {
+    // The baby-food link says freezer; the card must get it from the plan.
+    await generateWith({
+      days: [
+        { meals: [{ name: 'Porridge', meal_type: 'breakfast', ingredients: [{ name: 'oats', quantity_grams: 100 }], steps: ['Cook'] }] },
+        {
+          meals: [{
+            name: 'Leftovers: Porridge', meal_type: 'breakfast', ingredients: [],
+            steps: ['Reheat the Porridge you cooked earlier and serve.'],
+            leftover_of: { day_index: 0, meal_index: 0, storage: 'freezer' },
+          }],
+        },
+      ],
+    });
+    expect(screen.getByText(/in the freezer within 2 hours of cooking/)).toBeInTheDocument();
+    expect(screen.queryByText(/eat within 2 days/)).not.toBeInTheDocument();
+  });
+
   it('says nothing about past-dated food when none was left out', async () => {
     await generateWith({});
     expect(screen.queryByText(/past (its|their) date (was|were) left out/)).not.toBeInTheDocument();

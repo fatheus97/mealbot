@@ -180,6 +180,25 @@ describe('Czech date labels', () => {
   });
 });
 
+describe('storage advice wording', () => {
+  // docs/food-storage-design.md, wording rules: say how long food usually
+  // keeps and where that comes from, never that it is safe or fine. The app
+  // cannot see the food, its storage or its cold chain.
+  const EN = /\bsafe|still good|\bfresh\b|ok to eat/i;
+  const CS = /bezpečn|v pořádku|čerstv/i;
+  const storageKeys = (Object.keys(en) as TranslationKey[]).filter((k) => k.startsWith('storage.'));
+
+  it('covers the keep-and-reheat lines', () => {
+    // A rename out of the storage.* prefix would silently empty the lint.
+    expect(storageKeys).toEqual(expect.arrayContaining(['storage.leftoversFridge', 'storage.leftoversFreezer']));
+  });
+
+  it('never claims food is safe, in either language', () => {
+    const hits = storageKeys.filter((k) => EN.test(en[k]) || CS.test(cs[k]));
+    expect(hits).toEqual([]);
+  });
+});
+
 describe('locale store', () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
