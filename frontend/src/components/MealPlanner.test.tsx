@@ -1709,7 +1709,7 @@ describe('MealPlanner — expired-item review after finishing', () => {
     // decides by it (ExpiredReviewDialog.test.tsx covers every kind).
     await finishPlan({ waste_tracking_enabled: true }, [{ ...EXPIRED, date_kind: 'use_by' }, FRESH]);
     await screen.findByText(/anything past its date/i);
-    expect(screen.getByRole('radio', { name: /threw it out/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /threw it out/i })).toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /keep it/i })).not.toBeInTheDocument();
   });
 

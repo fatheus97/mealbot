@@ -106,13 +106,22 @@ export function ExpiredReviewDialog({
                   }}
                 >
                   <input
-                    type="radio"
+                    // One answer: a checkbox, so a second click takes it back.
+                    // A lone radio could never be cleared again but by Skip.
+                    type={allowsStillFine(item) ? "radio" : "checkbox"}
                     // Per-row group: sharing one name across rows would make the
                     // whole list a single choice.
                     name={`expired-${i}`}
                     value={value}
                     checked={choices[i] === value}
-                    onChange={() => setChoices((prev) => ({ ...prev, [i]: value }))}
+                    onChange={() =>
+                      setChoices((prev) => {
+                        if (prev[i] !== value) return { ...prev, [i]: value };
+                        const next = { ...prev };
+                        delete next[i];
+                        return next;
+                      })
+                    }
                   />
                   {t(labelKey)}
                 </label>

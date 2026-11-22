@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubLocationReload } from '../test/location';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Fridge } from './Fridge';
@@ -479,6 +479,57 @@ describe('Fridge', () => {
     });
   });
 
+  it('keeps the kind of an item edited in the modal', async () => {
+    loginUser();
+    const pasta = { name: 'Pasta', quantity_grams: 500, need_to_use: false, expiration_date: '2099-03-01', date_kind: 'best_before' };
+    mockedAuthFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([pasta]) });
+    mockedAuthFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([]) });
+
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Pasta')).toBeInTheDocument());
+
+    // Edit only the quantity: the stored kind rides through the modal.
+    await user.click(screen.getByRole('button', { name: /edit/i }));
+    expect(screen.getByRole('combobox', { name: 'Date from the pack?' })).toHaveValue('best_before');
+    const qty = screen.getByDisplayValue('500');
+    await user.clear(qty);
+    await user.type(qty, '250');
+    await user.click(screen.getByRole('button', { name: /ok/i }));
+    await waitFor(() => {
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', {
+        method: 'PUT',
+        body: JSON.stringify([{ ...pasta, quantity_grams: 250 }]),
+      });
+    });
+  });
+
+  it('saves the kind picked on a manual add', async () => {
+    loginUser();
+    mockedAuthFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    mockedAuthFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([]) });
+
+    const user = userEvent.setup();
+    const { container } = render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText(/fridge is empty/i)).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /add ingredient/i }));
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), 'Rice');
+    fireEvent.change(container.ownerDocument.querySelector('input[type="date"]') as HTMLInputElement, {
+      target: { value: '2099-05-01' },
+    });
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Date from the pack?' }), 'best_before');
+    await user.click(screen.getByRole('button', { name: /ok/i }));
+    await waitFor(() => {
+      expect(mockedAuthFetch).toHaveBeenCalledWith('/fridge', {
+        method: 'PUT',
+        body: JSON.stringify([
+          { name: 'Rice', quantity_grams: 100, need_to_use: false, expiration_date: '2099-05-01', date_kind: 'best_before' },
+        ]),
+      });
+    });
+  });
+
   it('edits an existing item via modal and auto-saves', async () => {
     loginUser();
     mockedAuthFetch.mockResolvedValueOnce({
@@ -569,7 +620,7 @@ describe('Fridge — food-waste capture', () => {
 
   it('records the chosen answer for the removed batch', async () => {
     await renderFridge(
-      [{ name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: '2026-08-01' }],
+      [{ name: 'Spinach', quantity_grams: 200, need_to_use: false, expiration_date: '2026-08-01', date_kind: 'best_before' }],
       { waste_tracking_enabled: true },
     );
     const user = userEvent.setup();
@@ -585,7 +636,7 @@ describe('Fridge — food-waste capture', () => {
           name: 'Spinach',
           quantity_grams: 200,
           expiration_date: '2026-08-01',
-          date_kind: null,
+          date_kind: 'best_before',
           reason: 'thrown_out',
           source: 'fridge_delete',
         },

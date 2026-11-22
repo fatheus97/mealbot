@@ -118,6 +118,60 @@ class TestAnOlderClient:
         assert await _kinds(client, auth_headers) == {"Pasta": "best_before", "flour": None}
 
 
+    async def test_a_new_batch_beside_its_namesake_is_unknown(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        saved = await _put(client, auth_headers, [
+            {"name": "chicken", "quantity_grams": 500, "expiration_date": FAR, "date_kind": "best_before"},
+        ])
+        old = [{k: v for k, v in i.items() if k != "date_kind"} for i in saved]
+        old.append({"name": "chicken", "quantity_grams": 300, "expiration_date": FAR})
+        await _put(client, auth_headers, old)
+        fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+        assert {i["quantity_grams"]: i["date_kind"] for i in fridge} == {500: "best_before", 300: None}
+
+    async def test_the_id_wins_over_a_namesake_at_the_new_date(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        saved = await _put(client, auth_headers, [
+            {"name": "pasta", "quantity_grams": 500, "expiration_date": FAR, "date_kind": "use_by"},
+            {"name": "pasta", "quantity_grams": 300, "expiration_date": LATER, "date_kind": "best_before"},
+        ])
+        old = [{k: v for k, v in i.items() if k != "date_kind"} for i in saved]
+        for i in old:
+            if i["expiration_date"] == FAR:
+                i["expiration_date"] = LATER
+        await _put(client, auth_headers, old)
+        fridge = (await client.get("/api/fridge", headers=auth_headers)).json()
+        # The use-by row was re-dated: unknown, never its namesake's best-before.
+        assert {i["quantity_grams"]: i["date_kind"] for i in fridge} == {500: None, 300: "best_before"}
+
+    async def test_a_renamed_row_keeps_its_kind(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        saved = await _put(client, auth_headers, [
+            {"name": "milk", "quantity_grams": 1000, "expiration_date": FAR, "date_kind": "best_before"},
+        ])
+        old = [{k: v for k, v in i.items() if k != "date_kind"} for i in saved]
+        old[0]["name"] = "Milk 1.5%"
+        await _put(client, auth_headers, old)
+        assert await _kinds(client, auth_headers) == {"Milk 1.5%": "best_before"}
+
+    @pytest.mark.parametrize("kinds", [("use_by", "best_before"), ("best_before", "use_by")])
+    async def test_a_keyed_match_takes_the_strictest_stored_namesake(
+        self, client: AsyncClient, auth_headers: dict[str, str], kinds: tuple[DateKind, DateKind]
+    ) -> None:
+        await _put(client, auth_headers, [
+            {"name": "milk", "quantity_grams": 100, "expiration_date": FAR, "date_kind": kinds[0]},
+            {"name": "milk", "quantity_grams": 200, "expiration_date": FAR, "date_kind": kinds[1]},
+        ])
+        # A client from before ids and kinds: every row matches by name and date.
+        await _put(client, auth_headers, [
+            {"name": "Milk", "quantity_grams": 300, "expiration_date": FAR},
+        ])
+        assert await _kinds(client, auth_headers) == {"Milk": "use_by"}
+
+
 class TestFold:
     ORDER: list[DateKind | None] = ["use_by", None, "best_before", "estimated_table", "estimated_ai"]
 

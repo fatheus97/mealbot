@@ -10,9 +10,12 @@ backfilled.
 Both columns are nullable with no default, so each ADD COLUMN only changes
 the catalog. Each still needs an ACCESS EXCLUSIVE lock, which waits behind any
 open transaction that read the table, so the migration gives up after 5 s
-instead (a timeout rolls back; run it again). Both locks are taken up front in
-the order the data export reads the tables (stockitem, then wasterecord), so
-the one request that reads both cannot deadlock with it.
+instead (a timeout rolls back; run it again). The locks are taken up front with
+"user" first, as household_02 and restock_01 do: every request reads "user"
+first to authenticate, and a user delete (self, admin, the demo sweep) locks
+wasterecord through its FK cascade before stockitem through the household
+trigger, the reverse of the data export. Holding "user" first means neither
+order can deadlock with this migration.
 
 Descriptive revision id (not the rolling-hex sequence) to avoid the parallel-PR
 id collision that bit #272 vs #273.
@@ -35,13 +38,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute("LOCK TABLE stockitem, wasterecord IN ACCESS EXCLUSIVE MODE")
+    op.execute('LOCK TABLE "user", stockitem, wasterecord IN ACCESS EXCLUSIVE MODE')
     op.add_column("stockitem", sa.Column("date_kind", sa.String(), nullable=True))
     op.add_column("wasterecord", sa.Column("date_kind", sa.String(), nullable=True))
 
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute("LOCK TABLE stockitem, wasterecord IN ACCESS EXCLUSIVE MODE")
+    op.execute('LOCK TABLE "user", stockitem, wasterecord IN ACCESS EXCLUSIVE MODE')
     op.drop_column("wasterecord", "date_kind")
     op.drop_column("stockitem", "date_kind")

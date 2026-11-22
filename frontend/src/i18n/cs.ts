@@ -823,7 +823,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "expired.applying": "Ukládám…",
   "expired.skip": "Přeskočit",
   "expired.bestBeforeHint":
-    "Datum minimální trvanlivosti se týká kvality (EFSA): potravina skladovaná podle pokynů na obalu může po něm ztratit na chuti nebo struktuře. Prohlédněte si ji, přivoňte k ní a trochu ochutnejte. „Ponechat“ posune datum o týden.",
+    "Datum minimální trvanlivosti se týká kvality (EFSA): potravina skladovaná podle pokynů na obalu může po něm ztratit na chuti nebo struktuře. Můžete ji ověřit smysly: zrakem, čichem nebo chutí. „Ponechat“ nastaví datum na týden ode dneška.",
   "expired.optionalHint":
     "Nepovinné: co si nejste jistí, přeskočte. Ponechat lze jen potraviny s datem minimální trvanlivosti z obalu. To nastavíte při úpravě položky v sekci Lednice.",
   "expired.saveFailed":

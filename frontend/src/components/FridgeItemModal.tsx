@@ -142,7 +142,6 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
               <select
                 value={packKind}
                 onChange={(e) => setPackKind(e.target.value as PackKind)}
-                style={{ width: "220px" }}
               >
                 <option value="">{t("fridgeItem.dateKindNone")}</option>
                 <option value="use_by">{t("fridgeItem.dateKindUseBy")}</option>

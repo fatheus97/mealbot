@@ -894,11 +894,12 @@ export const en = {
   "expired.applying": "Saving…",
   "expired.skip": "Skip",
   // Shown when a row offers "Keep it". EFSA's Safe2Eat food date labelling
-  // page: the date is about quality, so check with look, smell and taste. Says
+  // page: the date is about quality, so check by look, smell OR taste (EFSA
+  // gives alternatives, never "taste it" as a step). Says
   // what "Keep it" DOES, because moving the date is a real edit to their
   // fridge and a silent one would read as a bug.
   "expired.bestBeforeHint":
-    "A best-before date is about quality (EFSA): food stored as the pack says may have lost some taste or texture after it. Look at it, smell it and taste a little to check. \"Keep it\" moves its date on a week.",
+    "A best-before date is about quality (EFSA): food stored as the pack says may have lost some taste or texture after it. You can check it with your senses: look, smell or taste. \"Keep it\" sets its date to a week from today.",
   "expired.optionalHint":
     "Optional: skip anything you're not sure about. Only food with a best-before date from the pack can be kept here; you can set that when you edit it in the Fridge panel.",
   // The dialog closes as soon as it is answered, so a failed fridge write has

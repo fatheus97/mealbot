@@ -125,7 +125,7 @@ describe("ExpiredReviewDialog", () => {
     // Moving the stored date is a real edit to their fridge; doing it silently
     // would read as a bug.
     render(<ExpiredReviewDialog items={[item()]} onApply={vi.fn()} onSkip={vi.fn()} />);
-    expect(screen.getByText(/moves its date on a week/i)).toBeInTheDocument();
+    expect(screen.getByText(/sets its date to a week from today/i)).toBeInTheDocument();
   });
 
   it("never claims the food is safe", () => {
@@ -157,13 +157,34 @@ describe("ExpiredReviewDialog", () => {
       render(
         <ExpiredReviewDialog items={[item({ date_kind: kind })]} onApply={vi.fn()} onSkip={vi.fn()} />,
       );
-      const radios = screen.getAllByRole("radio");
-      expect(radios).toHaveLength(1);
-      expect(radios[0]).toHaveAccessibleName(/threw it out/i);
-      expect(screen.queryByText(/moves its date on a week/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+      expect(screen.getByRole("checkbox")).toHaveAccessibleName(/threw it out/i);
+      expect(screen.queryByText(/a week from today/i)).not.toBeInTheDocument();
       expect(screen.getByText(/only food with a best-before date/i)).toBeInTheDocument();
     },
   );
+
+  it("lets a lone \"threw it out\" be taken back", async () => {
+    // A row with one answer is a checkbox: a misclick on food the user still
+    // has must not leave Skip, which drops every answer, as the only way out.
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(
+      <ExpiredReviewDialog items={[item({ date_kind: "use_by" })]} onApply={onApply} onSkip={vi.fn()} />,
+    );
+    const box = screen.getByRole("checkbox", { name: /threw it out/i });
+    await user.click(box);
+    expect(box).toBeChecked();
+    await user.click(box);
+    expect(box).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(onApply).toHaveBeenCalledWith([]);
+  });
+
+  it("says to check by look, smell OR taste, as EFSA does", () => {
+    render(<ExpiredReviewDialog items={[item()]} onApply={vi.fn()} onSkip={vi.fn()} />);
+    expect(screen.getByText(/look, smell or taste/i)).toBeInTheDocument();
+  });
 
   it("offers \"keep it\" per row, by each row's own kind", () => {
     render(

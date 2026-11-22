@@ -427,7 +427,8 @@ async def replace_fridge_items(
     ``date_kind`` gets the same protection from a client that predates it: an
     item whose payload has no ``date_kind`` key keeps the stored kind, matched
     by id while its date is unchanged (a new date drops it to unknown), else by
-    (name, expiration_date), strictest first. An explicit null still clears it.
+    (name, expiration_date) among the rows no item claims by id, strictest
+    first. An explicit null still clears it.
 
     The caller must hold ``lock_kitchen`` for this household in this transaction,
     taken before it read whatever ``items`` was computed from. Writing without
@@ -471,8 +472,13 @@ async def replace_fridge_items(
     if any("date_kind" not in it.model_fields_set for it in items):
         stored = await get_fridge_items(session, household_id)
         stored_by_row = {s.id: s for s in stored if s.id is not None}
+        # A row the payload already carries by id is not up for a key match: an
+        # id-less item beside it is a new batch, and its kind is unknown.
+        claimed = {it.id for it in items if it.id is not None}
         kind_by_key: dict[tuple[str, date | None], DateKind | None] = {}
         for s in stored:
+            if s.id in claimed:
+                continue
             k = (s.name.strip().lower(), s.expiration_date)
             kind_by_key[k] = stricter_kind(kind_by_key[k], s.date_kind) if k in kind_by_key else s.date_kind
 
