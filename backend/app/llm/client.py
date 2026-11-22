@@ -12,7 +12,7 @@ from typing import (  # Any: instructor kwargs are inherently untyped
     TypeVar,
 )
 
-import httpx
+import httpx2
 import instructor
 from anthropic import APIStatusError as AnthropicAPIStatusError
 from anthropic import APITimeoutError as AnthropicAPITimeoutError
@@ -186,12 +186,12 @@ class LLMClient:
         _TIMEOUT_STATUS_CODES | _RETRYABLE_STATUS_CODES | _TERMINAL_FALLBACK_STATUS_CODES
     )
     # Client-side timeouts. genai (over aiohttp) and an asyncio cut raise the
-    # builtin TimeoutError; httpx and the OpenAI and Anthropic SDKs raise their own classes,
-    # which do NOT subclass it. httpx is reachable for genai only if instructor
-    # ever drops its aiohttp dependency — cheap insurance.
+    # builtin TimeoutError; httpx2 and the OpenAI and Anthropic SDKs raise their own classes,
+    # which do NOT subclass it. genai 3 falls back to httpx2 (its own dependency)
+    # only if aiohttp is absent, i.e. if instructor ever drops it — cheap insurance.
     _TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (
         TimeoutError,
-        httpx.TimeoutException,
+        httpx2.TimeoutException,
         OpenAIAPITimeoutError,
         AnthropicAPITimeoutError,
     )
@@ -886,8 +886,15 @@ def gemini_instructor(
     wins over that setting. It rides in the client's extra_body because
     instructor builds the request config itself and keeps only a few fields of
     the caller's config; store is not one of them, so passing it there would
-    vanish without a word. ``base_url`` is for tests."""
-    options = HttpOptionsDict(timeout=timeout_ms, extra_body={"store": False})
+    vanish without a word.
+
+    The API version is pinned to v1beta, the 2.x default. google-genai 3
+    switched the default to v1, which has no -latest aliases
+    (gemini-flash-lite-latest is in the prod chain): every call to one would
+    404. ``base_url`` is for tests."""
+    options = HttpOptionsDict(
+        api_version="v1beta", timeout=timeout_ms, extra_body={"store": False}
+    )
     if base_url is not None:
         options["base_url"] = base_url
     return instructor.from_genai(

@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import httpx2
 import instructor
 import pytest
 from aiohttp import web
@@ -280,10 +281,10 @@ class TestIsFallbackError:
         "err",
         [
             TimeoutError(),
-            httpx.ReadTimeout("read timed out"),
+            httpx2.ReadTimeout("read timed out"),
             OpenAIAPITimeoutError(request=httpx.Request("POST", "https://api.example")),
         ],
-        ids=["bare", "httpx", "openai"],
+        ids=["bare", "httpx2", "openai"],
     )
     def test_client_side_timeouts_are_timeouts(self, err: Exception) -> None:
         """Our own timer firing before Google's 504 is the same event. These used to
@@ -1355,6 +1356,7 @@ class TestRealStackContract:
     @pytest.fixture
     async def fake_gemini(self) -> AsyncIterator[str]:
         async def handler(request: web.Request) -> web.Response:
+            self.paths.append(request.path)
             self.bodies.append(await request.json())
             if "models/slow:" in request.path:
                 await asyncio.sleep(1.5)
@@ -1371,6 +1373,7 @@ class TestRealStackContract:
         await site.start()
         host, port = runner.addresses[0][:2]
         self.bodies: list[dict[str, Any]] = []
+        self.paths: list[str] = []
         try:
             yield f"http://{host}:{port}"
         finally:
@@ -1398,6 +1401,17 @@ class TestRealStackContract:
             await client.chat_json("sys", "usr", _Tiny)
             await client.chat_vision_json("sys", "read this", "aGVsbG8=", "image/jpeg", _Tiny)
         assert [b.get("store") for b in self.bodies] == [False, False]
+
+    async def test_requests_use_the_v1beta_api(
+        self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """google-genai 3 defaults to v1, where the -latest aliases in the
+        model chains do not exist. Text and vision must both go to v1beta."""
+        client = self._client(monkeypatch, fake_gemini, timeout_ms=5000)
+        async with asyncio.timeout(10):
+            await client.chat_json("sys", "usr", _Tiny)
+            await client.chat_vision_json("sys", "read this", "aGVsbG8=", "image/jpeg", _Tiny)
+        assert [p.split("/")[1] for p in self.paths] == ["v1beta", "v1beta"]
 
     async def test_safety_filters_are_off_on_every_request(
         self, fake_gemini: str, monkeypatch: pytest.MonkeyPatch
