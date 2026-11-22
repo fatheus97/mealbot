@@ -483,6 +483,58 @@ jobs:
           fi
           echo "both declare: $(echo "$fe" | tr '\n' ' ')"
 
+      # Cook mode shows a line for each category the server returns, through a
+      # literal i18n map typed by these unions (frontend/src/types.ts). A
+      # category given a figure in rules.csv, or a new source code, that the
+      # frontend does not know would be skipped in silence, and a missing line
+      # reads as "no need to cook this through". Same reason as legal-version
+      # for a job: it spans backend/ and frontend/.
+      - name: Cook-mode categories and sources agree with the frontend
+        run: |
+          python3 - <<'PY'
+          import csv, re, sys
+
+          RULES = "backend/data/storage/rules.csv"
+          STORAGE = "backend/app/core/storage_reference.py"
+          TYPES = "frontend/src/types.ts"
+          try:
+              with open(RULES, encoding="utf-8", newline="") as handle:
+                  rows = list(csv.DictReader(handle))
+              storage = open(STORAGE, encoding="utf-8").read()
+              types = open(TYPES, encoding="utf-8").read()
+          except OSError as exc:
+              print(f"::error::{exc}")
+              sys.exit(1)
+
+          def union(pattern: str, text: str, where: str) -> set[str]:
+              found = re.search(pattern, text, re.MULTILINE)
+              values = set(re.findall(r'"(\w+)"', found.group(1))) if found else set()
+              if not values:
+                  # An empty read would compare equal to another empty read.
+                  print(f"::error::could not read {pattern!r} from {where}")
+                  sys.exit(1)
+              return values
+
+          # The endpoint returns only categories with a figure (core_c).
+          shown = {r["category"] for r in rows if r["core_c"].strip()}
+          if not shown:
+              print(f"::error::no category with a figure in {RULES}")
+              sys.exit(1)
+          pairs = {
+              "categories": (shown, union(r"^export type CookCategory = (.*);", types, TYPES)),
+              "sources": (union(r"^SourceCode = Literal\[(.*)\]", storage, STORAGE),
+                          union(r"^export type CookSource = (.*);", types, TYPES)),
+          }
+          failed = False
+          for what, (backend, frontend) in pairs.items():
+              if backend != frontend:
+                  print(f"::error::cook-mode {what} differ: backend {sorted(backend)}, frontend {sorted(frontend)}")
+                  failed = True
+              else:
+                  print(f"ok  {what}: {sorted(backend)}")
+          sys.exit(1 if failed else 0)
+          PY
+
   # The Claude PR Review guard decides whether a review actually happened; it has
   # silently mis-decided twice (#184 shipped it, PR #229 exposed the hole). Its
   # logic is therefore unit-tested like any other production code path. The second

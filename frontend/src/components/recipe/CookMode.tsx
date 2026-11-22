@@ -7,6 +7,7 @@ import { useShowPieces } from "../../contexts/AuthContext";
 import { formatAmount } from "../../utils/pieces";
 import { useI18n, useMealTypeLabel } from "../../i18n";
 import { useIsMobile } from "../../hooks/useIsMobile";
+import { CookTemperatures } from "./CookTemperatures";
 
 interface Props {
   meal: PlannedMeal;
@@ -361,6 +362,15 @@ export function CookMode({
           </p>
         </div>
 
+        {/* Cooking temperatures on every step, then the leftovers note on the
+            last one. One box with its own scroll, so neither squeezes the
+            step text on a short screen; lines arriving late shrink the step
+            area instead of moving the timers and the footer. */}
+        <div style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.85rem", maxHeight: "22vh", overflowY: "auto", margin: "0.25rem 0 0.5rem" }}>
+          <CookTemperatures ingredients={meal.ingredients} />
+          {isLast && note && <p style={{ margin: 0, fontSize: "0.9rem" }}>{note}</p>}
+        </div>
+
         {/* Timer bar (bottom). Every running timer is listed — a second one is
             added, never swapped in, so "pasta on, now the sauce" works. The
             manual row stays available underneath instead of being replaced by
@@ -428,14 +438,6 @@ export function CookMode({
             </button>
           </div>
         </div>
-
-        {isLast && note && (
-          // Scrolls on its own, like the timer list, so a long note never
-          // squeezes the step text above on a short screen.
-          <p style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.9rem", margin: "0 0 0.6rem", maxHeight: "20vh", overflowY: "auto" }}>
-            {note}
-          </p>
-        )}
 
         {doneError && (
           <div role="alert" style={{ color: "#f87171", textAlign: "center", fontSize: "0.9rem", marginBottom: "0.4rem" }}>

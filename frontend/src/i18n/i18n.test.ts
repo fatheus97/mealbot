@@ -208,12 +208,33 @@ describe('storage advice wording', () => {
         'expired.stillFine',
         'expired.bestBeforeHint',
         'fridgeItem.dateKindBestBefore',
+        'storage.cookHold',
+        'storage.atRisk',
       ]),
     );
   });
 
   it('never claims food is safe, in either language', () => {
     const hits = storageKeys.filter((k) => EN.test(en[k]) || CS.test(cs[k]));
+    expect(hits).toEqual([]);
+  });
+
+  it('still catches each word it bans (check 8, negative control)', () => {
+    // A loosened pattern would pass the test above by matching nothing.
+    for (const s of ['Safe to eat', 'still good', 'Fresh', 'ok to eat']) expect(EN.test(s), s).toBe(true);
+    for (const s of ['bezpečné', 'je v pořádku', 'čerstvé']) expect(CS.test(s), s).toBe(true);
+  });
+
+  it('the cooking-temperature lines write no number or °F of their own (check 7)', () => {
+    // Every figure comes from the server's table; a digit here would be a
+    // number no source backs. The leftovers lines of slice 3 are not on
+    // the list: they predate the table and the Terms quote them.
+    const COOK_KEYS: TranslationKey[] = [
+      'storage.cookHold', 'storage.cookCore', 'storage.cookSources', 'storage.cookSourceUs',
+      'storage.foodPoultry', 'storage.foodMinced', 'storage.foodPork', 'storage.foodEgg', 'storage.foodFish',
+      'storage.sourceSzu', 'storage.sourceFsa', 'storage.sourceEfsa', 'storage.sourceUsda',
+    ];
+    const hits = COOK_KEYS.filter((k) => /\d|°F/.test(en[k]) || /\d|°F/.test(cs[k]));
     expect(hits).toEqual([]);
   });
 });

@@ -1,0 +1,155 @@
+"""POST /api/plan/cook-temperatures (docs/food-storage-design.md, slice 7):
+ingredients go through the nutrition resolver, then map.csv, then rules.csv."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.nutrition_reference import load_reference
+from app.core.storage_reference import MAP_COLUMNS, RULE_COLUMNS, load_storage, storage_reference
+from app.models.db_models import User
+from app.models.plan_models import IngredientAmount
+from app.services import nutrition
+from app.services.nutrition import _Language, food_for
+
+URL = "/api/plan/cook-temperatures"
+REF = load_reference()
+
+
+def _ing(name: str, name_en: str | None = None, *, grams: float = 200, spice: bool = False) -> dict[str, object]:
+    return {"name": name, "name_en": name_en, "quantity_grams": grams, "is_spice": spice}
+
+
+async def _lines(client: AsyncClient, *ings: dict[str, object]) -> list[dict[str, object]]:
+    resp = await client.post(URL, json={"ingredients": list(ings)})
+    assert resp.status_code == 200, resp.text
+    lines: list[dict[str, object]] = resp.json()["lines"]
+    return lines
+
+
+async def _speak(session: AsyncSession, user: User, language: str) -> None:
+    user.language = language
+    await session.flush()
+
+
+KILL = {"core_c": 75, "hold_c": 70, "hold_min": 2, "us_only": False}
+
+
+class TestShippedTable:
+    async def test_an_english_dish_gets_one_line_per_category_in_file_order(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        await _speak(db_session, test_user, "English")
+        lines = await _lines(
+            client, _ing("eggs", grams=100), _ing("chicken breasts"), _ing("ground beef"), _ing("chicken thigh"),
+        )
+        assert [line["category"] for line in lines] == ["poultry", "minced", "egg"]
+        assert all({k: line[k] for k in KILL} == KILL for line in lines)
+        assert [line["sources"] for line in lines] == [["szu", "fsa", "efsa"], ["szu", "fsa"], ["szu", "fsa"]]
+
+    async def test_fish_is_us_guidance_with_no_hold(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        await _speak(db_session, test_user, "English")
+        assert await _lines(client, _ing("salmon fillet")) == [{
+            "category": "fish", "core_c": 63, "hold_c": None, "hold_min": None, "us_only": True, "sources": ["usda"],
+        }]
+
+    async def test_whole_cuts_cooked_food_and_vegetables_give_no_line(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        await _speak(db_session, test_user, "English")
+        assert await _lines(
+            client, _ing("beef steak"), _ing("cooked chicken breast"), _ing("carrot"), _ing("unknown thing"),
+        ) == []
+
+    async def test_a_czech_name_matches_without_name_en(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        await _speak(db_session, test_user, "Czech")
+        lines = await _lines(client, _ing("kuřecí prsa"), _ing("grilovaná kuřecí prsa"))
+        assert [line["category"] for line in lines] == ["poultry"]
+        # The Czech name decides: name_en saying "chicken breast" on a cooked
+        # Czech name does not add a cook line the nutrition panel would not see.
+        assert await _lines(client, _ing("grilovaná kuřecí prsa", "chicken breast")) == []
+
+    async def test_another_language_matches_only_through_name_en(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        await _speak(db_session, test_user, "Slovak")
+        assert [line["category"] for line in await _lines(client, _ing("kuracie prsia", "chicken breast"))] == [
+            "poultry"
+        ]
+        assert await _lines(client, _ing("kuracie prsia")) == []
+
+    async def test_an_empty_dish_gives_no_line(self, client: AsyncClient) -> None:
+        assert await _lines(client) == []
+
+
+class TestRequest:
+    async def test_more_than_forty_ingredients_is_refused(self, client: AsyncClient) -> None:
+        resp = await client.post(URL, json={"ingredients": [_ing(f"item {i}") for i in range(41)]})
+        assert resp.status_code == 422
+
+    async def test_a_zero_amount_is_refused_like_any_ingredient(self, client: AsyncClient) -> None:
+        resp = await client.post(URL, json={"ingredients": [_ing("egg", grams=0)]})
+        assert resp.status_code == 422
+
+    async def test_needs_a_session(self, unauthed_client: AsyncClient) -> None:
+        resp = await unauthed_client.post(URL, json={"ingredients": [_ing("egg")]})
+        assert resp.status_code == 401
+
+
+@pytest.fixture
+def odd_figures(tmp_path: Path) -> Iterator[None]:
+    """A table whose numbers no source prints, so a line can only carry them
+    if the endpoint passes rules.csv through untouched."""
+    rows = [
+        "poultry,81,77,3,0,fsa,https://example.org/a,quote 81 77 3,2026-11-22,verified,",
+        "poultry,81,77,3,0,szu,https://example.org/b,quote 81 77 3,2026-11-22,verified,",
+        "fish,59,,,1,usda,https://example.org/c,quote 59,2026-11-22,sourced,",
+        "whole_cut,,,,0,fsa,https://example.org/d,a quote with no number,2026-11-22,verified,",
+    ]
+    foods = ["36017,,,poultry,curated,", "26036,,,fish,curated,", "6111,,,whole_cut,curated,"]
+    (tmp_path / "rules.csv").write_text("\n".join([",".join(RULE_COLUMNS), *rows]) + "\n", encoding="utf-8")
+    (tmp_path / "map.csv").write_text("\n".join([",".join(MAP_COLUMNS), *foods]) + "\n", encoding="utf-8")
+    table = load_storage(tmp_path)
+    from app.main import app
+    app.dependency_overrides[storage_reference] = lambda: table
+    yield
+    app.dependency_overrides.pop(storage_reference, None)
+
+
+@pytest.mark.usefixtures("odd_figures")
+async def test_every_number_comes_from_the_table(
+    client: AsyncClient, db_session: AsyncSession, test_user: User,
+) -> None:
+    await _speak(db_session, test_user, "English")
+    lines = await _lines(client, _ing("salmon fillet"), _ing("beef steak"), _ing("chicken breast"))
+    assert lines == [
+        {"category": "poultry", "core_c": 81, "hold_c": 77, "hold_min": 3, "us_only": False, "sources": ["fsa", "szu"]},
+        {"category": "fish", "core_c": 59, "hold_c": None, "hold_min": None, "us_only": True, "sources": ["usda"]},
+    ]
+
+
+class TestOneResolver:
+    """food_for keys an ingredient exactly as the nutrition figures do."""
+
+    @pytest.mark.parametrize(("language", "ing"), [
+        ("English", IngredientAmount(name="chicken breasts", quantity_grams=200)),
+        ("English", IngredientAmount(name="potatoes", quantity_grams=200)),
+        ("Czech", IngredientAmount(name="vařené bílé fazole", name_en="white beans", quantity_grams=200)),
+        ("Czech", IngredientAmount(name="paprika", name_en="paprika", quantity_grams=1, is_spice=True)),
+        ("Czech", IngredientAmount(name="něco neznámého", name_en="chicken breast", quantity_grams=200)),
+        ("Slovak", IngredientAmount(name="kuracie prsia", quantity_grams=200)),
+    ])
+    def test_food_for_agrees_with_the_nutrition_row(self, language: str, ing: IngredientAmount) -> None:
+        row = nutrition._ingredient(ing, servings=2, lang=_Language.of(language), ref=REF)
+        food = food_for(ing, language, REF)
+        expected = row.off_id or (str(row.alim_code) if row.alim_code is not None else None)
+        assert (food.id if food is not None else None) == expected
