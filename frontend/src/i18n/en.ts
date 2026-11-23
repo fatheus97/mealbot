@@ -661,6 +661,26 @@ export const en = {
     "Keep in the fridge and eat within 2 days (cooked rice within 24 hours), or put it in the freezer. Reheat only once, until it is steaming hot in the middle (at least 75 °C). Bring soups and sauces to the boil. Sources: UK FSA, Czech National Institute of Public Health (SZÚ), Czech Ministry of Agriculture.",
   "storage.leftoversFreezer":
     "Let the extra portions cool in small containers, then put them in the freezer within 2 hours of cooking (cooked rice within 1 hour). Thaw them in the fridge, serve within 24 hours and reheat only once. Throw away anything left in the bowl. Sources: UK FSA, Czech Ministry of Agriculture, NHS.",
+  // Cook-mode temperature lines (slice 7). The numbers and the sources come
+  // from the server's table, so these keys hold no digit (i18n.test.ts).
+  "storage.cookHold": "{food}: cook until the middle reaches at least {core} °C, or {hold} °C for {minutes} minutes.",
+  "storage.cookCore": "{food}: cook until the middle reaches at least {core} °C.",
+  "storage.cookSources": "Sources: {sources}.",
+  "storage.cookSourceUs": "US guidance. Source: {sources}.",
+  "storage.foodPoultry": "Poultry",
+  "storage.foodMinced": "Minced meat and sausages",
+  "storage.foodPork": "Pork",
+  "storage.foodEgg": "Eggs",
+  "storage.foodFish": "Fish and shellfish",
+  "storage.sourceSzu": "Czech National Institute of Public Health (SZÚ)",
+  "storage.sourceFsa": "UK FSA",
+  "storage.sourceEfsa": "EFSA (EU)",
+  "storage.sourceUsda": "US Department of Agriculture (USDA)",
+  // {nhs} and {szu} are links named as the bodies call themselves; the NHS
+  // page is about pregnancy, SZÚ's covers every group.
+  "storage.atRisk":
+    "Pregnant, over 65, cooking for a baby or with a weakened immune system? Stricter advice applies, for example from {szu} or, in pregnancy, from the {nhs}.",
+  "storage.cookLookupFailed": "Cooking temperatures could not be loaded for this dish.",
   "meal.ingredients": "Ingredients:",
   // The ↻ glyph carries the meaning on narrow screens; the word is the label.
   "meal.leftoversShort": "↻ Leftovers",

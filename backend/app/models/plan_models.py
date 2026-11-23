@@ -15,6 +15,7 @@ from pydantic import (
 
 from app.core.dietary import Allergen, DietType
 from app.core.meal_types import LEGACY_MEAL_TYPE_MAP, MealType
+from app.core.storage_reference import CookCategory, SourceCode
 
 if TYPE_CHECKING:
     from app.models.db_models import MealEntry
@@ -574,7 +575,9 @@ class IngredientAmount(BaseModel):
         ),
     )
 
-    # English name of the ingredient, for the ALLERGEN SCREEN — nothing else.
+    # English name of the ingredient, for the ALLERGEN SCREEN, and the key the
+    # nutrition figures and the cook-mode temperature lines match on for a plan
+    # in a language other than English or Czech.
     #
     # Deliberately separate from `canonical_name` even though both are English.
     # They have opposite scopes and merging them breaks one of the two:
@@ -1088,6 +1091,32 @@ class PlanNutrition(BaseModel):
     unavailable_reason: PlanUnavailableReason | None = None
     days: list[DayNutrition]
     source: SourceAttribution
+
+
+class CookTemperaturesRequest(BaseModel):
+    """POST /api/plan/cook-temperatures: the ingredients of the dish in cook
+    mode as the client holds them, so an unsaved Cook Now edit counts too.
+    Same cap as MealEditRequest."""
+    ingredients: list[IngredientAmount] = Field(..., max_length=40)
+    # The planned meal on screen, so its names match in its plan's language;
+    # None for an unsaved Cook Now recipe, written in the user's language.
+    meal_entry_id: int | None = Field(default=None, ge=1)
+
+
+class CookTemperatureLine(BaseModel):
+    """One cook-mode line from backend/data/storage/rules.csv: the middle
+    reaches ``core_c``, or holds ``hold_c`` for ``hold_min`` minutes. The
+    client shows these numbers and never writes its own (design check 7)."""
+    category: CookCategory
+    core_c: int
+    hold_c: int | None
+    hold_min: int | None
+    us_only: bool
+    sources: list[SourceCode]
+
+
+class CookTemperatures(BaseModel):
+    lines: list[CookTemperatureLine]
 
 
 class ConfirmPlanRequest(BaseModel):

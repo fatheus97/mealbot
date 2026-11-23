@@ -1,5 +1,7 @@
 // frontend/src/api.ts
 import type {
+  CookTemperatures,
+  IngredientAmount,
   PlanNutrition,
   AccessRequestItem,
   AccessRequestListResponse,
@@ -309,6 +311,25 @@ export async function fetchPlan(planId: number): Promise<MealPlanResponse> {
 export async function fetchPlanNutrition(planId: number): Promise<PlanNutrition> {
   const res = await authFetch(`/plan/${planId}/nutrition`);
   if (!res.ok) throw new Error(`Failed to load nutrition: ${res.status}`);
+  return res.json();
+}
+
+/** The cooking-temperature lines for a dish in cook mode. Only the fields
+ *  the server keys on, plus the amount its model requires. */
+export async function fetchCookTemperatures(
+  ingredients: IngredientAmount[],
+  mealEntryId: number | null,
+): Promise<CookTemperatures> {
+  const res = await authFetch("/plan/cook-temperatures", {
+    method: "POST",
+    body: JSON.stringify({
+      ingredients: ingredients.map(({ name, name_en, quantity_grams, is_spice }) => ({
+        name, name_en: name_en ?? null, quantity_grams, is_spice: is_spice ?? false,
+      })),
+      meal_entry_id: mealEntryId,
+    }),
+  });
+  if (!res.ok) throw new Error(`Failed to load cooking temperatures: ${res.status}`);
   return res.json();
 }
 

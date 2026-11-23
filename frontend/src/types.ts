@@ -19,6 +19,10 @@ export interface IngredientAmount {
   // the key. Absent on plans generated before the field existed — those simply
   // show grams. See utils/pieces.ts.
   canonical_name?: string | null;
+  // The model's English name, written on non-English plans. The server keys
+  // nutrition and the cook-mode temperature lines on it there. An edit in
+  // the Cook Now editor drops it.
+  name_en?: string | null;
 }
 
 export interface MealPlanRequest {
@@ -98,6 +102,23 @@ export type MealWithheldReason = "legacy" | "coverage" | "leftover_unresolved";
 export type PlanNutritionUnavailableReason = "cook_now" | "infant" | "health_data_removed";
 // The table a provenance row comes from: Ciqual 2025 or an Open Food Facts label median.
 export type NutritionFoodSource = "ciqual" | "off";
+
+// POST /plan/cook-temperatures (backend CookTemperatures). Only categories
+// with a figure come back, so whole cuts of beef never do. The CI job
+// "locale parity" checks both unions against backend/data/storage.
+export type CookCategory = "poultry" | "minced" | "pork" | "egg" | "fish";
+export type CookSource = "szu" | "fsa" | "efsa" | "usda";
+export interface CookTemperatureLine {
+  category: CookCategory;
+  core_c: number;
+  hold_c: number | null;
+  hold_min: number | null;
+  us_only: boolean;
+  sources: CookSource[];
+}
+export interface CookTemperatures {
+  lines: CookTemperatureLine[];
+}
 
 export interface IngredientNutrition {
   name: string;

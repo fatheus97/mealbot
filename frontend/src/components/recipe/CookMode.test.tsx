@@ -1,16 +1,30 @@
-import { StrictMode } from 'react';
+import { StrictMode, type ReactNode, type ReactElement } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookMode } from './CookMode';
 import { useLocaleStore, DEFAULT_LOCALE } from '../../store/useLocaleStore';
 import { untranslatedEnglishIn } from '../../test/i18nAssertions';
 import { CookTimerProvider } from '../../contexts/CookTimerContext';
 import { parseDurationSeconds, tokenizeStepTimers, TIME_WORD_TABLES } from './cookMode.utils';
-import { setMobileViewport } from '../../test/test-utils';
+import { createTestQueryClient, setMobileViewport } from '../../test/test-utils';
+import { fetchCookTemperatures } from '../../api';
 import type { PlannedMeal } from '../../types';
 
+vi.mock('../../api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api')>()),
+  fetchCookTemperatures: vi.fn(),
+}));
+
 const KEY = 'cookmode:test:0:0';
+
+// CookMode asks the server for its temperature lines, so every render needs
+// a QueryClient; a fresh one per render keeps answers from leaking.
+function Queries({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={createTestQueryClient()}>{children}</QueryClientProvider>;
+}
+const renderQ = (ui: ReactElement) => render(ui, { wrapper: Queries });
 
 function sampleMeal(): PlannedMeal {
   return {
@@ -29,7 +43,7 @@ function sampleMeal(): PlannedMeal {
 function renderCookMode(overrides: Record<string, unknown> = {}) {
   const onDone = vi.fn();
   const onClose = vi.fn();
-  render(
+  renderQ(
     <CookTimerProvider>
       <CookMode meal={sampleMeal()} storageKey={KEY} onDone={onDone} onClose={onClose} {...overrides} />
     </CookTimerProvider>,
@@ -40,6 +54,99 @@ function renderCookMode(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   localStorage.clear();
   useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  vi.mocked(fetchCookTemperatures).mockReset().mockResolvedValue({ lines: [] });
+});
+
+// Numbers no source prints, so a line can only show them if it renders the
+// server's figures rather than its own (design check 7).
+const ODD = {
+  lines: [
+    { category: 'poultry' as const, core_c: 81, hold_c: 77, hold_min: 3, us_only: false, sources: ['szu' as const, 'fsa' as const, 'efsa' as const] },
+    { category: 'fish' as const, core_c: 59, hold_c: null, hold_min: null, us_only: true, sources: ['usda' as const] },
+  ],
+};
+
+describe('CookMode cooking temperatures', () => {
+  it('shows one line per category with the server\'s numbers and sources, on every step', async () => {
+    vi.mocked(fetchCookTemperatures).mockResolvedValue(ODD);
+    const user = userEvent.setup();
+    renderCookMode();
+    expect(
+      await screen.findByText(
+        'Poultry: cook until the middle reaches at least 81 °C, or 77 °C for 3 minutes. '
+          + 'Sources: Czech National Institute of Public Health (SZÚ), UK FSA, EFSA (EU).',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Fish and shellfish: cook until the middle reaches at least 59 °C. '
+          + 'US guidance. Source: US Department of Agriculture (USDA).',
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    expect(screen.getByText(/at least 81 °C/)).toBeInTheDocument();
+    expect(fetchCookTemperatures).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchCookTemperatures).mock.calls[0]).toEqual([sampleMeal().ingredients, null]);
+  });
+
+  it('names the planned meal, so the server matches in its plan\'s language', async () => {
+    renderCookMode({ mealEntryId: 42 });
+    await waitFor(() => expect(fetchCookTemperatures).toHaveBeenCalledWith(sampleMeal().ingredients, 42));
+  });
+
+  it('always shows the line for people at higher risk, with links in a new tab', async () => {
+    renderCookMode();
+    await waitFor(() => expect(fetchCookTemperatures).toHaveBeenCalled());
+    expect(screen.getByText(/Stricter advice applies/)).toBeInTheDocument();
+    expect(screen.queryByText(/cook until the middle/)).not.toBeInTheDocument();
+    for (const name of ['NHS', 'SZÚ']) {
+      const link = screen.getByRole('link', { name });
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+      // Not marked by colour alone (WCAG 1.4.1): the global style drops underlines.
+      expect(link).toHaveStyle({ textDecoration: 'underline' });
+    }
+  });
+
+  it('says the lookup failed and keeps the higher-risk line', async () => {
+    // Silence would read as "nothing here needs cooking through".
+    vi.mocked(fetchCookTemperatures).mockRejectedValue(new Error('down'));
+    renderCookMode();
+    expect(await screen.findByText('Cooking temperatures could not be loaded for this dish.')).toBeInTheDocument();
+    expect(screen.getByText(/Stricter advice applies/)).toBeInTheDocument();
+    expect(screen.queryByText(/cook until the middle/)).not.toBeInTheDocument();
+  });
+
+  it('skips a category or source this build does not know instead of showing a raw key', async () => {
+    const unknown = JSON.parse(JSON.stringify(ODD)) as typeof ODD;
+    (unknown.lines[0] as { category: string }).category = 'game';
+    (unknown.lines[1].sources as string[]).push('who');
+    vi.mocked(fetchCookTemperatures).mockResolvedValue(unknown);
+    renderCookMode();
+    await waitFor(() => expect(fetchCookTemperatures).toHaveBeenCalled());
+    await screen.findByText(/Stricter advice applies/);
+    expect(screen.queryByText(/storage\./)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cook until the middle/)).not.toBeInTheDocument();
+  });
+
+  it('asks nothing for a dish with no ingredients', () => {
+    renderCookMode({ meal: { ...sampleMeal(), ingredients: [] } });
+    expect(fetchCookTemperatures).not.toHaveBeenCalled();
+    expect(screen.getByText(/Stricter advice applies/)).toBeInTheDocument();
+  });
+
+  it('leaves no untranslated English in the lines when switched to Czech', async () => {
+    vi.mocked(fetchCookTemperatures).mockResolvedValue(ODD);
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    renderCookMode({ meal: { ...sampleMeal(), name: 'Rajská polévka', meal_type_label: 'Polévka' } });
+    expect(
+      await screen.findByText(
+        'Drůbež: tepelně upravte tak, aby střed dosáhl aspoň 81 °C, nebo 77 °C po dobu 3 minut. '
+          + 'Zdroje: Státní zdravotní ústav (SZÚ), britská agentura FSA, evropský úřad EFSA.',
+      ),
+    ).toBeInTheDocument();
+    expect(untranslatedEnglishIn(document.body)).toEqual([]);
+  });
 });
 
 describe('CookMode translation', () => {
@@ -64,6 +171,16 @@ describe('CookMode translation', () => {
 });
 
 describe('CookMode note', () => {
+  it('puts the note before the cooking lines on the last step', async () => {
+    const user = userEvent.setup();
+    renderCookMode({ note: 'Some of this dish is planned as leftovers.' });
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    const note = screen.getByText(/planned as leftovers/);
+    const risk = screen.getByText(/Stricter advice applies/);
+    expect(note.compareDocumentPosition(risk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('shows the note on the last step only', async () => {
     const user = userEvent.setup();
     renderCookMode({ note: 'Some of this dish is planned as leftovers.' });
@@ -330,7 +447,7 @@ describe('CookMode', () => {
       // pile up unpredictably across tests. Asserting the call happened is the
       // deterministic version of the same behavioural claim.
       const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
-      const { unmount } = render(
+      const { unmount } = renderQ(
         <CookTimerProvider>
           <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={vi.fn()} />
         </CookTimerProvider>,
@@ -348,7 +465,7 @@ describe('CookMode', () => {
     // entry between mount and unmount, as a swapped-in instance would.
     it("never pops an entry it didn't push (the top-of-stack entry belongs to a different mount)", () => {
       const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
-      const { unmount } = render(
+      const { unmount } = renderQ(
         <CookTimerProvider>
           <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={vi.fn()} />
         </CookTimerProvider>,
@@ -373,11 +490,15 @@ describe('CookMode', () => {
     it('under StrictMode, ignores its own delayed popstate instead of self-closing on open', () => {
       vi.spyOn(window.history, 'back').mockImplementation(() => {});
       const onClose = vi.fn();
+      // The tree in main.tsx's order, StrictMode outermost. With StrictMode
+      // inside the renderQ wrapper this test failed (2026-11-22).
       render(
         <StrictMode>
-          <CookTimerProvider>
-            <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={onClose} />
-          </CookTimerProvider>
+          <Queries>
+            <CookTimerProvider>
+              <CookMode meal={sampleMeal()} storageKey={KEY} onDone={vi.fn()} onClose={onClose} />
+            </CookTimerProvider>
+          </Queries>
         </StrictMode>,
       );
       act(() => {

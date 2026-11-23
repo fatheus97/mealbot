@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,7 @@ from app.core.errors import LocalizedHTTPException
 from app.core.language_whitelist import normalize_language
 from app.core.nutrition_reference import NutritionReference, nutrition_reference
 from app.core.rate_limit import limiter, user_id_key_func
+from app.core.storage_reference import StorageReference, storage_reference
 from app.db import get_session
 from app.llm.client import first_choice
 from app.llm.experiment import pick_arm
@@ -36,6 +37,9 @@ from app.models.plan_models import (
     CalendarPlanEntry,
     CalendarResponse,
     ConfirmPlanRequest,
+    CookTemperatureLine,
+    CookTemperatures,
+    CookTemperaturesRequest,
     FavoriteToggleRequest,
     FinishPlanResponse,
     IngredientAmount,
@@ -92,7 +96,7 @@ from app.services.leftovers import (
     validate_leftover_graph,
 )
 from app.services.meal_planner import generate_partial_day
-from app.services.nutrition import plan_nutrition, unavailable
+from app.services.nutrition import food_for, plan_nutrition, unavailable
 from app.services.pantry_service import load_staple_keys
 from app.services.plan_repeat import (
     PlanHealthDataRemovedError,
@@ -370,6 +374,74 @@ async def get_plan_nutrition(
         logger.exception("Failed to parse plan %d for nutrition", plan_id)
         raise LocalizedHTTPException(500, "plan_data_unreadable") from exc
     return plan_nutrition(request, plan_obj.days, people_count=plan.people_count, ref=ref)
+
+
+class _PlanLanguage(BaseModel):
+    """The one field cook mode reads from a stored plan request: never its
+    diets, which are health data."""
+
+    language: str | None = None
+
+
+async def _recipe_language(session: AsyncSession, user: User, meal_entry_id: int | None) -> str:
+    """The language a dish's ingredient names are written in: its plan's for a
+    planned meal, which a household member or a later setting may not share,
+    else the user's, which Cook Now writes in. Normalised as generation
+    normalises it, so a legacy value such as "cs" reads as English there too."""
+    fallback = normalize_language(user.language or "") or "English"
+    if meal_entry_id is None:
+        return fallback
+    kitchen = Kitchen.of(user)
+    entry = await session.get(MealEntry, meal_entry_id)
+    if entry is None or entry.household_id != kitchen.household_id:
+        raise LocalizedHTTPException(404, "plan_meal_not_found")
+    plan = await load_plan(session, kitchen, entry.meal_plan_id)
+    if plan.kind == "cook_now":  # a Cook Now plan records no language
+        return fallback
+    try:
+        stored = _PlanLanguage.model_validate_json(plan.request_json).language
+    except ValidationError:
+        logger.warning("Plan %d has an unreadable request; cook mode uses the user's language", plan.id)
+        return fallback
+    return normalize_language(stored or "") or fallback
+
+
+@router.post("/cook-temperatures", response_model=CookTemperatures)
+@limiter.limit("60/minute", key_func=user_id_key_func)
+async def get_cook_temperatures(
+    request: Request,
+    body: CookTemperaturesRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    ref: NutritionReference = Depends(nutrition_reference),
+    storage: StorageReference = Depends(storage_reference),
+) -> CookTemperatures:
+    """The cooking-temperature lines for a dish in cook mode
+    (docs/food-storage-design.md, slice 7). Each ingredient goes through the
+    nutrition resolver in the language the recipe is written in, then
+    map.csv; every matched category with a figure gives one line, in
+    rules.csv order.
+
+    The ingredients come from the client, so an unsaved Cook Now edit counts
+    too. A meal_entry_id only names the plan whose language to use; it is
+    kitchen-scoped, and no diet or health data is read. A client-written
+    name_en is trusted here, unlike in the allergen screen: it only changes
+    advice its own sender sees, and nothing is stored.
+
+    A category with no figure gives no line. That is whole cuts, whose only
+    advice is the FSA's note that they can be served pink: adult advice, and
+    cook mode cannot tell a baby's plan from an adult's (design decision 6)."""
+    language = await _recipe_language(session, current_user, body.meal_entry_id)
+    foods = (food_for(ing, language, ref) for ing in body.ingredients)
+    rules = storage.cook_rules(food.id for food in foods if food is not None)
+    return CookTemperatures(lines=[
+        CookTemperatureLine(
+            category=rule.category, core_c=rule.core_c, hold_c=rule.hold_c, hold_min=rule.hold_min,
+            us_only=rule.us_only, sources=list(rule.sources),
+        )
+        for rule in rules
+        if rule.core_c is not None
+    ])
 
 
 # POST /api/plan/{plan_id}/repeat — copy a plan forward to a new date

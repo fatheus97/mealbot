@@ -7,8 +7,12 @@ import { untranslatedEnglishIn } from "../test/i18nAssertions";
 import { CookTimerProvider } from "../contexts/CookTimerContext";
 import type { IngredientNutrition, MealEntrySummary, MealNutrition, PlannedMeal, SourceAttribution } from "../types";
 
+// The cooking-temperature box fetches; CookMode.test.tsx covers it. Stubbed
+// here so these tests need no QueryClient.
+vi.mock('./recipe/CookTemperatures', () => ({ CookTemperatures: () => null }));
+
 // MealCard is purely presentational — no hooks, no react-query, no auth — so it
-// renders bare. These tests pin the affordance-gating matrix (which button shows
+// renders bare (the cook-mode box it can open fetches, and is stubbed above). These tests pin the affordance-gating matrix (which button shows
 // up in which plan state), because that branching is what actually carries risk:
 // it was ~150 lines of nested ternaries inline in MealPlanner before extraction.
 

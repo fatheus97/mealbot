@@ -1,7 +1,7 @@
 import { skipToken, useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
-import type { DietaryProfileBody, RestockStatus, StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
-import { acceptAdminFeedback, answerRestockPrompt, authFetch, cookRecipe, createAdminUser, fetchPlanNutrition, createHouseholdInvite, createInvite, deleteDietaryProfile, fetchDietaryProfile, fetchHousehold, fetchRestockStatus, revokeHouseholdInvite, saveDietaryProfile, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
+import type { DietaryProfileBody, IngredientAmount, RestockStatus, StockItem, PantryStaple, MealPlanRequest, MealPlanResponse, MealPlanSummary, MealEntrySummary, MealEditRequest, MealEditResponse, RegeneratePlanRequest, UserProfile, FinishPlanResponse, PlanScheduleResponse, CalendarResponse, SingleRecipeRequest, CookRecipeRequest, FavoriteRecipeRequest, CookbookListResponse, CookbookCountResponse, AdminUserUpdate, InviteCreateRequest, FeedbackCreateRequest, FeedbackModerationStatus, AccessRequestStatus, ScanSource, WasteEntry } from '../types';
+import { acceptAdminFeedback, answerRestockPrompt, authFetch, cookRecipe, createAdminUser, fetchCookTemperatures, fetchPlanNutrition, createHouseholdInvite, createInvite, deleteDietaryProfile, fetchDietaryProfile, fetchHousehold, fetchRestockStatus, revokeHouseholdInvite, saveDietaryProfile, type RequestCopy, deleteAccessRequest, fetchAccessRequests, updateAccessRequest, deleteAdminUser, favoriteRecipe, fetchAdminFeedback, fetchAdminFeedbackDetail, fetchInvites, fetchPolicyNotice, fetchUserProfile, forceLogoutAdminUser, generateRecipe, mergeFridgeItems, PaywallError, resetAdminUserOnboarding, retriageAdminFeedback, revokeInvite, recordWaste, scanReceipt, sendPolicyNotice, submitFeedback, updateAdminFeedback, updateAdminUser, updateMeal, updateUserProfile, verifyAdminUserEmail, type AdminFeedbackQuery } from '../api';
 import { extractErrorDetail } from '../utils/httpError';
 
 // --- Queries (Data Fetching) ---
@@ -241,6 +241,25 @@ export function usePlanNutrition(planId: number | null, enabled: boolean) {
   return useQuery({
     queryKey: ['plan', planId, 'nutrition'],
     queryFn: enabled && planId !== null ? () => fetchPlanNutrition(planId) : skipToken,
+    gcTime: 0,
+  });
+}
+
+// The cooking-temperature lines for the dish in cook mode
+// (docs/food-storage-design.md, slice 7). Keyed on what the server matches
+// on: names, English keys and the meal whose plan language decides. A
+// change of amount alone does not refetch.
+// gcTime 0 ties the answer to the open cook mode, so the next opening after
+// a language change (Cook Now matches in the user's language) asks again.
+// On for everyone, unlike nutrition (owner decision 9).
+export function useCookTemperatures(ingredients: IngredientAmount[], mealEntryId: number | null) {
+  return useQuery({
+    queryKey: [
+      'cookTemperatures',
+      mealEntryId,
+      ingredients.map((i) => [i.name, i.name_en ?? null, i.is_spice ?? false]),
+    ],
+    queryFn: ingredients.length > 0 ? () => fetchCookTemperatures(ingredients, mealEntryId) : skipToken,
     gcTime: 0,
   });
 }

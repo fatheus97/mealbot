@@ -6,6 +6,10 @@ import { FloatingTimers } from './FloatingTimers';
 import { CookMode } from './CookMode';
 import type { PlannedMeal } from '../../types';
 
+// The cooking-temperature box fetches; CookMode.test.tsx covers it. Stubbed
+// here so these tests need no QueryClient.
+vi.mock('./CookTemperatures', () => ({ CookTemperatures: () => null }));
+
 function sampleMeal(): PlannedMeal {
   return {
     name: 'Tomato Soup',

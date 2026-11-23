@@ -7,6 +7,7 @@ import { useShowPieces } from "../../contexts/AuthContext";
 import { formatAmount } from "../../utils/pieces";
 import { useI18n, useMealTypeLabel } from "../../i18n";
 import { useIsMobile } from "../../hooks/useIsMobile";
+import { CookTemperatures } from "./CookTemperatures";
 
 interface Props {
   meal: PlannedMeal;
@@ -21,6 +22,9 @@ interface Props {
   // Shown on the last step, where the cook is about to put food away (the
   // keep-and-reheat line for a dish that later meals reheat).
   note?: string | null;
+  // The planned meal being cooked, so its temperature lines match in its
+  // plan's language; absent for an unsaved Cook Now recipe.
+  mealEntryId?: number | null;
 }
 
 // Tags each mount's pushed history entry so its cleanup only ever pops the
@@ -91,6 +95,7 @@ export function CookMode({
   onClose,
   doneLabel,
   note = null,
+  mealEntryId = null,
   donePending = false,
   doneError = null,
 }: Props) {
@@ -361,6 +366,16 @@ export function CookMode({
           </p>
         </div>
 
+        {/* On the last step the leftovers note comes first, as the one line
+            new there; then the cooking temperatures, on every step. One box
+            with its own scroll, capped at 22vh, so on a short screen the
+            step text keeps the rest; lines arriving late shrink the step
+            area instead of moving the timers and the footer. */}
+        <div style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.85rem", maxHeight: "22vh", overflowY: "auto", margin: "0.25rem 0 0.5rem" }}>
+          {isLast && note && <p style={{ margin: "0 0 0.35rem", fontSize: "0.9rem" }}>{note}</p>}
+          <CookTemperatures ingredients={meal.ingredients} mealEntryId={mealEntryId} />
+        </div>
+
         {/* Timer bar (bottom). Every running timer is listed — a second one is
             added, never swapped in, so "pasta on, now the sauce" works. The
             manual row stays available underneath instead of being replaced by
@@ -428,14 +443,6 @@ export function CookMode({
             </button>
           </div>
         </div>
-
-        {isLast && note && (
-          // Scrolls on its own, like the timer list, so a long note never
-          // squeezes the step text above on a short screen.
-          <p style={{ color: "#94a3b8", textAlign: "center", fontSize: "0.9rem", margin: "0 0 0.6rem", maxHeight: "20vh", overflowY: "auto" }}>
-            {note}
-          </p>
-        )}
 
         {doneError && (
           <div role="alert" style={{ color: "#f87171", textAlign: "center", fontSize: "0.9rem", marginBottom: "0.4rem" }}>

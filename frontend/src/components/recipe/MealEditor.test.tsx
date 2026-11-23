@@ -33,6 +33,30 @@ function renderEditor(overrides: Partial<PlannedMeal> = {}) {
   return { onSave, onCancel };
 }
 
+describe('MealEditor English keys', () => {
+  it('keeps the model\'s English keys on an unchanged name and drops them on a renamed one', async () => {
+    // The server's _keep_english_keys rule, for a Cook Now recipe the server
+    // never re-keys: cook-mode lines and pieces read these keys.
+    const user = userEvent.setup();
+    const { onSave } = renderEditor({
+      ingredients: [
+        { name: 'kuřecí prsa', quantity_grams: 300, is_spice: false, name_en: 'chicken breast' },
+        { name: 'voda', quantity_grams: 500, is_spice: false, name_en: 'water' },
+        { name: 'vejce', quantity_grams: 120, is_spice: false, name_en: 'egg', canonical_name: 'egg' },
+      ],
+    });
+    const water = screen.getByLabelText('Ingredient 2 name');
+    await user.clear(water);
+    await user.type(water, 'mléko');
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    expect(onSave.mock.calls[0][0].ingredients).toEqual([
+      { name: 'kuřecí prsa', quantity_grams: 300, is_spice: false, name_en: 'chicken breast' },
+      { name: 'mléko', quantity_grams: 500, is_spice: false },
+      { name: 'vejce', quantity_grams: 120, is_spice: false, name_en: 'egg', canonical_name: 'egg' },
+    ]);
+  });
+});
+
 describe('MealEditor', () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
