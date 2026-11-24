@@ -1,11 +1,15 @@
 """Gates for backend/data/storage (docs/food-storage-design.md, deterministic
 checks 6 and 7): every rule cites a source, every shown figure is a Celsius
-number the cited text gives, and every nutrition food has a cook category.
+number the cited text gives, every nutrition food has a cook category, and
+the fridge times come from the pinned FoodKeeper file under the rules its
+README states.
 """
 
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import re
 from datetime import date
 from pathlib import Path
@@ -14,10 +18,13 @@ import pytest
 
 from app.core.nutrition_reference import load_reference, sorted_form
 from app.core.storage_reference import (
+    AFTER_OPENING,
     COOK_KEY_COLUMNS,
     DATA_DIR,
+    FOODKEEPER_FILE,
     MAP_COLUMNS,
     RULE_COLUMNS,
+    FridgeTime,
     StorageDataError,
     load_storage,
 )
@@ -109,10 +116,6 @@ class TestShippedMap:
     def test_every_nutrition_food_has_exactly_one_row(self) -> None:
         assert set(STORAGE.foods) == set(NUTRITION.foods)
 
-    def test_no_foodkeeper_rows_yet(self) -> None:
-        """Slice 5 fills these from the pinned FoodKeeper file and flips this."""
-        assert all(not r.fk_id and not r.fk_field for r in STORAGE.foods.values())
-
     def test_a_categorised_food_that_is_not_raw_says_why(self) -> None:
         for row in STORAGE.foods.values():
             name = NUTRITION.foods[row.food].name
@@ -189,6 +192,109 @@ class TestShippedCookKeys:
         assert [k for k, c in STORAGE.cook_keys.items() if STORAGE.rules[c].core_c is None] == []
 
 
+def _products() -> dict[str, dict[str, object]]:
+    sheets = json.loads((DATA_DIR / FOODKEEPER_FILE).read_bytes())["sheets"]
+    cells = next(sheet["data"] for sheet in sheets if sheet["name"] == "Product")
+    flat = [{k: v for cell in product for k, v in cell.items()} for product in cells]
+    return {str(int(p["ID"])): p for p in flat}
+
+
+# Every FoodKeeper field, pantry ones included, which the loader does not read.
+PRODUCTS = _products()
+_IN_DAYS = {"Days": 1, "Weeks": 7, "Months": 30, "Years": 365}  # for comparing only
+FROZEN = re.compile(r"frozen|mražen|mraž", re.IGNORECASE)
+
+
+def _low_days(product: dict[str, object], field: str) -> int | None:
+    per, low = _IN_DAYS.get(str(product.get(f"{field}_Metric"))), product.get(f"{field}_Min")
+    return None if per is None or not isinstance(low, int | float) else int(low) * per
+
+
+class TestShippedFridgeTimes:
+    def test_the_mapped_rows_are_still_there(self) -> None:
+        """A tripwire on a wiped or truncated fk column."""
+        mapped = [r for r in STORAGE.foods.values() if r.fk_id]
+        assert len(mapped) >= 133
+        assert sum(1 for r in mapped if r.unopened and r.unopened.low_days() is not None) >= 88
+
+    def test_no_fridge_time_for_a_food_kept_at_room_temperature(self) -> None:
+        """The fridge list is the whole kitchen and a past date leaves food out
+        of the plan, so a fridge time shorter than FoodKeeper's own pantry time,
+        or one that holds only for ripe fruit, would drop potatoes or bananas
+        early."""
+        checked = 0
+        for row in STORAGE.foods.values():
+            if row.unopened is None:
+                continue
+            product = PRODUCTS[row.fk_id]
+            fridge = _low_days(product, row.fk_field)
+            for field in ("Pantry", "DOP_Pantry"):
+                metric = product.get(f"{field}_Metric")
+                if metric is None:
+                    continue
+                checked += 1
+                assert "ripe" not in str(metric).lower(), (row.food, row.fk_id)
+                pantry = _low_days(product, field)
+                assert pantry is None or fridge is None or pantry <= fridge, (row.food, row.fk_id, field)
+        assert checked >= 15  # apples, citrus, herbs... still have a pantry time to compare
+
+    def test_a_cupboard_pack_gets_no_fridge_time(self) -> None:
+        """A can, a jar or UHT milk keeps in the cupboard until opened, and v1
+        shows no after-opening times (design, owner decision 1). Such a row names
+        its product under the after-opening field, which the loader reads as no time."""
+        packs = 0
+        for row in STORAGE.foods.values():
+            product = PRODUCTS.get(row.fk_id, {})
+            if product.get(f"{AFTER_OPENING}_Metric") and (product.get("Pantry_Metric") or product.get("DOP_Pantry_Metric")):
+                packs += 1
+                assert row.fk_field == AFTER_OPENING, (row.food, row.fk_id)
+                assert row.unopened is None
+        assert packs >= 20
+
+    def test_a_cooked_food_gets_no_product_time(self) -> None:
+        """Cooked food is a leftover, which the design keeps 2 days (rice 1), not
+        a FoodKeeper product. The exceptions are meats bought cooked: these two
+        hams, which carry a pack date, and frankfurters (30134), often sold loose,
+        whose name has no cooking word, so this gate cannot see them (a spot check
+        holds them). Adding a ham is a decision, so it changes this set."""
+        cooked = re.compile(r"\b(cooked|boiled|baked|fried|roasted|steamed|grilled|stewed)\b", re.IGNORECASE)
+        mapped = {r.food for r in STORAGE.foods.values() if r.fk_id and cooked.search(NUTRITION.foods[r.food].name)}
+        assert mapped == {"28803", "28900"}
+
+    def test_a_food_kept_frozen_gets_no_fridge_time(self) -> None:
+        """v1 has no freezer place, so a fresh fridge time on a frozen bag would
+        drop it from plans within days."""
+        aliases = DATA_DIR.parent / "nutrition" / "aliases.csv"
+        with aliases.open(encoding="utf-8", newline="") as handle:
+            frozen = {r["food"] for r in csv.DictReader(handle) if FROZEN.search(r["key"])}
+        assert frozen  # the gate still sees the frozen keys
+        assert [f for f in sorted(frozen) if STORAGE.foods[f].fk_id] == []
+
+    @pytest.mark.parametrize(
+        ("food", "fk_id", "days"),
+        [
+            ("36017", "117", 1),  # chicken breast
+            ("6254", "43", 1),  # minced beef
+            ("22000", "21", 21),  # eggs in shell, 3 to 5 weeks
+            ("26037", "166", 14),  # smoked salmon, cold smoked
+            ("19016", "27", None),  # milk: the pack date decides
+            ("12120", "3", None),  # parmesan: months, no date
+            ("20532", "372", None),  # canned chickpeas: a cupboard pack
+            ("4008", "", None),  # potatoes: room temperature
+            ("7000", "", None),  # bread
+            ("13005", "", None),  # bananas: FoodKeeper times them ripe
+            ("30134", "103", 7),  # párky: cooked smoked links, not the sealed hot-dog pack
+            ("2007", "448", None),  # lemon juice: the bottle, a cupboard pack
+            ("20072", "", None),  # peas: usually frozen
+            ("10021", "", None),  # raw shrimp: sold frozen, and no key says so
+        ],
+    )
+    def test_spot_checks(self, food: str, fk_id: str, days: int | None) -> None:
+        row = STORAGE.foods[food]
+        assert row.fk_id == fk_id
+        assert (row.unopened.low_days() if row.unopened else None) == days
+
+
 class TestCookRules:
     def test_each_rule_once_in_file_order(self) -> None:
         rules = STORAGE.cook_rules(["fish", "egg", None, "poultry", "poultry", "whole_cut"])
@@ -198,10 +304,25 @@ class TestCookRules:
         assert STORAGE.rules["poultry"].sources == ("szu", "fsa", "efsa")
 
 
-def _write(tmp: Path, rules: list[str], foods: list[str], keys: tuple[str, ...] = ()) -> Path:
+# A FoodKeeper product as the export lays it out: a list of one-key cells.
+FK_PRODUCT: list[dict[str, object]] = [
+    {"ID": 113.0}, {"Name": "Chicken"}, {"Name_subtitle": "whole"},
+    {"DOP_Refrigerate_Min": 1.0}, {"DOP_Refrigerate_Max": 2.0}, {"DOP_Refrigerate_Metric": "Days"},
+    {"Refrigerate_Min": None}, {"Refrigerate_Max": None}, {"Refrigerate_Metric": "Package use-by date"},
+]
+
+
+def _foodkeeper(*products: list[dict[str, object]]) -> str:
+    return json.dumps({"sheets": [{"name": "Version", "data": []}, {"name": "Product", "data": list(products)}]})
+
+
+def _write(
+    tmp: Path, rules: list[str], foods: list[str], keys: tuple[str, ...] = (), foodkeeper: str | None = None
+) -> Path:
     (tmp / "rules.csv").write_text("\n".join([",".join(RULE_COLUMNS), *rules]) + "\n", encoding="utf-8")
     (tmp / "map.csv").write_text("\n".join([",".join(MAP_COLUMNS), *foods]) + "\n", encoding="utf-8")
     (tmp / "cook_keys.csv").write_text("\n".join([",".join(COOK_KEY_COLUMNS), *keys]) + "\n", encoding="utf-8")
+    (tmp / FOODKEEPER_FILE).write_text(_foodkeeper(FK_PRODUCT) if foodkeeper is None else foodkeeper, encoding="utf-8")
     return tmp
 
 
@@ -228,6 +349,52 @@ class TestLoaderRefuses:
     def test_a_bad_cook_key(self, tmp_path: Path, keys: tuple[str, ...]) -> None:
         with pytest.raises(StorageDataError):
             load_storage(_write(tmp_path, [RULE], [FOOD], keys))
+
+    def test_a_good_pair_loads(self, tmp_path: Path) -> None:
+        loaded = load_storage(_write(tmp_path, [RULE], [FOOD, "2,113,DOP_Refrigerate,none,curated,"]))
+        assert loaded.rules["poultry"].core_c == 75
+        assert loaded.foods["1"].unopened is None
+        assert loaded.foods["2"].unopened == FridgeTime("Chicken, whole", 1, 2, "Days")
+
+    def test_a_unit_with_no_range_loads_without_one(self, tmp_path: Path) -> None:
+        loaded = load_storage(_write(tmp_path, [RULE], ["2,113,Refrigerate,none,curated,"]))
+        assert loaded.foods["2"].unopened == FridgeTime("Chicken, whole", None, None, "Package use-by date")
+
+    def test_an_after_opening_field_gives_no_unopened_time(self, tmp_path: Path) -> None:
+        opened: list[dict[str, object]] = [
+            *FK_PRODUCT,
+            {"Refrigerate_After_Opening_Min": 3.0},
+            {"Refrigerate_After_Opening_Max": 4.0},
+            {"Refrigerate_After_Opening_Metric": "Days"},
+        ]
+        food = "2,113,Refrigerate_After_Opening,none,curated,"
+        loaded = load_storage(_write(tmp_path, [RULE], [food], foodkeeper=_foodkeeper(opened)))
+        assert loaded.foods["2"].unopened is None
+
+    @pytest.mark.parametrize("food", [
+        "2,114,DOP_Refrigerate,none,curated,",  # a product the file does not have
+        "2,113,Refrigerate_After_Opening,none,curated,",  # a field the product leaves empty
+    ])
+    def test_a_row_must_point_at_a_filled_field(self, tmp_path: Path, food: str) -> None:
+        with pytest.raises(StorageDataError):
+            load_storage(_write(tmp_path, [RULE], [food]))
+
+    @pytest.mark.parametrize("product", [
+        [*FK_PRODUCT[:3], {"DOP_Refrigerate_Min": 1.5}, *FK_PRODUCT[4:]],  # a fraction
+        [*FK_PRODUCT[:3], {"DOP_Refrigerate_Min": 3.0}, *FK_PRODUCT[4:]],  # low above high
+        [*FK_PRODUCT[:3], {"DOP_Refrigerate_Min": None}, *FK_PRODUCT[4:]],  # a range missing an end
+        [*FK_PRODUCT[:5], {"DOP_Refrigerate_Metric": "Fortnights"}, *FK_PRODUCT[6:]],
+        [*FK_PRODUCT[:6], {"Refrigerate_Min": 2.0}, *FK_PRODUCT[7:]],  # a number on a unit with no range
+        [{"ID": "113"}, *FK_PRODUCT[1:]],  # an id that is not a number
+    ])
+    def test_a_malformed_product_is_refused(self, tmp_path: Path, product: list[dict[str, object]]) -> None:
+        with pytest.raises(StorageDataError):
+            load_storage(_write(tmp_path, [RULE], [FOOD], foodkeeper=_foodkeeper(product)))
+
+    @pytest.mark.parametrize("text", ["", "[]", '{"sheets": []}', '{"sheets": [{"name": "Product", "data": 5}]}'])
+    def test_a_file_that_is_not_the_export_is_refused(self, tmp_path: Path, text: str) -> None:
+        with pytest.raises(StorageDataError):
+            load_storage(_write(tmp_path, [RULE], [FOOD], foodkeeper=text))
 
     @pytest.mark.parametrize(
         ("rules", "foods"),
@@ -261,6 +428,28 @@ class TestLoaderRefuses:
         (tmp_path / "rules.csv").write_text("category,core\n", encoding="utf-8")
         with pytest.raises(StorageDataError):
             load_storage(tmp_path)
+
+
+class TestFoodKeeperFile:
+    def test_the_file_is_the_pinned_one(self) -> None:
+        """Verbatim FoodKeeper v128 as FSIS serves it (Last-Modified 7 Sep 2018).
+        A changed byte, a CRLF checkout included (.gitattributes keeps it -text),
+        turns this red."""
+        data = (DATA_DIR / FOODKEEPER_FILE).read_bytes()
+        assert len(data) == 631_800
+        assert hashlib.sha256(data).hexdigest() == "037df0d301126acd8a48824506f04d49d8be1a1144b81fa69e4170228dc2e91a"
+
+    @pytest.mark.parametrize(("time", "days"), [
+        (FridgeTime("x", 1, 2, "Days"), 1),
+        (FridgeTime("x", 3, 5, "Weeks"), 21),
+        (FridgeTime("x", 1, 2, "Months"), None),  # says nothing day-precise
+        (FridgeTime("x", 1, 1, "Years"), None),
+        (FridgeTime("x", None, None, "Package use-by date"), None),
+        (FridgeTime("x", None, None, "Not Recommended"), None),
+        (FridgeTime("x", None, None, "Indefinitely"), None),
+    ])
+    def test_only_days_and_weeks_give_a_date(self, time: FridgeTime, days: int | None) -> None:
+        assert time.low_days() == days
 
 
 def test_the_shipped_folder_is_the_default() -> None:

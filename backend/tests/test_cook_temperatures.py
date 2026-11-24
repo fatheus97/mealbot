@@ -16,6 +16,7 @@ from app.core.nutrition_reference import load_reference
 from app.core.security import get_password_hash
 from app.core.storage_reference import (
     COOK_KEY_COLUMNS,
+    FOODKEEPER_FILE,
     MAP_COLUMNS,
     RULE_COLUMNS,
     load_storage,
@@ -229,6 +230,7 @@ def odd_figures(tmp_path: Path) -> Iterator[None]:
     (tmp_path / "map.csv").write_text("\n".join([",".join(MAP_COLUMNS), *foods]) + "\n", encoding="utf-8")
     keys = [",".join(COOK_KEY_COLUMNS), "en,whole duck,poultry"]
     (tmp_path / "cook_keys.csv").write_text("\n".join(keys) + "\n", encoding="utf-8")
+    (tmp_path / FOODKEEPER_FILE).write_text('{"sheets": [{"name": "Product", "data": []}]}', encoding="utf-8")
     table = load_storage(tmp_path)
     from app.main import app
     app.dependency_overrides[storage_reference] = lambda: table
