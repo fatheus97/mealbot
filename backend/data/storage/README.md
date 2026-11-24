@@ -28,15 +28,16 @@ The strictest figure among the EU, UK and Czech authorities. A US figure is used
 
 From USDA FSIS FoodKeeper v128, the file https://www.fsis.usda.gov/shared/data/EN/foodkeeper.json as served with Last-Modified 7 Sep 2018 (631,800 bytes, sha256 `037df0d301126acd8a48824506f04d49d8be1a1144b81fa69e4170228dc2e91a`). A test pins the size and hash, and `.gitattributes` keeps the file `-text`. It is CC0 (checked on catalog.data.gov). The file has not changed since 2018 and FSIS answers scripts with 403, so it was downloaded once in a browser, and there is no snapshot script.
 
-The loader reads only the three fridge fields. A suggestion uses the low end of the range (owner decision 8), and only Days and Weeks give a date: Months and Years say nothing day-precise, "Package use-by date" means the pack decides, and the file has no Hours. The times are US guidance, which the design reads as assuming a fridge at 4.4 °C, colder than the 5 °C EU advice allows: one more reason for the low end.
+The loader reads only the three fridge fields. A suggestion uses the low end of the range (owner decision 8), and only Days and Weeks give a date: Months and Years say nothing day-precise, "Package use-by date" means the pack decides, and no fridge field uses Hours (a few pantry times do, which the loader does not read; an unknown unit fails the load). The times are US guidance, which the design reads as assuming a fridge at 4.4 °C, colder than the 5 °C EU advice allows: one more reason for the low end.
 
 Choosing the pair for a food:
 - `DOP_Refrigerate` (from the day it is bought) or `Refrigerate` times the food as it comes home.
 - `Refrigerate_After_Opening` is how a pack that keeps in the cupboard until opened (a can, a jar, UHT milk) names its product. v1 shows no after-opening times (owner decision 1), so the loader gives such a row no time, and a gate holds every product with both a pantry time and an after-opening field to that field.
 - A food kept at room temperature gets no product: the fridge list holds the whole kitchen, and a date in the past leaves food out of the plan, so a fridge time that FoodKeeper's own pantry time exceeds, or one that holds only for ripe fruit, would drop potatoes or bananas early. Bread too, whose FoodKeeper figure is for US packaged bread. A gate checks the pantry rule on every row; the dropped rows carry an `override_note`.
-- A cooked food gets no product: it is a leftover, which the design keeps 2 days (rice 1). Ham bought cooked is the exception, and a gate lists it.
+- A food usually kept frozen gets no product: peas, whose keys include "peas (fresh or frozen)", and raw shrimp, sold almost only frozen in Czechia. v1 has no freezer place, so a fresh fridge time would drop the bag from plans. A gate refuses a product for any food with a frozen key.
+- A cooked food gets no product: it is a leftover, which the design keeps 2 days (rice 1). Meat bought cooked carries a pack date and is the exception: cooked ham, and frankfurters (párky), which take FoodKeeper's cooked smoked links (1 week) since they are often sold loose. The gate sees only names that say cooked, so it lists the hams; a new exception is checked by hand.
 
-Every food was matched against the product list, each match was checked a second time against the list, and the 152 matches were then read by hand. The rules above removed 18 of them, which leaves 134 rows with a product, 91 of which give a date.
+Every food was matched against the product list, each match was checked a second time against the list, and the 152 matches were then read by hand. The rules above removed 20 of them, and a review before the PR moved lemon juice and frankfurters to the products above and added lime juice. That leaves 133 rows with a product, 88 of which give a date.
 
 ## Sources
 

@@ -1,6 +1,6 @@
 food,fk_id,fk_field,cook_category,confidence,override_note
-2007,536,Refrigerate,none,curated,
-2031,,,none,curated,
+2007,448,Refrigerate_After_Opening,none,curated,"Its keys are the generic names, which in a kitchen mean the bottle: FoodKeeper's bottled lemon juice, a cupboard pack."
+2031,447,Refrigerate_After_Opening,none,curated,"Its keys are the generic names, which in a kitchen mean the bottle: FoodKeeper's bottled lime juice, a cupboard pack."
 4003,,,none,curated,
 4008,,,none,curated,"Kept at room temperature, where FoodKeeper keeps it longer than in the fridge."
 4023,,,none,curated,"Kept at room temperature, where FoodKeeper keeps it longer than in the fridge."
@@ -50,7 +50,7 @@ food,fk_id,fk_field,cook_category,confidence,override_note
 9863,,,none,curated,Dry egg noodles: the egg is cooked with the pasta.
 9874,,,none,curated,
 9900,,,none,curated,
-10021,151,DOP_Refrigerate,fish,curated,Shellfish: the USDA figure is for fish and shellfish together.
+10021,,,fish,curated,"Shellfish: the USDA figure is for fish and shellfish together. Raw shrimp are sold almost only frozen in Czechia and v1 has no freezer place, so no fresh fridge time."
 11000,,,none,curated,"Kept at room temperature, where FoodKeeper keeps it longer than in the fridge."
 11003,,,none,curated,"Kept at room temperature, where FoodKeeper keeps it longer than in the fridge."
 11005,,,none,curated,
@@ -178,7 +178,7 @@ food,fk_id,fk_field,cook_category,confidence,override_note
 20059,291,DOP_Refrigerate,none,curated,
 20061,273,DOP_Refrigerate,none,curated,
 20068,501,Refrigerate_After_Opening,none,curated,
-20072,273,DOP_Refrigerate,none,curated,
+20072,,,none,curated,"A key is 'peas (fresh or frozen)', and peas are usually kept frozen. v1 has no freezer place, so a fresh fridge time would drop the bag from plans."
 20084,,,none,curated,
 20085,296,DOP_Refrigerate,none,curated,
 20087,296,DOP_Refrigerate,none,curated,
@@ -241,7 +241,7 @@ food,fk_id,fk_field,cook_category,confidence,override_note
 28900,85,DOP_Refrigerate,none,curated,"Cooked ham, sold ready to eat. Its leg keys (uzená kýta and the like) can also name raw-smoked meat; slice 7 settles those before it ships (design)."
 28927,115,DOP_Refrigerate,minced,curated,"Minced poultry: the minced line, which gives the same figure as poultry."
 30051,102,DOP_Refrigerate,minced,curated,Raw sausage meat: the FSA lists sausages with minced meat.
-30134,98,DOP_Refrigerate,none,curated,Frankfurters (párky) are sold cooked.
+30134,103,DOP_Refrigerate,none,curated,"Frankfurters (párky) are sold cooked. Often loose at the counter with no pack date, so FoodKeeper's cooked smoked links (1 week), not its sealed hot-dog pack (2 weeks)."
 30780,,,minced,curated,"Average sausage, also every klobása: some are sold raw, so the stricter minced line."
 30999,347,Refrigerate_After_Opening,none,curated,
 31008,,,none,curated,

@@ -202,6 +202,7 @@ def _products() -> dict[str, dict[str, object]]:
 # Every FoodKeeper field, pantry ones included, which the loader does not read.
 PRODUCTS = _products()
 _IN_DAYS = {"Days": 1, "Weeks": 7, "Months": 30, "Years": 365}  # for comparing only
+FROZEN = re.compile(r"frozen|mražen|mraž", re.IGNORECASE)
 
 
 def _low_days(product: dict[str, object], field: str) -> int | None:
@@ -213,8 +214,8 @@ class TestShippedFridgeTimes:
     def test_the_mapped_rows_are_still_there(self) -> None:
         """A tripwire on a wiped or truncated fk column."""
         mapped = [r for r in STORAGE.foods.values() if r.fk_id]
-        assert len(mapped) >= 134
-        assert sum(1 for r in mapped if r.unopened and r.unopened.low_days() is not None) >= 91
+        assert len(mapped) >= 133
+        assert sum(1 for r in mapped if r.unopened and r.unopened.low_days() is not None) >= 88
 
     def test_no_fridge_time_for_a_food_kept_at_room_temperature(self) -> None:
         """The fridge list is the whole kitchen and a past date leaves food out
@@ -252,11 +253,22 @@ class TestShippedFridgeTimes:
 
     def test_a_cooked_food_gets_no_product_time(self) -> None:
         """Cooked food is a leftover, which the design keeps 2 days (rice 1), not
-        a FoodKeeper product. The exceptions are hams bought cooked, which carry
-        a pack date; adding another is a decision, so it changes this set."""
+        a FoodKeeper product. The exceptions are meats bought cooked, which carry
+        a pack date: these two hams, and frankfurters (30134), whose name has no
+        cooking word, so this gate cannot see them. Adding a ham is a decision,
+        so it changes this set."""
         cooked = re.compile(r"\b(cooked|boiled|baked|fried|roasted|steamed|grilled|stewed)\b", re.IGNORECASE)
         mapped = {r.food for r in STORAGE.foods.values() if r.fk_id and cooked.search(NUTRITION.foods[r.food].name)}
         assert mapped == {"28803", "28900"}
+
+    def test_a_food_kept_frozen_gets_no_fridge_time(self) -> None:
+        """v1 has no freezer place, so a fresh fridge time on a frozen bag would
+        drop it from plans within days."""
+        aliases = DATA_DIR.parent / "nutrition" / "aliases.csv"
+        with aliases.open(encoding="utf-8", newline="") as handle:
+            frozen = {r["food"] for r in csv.DictReader(handle) if FROZEN.search(r["key"])}
+        assert frozen  # the gate still sees the frozen keys
+        assert [f for f in sorted(frozen) if STORAGE.foods[f].fk_id] == []
 
     @pytest.mark.parametrize(
         ("food", "fk_id", "days"),
@@ -271,6 +283,9 @@ class TestShippedFridgeTimes:
             ("4008", "", None),  # potatoes: room temperature
             ("7000", "", None),  # bread
             ("13005", "", None),  # bananas: FoodKeeper times them ripe
+            ("30134", "103", 7),  # párky: cooked smoked links, not the sealed hot-dog pack
+            ("2007", "448", None),  # lemon juice: the bottle, a cupboard pack
+            ("20072", "", None),  # peas: usually frozen
         ],
     )
     def test_spot_checks(self, food: str, fk_id: str, days: int | None) -> None:
