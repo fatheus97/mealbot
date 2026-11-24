@@ -253,10 +253,10 @@ class TestShippedFridgeTimes:
 
     def test_a_cooked_food_gets_no_product_time(self) -> None:
         """Cooked food is a leftover, which the design keeps 2 days (rice 1), not
-        a FoodKeeper product. The exceptions are meats bought cooked, which carry
-        a pack date: these two hams, and frankfurters (30134), whose name has no
-        cooking word, so this gate cannot see them. Adding a ham is a decision,
-        so it changes this set."""
+        a FoodKeeper product. The exceptions are meats bought cooked: these two
+        hams, which carry a pack date, and frankfurters (30134), often sold loose,
+        whose name has no cooking word, so this gate cannot see them (a spot check
+        holds them). Adding a ham is a decision, so it changes this set."""
         cooked = re.compile(r"\b(cooked|boiled|baked|fried|roasted|steamed|grilled|stewed)\b", re.IGNORECASE)
         mapped = {r.food for r in STORAGE.foods.values() if r.fk_id and cooked.search(NUTRITION.foods[r.food].name)}
         assert mapped == {"28803", "28900"}
@@ -286,6 +286,7 @@ class TestShippedFridgeTimes:
             ("30134", "103", 7),  # párky: cooked smoked links, not the sealed hot-dog pack
             ("2007", "448", None),  # lemon juice: the bottle, a cupboard pack
             ("20072", "", None),  # peas: usually frozen
+            ("10021", "", None),  # raw shrimp: sold frozen, and no key says so
         ],
     )
     def test_spot_checks(self, food: str, fk_id: str, days: int | None) -> None:
