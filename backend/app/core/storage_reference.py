@@ -11,6 +11,11 @@ README.md):
 * ``map.csv``: one row per nutrition food (foods.csv and off/foods.csv, the
   same ids) naming its cook category, or ``none``. ``fk_id`` and ``fk_field``
   stay empty until the FoodKeeper rows arrive.
+* ``cook_keys.csv``: ingredient names the nutrition table can never resolve,
+  because its waste gate keeps names that need bone, shell or peel arithmetic
+  out of aliases.csv, with their cook category: whole birds and fish and
+  bone-in pieces. Written as a recipe would write them; the endpoint
+  matches their words in any order (nutrition_reference.sorted_form).
 
 Stdlib only and never imports the nutrition modules: the food ids join the
 two tables in the tests, and the endpoint that resolves ingredient names
@@ -44,6 +49,9 @@ RULE_COLUMNS: Final = (
     "source", "url", "quote", "retrieved", "confidence", "override_note",
 )
 MAP_COLUMNS: Final = ("food", "fk_id", "fk_field", "cook_category", "confidence", "override_note")
+COOK_KEY_COLUMNS: Final = ("lang", "key", "cook_category")
+# The nutrition indexes a key can come from (nutrition_reference.Lang).
+KEY_LANGS: Final = ("en", "cs")
 
 
 class StorageDataError(ValueError):
@@ -93,14 +101,11 @@ class FoodRow:
 class StorageReference:
     rules: Mapping[CookCategory, CookRule]  # in rules.csv order
     foods: Mapping[str, FoodRow]
+    cook_keys: Mapping[tuple[str, str], CookCategory]  # (lang, key) as written
 
-    def cook_rules(self, food_ids: Iterable[str]) -> list[CookRule]:
-        """The rules for these foods, each once and in rules.csv order. A food
-        with no row or with ``none`` adds nothing."""
-        wanted = {
-            row.cook_category for f in food_ids
-            if (row := self.foods.get(f)) is not None and row.cook_category is not None
-        }
+    def cook_rules(self, categories: Iterable[CookCategory | None]) -> list[CookRule]:
+        """The rules for these categories, each once and in rules.csv order."""
+        wanted = set(categories)
         return [rule for category, rule in self.rules.items() if category in wanted]
 
 
@@ -201,13 +206,25 @@ def _map_rows(path: Path) -> dict[str, FoodRow]:
     return foods
 
 
+def _cook_key_rows(path: Path) -> dict[tuple[str, str], CookCategory]:
+    keys: dict[tuple[str, str], CookCategory] = {}
+    for row in _rows(path, COOK_KEY_COLUMNS):
+        where = f"cook_keys.csv {row['lang']},{row['key']}"
+        lang = _one_of(row["lang"], KEY_LANGS, f"{where} lang")
+        if not row["key"] or (lang, row["key"]) in keys:
+            raise StorageDataError(f"{where}: empty or repeated key")
+        keys[lang, row["key"]] = _one_of(row["cook_category"], COOK_CATEGORIES, f"{where} cook_category")
+    return keys
+
+
 def load_storage(data_dir: Path = DATA_DIR) -> StorageReference:
     rules = _rule_rows(data_dir / "rules.csv")
     foods = _map_rows(data_dir / "map.csv")
-    unruled = {r.cook_category for r in foods.values() if r.cook_category is not None} - set(rules)
-    if unruled:
-        raise StorageDataError(f"map.csv names categories rules.csv lacks: {sorted(unruled)}")
-    return StorageReference(rules=rules, foods=foods)
+    cook_keys = _cook_key_rows(data_dir / "cook_keys.csv")
+    named = {r.cook_category for r in foods.values() if r.cook_category is not None} | set(cook_keys.values())
+    if unruled := named - set(rules):
+        raise StorageDataError(f"map.csv or cook_keys.csv names categories rules.csv lacks: {sorted(unruled)}")
+    return StorageReference(rules=rules, foods=foods, cook_keys=cook_keys)
 
 
 @lru_cache(maxsize=1)

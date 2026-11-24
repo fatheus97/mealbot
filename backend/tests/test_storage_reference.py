@@ -5,20 +5,23 @@ number the cited text gives, and every nutrition food has a cook category.
 
 from __future__ import annotations
 
+import csv
 import re
 from datetime import date
 from pathlib import Path
 
 import pytest
 
-from app.core.nutrition_reference import load_reference
+from app.core.nutrition_reference import load_reference, sorted_form
 from app.core.storage_reference import (
+    COOK_KEY_COLUMNS,
     DATA_DIR,
     MAP_COLUMNS,
     RULE_COLUMNS,
     StorageDataError,
     load_storage,
 )
+from tests.test_nutrition_reference import WASTE
 
 STORAGE = load_storage()
 NUTRITION = load_reference()
@@ -140,29 +143,91 @@ class TestShippedMap:
         assert STORAGE.foods[food].cook_category == category
 
 
+with (DATA_DIR / "cook_keys.csv").open(encoding="utf-8", newline="") as _handle:
+    COOK_KEYS = [(row["lang"], row["key"]) for row in csv.DictReader(_handle)]
+# As the endpoint matches them (plan._cook_keys).
+FOLDED = {(lang, sorted_form(lang, key)): category for (lang, key), category in STORAGE.cook_keys.items()}
+
+
+class TestShippedCookKeys:
+    """cook_keys.csv is only for what nutrition's waste gate bars (bone,
+    shell or peel arithmetic): a name the nutrition table could hold belongs
+    in aliases.csv, where its figures are reviewed too. One it already
+    resolves would never be read in English, and in Czech would override the
+    reviewed alias."""
+
+    def test_every_key_is_one_the_waste_gate_bars(self) -> None:
+        # Every row loaded, and the gate must not pass by seeing nothing.
+        assert len(COOK_KEYS) == len(STORAGE.cook_keys) >= 20
+        # The raw phrasing, as nutrition's gate reads its own keys.
+        assert [key for _, key in COOK_KEYS if not WASTE.search(key)] == []
+
+    def test_no_key_resolves_in_the_nutrition_table(self) -> None:
+        assert [key for lang, key in COOK_KEYS if NUTRITION.lookup("en" if lang == "en" else "cs", key)] == []
+
+    def test_no_two_rows_have_the_same_words(self) -> None:
+        # Two would fold onto one, and the later would win in silence.
+        assert len(FOLDED) == len(STORAGE.cook_keys)
+        assert all(form for _, form in FOLDED)
+
+    @pytest.mark.parametrize(("lang", "name", "category"), [
+        ("en", "Bone-in, skin-on chicken thighs", "poultry"),
+        ("en", "chicken thigh (skin-on, bone-in)", "poultry"),
+        ("en", "bone-in chicken thighs", "poultry"),
+        ("en", "Whole Chickens", "poultry"),
+        ("en", "bone-in pork chop", "pork"),
+        ("cs", "Kuřecí stehna s kostí a kůží", "poultry"),
+        ("cs", "celá ryba", "fish"),
+        ("en", "chicken thighs", None),  # no bone: nutrition's alias decides
+        ("en", "whole chicken stock", None),
+        ("cs", "whole chicken", None),  # one list per index
+    ])
+    def test_word_order_and_punctuation_fold(self, lang: str, name: str, category: str | None) -> None:
+        assert FOLDED.get((lang, sorted_form(lang, name))) == category
+
+    def test_every_key_shows_a_line(self) -> None:
+        assert [k for k, c in STORAGE.cook_keys.items() if STORAGE.rules[c].core_c is None] == []
+
+
 class TestCookRules:
     def test_each_rule_once_in_file_order(self) -> None:
-        rules = STORAGE.cook_rules(["26036", "22000", "36017", "36002", "unknown", "36018"])
-        assert [r.category for r in rules] == ["poultry", "egg", "fish"]
+        rules = STORAGE.cook_rules(["fish", "egg", None, "poultry", "poultry", "whole_cut"])
+        assert [r.category for r in rules] == ["poultry", "egg", "whole_cut", "fish"]
 
     def test_sources_are_unique_in_file_order(self) -> None:
         assert STORAGE.rules["poultry"].sources == ("szu", "fsa", "efsa")
 
 
-def _write(tmp: Path, rules: list[str], foods: list[str]) -> Path:
+def _write(tmp: Path, rules: list[str], foods: list[str], keys: tuple[str, ...] = ()) -> Path:
     (tmp / "rules.csv").write_text("\n".join([",".join(RULE_COLUMNS), *rules]) + "\n", encoding="utf-8")
     (tmp / "map.csv").write_text("\n".join([",".join(MAP_COLUMNS), *foods]) + "\n", encoding="utf-8")
+    (tmp / "cook_keys.csv").write_text("\n".join([",".join(COOK_KEY_COLUMNS), *keys]) + "\n", encoding="utf-8")
     return tmp
 
 
 RULE = "poultry,75,70,2,0,szu,https://example.org/a,quote 75 70 2,2026-11-22,verified,"
 FOOD = "1,,,poultry,curated,"
+KEY = "en,whole chicken,poultry"
 
 
 class TestLoaderRefuses:
-    def test_a_good_pair_loads(self, tmp_path: Path) -> None:
-        loaded = load_storage(_write(tmp_path, [RULE], [FOOD]))
+    def test_a_good_set_loads(self, tmp_path: Path) -> None:
+        loaded = load_storage(_write(tmp_path, [RULE], [FOOD], (KEY, "cs,celé kuře,poultry")))
         assert loaded.rules["poultry"].core_c == 75
+        assert loaded.cook_keys == {("en", "whole chicken"): "poultry", ("cs", "celé kuře"): "poultry"}
+
+    @pytest.mark.parametrize("keys", [
+        (KEY, KEY),
+        ("en,,poultry",),
+        ("de,ganzes hähnchen,poultry",),
+        ("en,whole chicken,game",),
+        ("en,whole chicken,none",),  # a key with no category has no reason to be listed
+        ("en,whole fish,fish",),  # a category with no rule
+        ("en,whole chicken",),  # a short row
+    ])
+    def test_a_bad_cook_key(self, tmp_path: Path, keys: tuple[str, ...]) -> None:
+        with pytest.raises(StorageDataError):
+            load_storage(_write(tmp_path, [RULE], [FOOD], keys))
 
     @pytest.mark.parametrize(
         ("rules", "foods"),

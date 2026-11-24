@@ -1,0 +1,28 @@
+lang,key,cook_category
+en,whole chicken,poultry
+en,whole halal chicken,poultry
+en,whole free-range chicken,poultry
+en,whole duck,poultry
+en,whole goose,poultry
+en,whole turkey,poultry
+en,"chicken thighs, bone-in",poultry
+en,"chicken thighs, bone-in, skin-on",poultry
+en,"kosher chicken thighs, bone-in, skin-on",poultry
+en,chicken thighs with skin and bone,poultry
+en,"chicken legs, bone-in",poultry
+en,"chicken breast, bone-in",poultry
+en,"pork chops, bone-in",pork
+en,whole fish,fish
+cs,celé kuře,poultry
+cs,celá kachna,poultry
+cs,celá husa,poultry
+cs,celá krůta,poultry
+cs,kuřecí stehna s kostí,poultry
+cs,kuřecí stehno s kostí,poultry
+cs,kuřecí stehna s kůží a kostí,poultry
+cs,kuřecí stehno s kůží a kostí,poultry
+cs,vepřové kotlety s kostí,pork
+cs,vepřová kotleta s kostí,pork
+cs,celá ryba,fish
+cs,celý kapr,fish
+cs,celý pstruh,fish
