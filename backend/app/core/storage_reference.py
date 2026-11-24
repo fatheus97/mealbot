@@ -9,13 +9,15 @@ README.md):
   its URL, a short verbatim quote, the date it was read and a confidence label.
   Temperatures are whole degrees Celsius; nothing here is in Fahrenheit.
 * ``map.csv``: one row per nutrition food (foods.csv and off/foods.csv, the
-  same ids) naming its cook category, or ``none``. ``fk_id`` and ``fk_field``
-  stay empty until the FoodKeeper rows arrive.
+  same ids) naming its cook category, or ``none``, and the FoodKeeper
+  product and fridge field that say how long it usually keeps, or nothing.
 * ``cook_keys.csv``: ingredient names the nutrition table can never resolve,
   because its waste gate keeps names that need bone, shell or peel arithmetic
   out of aliases.csv, with their cook category: whole birds and fish and
   bone-in pieces. Written as a recipe would write them; the endpoint
   matches their words in any order (nutrition_reference.sorted_form).
+* ``foodkeeper_en_v128.json``: USDA FSIS FoodKeeper v128, committed verbatim
+  and pinned by its sha256 in the tests. Only its fridge fields are read.
 
 Stdlib only and never imports the nutrition modules: the food ids join the
 two tables in the tests, and the endpoint that resolves ingredient names
@@ -26,6 +28,7 @@ pass.
 from __future__ import annotations
 
 import csv
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -41,8 +44,20 @@ SourceCode = Literal["szu", "fsa", "efsa", "usda"]
 SOURCE_CODES: Final[tuple[SourceCode, ...]] = get_args(SourceCode)
 Confidence = Literal["verified", "sourced", "curated"]
 CONFIDENCES: Final[tuple[Confidence, ...]] = get_args(Confidence)
-# FoodKeeper columns a map row may point at (design, "Data model").
-FK_FIELDS: Final = frozenset({"DOP_Refrigerate", "Refrigerate", "Refrigerate_After_Opening"})
+# FoodKeeper columns a map row may point at (design, "Data model"). The
+# first two time an item from the day it is bought; the third only once it
+# is opened, which v1 does not show (design, owner decision 1).
+AFTER_OPENING: Final = "Refrigerate_After_Opening"
+FK_FIELDS: Final = frozenset({"DOP_Refrigerate", "Refrigerate", AFTER_OPENING})
+FOODKEEPER_FILE: Final = "foodkeeper_en_v128.json"
+# What a FoodKeeper fridge field can say. Days, Weeks, Months and Years come
+# with a range; the other three carry no number.
+FridgeUnit = Literal[
+    "Days", "Weeks", "Months", "Years", "Package use-by date", "Not Recommended", "Indefinitely",
+]
+FRIDGE_UNITS: Final[tuple[FridgeUnit, ...]] = get_args(FridgeUnit)
+_RANGED: Final = frozenset({"Days", "Weeks", "Months", "Years"})
+_DAYS_PER: Final = {"Days": 1, "Weeks": 7}
 
 RULE_COLUMNS: Final = (
     "category", "core_c", "hold_c", "hold_min", "us_only",
@@ -88,10 +103,34 @@ class CookRule:
 
 
 @dataclass(frozen=True)
+class FridgeTime:
+    """One FoodKeeper fridge field of one product, as the file gives it. US
+    guidance, which the design reads as assuming a fridge at 4.4 °C (design,
+    "Not verified")."""
+
+    product: str  # FoodKeeper's name and subtitle, "Chicken, whole"
+    low: int | None  # None for a unit with no range
+    high: int | None
+    unit: FridgeUnit
+
+    def low_days(self) -> int | None:
+        """The low end of the range in days, the figure a suggestion uses
+        (design decision 8). None when the unit gives no date: Months and
+        Years say nothing day-precise about a fridge, and the other units are
+        not ranges ("Package use-by date" means the pack decides)."""
+        per = _DAYS_PER.get(self.unit)
+        return None if per is None or self.low is None else self.low * per
+
+
+@dataclass(frozen=True)
 class FoodRow:
     food: str
     fk_id: str
     fk_field: str
+    # fk_id's fk_field, resolved at load. None for no product, and for an
+    # after-opening field: a shelf-stable pack (a can, UHT milk, a jar)
+    # names its product there, and its unopened time is a cupboard time.
+    unopened: FridgeTime | None
     cook_category: CookCategory | None  # None is the file's "none"
     confidence: Confidence
     override_note: str
@@ -182,7 +221,45 @@ def _rule_rows(path: Path) -> dict[CookCategory, CookRule]:
     return rules
 
 
-def _map_rows(path: Path) -> dict[str, FoodRow]:
+def _whole(raw: object, where: str) -> int:
+    # The file stores every number as a float (1.0); a fraction would be a
+    # range no row of the file has, so it is refused rather than rounded.
+    if isinstance(raw, bool) or not isinstance(raw, int | float) or not float(raw).is_integer() or raw < 0:
+        raise StorageDataError(f"{where}: {raw!r} is not a whole number")
+    return int(raw)
+
+
+def _fridge_times(path: Path) -> dict[tuple[str, str], FridgeTime]:
+    """Every fridge field FoodKeeper fills, by (product id, field)."""
+    try:
+        sheets = json.loads(path.read_bytes())["sheets"]
+        products = next(sheet["data"] for sheet in sheets if sheet["name"] == "Product")
+        rows = [{k: v for cell in cells for k, v in cell.items()} for cells in products]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration) as exc:
+        raise StorageDataError(f"{path.name}: not a FoodKeeper export ({exc!r})") from exc
+    times: dict[tuple[str, str], FridgeTime] = {}
+    for row in rows:
+        fk_id = str(_whole(row.get("ID"), f"{path.name} product ID"))
+        product = ", ".join(str(part) for part in (row.get("Name"), row.get("Name_subtitle")) if part)
+        for field in sorted(FK_FIELDS):
+            where = f"{path.name} product {fk_id} {field}"
+            raw_unit, raw_low, raw_high = (row.get(f"{field}_{part}") for part in ("Metric", "Min", "Max"))
+            if raw_unit is None and raw_low is None and raw_high is None:
+                continue
+            unit = _one_of("Years" if raw_unit == "Year" else str(raw_unit), FRIDGE_UNITS, f"{where} unit")
+            if unit in _RANGED:
+                low, high = _whole(raw_low, where), _whole(raw_high, where)
+                if low > high:
+                    raise StorageDataError(f"{where}: {low} is above {high}")
+                times[fk_id, field] = FridgeTime(product, low, high, unit)
+            elif raw_low is None and raw_high is None:
+                times[fk_id, field] = FridgeTime(product, None, None, unit)
+            else:
+                raise StorageDataError(f"{where}: {unit!r} carries no range")
+    return times
+
+
+def _map_rows(path: Path, fridge_times: Mapping[tuple[str, str], FridgeTime]) -> dict[str, FoodRow]:
     foods: dict[str, FoodRow] = {}
     for row in _rows(path, MAP_COLUMNS):
         food = row["food"]
@@ -194,11 +271,17 @@ def _map_rows(path: Path) -> dict[str, FoodRow]:
         fk_id = row["fk_id"]
         if fk_id and (not (fk_id.isascii() and fk_id.isdigit()) or row["fk_field"] not in FK_FIELDS):
             raise StorageDataError(f"{where}: fk_id must be digits and fk_field one of {sorted(FK_FIELDS)}")
+        fridge = fridge_times.get((fk_id, row["fk_field"])) if fk_id else None
+        if fk_id and fridge is None:
+            raise StorageDataError(f"{where}: FoodKeeper has no {row['fk_field']} for product {fk_id}")
+        if row["fk_field"] == AFTER_OPENING:
+            fridge = None
         raw = row["cook_category"]
         foods[food] = FoodRow(
             food=food,
             fk_id=row["fk_id"],
             fk_field=row["fk_field"],
+            unopened=fridge,
             cook_category=None if raw == "none" else _one_of(raw, COOK_CATEGORIES, f"{where} cook_category"),
             confidence=_one_of(row["confidence"], CONFIDENCES, f"{where} confidence"),
             override_note=row["override_note"],
@@ -219,7 +302,7 @@ def _cook_key_rows(path: Path) -> dict[tuple[str, str], CookCategory]:
 
 def load_storage(data_dir: Path = DATA_DIR) -> StorageReference:
     rules = _rule_rows(data_dir / "rules.csv")
-    foods = _map_rows(data_dir / "map.csv")
+    foods = _map_rows(data_dir / "map.csv", _fridge_times(data_dir / FOODKEEPER_FILE))
     cook_keys = _cook_key_rows(data_dir / "cook_keys.csv")
     named = {r.cook_category for r in foods.values() if r.cook_category is not None} | set(cook_keys.values())
     if unruled := named - set(rules):

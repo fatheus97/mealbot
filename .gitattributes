@@ -6,3 +6,7 @@
 # Same reasoning for shell scripts executed on the CI runners and the VPS:
 # CRLF makes bash fail with "\r: command not found".
 *.sh      text eol=lf
+
+# Committed verbatim and pinned by its sha256 (backend/tests/test_storage_reference.py):
+# a CRLF worktree must not rewrite a single byte of it.
+backend/data/storage/foodkeeper_en_v128.json -text
