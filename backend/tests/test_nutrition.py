@@ -665,11 +665,14 @@ class TestEndpoint:
 
 
 # Modules that may import the nutrition table or figures, relative to backend/:
-# the endpoint, the figures themselves, offline scripts and the evals. Nothing
-# on a planning, diet, infant or allergen path, and no prompt, may read them:
-# Open Food Facts values are display only.
+# the endpoint, the figures themselves, offline scripts and the evals, and the
+# fridge-dates join, which takes only a name's food id to the storage table and
+# reads no figure. Nothing on a planning, diet, infant or allergen path, and no
+# prompt, may read them: Open Food Facts values are display only.
 _NUTRITION_MODULES = ("app.core.nutrition_reference", "app.services.nutrition")
-_ALLOWED_IMPORTERS = ("app/api/plan.py", "app/services/nutrition.py", "app/scripts/", "evals/")
+_ALLOWED_IMPORTERS = (
+    "app/api/plan.py", "app/services/nutrition.py", "app/services/fridge_dates.py", "app/scripts/", "evals/",
+)
 BACKEND = Path(__file__).resolve().parents[1]
 
 

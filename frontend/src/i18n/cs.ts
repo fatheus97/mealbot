@@ -881,7 +881,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.reviewIntro": "Než položky přidáte do lednice, zkontrolujte je.",
   "receipt.expiresHintLabel": "O datu",
   "receipt.expiresHint":
-    "Datum se odhaduje z data na účtence (nebo z dnešního dne) a z obvyklé trvanlivosti každé potraviny, nečte se z obalu. Pokud nesedí, opravte ho.",
+    "Data jsou odhad, nečtou se z obalu. U potravin, které zná americká tabulka USDA FoodKeeper, vychází datum ze spodní hranice doby, po kterou v lednici obvykle vydrží. U ostatních ho odhadne AI. Obojí se počítá od data na účtence, nebo od dneška. Otevřené balení datum nedostane a označí se jako „spotřebovat brzy“. Pokud je na obalu jiné datum, opravte ho.",
   "receipt.noItems": "Na účtence nebyly nalezeny žádné potraviny.",
   "receipt.qty": "Množství (g)",
   "receipt.expires": "Datum",
@@ -922,7 +922,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.sourceReceipt": "Účtenku",
   "receipt.sourceFoodPhoto": "Fotku jídla",
   "receipt.foodPhotoHintLabel": "O fotkách jídla",
-  "receipt.foodPhotoHint": "Vyfoťte přímo jídlo: polici, tašku s nákupem nebo jedno balení. Množství jsou odhady, proto je zkontrolujte. U otevřeného balení se zeptáme, kolik zbývá.",
+  "receipt.foodPhotoHint": "Vyfoťte přímo jídlo: polici, tašku s nákupem nebo jedno balení. Množství jsou odhady, proto je zkontrolujte. U otevřeného balení se zeptáme, kolik zbývá. Datum nedostane a označí se jako „spotřebovat brzy“.",
   "receipt.selectFoodPhoto": "Vyberte fotku jídla",
   "receipt.scanningFoodPhoto": "Prohlížím fotku... Může to pár sekund trvat.",
   "receipt.noItemsFoodPhoto": "Na fotce nebylo nalezeno žádné jídlo.",

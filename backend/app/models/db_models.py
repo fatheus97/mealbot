@@ -752,8 +752,8 @@ class WasteRecord(SQLModel, table=True):
     SERIES, and a time series cannot be backfilled. Waiting for a reader before
     capturing would mean the reader ships with an empty history. The intended
     consumers are portion sizing, shopping-list suggestions, and calibrating the
-    LLM's ``shelf_life_days`` guess from receipt_scan (which today has no
-    feedback loop at all).
+    scan estimates, the LLM's ``shelf_life_days`` guess from receipt_scan and
+    the FoodKeeper table (neither has a feedback loop today).
 
     If nothing consumes it within a couple of months, delete the table — a
     write-only table nobody ever reads is cost with no payoff, and that

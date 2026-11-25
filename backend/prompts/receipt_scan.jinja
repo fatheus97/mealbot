@@ -48,7 +48,7 @@ Item categorization:
 - When in doubt, classify as "ingredient" — it's better to track an item than miss it.
 
 Language:
-- Use {{ language or "English" }} for normalized ingredient names.
+- Use {{ language or "English" }} for normalized ingredient names. The one exception is `name_en`: the same item's plain English name, lowercase, always in English whatever the language above ("kuřecí prsa" → "chicken breast"). It is an internal lookup key, never shown to the user, so never translate it.
 
 Other rules:
 - Use canonical, lowercase ingredient names.
