@@ -962,11 +962,12 @@ export const en = {
   "receipt.reviewIntro": "Review the extracted items before adding to your fridge.",
   // The server computes the date (fridge.py _scanned_item): purchase date or
   // today + the FoodKeeper low end when the table has the food in days or
-  // weeks, else + the model's shelf-life guess; an opened pack gets none.
+  // weeks and the model's guess is not far longer (fridge_dates.scan_date),
+  // else + the model's shelf-life guess; an opened pack gets none.
   // No prompt reads a printed date.
   "receipt.expiresHintLabel": "About expiry dates",
   "receipt.expiresHint":
-    "Dates are estimates, not read from the package. For a food in USDA FoodKeeper (US), the date comes from the short end of how long it usually keeps in a fridge; for any other food, AI estimates it. Both count from the receipt's date, or from today. An opened package gets no date and is marked use soon. Correct a date if the package says otherwise.",
+    "Dates are estimates, not read from the package. When Mealbot matches a food to USDA FoodKeeper (US) and the table gives a fridge time in days or weeks, the date is the short end of that time. Any other food, or a pack AI judges to keep far longer, such as a frozen one, gets an AI estimate. Both count from the receipt's date, or from today. An opened package gets no date and is marked use soon. Correct a date if the package says otherwise.",
   "receipt.noItems": "No food items found in receipt.",
   "receipt.qty": "Qty (g)",
   "receipt.expires": "Expires",

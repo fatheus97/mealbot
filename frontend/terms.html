@@ -454,10 +454,12 @@
         date printed on a pack always takes precedence over anything Mealbot shows. Dates that
         Mealbot fills in after you scan a receipt or a photo of food, even one that shows the
         pack, are estimates of how long a food usually
-        keeps, not read from the pack, so check them against it. For a food that USDA FoodKeeper
-        (version 128 of 2018, a US table in the public domain) lists with a fridge time in days
-        or weeks, the estimate is the short end of that time; for any other food it comes from
-        AI. An opened pack in a photo of food gets no date and is marked to use soon instead.
+        keeps, not read from the pack, so check them against it. When Mealbot matches a food to
+        a product in USDA FoodKeeper (version 128 of 2018, a US table in the public domain) that
+        gives a fridge time in days or weeks, the estimate is the short end of that time. Any
+        other food, and a pack that AI judges to keep far longer than that time, such as a frozen
+        or tinned one, gets an estimate from AI. An opened pack in a photo of food gets no date
+        and is marked to use soon instead.
       </p>
       <p>
         <strong>Cooking temperatures.</strong> On every step of cooking mode, Mealbot says how hot

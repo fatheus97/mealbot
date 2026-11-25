@@ -881,7 +881,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "receipt.reviewIntro": "Než položky přidáte do lednice, zkontrolujte je.",
   "receipt.expiresHintLabel": "O datu",
   "receipt.expiresHint":
-    "Data jsou odhad, nečtou se z obalu. U potravin, které zná americká tabulka USDA FoodKeeper, vychází datum ze spodní hranice doby, po kterou v lednici obvykle vydrží. U ostatních ho odhadne AI. Obojí se počítá od data na účtence, nebo od dneška. Otevřené balení datum nedostane a označí se jako „spotřebovat brzy“. Pokud je na obalu jiné datum, opravte ho.",
+    "Data jsou odhad, nečtou se z obalu. Když Mealbot přiřadí potravinu k americké tabulce USDA FoodKeeper a ta uvádí dobu v lednici ve dnech nebo týdnech, datum vychází ze spodní hranice této doby. U ostatních potravin, nebo když AI usoudí, že balení vydrží mnohem déle (třeba mražené), datum odhadne AI. Obojí se počítá od data na účtence, nebo od dneška. Otevřené balení datum nedostane a označí se jako „spotřebovat brzy“. Pokud je na obalu jiné datum, opravte ho.",
   "receipt.noItems": "Na účtence nebyly nalezeny žádné potraviny.",
   "receipt.qty": "Množství (g)",
   "receipt.expires": "Datum",

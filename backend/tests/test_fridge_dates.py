@@ -36,7 +36,7 @@ from app.models.plan_models import (
     ReceiptScanResponse,
     ScannedReceiptItem,
 )
-from app.services.fridge_dates import FridgeDates, suggested_date
+from app.services.fridge_dates import STATE_FACTOR, FridgeDates, scan_date, suggested_date
 from app.services.nutrition import item_key, recipe_key
 
 REF = load_reference()
@@ -49,10 +49,12 @@ def _food(lang: Lang, name: str) -> str:
     return hit[1].id
 
 
-CHICKEN, EGG, BUTTER, MILK, CHICKPEA = (
+CHICKEN, EGG, BUTTER, MILK, CHICKPEA, PEPPER = (
     _food("en", "chicken breast"), _food("en", "eggs"), _food("en", "butter"),
-    _food("en", "milk"), _food("en", "chickpeas"),
+    _food("en", "milk"), _food("en", "chickpeas"), _food("cs", "paprika"),
 )
+# Czech "paprika" is the vegetable; English "paprika" is the spice.
+assert _food("en", "paprika") != PEPPER
 
 
 def _product(fk_id: int, field: str, low: float | None, high: float | None, unit: str) -> list[dict[str, object]]:
@@ -63,7 +65,8 @@ def _product(fk_id: int, field: str, low: float | None, high: float | None, unit
 @pytest.fixture
 def table(tmp_path: Path) -> Iterator[FridgeDates]:
     """The scan endpoint on a synthetic table: chicken 4-9 days, eggs 2-3 weeks,
-    butter 1-2 months, milk on the pack date, chickpeas an after-opening row."""
+    butter 1-2 months, milk on the pack date, chickpeas an after-opening row,
+    the vegetable paprika 4-14 days."""
     rules = ["poultry,75,70,2,0,fsa,https://example.org/a,quote 75 70 2,2026-11-22,verified,"]
     foods = [
         f"{CHICKEN},900,DOP_Refrigerate,poultry,curated,",
@@ -71,6 +74,7 @@ def table(tmp_path: Path) -> Iterator[FridgeDates]:
         f"{BUTTER},902,DOP_Refrigerate,none,curated,",
         f"{MILK},903,Refrigerate,none,curated,",
         f"{CHICKPEA},904,Refrigerate_After_Opening,none,curated,",
+        f"{PEPPER},905,DOP_Refrigerate,none,curated,",
     ]
     products = [
         _product(900, "DOP_Refrigerate", 4.0, 9.0, "Days"),
@@ -78,6 +82,7 @@ def table(tmp_path: Path) -> Iterator[FridgeDates]:
         _product(902, "DOP_Refrigerate", 1.0, 2.0, "Months"),
         _product(903, "Refrigerate", None, None, "Package use-by date"),
         _product(904, "Refrigerate_After_Opening", 3.0, 4.0, "Days"),
+        _product(905, "DOP_Refrigerate", 4.0, 14.0, "Days"),
     ]
     (tmp_path / "rules.csv").write_text("\n".join([",".join(RULE_COLUMNS), *rules]) + "\n", encoding="utf-8")
     (tmp_path / "map.csv").write_text("\n".join([",".join(MAP_COLUMNS), *foods]) + "\n", encoding="utf-8")
@@ -152,6 +157,26 @@ class TestTableDatesOnScans:
         rows = await _scan(client, _item("chicken breast", 3), bought=date(2999, 1, 1))
         assert rows["chicken breast"]["expiration_date"] == (date.today() + timedelta(days=4)).isoformat()
 
+    async def test_names_that_disagree_keep_the_model_guess(self, client: AsyncClient, test_user: User) -> None:
+        """The Czech index reads "paprika" as the vegetable; name_en "paprika"
+        is the spice. The table must not date a spice jar as a pepper."""
+        test_user.language = "Czech"
+        rows = await _scan(client, _item("paprika", 7, name_en="paprika"), _item("papriky", 7), bought=BOUGHT)
+        assert (rows["paprika"]["expiration_date"], rows["paprika"]["date_kind"]) == ("2026-03-17", "estimated_ai")
+        # Without a name_en to disagree, the Czech name decides as before.
+        assert (rows["papriky"]["expiration_date"], rows["papriky"]["date_kind"]) == ("2026-03-14", "estimated_table")
+
+    @pytest.mark.parametrize(("guess", "expected"), [
+        (9 * STATE_FACTOR, ("2026-03-14", "estimated_table")),
+        # Fresh chicken keeps 4 to 9 days: a guess this long means a frozen pack.
+        (9 * STATE_FACTOR + 1, ((BOUGHT + timedelta(days=9 * STATE_FACTOR + 1)).isoformat(), "estimated_ai")),
+    ])
+    async def test_a_far_longer_guess_keeps_the_model_date(
+        self, client: AsyncClient, guess: int, expected: tuple[str, str],
+    ) -> None:
+        rows = await _scan(client, _item("chicken breast", guess), bought=BOUGHT)
+        assert (rows["chicken breast"]["expiration_date"], rows["chicken breast"]["date_kind"]) == expected
+
     async def test_a_heavy_line_does_not_break_the_lookup(self, client: AsyncClient) -> None:
         """A recipe line caps at 30 kg, a receipt line at 50 kg: the lookup takes names."""
         rows = await _scan(client, _item("chicken breast", 3, grams=40_000), bought=BOUGHT)
@@ -204,6 +229,22 @@ class TestSuggestedDate:
         assert suggested_date(None, BOUGHT, time) == expected
 
 
+class TestScanDate:
+    WEEKS = FridgeTime("x", 2, 3, "Weeks")
+
+    @pytest.mark.parametrize(("guess", "expected"), [
+        (0, date(2026, 3, 24)),
+        (21 * STATE_FACTOR, date(2026, 3, 24)),
+        (21 * STATE_FACTOR + 1, None),
+    ])
+    def test_weeks_count_as_days_on_both_ends(self, guess: int, expected: date | None) -> None:
+        assert scan_date(BOUGHT, self.WEEKS, guess) == expected
+
+    @pytest.mark.parametrize("time", [FridgeTime("x", 1, 2, "Months"), None])
+    def test_no_day_precise_time_gives_no_date(self, time: FridgeTime | None) -> None:
+        assert scan_date(BOUGHT, time, 3) is None
+
+
 class TestOneResolver:
     """A kitchen item and a recipe line with the same names land on the same food."""
 
@@ -228,3 +269,6 @@ def test_the_language_line_carves_out_name_en(template: str) -> None:
     line = next(row for row in (PROMPTS / template).read_text(encoding="utf-8").splitlines()
                 if row.startswith("- Use {{ language"))
     assert "`name_en`" in line and "never translate it" in line
+    # Asked for on every item, not only allowed: a missing name_en leaves a
+    # Slovak or unindexed Czech name without a table date.
+    assert "EVERY item" in line

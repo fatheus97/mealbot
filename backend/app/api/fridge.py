@@ -38,7 +38,7 @@ from app.models.plan_models import (
     WasteEntryDTO,
     WasteRecordedResponse,
 )
-from app.services.fridge_dates import FridgeDates, fridge_dates, suggested_date
+from app.services.fridge_dates import FridgeDates, fridge_dates, scan_date
 from app.services.fridge_service import (
     MAX_FRIDGE_ITEMS,
     expected_version,
@@ -345,7 +345,9 @@ def _scanned_item(
       shows no after-opening times. need_to_use puts it first in the next
       plan instead of leaving it undated with no urgency.
     * Otherwise the FoodKeeper time when the table gives one in days or
-      weeks (estimated_table), else the model's guess (estimated_ai).
+      weeks and the model's guess does not say the pack keeps far longer
+      (estimated_table, fridge_dates.scan_date), else the model's guess
+      (estimated_ai).
     """
     if isinstance(item, FoodPhotoItem) and item.opened:
         return ScannedItemDTO(
@@ -357,7 +359,7 @@ def _scanned_item(
             date_kind=None,
             opened=True,
         )
-    table = suggested_date(None, base_date, dates.keep_time(item.name, item.name_en, language))
+    table = scan_date(base_date, dates.keep_time(item.name, item.name_en, language), item.shelf_life_days)
     return ScannedItemDTO(
         name=item.name,
         quantity_grams=item.quantity_grams,

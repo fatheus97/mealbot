@@ -1262,7 +1262,8 @@ class ScannedReceiptItem(BaseModel):
         default=None,
         max_length=100,
         description=(
-            "The item's plain ENGLISH name, lowercase, whatever language `name` is in "
+            "The item's plain ENGLISH name for EVERY item, lowercase, whatever language `name` is in, "
+            "keeping a state such as frozen, tinned or dried "
             "(e.g. name='kuřecí prsa' -> name_en='chicken breast'). Never shown to the user."
         ),
     )
