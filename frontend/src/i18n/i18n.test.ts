@@ -198,9 +198,11 @@ describe('storage advice wording', () => {
   // cannot see the food, its storage or its cold chain.
   const EN = /\bsafe|still good|\bfresh\b|ok to eat/i;
   const CS = /bezpečn|v pořádku|čerstv/i;
-  const storageKeys = (Object.keys(en) as TranslationKey[]).filter(
-    (k) => k.startsWith('storage.') || k.startsWith('expired.') || k.startsWith('fridgeItem.dateKind'),
-  );
+  const inScope = (k: string) =>
+    k.startsWith('storage.') || k.startsWith('expired.') || k.startsWith('fridgeItem.dateKind');
+  const storageKeys = (Object.keys(en) as TranslationKey[]).filter(inScope);
+  // Czech plural forms (_few, _many) are keys English lacks: read Czech by its own.
+  const czechKeys = Object.keys(cs).filter(inScope);
 
   it('covers the keep-and-reheat lines, the past-date dialog and the kind picker', () => {
     // A rename out of these prefixes would silently empty the lint.
@@ -215,10 +217,12 @@ describe('storage advice wording', () => {
         'storage.atRisk',
       ]),
     );
+    expect(czechKeys).toEqual(expect.arrayContaining(['storage.keepsDaysRange_few', 'storage.keepsWeeks_many']));
   });
 
   it('never claims food is safe, in either language', () => {
-    const hits = storageKeys.filter((k) => EN.test(en[k]) || CS.test(cs[k]));
+    const czech = cs as Record<string, string>;
+    const hits = [...storageKeys.filter((k) => EN.test(en[k])), ...czechKeys.filter((k) => CS.test(czech[k]))];
     expect(hits).toEqual([]);
   });
 

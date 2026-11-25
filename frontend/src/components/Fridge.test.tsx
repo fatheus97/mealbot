@@ -120,6 +120,11 @@ describe('Fridge', () => {
       await userEvent.click(screen.getByText('Rýže'));
       await waitFor(() => expect(screen.getByText(/Balení 1/)).toBeInTheDocument());
       expect(untranslatedEnglishIn(container)).toEqual([]);
+      // Both Rýže batches are estimates, and only their sub-rows carry a kind.
+      expect(screen.getAllByText(/^Odhad: /)).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: 'O tomto datu' })).toHaveLength(2);
+      expect(screen.getAllByText(/^Spotřebujte do /)).toHaveLength(1);
+      expect(screen.getAllByText(/^Minimální trvanlivost do /)).toHaveLength(1);
 
       unmount();
       localStorage.clear();

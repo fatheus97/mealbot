@@ -32,7 +32,7 @@ interface ReviewItem {
   expirationDate: string | null;
   // "estimated_table" or "estimated_ai" from the scan, null for an opened
   // pack (no date). A date the user retypes becomes null (unknown): it may
-  // come from the pack, but not which kind it is.
+  // come from the pack, but not which kind it is. A rename makes it null too.
   dateKind: DateKind | null;
   // Set for an opened package from a food photo: its full size in grams. The
   // row asks how much is left, and addedQty starts empty until answered.
@@ -430,6 +430,14 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
     setReviewItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
   };
 
+  // A rename drops an estimate's kind: the table or the AI dated the old
+  // name. A pack kind would survive, but a scan never sets one.
+  const updateReviewName = (index: number, value: string) => {
+    setReviewItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, name: value, dateKind: null } : item)),
+    );
+  };
+
   const updateReviewDate = (index: number, value: string | null) => {
     setReviewItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, expirationDate: value, dateKind: null } : item)),
@@ -674,7 +682,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                           <input
                             type="text"
                             value={item.name}
-                            onChange={(e) => updateReviewItem(index, "name", e.target.value)}
+                            onChange={(e) => updateReviewName(index, e.target.value)}
                             aria-label={t("receipt.itemName", { n: index + 1 })}
                             style={{ width: "100%", boxSizing: "border-box" }}
                           />
@@ -753,7 +761,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                             <input
                               type="text"
                               value={item.name}
-                              onChange={(e) => updateReviewItem(index, "name", e.target.value)}
+                              onChange={(e) => updateReviewName(index, e.target.value)}
                             />
                             {flags(item)}
                           </td>

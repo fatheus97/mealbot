@@ -273,6 +273,24 @@ describe("FridgeItemModal date kind", () => {
     expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ date_kind: "estimated_ai" }));
   });
 
+  it("drops an estimate when the item is renamed, and keeps a pack kind", async () => {
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<FridgeItemModal mode="edit" initialValues={estimated} onOk={onOk} onCancel={vi.fn()} />);
+    await user.type(screen.getByDisplayValue("Carrot"), "s");
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+    // The estimate was made for "Carrot", so it says nothing about "Carrots".
+    expect(onOk).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "Carrots", expiration_date: "2026-12-01", date_kind: null }),
+    );
+    unmount();
+    render(<FridgeItemModal mode="edit" initialValues={{ ...estimated, date_kind: "use_by" }} onOk={onOk} onCancel={vi.fn()} />);
+    await user.type(screen.getByDisplayValue("Carrot"), "s");
+    await user.click(screen.getByRole("button", { name: /ok/i }));
+    // The pack's kind is about the pack, whatever the name.
+    expect(onOk).toHaveBeenLastCalledWith(expect.objectContaining({ name: "Carrots", date_kind: "use_by" }));
+  });
+
   it("makes a retyped date unknown unless the pack names its kind", async () => {
     const onOk = vi.fn();
     const user = userEvent.setup();

@@ -93,10 +93,12 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
       return;
     }
     const date = shownDate || null;
-    // "No" keeps an estimate only while its date is untouched: a date typed by
-    // hand is unknown unless the pack says which kind it is.
+    // "No" keeps an estimate only while its date and name are untouched: a
+    // date typed by hand is unknown unless the pack says which kind it is,
+    // and an estimate made for another name says nothing about this one.
     const was = initialValues.date_kind;
-    const unpacked = packKindOf(was) === "" && date === initialValues.expiration_date ? was : null;
+    const untouched = date === initialValues.expiration_date && name.trim() === initialValues.name.trim();
+    const unpacked = packKindOf(was) === "" && untouched ? was : null;
     onOk({
       name: name.trim(),
       quantity_grams: parsedQuantity,

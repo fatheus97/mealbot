@@ -986,7 +986,7 @@ export const en = {
   // weeks and the model's guess is not far longer (fridge_dates.scan_date),
   // else + the model's shelf-life guess; an opened pack gets none.
   // No prompt reads a printed date.
-  "receipt.expiresHintLabel": "About expiry dates",
+  "receipt.expiresHintLabel": "About these dates",
   "receipt.expiresHint":
     "Dates are estimates, not read from the package. When Mealbot matches a food to USDA FoodKeeper (US) and the table gives a fridge time in days or weeks, the date is the short end of that time. Any other food, or a pack AI judges to keep far longer, such as a frozen one, gets an AI estimate. Both count from the receipt's date, or from today. An opened package gets no date and is marked use soon. Correct a date if the package says otherwise.",
   "receipt.noItems": "No food items found in receipt.",

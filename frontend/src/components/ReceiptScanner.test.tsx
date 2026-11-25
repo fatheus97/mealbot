@@ -258,12 +258,12 @@ describe('ReceiptScanner', () => {
 
     const user = userEvent.setup();
     renderWithProviders(<ReceiptScanner currentFridge={[]} />);
-    expect(screen.queryByRole('button', { name: 'About expiry dates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'About these dates' })).not.toBeInTheDocument();
 
     await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
     await waitFor(() => expect(screen.getByDisplayValue('rice')).toBeInTheDocument());
 
-    const hints = screen.getAllByRole('button', { name: 'About expiry dates' });
+    const hints = screen.getAllByRole('button', { name: 'About these dates' });
     expect(hints).toHaveLength(1);
     await user.click(hints[0]);
     expect(screen.getByRole('tooltip')).toHaveTextContent(/not read from the package/i);
@@ -645,6 +645,9 @@ describe('ReceiptScanner', () => {
     // A retyped date is the user's, of no known kind: its tag goes.
     fireEvent.change(screen.getByDisplayValue('2099-01-05'), { target: { value: '2099-01-08' } });
     expect(screen.getAllByText('Estimate')).toHaveLength(1);
+    // So does a renamed row's: the estimate was made for the old name.
+    fireEvent.change(screen.getByDisplayValue('rice'), { target: { value: 'basmati rice' } });
+    expect(screen.queryByText('Estimate')).not.toBeInTheDocument();
   });
 
   describe('several scans in one list', () => {
