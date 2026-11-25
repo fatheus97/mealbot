@@ -1,11 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FridgeItemModal } from "./FridgeItemModal";
+import { lookupKeepTime } from "../api";
+import { addDaysISO, todayISO } from "../utils/planDates";
 import { useLocaleStore, DEFAULT_LOCALE } from "../store/useLocaleStore";
 import { untranslatedEnglishIn } from "../test/i18nAssertions";
 
+vi.mock("../api", () => ({ lookupKeepTime: vi.fn() }));
+const mockedLookup = vi.mocked(lookupKeepTime);
+
 const defaultValues = { name: "", quantity_grams: 100, expiration_date: null, need_to_use: false, date_kind: null };
+
+// Every test starts with a table that knows nothing.
+beforeEach(() => {
+  mockedLookup.mockReset();
+  mockedLookup.mockResolvedValue(null);
+});
 
 describe("FridgeItemModal", () => {
   beforeEach(() => {
@@ -231,13 +242,19 @@ describe("FridgeItemModal date kind", () => {
     need_to_use: false, date_kind: "estimated_ai" as const,
   };
 
-  it("asks only once there is a date, and saves the kind picked from the pack", async () => {
+  it("asks on an edit only once there is a date", () => {
+    render(<FridgeItemModal mode="edit" initialValues={{ ...defaultValues, name: "Rice" }} onOk={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("asks on an add right away, and saves the kind picked from the pack", async () => {
     const onOk = vi.fn();
     const user = userEvent.setup();
     const { container } = render(
       <FridgeItemModal mode="add" initialValues={defaultValues} onOk={onOk} onCancel={vi.fn()} />,
     );
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    // The answer decides whether the table may suggest a date, so it comes first.
+    expect(picker()).toHaveValue("");
     await user.type(screen.getByPlaceholderText(/chicken breast/i), "Pasta");
     fireEvent.change(dateInput(container), { target: { value: "2027-03-01" } });
     expect(picker()).toHaveValue("");
@@ -311,5 +328,130 @@ describe("FridgeItemModal date kind", () => {
     );
     expect(container.querySelector("select")).not.toBeNull();
     expect(untranslatedEnglishIn(container)).toEqual([]);
+  });
+});
+
+describe("FridgeItemModal table suggestion", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  const chicken = { low: 4, high: 9, unit: "Days" as const, low_days: 4 };
+  const dateInput = (container: HTMLElement) =>
+    container.querySelector('input[type="date"]') as HTMLInputElement;
+  const picker = () => screen.getByRole("combobox", { name: "Date from the pack?" });
+  const ok = () => screen.getByRole("button", { name: /ok/i });
+
+  /** An add with `name` typed and the table's answer shown. */
+  async function addWithSuggestion(name = "Chicken breast") {
+    mockedLookup.mockResolvedValue(chicken);
+    const onOk = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={onOk} onCancel={vi.fn()} />,
+    );
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), name);
+    await waitFor(() => expect(dateInput(container)).toHaveValue(addDaysISO(todayISO(), 4)));
+    return { onOk, user, container };
+  }
+
+  it("suggests today plus the short end, names its source and saves it as a table estimate", async () => {
+    const { onOk, user } = await addWithSuggestion();
+    // Looked up once, after the typing stopped, with the whole name.
+    expect(mockedLookup).toHaveBeenCalledTimes(1);
+    expect(mockedLookup).toHaveBeenCalledWith("Chicken breast", expect.any(AbortSignal));
+    expect(screen.getByText("Usually keeps 4 to 9 days in a fridge, based on USDA FoodKeeper (US).")).toBeInTheDocument();
+    await user.click(ok());
+    expect(onOk).toHaveBeenCalledWith(
+      expect.objectContaining({ expiration_date: addDaysISO(todayISO(), 4), date_kind: "estimated_table" }),
+    );
+  });
+
+  it.each(["use_by", "best_before"])("drops the suggestion when the pack says %s (design check 2)", async (kind) => {
+    const { onOk, user, container } = await addWithSuggestion();
+    await user.selectOptions(picker(), kind);
+    expect(dateInput(container)).toHaveValue("");
+    expect(screen.queryByText(/USDA FoodKeeper/)).not.toBeInTheDocument();
+    await user.click(ok());
+    // A table date never stands under a pack kind: no date, so no kind.
+    expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ expiration_date: null, date_kind: null }));
+  });
+
+  it("takes the pack's date once the user types it under a pack kind", async () => {
+    const { onOk, user, container } = await addWithSuggestion();
+    await user.selectOptions(picker(), "use_by");
+    fireEvent.change(dateInput(container), { target: { value: "2027-01-02" } });
+    await user.click(ok());
+    expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ expiration_date: "2027-01-02", date_kind: "use_by" }));
+  });
+
+  it("ends the suggestion for good once the user touches the date", async () => {
+    const { onOk, user, container } = await addWithSuggestion();
+    fireEvent.change(dateInput(container), { target: { value: "" } });
+    // Cleared on purpose: no new suggestion, even after a lookup would have answered.
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), "s");
+    await new Promise((r) => setTimeout(r, 600));
+    expect(dateInput(container)).toHaveValue("");
+    await user.click(ok());
+    expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ expiration_date: null, date_kind: null }));
+  });
+
+  it("makes a date typed over the suggestion unknown", async () => {
+    const { onOk, user, container } = await addWithSuggestion();
+    fireEvent.change(dateInput(container), { target: { value: "2027-01-02" } });
+    expect(screen.queryByText(/USDA FoodKeeper/)).not.toBeInTheDocument();
+    await user.click(ok());
+    expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ expiration_date: "2027-01-02", date_kind: null }));
+  });
+
+  it("never saves an answer for an earlier name", async () => {
+    const { onOk, user, container } = await addWithSuggestion("Chicken");
+    // Typing on: the shown answer was for "Chicken", so it goes at once.
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), " nuggets");
+    expect(dateInput(container)).toHaveValue("");
+    mockedLookup.mockResolvedValue(null);
+    await user.click(ok());
+    expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ name: "Chicken nuggets", expiration_date: null, date_kind: null }));
+  });
+
+  it("suggests nothing for a name the table lacks, or when the lookup fails", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), "Mystery");
+    await waitFor(() => expect(mockedLookup).toHaveBeenCalled());
+    mockedLookup.mockRejectedValue(new Error("down"));
+    await user.type(screen.getByPlaceholderText(/chicken breast/i), " box");
+    await waitFor(() => expect(mockedLookup).toHaveBeenCalledTimes(2));
+    expect(dateInput(container)).toHaveValue("");
+  });
+
+  it("never looks up on an edit", async () => {
+    render(
+      <FridgeItemModal mode="edit" initialValues={{ ...defaultValues, name: "Chicken breast" }} onOk={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await new Promise((r) => setTimeout(r, 600));
+    expect(mockedLookup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["en", { low: 2, high: 2, unit: "Weeks" as const, low_days: 14 }, "Usually keeps 2 weeks in a fridge, based on USDA FoodKeeper (US)."],
+    ["en", { low: 2, high: 3, unit: "Weeks" as const, low_days: 14 }, "Usually keeps 2 to 3 weeks in a fridge, based on USDA FoodKeeper (US)."],
+    ["cs", { low: 1, high: 2, unit: "Days" as const, low_days: 1 }, "V lednici obvykle vydrží 1 až 2 dny, podle USDA FoodKeeper (USA)."],
+    ["cs", { low: 7, high: 10, unit: "Days" as const, low_days: 7 }, "V lednici obvykle vydrží 7 až 10 dní, podle USDA FoodKeeper (USA)."],
+    ["cs", { low: 1, high: 1, unit: "Weeks" as const, low_days: 7 }, "V lednici obvykle vydrží 1 týden, podle USDA FoodKeeper (USA)."],
+    ["cs", { low: 4, high: 6, unit: "Weeks" as const, low_days: 28 }, "V lednici obvykle vydrží 4 až 6 týdnů, podle USDA FoodKeeper (USA)."],
+  ])("words the source line in %s for %o", async (locale, keeps, line) => {
+    useLocaleStore.setState({ locale: locale as "en" | "cs", explicit: true });
+    mockedLookup.mockResolvedValue(keeps);
+    const user = userEvent.setup();
+    const { container } = render(
+      <FridgeItemModal mode="add" initialValues={defaultValues} onOk={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await user.type(screen.getByRole("textbox", { name: locale === "cs" ? /název/i : /name/i }), "x");
+    await waitFor(() => expect(screen.getByText(line)).toBeInTheDocument());
+    expect(dateInput(container)).toHaveValue(addDaysISO(todayISO(), keeps.low_days));
+    if (locale === "cs") expect(untranslatedEnglishIn(container)).toEqual([]);
   });
 });

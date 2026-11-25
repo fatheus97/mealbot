@@ -17,6 +17,8 @@ vi.mock('../api', () => ({
   fetchUserProfile: vi.fn(),
   updateUserProfile: vi.fn(),
   recordWaste: vi.fn(),
+  // The add modal's FoodKeeper lookup; these tests type names the table lacks.
+  lookupKeepTime: vi.fn(() => Promise.resolve(null)),
 }));
 
 import { authFetch, fetchUserProfile, recordWaste } from '../api';
@@ -99,10 +101,12 @@ describe('Fridge', () => {
             { name: 'Kuřecí maso', quantity_grams: 500, need_to_use: false },
             // Two batches of the same name exercise the group row + plural.
             // Relative dates: a fixed one goes past and swaps "use soon" for "Po datu".
-            { name: 'Rýže', quantity_grams: 1000, need_to_use: true, expiration_date: addDaysISO(todayISO(), 1) },
-            { name: 'Rýže', quantity_grams: 400, need_to_use: false, expiration_date: addDaysISO(todayISO(), 30) },
+            // Every date kind, on single rows and on batch rows, for their labels and hints.
+            { name: 'Rýže', quantity_grams: 1000, need_to_use: true, expiration_date: addDaysISO(todayISO(), 1), date_kind: 'estimated_table' },
+            { name: 'Rýže', quantity_grams: 400, need_to_use: false, expiration_date: addDaysISO(todayISO(), 30), date_kind: 'estimated_ai' },
+            { name: 'Tvaroh', quantity_grams: 250, need_to_use: false, expiration_date: addDaysISO(todayISO(), 5), date_kind: 'use_by' },
             // And one past its date, for that badge.
-            { name: 'Mléko', quantity_grams: 500, need_to_use: false, expiration_date: '2000-01-01' },
+            { name: 'Mléko', quantity_grams: 500, need_to_use: false, expiration_date: '2000-01-01', date_kind: 'best_before' },
           ]),
       });
 
@@ -120,6 +124,41 @@ describe('Fridge', () => {
       unmount();
       localStorage.clear();
     }
+  });
+
+  it.each([
+    ['desktop table', false],
+    ['mobile cards', true],
+  ])('labels each date by its kind, with a hint on an estimate (%s)', async (_layout, mobile) => {
+    // docs/food-storage-design.md, "What the user sees": the pack's own words
+    // for a pack date, "Estimate" with whose it is, and a bare date when the
+    // kind is unknown.
+    loginUser();
+    setMobileViewport(mobile);
+    mockedAuthFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { name: 'Eggs', quantity_grams: 600, need_to_use: false, expiration_date: addDaysISO(todayISO(), 14), date_kind: 'estimated_table' },
+          { name: 'Yogurt', quantity_grams: 150, need_to_use: false, expiration_date: addDaysISO(todayISO(), 5), date_kind: 'use_by' },
+          { name: 'Cheese', quantity_grams: 200, need_to_use: false, expiration_date: addDaysISO(todayISO(), 20), date_kind: 'best_before' },
+          { name: 'Ham', quantity_grams: 100, need_to_use: false, expiration_date: addDaysISO(todayISO(), 3) },
+        ]),
+    });
+    const user = userEvent.setup();
+    render(<Fridge />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByText('Eggs')).toBeInTheDocument());
+
+    expect(screen.getAllByText(/^Estimate: /)).toHaveLength(1);
+    expect(screen.getAllByText(/^Use by /)).toHaveLength(1);
+    expect(screen.getAllByText(/^Best before /)).toHaveLength(1);
+    // Only the estimate explains itself.
+    const hints = screen.getAllByRole('button', { name: 'About this date' });
+    expect(hints).toHaveLength(1);
+    await user.click(hints[0]);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/USDA FoodKeeper/);
+    localStorage.clear();
   });
 
   it('shows "Please log in" when no userId', () => {

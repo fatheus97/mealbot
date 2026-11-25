@@ -181,6 +181,9 @@ describe('Czech date labels', () => {
       'fridgeItem.dateKindBestBefore',
       'expired.bestBeforeHint',
       'expired.optionalHint',
+      // A fridge row whose kind the user picked from the pack (slice 6b).
+      'storage.rowUseBy',
+      'storage.rowBestBefore',
     ];
     const hits = Object.entries(cs)
       .filter(([, text]) => statutory.test(text))
@@ -237,6 +240,16 @@ describe('storage advice wording', () => {
     ];
     const hits = COOK_KEYS.filter((k) => /\d|°F/.test(en[k]) || /\d|°F/.test(cs[k]));
     expect(hits).toEqual([]);
+  });
+
+  it('the fridge-time lines and date labels write no number of their own (slice 6b)', () => {
+    // The figures are the server's (KeepTime). Czech plural forms are keys
+    // English lacks, so both dictionaries are read by their own keys.
+    const ours = (dict: Record<string, string>) =>
+      Object.entries(dict).filter(([k]) => /^storage\.(keeps|row|kind)/.test(k));
+    const entries = [...ours(en), ...ours(cs)];
+    expect(entries.length).toBeGreaterThan(30);
+    expect(entries.filter(([, text]) => /\d/.test(text)).map(([k]) => k)).toEqual([]);
   });
 });
 

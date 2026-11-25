@@ -359,6 +359,18 @@ export type ScannedItemType = "ingredient" | "ready_to_eat";
  */
 export type DateKind = "use_by" | "best_before" | "estimated_table" | "estimated_ai";
 
+/**
+ * How long an unopened food usually keeps in a fridge, from USDA FoodKeeper
+ * (POST /fridge/keep-time). Only day-precise times come back; the client
+ * adds `low_days` to its own today.
+ */
+export interface KeepTime {
+  low: number;
+  high: number;
+  unit: "Days" | "Weeks";
+  low_days: number;
+}
+
 export interface StockItem {
   // Round-tripped GET -> edit -> PUT so the backend can match an edited item
   // back to its row even if name/expiration_date (its only other identity)

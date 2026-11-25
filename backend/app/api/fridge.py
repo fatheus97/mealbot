@@ -29,6 +29,8 @@ from app.models.db_models import Household, MachineGeneration, User
 from app.models.plan_models import (
     FoodPhotoItem,
     FoodPhotoScanResponse,
+    KeepTimeRequest,
+    KeepTimeResponse,
     ReceiptScanResponse,
     RestockStatus,
     ScannedItemDTO,
@@ -38,7 +40,7 @@ from app.models.plan_models import (
     WasteEntryDTO,
     WasteRecordedResponse,
 )
-from app.services.fridge_dates import FridgeDates, fridge_dates, scan_date
+from app.services.fridge_dates import FridgeDates, fridge_dates, keep_time_of, scan_date
 from app.services.fridge_service import (
     MAX_FRIDGE_ITEMS,
     expected_version,
@@ -369,6 +371,23 @@ def _scanned_item(
         date_kind="estimated_table" if table is not None else "estimated_ai",
         opened=False,
     )
+
+
+@router.post("/keep-time", response_model=KeepTimeResponse)
+@limiter.limit("60/minute", key_func=user_id_key_func)
+async def get_keep_time(
+    request: Request,
+    body: KeepTimeRequest,
+    current_user: User = Depends(get_current_user),
+    dates: FridgeDates = Depends(fridge_dates),
+) -> KeepTimeResponse:
+    """The FoodKeeper fridge time for an item added by hand, which the
+    client prefills as today + its low end while the user says the pack
+    has no date (docs/food-storage-design.md, slice 6b). The name is looked
+    up exactly, in the user's language, through the same resolver as a
+    scan; a manual add has no name_en and never calls the LLM. Nothing is
+    read from or written to the kitchen."""
+    return KeepTimeResponse(keeps=keep_time_of(dates.keep_time(body.name, None, current_user.language)))
 
 
 @router.post("/scan", response_model=ScannedItemsResponse)

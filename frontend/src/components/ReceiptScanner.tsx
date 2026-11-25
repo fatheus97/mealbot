@@ -5,6 +5,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { DateKind, ScanSource, ScannedItemType, StockItem } from "../types";
 import { InfoHint } from "./InfoHint";
+import { DateKindHint } from "./DateKindHint";
+import { MUTED_PAGE_TEXT } from "../constants/theme";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 import { useI18n, type TranslationKey } from "../i18n";
 import { isExpired } from "../utils/expiry";
@@ -642,6 +644,18 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                   </div>
                 );
               };
+              // Which estimate a row's date is, next to its date input: the
+              // intro hint explains the dates in general, this says per row
+              // whether the table or the AI set it. A retyped date and an
+              // opened pack have no kind and show nothing. The hint sits
+              // outside the muted text, whose opacity would fade its bubble.
+              const estimateTag = (item: ReviewItem) =>
+                item.dateKind === "estimated_table" || item.dateKind === "estimated_ai" ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", marginLeft: "0.3rem", whiteSpace: "nowrap" }}>
+                    <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.75rem" }}>{t("storage.kindEstimate")}</span>
+                    <DateKindHint kind={item.dateKind} />
+                  </span>
+                ) : null;
               const onQtyChange = (index: number) => (e: ChangeEvent<HTMLInputElement>) => {
                 const v = e.target.value;
                 if (v === "" || /^\d*\.?\d*$/.test(v)) {
@@ -695,6 +709,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                                 aria-label={t("receipt.itemExpiration", { n: index + 1 })}
                               />
                             </label>
+                            {estimateTag(item)}
                             <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem" }}>
                               <input
                                 type="checkbox"
@@ -765,6 +780,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                               onChange={(e) => updateReviewDate(index, e.target.value || null)}
                               style={{ width: "130px" }}
                             />
+                            {estimateTag(item)}
                           </td>
                           <td style={{ color: isNew && !isInvalid ? "#4ade80" : "inherit" }}>
                             {resultLabel}

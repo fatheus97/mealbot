@@ -245,7 +245,7 @@ describe('ReceiptScanner', () => {
     ['desktop table', false],
     ['mobile cards', true],
   ])('explains the estimated expiry dates once, in review only (%s)', async (_layout, mobile) => {
-    // ONE hint on the intro line, not one per "Expires" label: on mobile that
+    // ONE hint on the intro line, not one per "Date" label: on mobile that
     // label repeats on every card.
     setMobileViewport(mobile);
     mockedScanReceipt.mockResolvedValue({
@@ -613,6 +613,38 @@ describe('ReceiptScanner', () => {
         { name: 'ham', quantity_grams: 200, need_to_use: false, expiration_date: '2099-01-08', date_kind: null },
       ], [7], expect.anything());
     });
+  });
+
+  it.each([
+    ['desktop table', false],
+    ['mobile cards', true],
+  ])('says per row whose estimate a date is, until the user retypes it (%s)', async (_layout, mobile) => {
+    setMobileViewport(mobile);
+    mockedScanReceipt.mockResolvedValue({
+      generation_id: 7,
+      items: [
+        { name: 'chicken breast', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const,
+          expiration_date: '2099-01-05', date_kind: 'estimated_table' as const },
+        { name: 'rice', quantity_grams: 1000, need_to_use: false, item_type: 'ingredient' as const,
+          expiration_date: '2099-06-01', date_kind: 'estimated_ai' as const },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ReceiptScanner currentFridge={[]} />);
+    await user.upload(screen.getByLabelText(/select receipt image/i), createFile());
+    await screen.findByDisplayValue('rice');
+
+    expect(screen.getAllByText('Estimate')).toHaveLength(2);
+    const hints = screen.getAllByRole('button', { name: 'About this date' });
+    expect(hints).toHaveLength(2);
+    await user.click(hints[0]);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/USDA FoodKeeper/);
+    await user.click(hints[1]);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/Estimated by AI/);
+
+    // A retyped date is the user's, of no known kind: its tag goes.
+    fireEvent.change(screen.getByDisplayValue('2099-01-05'), { target: { value: '2099-01-08' } });
+    expect(screen.getAllByText('Estimate')).toHaveLength(1);
   });
 
   describe('several scans in one list', () => {

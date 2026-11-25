@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { lookupKeepTime } from "../api";
 import { useI18n } from "../i18n";
-import type { DateKind } from "../types";
+import type { DateKind, KeepTime } from "../types";
+import { addDaysISO, todayISO } from "../utils/planDates";
 
 export interface FridgeItemValues {
   name: string;
@@ -16,6 +18,9 @@ type PackKind = "use_by" | "best_before" | "";
 const packKindOf = (kind: DateKind | null): PackKind =>
   kind === "use_by" || kind === "best_before" ? kind : "";
 
+// How long after the last keystroke a name is looked up.
+const LOOKUP_DELAY_MS = 400;
+
 interface FridgeItemModalProps {
   mode: "add" | "edit";
   initialValues: FridgeItemValues;
@@ -29,14 +34,53 @@ interface FridgeItemModalProps {
 }
 
 export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUseEnabled = true }: FridgeItemModalProps) {
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   const [name, setName] = useState(initialValues.name);
   const [quantity, setQuantity] = useState(String(initialValues.quantity_grams));
   const [expiration, setExpiration] = useState(initialValues.expiration_date ?? "");
+  // The user has typed or cleared the date themselves: no suggestion after that.
+  const [dateTouched, setDateTouched] = useState(false);
   const [needToUse, setNeedToUse] = useState(initialValues.need_to_use);
   const [packKind, setPackKind] = useState<PackKind>(packKindOf(initialValues.date_kind));
   const [error, setError] = useState("");
   const [quantityError, setQuantityError] = useState("");
+  // The last lookup, with the name it answered, so a reply to an older name
+  // can never stand for the current one.
+  const [lookup, setLookup] = useState<{ query: string; keeps: KeepTime | null } | null>(null);
+
+  // Manual add, pack without a date (docs/food-storage-design.md, slice 6b):
+  // the USDA FoodKeeper time for the name, as today + its short end. It is a
+  // suggestion, never state: picking Use by or Best before drops it (design
+  // check 2, a table date never stands under a pack kind), and so does the
+  // user touching the date.
+  const query = mode === "add" && packKind === "" && !dateTouched ? name.trim() : "";
+  const keeps = query && lookup?.query === query ? lookup.keeps : null;
+  const suggested = keeps ? addDaysISO(todayISO(), keeps.low_days) : null;
+  const shownDate = suggested ?? expiration;
+
+  useEffect(() => {
+    if (!query) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      lookupKeepTime(query, controller.signal)
+        .then((found) => setLookup({ query, keeps: found }))
+        // No suggestion is the safe failure: the user types the date as before.
+        .catch(() => undefined);
+    }, LOOKUP_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query]);
+
+  const keepsLine = (k: KeepTime): string => {
+    if (k.low === k.high) {
+      return k.unit === "Days" ? tn("storage.keepsDays", k.high) : tn("storage.keepsWeeks", k.high);
+    }
+    return k.unit === "Days"
+      ? tn("storage.keepsDaysRange", k.high, { low: k.low })
+      : tn("storage.keepsWeeksRange", k.high, { low: k.low });
+  };
 
   const handleOk = () => {
     if (!name.trim()) {
@@ -48,7 +92,7 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
       setQuantityError(t("fridgeItem.quantityPositive"));
       return;
     }
-    const date = expiration || null;
+    const date = shownDate || null;
     // "No" keeps an estimate only while its date is untouched: a date typed by
     // hand is unknown unless the pack says which kind it is.
     const was = initialValues.date_kind;
@@ -58,7 +102,7 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
       quantity_grams: parsedQuantity,
       expiration_date: date,
       need_to_use: needToUse,
-      date_kind: date === null ? null : packKind || unpacked,
+      date_kind: date === null ? null : packKind || (suggested !== null ? "estimated_table" : unpacked),
     });
   };
 
@@ -130,13 +174,22 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
             {t("fridgeItem.expiration")}
             <input
               type="date"
-              value={expiration}
-              onChange={(e) => setExpiration(e.target.value)}
+              value={shownDate}
+              onChange={(e) => { setExpiration(e.target.value); setDateTouched(true); }}
               style={{ width: "160px" }}
             />
           </label>
+          {/* The source line, on an add only. Its two lines are reserved, so
+              the buttons do not jump when the lookup answers. */}
+          {mode === "add" && (
+            <span style={{ minHeight: "2.6em", marginTop: "-0.5rem", fontSize: "0.8rem", color: "#4b5563" }}>
+              {keeps && keepsLine(keeps)}
+            </span>
+          )}
 
-          {expiration && (
+          {/* Always there on an add: "No" is what lets the table suggest the
+              date above, and Use by or Best before takes the suggestion away. */}
+          {(mode === "add" || shownDate) && (
             <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
               {t("fridgeItem.dateKind")}
               <select

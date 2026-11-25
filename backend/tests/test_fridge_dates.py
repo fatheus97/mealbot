@@ -221,6 +221,43 @@ class TestAnOpenedPack:
         )
 
 
+KEEP_TIME = "/api/fridge/keep-time"
+
+
+@pytest.mark.usefixtures("table")
+class TestKeepTimeLookup:
+    """The manual-add prefill (slice 6b): figures only for a day-precise time,
+    the client adds low_days to its own today."""
+
+    async def _keeps(self, client: AsyncClient, name: str) -> object:
+        resp = await client.post(KEEP_TIME, json={"name": name})
+        assert resp.status_code == 200, resp.text
+        return resp.json()["keeps"]
+
+    async def test_days_and_weeks_give_figures(self, client: AsyncClient) -> None:
+        assert await self._keeps(client, "Chicken Breasts") == {"low": 4, "high": 9, "unit": "Days", "low_days": 4}
+        assert await self._keeps(client, "eggs") == {"low": 2, "high": 3, "unit": "Weeks", "low_days": 14}
+
+    @pytest.mark.parametrize("name", ["butter", "milk", "chickpeas", "rice", "no such food"])
+    async def test_no_day_precise_time_gives_none(self, client: AsyncClient, name: str) -> None:
+        """Months, the pack's own date, a cupboard pack, no product, no food."""
+        assert await self._keeps(client, name) is None
+
+    async def test_the_users_language_picks_the_index(self, client: AsyncClient, test_user: User) -> None:
+        test_user.language = "Czech"
+        assert await self._keeps(client, "kuřecí prsa") == {"low": 4, "high": 9, "unit": "Days", "low_days": 4}
+        test_user.language = "Slovak"
+        # No Slovak index and no name_en by hand: no suggestion, never a guess.
+        assert await self._keeps(client, "kuracie prsia") is None
+
+    @pytest.mark.parametrize("name", ["", "x" * 101])
+    async def test_a_name_out_of_bounds_is_refused(self, client: AsyncClient, name: str) -> None:
+        assert (await client.post(KEEP_TIME, json={"name": name})).status_code == 422
+
+    async def test_needs_a_session(self, unauthed_client: AsyncClient) -> None:
+        assert (await unauthed_client.post(KEEP_TIME, json={"name": "eggs"})).status_code == 401
+
+
 class TestSuggestedDate:
     DAYS = FridgeTime("x", 4, 9, "Days")
 

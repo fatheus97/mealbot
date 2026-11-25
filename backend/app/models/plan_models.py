@@ -1333,6 +1333,28 @@ class ScannedItemDTO(BaseModel):
     date_kind: DateKind | None = None
 
 
+class KeepTimeRequest(BaseModel):
+    """POST /api/fridge/keep-time: the name of an item being added by hand.
+    A POST body, so food names stay out of URLs and access logs."""
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+class KeepTime(BaseModel):
+    """How long an unopened food usually keeps in a fridge, from USDA
+    FoodKeeper (storage_reference.FridgeTime), only when the table gives it
+    in days or weeks. The client adds ``low_days`` to its own today: the
+    user's calendar day, not the server's UTC one."""
+    low: int
+    high: int
+    unit: Literal["Days", "Weeks"]
+    low_days: int
+
+
+class KeepTimeResponse(BaseModel):
+    # None: no food, no product, or no day-precise time. No suggestion then.
+    keeps: KeepTime | None
+
+
 class ScannedItemsResponse(BaseModel):
     """Result of POST /api/fridge/scan — the parsed receipt items plus the id of
     the persisted receipt_scan generation.
