@@ -36,20 +36,25 @@ class FridgeDates:
         the name resolves to no food, the food to no product, or the product
         names only an after-opening time (a cupboard pack).
 
-        Also None when name_en names another food than the key that won:
+        Also None when name_en resolves to a food the table times otherwise:
         on a Czech account "paprika" is the vegetable in the Czech index,
         while name_en "paprika" is the spice. The names then disagree about
         what the pack is, and a wrong table date is worse than the model's
         own estimate. (A recipe line settles this through is_spice, which a
-        kitchen item does not have.)"""
+        kitchen item does not have.) Two foods that share one product agree:
+        "tvaroh" and "quark" are separate nutrition rows with one fridge time."""
         key = item_key(name, name_en, language, self.ref)
         hit = self.ref.lookup(*key) if key is not None else None
         if hit is None:
             return None
+        time = self._unopened(hit[1].id)
         english = self.ref.lookup("en", name_en) if name_en else None
-        if english is not None and english[1].id != hit[1].id:
+        if english is not None and self._unopened(english[1].id) != time:
             return None
-        row = self.storage.foods.get(hit[1].id)
+        return time
+
+    def _unopened(self, food: str) -> FridgeTime | None:
+        row = self.storage.foods.get(food)
         return row.unopened if row is not None else None
 
 

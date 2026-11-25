@@ -49,11 +49,14 @@ def _food(lang: Lang, name: str) -> str:
     return hit[1].id
 
 
-CHICKEN, EGG, BUTTER, MILK, CHICKPEA, PEPPER = (
+CHICKEN, EGG, BUTTER, MILK, CHICKPEA, PEPPER, TVAROH, QUARK = (
     _food("en", "chicken breast"), _food("en", "eggs"), _food("en", "butter"),
     _food("en", "milk"), _food("en", "chickpeas"), _food("cs", "paprika"),
+    _food("cs", "tvaroh"), _food("en", "quark"),
 )
-# Czech "paprika" is the vegetable; English "paprika" is the spice.
+# Czech "paprika" is the vegetable; English "paprika" is the spice. Czech
+# "tvaroh" and English "quark" are two nutrition rows of one fridge product.
+assert TVAROH != QUARK
 assert _food("en", "paprika") != PEPPER
 
 
@@ -66,7 +69,7 @@ def _product(fk_id: int, field: str, low: float | None, high: float | None, unit
 def table(tmp_path: Path) -> Iterator[FridgeDates]:
     """The scan endpoint on a synthetic table: chicken 4-9 days, eggs 2-3 weeks,
     butter 1-2 months, milk on the pack date, chickpeas an after-opening row,
-    the vegetable paprika 4-14 days."""
+    the vegetable paprika 4-14 days, tvaroh and quark one product of 7-10 days."""
     rules = ["poultry,75,70,2,0,fsa,https://example.org/a,quote 75 70 2,2026-11-22,verified,"]
     foods = [
         f"{CHICKEN},900,DOP_Refrigerate,poultry,curated,",
@@ -75,6 +78,8 @@ def table(tmp_path: Path) -> Iterator[FridgeDates]:
         f"{MILK},903,Refrigerate,none,curated,",
         f"{CHICKPEA},904,Refrigerate_After_Opening,none,curated,",
         f"{PEPPER},905,DOP_Refrigerate,none,curated,",
+        f"{TVAROH},906,Refrigerate,none,curated,",
+        f"{QUARK},906,Refrigerate,none,curated,",
     ]
     products = [
         _product(900, "DOP_Refrigerate", 4.0, 9.0, "Days"),
@@ -83,6 +88,7 @@ def table(tmp_path: Path) -> Iterator[FridgeDates]:
         _product(903, "Refrigerate", None, None, "Package use-by date"),
         _product(904, "Refrigerate_After_Opening", 3.0, 4.0, "Days"),
         _product(905, "DOP_Refrigerate", 4.0, 14.0, "Days"),
+        _product(906, "Refrigerate", 7.0, 10.0, "Days"),
     ]
     (tmp_path / "rules.csv").write_text("\n".join([",".join(RULE_COLUMNS), *rules]) + "\n", encoding="utf-8")
     (tmp_path / "map.csv").write_text("\n".join([",".join(MAP_COLUMNS), *foods]) + "\n", encoding="utf-8")
@@ -165,6 +171,13 @@ class TestTableDatesOnScans:
         assert (rows["paprika"]["expiration_date"], rows["paprika"]["date_kind"]) == ("2026-03-17", "estimated_ai")
         # Without a name_en to disagree, the Czech name decides as before.
         assert (rows["papriky"]["expiration_date"], rows["papriky"]["date_kind"]) == ("2026-03-14", "estimated_table")
+
+    async def test_two_foods_of_one_product_agree(self, client: AsyncClient, test_user: User) -> None:
+        """Czech "tvaroh" and its translation "quark" are separate nutrition
+        rows; the table times them as one product, so the date stands."""
+        test_user.language = "Czech"
+        rows = await _scan(client, _item("tvaroh", 14, name_en="quark"), bought=BOUGHT)
+        assert (rows["tvaroh"]["expiration_date"], rows["tvaroh"]["date_kind"]) == ("2026-03-17", "estimated_table")
 
     @pytest.mark.parametrize(("guess", "expected"), [
         (9 * STATE_FACTOR, ("2026-03-14", "estimated_table")),
