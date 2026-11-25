@@ -51,7 +51,8 @@ AFTER_OPENING: Final = "Refrigerate_After_Opening"
 FK_FIELDS: Final = frozenset({"DOP_Refrigerate", "Refrigerate", AFTER_OPENING})
 FOODKEEPER_FILE: Final = "foodkeeper_en_v128.json"
 # What a FoodKeeper fridge field can say. Days, Weeks, Months and Years come
-# with a range; the other three carry no number.
+# with a range; the other three carry no number. Some rows of the file spell
+# the singular "Year", which the loader reads as Years.
 FridgeUnit = Literal[
     "Days", "Weeks", "Months", "Years", "Package use-by date", "Not Recommended", "Indefinitely",
 ]
@@ -223,10 +224,12 @@ def _rule_rows(path: Path) -> dict[CookCategory, CookRule]:
 
 def _whole(raw: object, where: str) -> int:
     # The file stores every number as a float (1.0); a fraction would be a
-    # range no row of the file has, so it is refused rather than rounded.
-    if isinstance(raw, bool) or not isinstance(raw, int | float) or not float(raw).is_integer() or raw < 0:
+    # range no row of the file has, so it is refused rather than rounded. An
+    # int stays an int: float() of a huge one would overflow.
+    number = int(raw) if isinstance(raw, float) and raw.is_integer() else raw
+    if isinstance(number, bool) or not isinstance(number, int) or number < 0:
         raise StorageDataError(f"{where}: {raw!r} is not a whole number")
-    return int(raw)
+    return number
 
 
 def _fridge_times(path: Path) -> dict[tuple[str, str], FridgeTime]:
@@ -238,8 +241,12 @@ def _fridge_times(path: Path) -> dict[tuple[str, str], FridgeTime]:
     except (OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration) as exc:
         raise StorageDataError(f"{path.name}: not a FoodKeeper export ({exc!r})") from exc
     times: dict[tuple[str, str], FridgeTime] = {}
+    seen: set[str] = set()
     for row in rows:
         fk_id = str(_whole(row.get("ID"), f"{path.name} product ID"))
+        if fk_id in seen:
+            raise StorageDataError(f"{path.name}: product {fk_id} appears twice")
+        seen.add(fk_id)
         product = ", ".join(str(part) for part in (row.get("Name"), row.get("Name_subtitle")) if part)
         for field in sorted(FK_FIELDS):
             where = f"{path.name} product {fk_id} {field}"

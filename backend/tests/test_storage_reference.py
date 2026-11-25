@@ -391,6 +391,15 @@ class TestLoaderRefuses:
         with pytest.raises(StorageDataError):
             load_storage(_write(tmp_path, [RULE], [FOOD], foodkeeper=_foodkeeper(product)))
 
+    def test_a_product_id_twice_is_refused(self, tmp_path: Path) -> None:
+        """A later row would overwrite the first one's times in silence."""
+        with pytest.raises(StorageDataError, match="appears twice"):
+            load_storage(_write(tmp_path, [RULE], [FOOD], foodkeeper=_foodkeeper(FK_PRODUCT, FK_PRODUCT)))
+
+    def test_a_huge_whole_id_loads_without_overflow(self, tmp_path: Path) -> None:
+        loaded = load_storage(_write(tmp_path, [RULE], [FOOD], foodkeeper=_foodkeeper([{"ID": 10**400}])))
+        assert loaded.foods["1"].unopened is None
+
     @pytest.mark.parametrize("text", ["", "[]", '{"sheets": []}', '{"sheets": [{"name": "Product", "data": 5}]}'])
     def test_a_file_that_is_not_the_export_is_refused(self, tmp_path: Path, text: str) -> None:
         with pytest.raises(StorageDataError):
