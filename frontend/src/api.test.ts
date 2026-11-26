@@ -355,10 +355,13 @@ describe.each(FRESH_SESSION_CALLS)('$name with a fresh session', ({ endpoint, fa
     mockFetch(204);
 
     const pending = call();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`]);
-
-    settle();
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`]);
+    } finally {
+      // A refresh left pending is shared by every later test (single-flight).
+      settle();
+    }
     await expect(pending).resolves.toBeUndefined();
     expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}${endpoint}`]);
     expect(fetchMock().mock.calls[1][1].headers['X-CSRF-Token']).toBe('after-refresh');
