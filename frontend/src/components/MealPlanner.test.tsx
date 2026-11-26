@@ -427,16 +427,16 @@ describe('MealPlanner', () => {
       expect(screen.getByText('Scrambled Eggs')).toBeInTheDocument();
     });
 
-    // Click freeze button (accessible name is text content "Freeze")
-    const freezeBtn = screen.getByRole('button', { name: 'Freeze' });
+    // Click the lock button (accessible name is text content "Lock")
+    const freezeBtn = screen.getByRole('button', { name: 'Lock' });
     await user.click(freezeBtn);
 
-    expect(screen.getByText('Frozen')).toBeInTheDocument();
-    expect(screen.getByText(/1 meal\(s\) frozen/)).toBeInTheDocument();
+    expect(screen.getByText('Locked')).toBeInTheDocument();
+    expect(screen.getByText('1 meal locked. Unlocked meals will be regenerated.')).toBeInTheDocument();
 
-    // Click again to unfreeze (now text content is "Frozen")
-    await user.click(screen.getByRole('button', { name: 'Frozen' }));
-    expect(screen.queryByText(/meal\(s\) frozen/)).not.toBeInTheDocument();
+    // Click again to unlock (now text content is "Locked")
+    await user.click(screen.getByRole('button', { name: 'Locked' }));
+    expect(screen.queryByText(/meals? locked/)).not.toBeInTheDocument();
   });
 
   it('clears frozen styling on confirm so cooked-green can paint', async () => {
@@ -490,14 +490,14 @@ describe('MealPlanner', () => {
     await user.click(screen.getByRole('button', { name: /generate plan/i }));
     await waitFor(() => expect(screen.getByText('Scrambled Eggs')).toBeInTheDocument());
 
-    // Freeze the meal so the frozen state is populated. The meal container
+    // Lock the meal so the frozen state is populated. The meal container
     // is the parent of the BREAKFAST label — grab it so we can inspect its
     // inline backgroundColor across confirm.
     const mealLabel = screen.getByText(/BREAKFAST:/i);
     const mealContainer = mealLabel.closest('div[style]')?.parentElement as HTMLElement;
     expect(mealContainer).toBeTruthy();
 
-    await user.click(screen.getByRole('button', { name: 'Freeze' }));
+    await user.click(screen.getByRole('button', { name: 'Lock' }));
     // Sanity: blue applied while frozen pre-confirm.
     expect(mealContainer.style.backgroundColor).toBe('rgb(238, 244, 251)');
 
@@ -556,11 +556,11 @@ describe('MealPlanner', () => {
       expect(screen.getByText('Meal A')).toBeInTheDocument();
     });
 
-    // Freeze first meal (accessible name is text content "Freeze")
-    const freezeButtons = screen.getAllByRole('button', { name: 'Freeze' });
+    // Lock the first meal (accessible name is text content "Lock")
+    const freezeButtons = screen.getAllByRole('button', { name: 'Lock' });
     await user.click(freezeButtons[0]);
 
-    await user.click(screen.getByRole('button', { name: /regenerate unfrozen/i }));
+    await user.click(screen.getByRole('button', { name: /regenerate unlocked/i }));
 
     await waitFor(() => {
       expect(mockedAuthFetch).toHaveBeenCalledWith('/plan/42/regenerate', {
@@ -843,9 +843,9 @@ describe('MealPlanner', () => {
     await screen.findByText('Opened Meal');
 
     await editAndSave();
-    // Regenerate shows once something is frozen.
-    await userEvent.click(screen.getByRole('button', { name: 'Freeze' }));
-    await userEvent.click(screen.getByRole('button', { name: /regenerate unfrozen/i }));
+    // Regenerate shows once something is locked.
+    await userEvent.click(screen.getByRole('button', { name: 'Lock' }));
+    await userEvent.click(screen.getByRole('button', { name: /regenerate unlocked/i }));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 
     await editAndSave();
@@ -1481,7 +1481,7 @@ describe('MealPlanner info hints (U-9)', () => {
 
     await user.click(screen.getByRole('button', { name: 'About confirming' }));
     expect(screen.getByRole('tooltip')).toHaveTextContent(/except spices, out of your fridge right away/i);
-    await user.click(screen.getByRole('button', { name: 'About freezing and regenerating' }));
+    await user.click(screen.getByRole('button', { name: 'About locking and regenerating' }));
     expect(screen.getByRole('tooltip')).toHaveTextContent(/original choices, not the form above/i);
     expect(screen.queryByRole('button', { name: 'About finishing' })).not.toBeInTheDocument();
     // An empty shopping list renders no card, so no hint for it either.
@@ -1491,7 +1491,7 @@ describe('MealPlanner info hints (U-9)', () => {
     const finishHint = await screen.findByRole('button', { name: 'About finishing' });
     expect(screen.queryByRole('button', { name: 'About confirming' })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'About freezing and regenerating' }),
+      screen.queryByRole('button', { name: 'About locking and regenerating' }),
     ).not.toBeInTheDocument();
     await user.click(finishHint);
     expect(screen.getByRole('tooltip')).toHaveTextContent(/until you reopen the plan/i);
@@ -1515,7 +1515,7 @@ describe('MealPlanner info hints (U-9)', () => {
     expect(screen.queryByRole('button', { name: 'About finishing' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'About confirming' })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'About freezing and regenerating' }),
+      screen.queryByRole('button', { name: 'About locking and regenerating' }),
     ).not.toBeInTheDocument();
   });
 
@@ -2201,13 +2201,76 @@ describe('MealPlanner nutrition (opt-in)', () => {
     await userEvent.click(screen.getByRole('button', { name: /generate plan/i }));
     await screen.findByRole('button', { name: '≈ 540 kcal per serving' });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Freeze' }));
-    await userEvent.click(screen.getByRole('button', { name: /regenerate unfrozen/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Lock' }));
+    await userEvent.click(screen.getByRole('button', { name: /regenerate unlocked/i }));
 
     // While the new figures load, the old ones are gone, not left on new meals.
     await waitFor(() => expect(mockedFetchNutrition).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('button', { name: /540 kcal/ })).not.toBeInTheDocument();
     await act(async () => { release(figure(610)); });
     expect(await screen.findByRole('button', { name: '≈ 610 kcal per serving' })).toBeInTheDocument();
+  });
+});
+
+describe('MealPlanner meal lock copy', () => {
+  // The code calls them frozen_meals; the copy says Lock, because the food
+  // storage hints tell people to put food in the freezer. Generated, not
+  // opened: an opened plan is a confirmed one, and that has no lock toggle.
+  const twoMeals = {
+    plan_id: 7,
+    days: [{
+      meals: [
+        { name: 'Meal A', meal_type: 'breakfast', ingredients: [], steps: [] },
+        { name: 'Meal B', meal_type: 'lunch', ingredients: [], steps: [] },
+      ],
+    }],
+    shopping_list: [],
+  };
+
+  beforeEach(() => {
+    loginUser();
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true, status: 200, json: () => Promise.resolve(twoMeals),
+      } as unknown as Response);
+    });
+  });
+
+  afterEach(() => {
+    useLocaleStore.setState({ locale: DEFAULT_LOCALE, explicit: false });
+  });
+
+  it('counts locked meals in the plural and never says freeze', async () => {
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await user.click(screen.getByRole('button', { name: 'Generate Plan' }));
+    await screen.findByText('Meal A');
+    // innerHTML, not textContent: the title and the hint's aria-label count too.
+    // Checked in both states, because each state has its own title.
+    expect(document.body.innerHTML).not.toMatch(/freez|frozen/i);
+
+    for (const btn of screen.getAllByRole('button', { name: 'Lock' })) await user.click(btn);
+
+    expect(screen.getAllByRole('button', { name: 'Locked' })).toHaveLength(2);
+    expect(screen.getByText('2 meals locked. Unlocked meals will be regenerated.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /regenerate unlocked/i })).toBeInTheDocument();
+    // The hint renders its text only while open.
+    await user.click(screen.getByRole('button', { name: 'About locking and regenerating' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Lock the meals you want to keep/);
+    expect(document.body.innerHTML).not.toMatch(/freez|frozen/i);
+  });
+
+  it('says it in Czech, with the Czech plural', async () => {
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await user.click(screen.getByRole('button', { name: 'Vytvořit jídelníček' }));
+    await screen.findByText('Meal A');
+
+    for (const btn of screen.getAllByRole('button', { name: 'Zamknout' })) await user.click(btn);
+
+    expect(screen.getAllByRole('button', { name: 'Zamčeno' })).toHaveLength(2);
+    expect(screen.getByText('2 jídla jsou zamčená. Nezamčená jídla se přegenerují.')).toBeInTheDocument();
   });
 });
