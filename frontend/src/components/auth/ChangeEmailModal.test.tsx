@@ -37,7 +37,7 @@ describe("ChangeEmailModal", () => {
     await waitFor(() =>
       expect(change).toHaveBeenCalledWith("Secret123", "right@example.com", {
         invalidEmail: "Please enter a valid email address.",
-        rateLimited: "Too many attempts. Please wait a minute and try again.",
+        rateLimited: "Too many attempts. Please try again later.",
         fallback: "Could not change your email address.",
       }),
     );
@@ -209,7 +209,7 @@ describe("ChangeEmailModal", () => {
     });
 
     it.each([
-      [429, { error: "Rate limit exceeded" }, "Příliš mnoho pokusů. Počkejte prosím minutu a zkuste to znovu."],
+      [429, { error: "Rate limit exceeded" }, "Příliš mnoho pokusů. Zkuste to prosím později."],
       [422, { detail: [{ msg: "value is not a valid email address" }] }, "Zadejte prosím platnou e-mailovou adresu."],
     ])("shows a %i in Czech, through the real request", async (status, body, czech) => {
       // The real changeEmail, not a spy: neither status carries a sentence the

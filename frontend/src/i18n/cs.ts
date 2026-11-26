@@ -130,7 +130,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.changeEmail.done": "Hotovo",
   "auth.changeEmail.failed": "E-mailovou adresu se nepodařilo změnit.",
   "auth.changeEmail.invalidEmail": "Zadejte prosím platnou e-mailovou adresu.",
-  "auth.changeEmail.rateLimited": "Příliš mnoho pokusů. Počkejte prosím minutu a zkuste to znovu.",
+  "auth.changeEmail.rateLimited": "Příliš mnoho pokusů. Zkuste to prosím později.",
 
   "auth.changePassword.title": "Změna hesla",
   "auth.changePassword.body":

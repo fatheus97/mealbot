@@ -776,19 +776,23 @@ export async function changeEmail(
  * by the component.
  *
  * `api.ts` runs outside React and cannot call `t()`, so any English literal in
- * here is English forever: older calls in this file still carry some
- * (requestPasswordReset, redeemInvite), which is the bug this shape avoids
- * rather than the precedent it follows. Everything else the user sees on these paths is a server `detail`,
- * which the backend already localises.
+ * here is English forever: older calls in this file still carry some (for
+ * example requestPasswordReset, resetPassword and redeemInvite), which is the
+ * bug this shape avoids rather than the precedent it follows. Everything else
+ * the user sees on these paths is a server `detail`, which the backend
+ * already localises.
  */
 export interface RequestCopy {
   /** Shown on 429 — slowapi's envelope carries no `detail` to render. */
   rateLimited: string;
   /**
    * Shown when there is no server sentence to show: the response carries no
-   * usable `detail` (non-JSON body, a Pydantic list), the request never got a
-   * Response (network failure), or, for the authFetchWithFreshSession calls,
-   * the refresh found the session ended and the request was not sent.
+   * usable `detail` (non-JSON body, a Pydantic list). For scanReceipt and the
+   * authFetchWithFreshSession calls also when the request never got a
+   * Response (network failure), and for the latter when the refresh found the
+   * session ended and the request was not sent. The plain authFetch calls let
+   * a network failure's browser error through (mergeFridgeItems has its own
+   * `connectionLost`).
    */
   fallback: string;
 }

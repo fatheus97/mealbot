@@ -149,7 +149,7 @@ export const en = {
   "auth.changeEmail.done": "Done",
   "auth.changeEmail.failed": "Could not change your email address.",
   "auth.changeEmail.invalidEmail": "Please enter a valid email address.",
-  "auth.changeEmail.rateLimited": "Too many attempts. Please wait a minute and try again.",
+  "auth.changeEmail.rateLimited": "Too many attempts. Please try again later.",
 
   // ─── Change password ──────────────────────────────────────────────────────
   // The server keeps THIS device signed in (a fresh session) and revokes the
