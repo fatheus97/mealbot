@@ -553,7 +553,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.reopenTitle": "Znovu odečíst suroviny na neuvařená jídla a vrátit se k aktivnímu jídelníčku",
   "planner.regenerateHintLabel": "O zamykání a přegenerování",
   "planner.regenerateHint":
-    "Zamkněte jídla, která chcete ponechat, a objeví se tlačítko „Přegenerovat nezamčené“. To vytvoří zbývající jídla znovu podle původního zadání tohoto jídelníčku, ne podle formuláře výše.",
+    "Zamkněte jídla, která chcete ponechat, a objeví se tlačítko „Přegenerovat nezamčené“. To vytvoří zbývající jídla znovu podle původního zadání tohoto jídelníčku, ne podle formuláře výše. Zbytky nemají vlastní tlačítko „Zamknout“ a zůstanou zachované, když zamknete jídlo, ze kterého pocházejí.",
   "planner.frozenCount_one": "1 jídlo je zamčené.",
   "planner.frozenCount_few": "{count} jídla jsou zamčená.",
   "planner.frozenCount_many": "{count} jídla je zamčeno.",
@@ -591,6 +591,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "meal.cook": "Uvařit",
   "meal.freezeTitle": "Zamknout toto jídlo",
   "meal.unfreezeTitle": "Odemknout toto jídlo",
+  "meal.lockedWithSource": "Zamčeno s původním jídlem",
   "meal.cooked": "Uvařeno",
   "meal.notCooked": "Neuvařeno",
   "meal.markCooked": "Označit jako uvařené",

@@ -91,6 +91,45 @@ export function leftoverStorageOf(
   return null;
 }
 
+/**
+ * The meals a regenerate keeps, keyed "day-meal": the locked ones plus every
+ * meal linked by a leftover to one of them. Mirrors the server's
+ * `expand_leftover_groups` (backend/app/services/leftovers.py), which keeps a
+ * whole group when any member is locked. A leftover has no Lock toggle, so
+ * without this it looked unlocked and went uncounted, then came back unchanged.
+ * A link whose source does not resolve is skipped, so it cannot add a phantom
+ * meal to the count. Returns a new set. The user-facing statement of this rule
+ * is `planner.regenerateHint`: change all three together.
+ */
+export function lockedWithLeftovers(
+  locked: ReadonlySet<string>,
+  plan: MealPlanResponse | null | undefined,
+): Set<string> {
+  const out = new Set(locked);
+  const days = plan?.days ?? [];
+  const links: [string, string][] = [];
+  days.forEach((day, d) =>
+    day.meals?.forEach((meal, m) => {
+      const ref = meal.leftover_of;
+      if (ref && days[ref.day_index]?.meals?.[ref.meal_index]) {
+        links.push([`${d}-${m}`, `${ref.day_index}-${ref.meal_index}`]);
+      }
+    }),
+  );
+  // To a fixed point, as the server does: a chain can pull in more than one hop.
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [here, src] of links) {
+      if (out.has(here) !== out.has(src)) {
+        out.add(here);
+        out.add(src);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
 // The compact narrow-screen label moved to the i18n dictionary
 // (`meal.leftoversShort`) — an exported English constant could only ever be
 // English, the same reason DIET_TYPE_LABELS was removed in #368.
