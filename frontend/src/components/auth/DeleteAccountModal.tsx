@@ -68,7 +68,14 @@ export function DeleteAccountModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell onClose={onClose} ariaLabel={t("auth.deleteAccount.title")} zIndex={1200}>
+    // busy: a deletion cannot be called back once sent. Closing mid-request
+    // would let the user believe they cancelled it.
+    <ModalShell
+      onClose={onClose}
+      busy={busy}
+      ariaLabel={t("auth.deleteAccount.title")}
+      zIndex={1200}
+    >
       <div style={card}>
         <form onSubmit={(e) => void onSubmit(e)}>
           <h3 style={heading}>{t("auth.deleteAccount.title")}</h3>
@@ -101,7 +108,17 @@ export function DeleteAccountModal({ onClose }: { onClose: () => void }) {
           </label>
 
           <div style={actions}>
-            <button type="button" onClick={onClose} style={secondaryBtn} disabled={busy}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              style={{
+                ...secondaryBtn,
+                // The inline colours would otherwise hide that it is disabled.
+                opacity: busy ? 0.6 : 1,
+                cursor: busy ? "not-allowed" : "pointer",
+              }}
+            >
               {t("auth.deleteAccount.cancel")}
             </button>
             <button

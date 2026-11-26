@@ -129,6 +129,24 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "novou adresou a na ostatních zařízeních jsme vás odhlásili.",
   "auth.changeEmail.done": "Hotovo",
   "auth.changeEmail.failed": "E-mailovou adresu se nepodařilo změnit.",
+  "auth.changeEmail.invalidEmail": "Zadejte prosím platnou e-mailovou adresu.",
+  "auth.changeEmail.rateLimited": "Příliš mnoho pokusů. Zkuste to prosím později.",
+
+  "auth.changePassword.title": "Změna hesla",
+  "auth.changePassword.body":
+    "Změnou hesla se odhlásíte na ostatních zařízeních, na tomto ale zůstanete přihlášeni.",
+  "auth.changePassword.currentPassword": "Současné heslo",
+  "auth.changePassword.newPassword": "Nové heslo",
+  "auth.changePassword.confirmPassword": "Nové heslo znovu",
+  "auth.changePassword.submit": "Změnit heslo",
+  "auth.changePassword.changing": "Měním…",
+  "auth.changePassword.cancel": "Zrušit",
+  "auth.changePassword.doneTitle": "Heslo bylo změněno",
+  "auth.changePassword.doneBody":
+    "Na tomto zařízení zůstáváte přihlášeni, na ostatních zařízeních jsme vás odhlásili.",
+  "auth.changePassword.done": "Hotovo",
+  "auth.changePassword.failed": "Heslo se nepodařilo změnit.",
+  "auth.changePassword.rateLimited": "Příliš mnoho pokusů, počkejte prosím minutu a zkuste to znovu.",
 
   "auth.deleteAccount.title": "Smazání účtu",
   "auth.deleteAccount.body":
@@ -226,6 +244,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "settings.changeEmailHintLabel": "Co způsobí změna e-mailu",
   "settings.changeEmailHint":
     "Dokud novou adresu nepotvrdíte, nemůžete vytvářet nové jídelníčky a recepty ani skenovat. Na ostatních zařízeních vás navíc odhlásíme.",
+  "settings.changePassword": "Změnit heslo",
   "settings.yourData": "Vaše data",
   "eaters.title": "Kdo bude jíst",
   "eaters.hintLabel": "Jak se vaří pro sdílenou domácnost",

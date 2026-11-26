@@ -40,6 +40,37 @@ describe("DeleteAccountModal", () => {
     );
   });
 
+  it("cannot be closed while the request runs, and can again once it has an answer", async () => {
+    // A deletion cannot be called back once sent; closing mid-request would
+    // let the user believe they cancelled it.
+    const user = userEvent.setup();
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
+    let fail: (err: Error) => void = () => {};
+    vi.spyOn(api, "deleteAccount").mockReturnValue(new Promise<void>((_, rej) => { fail = rej; }));
+    const onClose = vi.fn();
+
+    renderWithProviders(<DeleteAccountModal onClose={onClose} />);
+    await user.type(screen.getByLabelText(/current password/i), "Secret123");
+    await user.click(screen.getByRole("button", { name: /delete my account/i }));
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveStyle({ opacity: "0.6", cursor: "not-allowed" });
+    await user.click(cancel);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    expect(onClose).not.toHaveBeenCalled();
+
+    fail(new Error("Current password is incorrect"));
+    await screen.findByRole("alert");
+    expect(cancel).toBeEnabled();
+    expect(cancel).toHaveStyle({ opacity: "1", cursor: "pointer" });
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    await user.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
   it("tells someone who shares a household what stays with it", async () => {
     vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState({ householdsEnabled: true }));
     vi.spyOn(api, "fetchHousehold").mockResolvedValue({

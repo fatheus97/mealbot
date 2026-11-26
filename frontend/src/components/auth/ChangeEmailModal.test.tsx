@@ -34,7 +34,45 @@ describe("ChangeEmailModal", () => {
     await user.type(screen.getByLabelText(/current password/i), "Secret123");
     await user.click(screen.getByRole("button", { name: /change address/i }));
 
-    await waitFor(() => expect(change).toHaveBeenCalledWith("Secret123", "right@example.com"));
+    await waitFor(() =>
+      expect(change).toHaveBeenCalledWith("Secret123", "right@example.com", {
+        invalidEmail: "Please enter a valid email address.",
+        rateLimited: "Too many attempts. Please try again later.",
+        fallback: "Could not change your email address.",
+      }),
+    );
+  });
+
+  it("cannot be closed while the request runs, and can again once it has an answer", async () => {
+    // Once sent, the change lands whatever the modal does and signs out every
+    // other device; closing mid-request would read as a cancel.
+    const user = userEvent.setup();
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
+    let fail: (err: Error) => void = () => {};
+    vi.spyOn(api, "changeEmail").mockReturnValue(new Promise<void>((_, rej) => { fail = rej; }));
+    const onClose = vi.fn();
+
+    renderWithProviders(<ChangeEmailModal onClose={onClose} />);
+    await user.type(screen.getByLabelText(/new email address/i), "right@example.com");
+    await user.type(screen.getByLabelText(/current password/i), "Secret123");
+    await user.click(screen.getByRole("button", { name: /change address/i }));
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveStyle({ opacity: "0.6", cursor: "not-allowed" });
+    await user.click(cancel);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    expect(onClose).not.toHaveBeenCalled();
+
+    fail(new Error("Current password is incorrect"));
+    await screen.findByRole("alert");
+    expect(cancel).toBeEnabled();
+    expect(cancel).toHaveStyle({ opacity: "1", cursor: "pointer" });
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    await user.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("refreshes the profile before confirming", async () => {
@@ -168,6 +206,35 @@ describe("ChangeEmailModal", () => {
         expect(screen.getByText(/zkontrolujte novou schránku/i)).toBeInTheDocument(),
       );
       expect(untranslatedEnglishIn(document.body)).toEqual([]);
+    });
+
+    it.each([
+      [429, { error: "Rate limit exceeded" }, "Příliš mnoho pokusů. Zkuste to prosím později."],
+      [422, { detail: [{ msg: "value is not a valid email address" }] }, "Zadejte prosím platnou e-mailovou adresu."],
+    ])("shows a %i in Czech, through the real request", async (status, body, czech) => {
+      // The real changeEmail, not a spy: neither status carries a sentence the
+      // server translated, so the Czech has to come from the copy this modal passes.
+      vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
+      // A spy, not vi.stubGlobal: unstubAllGlobals would also undo setup.ts's
+      // localStorage stub for every later test in this file.
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+        Promise.resolve(
+          (String(input).endsWith("/auth/email")
+            ? { ok: false, status, json: () => Promise.resolve(body) }
+            : { ok: true, status: 204, json: () => Promise.resolve({}) }) as Response,
+        ),
+      );
+      try {
+        const user = userEvent.setup();
+        renderWithProviders(<ChangeEmailModal onClose={vi.fn()} />);
+        await user.type(screen.getByLabelText(/nová e-mailová adresa/i), "novy@example.com");
+        await user.type(screen.getByLabelText(/současné heslo/i), "CurrentPass123");
+        await user.click(screen.getByRole("button", { name: /změnit adresu/i }));
+        expect(await screen.findByRole("alert")).toHaveTextContent(czech);
+        expect(untranslatedEnglishIn(document.body)).toEqual([]);
+      } finally {
+        fetchSpy.mockRestore();
+      }
     });
   });
 });

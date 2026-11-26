@@ -42,20 +42,25 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
     setBusy(true);
     const target = newEmail.trim();
     try {
-      await changeEmail(password, target);
+      await changeEmail(password, target, {
+        invalidEmail: t("auth.changeEmail.invalidEmail"),
+        rateLimited: t("auth.changeEmail.rateLimited"),
+        fallback: t("auth.changeEmail.failed"),
+      });
       // The server rotated this device's cookies and cleared email_verified, so
       // the cached profile is now wrong in two ways. Refresh before showing the
       // confirmation, or the banner keeps naming the old address.
       await refreshProfile();
       setDone(target);
     } catch (err) {
-      // Surfaced verbatim, and that stays correct now the UI is translated:
-      // all three of these ("Current password is incorrect", "Email already
-      // registered", "That is already the email address on your account")
-      // are raised as LocalizedHTTPException, so the server already sends them
-      // in the caller's language. Each needs a different response from the
-      // user, so they must not be collapsed into one generic message. Only the
-      // non-Error fallback is a client-side string.
+      // Surfaced verbatim. err.message is a server `detail` or one of the
+      // translated sentences passed in above: invalidEmail on a 422,
+      // rateLimited on a 429, fallback on a network failure or an ended
+      // session, and fallback plus the status code on a body with no detail.
+      // The server's three ("Current password is incorrect", "Email already
+      // registered", "That is already the email address on your account") are
+      // LocalizedHTTPException, and each needs a different response from the
+      // user, so they must not be collapsed into one generic message.
       setError(err instanceof Error ? err.message : t("auth.changeEmail.failed"));
     } finally {
       setBusy(false);
@@ -63,7 +68,14 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell onClose={onClose} ariaLabel={t("auth.changeEmail.title")} zIndex={1200}>
+    // busy: once sent, the change lands whatever the modal does, and it signs
+    // out every other device. Closing mid-request would read as a cancel.
+    <ModalShell
+      onClose={onClose}
+      busy={busy}
+      ariaLabel={t("auth.changeEmail.title")}
+      zIndex={1200}
+    >
       <div style={card}>
         {done ? (
           <>
@@ -127,7 +139,17 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
                 marginTop: "1.25rem",
               }}
             >
-              <button type="button" onClick={onClose} style={secondaryBtn}>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                style={{
+                  ...secondaryBtn,
+                  // The inline colours would otherwise hide that it is disabled.
+                  opacity: busy ? 0.6 : 1,
+                  cursor: busy ? "not-allowed" : "pointer",
+                }}
+              >
                 {t("auth.changeEmail.cancel")}
               </button>
               <button

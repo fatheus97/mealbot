@@ -4,11 +4,14 @@ import {
   createInvite,
   fetchInvites,
   changeEmail,
+  changePassword,
+  deleteAccount,
   fetchUserProfile,
   mergeFridgeItems,
   answerRestockPrompt,
   fetchRestockStatus,
   redeemInvite,
+  resendVerificationEmail,
   revokeInvite,
   scanReceipt,
   updateUserProfile,
@@ -287,13 +290,123 @@ describe('redeemInvite', () => {
   });
 });
 
+/** The /auth/refresh that authFetchWithFreshSession sends first. */
+function mockRefresh(status = 204) {
+  mockFetch(status);
+}
+
+const EMAIL_COPY = { invalidEmail: 'Not an address.', rateLimited: 'Wait.', fallback: 'Email not changed.' };
+
+// Every signed-in /auth/* call that refreshes before it sends. Each row resolves
+// to undefined on a 204, and `fallback` is the copy it throws when it has no
+// server sentence to show.
+const FRESH_SESSION_CALLS = [
+  {
+    name: 'changePassword',
+    endpoint: '/auth/password',
+    fallback: 'Password not changed.',
+    call: () => changePassword('Secret123', 'NewPass123', { rateLimited: 'Wait.', fallback: 'Password not changed.' }),
+  },
+  {
+    name: 'changeEmail',
+    endpoint: '/auth/email',
+    fallback: EMAIL_COPY.fallback,
+    call: () => changeEmail('Secret123', 'new@example.com', EMAIL_COPY),
+  },
+  {
+    name: 'deleteAccount',
+    endpoint: '/auth/delete-account',
+    fallback: 'Account not deleted.',
+    call: () => deleteAccount('Secret123', { rateLimited: 'Wait.', fallback: 'Account not deleted.' }),
+  },
+  {
+    name: 'resendVerificationEmail',
+    endpoint: '/auth/resend-verification',
+    fallback: 'Could not resend the confirmation email.',
+    call: () => resendVerificationEmail(),
+  },
+];
+
+describe.each(FRESH_SESSION_CALLS)('$name with a fresh session', ({ endpoint, fallback, call }) => {
+  const fetchMock = () => globalThis.fetch as ReturnType<typeof vi.fn>;
+  const urls = () => fetchMock().mock.calls.map(([url]) => url);
+  const onLogout = vi.fn();
+  beforeEach(() => {
+    onLogout.mockClear();
+    window.addEventListener('mealbot:logout', onLogout);
+  });
+  afterEach(() => window.removeEventListener('mealbot:logout', onLogout));
+
+  it('waits for the refresh, then sends the CSRF token the refresh issued', async () => {
+    // The real /auth/refresh always sets a NEW mealbot_csrf
+    // (_issue_session_and_set_cookies). Sending before it settles, or reading
+    // the cookie too early, carries the old token into the CSRF check.
+    document.cookie = 'mealbot_csrf=before-refresh; Path=/';
+    let settle: () => void = () => {};
+    fetchMock().mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settle = () => {
+            document.cookie = 'mealbot_csrf=after-refresh; Path=/';
+            resolve({ ok: true, status: 204, json: () => Promise.resolve({}) });
+          };
+        }),
+    );
+    mockFetch(204);
+
+    const pending = call();
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`]);
+    } finally {
+      // A refresh left pending is shared by every later test (single-flight).
+      settle();
+    }
+    await expect(pending).resolves.toBeUndefined();
+    expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}${endpoint}`]);
+    expect(fetchMock().mock.calls[1][1].headers['X-CSRF-Token']).toBe('after-refresh');
+  });
+
+  it('logs out on a session that ended and does not send the request', async () => {
+    // A password change on another device bumps token_version, so refresh
+    // answers 401. Sending anyway earns get_current_user's English "Could not
+    // validate credentials", shown verbatim in a translated modal.
+    mockRefresh(401);
+    await expect(call()).rejects.toThrow(new Error(fallback));
+    expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`]);
+    expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a network error', () => failFetch()],
+    ['a 502 mid-deploy', () => mockFetch(502)],
+  ])('still sends the request when the refresh hits %s, without logging out', async (_, fail) => {
+    // No verdict on the session: the request's own answer is what counts.
+    fail();
+    mockFetch(204);
+    await expect(call()).resolves.toBeUndefined();
+    expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}${endpoint}`]);
+    expect(onLogout).not.toHaveBeenCalled();
+  });
+
+  it("shows the caller's copy, not the browser's English, when the request cannot be sent", async () => {
+    mockRefresh();
+    failFetch();
+    await expect(call()).rejects.toThrow(new Error(fallback));
+  });
+});
+
 describe('changeEmail', () => {
+  beforeEach(() => mockRefresh());
+
   it('posts the address and password to /auth/email', async () => {
     // The wire contract had no coverage at all: a renamed field would have
     // 422'd in production with every test still green.
     mockFetch(204);
-    await expect(changeEmail('Secret123', 'new@example.com')).resolves.toBeUndefined();
-    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    await expect(changeEmail('Secret123', 'new@example.com', EMAIL_COPY)).resolves.toBeUndefined();
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0]).toBe(`${MOCK_BASE}/auth/refresh`);
+    const [url, init] = calls[1];
     expect(String(url)).toContain('/auth/email');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({
@@ -304,33 +417,126 @@ describe('changeEmail', () => {
 
   it('maps a 401 to the backend detail', async () => {
     mockFetch(401, { detail: 'Current password is incorrect' });
-    await expect(changeEmail('wrong', 'new@example.com')).rejects.toThrow(
+    await expect(changeEmail('wrong', 'new@example.com', EMAIL_COPY)).rejects.toThrow(
       /current password is incorrect/i,
     );
   });
 
   it('maps a 409 to an email-taken message', async () => {
     mockFetch(409, { detail: 'Email already registered' });
-    await expect(changeEmail('Secret123', 'taken@example.com')).rejects.toThrow(
+    await expect(changeEmail('Secret123', 'taken@example.com', EMAIL_COPY)).rejects.toThrow(
       /already registered/i,
     );
   });
 
-  it('maps a 422 Pydantic list to a readable message, not a bare status', async () => {
+  it('maps a 422 Pydantic list to the caller copy, not the English msg or a bare status', async () => {
     // EmailStr rejection is a LIST detail, which extractErrorDetail refuses to
-    // render — so without the explicit branch the user saw "(422)".
+    // render, so without the explicit branch the user saw "(422)".
     mockFetch(422, { detail: [{ msg: 'value is not a valid email address' }] });
-    await expect(changeEmail('Secret123', 'not-an-address')).rejects.toThrow(
-      /valid email address/i,
+    await expect(changeEmail('Secret123', 'a@b', EMAIL_COPY)).rejects.toThrow(
+      /^Not an address\.$/,
     );
   });
 
-  it('maps a 429 to a rate-limit message', async () => {
+  it('maps a 429 to the caller copy', async () => {
     // slowapi's envelope has no `detail` key at all.
     mockFetch(429, { error: 'Rate limit exceeded' });
-    await expect(changeEmail('Secret123', 'new@example.com')).rejects.toThrow(
-      /too many attempts/i,
+    await expect(changeEmail('Secret123', 'new@example.com', EMAIL_COPY)).rejects.toThrow(
+      /^Wait\.$/,
     );
+  });
+});
+
+describe('changePassword', () => {
+  const PW_COPY = { rateLimited: 'Wait a minute.', fallback: 'Password not changed.' };
+  const change = (current = 'Secret123') => changePassword(current, 'NewPass123', PW_COPY);
+  const fetchMock = () => globalThis.fetch as ReturnType<typeof vi.fn>;
+  const urls = () => fetchMock().mock.calls.map(([url]) => url);
+
+  it('posts exactly the two fields PasswordChangeRequest takes, with the CSRF header', async () => {
+    // The endpoint is not CSRF-exempt, and a renamed or extra field would 422
+    // in production with every component test still green.
+    document.cookie = 'mealbot_csrf=tok-pw; Path=/';
+    mockRefresh();
+    mockFetch(204);
+    await expect(change()).resolves.toBeUndefined();
+    const [url, init] = fetchMock().mock.calls[1];
+    expect(url).toBe(`${MOCK_BASE}/auth/password`);
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-CSRF-Token']).toBe('tok-pw');
+    expect(JSON.parse(init.body)).toEqual({
+      current_password: 'Secret123',
+      new_password: 'NewPass123',
+    });
+  });
+
+  it('shows a wrong current password verbatim, sends it once, and does not log the user out', async () => {
+    // The session was refreshed up front, so this 401 is the wrong password.
+    // No retry after it: a second request would verify the same wrong
+    // password again and spend a second slot of the 5/minute limit.
+    const onLogout = vi.fn();
+    window.addEventListener('mealbot:logout', onLogout);
+    try {
+      mockRefresh();
+      mockFetch(401, { detail: 'Současné heslo není správné' });
+      await expect(change('Secret124')).rejects.toThrow('Současné heslo není správné');
+      expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}/auth/password`]);
+      expect(onLogout).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('mealbot:logout', onLogout);
+    }
+  });
+
+  it('shows the same-as-current 400 verbatim', async () => {
+    mockRefresh();
+    mockFetch(400, { detail: 'New password must be different from the current password' });
+    await expect(change()).rejects.toThrow(/must be different/);
+  });
+
+  it('maps a 429 to the caller copy', async () => {
+    mockRefresh();
+    mockFetch(429, { error: 'Rate limit exceeded' });
+    await expect(change()).rejects.toThrow(/^Wait a minute\.$/);
+  });
+
+  it('never renders a Pydantic 422 list', async () => {
+    mockRefresh();
+    mockFetch(422, { detail: [{ msg: 'Value error, Password must contain at least one digit' }] });
+    await expect(change()).rejects.toThrow('Password not changed. (422)');
+  });
+
+  it('shows the caller copy, not the browser\'s English, when the refresh is unreachable and the request then fails too', async () => {
+    // Offline: the refresh fails first (and is swallowed), then the request.
+    failFetch();
+    failFetch();
+    await expect(change()).rejects.toThrow(/^Password not changed\.$/);
+  });
+});
+
+describe('deleteAccount', () => {
+  const DEL_COPY = { rateLimited: 'Wait a minute.', fallback: 'Account not deleted.' };
+
+  it('refreshes the session first, then posts the current password', async () => {
+    // Same dead end as changePassword: an access cookie that expired on the
+    // confirmation screen answered "Not authenticated" to every retry.
+    mockRefresh();
+    mockFetch(204);
+    await expect(deleteAccount('Secret123', DEL_COPY)).resolves.toBeUndefined();
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.map(([url]) => url)).toEqual([
+      `${MOCK_BASE}/auth/refresh`,
+      `${MOCK_BASE}/auth/delete-account`,
+    ]);
+    expect(JSON.parse(calls[1][1].body)).toEqual({ current_password: 'Secret123' });
+  });
+
+  it('shows a wrong current password verbatim without a second attempt', async () => {
+    mockRefresh();
+    mockFetch(401, { detail: 'Current password is incorrect' });
+    await expect(deleteAccount('Secret124', DEL_COPY)).rejects.toThrow(
+      'Current password is incorrect',
+    );
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 });
 

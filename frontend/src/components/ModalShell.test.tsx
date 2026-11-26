@@ -64,6 +64,27 @@ describe("ModalShell", () => {
     expect(onCloseOptOut).not.toHaveBeenCalled();
   });
 
+  it("ignores Escape and a backdrop click while busy, and closes again once it is not", async () => {
+    // For requests that cannot be called back: closing mid-request would read
+    // as a cancel of a change that still lands.
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const shell = (busy: boolean) => (
+      <ModalShell onClose={onClose} ariaLabel="Busy" busy={busy}>
+        <div>x</div>
+      </ModalShell>
+    );
+    const { rerender } = render(shell(true));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog", { name: "Busy" }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    rerender(shell(false));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog", { name: "Busy" }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
   it("locks body scroll while open and restores it on unmount (default)", () => {
     document.body.style.overflow = "auto";
     const { unmount } = render(

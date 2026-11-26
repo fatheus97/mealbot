@@ -19,6 +19,7 @@ vi.mock('../api', () => ({
   updateUserProfile: vi.fn(),
   downloadMyData: vi.fn(),
   deleteAccount: vi.fn(),
+  changePassword: vi.fn(),
   fetchHousehold: vi.fn(),
   createHouseholdInvite: vi.fn(),
   revokeHouseholdInvite: vi.fn(),
@@ -520,6 +521,18 @@ describe('SettingsPopup — account email section', () => {
     expect(
       screen.queryByRole('button', { name: 'What changing your email does' }),
     ).not.toBeInTheDocument();
+    // A demo password is random and server-side, so the form could only fail.
+    expect(screen.queryByRole('button', { name: 'Change password' })).not.toBeInTheDocument();
+  });
+
+  it('opens the change-password form', async () => {
+    const user = userEvent.setup();
+    loginUser();
+    mockedFetchProfile.mockResolvedValue(mockProfile);
+    render(<SettingsPopup onClose={vi.fn()} />, { wrapper: createWrapper() });
+
+    await user.click(await screen.findByRole('button', { name: 'Change password' }));
+    expect(await screen.findByLabelText(/confirm new password/i)).toBeInTheDocument();
   });
 });
 
