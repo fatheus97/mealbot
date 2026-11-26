@@ -71,11 +71,16 @@ export function ModalShell({
   const isMobile = useIsMobile();
   const fullScreen = isMobile && mobileFullScreen;
 
-  // ponytail: busy has no client timeout, so a stalled request keeps the modal
-  // open until nginx's proxy_read_timeout (120 s, frontend/nginx.conf) answers,
-  // and a network blackhole holds it indefinitely. Aborting instead would
-  // report failure for a change that may already have landed. Upgrade path: a
-  // timeout that re-reads the profile (GET /users) and reports what happened.
+  // ponytail: busy has no client timeout, and in prod nothing upstream has one
+  // either. /api/* goes Caddy straight to the backend (Caddyfile:31-32, `handle
+  // /api/*` -> `reverse_proxy backend:8000`, no response timeout), and uvicorn
+  // has no request timeout (backend/Dockerfile CMD), so a hung backend keeps
+  // the busy modal open until the user reloads. nginx's proxy_read_timeout
+  // (120 s, frontend/nginx.conf) only caps it in the bare docker-compose.yml
+  // setup, where nginx proxies /api/ and there is no Caddy. No client abort on
+  // purpose: aborting a request that may already have landed would report
+  // failure for a change that happened. Upgrade path: after N seconds, re-read
+  // the profile (GET /users) and report what actually happened.
   useEffect(() => {
     if (!closeOnEscape || busy) return;
     const onKey = (e: KeyboardEvent) => {

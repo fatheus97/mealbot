@@ -746,13 +746,13 @@ export async function resendVerificationEmail(): Promise<void> {
  * Errors are surfaced verbatim through extractErrorDetail because every one of
  * them is something the user must act on differently — 401 wrong password, 409
  * address already registered, 400 that is already your address — and a generic
- * "couldn't change it" would leave them guessing which. `fallback` (already
- * translated) covers the failures that carry no `detail` at all.
+ * "couldn't change it" would leave them guessing which. `copy` (already
+ * translated) covers the failures that carry no usable `detail`.
  */
 export async function changeEmail(
   currentPassword: string,
   newEmail: string,
-  fallback: string,
+  copy: RequestCopy & { invalidEmail: string },
 ): Promise<void> {
   const res = await authFetchWithFreshSession(
     "/auth/email",
@@ -760,34 +760,36 @@ export async function changeEmail(
       method: "POST",
       body: JSON.stringify({ current_password: currentPassword, new_email: newEmail }),
     },
-    fallback,
+    copy.fallback,
   );
   if (res.ok) return;
-  // Two statuses carry no usable `detail` and would otherwise reach the user as
-  // a bare code. 422 is Pydantic's EmailStr rejection — a LIST detail, which
-  // extractErrorDetail deliberately will not render — and 429 is slowapi's own
-  // envelope, which has no `detail` key at all. Both are the user's to act on,
-  // so they get the same treatment requestPasswordReset already gives them.
-  if (res.status === 422) throw new Error("Please enter a valid email address.");
-  if (res.status === 429) {
-    throw new Error("Too many attempts. Please wait a minute and try again.");
-  }
-  throw new Error(await extractErrorDetail(res, fallback));
+  // 422 is Pydantic's EmailStr rejection, a LIST detail that extractErrorDetail
+  // deliberately will not render. The browser's type="email" check lets through
+  // addresses EmailStr refuses ("a@b"), so it is reachable, and the user can fix it.
+  if (res.status === 422) throw new Error(copy.invalidEmail);
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
 }
 
 /**
- * The two sentences these calls may have to invent, passed in ALREADY
- * TRANSLATED by the component.
+ * The sentences these calls may have to invent, passed in ALREADY TRANSLATED
+ * by the component.
  *
  * `api.ts` runs outside React and cannot call `t()`, so any English literal in
- * here is English forever — `changeEmail` above has two, which is the bug this
- * shape avoids rather than the precedent it follows. Everything else the user
- * sees on these paths is a server `detail`, which the backend already localises.
+ * here is English forever: older calls in this file still carry some
+ * (requestPasswordReset, redeemInvite), which is the bug this shape avoids
+ * rather than the precedent it follows. Everything else the user sees on these paths is a server `detail`,
+ * which the backend already localises.
  */
 export interface RequestCopy {
   /** Shown on 429 — slowapi's envelope carries no `detail` to render. */
   rateLimited: string;
-  /** Shown when the response body carries no usable `detail` at all. */
+  /**
+   * Shown when there is no server sentence to show: the response carries no
+   * usable `detail` (non-JSON body, a Pydantic list), the request never got a
+   * Response (network failure), or, for the authFetchWithFreshSession calls,
+   * the refresh found the session ended and the request was not sent.
+   */
   fallback: string;
 }
 

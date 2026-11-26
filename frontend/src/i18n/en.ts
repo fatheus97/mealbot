@@ -148,6 +148,8 @@ export const en = {
     "any other devices have been signed out.",
   "auth.changeEmail.done": "Done",
   "auth.changeEmail.failed": "Could not change your email address.",
+  "auth.changeEmail.invalidEmail": "Please enter a valid email address.",
+  "auth.changeEmail.rateLimited": "Too many attempts. Please wait a minute and try again.",
 
   // ─── Change password ──────────────────────────────────────────────────────
   // The server keeps THIS device signed in (a fresh session) and revokes the

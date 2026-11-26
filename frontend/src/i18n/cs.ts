@@ -129,6 +129,8 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
     "novou adresou a na ostatních zařízeních jsme vás odhlásili.",
   "auth.changeEmail.done": "Hotovo",
   "auth.changeEmail.failed": "E-mailovou adresu se nepodařilo změnit.",
+  "auth.changeEmail.invalidEmail": "Zadejte prosím platnou e-mailovou adresu.",
+  "auth.changeEmail.rateLimited": "Příliš mnoho pokusů. Počkejte prosím minutu a zkuste to znovu.",
 
   "auth.changePassword.title": "Změna hesla",
   "auth.changePassword.body":

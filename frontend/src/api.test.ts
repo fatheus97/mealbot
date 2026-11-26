@@ -295,7 +295,7 @@ function mockRefresh(status = 204) {
   mockFetch(status);
 }
 
-const EMAIL_FALLBACK = 'Email not changed.';
+const EMAIL_COPY = { invalidEmail: 'Not an address.', rateLimited: 'Wait.', fallback: 'Email not changed.' };
 
 // Every signed-in /auth/* call that refreshes before it sends. Each row resolves
 // to undefined on a 204, and `fallback` is the copy it throws when it has no
@@ -310,8 +310,8 @@ const FRESH_SESSION_CALLS = [
   {
     name: 'changeEmail',
     endpoint: '/auth/email',
-    fallback: EMAIL_FALLBACK,
-    call: () => changeEmail('Secret123', 'new@example.com', EMAIL_FALLBACK),
+    fallback: EMAIL_COPY.fallback,
+    call: () => changeEmail('Secret123', 'new@example.com', EMAIL_COPY),
   },
   {
     name: 'deleteAccount',
@@ -403,7 +403,7 @@ describe('changeEmail', () => {
     // The wire contract had no coverage at all: a renamed field would have
     // 422'd in production with every test still green.
     mockFetch(204);
-    await expect(changeEmail('Secret123', 'new@example.com', EMAIL_FALLBACK)).resolves.toBeUndefined();
+    await expect(changeEmail('Secret123', 'new@example.com', EMAIL_COPY)).resolves.toBeUndefined();
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe(`${MOCK_BASE}/auth/refresh`);
     const [url, init] = calls[1];
@@ -417,32 +417,32 @@ describe('changeEmail', () => {
 
   it('maps a 401 to the backend detail', async () => {
     mockFetch(401, { detail: 'Current password is incorrect' });
-    await expect(changeEmail('wrong', 'new@example.com', EMAIL_FALLBACK)).rejects.toThrow(
+    await expect(changeEmail('wrong', 'new@example.com', EMAIL_COPY)).rejects.toThrow(
       /current password is incorrect/i,
     );
   });
 
   it('maps a 409 to an email-taken message', async () => {
     mockFetch(409, { detail: 'Email already registered' });
-    await expect(changeEmail('Secret123', 'taken@example.com', EMAIL_FALLBACK)).rejects.toThrow(
+    await expect(changeEmail('Secret123', 'taken@example.com', EMAIL_COPY)).rejects.toThrow(
       /already registered/i,
     );
   });
 
-  it('maps a 422 Pydantic list to a readable message, not a bare status', async () => {
+  it('maps a 422 Pydantic list to the caller copy, not the English msg or a bare status', async () => {
     // EmailStr rejection is a LIST detail, which extractErrorDetail refuses to
-    // render — so without the explicit branch the user saw "(422)".
+    // render, so without the explicit branch the user saw "(422)".
     mockFetch(422, { detail: [{ msg: 'value is not a valid email address' }] });
-    await expect(changeEmail('Secret123', 'not-an-address', EMAIL_FALLBACK)).rejects.toThrow(
-      /valid email address/i,
+    await expect(changeEmail('Secret123', 'a@b', EMAIL_COPY)).rejects.toThrow(
+      /^Not an address\.$/,
     );
   });
 
-  it('maps a 429 to a rate-limit message', async () => {
+  it('maps a 429 to the caller copy', async () => {
     // slowapi's envelope has no `detail` key at all.
     mockFetch(429, { error: 'Rate limit exceeded' });
-    await expect(changeEmail('Secret123', 'new@example.com', EMAIL_FALLBACK)).rejects.toThrow(
-      /too many attempts/i,
+    await expect(changeEmail('Secret123', 'new@example.com', EMAIL_COPY)).rejects.toThrow(
+      /^Wait\.$/,
     );
   });
 });
@@ -452,15 +452,6 @@ describe('changePassword', () => {
   const change = (current = 'Secret123') => changePassword(current, 'NewPass123', PW_COPY);
   const fetchMock = () => globalThis.fetch as ReturnType<typeof vi.fn>;
   const urls = () => fetchMock().mock.calls.map(([url]) => url);
-
-  it('refreshes the session first, so an access cookie that expired while typing is not a dead end', async () => {
-    // authFetch never refreshes on a 401 from /auth/*. Without this the server
-    // answered "Not authenticated" to a signed-in user on every resubmit.
-    mockRefresh();
-    mockFetch(204);
-    await expect(change()).resolves.toBeUndefined();
-    expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}/auth/password`]);
-  });
 
   it('posts exactly the two fields PasswordChangeRequest takes, with the CSRF header', async () => {
     // The endpoint is not CSRF-exempt, and a renamed or extra field would 422
@@ -514,7 +505,7 @@ describe('changePassword', () => {
     await expect(change()).rejects.toThrow('Password not changed. (422)');
   });
 
-  it('a network failure shows the caller copy, not the browser\'s English', async () => {
+  it('shows the caller copy, not the browser\'s English, when the refresh is unreachable and the request then fails too', async () => {
     // Offline: the refresh fails first (and is swallowed), then the request.
     failFetch();
     failFetch();
