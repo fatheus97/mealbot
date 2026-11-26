@@ -864,6 +864,20 @@ jobs:
           want_fail "enabled but unconfigured" "enabled with no destination" \
             OFFSITE_BACKUP_ENABLED=true
 
+          # The privacy policy promises a deleted account is out of every
+          # backup within 14 days; a longer off-site retention must refuse
+          # before anything is uploaded. The default (13) passing is proven by
+          # the fresh-dump case at the end, which runs with it.
+          want_fail "past the privacy policy" "a 90-day retention breaks the 14-day promise" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com OFFSITE_RETENTION_DAYS=90
+          want_fail "past the privacy policy" "14 is one day too many" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com OFFSITE_RETENTION_DAYS=14
+          want_fail "past the privacy policy" "a retention that is not a number" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com OFFSITE_RETENTION_DAYS=two
+
           want_fail "no completed dump" "nothing to upload" \
             OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
             OFFSITE_GPG_RECIPIENT=nobody@example.com BACKUP_DIR="$empty"
