@@ -10,6 +10,7 @@ allergen), because a model that only behaves on easy requests is not safe.
 """
 
 from dataclasses import dataclass, field
+from itertools import product
 
 from app.core.dietary import Allergen, DietType
 from app.models.plan_models import MealPlanRequest, StockItemDTO
@@ -29,6 +30,85 @@ def stock(name: str, grams: float, *, urgent: bool = False) -> StockItemDTO:
 
 A = Allergen
 D = DietType
+
+# ── Odd pairings (ticket #7: "rizoto s párkem a eidamem") ──────────────────
+# No grader reads these yet: nothing deterministic can tell an odd dish from a
+# good one. They exist so a judge checked against the owner's own labels can
+# count odd meals per cell, and so a prompt change is measured on the same
+# requests. A full factorial over the suspected causes, on Czech plans:
+#   fridge   mixed (everyday leftovers that do not cook together), the same
+#            with the cold cuts urgent, or a coherent fridge as the control;
+#            párky sit in all three so every chip is in its fridge, which
+#            leaves them in reach in the coherent cells without a chip too:
+#            that control is not párky-free;
+#   chip     none, or "párky" as a "use up" chip, which production copies into
+#            every day of a plan (plan_service.generate_plan_days copies the
+#            payload per day);
+#   day      day 1, or day 5 with the plan's first four days already eaten
+#            (production's past_meals is exactly that list);
+#   country  Czech Republic, or none (the prompt's local-dish lines need one).
+# Six Slovak cases repeat the three fridges at day 1 and at day 5 with the chip.
+
+_MIXED = {
+    "cs": {"párky": 400, "eidam": 300, "šunka": 200, "bílý jogurt": 300, "kysaná smetana": 200, "kečup": 300,
+           "hořčice": 200, "rýže": 1000, "těstoviny": 500, "brambory": 1500, "cibule": 400, "vejce": 600,
+           "máslo": 250, "mléko": 1000},
+    "sk": {"párky": 400, "eidam": 300, "šunka": 200, "biely jogurt": 300, "kyslá smotana": 200, "kečup": 300,
+           "horčica": 200, "ryža": 1000, "cestoviny": 500, "zemiaky": 1500, "cibuľa": 400, "vajcia": 600,
+           "maslo": 250, "mlieko": 1000},
+}
+_COHERENT = {
+    "cs": {"párky": 400, "kuřecí prsa": 600, "brambory": 1500, "cibule": 400, "červená paprika": 300,
+           "smetana na vaření": 250, "rajčata": 500, "mrkev": 400, "vejce": 600, "máslo": 250, "rýže": 1000},
+    "sk": {"párky": 400, "kuracie prsia": 600, "zemiaky": 1500, "cibuľa": 400, "červená paprika": 300,
+           "smotana na varenie": 250, "paradajky": 500, "mrkva": 400, "vajcia": 600, "maslo": 250, "ryža": 1000},
+}
+_COLD_CUTS = frozenset({"párky", "eidam", "šunka"})
+_FRIDGES = {"mixed": (_MIXED, frozenset()), "mixed-urgent": (_MIXED, _COLD_CUTS), "coherent": (_COHERENT, frozenset())}
+_CHIP = "párky"
+# Four days of three meals. With the chip on, earlier days already built meals
+# around it, as production's chip does.
+_PAST = {
+    ("cs", False): ["Míchaná vejce s pažitkou", "Kulajda", "Kuřecí řízek s bramborovým salátem",
+                    "Jogurt s ovesnými vločkami", "Čočková polévka", "Svíčková na smetaně s knedlíkem",
+                    "Chléb s máslem a šunkou", "Bramboráky", "Rajská omáčka s těstovinami",
+                    "Palačinky s tvarohem", "Bramboračka", "Vepřo knedlo zelo"],
+    ("cs", True): ["Míchaná vejce s pažitkou", "Párky s bramborovou kaší", "Kuřecí řízek s bramborovým salátem",
+                   "Jogurt s ovesnými vločkami", "Buřtguláš s chlebem", "Svíčková na smetaně s knedlíkem",
+                   "Chléb s máslem a šunkou", "Párek v rohlíku", "Rajská omáčka s těstovinami",
+                   "Palačinky s tvarohem", "Bramboračka", "Zapečené těstoviny s párky"],
+    ("sk", True): ["Praženica s pažítkou", "Párky so zemiakovou kašou", "Kurací rezeň so zemiakovým šalátom",
+                   "Jogurt s ovsenými vločkami", "Párkový guláš s chlebom", "Sviečková na smotane s knedľou",
+                   "Chlieb s maslom a šunkou", "Párok v rožku", "Paradajková omáčka s cestovinami",
+                   "Palacinky s tvarohom", "Kapustnica", "Zapekané cestoviny s párkami"],
+}
+_LOCALE = {"cs": ("Czech", "Czech Republic"), "sk": ("Slovak", "Slovakia")}
+
+
+def _pairing(lang: str, fridge: str, *, chip: bool, day: int, country: bool) -> EvalCase:
+    table, urgent = _FRIDGES[fridge]
+    language, country_name = _LOCALE[lang]
+    cell = f"{fridge}-{'chip' if chip else 'nochip'}-day{day}" + ("" if lang == "sk" else "-cz" if country else "-nocountry")
+    return EvalCase(
+        f"pairing-{lang}-{cell}",
+        f"Odd-pairing probe, {language}: {fridge} fridge, {'a párky chip' if chip else 'no chip'}, day {day}, "
+        f"{'country set' if country else 'no country'}.",
+        MealPlanRequest(
+            language=language, country=country_name if country else None,
+            stock_items=[stock(name, grams, urgent=name in urgent) for name, grams in table[lang].items()],
+            ingredients_to_use=[_CHIP] if chip else [],
+            past_meals=_PAST[(lang, chip)] if day == 5 else [],
+        ),
+        ("pairing", "language"),
+    )
+
+
+PAIRING_CASES: tuple[EvalCase, ...] = tuple(
+    [_pairing("cs", f, chip=chip, day=day, country=country)
+     for f, chip, day, country in product(_FRIDGES, (False, True), (1, 5), (True, False))]
+    + [_pairing("sk", f, chip=chip, day=day, country=True)
+       for f in _FRIDGES for chip, day in ((False, 1), (True, 5))]
+)
 
 CASES: tuple[EvalCase, ...] = (
     # ── Allergens, English ──────────────────────────────────────────────────
@@ -136,4 +216,4 @@ CASES: tuple[EvalCase, ...] = (
              MealPlanRequest(variability="experimental", taste_preferences=["spicy", "fusion"]), ("shape",)),
     EvalCase("shape-czech-default", "A plain Czech plan, no constraints.",
              MealPlanRequest(language="Czech", country="Czech Republic"), ("shape", "language")),
-)
+) + PAIRING_CASES
