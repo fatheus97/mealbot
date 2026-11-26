@@ -584,7 +584,7 @@ export const en = {
   "planner.titleGenerated": "Your Generated Plan",
   "planner.badgeFinished": "Finished",
 
-  "planner.regenerate": "Regenerate Unfrozen",
+  "planner.regenerate": "Regenerate Unlocked",
   "planner.regenerating": "Regenerating...",
   "planner.confirm": "Confirm Plan",
   "planner.confirming": "Confirming...",
@@ -596,9 +596,12 @@ export const en = {
   "planner.reopen": "Reopen",
   "planner.reopening": "Reopening...",
   "planner.reopenTitle": "Re-debit ingredients for uncooked meals and return to the active plan",
-  "planner.regenerateHintLabel": "About freezing and regenerating",
+  "planner.regenerateHintLabel": "About locking and regenerating",
   "planner.regenerateHint":
-    "Freeze the meals you want to keep and Regenerate Unfrozen appears. It redoes the rest with this plan's original choices, not the form above.",
+    "Lock the meals you want to keep and Regenerate Unlocked appears. It redoes the rest with this plan's original choices, not the form above.",
+  "planner.frozenCount_one": "1 meal locked.",
+  "planner.frozenCount_other": "{count} meals locked.",
+  "planner.unfrozenRegenerated": "Unlocked meals will be regenerated.",
   "planner.confirmHintLabel": "About confirming",
   "planner.confirmHint":
     "Saves the plan to My Plans and takes the ingredients you already have, except spices, out of your fridge right away.",
@@ -627,11 +630,13 @@ export const en = {
     "The AI is asked to leave these out, but nothing checks the recipe afterwards. For allergies, use the allergy chips above instead.",
 
   // ─── Meal card ────────────────────────────────────────────────────────────
-  "meal.freeze": "Freeze",
-  "meal.frozen": "Frozen",
+  // Keys say "freeze" for the code's frozen_meals; the copy says Lock, because
+  // food storage copy tells people to put food in the freezer.
+  "meal.freeze": "Lock",
+  "meal.frozen": "Locked",
   "meal.cook": "Cook",
-  "meal.freezeTitle": "Freeze this meal",
-  "meal.unfreezeTitle": "Unfreeze this meal",
+  "meal.freezeTitle": "Lock this meal",
+  "meal.unfreezeTitle": "Unlock this meal",
   "meal.cooked": "Cooked",
   "meal.notCooked": "Not cooked",
   "meal.markCooked": "Mark as cooked",

@@ -114,7 +114,7 @@ Matching: a manual add looks the name up exactly (normalised) in the index for t
 - An estimate never appears under the statutory label words („Spotřebujte do“, „Minimální trvanlivost do“, "Use by"). Estimates use „Datum“, „Odhad“ or „Datum na obalu“.
 - The source sits on the same line as the number, and a foreign authority is named as one ("podle USDA (USA)", "podle UK FSA").
 - Czech text is translated from SZÚ or the original authority, not copied from portal articles, and goes through humanizer-cs.
-- In the English UI "Freeze" already means locking a meal (en.ts:630; cs says „Zamknout“). Copy about freezing food says "put it in the freezer", and renaming the lock to "Lock" in English is a cheap follow-up.
+- The English UI called the meal lock "Freeze" until fix/meal-lock-label renamed the copy to Lock / Locked / Unlock (cs already said „Zamknout“). The i18n keys and the code still say freeze (`meal.freeze`, `frozen_meals`). Copy about freezing food says "put it in the freezer", and no plan control uses the word.
 
 ## Legal and privacy
 

@@ -168,9 +168,9 @@ export function MealCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-        {/* Freezing is hidden on a leftover: the server freezes a link group
-            atomically (source + its leftovers together), so a per-meal toggle
-            here would imply control the user doesn't have. Freeze the source
+        {/* The Lock toggle is hidden on a leftover: the server freezes a link
+            group atomically (source + its leftovers together), so a per-meal
+            toggle here would imply control the user doesn't have. Lock the source
             instead and the leftover follows. */}
         {!isConfirmed && !isLeftover && (
           <button
