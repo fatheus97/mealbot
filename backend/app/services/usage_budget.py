@@ -18,6 +18,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.error_copy import ERROR_COPY, ErrorKey
+from app.core.i18n import Locale, format_date, format_eur, render
 from app.models.db_models import User
 from app.models.usage_schemas import BudgetStatus
 from app.services import llm_cost
@@ -148,8 +150,14 @@ def is_over_budget(status: BudgetStatus) -> bool:
     return status.cap_eur is not None and status.used_eur >= status.cap_eur
 
 
-def cap_reached_message(status: BudgetStatus) -> str:
-    """The sentence a capped user actually reads.
+def _sentence(locale: Locale, key: ErrorKey, **values: str) -> str:
+    # Typed as ErrorKey so mypy rejects a misspelled key here, which indexing
+    # ERROR_COPY's plain dict[str, str] directly would not.
+    return render(ERROR_COPY[locale][key], **values)
+
+
+def cap_reached_message(status: BudgetStatus, locale: Locale) -> str:
+    """The sentences a capped user actually reads, in ``locale``.
 
     Lives here, not in the API layer, because the honest wording depends on tier
     semantics only this module knows: for TIER_PAID ``reset_at`` is the start of
@@ -162,26 +170,22 @@ def cap_reached_message(status: BudgetStatus) -> str:
     Both caps are configurable, so "you'll get more room" is only true under the
     current settings, and a message that stops being true after an env change is
     worse than one that never claimed it.
+
+    The copy lives in ``error_copy`` (one key per sentence) and is rendered here
+    rather than by the ``LocalizedHTTPException`` handler, because this 429's
+    detail is an object with machine-readable fields and a ``Retry-After``
+    header; see the note at the end of ``app/core/errors.py``.
     """
     # Callers reach this only via is_over_budget, which is False for a null cap.
     cap = status.cap_eur if status.cap_eur is not None else status.used_eur
-    when = f"{status.reset_at.day} {status.reset_at:%B %Y}"
+    amount = format_eur(locale, cap)
+    when = format_date(locale, status.reset_at)
     if status.tier == TIER_TRIAL:
-        limit = (
-            f"You have used the €{cap:.2f} of AI generation included in your free "
-            f"trial, which runs until {when}."
-        )
+        sentences = [_sentence(locale, "usage_cap_trial_used", amount=amount, date=when)]
     else:
-        limit = (
-            f"You have used your €{cap:.2f} of AI generation for this month. "
-            f"Your allowance resets on {when}."
-        )
-    # Retrying is the natural instinct and the one thing that cannot work — say so,
-    # and say what still does, or this reads as an outage. The list is every route
-    # that depends on require_generation_budget: plan create, plan regenerate,
-    # single recipe, and receipt scan. Naming only two of the four would send a
-    # user to the scanner to find it dead as well.
-    return (
-        f"{limit} New plans, recipes and receipt scanning are paused until then; "
-        "everything you have already saved is unaffected."
-    )
+        sentences = [
+            _sentence(locale, "usage_cap_paid_used", amount=amount),
+            _sentence(locale, "usage_cap_paid_resets", date=when),
+        ]
+    sentences.append(_sentence(locale, "usage_cap_paused"))
+    return " ".join(sentences)

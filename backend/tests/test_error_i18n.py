@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import get_args
 
 import pytest
@@ -23,7 +23,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.email_normalize import normalize_email
 from app.core.error_copy import ERROR_COPY, ErrorKey, PluralErrorKey
 from app.core.errors import LocalizedHTTPException
-from app.core.i18n import UI_LOCALES, Locale, locale_from_accept_language, plural_category
+from app.core.i18n import (
+    UI_LOCALES,
+    Locale,
+    format_date,
+    format_eur,
+    locale_from_accept_language,
+    plural_category,
+)
 from app.core.security import get_password_hash
 from app.models.db_models import User
 from tests.conftest import TEST_PASSWORD
@@ -294,6 +301,47 @@ def _holes_removed(text: str) -> str:
     reduce to `"Too many items (); maximum is ."`.
     """
     return " ".join(re.sub(r"\$\{?[a-z_]+\}?", "", text).split())
+
+
+# ─── Dates and amounts ──────────────────────────────────────────────────────
+
+_CS_GENITIVE = (
+    "ledna", "února", "března", "dubna", "května", "června",
+    "července", "srpna", "září", "října", "listopadu", "prosince",
+)
+
+
+@pytest.mark.parametrize("month", range(1, 13))
+def test_czech_date_uses_the_genitive_month(month: int) -> None:
+    assert format_date("cs", date(2026, month, 1)) == f"1. {_CS_GENITIVE[month - 1]} 2026"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (date(2026, 1, 1), "1 January 2026"),
+        (date(2026, 9, 1), "1 September 2026"),
+        (date(2027, 12, 31), "31 December 2027"),
+    ],
+)
+def test_english_date(value: date, expected: str) -> None:
+    assert format_date("en", value) == expected
+
+
+@pytest.mark.parametrize(
+    ("locale_", "amount", "expected"),
+    [
+        ("en", 2.0, "€2.00"),
+        ("en", 0.75, "€0.75"),
+        ("en", 0.0, "€0.00"),
+        # Decimal comma, symbol after, and a NO-BREAK space between them.
+        ("cs", 2.0, "2,00 €"),
+        ("cs", 0.75, "0,75 €"),
+        ("cs", 12.5, "12,50 €"),
+    ],
+)
+def test_format_eur(locale_: Locale, amount: float, expected: str) -> None:
+    assert format_eur(locale_, amount) == expected
 
 
 # ─── Accept-Language parsing ────────────────────────────────────────────────

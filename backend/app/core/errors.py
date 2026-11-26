@@ -37,12 +37,15 @@ clause, so "N cookbook recipe(s)" cannot be assembled by picking an ending —
 1 recept / 2 recepty / 5 receptů, and the verb phrase after it shifts too. This
 is the same one-key-per-sentence rule the frontend dictionaries follow.
 
-─── Still not here ─────────────────────────────────────────────────────────────
-No ``headers`` and no machine-readable ``extra`` dict. The usage-cap 429 in
-``deps.py`` is the only raise that wants either — it sets ``Retry-After`` and
-returns the object-``detail`` shape ``extractErrorDetail`` understands — and it
-keeps its plain ``HTTPException`` until someone migrates it and can test what
-they added.
+─── The one localized raise that skips this handler ────────────────────────────
+No ``headers`` and no machine-readable ``extra`` dict here. The usage-cap 429 in
+``deps.py`` is the only raise that wants either: it sets ``Retry-After`` and
+returns the object-``detail`` shape ``extractErrorDetail`` understands, and its
+date and amount are formatted per locale, which ``**params: str`` cannot carry.
+So it stays a plain ``HTTPException``, takes the ``Request`` (a dependency can,
+at no cost to any signature), and renders ``error_copy`` keys itself with
+``resolve_locale`` below, the same precedence this handler uses. Grow this class
+when a SECOND raise needs those things, not for one.
 """
 
 from __future__ import annotations
