@@ -966,6 +966,9 @@ export const en = {
   "fridgeItem.dateKindNone": "No",
   "fridgeItem.dateKindUseBy": "Yes, Use by",
   "fridgeItem.dateKindBestBefore": "Yes, Best before",
+  // Under the date of an add once Use by or Best before is picked and the
+  // field is empty: a picked pack kind takes the table's suggestion away.
+  "fridgeItem.typePackDate": "Type the date printed on the pack.",
   "fridgeItem.needToUse": "Need to use",
   "fridgeItem.ok": "OK",
   "fridgeItem.cancel": "Cancel",

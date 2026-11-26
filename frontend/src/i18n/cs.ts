@@ -888,6 +888,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "fridgeItem.dateKindNone": "Ne",
   "fridgeItem.dateKindUseBy": "Ano, Spotřebujte do",
   "fridgeItem.dateKindBestBefore": "Ano, Minimální trvanlivost do",
+  "fridgeItem.typePackDate": "Zadejte datum vytištěné na obalu.",
   "fridgeItem.needToUse": "Spotřebovat brzy",
   "fridgeItem.ok": "OK",
   "fridgeItem.cancel": "Zrušit",

@@ -182,10 +182,12 @@ export function FridgeItemModal({ mode, initialValues, onOk, onCancel, needToUse
             />
           </label>
           {/* The source line, on an add only. Its two lines are reserved, so
-              the buttons do not jump when the lookup answers. */}
+              the buttons do not jump when the lookup answers. Under a pack
+              kind it says why the field is empty: the suggestion went with
+              the pick (design check 2), and the pack's own date belongs there. */}
           {mode === "add" && (
             <span style={{ minHeight: "2.6em", marginTop: "-0.5rem", fontSize: "0.8rem", color: "#4b5563" }}>
-              {keeps && keepsLine(keeps)}
+              {keeps ? keepsLine(keeps) : packKind !== "" && !shownDate ? t("fridgeItem.typePackDate") : null}
             </span>
           )}
 

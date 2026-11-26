@@ -390,6 +390,8 @@ describe("FridgeItemModal table suggestion", () => {
     await user.selectOptions(picker(), kind);
     expect(dateInput(container)).toHaveValue("");
     expect(screen.queryByText(/USDA FoodKeeper/)).not.toBeInTheDocument();
+    // The emptied field says why, and what goes in it.
+    expect(screen.getByText("Type the date printed on the pack.")).toBeInTheDocument();
     await user.click(ok());
     // A table date never stands under a pack kind: no date, so no kind.
     expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ expiration_date: null, date_kind: null }));
@@ -399,6 +401,8 @@ describe("FridgeItemModal table suggestion", () => {
     const { onOk, user, container } = await addWithSuggestion();
     await user.selectOptions(picker(), "use_by");
     fireEvent.change(dateInput(container), { target: { value: "2027-01-02" } });
+    // The date is there now, so the line asking for it goes.
+    expect(screen.queryByText("Type the date printed on the pack.")).not.toBeInTheDocument();
     await user.click(ok());
     expect(onOk).toHaveBeenCalledWith(expect.objectContaining({ expiration_date: "2027-01-02", date_kind: "use_by" }));
   });
