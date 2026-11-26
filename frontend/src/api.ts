@@ -169,6 +169,27 @@ export async function authFetch(
   return response;
 }
 
+/**
+ * authFetch for the /auth/* endpoints that re-check the current password
+ * (change password, change email, delete account).
+ *
+ * authFetch never refreshes on a 401 from /auth/*, so an access cookie that
+ * expired while the user was typing came back as "Not authenticated" on every
+ * resubmit. Refreshing on that 401 and retrying is not an option: the client
+ * cannot tell it from a wrong current password, and retrying THAT verifies it
+ * twice against the endpoint's 5/minute limit. So the session is refreshed
+ * BEFORE the request: the access cookie is then fresh, and the only 401 left
+ * is the one the user can fix. A failed refresh is not handled here; the
+ * request still goes out and the server's answer is what the caller shows.
+ */
+async function authFetchWithFreshSession(
+  endpoint: string,
+  options: RequestInit,
+): Promise<Response> {
+  await refreshAccessToken();
+  return authFetch(endpoint, options);
+}
+
 export async function createCheckoutSession(plan: BillingPlan = "monthly"): Promise<string> {
   const res = await authFetch("/billing/checkout", {
     method: "POST",
@@ -691,7 +712,7 @@ export async function resendVerificationEmail(): Promise<void> {
  * "couldn't change it" would leave them guessing which.
  */
 export async function changeEmail(currentPassword: string, newEmail: string): Promise<void> {
-  const res = await authFetch("/auth/email", {
+  const res = await authFetchWithFreshSession("/auth/email", {
     method: "POST",
     body: JSON.stringify({ current_password: currentPassword, new_email: newEmail }),
   });
@@ -774,7 +795,7 @@ export async function deleteAccount(
   currentPassword: string,
   copy: RequestCopy,
 ): Promise<void> {
-  const res = await authFetch("/auth/delete-account", {
+  const res = await authFetchWithFreshSession("/auth/delete-account", {
     method: "POST",
     body: JSON.stringify({ current_password: currentPassword }),
   });
@@ -803,7 +824,7 @@ export async function changePassword(
 ): Promise<void> {
   let res: Response;
   try {
-    res = await authFetch("/auth/password", {
+    res = await authFetchWithFreshSession("/auth/password", {
       method: "POST",
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     });

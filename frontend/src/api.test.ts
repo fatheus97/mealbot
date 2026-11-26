@@ -5,6 +5,7 @@ import {
   fetchInvites,
   changeEmail,
   changePassword,
+  deleteAccount,
   fetchUserProfile,
   mergeFridgeItems,
   answerRestockPrompt,
@@ -288,13 +289,22 @@ describe('redeemInvite', () => {
   });
 });
 
+/** The /auth/refresh that authFetchWithFreshSession sends first. */
+function mockRefresh(status = 204) {
+  mockFetch(status);
+}
+
 describe('changeEmail', () => {
+  beforeEach(() => mockRefresh());
+
   it('posts the address and password to /auth/email', async () => {
     // The wire contract had no coverage at all: a renamed field would have
     // 422'd in production with every test still green.
     mockFetch(204);
     await expect(changeEmail('Secret123', 'new@example.com')).resolves.toBeUndefined();
-    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0]).toBe(`${MOCK_BASE}/auth/refresh`);
+    const [url, init] = calls[1];
     expect(String(url)).toContain('/auth/email');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({
@@ -339,14 +349,33 @@ describe('changePassword', () => {
   const PW_COPY = { rateLimited: 'Wait a minute.', fallback: 'Password not changed.' };
   const change = (current = 'Secret123') => changePassword(current, 'NewPass123', PW_COPY);
   const fetchMock = () => globalThis.fetch as ReturnType<typeof vi.fn>;
+  const urls = () => fetchMock().mock.calls.map(([url]) => url);
+
+  it('refreshes the session first, so an access cookie that expired while typing is not a dead end', async () => {
+    // authFetch never refreshes on a 401 from /auth/*. Without this the server
+    // answered "Not authenticated" to a signed-in user on every resubmit.
+    mockRefresh();
+    mockFetch(204);
+    await expect(change()).resolves.toBeUndefined();
+    expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}/auth/password`]);
+  });
+
+  it('still sends the request when the refresh fails, and shows what the server says', async () => {
+    // A dead session is the server's to report; the client does not guess.
+    mockRefresh(401);
+    mockFetch(401, { detail: 'Nejste přihlášeni' });
+    await expect(change()).rejects.toThrow('Nejste přihlášeni');
+    expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}/auth/password`]);
+  });
 
   it('posts exactly the two fields PasswordChangeRequest takes, with the CSRF header', async () => {
     // The endpoint is not CSRF-exempt, and a renamed or extra field would 422
     // in production with every component test still green.
     document.cookie = 'mealbot_csrf=tok-pw; Path=/';
+    mockRefresh();
     mockFetch(204);
     await expect(change()).resolves.toBeUndefined();
-    const [url, init] = fetchMock().mock.calls[0];
+    const [url, init] = fetchMock().mock.calls[1];
     expect(url).toBe(`${MOCK_BASE}/auth/password`);
     expect(init.method).toBe('POST');
     expect(init.headers['X-CSRF-Token']).toBe('tok-pw');
@@ -356,15 +385,17 @@ describe('changePassword', () => {
     });
   });
 
-  it('shows a wrong current password verbatim and does not log the user out', async () => {
-    // A 401 here means "wrong password", not "session dead": /auth/ paths skip
-    // authFetch's refresh-then-logout, so one request and no logout event.
+  it('shows a wrong current password verbatim, sends it once, and does not log the user out', async () => {
+    // The session was refreshed up front, so this 401 is the wrong password.
+    // No retry after it: a second request would verify the same wrong
+    // password again and spend a second slot of the 5/minute limit.
     const onLogout = vi.fn();
     window.addEventListener('mealbot:logout', onLogout);
     try {
+      mockRefresh();
       mockFetch(401, { detail: 'Současné heslo není správné' });
       await expect(change('Secret124')).rejects.toThrow('Současné heslo není správné');
-      expect(fetchMock()).toHaveBeenCalledTimes(1);
+      expect(urls()).toEqual([`${MOCK_BASE}/auth/refresh`, `${MOCK_BASE}/auth/password`]);
       expect(onLogout).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener('mealbot:logout', onLogout);
@@ -372,23 +403,55 @@ describe('changePassword', () => {
   });
 
   it('shows the same-as-current 400 verbatim', async () => {
+    mockRefresh();
     mockFetch(400, { detail: 'New password must be different from the current password' });
     await expect(change()).rejects.toThrow(/must be different/);
   });
 
   it('maps a 429 to the caller copy', async () => {
+    mockRefresh();
     mockFetch(429, { error: 'Rate limit exceeded' });
     await expect(change()).rejects.toThrow(/^Wait a minute\.$/);
   });
 
   it('never renders a Pydantic 422 list', async () => {
+    mockRefresh();
     mockFetch(422, { detail: [{ msg: 'Value error, Password must contain at least one digit' }] });
     await expect(change()).rejects.toThrow('Password not changed. (422)');
   });
 
   it('a network failure shows the caller copy, not the browser\'s English', async () => {
+    // Offline: the refresh fails first (and is swallowed), then the request.
+    failFetch();
     failFetch();
     await expect(change()).rejects.toThrow(/^Password not changed\.$/);
+  });
+});
+
+describe('deleteAccount', () => {
+  const DEL_COPY = { rateLimited: 'Wait a minute.', fallback: 'Account not deleted.' };
+
+  it('refreshes the session first, then posts the current password', async () => {
+    // Same dead end as changePassword: an access cookie that expired on the
+    // confirmation screen answered "Not authenticated" to every retry.
+    mockRefresh();
+    mockFetch(204);
+    await expect(deleteAccount('Secret123', DEL_COPY)).resolves.toBeUndefined();
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.map(([url]) => url)).toEqual([
+      `${MOCK_BASE}/auth/refresh`,
+      `${MOCK_BASE}/auth/delete-account`,
+    ]);
+    expect(JSON.parse(calls[1][1].body)).toEqual({ current_password: 'Secret123' });
+  });
+
+  it('shows a wrong current password verbatim without a second attempt', async () => {
+    mockRefresh();
+    mockFetch(401, { detail: 'Current password is incorrect' });
+    await expect(deleteAccount('Secret124', DEL_COPY)).rejects.toThrow(
+      'Current password is incorrect',
+    );
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 });
 
