@@ -501,7 +501,8 @@ disclosure makes a published page inaccurate.
 The retention needs the same care. The policy (both editions) and the delete
 dialog promise a deleted account is out of every backup within 14 days. The
 script keeps `OFFSITE_RETENTION_DAYS=13` copies at most and refuses to run
-with more (a dump uploaded the night before a deletion is pruned by day 14).
+with more (a dump uploaded the night before a deletion is pruned by day 14),
+or with 0, which would prune every copy.
 An Object Lock period counts too: keep it at 13 days or less, or the prune
 cannot delete in time. A longer history means changing the policy's backup
 retention, both editions, and `OFFSITE_RETENTION_MAX_DAYS` in the script, in
