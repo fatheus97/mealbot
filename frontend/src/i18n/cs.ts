@@ -554,6 +554,11 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "planner.regenerateHintLabel": "O zamykání a přegenerování",
   "planner.regenerateHint":
     "Zamkněte jídla, která chcete ponechat, a objeví se tlačítko „Přegenerovat nezamčené“. To vytvoří zbývající jídla znovu podle původního zadání tohoto jídelníčku, ne podle formuláře výše.",
+  "planner.frozenCount_one": "1 jídlo je zamčené.",
+  "planner.frozenCount_few": "{count} jídla jsou zamčená.",
+  "planner.frozenCount_many": "{count} jídla je zamčeno.",
+  "planner.frozenCount_other": "{count} jídel je zamčeno.",
+  "planner.unfrozenRegenerated": "Nezamčená jídla se přegenerují.",
   "planner.confirmHintLabel": "O potvrzení jídelníčku",
   "planner.confirmHint":
     "Uloží jídelníček do sekce „Moje jídelníčky“ a hned odečte z lednice suroviny, které už máte. Koření se neodečítá.",

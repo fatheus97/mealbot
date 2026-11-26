@@ -110,15 +110,15 @@ describe("MealCard", () => {
   });
 
   describe("pre-confirm", () => {
-    it("offers Freeze and not Cook", () => {
+    it("offers Lock and not Cook", () => {
       renderCard();
-      expect(screen.getByRole("button", { name: /Freeze/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Lock" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /^Cook$/ })).not.toBeInTheDocument();
     });
 
-    it("reads Frozen and fires onToggleFreeze when clicked", async () => {
+    it("reads Locked and fires onToggleFreeze when clicked", async () => {
       const { props } = renderCard({ isFrozen: true });
-      const btn = screen.getByRole("button", { name: /Frozen/ });
+      const btn = screen.getByRole("button", { name: "Locked" });
       await userEvent.click(btn);
       expect(props.onToggleFreeze).toHaveBeenCalledOnce();
     });
@@ -132,9 +132,9 @@ describe("MealCard", () => {
   });
 
   describe("confirmed", () => {
-    it("swaps Freeze for Cook and shows the cookbook heart", () => {
+    it("swaps Lock for Cook and shows the cookbook heart", () => {
       renderCard({ isConfirmed: true, entry: ENTRY });
-      expect(screen.queryByRole("button", { name: /Freeze/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^(Lock|Locked)$/ })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^Cook$/ })).toBeInTheDocument();
       expect(screen.getByRole("switch", { name: "Add to cookbook" })).toBeInTheDocument();
     });
@@ -323,14 +323,14 @@ describe("MealCard — leftovers", () => {
     expect(screen.getByText(/nothing extra to buy/)).toBeInTheDocument();
   });
 
-  it("hides Freeze — the server freezes link groups atomically", () => {
+  it("hides Lock — the server locks link groups atomically", () => {
     renderCard({ meal: LEFTOVER, leftoverSource: SOURCE_LABEL, isConfirmed: false });
-    expect(screen.queryByRole("button", { name: /Freeze/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^(Lock|Locked)$/ })).not.toBeInTheDocument();
   });
 
-  it("still offers Freeze on an ordinary meal", () => {
+  it("still offers Lock on an ordinary meal", () => {
     renderCard({ isConfirmed: false });
-    expect(screen.getByRole("button", { name: /Freeze/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lock" })).toBeInTheDocument();
   });
 
   it("hides Start cooking even though the leftover has a step", () => {
