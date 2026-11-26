@@ -926,8 +926,8 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                     ? t("planner.titleConfirmed")
                     : t("planner.titleGenerated")}
               </h3>
-              {/* One hint per plan rather than one per Freeze button: before
-                  anything is frozen, Regenerate Unfrozen is hidden, so nothing
+              {/* One hint per plan rather than one per Lock button: before
+                  anything is locked, Regenerate Unlocked is hidden, so nothing
                   else on screen says regeneration exists. */}
               {!isConfirmed && (
                 <InfoHint text={t("planner.regenerateHint")} label={t("planner.regenerateHintLabel")} />
@@ -1033,7 +1033,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           )}
           {!isConfirmed && frozenMeals.size > 0 && (
             <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>
-              {frozenMeals.size} meal(s) frozen. Unfrozen meals will be regenerated.
+              {tn("planner.frozenCount", frozenMeals.size)} {t("planner.unfrozenRegenerated")}
             </p>
           )}
           {currentPlan.days.map((dayPlan, idx) => (
