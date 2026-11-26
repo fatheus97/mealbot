@@ -1,5 +1,5 @@
 -r requirements.txt
-pytest>=9.1.1,<10.0
+pytest>=9.2.0,<10.0
 pytest-asyncio>=1.4.0,<2.0
 # Parallel test execution across CPU cores (`pytest -n auto`). The suite is the
 # CI critical path; xdist workers are separate processes, each given its own
