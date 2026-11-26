@@ -12,7 +12,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,9 +20,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_generation_budget
 from app.core.config import LLMProvider, ModelEntry, settings
 from app.core.email_normalize import normalize_email
+from app.core.error_copy import ERROR_COPY
+from app.core.i18n import Locale
 from app.models.db_models import LlmUsage, User
 from app.models.usage_schemas import BudgetStatus
 from app.services import llm_cost, usage_budget
+from tests.conftest import TEST_EMAIL, TEST_PASSWORD
+
+#: Every field of the 429's object detail. The frontend reads `code` and
+#: `user_detail`; the rest are machine-readable and must not move either.
+CAP_DETAIL_KEYS = frozenset(
+    {"user_detail", "code", "tier", "cap_eur", "used_eur", "remaining_eur", "reset_at"}
+)
+
+
+def _request(
+    *, accept_language: str | None = None, user_locale: Locale | None = None
+) -> Request:
+    """A bare Request for calling the dependency directly.
+
+    `user_locale` stands in for what get_current_user stamps from
+    User.language; the dependency chain is not run when it is called by hand.
+    """
+    headers = (
+        [] if accept_language is None else [(b"accept-language", accept_language.encode())]
+    )
+    request = Request({"type": "http", "headers": headers})
+    if user_locale is not None:
+        request.state.locale = user_locale
+    return request
 
 
 def _user(
@@ -308,17 +334,88 @@ async def test_require_generation_budget_blocks_over_cap(
     rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
     await _seed(db_session, test_user.id, int(2.5 / rate.output_eur_per_token))
     with pytest.raises(HTTPException) as exc:
-        await require_generation_budget(current_user=test_user, session=db_session)
+        await require_generation_budget(
+            request=_request(), current_user=test_user, session=db_session
+        )
     assert exc.value.status_code == 429
     assert isinstance(exc.value.detail, dict)
+    assert frozenset(exc.value.detail) == CAP_DETAIL_KEYS
     assert exc.value.detail["code"] == "usage_cap_reached"
+    assert exc.value.detail["tier"] == "paid"
+    assert exc.value.detail["cap_eur"] == 2.0
     assert exc.value.headers is not None
     assert exc.value.headers["Retry-After"].isdigit()
     # The dict was ALL there was until #352, and the frontend only understood a
     # string detail — so the one error where retrying can never work was the one
     # rendered as "Plan generation failed. Please try again.", for up to a month.
     assert isinstance(exc.value.detail["user_detail"], str)
+    # No language signal at all: English.
     assert "€2.00" in exc.value.detail["user_detail"]
+    assert ERROR_COPY["en"]["usage_cap_paused"] in exc.value.detail["user_detail"]
+
+
+async def _capped_detail(
+    test_user: User, db_session: AsyncSession, request: Request
+) -> dict[str, object]:
+    assert test_user.id is not None
+    rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
+    await _seed(db_session, test_user.id, int(2.5 / rate.output_eur_per_token))
+    with pytest.raises(HTTPException) as exc:
+        await require_generation_budget(
+            request=request, current_user=test_user, session=db_session
+        )
+    assert exc.value.status_code == 429
+    assert exc.value.headers is not None and exc.value.headers["Retry-After"].isdigit()
+    assert isinstance(exc.value.detail, dict)
+    assert frozenset(exc.value.detail) == CAP_DETAIL_KEYS
+    assert exc.value.detail["code"] == "usage_cap_reached"
+    return exc.value.detail
+
+
+async def test_cap_detail_follows_the_users_language_over_the_header(
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The error handler's precedence: User.language beats Accept-Language.
+
+    Asserts the English is ABSENT, not only that the Czech is present, since
+    an assertion both languages could satisfy proves nothing about which won.
+    """
+    monkeypatch.setattr(settings, "usage_cap_enabled", True)
+    monkeypatch.setattr(settings, "usage_cap_paid_eur", 2.0)
+    detail = await _capped_detail(
+        test_user, db_session, _request(accept_language="en-US,en", user_locale="cs")
+    )
+    text_ = detail["user_detail"]
+    assert isinstance(text_, str)
+    assert "2,00 €" in text_
+    assert ERROR_COPY["cs"]["usage_cap_paused"] in text_
+    assert ERROR_COPY["en"]["usage_cap_paused"] not in text_
+    # Machine-readable fields stay locale-free: the frontend keys on these.
+    assert detail["tier"] == "paid"
+    assert detail["cap_eur"] == 2.0
+
+
+async def test_cap_detail_falls_back_to_accept_language(
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Nothing stamped (e.g. get_current_user overridden): the header decides.
+    monkeypatch.setattr(settings, "usage_cap_enabled", True)
+    monkeypatch.setattr(settings, "usage_cap_paid_eur", 2.0)
+    detail = await _capped_detail(
+        test_user, db_session, _request(accept_language="cs-CZ,cs;q=0.9")
+    )
+    assert ERROR_COPY["cs"]["usage_cap_paused"] in str(detail["user_detail"])
+
+
+async def test_cap_detail_untranslated_language_is_english(
+    test_user: User, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "usage_cap_enabled", True)
+    monkeypatch.setattr(settings, "usage_cap_paid_eur", 2.0)
+    detail = await _capped_detail(
+        test_user, db_session, _request(accept_language="ja,de;q=0.8")
+    )
+    assert ERROR_COPY["en"]["usage_cap_paused"] in str(detail["user_detail"])
 
 
 async def test_require_generation_budget_allows_under_cap(
@@ -327,7 +424,9 @@ async def test_require_generation_budget_allows_under_cap(
     monkeypatch.setattr(settings, "usage_cap_enabled", True)
     monkeypatch.setattr(settings, "usage_cap_paid_eur", 2.0)
     test_user.subscription_status = "none"
-    result = await require_generation_budget(current_user=test_user, session=db_session)
+    result = await require_generation_budget(
+        request=_request(), current_user=test_user, session=db_session
+    )
     assert result is test_user
 
 
@@ -339,7 +438,9 @@ async def test_require_generation_budget_kill_switch_bypasses(
     assert test_user.id is not None
     rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
     await _seed(db_session, test_user.id, int(10 / rate.output_eur_per_token))
-    result = await require_generation_budget(current_user=test_user, session=db_session)
+    result = await require_generation_budget(
+        request=_request(), current_user=test_user, session=db_session
+    )
     assert result is test_user
 
 
@@ -348,7 +449,9 @@ async def test_require_generation_budget_admin_bypasses(
 ) -> None:
     monkeypatch.setattr(settings, "usage_cap_enabled", True)
     admin = _user(is_admin=True, id=4242)
-    result = await require_generation_budget(current_user=admin, session=db_session)
+    result = await require_generation_budget(
+        request=_request(), current_user=admin, session=db_session
+    )
     assert result is admin
 
 
@@ -380,52 +483,102 @@ class TestCapReachedMessage:
         base.update(kwargs)
         return BudgetStatus(**base)  # type: ignore[arg-type]
 
-    def test_paid_names_the_amount_and_the_reset_date(self) -> None:
-        msg = usage_budget.cap_reached_message(self._status())
-        assert "€2.00" in msg
-        assert "1 September 2026" in msg
-        assert "resets" in msg
+    def _trial(self) -> BudgetStatus:
+        return self._status(tier="trial", cap_eur=0.75, used_eur=0.75)
+
+    # ── Exact text, every variant ─────────────────────────────────────────
+    # The English pins are the sentences this function produced before it
+    # moved to error_copy, character for character: the move must not drop or
+    # change a fact.
+
+    def test_paid_english_exact(self) -> None:
+        assert usage_budget.cap_reached_message(self._status(), "en") == (
+            "You have used your €2.00 of AI generation for this month. "
+            "Your allowance resets on 1 September 2026. "
+            "New plans, recipes and receipt scanning are paused until then; "
+            "everything you have already saved is unaffected."
+        )
+
+    def test_trial_english_exact(self) -> None:
+        assert usage_budget.cap_reached_message(self._trial(), "en") == (
+            "You have used the €0.75 of AI generation included in your free "
+            "trial, which runs until 1 September 2026. "
+            "New plans, recipes and receipt scanning are paused until then; "
+            "everything you have already saved is unaffected."
+        )
+
+    def test_paid_czech_exact(self) -> None:
+        assert usage_budget.cap_reached_message(self._status(), "cs") == (
+            "Vyčerpali jste limit využití AI na tento měsíc ve výši 2,00 €. "
+            "Limit se obnoví 1. září 2026. "
+            "Do té doby nemůžete vytvářet nové jídelníčky a recepty ani skenovat "
+            "účtenky; vše, co už máte uložené, zůstává beze změny."
+        )
+
+    def test_trial_czech_exact(self) -> None:
+        assert usage_budget.cap_reached_message(self._trial(), "cs") == (
+            "Vyčerpali jste limit využití AI ve výši 0,75 €, který je součástí "
+            "vaší zkušební verze zdarma, a ta trvá do 1. září 2026. "
+            "Do té doby nemůžete vytvářet nové jídelníčky a recepty ani skenovat "
+            "účtenky; vše, co už máte uložené, zůstává beze změny."
+        )
+
+    # ── The facts, per language ───────────────────────────────────────────
 
     def test_trial_does_not_claim_a_reset(self) -> None:
         # For TIER_TRIAL, reset_at is trial_end — nothing resets on that date.
         # Trial users are precisely the ones deciding whether to pay, so a
         # convenient half-truth here is the most expensive place to put one.
-        msg = usage_budget.cap_reached_message(
-            self._status(tier="trial", cap_eur=0.75, used_eur=0.75)
-        )
-        assert "resets" not in msg
-        assert "free trial" in msg
-        assert "€0.75" in msg
+        en = usage_budget.cap_reached_message(self._trial(), "en")
+        assert "resets" not in en
+        assert "free trial" in en
+        cs = usage_budget.cap_reached_message(self._trial(), "cs")
+        assert "obnoví" not in cs
+        assert "zkušební verze" in cs
 
-    def test_promises_nothing_about_the_post_trial_allowance(self) -> None:
+    @pytest.mark.parametrize("locale", ["en", "cs"])
+    def test_promises_nothing_about_the_post_trial_allowance(self, locale: Locale) -> None:
         # Both caps are env-configurable, so "you'll get more room after the
         # trial" is only true under today's settings.
-        msg = usage_budget.cap_reached_message(self._status(tier="trial", cap_eur=0.75))
-        assert "more" not in msg.lower()
+        msg = usage_budget.cap_reached_message(self._trial(), locale).lower()
+        assert "more" not in msg and "víc" not in msg
 
     def test_says_retrying_will_not_help(self) -> None:
         # Without this the user retries for a month. "Paused until then" is the
         # whole point of the message.
-        assert "paused until then" in usage_budget.cap_reached_message(self._status())
+        assert "paused until then" in usage_budget.cap_reached_message(self._status(), "en")
+        assert "Do té doby nemůžete" in usage_budget.cap_reached_message(self._status(), "cs")
 
     def test_names_every_gated_surface(self) -> None:
         # require_generation_budget gates plan create, plan regenerate, single
         # recipe AND receipt scan. Naming only some of them sends the user off to
         # the one it did not mention, to find that dead too.
-        msg = usage_budget.cap_reached_message(self._status())
+        msg = usage_budget.cap_reached_message(self._status(), "en")
         assert "plans" in msg and "recipes" in msg and "receipt scanning" in msg
+        cs = usage_budget.cap_reached_message(self._status(), "cs")
+        assert "jídelníčky" in cs and "recepty" in cs and "skenovat účtenky" in cs
 
     def test_says_saved_work_is_safe(self) -> None:
         # A hard stop on generation reads as a total outage otherwise.
-        assert "unaffected" in usage_budget.cap_reached_message(self._status())
+        assert "unaffected" in usage_budget.cap_reached_message(self._status(), "en")
+        assert "beze změny" in usage_budget.cap_reached_message(self._status(), "cs")
 
-    def test_survives_a_null_cap(self) -> None:
+    @pytest.mark.parametrize("locale", ["en", "cs"])
+    def test_reset_date_is_independent_of_the_time_of_day(self, locale: Locale) -> None:
+        # A trial's reset_at is trial_end, an arbitrary instant, not midnight.
+        late = self._status(tier="trial", reset_at=datetime(2026, 12, 31, 23, 59))
+        msg = usage_budget.cap_reached_message(late, locale)
+        assert ("31 December 2026" if locale == "en" else "31. prosince 2026") in msg
+
+    @pytest.mark.parametrize("locale", ["en", "cs"])
+    def test_survives_a_null_cap(self, locale: Locale) -> None:
         # Unreachable via is_over_budget (null cap is never over), but the
         # function must not raise if a caller ever gets that wrong.
         msg = usage_budget.cap_reached_message(
-            self._status(tier="unlimited", cap_eur=None, remaining_eur=None)
+            self._status(tier="unlimited", cap_eur=None, remaining_eur=None), locale
         )
         assert "€" in msg
+        assert "$" not in msg
 
 
 async def test_capped_generation_returns_a_readable_detail(
@@ -457,3 +610,43 @@ async def test_capped_generation_returns_a_readable_detail(
     assert detail["code"] == "usage_cap_reached"
     assert "€2.00" in detail["user_detail"]
     assert "paused until then" in detail["user_detail"]
+
+
+async def test_capped_czech_user_reads_czech_over_http(
+    unauthed_client: AsyncClient,
+    test_user: User,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The production path: a REAL login, so get_current_user runs and stamps
+    the locale that this dependency, further down the chain, must read.
+
+    `unauthed_client`, not `client`: the latter stubs get_current_user, so the
+    stamp would never happen and only the header path would be tested. The
+    browser says English and the account says Czech; Czech must win.
+    """
+    monkeypatch.setattr(settings, "usage_cap_enabled", True)
+    monkeypatch.setattr(settings, "usage_cap_paid_eur", 2.0)
+    test_user.language = "Czech"
+    assert test_user.id is not None
+    rate = llm_cost.rate_for("gemini", "gemini-2.5-flash")
+    await _seed(db_session, test_user.id, int(2.5 / rate.output_eur_per_token))
+    await db_session.commit()
+    login = await unauthed_client.post(
+        "/api/auth/login", json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
+    )
+    assert login.status_code == 200, login.text
+
+    resp = await unauthed_client.post(
+        "/api/plan?days=1",
+        json={"days": 1, "meals_per_day": 1},
+        headers={"Accept-Language": "en-US,en;q=0.9"},
+    )
+    assert resp.status_code == 429, resp.text
+    assert resp.headers["Retry-After"].isdigit()
+    detail = resp.json()["detail"]
+    assert frozenset(detail) == CAP_DETAIL_KEYS
+    assert detail["code"] == "usage_cap_reached"
+    assert "2,00 €" in detail["user_detail"]
+    assert ERROR_COPY["cs"]["usage_cap_paused"] in detail["user_detail"]
+    assert ERROR_COPY["en"]["usage_cap_paused"] not in detail["user_detail"]

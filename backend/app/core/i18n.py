@@ -26,6 +26,7 @@ one. ``$`` cannot collide with HTML or CSS, and ``Template.substitute`` (not
 
 from __future__ import annotations
 
+from datetime import date
 from string import Template
 from typing import Final, Literal
 
@@ -158,6 +159,41 @@ def plural_category(locale: Locale, count: int) -> PluralCategory:
             return "few"
         return "other"
     return "one" if count == 1 else "other"
+
+
+#: Month names from fixed tables, never ``strftime("%B")``: that reads the
+#: PROCESS locale (whatever the container or dev box was built with) and has no
+#: notion of the reader. Czech is in the genitive, the case a day-first date
+#: takes: "1. prosince", never "1. prosinec".
+_MONTHS: Final[dict[Locale, tuple[str, ...]]] = {
+    "en": (
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ),
+    "cs": (
+        "ledna", "února", "března", "dubna", "května", "června",
+        "července", "srpna", "září", "října", "listopadu", "prosince",
+    ),
+}
+
+
+def format_date(locale: Locale, value: date) -> str:
+    """A day-month-year date: ``1 December 2026`` / ``1. prosince 2026``."""
+    month = _MONTHS[locale][value.month - 1]
+    if locale == "cs":
+        return f"{value.day}. {month} {value.year}"
+    return f"{value.day} {month} {value.year}"
+
+
+def format_eur(locale: Locale, amount: float) -> str:
+    """Euros to the cent: ``€2.00`` / ``2,00 €``.
+
+    The Czech form is the frontend's price format (decimal comma, symbol after
+    the number), with a non-breaking space so the symbol never wraps alone.
+    """
+    if locale == "cs":
+        return f"{amount:.2f}".replace(".", ",") + " €"
+    return f"€{amount:.2f}"
 
 
 def render(template: str, /, **values: str) -> str:

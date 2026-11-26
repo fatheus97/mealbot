@@ -77,6 +77,14 @@ ErrorKey = Literal[
     # ── Account gates (app/api/deps.py) ────────────────────────────────────
     "gate_confirm_email",
     "gate_subscription_required",
+    # ── Usage cap 429 (app/services/usage_budget.py cap_reached_message) ────
+    # Sentences, joined by the caller; rendered there, not by the handler,
+    # because the 429 detail is an object. $amount and $date arrive already
+    # formatted for the locale (i18n.format_eur / format_date).
+    "usage_cap_trial_used",  # $amount, $date
+    "usage_cap_paid_used",  # $amount
+    "usage_cap_paid_resets",  # $date
+    "usage_cap_paused",
     # ── Health-data consent (app/services/health_consent.py) ───────────────
     "health_consent_required",
     "health_consent_version_stale",
@@ -220,6 +228,20 @@ _EN: Final[dict[str, str]] = {
     "gate_confirm_email": "Please confirm your email address to use this feature.",
     "gate_subscription_required": (
         "An active subscription is required for this feature."
+    ),
+    "usage_cap_trial_used": (
+        "You have used the $amount of AI generation included in your free "
+        "trial, which runs until $date."
+    ),
+    "usage_cap_paid_used": "You have used your $amount of AI generation for this month.",
+    "usage_cap_paid_resets": "Your allowance resets on $date.",
+    # Retrying is the natural instinct and the one thing that cannot work, so
+    # say so, and say what still does, or this reads as an outage. It names
+    # every route behind require_generation_budget: plan create, plan
+    # regenerate, single recipe and receipt scan.
+    "usage_cap_paused": (
+        "New plans, recipes and receipt scanning are paused until then; "
+        "everything you have already saved is unaffected."
     ),
     "health_consent_required": (
         "To use your diets, allergies or ingredients to avoid, first give your "
@@ -461,6 +483,20 @@ _CS: Final[dict[str, str]] = {
         "Pro použití této funkce prosím potvrďte svou e-mailovou adresu."
     ),
     "gate_subscription_required": "Tato funkce vyžaduje aktivní předplatné.",
+    # "limit využití AI" and "zkušební verze" are the paywall dialog's terms
+    # (frontend cs.ts billing.paywall.allowanceHint), so the two read alike.
+    "usage_cap_trial_used": (
+        "Vyčerpali jste limit využití AI ve výši $amount, který je součástí "
+        "vaší zkušební verze zdarma, a ta trvá do $date."
+    ),
+    "usage_cap_paid_used": (
+        "Vyčerpali jste limit využití AI na tento měsíc ve výši $amount."
+    ),
+    "usage_cap_paid_resets": "Limit se obnoví $date.",
+    "usage_cap_paused": (
+        "Do té doby nemůžete vytvářet nové jídelníčky a recepty ani skenovat "
+        "účtenky; vše, co už máte uložené, zůstává beze změny."
+    ),
     "health_consent_required": (
         "Abychom mohli použít vaše typy stravy, alergie nebo suroviny, kterým se "
         "chcete vyhnout, udělte nejdříve souhlas: zaškrtněte políčko nad "
