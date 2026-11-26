@@ -60,8 +60,19 @@ fi
 
 # A retention the policy cannot keep is a configuration error like a missing
 # destination: refuse before uploading anything that would outlive it.
-if ! [[ "$OFFSITE_RETENTION_DAYS" =~ ^[0-9]+$ ]] \
-  || [ "$OFFSITE_RETENTION_DAYS" -gt "$OFFSITE_RETENTION_MAX_DAYS" ]; then
+#
+# One or two digits, no leading zero, BEFORE any arithmetic. `[ -gt ]` on a
+# number past int64 prints an error and returns 2, which an `if` reads as
+# false, so a 20-digit value used to pass this guard. 0 is refused too:
+# `--min-age 0d` prunes every copy, tonight's upload included.
+# The regex also caps the value at 99, which is fine while the policy cap is
+# 13. Raising OFFSITE_RETENTION_MAX_DAYS past 99 needs a third digit here
+# too, or every value above 99 is refused with the wrong message.
+if ! [[ "$OFFSITE_RETENTION_DAYS" =~ ^[1-9][0-9]?$ ]]; then
+  echo "offsite-backup: FAILED: OFFSITE_RETENTION_DAYS=$OFFSITE_RETENTION_DAYS is not a number of days from 1 to ${OFFSITE_RETENTION_MAX_DAYS} (0 would prune every copy, tonight's included)" >&2
+  exit 1
+fi
+if [ "$OFFSITE_RETENTION_DAYS" -gt "$OFFSITE_RETENTION_MAX_DAYS" ]; then
   echo "offsite-backup: FAILED: OFFSITE_RETENTION_DAYS=$OFFSITE_RETENTION_DAYS keeps a deleted account past the privacy policy's 14 days; use ${OFFSITE_RETENTION_MAX_DAYS} or less, or change the policy first (deploy/systemd/README.md §6.2 g)" >&2
   exit 1
 fi
