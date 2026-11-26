@@ -65,6 +65,9 @@ fi
 # number past int64 prints an error and returns 2, which an `if` reads as
 # false, so a 20-digit value used to pass this guard. 0 is refused too:
 # `--min-age 0d` prunes every copy, tonight's upload included.
+# The regex also caps the value at 99, which is fine while the policy cap is
+# 13. Raising OFFSITE_RETENTION_MAX_DAYS past 99 needs a third digit here
+# too, or every value above 99 is refused with the wrong message.
 if ! [[ "$OFFSITE_RETENTION_DAYS" =~ ^[1-9][0-9]?$ ]]; then
   echo "offsite-backup: FAILED: OFFSITE_RETENTION_DAYS=$OFFSITE_RETENTION_DAYS is not a number of days from 1 to ${OFFSITE_RETENTION_MAX_DAYS} (0 would prune every copy, tonight's included)" >&2
   exit 1
