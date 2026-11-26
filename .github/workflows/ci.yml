@@ -8,6 +8,10 @@ jobs:
   backend-tests:
     name: backend tests
     runs-on: ubuntu-latest
+    # About 3.5 min with the image build. Without a limit a hung pytest
+    # rides out GitHub's 6 h default and holds the merge (#646 hung on
+    # 2026-11-25); every other job here carries one too.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -53,6 +57,7 @@ jobs:
   backend-types:
     name: backend mypy
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -81,6 +86,7 @@ jobs:
   backend-lint:
     name: backend lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -102,6 +108,7 @@ jobs:
   frontend-build:
     name: frontend build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -121,6 +128,7 @@ jobs:
   frontend-lint:
     name: frontend lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -543,6 +551,7 @@ jobs:
   review-guard:
     name: review guard
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - run: |
