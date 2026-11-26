@@ -1,6 +1,7 @@
 import { type CSSProperties, type FormEvent, useState } from "react";
 import { ModalShell } from "../ModalShell";
 import { changePassword } from "../../api";
+import { useAuth } from "../../contexts/AuthContext";
 import { useI18n } from "../../i18n";
 import { passwordProblem } from "../../utils/passwordRules";
 
@@ -26,6 +27,13 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const { t } = useI18n();
+  const { email } = useAuth();
+  // The request cannot be called back once sent, and a 204 means every other
+  // device is already signed out. Closing the modal mid-request would hide
+  // that, so Cancel, Escape and a backdrop click all wait for the answer.
+  const close = () => {
+    if (!busy) onClose();
+  };
 
   const problem = passwordProblem(next);
   const mismatch = confirm.length > 0 && confirm !== next;
@@ -60,7 +68,7 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell onClose={onClose} ariaLabel={t("auth.changePassword.title")} zIndex={1200}>
+    <ModalShell onClose={close} ariaLabel={t("auth.changePassword.title")} zIndex={1200}>
       <div style={card}>
         {done ? (
           <>
@@ -80,6 +88,18 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
             <p style={{ margin: "0 0 1rem", fontSize: 13, color: mutedColor }}>
               {t("auth.changePassword.body")}
             </p>
+
+            {/* Not shown: password managers read it to file the new password
+                under the right saved login (Chromium's change-password form
+                guidance). Without it they guess, or save a login with no
+                username. */}
+            <input
+              type="text"
+              autoComplete="username"
+              value={email}
+              readOnly
+              hidden
+            />
 
             <label style={labelStyle}>
               {t("auth.changePassword.currentPassword")}
@@ -123,7 +143,7 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
             </p>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-              <button type="button" onClick={onClose} style={secondaryBtn}>
+              <button type="button" onClick={close} style={secondaryBtn} disabled={busy}>
                 {t("auth.changePassword.cancel")}
               </button>
               <button

@@ -5,12 +5,19 @@ import { untranslatedEnglishIn } from "../../test/i18nAssertions";
 import { useLocaleStore, DEFAULT_LOCALE } from "../../store/useLocaleStore";
 import { ChangePasswordModal } from "./ChangePasswordModal";
 import * as api from "../../api";
+import * as AuthCtx from "../../contexts/AuthContext";
+import type { AuthState } from "../../types";
 
 // Literals already used by the other auth tests (gitleaks: no new ones).
 const CURRENT = "Secret123";
 const NEXT = "NewPass123";
 
-beforeEach(() => vi.restoreAllMocks());
+const ACCOUNT = "cook@example.com";
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(AuthCtx, "useAuth").mockReturnValue({ email: ACCOUNT } as unknown as AuthState);
+});
 
 async function fill(
   user: ReturnType<typeof userEvent.setup>,
@@ -56,6 +63,18 @@ describe("ChangePasswordModal", () => {
     expect(current).toHaveAttribute("autocomplete", "current-password");
     expect(next).toHaveAttribute("autocomplete", "new-password");
     expect(confirm).toHaveAttribute("autocomplete", "new-password");
+  });
+
+  it("carries the account email in a hidden username field for password managers", () => {
+    // Without it a manager guesses which saved login the new password belongs
+    // to, or saves a second login with no username.
+    render(<ChangePasswordModal onClose={vi.fn()} />);
+    const username = document.querySelector<HTMLInputElement>('input[autocomplete="username"]');
+    expect(username).not.toBeNull();
+    expect(username).toHaveValue(ACCOUNT);
+    expect(username).not.toBeVisible();
+    // Inside the form, or the manager does not pair it with the passwords.
+    expect(username?.form).toBe(screen.getByLabelText(/current password/i).closest("form"));
   });
 
   it("will not submit when the confirmation does not match", async () => {
@@ -132,6 +151,41 @@ describe("ChangePasswordModal", () => {
 
     release();
     expect(await screen.findByText("Password changed")).toBeInTheDocument();
+  });
+
+  it("cannot be closed while the request runs, so the outcome is always shown", async () => {
+    // Once sent, the change happens whatever the modal does, and a success has
+    // already signed out every other device. Closing mid-request would let the
+    // user believe they cancelled it.
+    const user = userEvent.setup();
+    let release: () => void = () => {};
+    vi.spyOn(api, "changePassword").mockReturnValue(new Promise<void>((res) => { release = res; }));
+    const onClose = vi.fn();
+
+    render(<ChangePasswordModal onClose={onClose} />);
+    await fill(user);
+    await user.click(submit());
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeDisabled();
+    await user.click(cancel);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    expect(onClose).not.toHaveBeenCalled();
+
+    release();
+    expect(await screen.findByText("Password changed")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes on Escape and Cancel when no request is running", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ChangePasswordModal onClose={onClose} />);
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   describe("in Czech", () => {
