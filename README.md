@@ -19,7 +19,7 @@ Live at **[trymealbot.com](https://trymealbot.com)** — closed alpha, paid subs
 - **Leftovers** — "cook a bigger dinner, eat it as tomorrow's lunch". Modelled as a *link* to an earlier meal, not a meal type, so it consumes no extra stock, never lands on the shopping list, and keeps its provenance.
 - **Cooking mode** — fullscreen step-by-step checklist. Durations in the step text are tappable: "simmer for 5 minutes" starts a 5:00 countdown, in whatever language the recipe was generated in. Several timers run at once, survive leaving the screen in a floating bubble that returns you to the step you left, and are deadline-based so a backgrounded tab or locked phone can't stall them. Holds a screen wake-lock while you cook.
 - **Editable results** — rename a meal, fix its ingredients or steps, before or after confirming.
-- **Selective regeneration** — freeze the meals you like, regenerate the rest.
+- **Selective regeneration** — lock the meals you like, regenerate the rest.
 
 ### Dietary safety
 
