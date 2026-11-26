@@ -783,6 +783,39 @@ export async function deleteAccount(
   throw new Error(await extractErrorDetail(res, copy.fallback));
 }
 
+/**
+ * Change the caller's password.
+ *
+ * On the 204 the server has revoked every session, including the one this
+ * request came in on, and set fresh cookies for THIS device, so the caller
+ * stays signed in here and needs to do nothing further. Other devices are out.
+ *
+ * The two answers a user can act on, 401 wrong current password and 400 new
+ * password equals the current one, are LocalizedHTTPException, so their
+ * `detail` already arrives in the user's language and is surfaced verbatim.
+ * A 422 (complexity) can only follow a bypassed client-side check and gets the
+ * fallback, as does a request that never got a Response.
+ */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  copy: RequestCopy,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await authFetch("/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+  } catch {
+    // The browser's own "Failed to fetch" is English and tells the user nothing.
+    throw new Error(copy.fallback);
+  }
+  if (res.ok) return;
+  if (res.status === 429) throw new Error(copy.rateLimited);
+  throw new Error(await extractErrorDetail(res, copy.fallback));
+}
+
 // --- Access requests (admin triage of the public landing form) ---
 
 export async function fetchAccessRequests(

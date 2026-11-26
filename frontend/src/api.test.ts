@@ -4,6 +4,7 @@ import {
   createInvite,
   fetchInvites,
   changeEmail,
+  changePassword,
   fetchUserProfile,
   mergeFridgeItems,
   answerRestockPrompt,
@@ -331,6 +332,63 @@ describe('changeEmail', () => {
     await expect(changeEmail('Secret123', 'new@example.com')).rejects.toThrow(
       /too many attempts/i,
     );
+  });
+});
+
+describe('changePassword', () => {
+  const PW_COPY = { rateLimited: 'Wait a minute.', fallback: 'Password not changed.' };
+  const change = (current = 'Secret123') => changePassword(current, 'NewPass123', PW_COPY);
+  const fetchMock = () => globalThis.fetch as ReturnType<typeof vi.fn>;
+
+  it('posts exactly the two fields PasswordChangeRequest takes, with the CSRF header', async () => {
+    // The endpoint is not CSRF-exempt, and a renamed or extra field would 422
+    // in production with every component test still green.
+    document.cookie = 'mealbot_csrf=tok-pw; Path=/';
+    mockFetch(204);
+    await expect(change()).resolves.toBeUndefined();
+    const [url, init] = fetchMock().mock.calls[0];
+    expect(url).toBe(`${MOCK_BASE}/auth/password`);
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-CSRF-Token']).toBe('tok-pw');
+    expect(JSON.parse(init.body)).toEqual({
+      current_password: 'Secret123',
+      new_password: 'NewPass123',
+    });
+  });
+
+  it('shows a wrong current password verbatim and does not log the user out', async () => {
+    // A 401 here means "wrong password", not "session dead": /auth/ paths skip
+    // authFetch's refresh-then-logout, so one request and no logout event.
+    const onLogout = vi.fn();
+    window.addEventListener('mealbot:logout', onLogout);
+    try {
+      mockFetch(401, { detail: 'Současné heslo není správné' });
+      await expect(change('Secret124')).rejects.toThrow('Současné heslo není správné');
+      expect(fetchMock()).toHaveBeenCalledTimes(1);
+      expect(onLogout).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('mealbot:logout', onLogout);
+    }
+  });
+
+  it('shows the same-as-current 400 verbatim', async () => {
+    mockFetch(400, { detail: 'New password must be different from the current password' });
+    await expect(change()).rejects.toThrow(/must be different/);
+  });
+
+  it('maps a 429 to the caller copy', async () => {
+    mockFetch(429, { error: 'Rate limit exceeded' });
+    await expect(change()).rejects.toThrow(/^Wait a minute\.$/);
+  });
+
+  it('never renders a Pydantic 422 list', async () => {
+    mockFetch(422, { detail: [{ msg: 'Value error, Password must contain at least one digit' }] });
+    await expect(change()).rejects.toThrow('Password not changed. (422)');
+  });
+
+  it('a network failure shows the caller copy, not the browser\'s English', async () => {
+    failFetch();
+    await expect(change()).rejects.toThrow(/^Password not changed\.$/);
   });
 });
 

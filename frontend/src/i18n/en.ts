@@ -149,6 +149,25 @@ export const en = {
   "auth.changeEmail.done": "Done",
   "auth.changeEmail.failed": "Could not change your email address.",
 
+  // ─── Change password ──────────────────────────────────────────────────────
+  // The server keeps THIS device signed in (a fresh session) and revokes the
+  // rest, so the copy says exactly that, before and after.
+  "auth.changePassword.title": "Change password",
+  "auth.changePassword.body":
+    "Changing your password signs you out on your other devices, but not on this one.",
+  "auth.changePassword.currentPassword": "Current password",
+  "auth.changePassword.newPassword": "New password",
+  "auth.changePassword.confirmPassword": "Confirm new password",
+  "auth.changePassword.submit": "Change password",
+  "auth.changePassword.changing": "Changing...",
+  "auth.changePassword.cancel": "Cancel",
+  "auth.changePassword.doneTitle": "Password changed",
+  "auth.changePassword.doneBody":
+    "You are still signed in here, and your other devices have been signed out.",
+  "auth.changePassword.done": "Done",
+  "auth.changePassword.failed": "Could not change your password.",
+  "auth.changePassword.rateLimited": "Too many attempts, please wait a minute and try again.",
+
   // ─── Delete account ───────────────────────────────────────────────────────
   // The bullets stay specific rather than reassuring: the two things people are
   // surprised by afterwards are that the subscription stops with no refund for
@@ -265,6 +284,7 @@ export const en = {
   "settings.changeEmailHintLabel": "What changing your email does",
   "settings.changeEmailHint":
     "Until you confirm the new address, new plans, recipes and scans are paused. Your other devices are also signed out.",
+  "settings.changePassword": "Change password",
   "settings.yourData": "Your data",
   "eaters.title": "Who's eating",
   "eaters.hintLabel": "How meals for a shared household are cooked",

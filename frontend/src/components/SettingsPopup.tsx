@@ -6,6 +6,7 @@ import type { PreferencesFormValues } from "./PreferencesForm";
 import { PantryStaples } from "./PantryStaples";
 import { FeedbackModal } from "./FeedbackModal";
 import { ChangeEmailModal } from "./auth/ChangeEmailModal";
+import { ChangePasswordModal } from "./auth/ChangePasswordModal";
 import { DeleteAccountModal } from "./auth/DeleteAccountModal";
 import { HealthConsentSettings } from "./HealthConsentSettings";
 import { HouseholdSettings } from "./HouseholdSettings";
@@ -30,6 +31,7 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -254,6 +256,25 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
             />
           </span>
         </div>
+        {/* Under the address, in the same demo-gated block: a demo account's
+            password is a random server-side value nobody knows, so the
+            current-password check could only ever fail. */}
+        <button
+          type="button"
+          onClick={() => setShowChangePassword(true)}
+          style={{
+            marginTop: "0.75rem",
+            padding: "0.4rem 0.75rem",
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            background: "#f9fafb",
+            color: "#111827",
+            cursor: "pointer",
+            fontSize: 13,
+          }}
+        >
+          {t("settings.changePassword")}
+        </button>
       </div>
       )}
 
@@ -367,6 +388,9 @@ export function SettingsPopup({ onClose }: SettingsPopupProps) {
     )}
     {showChangeEmail && (
       <ChangeEmailModal onClose={() => setShowChangeEmail(false)} />
+    )}
+    {showChangePassword && (
+      <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
     )}
     {showDeleteAccount && (
       <DeleteAccountModal onClose={() => setShowDeleteAccount(false)} />
