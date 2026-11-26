@@ -123,20 +123,25 @@ class _Language:
         )
 
     def key(self, ing: IngredientAmount, ref: NutritionReference) -> tuple[Lang, str] | None:
-        name_en = (ing.name_en or "").strip()
+        return self.name_key(ing.name, ing.name_en, ref, spice=ing.is_spice)
+
+    def name_key(
+        self, name: str, name_en: str | None, ref: NutritionReference, *, spice: bool = False
+    ) -> tuple[Lang, str] | None:
+        en = (name_en or "").strip()
         # On a Czech plan the Czech name decides when the reviewed Czech index
         # knows it: it is the model's own words, and name_en its translation,
         # which can drop a state or a fat level ("vařené bílé fazole" came
         # back as "white beans"). A spice line keeps name_en: Czech "paprika"
         # is the vegetable in the Czech index, but a spice line means powder.
-        if self.czech and not ing.is_spice and ref.lookup("cs", ing.name) is not None:
-            return "cs", ing.name
-        if name_en:
-            return "en", name_en
+        if self.czech and not spice and ref.lookup("cs", name) is not None:
+            return "cs", name
+        if en:
+            return "en", en
         if self.english:
-            return "en", ing.name
+            return "en", name
         if self.czech:
-            return "cs", ing.name
+            return "cs", name
         return None
 
 
@@ -210,6 +215,16 @@ def recipe_key(ing: IngredientAmount, language: str | None, ref: NutritionRefere
     temperature lines and the nutrition panel agree about what an ingredient
     is. None when no index applies."""
     return _Language.of(language).key(ing, ref)
+
+
+def item_key(
+    name: str, name_en: str | None, language: str | None, ref: NutritionReference
+) -> tuple[Lang, str] | None:
+    """The (index, name) a kitchen item is looked up under: the order
+    recipe_key uses for a line that is not a spice, so a scanned "kuřecí prsa"
+    and a recipe's "kuřecí prsa" land on the same food. Takes the names, not
+    an IngredientAmount, whose 30 kg cap a 40 kg receipt line would fail."""
+    return _Language.of(language).name_key(name, name_en, ref)
 
 
 def reads_czech_first(language: str | None) -> bool:

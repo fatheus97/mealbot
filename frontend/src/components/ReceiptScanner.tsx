@@ -28,8 +28,9 @@ interface ReviewItem {
   needToUse: boolean;
   itemType?: ScannedItemType;
   expirationDate: string | null;
-  // "estimated_ai" from the scan. A date the user retypes becomes null
-  // (unknown): it may come from the pack, but not which kind it is.
+  // "estimated_table" or "estimated_ai" from the scan, null for an opened
+  // pack (no date). A date the user retypes becomes null (unknown): it may
+  // come from the pack, but not which kind it is.
   dateKind: DateKind | null;
   // Set for an opened package from a food photo: its full size in grams. The
   // row asks how much is left, and addedQty starts empty until answered.
@@ -300,7 +301,9 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
           name: scanned.name,
           addedQty: scanned.opened ? "" : String(scanned.quantity_grams),
           existingQty: existing?.quantity_grams ?? 0,
-          needToUse: existing?.need_to_use ?? false,
+          // The server marks an opened pack use soon instead of dating it
+          // (design check 4); an existing row's flag still carries over.
+          needToUse: scanned.need_to_use || (existing?.need_to_use ?? false),
           itemType: scanned.item_type,
           expirationDate: expDate,
           dateKind: scanned.date_kind ?? null,

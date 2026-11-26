@@ -11,6 +11,8 @@ from pypdf import PdfWriter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import LocalizedHTTPException
+from app.core.nutrition_reference import load_reference
+from app.core.storage_reference import load_storage
 from app.llm.client import llm_client
 from app.models.db_models import User
 from app.models.plan_models import (
@@ -21,6 +23,20 @@ from app.models.plan_models import (
     ReceiptScanResponse,
     ScannedReceiptItem,
 )
+from app.services.fridge_dates import FridgeDates
+
+
+# Chicken breast's FoodKeeper days in the SHIPPED table (low end), read from
+# the table so a map.csv edit cannot strand these tests. test_fridge_dates.py
+# checks the table logic itself on a synthetic table.
+def _chicken_days() -> int:
+    time = FridgeDates(load_reference(), load_storage()).keep_time("chicken breast", None, "English")
+    days = time.low_days() if time is not None else None
+    assert days is not None
+    return days
+
+
+_CHICKEN_DAYS = _chicken_days()
 
 MOCK_SCAN_RESULT = ReceiptScanResponse(
     purchase_date=date(2026, 3, 10),
@@ -80,11 +96,13 @@ class TestScanEndpoint:
         by_name = {item["name"]: item for item in data}
         assert by_name["chicken breast"]["item_type"] == "ingredient"
         assert by_name["chocolate bar"]["item_type"] == "ready_to_eat"
-        # Verify expiration_date = purchase_date + shelf_life_days
-        assert by_name["chicken breast"]["expiration_date"] == "2026-03-13"  # +3 days
+        # Chicken breast has a FoodKeeper time in days: purchase date + its low end.
+        chicken = by_name["chicken breast"]
+        assert chicken["expiration_date"] == (date(2026, 3, 10) + timedelta(days=_CHICKEN_DAYS)).isoformat()
+        assert chicken["date_kind"] == "estimated_table"
+        # Rice and chocolate have none: purchase date + the model's shelf_life_days.
         assert by_name["rice"]["expiration_date"] == "2027-03-10"  # +365 days
-        # No scan reads a printed date: every one is labelled the model's guess.
-        assert {item["date_kind"] for item in data} == {"estimated_ai"}
+        assert {by_name[n]["date_kind"] for n in ("rice", "chocolate bar")} == {"estimated_ai"}
         mock_extract.assert_awaited_once()
 
     @patch("app.api.fridge.normalize_item_names", side_effect=_passthrough_normalize)
@@ -108,7 +126,7 @@ class TestScanEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()["items"]
-        expected_date = (date.today() + timedelta(days=3)).isoformat()
+        expected_date = (date.today() + timedelta(days=_CHICKEN_DAYS)).isoformat()
         assert data[0]["expiration_date"] == expected_date
 
     async def test_scan_invalid_file_type(self, client: AsyncClient) -> None:
@@ -733,8 +751,13 @@ class TestFoodPhotoScan:
         # Opened: the full package size, flagged so the review step asks what's left.
         assert (sugar["name"], sugar["quantity_grams"], sugar["opened"]) == ("cane sugar", 500, True)
         assert penne["opened"] is False
-        # No purchase date on a photo: shelf life counts from today.
-        assert sugar["expiration_date"] == (date.today() + timedelta(days=730)).isoformat()
+        # Opened: no date and use soon (design check 4). Sealed penne, which has
+        # no FoodKeeper product: the model's guess counted from today, since a
+        # photo has no purchase date.
+        assert (sugar["expiration_date"], sugar["date_kind"], sugar["need_to_use"]) == (None, None, True)
+        assert (penne["expiration_date"], penne["date_kind"]) == (
+            (date.today() + timedelta(days=365)).isoformat(), "estimated_ai",
+        )
 
         # Same telemetry surface (so /merge links it), tagged with its own method.
         await db_session.commit()
@@ -786,7 +809,7 @@ class TestFoodPhotoScan:
 
         items = [
             FoodPhotoItem(
-                name="cukr třtinový", quantity_grams=500, item_type="ingredient",
+                name="cukr třtinový", name_en="Cane Sugar", quantity_grams=500, item_type="ingredient",
                 shelf_life_days=730, opened=True,
             ),
         ]
@@ -801,6 +824,7 @@ class TestFoodPhotoScan:
         renamed = result[0]
         assert isinstance(renamed, FoodPhotoItem)
         assert (renamed.name, renamed.opened, renamed.quantity_grams) == ("třtinový cukr", True, 500)
+        assert renamed.name_en == "cane sugar"  # the table's key survives a rename
 
     async def test_service_renders_food_prompt_with_no_purchase_date(
         self, monkeypatch: pytest.MonkeyPatch

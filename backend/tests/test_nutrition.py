@@ -665,11 +665,14 @@ class TestEndpoint:
 
 
 # Modules that may import the nutrition table or figures, relative to backend/:
-# the endpoint, the figures themselves, offline scripts and the evals. Nothing
-# on a planning, diet, infant or allergen path, and no prompt, may read them:
-# Open Food Facts values are display only.
+# the endpoint, the figures themselves, offline scripts and the evals, and the
+# fridge-dates join, which takes only a name's food id to the storage table and
+# reads no figure. Nothing on a planning, diet, infant or allergen path, and no
+# prompt, may read them: Open Food Facts values are display only.
 _NUTRITION_MODULES = ("app.core.nutrition_reference", "app.services.nutrition")
-_ALLOWED_IMPORTERS = ("app/api/plan.py", "app/services/nutrition.py", "app/scripts/", "evals/")
+_ALLOWED_IMPORTERS = (
+    "app/api/plan.py", "app/services/nutrition.py", "app/services/fridge_dates.py", "app/scripts/", "evals/",
+)
 BACKEND = Path(__file__).resolve().parents[1]
 
 
@@ -706,6 +709,24 @@ class TestImporters:
         assert sorted(p for p in importers if not p.startswith(_ALLOWED_IMPORTERS)) == []
         # The scan sees today's importers, so an empty result above is not a blind one.
         assert {"app/api/plan.py", "app/services/nutrition.py", "evals/graders.py"} <= importers
+
+    def test_only_the_fridge_endpoint_imports_fridge_dates(self) -> None:
+        """fridge_dates may import the nutrition modules because it hands on
+        nothing but a fridge time. One hop further the guard above is blind,
+        so the join keeps one importer, which never imports the nutrition
+        modules itself (the test above)."""
+        importers = {
+            path.relative_to(BACKEND).as_posix()
+            for path in sorted([*(BACKEND / "app").rglob("*.py"), *(BACKEND / "evals").rglob("*.py")])
+            if any(
+                name == "app.services.fridge_dates" or name.startswith("app.services.fridge_dates.")
+                for name in _imported_modules(
+                    path.read_text(encoding="utf-8"),
+                    path.relative_to(BACKEND).as_posix().removesuffix(".py").replace("/", "."),
+                )
+            )
+        }
+        assert importers == {"app/api/fridge.py"}
 
     @pytest.mark.parametrize(("source", "module", "reads"), [
         ("import app.services.nutrition", "app.services.planner", True),

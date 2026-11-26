@@ -158,7 +158,8 @@ describe('ReceiptScanner', () => {
       mockedScanReceipt.mockResolvedValue({
         generation_id: 4,
         items: [
-          { name: 'cane sugar', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const, opened: true },
+          // As the server sends an opened pack: no date, marked use soon.
+          { name: 'cane sugar', quantity_grams: 500, need_to_use: true, item_type: 'ingredient' as const, opened: true },
           { name: 'penne', quantity_grams: 500, need_to_use: false, item_type: 'ingredient' as const },
         ],
       });
@@ -188,8 +189,10 @@ describe('ReceiptScanner', () => {
 
       await user.click(screen.getByRole('button', { name: /add to fridge/i }));
       await waitFor(() => expect(mockedMergeFridge).toHaveBeenCalledTimes(1));
-      const merged = mockedMergeFridge.mock.calls[0][0] as Array<{ name: string; quantity_grams: number }>;
+      const merged = mockedMergeFridge.mock.calls[0][0] as Array<{ name: string; quantity_grams: number; need_to_use: boolean }>;
       expect(merged.map((i) => [i.name, i.quantity_grams])).toEqual([['cane sugar', 30], ['penne', 500]]);
+      // The use-soon flag the server set on the opened pack reaches the fridge.
+      expect(merged.map((i) => i.need_to_use)).toEqual([true, false]);
     });
 
     it('a camera capture in food photo mode is scanned as a food photo', async () => {

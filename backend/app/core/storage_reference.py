@@ -122,6 +122,11 @@ class FridgeTime:
         per = _DAYS_PER.get(self.unit)
         return None if per is None or self.low is None else self.low * per
 
+    def high_days(self) -> int | None:
+        """The high end in days, under the same rule as low_days."""
+        per = _DAYS_PER.get(self.unit)
+        return None if per is None or self.high is None else self.high * per
+
 
 @dataclass(frozen=True)
 class FoodRow:

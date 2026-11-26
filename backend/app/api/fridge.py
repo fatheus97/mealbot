@@ -38,6 +38,7 @@ from app.models.plan_models import (
     WasteEntryDTO,
     WasteRecordedResponse,
 )
+from app.services.fridge_dates import FridgeDates, fridge_dates, scan_date
 from app.services.fridge_service import (
     MAX_FRIDGE_ITEMS,
     expected_version,
@@ -334,6 +335,42 @@ async def record_waste(
     return WasteRecordedResponse(recorded=recorded)
 
 
+def _scanned_item(
+    item: ScannedReceiptItem, base_date: date, language: str, dates: FridgeDates
+) -> ScannedItemDTO:
+    """One scanned row with its date (docs/food-storage-design.md, slice 6).
+
+    * An opened pack from a food photo gets no date and is marked use soon
+      (design check 4): its unopened shelf life no longer applies, and v1
+      shows no after-opening times. need_to_use puts it first in the next
+      plan instead of leaving it undated with no urgency.
+    * Otherwise the FoodKeeper time when the table gives one in days or
+      weeks and the model's guess does not say the pack keeps far longer
+      (estimated_table, fridge_dates.scan_date), else the model's guess
+      (estimated_ai).
+    """
+    if isinstance(item, FoodPhotoItem) and item.opened:
+        return ScannedItemDTO(
+            name=item.name,
+            quantity_grams=item.quantity_grams,
+            need_to_use=True,
+            item_type=item.item_type,
+            expiration_date=None,
+            date_kind=None,
+            opened=True,
+        )
+    table = scan_date(base_date, dates.keep_time(item.name, item.name_en, language), item.shelf_life_days)
+    return ScannedItemDTO(
+        name=item.name,
+        quantity_grams=item.quantity_grams,
+        need_to_use=False,
+        item_type=item.item_type,
+        expiration_date=table if table is not None else base_date + timedelta(days=item.shelf_life_days),
+        date_kind="estimated_table" if table is not None else "estimated_ai",
+        opened=False,
+    )
+
+
 @router.post("/scan", response_model=ScannedItemsResponse)
 @limiter.limit("5/minute", key_func=user_id_key_func)
 async def scan_receipt(
@@ -347,6 +384,7 @@ async def scan_receipt(
     current_user: User = Depends(require_generation_budget),
     session: AsyncSession = Depends(get_session),
     usages: list[LlmCallUsage] = Depends(usage_capture),
+    dates: FridgeDates = Depends(fridge_dates),
 ) -> ScannedItemsResponse:
     """Upload a receipt (image or PDF) or a photo of food and extract grocery items via LLM.
 
@@ -434,20 +472,11 @@ async def scan_receipt(
         items = [item for item in items if item.item_type == "ingredient"]
 
     purchase_date = scan_result.purchase_date if isinstance(scan_result, ReceiptScanResponse) else None
-    base_date = purchase_date or date.today()
-
-    scanned_items = [
-        ScannedItemDTO(
-            name=item.name,
-            quantity_grams=item.quantity_grams,
-            need_to_use=False,
-            item_type=item.item_type,
-            expiration_date=base_date + timedelta(days=item.shelf_life_days),
-            date_kind="estimated_ai",
-            opened=isinstance(item, FoodPhotoItem) and item.opened,
-        )
-        for item in items
-    ]
+    today = date.today()
+    # The model reads the receipt's date and nothing checks it: a misread
+    # future date would carry every estimate past its time.
+    base_date = min(purchase_date, today) if purchase_date is not None else today
+    scanned_items = [_scanned_item(item, base_date, user_language, dates) for item in items]
 
     # Telemetry: persist the raw scan so /fridge/merge can capture the user's
     # corrections. This is the ONLY DB write on the scan path (fridge is only

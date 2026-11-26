@@ -960,11 +960,14 @@ export const en = {
   "receipt.capture": "Capture",
   "receipt.startingCamera": "Starting camera…",
   "receipt.reviewIntro": "Review the extracted items before adding to your fridge.",
-  // The server computes the date (purchase date or today + the model's shelf
-  // life guess); no prompt reads a printed date.
+  // The server computes the date (fridge.py _scanned_item): purchase date or
+  // today + the FoodKeeper low end when the table has the food in days or
+  // weeks and the model's guess is not far longer (fridge_dates.scan_date),
+  // else + the model's shelf-life guess; an opened pack gets none.
+  // No prompt reads a printed date.
   "receipt.expiresHintLabel": "About expiry dates",
   "receipt.expiresHint":
-    "Expiry dates are estimated from the receipt's date (or today) plus a typical shelf life for each food, not read from the package. Correct them if needed.",
+    "Dates are estimates, not read from the package. When Mealbot matches a food to USDA FoodKeeper (US) and the table gives a fridge time in days or weeks, the date is the short end of that time. Any other food, or a pack AI judges to keep far longer, such as a frozen one, gets an AI estimate. Both count from the receipt's date, or from today. An opened package gets no date and is marked use soon. Correct a date if the package says otherwise.",
   "receipt.noItems": "No food items found in receipt.",
   "receipt.qty": "Qty (g)",
   "receipt.expires": "Expires",
@@ -1008,7 +1011,7 @@ export const en = {
   "receipt.sourceReceipt": "Receipt",
   "receipt.sourceFoodPhoto": "Food photo",
   "receipt.foodPhotoHintLabel": "About food photos",
-  "receipt.foodPhotoHint": "Take a photo of the food itself: a shelf, a shopping bag, or a single package. Amounts are estimates, so check them. For an opened package you will be asked how much is left.",
+  "receipt.foodPhotoHint": "Take a photo of the food itself: a shelf, a shopping bag, or a single package. Amounts are estimates, so check them. For an opened package you will be asked how much is left. It gets no date and is marked use soon.",
   "receipt.selectFoodPhoto": "Select a photo of your food",
   "receipt.scanningFoodPhoto": "Looking at your photo... This may take a few seconds.",
   "receipt.noItemsFoodPhoto": "No food found in the photo.",

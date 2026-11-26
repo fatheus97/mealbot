@@ -306,7 +306,8 @@ class WasteEntryDTO(BaseModel):
     is fine to keep — so it is NOT waste, and the row exists as the DENOMINATOR.
     "5 items binned" is uninterpretable on its own; "5 binned, 12 outlived their
     date" is the shelf-life signal, and it is the only feedback that ever
-    reaches the LLM's ``shelf_life_days`` guess in receipt_scan.jinja.
+    reaches the scan estimates: the LLM's ``shelf_life_days`` guess in
+    receipt_scan.jinja and the FoodKeeper table, told apart by ``date_kind``.
     """
 
     name: str = Field(..., min_length=1, max_length=100)
@@ -1253,6 +1254,19 @@ class ScannedReceiptItem(BaseModel):
         le=730,
         description="Estimated days from purchase until typical expiration when stored properly",
     )
+    # The key the storage table is looked up under when `name` (in the user's
+    # language) is not in an index: a Slovak or German name, or a Czech one the
+    # Czech index lacks. Optional: without it the item keeps the model's own
+    # estimate, which fails cautious. Never stored and never shown.
+    name_en: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "The item's plain ENGLISH name for EVERY item, lowercase, whatever language `name` is in, "
+            "keeping a state such as frozen, tinned or dried "
+            "(e.g. name='kuřecí prsa' -> name_en='chicken breast'). Never shown to the user."
+        ),
+    )
 
     @field_validator("name", mode="before")
     @classmethod
@@ -1260,6 +1274,12 @@ class ScannedReceiptItem(BaseModel):
         # A crafted receipt could make the LLM emit a name carrying </user_content>;
         # it renders into the fenced normalize prompt, so neutralize the delimiter.
         return _strip_prompt_fence_tags(v)
+
+    @field_validator("name_en", mode="before")
+    @classmethod
+    def _normalize_name_en(cls, v: object) -> object:
+        # A lookup key like IngredientAmount.name_en: folded, "" -> None, fenced.
+        return _normalize_canonical_key(v)
 
     @field_validator("quantity_grams")
     @classmethod
@@ -1306,8 +1326,10 @@ class ScannedItemDTO(BaseModel):
     # Food photos only: an opened package. quantity_grams is the full package
     # size, and the review step asks the user how much is left.
     opened: bool = False
-    # "estimated_ai": no scan reads a printed date, every one is the model's
-    # shelf-life guess. Defaults to None so stored scan output still parses.
+    # No scan reads a printed date: "estimated_table" is the FoodKeeper time,
+    # "estimated_ai" the model's shelf-life guess, and None an opened pack,
+    # which gets no date (fridge.py, design check 4). Defaults to None so
+    # stored scan output still parses.
     date_kind: DateKind | None = None
 
 
