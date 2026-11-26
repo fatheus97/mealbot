@@ -187,6 +187,20 @@ class TestTheSuite:
                            "stock_only", "fridge_use", "nutrition_coverage"}
         assert len(applied) == len(GRADERS)  # a new grader needs a case, and a name here
 
+    def test_pairing_cases_fill_every_cell_and_each_chip_is_in_its_fridge(self) -> None:
+        # The odd-pairing count is read per cell, so two cases on one cell, or
+        # a missing one, would skew it without any error. A chip the fridge
+        # does not hold is not a request the app's chip picker can make.
+        pairing = [c for c in CASES if "pairing" in c.tags]
+        cells = {
+            (c.request.language, c.request.country, bool(c.request.ingredients_to_use), bool(c.request.past_meals),
+             tuple(sorted((s.name, s.need_to_use) for s in c.request.stock_items)))
+            for c in pairing
+        }
+        assert len(pairing) == len(cells) == 30
+        for case in pairing:
+            assert set(case.request.ingredients_to_use) <= {s.name for s in case.request.stock_items}, case.id
+
 
 class TestTheRunner:
     def test_parse_model(self) -> None:
