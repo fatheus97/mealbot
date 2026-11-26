@@ -38,6 +38,9 @@ D = DietType
 # requests. A full factorial over the suspected causes, on Czech plans:
 #   fridge   mixed (everyday leftovers that do not cook together), the same
 #            with the cold cuts urgent, or a coherent fridge as the control;
+#            párky sit in all three so every chip is in its fridge, which
+#            leaves them in reach in the coherent cells without a chip too:
+#            that control is not párky-free;
 #   chip     none, or "párky" as a "use up" chip, which production copies into
 #            every day of a plan (plan_service.generate_plan_days copies the
 #            payload per day);
