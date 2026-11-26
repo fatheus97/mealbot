@@ -161,7 +161,7 @@ export const en = {
   "auth.changePassword.newPassword": "New password",
   "auth.changePassword.confirmPassword": "Confirm new password",
   "auth.changePassword.submit": "Change password",
-  "auth.changePassword.changing": "Changing...",
+  "auth.changePassword.changing": "Changing…",
   "auth.changePassword.cancel": "Cancel",
   "auth.changePassword.doneTitle": "Password changed",
   "auth.changePassword.doneBody":

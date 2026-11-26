@@ -144,7 +144,7 @@ describe("ChangePasswordModal", () => {
     await fill(user);
     await user.click(submit());
 
-    const pending = screen.getByRole("button", { name: "Changing..." });
+    const pending = screen.getByRole("button", { name: "Changing…" });
     expect(pending).toBeDisabled();
     await user.click(pending);
     expect(change).toHaveBeenCalledTimes(1);

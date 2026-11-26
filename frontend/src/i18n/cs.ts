@@ -139,7 +139,7 @@ export const cs: DictionaryFor<"one" | "few" | "many" | "other"> = {
   "auth.changePassword.newPassword": "Nové heslo",
   "auth.changePassword.confirmPassword": "Nové heslo znovu",
   "auth.changePassword.submit": "Změnit heslo",
-  "auth.changePassword.changing": "Měním...",
+  "auth.changePassword.changing": "Měním…",
   "auth.changePassword.cancel": "Zrušit",
   "auth.changePassword.doneTitle": "Heslo bylo změněno",
   "auth.changePassword.doneBody":
