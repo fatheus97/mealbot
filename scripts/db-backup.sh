@@ -18,10 +18,10 @@
 # The off-box copy is scripts/offsite-backup.sh (encrypted, to Backblaze B2),
 # run by mealbot-offsite-backup.timer half an hour after this one. It SHIPS
 # PARKED — see deploy/systemd/README.md §6 — so until it is switched on, this
-# local dump is still the only copy. Meanwhile, check that VM snapshots are
-# enabled in the Hetzner console: a snapshot is crash-consistent rather than a
-# clean dump, but it is the difference between "lost a day" and "lost the
-# company".
+# local dump is still the only copy on its own. Hetzner's server backups (seven
+# daily copies of the whole disk, these dumps included) are the copy that
+# survives a lost disk; the owner switches them on in the Hetzner console. The
+# retention below is sized for them.
 #
 # The `SaleRecord` VAT/OSS ledger is the reason this is not optional: it is
 # deliberately `ondelete=SET NULL` so it survives user deletion, it is legally
@@ -33,7 +33,19 @@ set -euo pipefail
 # pipe, so its exit status is the command's own and aborts before the rename.
 # `pipefail` matters only for the piped helpers further down.
 BACKUP_DIR="${BACKUP_DIR:-/opt/mealbot/backups}"
-BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+# The privacy policy promises a deleted account is out of every backup within
+# 14 days (frontend/privacy.html and frontend/cs/privacy.html, the retention
+# table and the deletion section; auth.deleteAccount.pointBackups in the
+# delete dialog). Worst case for a
+# deletion during day 0: the 02:30 dump of day 0 holds the account;
+# `-mtime +N` deletes a file once it is N+1 whole days old, and the timer's
+# jitter can push that one more night, so the dump is gone by day N+2. A
+# Hetzner disk backup taken on day N+1 still holds it, and Hetzner keeps seven
+# daily backups, so the last copy goes by day N+9. N=5 gives day 14. Raising
+# this breaks the promise while Hetzner backups are on: change the policy first.
+# The parked off-site copy has its own knob, OFFSITE_RETENTION_DAYS in
+# offsite-backup.sh, held to the same 14 days by a guard there.
+BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-5}"
 COMPOSE_FILES="${COMPOSE_FILES:--f docker-compose.yml -f docker-compose.prod.yml}"
 
 mkdir -p "$BACKUP_DIR"
@@ -69,7 +81,7 @@ partial="$final.partial"
 cleanup() { rm -f "$partial"; }
 # TERM/INT as well as EXIT: systemd sends SIGTERM on TimeoutStartSec, and bash's
 # default disposition kills the shell WITHOUT running an EXIT trap — which would
-# strand a full-size .partial on the disk until retention swept it 14 days later.
+# strand a full-size .partial on the disk until retention swept it days later.
 trap cleanup EXIT TERM INT
 
 echo "db-backup: dumping to $final"
