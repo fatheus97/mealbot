@@ -13,7 +13,7 @@ docker compose run --rm backend python -m evals.run --model gemini/gemini-2.5-fl
 |---|---|
 | `--model provider/model` | repeatable, spelled as in `LLM_MODELS`; default is that chain |
 | `--repeats N` | answers per case per model (default 3). Models answer differently each time, so one run of a case proves little |
-| `--case ID`, `--tag TAG` | a subset (tags: `allergen`, `diet`, `infant`, `fridge`, `avoid`, `shape`, `language`, `combo`) |
+| `--case ID`, `--tag TAG` | a subset (tags: `allergen`, `diet`, `infant`, `fridge`, `avoid`, `shape`, `language`, `combo`, `pairing`) |
 | `--concurrency N` | parallel calls per model (default 4). Models run one after another |
 | `--rpm N` | start at most N calls a minute per model. A free-tier key refuses bursts (429); about 8 keeps it quiet |
 | `--mock` | the mock LLM: checks the harness, not a model |
@@ -37,7 +37,7 @@ Output: a scorecard in the terminal. Every answer and every check are saved in `
 
 Each case is graded on the model's FIRST answer. Production rejects and regenerates a plan that fails its screen, which hides how often a model gets it wrong; that rate is the number being compared.
 
-Not measured here: whether the food is good. That needs people; a blind A/B rating page is the next step.
+Not measured here: whether the food is good. That needs people; a blind A/B rating page is the next step. The `pairing` cases (ticket #7, frankfurters and eidam in a risotto) are its first input: 24 Czech cases over fridge, "use up" chip, plan day and country, plus 6 Slovak ones. No grader reads them yet; an odd-pairing judge checked against the owner's own labels comes next.
 
 ## Rules
 
