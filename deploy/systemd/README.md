@@ -498,6 +498,14 @@ its recipients explicitly. Add Backblaze to that list, with the storage region,
 in the same change that flips this on. Shipping the backup without the
 disclosure makes a published page inaccurate.
 
+The retention needs the same care. The policy (both editions) and the delete
+dialog promise a deleted account is out of every backup within 14 days, and
+the `OFFSITE_RETENTION_DAYS=90` above, or an Object Lock period longer than
+that, keeps one for about 90. Either set the off-site retention (and any lock
+period) so the last copy goes within 14 days, counted the way §4's "Why 5
+days" counts, or change the policy's backup retention, both editions, in the
+same change.
+
 ### 6.3 Verify
 
 ```bash

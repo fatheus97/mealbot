@@ -43,6 +43,8 @@ BACKUP_DIR="${BACKUP_DIR:-/opt/mealbot/backups}"
 # Hetzner disk backup taken on day N+1 still holds it, and Hetzner keeps seven
 # daily backups, so the last copy goes by day N+9. N=5 gives day 14. Raising
 # this breaks the promise while Hetzner backups are on: change the policy first.
+# The parked off-site copy has its own knob, OFFSITE_RETENTION_DAYS in
+# offsite-backup.sh (90 today), which must fit the same 14 days before it runs.
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-5}"
 COMPOSE_FILES="${COMPOSE_FILES:--f docker-compose.yml -f docker-compose.prod.yml}"
 
