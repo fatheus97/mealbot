@@ -201,8 +201,9 @@ async def require_generation_budget(
                 # failed. Please try again." — advice that cannot work, on the
                 # one error where retrying never helps, for as long as a month.
                 # resolve_locale is the error handler's own precedence: the
-                # user's language (stamped by get_current_user, upstream of
-                # this dependency), then Accept-Language, then English.
+                # user's language, then Accept-Language, then English. Here
+                # get_current_user (upstream) has always stamped User.language,
+                # so the recipe language decides and the header never does.
                 "user_detail": usage_budget.cap_reached_message(
                     budget, resolve_locale(request)
                 ),

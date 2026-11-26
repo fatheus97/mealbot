@@ -52,7 +52,7 @@ First run and layout
 
 Paygate
 
-- Paid accounts get 2.00 EUR per calendar month and trials get 0.75 EUR. Admin and demo accounts are unlimited. Spend is counted per user_id (backend/app/core/config.py:226-227; backend/app/services/usage_budget.py:68-142). The cap is checked once per request (backend/app/api/deps.py:166-212). The usage-cap sentence is English only (usage_budget.py:150).
+- Paid accounts get 2.00 EUR per calendar month and trials get 0.75 EUR. Admin and demo accounts are unlimited. Spend is counted per user_id (backend/app/core/config.py:226-227; backend/app/services/usage_budget.py:70-144). The cap is checked once per request (backend/app/api/deps.py:166-218). The usage-cap sentence was English only when this was written; it is now in English or Czech (see Cost below).
 
 ## The flow
 
@@ -191,7 +191,7 @@ ALTER TABLE "user" ADD COLUMN restock_prompt_answered_at TIMESTAMPTZ NULL;
 - Each image costs one vision call and one normalize text call, and each goes through the existing per-request budget check and the 5 per minute limit. The save, the prompt endpoints and the answer make no LLM call.
 - Scans are added one at a time by the person, so the soft cap (checked once per request) can be overshot by at most one scan. A sixth image within a minute gets a localized "too many scans, wait a moment", and the rows stay.
 - The cost per scan has never been measured. Before PR 3 merges, read the prod LlmUsage rows with surface `receipt_scan` (median and 90th percentile EUR per scan over the last 30 days; read-only) and record the numbers in the PR. If ten scans would take more than about a third of the 0.75 EUR trial budget, add the per-restock image cap from the owner decisions below.
-- The usage-cap 429 sentence was English only at the time of this design. It is now in English and Czech (`cap_reached_message` in usage_budget.py, copy in error_copy.py), so the scan flow shows it in the reader's language.
+- The usage-cap 429 sentence was English only at the time of this design. It is now in English and Czech (`cap_reached_message` in usage_budget.py, copy in error_copy.py). The language comes from User.language, which is also the recipe language, not from the UI language: get_current_user stamps it before the budget check, so Accept-Language is never consulted here. A user with a Czech UI and English recipes reads it in English.
 - Client-side downscaling to 2048 px JPEG is the follow-up if the measured cost is high or phone photos hit the 10 MB limit. It may also cut vision tokens, though that is unmeasured.
 
 ## PR slices
