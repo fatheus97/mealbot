@@ -2261,6 +2261,44 @@ describe('MealPlanner meal lock copy', () => {
     expect(document.body.innerHTML).not.toMatch(/freez|frozen/i);
   });
 
+  it('shows and counts a leftover as locked with its source, as the server keeps it', async () => {
+    const withLeftover = {
+      plan_id: 8,
+      days: [
+        { meals: [{ name: 'Curry', meal_type: 'hot_dinner', ingredients: [], steps: [] }] },
+        {
+          meals: [{
+            name: 'Leftovers: Curry', meal_type: 'light_lunch', ingredients: [], steps: [],
+            leftover_of: { day_index: 0, meal_index: 0 },
+          }],
+        },
+      ],
+      shopping_list: [],
+    };
+    mockedAuthFetch.mockImplementation((url: string) => {
+      if (url === '/config') return Promise.resolve(okEmpty());
+      return Promise.resolve({
+        ok: true, status: 200, json: () => Promise.resolve(withLeftover),
+      } as unknown as Response);
+    });
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await user.click(screen.getByRole('button', { name: 'Generate Plan' }));
+    // The card is the styled parent of the row holding the meal name.
+    const leftoverCard = (await screen.findByText(/Leftovers: Curry/))
+      .closest('div[style]')?.parentElement as HTMLElement;
+    expect(leftoverCard.style.backgroundColor).toBe('rgb(245, 243, 255)');
+
+    // Only the source has a toggle; the leftover follows it.
+    await user.click(screen.getByRole('button', { name: 'Lock' }));
+
+    expect(screen.getByText('2 meals locked. Unlocked meals will be regenerated.')).toBeInTheDocument();
+    expect(leftoverCard.style.backgroundColor).toBe('rgb(238, 244, 251)');
+    await user.click(screen.getByRole('button', { name: 'Locked' }));
+    expect(screen.queryByText(/meals? locked/)).not.toBeInTheDocument();
+    expect(leftoverCard.style.backgroundColor).toBe('rgb(245, 243, 255)');
+  });
+
   it('says it in Czech, with the Czech plural', async () => {
     useLocaleStore.setState({ locale: 'cs', explicit: true });
     const user = userEvent.setup();
