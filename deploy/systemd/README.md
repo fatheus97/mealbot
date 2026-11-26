@@ -476,7 +476,7 @@ ssh root@<your-server> 'mkdir -p /etc/mealbot && cat > /etc/mealbot/offsite-back
 OFFSITE_BACKUP_ENABLED=true
 OFFSITE_RCLONE_REMOTE=b2:mealbot-backups/prod
 OFFSITE_GPG_RECIPIENT=mealbot-backup
-OFFSITE_RETENTION_DAYS=90
+OFFSITE_RETENTION_DAYS=13
 EOF
 chown root:deploy /etc/mealbot/offsite-backup.env && chmod 640 /etc/mealbot/offsite-backup.env'
 ```
@@ -499,12 +499,13 @@ in the same change that flips this on. Shipping the backup without the
 disclosure makes a published page inaccurate.
 
 The retention needs the same care. The policy (both editions) and the delete
-dialog promise a deleted account is out of every backup within 14 days, and
-the `OFFSITE_RETENTION_DAYS=90` above, or an Object Lock period longer than
-that, keeps one for about 90. Either set the off-site retention (and any lock
-period) so the last copy goes within 14 days, counted the way §4's "Why 5
-days" counts, or change the policy's backup retention, both editions, in the
-same change.
+dialog promise a deleted account is out of every backup within 14 days. The
+script keeps `OFFSITE_RETENTION_DAYS=13` copies at most and refuses to run
+with more (a dump uploaded the night before a deletion is pruned by day 14).
+An Object Lock period counts too: keep it at 13 days or less, or the prune
+cannot delete in time. A longer history means changing the policy's backup
+retention, both editions, and `OFFSITE_RETENTION_MAX_DAYS` in the script, in
+the same change.
 
 ### 6.3 Verify
 
