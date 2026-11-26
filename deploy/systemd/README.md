@@ -237,16 +237,24 @@ build-cache figure dropped.
 ## 4. Nightly database backup (`mealbot-db-backup`)
 
 Runs `scripts/db-backup.sh`: one `pg_dump --format=custom` per night into
-`/opt/mealbot/backups`, pruned to the last 14 days.
+`/opt/mealbot/backups`, pruned to the last 5 days.
 
 **What this covers, and what it does not.** The dump lands on the same box and
 the same disk as the database. That covers the losses that actually happen — a
 bad migration, an accidental `DELETE`, a botched admin action — but **not**
 losing the box or the disk.
 
-- Check the **Hetzner console** for VM snapshots. A snapshot is crash-consistent
-  rather than a clean dump, but it is the difference between "lost a day" and
-  "lost everything".
+- **Hetzner backups** cover a lost disk or a deleted server: seven daily copies
+  of the whole disk (these dumps included), 20 % of the server plan a month,
+  switched on by the owner in the Hetzner console (Server → Backups) once this
+  5-day retention is deployed. They were off on 2026-11-26 (owner's check,
+  ledger Q45); confirm the tab shows them on before relying on this line.
+- **Why 5 days and not 14.** The privacy policy promises a deleted account is
+  out of every backup within 14 days. A dump is gone by day 7 at worst (5 days
+  plus `find -mtime`'s whole-day rounding and the timer's jitter), and a
+  Hetzner copy taken just before that lives seven more days: day 14. The
+  arithmetic is in the comment above `BACKUP_RETENTION_DAYS` in
+  `scripts/db-backup.sh`. Raise either number only after changing the policy.
 - An off-box copy (Hetzner Storage Box over sftp/rsync is the cheap fit) is the
   obvious next step and needs a destination + credentials decision.
 
@@ -327,9 +335,10 @@ non-zero if the restored database has no users.
 
 ### Tuning
 
-`BACKUP_DIR` and `BACKUP_RETENTION_DAYS` (default 14) are read from the
+`BACKUP_DIR` and `BACKUP_RETENTION_DAYS` (default 5) are read from the
 environment. Retention is what stops this job from becoming the thing that
-fills the disk.
+fills the disk, and with Hetzner backups on it is also what keeps the privacy
+policy's 14 days true (see "Why 5 days" above).
 
 ---
 
@@ -488,6 +497,14 @@ processor holding (encrypted) personal data, and `frontend/privacy.html` names
 its recipients explicitly. Add Backblaze to that list, with the storage region,
 in the same change that flips this on. Shipping the backup without the
 disclosure makes a published page inaccurate.
+
+The retention needs the same care. The policy (both editions) and the delete
+dialog promise a deleted account is out of every backup within 14 days, and
+the `OFFSITE_RETENTION_DAYS=90` above, or an Object Lock period longer than
+that, keeps one for about 90. Either set the off-site retention (and any lock
+period) so the last copy goes within 14 days, counted the way §4's "Why 5
+days" counts, or change the policy's backup retention, both editions, in the
+same change.
 
 ### 6.3 Verify
 
