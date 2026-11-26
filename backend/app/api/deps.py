@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.cookies import ACCESS_COOKIE_NAME
-from app.core.errors import LocalizedHTTPException
+from app.core.errors import LocalizedHTTPException, resolve_locale
 from app.core.i18n import locale_for_language
 from app.core.security import ALGORITHM
 from app.db import get_session
@@ -164,6 +164,7 @@ async def require_active_subscription(
 
 
 async def require_generation_budget(
+    request: Request,
     current_user: User = Depends(require_active_subscription),
     session: AsyncSession = Depends(get_session),
 ) -> User:
@@ -199,7 +200,12 @@ async def require_generation_budget(
                 # `detail`, so a capped user got the generic "Plan generation
                 # failed. Please try again." — advice that cannot work, on the
                 # one error where retrying never helps, for as long as a month.
-                "user_detail": usage_budget.cap_reached_message(budget),
+                # resolve_locale is the error handler's own precedence: the
+                # user's language (stamped by get_current_user, upstream of
+                # this dependency), then Accept-Language, then English.
+                "user_detail": usage_budget.cap_reached_message(
+                    budget, resolve_locale(request)
+                ),
                 "code": "usage_cap_reached",
                 "tier": budget.tier,
                 "cap_eur": budget.cap_eur,

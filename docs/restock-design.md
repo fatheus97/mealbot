@@ -191,7 +191,7 @@ ALTER TABLE "user" ADD COLUMN restock_prompt_answered_at TIMESTAMPTZ NULL;
 - Each image costs one vision call and one normalize text call, and each goes through the existing per-request budget check and the 5 per minute limit. The save, the prompt endpoints and the answer make no LLM call.
 - Scans are added one at a time by the person, so the soft cap (checked once per request) can be overshot by at most one scan. A sixth image within a minute gets a localized "too many scans, wait a moment", and the rows stay.
 - The cost per scan has never been measured. Before PR 3 merges, read the prod LlmUsage rows with surface `receipt_scan` (median and 90th percentile EUR per scan over the last 30 days; read-only) and record the numbers in the PR. If ten scans would take more than about a third of the 0.75 EUR trial budget, add the per-restock image cap from the owner decisions below.
-- The usage-cap 429 sentence is English only (usage_budget.py:150). It will show in Czech UI as it already does today. File it as a separate follow-up.
+- The usage-cap 429 sentence was English only at the time of this design. It is now in English and Czech (`cap_reached_message` in usage_budget.py, copy in error_copy.py), so the scan flow shows it in the reader's language.
 - Client-side downscaling to 2048 px JPEG is the follow-up if the measured cost is high or phone photos hit the 10 MB limit. It may also cut vision tokens, though that is unmeasured.
 
 ## PR slices
