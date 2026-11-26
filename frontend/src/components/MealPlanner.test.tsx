@@ -2261,42 +2261,80 @@ describe('MealPlanner meal lock copy', () => {
     expect(document.body.innerHTML).not.toMatch(/freez|frozen/i);
   });
 
-  it('shows and counts a leftover as locked with its source, as the server keeps it', async () => {
-    const withLeftover = {
-      plan_id: 8,
-      days: [
-        { meals: [{ name: 'Curry', meal_type: 'hot_dinner', ingredients: [], steps: [] }] },
-        {
-          meals: [{
-            name: 'Leftovers: Curry', meal_type: 'light_lunch', ingredients: [], steps: [],
-            leftover_of: { day_index: 0, meal_index: 0 },
-          }],
-        },
-      ],
-      shopping_list: [],
-    };
+  const withLeftover = {
+    plan_id: 8,
+    days: [
+      { meals: [{ name: 'Curry', meal_type: 'hot_dinner', ingredients: [], steps: [] }] },
+      {
+        meals: [{
+          name: 'Leftovers: Curry', meal_type: 'light_lunch', ingredients: [], steps: [],
+          leftover_of: { day_index: 0, meal_index: 0 },
+        }],
+      },
+    ],
+    shopping_list: [],
+  };
+  const serveWithLeftover = () =>
     mockedAuthFetch.mockImplementation((url: string) => {
       if (url === '/config') return Promise.resolve(okEmpty());
       return Promise.resolve({
         ok: true, status: 200, json: () => Promise.resolve(withLeftover),
       } as unknown as Response);
     });
+  // The card is the styled parent of the row holding the meal name.
+  const cardOf = async (name: RegExp) =>
+    (await screen.findByText(name)).closest('div[style]')?.parentElement as HTMLElement;
+
+  it('shows and counts a leftover as locked with its source, as the server keeps it', async () => {
+    serveWithLeftover();
     const user = userEvent.setup();
     render(<MealPlanner />, { wrapper: createWrapper() });
     await user.click(screen.getByRole('button', { name: 'Generate Plan' }));
-    // The card is the styled parent of the row holding the meal name.
-    const leftoverCard = (await screen.findByText(/Leftovers: Curry/))
-      .closest('div[style]')?.parentElement as HTMLElement;
+    const leftoverCard = await cardOf(/Leftovers: Curry/);
+    const sourceCard = await cardOf(/^Curry$/);
     expect(leftoverCard.style.backgroundColor).toBe('rgb(245, 243, 255)');
+    expect(screen.queryByText('Locked with the original meal')).not.toBeInTheDocument();
 
     // Only the source has a toggle; the leftover follows it.
     await user.click(screen.getByRole('button', { name: 'Lock' }));
 
     expect(screen.getByText('2 meals locked. Unlocked meals will be regenerated.')).toBeInTheDocument();
     expect(leftoverCard.style.backgroundColor).toBe('rgb(238, 244, 251)');
+    // Text, not only the colour (WCAG 1.4.1), and on the leftover alone: the
+    // source already says Locked on its own button.
+    expect(within(leftoverCard).getByText('Locked with the original meal')).toBeInTheDocument();
+    expect(within(sourceCard).queryByText('Locked with the original meal')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'About locking and regenerating' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      /Leftovers have no Lock button of their own and are kept when the meal they come from is locked\.$/,
+    );
+
     await user.click(screen.getByRole('button', { name: 'Locked' }));
     expect(screen.queryByText(/meals? locked/)).not.toBeInTheDocument();
     expect(leftoverCard.style.backgroundColor).toBe('rgb(245, 243, 255)');
+    expect(screen.queryByText('Locked with the original meal')).not.toBeInTheDocument();
+  });
+
+  it('marks a locked leftover in Czech too', async () => {
+    useLocaleStore.setState({ locale: 'cs', explicit: true });
+    serveWithLeftover();
+    const user = userEvent.setup();
+    render(<MealPlanner />, { wrapper: createWrapper() });
+    await user.click(screen.getByRole('button', { name: 'Vytvořit jídelníček' }));
+    const leftoverCard = await cardOf(/Leftovers: Curry/);
+    expect(screen.queryByText('Zamčeno s původním jídlem')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Zamknout' }));
+
+    expect(within(leftoverCard).getByText('Zamčeno s původním jídlem')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'O zamykání a přegenerování' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      /Zbytky nemají vlastní tlačítko „Zamknout“ a zůstanou zachované, když zamknete jídlo, ze kterého pocházejí\.$/,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Zamčeno' }));
+    expect(screen.queryByText('Zamčeno s původním jídlem')).not.toBeInTheDocument();
   });
 
   it('says it in Czech, with the Czech plural', async () => {

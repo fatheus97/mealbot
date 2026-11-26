@@ -598,7 +598,7 @@ export const en = {
   "planner.reopenTitle": "Re-debit ingredients for uncooked meals and return to the active plan",
   "planner.regenerateHintLabel": "About locking and regenerating",
   "planner.regenerateHint":
-    "Lock the meals you want to keep and Regenerate Unlocked appears. It redoes the rest with this plan's original choices, not the form above.",
+    "Lock the meals you want to keep and Regenerate Unlocked appears. It redoes the rest with this plan's original choices, not the form above. Leftovers have no Lock button of their own and are kept when the meal they come from is locked.",
   "planner.frozenCount_one": "1 meal locked.",
   "planner.frozenCount_other": "{count} meals locked.",
   "planner.unfrozenRegenerated": "Unlocked meals will be regenerated.",
@@ -637,6 +637,7 @@ export const en = {
   "meal.cook": "Cook",
   "meal.freezeTitle": "Lock this meal",
   "meal.unfreezeTitle": "Unlock this meal",
+  "meal.lockedWithSource": "Locked with the original meal",
   "meal.cooked": "Cooked",
   "meal.notCooked": "Not cooked",
   "meal.markCooked": "Mark as cooked",

@@ -280,6 +280,23 @@ export function MealCard({
               : t("meal.leftoversFromBadge", { source: leftoverSource })}
           </span>
         )}
+        {/* A leftover has no Lock toggle to say "Locked", so without this the
+            accent colour alone would carry the state (WCAG 1.4.1), and a
+            screen reader could not find the meal the lock count includes. */}
+        {isLeftover && isFrozen && (
+          <span
+            style={{
+              padding: "0.1rem 0.45rem",
+              borderRadius: "10px",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              backgroundColor: "#dbeafe",
+              color: "#1e40af",
+            }}
+          >
+            {t("meal.lockedWithSource")}
+          </span>
+        )}
         {meal.total_time_minutes != null && (
           <span
             style={{ marginLeft: "0.5rem", fontSize: "0.85em", color: "#666" }}
