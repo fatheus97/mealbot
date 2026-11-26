@@ -2246,13 +2246,18 @@ describe('MealPlanner meal lock copy', () => {
     render(<MealPlanner />, { wrapper: createWrapper() });
     await user.click(screen.getByRole('button', { name: 'Generate Plan' }));
     await screen.findByText('Meal A');
+    // innerHTML, not textContent: the title and the hint's aria-label count too.
+    // Checked in both states, because each state has its own title.
+    expect(document.body.innerHTML).not.toMatch(/freez|frozen/i);
 
     for (const btn of screen.getAllByRole('button', { name: 'Lock' })) await user.click(btn);
 
     expect(screen.getAllByRole('button', { name: 'Locked' })).toHaveLength(2);
     expect(screen.getByText('2 meals locked. Unlocked meals will be regenerated.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /regenerate unlocked/i })).toBeInTheDocument();
-    // innerHTML, not textContent: the title and the hint's aria-label count too.
+    // The hint renders its text only while open.
+    await user.click(screen.getByRole('button', { name: 'About locking and regenerating' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Lock the meals you want to keep/);
     expect(document.body.innerHTML).not.toMatch(/freez|frozen/i);
   });
 
