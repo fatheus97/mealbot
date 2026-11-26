@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { leftoverSourceLabel, leftoverStorageOf, calendarLeftoverTitle, lowerFirst } from "./leftovers";
+import { leftoverSourceLabel, leftoverStorageOf, lockedWithLeftovers, calendarLeftoverTitle, lowerFirst } from "./leftovers";
 import { formatISODate } from "./planDates";
 import type { MealPlanResponse } from "../types";
 
@@ -59,6 +59,41 @@ describe("leftoverStorageOf", () => {
   it("is null for a meal nothing reheats, and for no plan", () => {
     expect(leftoverStorageOf(plan(), 1, 0)).toBeNull();
     expect(leftoverStorageOf(null, 0, 0)).toBeNull();
+  });
+});
+
+describe("lockedWithLeftovers", () => {
+  // The server keeps a whole leftover group when any member is locked.
+  it("adds the leftover of a locked source, and leaves the input alone", () => {
+    const locked = new Set(["0-0"]);
+    expect([...lockedWithLeftovers(locked, plan())].sort()).toEqual(["0-0", "1-0"]);
+    expect([...locked]).toEqual(["0-0"]);
+  });
+
+  it("adds nothing when the locked meal is in no group", () => {
+    const p = plan();
+    p.days[0].meals.push({ name: "Toast", meal_type: "breakfast", ingredients: [], steps: [] });
+    expect([...lockedWithLeftovers(new Set(["0-1"]), p)]).toEqual(["0-1"]);
+    expect(lockedWithLeftovers(new Set(), p).size).toBe(0);
+  });
+
+  it("follows a chain to the end, as the server's fixed point does", () => {
+    const p = plan();
+    p.days.push({
+      meals: [{
+        name: "Leftovers again", meal_type: "light_lunch", ingredients: [], steps: [],
+        leftover_of: { day_index: 1, meal_index: 0 },
+      }],
+    });
+    // Locking the END of the chain pulls in both earlier hops.
+    expect([...lockedWithLeftovers(new Set(["2-0"]), p)].sort()).toEqual(["0-0", "1-0", "2-0"]);
+  });
+
+  it("skips a link whose source does not resolve, and copes with no plan", () => {
+    const p = plan();
+    p.days[1].meals[0].leftover_of = { day_index: 9, meal_index: 0 };
+    expect([...lockedWithLeftovers(new Set(["1-0"]), p)]).toEqual(["1-0"]);
+    expect([...lockedWithLeftovers(new Set(["0-0"]), null)]).toEqual(["0-0"]);
   });
 });
 
