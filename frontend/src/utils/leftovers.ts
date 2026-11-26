@@ -98,7 +98,8 @@ export function leftoverStorageOf(
  * whole group when any member is locked. A leftover has no Lock toggle, so
  * without this it looked unlocked and went uncounted, then came back unchanged.
  * A link whose source does not resolve is skipped, so it cannot add a phantom
- * meal to the count. Returns a new set.
+ * meal to the count. Returns a new set. The user-facing statement of this rule
+ * is `planner.regenerateHint`: change all three together.
  */
 export function lockedWithLeftovers(
   locked: ReadonlySet<string>,
