@@ -471,6 +471,10 @@ def expand_leftover_groups(
     it preserves what the user explicitly asked to keep, and the regenerate
     endpoint already treats freezing as the deliberate act.
 
+    The planner's ``planner.regenerateHint`` states this rule and the client's
+    ``lockedWithLeftovers`` (frontend/src/utils/leftovers.ts) mirrors it, so a
+    change here must update both.
+
     Returns a NEW set; the caller's is not mutated.
     """
     expanded = set(frozen)

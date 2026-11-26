@@ -26,7 +26,7 @@ import type { MealPlanRequest, MealPlanResponse, MealPlanSummary, FrozenMeal, Pl
 import { todayISO, dayDateLabel, addDaysISO } from "../utils/planDates";
 import { ExpiredReviewDialog, type ExpiredDecision } from "./ExpiredReviewDialog";
 import { isExpired, plannableNames, STILL_FINE_EXTENSION_DAYS } from "../utils/expiry";
-import { leftoverSourceLabel, leftoverStorageOf, storageOf } from "../utils/leftovers";
+import { leftoverSourceLabel, leftoverStorageOf, lockedWithLeftovers, storageOf } from "../utils/leftovers";
 
 // Fallback seed for a single day when the user has no saved default layout.
 // main_course is the least opinionated single-meal day; the editor lets the
@@ -136,6 +136,12 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
   // plan defaults to today; an opened plan seeds from its own scheduled date.
   const [startDate, setStartDate] = useState<string>(initialPlan?.start_date ?? todayISO());
   const [frozenMeals, setFrozenMeals] = useState<Set<string>>(new Set());
+  // What a regenerate keeps, so the cards and the count match the server. The
+  // request still sends only the clicked meals; the server expands them itself.
+  const lockedMeals = useMemo(
+    () => lockedWithLeftovers(frozenMeals, currentPlan),
+    [frozenMeals, currentPlan],
+  );
   const [isConfirmed, setIsConfirmed] = useState(initialPlan != null);
   const [isFinished, setIsFinished] = useState(initialSummary?.finished_at != null);
   // Per-run only: intentionally not persisted in the preferences store —
@@ -1033,7 +1039,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
           )}
           {!isConfirmed && frozenMeals.size > 0 && (
             <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 1rem 0" }}>
-              {tn("planner.frozenCount", frozenMeals.size)} {t("planner.unfrozenRegenerated")}
+              {tn("planner.frozenCount", lockedMeals.size)} {t("planner.unfrozenRegenerated")}
             </p>
           )}
           {currentPlan.days.map((dayPlan, idx) => (
@@ -1054,7 +1060,7 @@ export function MealPlanner({ initialPlan, initialSummary, onExitPlan }: MealPla
                  {nutritionDays?.[idx] && <DayNutritionLine day={nutritionDays[idx]} isMobile={isMobile} />}
                </h4>
                {dayPlan.meals.map((meal, mealIdx) => {
-                 const isFrozen = frozenMeals.has(`${idx}-${mealIdx}`);
+                 const isFrozen = lockedMeals.has(`${idx}-${mealIdx}`);
                  const entry = findEntry(idx, mealIdx);
                  const isCooked = entry?.cooked_at != null;
                  const isEditing = editingMeal === `${idx}-${mealIdx}`;
