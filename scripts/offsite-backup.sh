@@ -31,13 +31,15 @@
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-/opt/mealbot/backups}"
-# Days of history to keep at the destination. Longer than the local dumps
-# because off-site storage is the copy that survives a compromise noticed late,
-# and at ~170 KB a dump this costs nothing. BUT the privacy policy promises a
+# Days of history to keep at the destination. The privacy policy promises a
 # deleted account is out of every backup within 14 days (see db-backup.sh,
-# above BACKUP_RETENTION_DAYS): 90 breaks that, so before this is switched on,
-# lower it or change the policy (deploy/systemd/README.md §6.2 g).
-OFFSITE_RETENTION_DAYS="${OFFSITE_RETENTION_DAYS:-90}"
+# above BACKUP_RETENTION_DAYS). The dump uploaded the night before a deletion
+# is pruned below once it is this many days old, by the next night's run at
+# worst, so 13 is the most that keeps day 14. The guard after the parked check
+# refuses anything longer: a longer history (a compromise noticed late) needs
+# the policy changed first, both editions (deploy/systemd/README.md §6.2 g).
+OFFSITE_RETENTION_DAYS="${OFFSITE_RETENTION_DAYS:-13}"
+OFFSITE_RETENTION_MAX_DAYS=13
 
 if [ "${OFFSITE_BACKUP_ENABLED:-false}" != "true" ]; then
   echo "offsite-backup: not enabled (OFFSITE_BACKUP_ENABLED != true) — nothing to do"
@@ -53,6 +55,14 @@ missing=""
 [ -n "${OFFSITE_GPG_RECIPIENT:-}" ] || missing="$missing OFFSITE_GPG_RECIPIENT"
 if [ -n "$missing" ]; then
   echo "offsite-backup: FAILED — enabled but unconfigured:$missing" >&2
+  exit 1
+fi
+
+# A retention the policy cannot keep is a configuration error like a missing
+# destination: refuse before uploading anything that would outlive it.
+if ! [[ "$OFFSITE_RETENTION_DAYS" =~ ^[0-9]+$ ]] \
+  || [ "$OFFSITE_RETENTION_DAYS" -gt "$OFFSITE_RETENTION_MAX_DAYS" ]; then
+  echo "offsite-backup: FAILED: OFFSITE_RETENTION_DAYS=$OFFSITE_RETENTION_DAYS keeps a deleted account past the privacy policy's 14 days; use ${OFFSITE_RETENTION_MAX_DAYS} or less, or change the policy first (deploy/systemd/README.md §6.2 g)" >&2
   exit 1
 fi
 
