@@ -681,6 +681,27 @@ export const en = {
   "storage.atRisk":
     "Pregnant, over 65, cooking for a baby or with a weakened immune system? Stricter advice applies, for example from {szu} or, in pregnancy, from the {nhs}.",
   "storage.cookLookupFailed": "Cooking temperatures could not be loaded for this dish.",
+  // A fridge date by its kind (docs/food-storage-design.md, slice 6b). The
+  // pack's own words for a pack date; an estimate says so, and its hint says
+  // whose. No figure is written here: the keep lines take the server's.
+  "storage.rowUseBy": "Use by {date}",
+  "storage.rowBestBefore": "Best before {date}",
+  "storage.rowEstimate": "Estimate: {date}",
+  "storage.kindEstimate": "Estimate",
+  "storage.kindHintLabel": "About this date",
+  "storage.kindHintTable":
+    "An estimate from USDA FoodKeeper (US): the short end of how long this food usually keeps in a fridge. The date on the pack always wins.",
+  "storage.kindHintAi": "Estimated by AI, not read from the pack. The date on the pack always wins.",
+  // The manual-add prefill. Read with tn(key, high, { low }); a range always
+  // has high of 2 or more, so its _one forms exist only for the type.
+  "storage.keepsDays_one": "Usually keeps {count} day in a fridge, based on USDA FoodKeeper (US).",
+  "storage.keepsDays_other": "Usually keeps {count} days in a fridge, based on USDA FoodKeeper (US).",
+  "storage.keepsDaysRange_one": "Usually keeps {low} to {count} day in a fridge, based on USDA FoodKeeper (US).",
+  "storage.keepsDaysRange_other": "Usually keeps {low} to {count} days in a fridge, based on USDA FoodKeeper (US).",
+  "storage.keepsWeeks_one": "Usually keeps {count} week in a fridge, based on USDA FoodKeeper (US).",
+  "storage.keepsWeeks_other": "Usually keeps {count} weeks in a fridge, based on USDA FoodKeeper (US).",
+  "storage.keepsWeeksRange_one": "Usually keeps {low} to {count} week in a fridge, based on USDA FoodKeeper (US).",
+  "storage.keepsWeeksRange_other": "Usually keeps {low} to {count} weeks in a fridge, based on USDA FoodKeeper (US).",
   "meal.ingredients": "Ingredients:",
   // The ↻ glyph carries the meaning on narrow screens; the word is the label.
   "meal.leftoversShort": "↻ Leftovers",
@@ -865,16 +886,16 @@ export const en = {
   "fridge.sort": "Sort:",
   "fridge.sortName": "Name",
   "fridge.sortQty": "Qty",
-  "fridge.sortExpires": "Expires",
+  "fridge.sortExpires": "Date",
   "fridge.colIngredient": "Ingredient",
   "fridge.colQty": "Qty (g)",
-  "fridge.colExpires": "Expires",
+  "fridge.colExpires": "Date",
   "fridge.colNeedToUse": "Need to use?",
   "fridge.colAction": "Action",
   "fridge.yes": "Yes",
   "fridge.no": "No",
   "fridge.useSoon": "use soon",
-  "fridge.expires": "exp {date}",
+  "fridge.expires": "until {date}",
   "fridge.earliest": "earliest {date}",
   "fridge.gramsTotal": "{grams} g total",
   "fridge.groupSummary": "({shown} / {total} batches)",
@@ -965,12 +986,12 @@ export const en = {
   // weeks and the model's guess is not far longer (fridge_dates.scan_date),
   // else + the model's shelf-life guess; an opened pack gets none.
   // No prompt reads a printed date.
-  "receipt.expiresHintLabel": "About expiry dates",
+  "receipt.expiresHintLabel": "About these dates",
   "receipt.expiresHint":
     "Dates are estimates, not read from the package. When Mealbot matches a food to USDA FoodKeeper (US) and the table gives a fridge time in days or weeks, the date is the short end of that time. Any other food, or a pack AI judges to keep far longer, such as a frozen one, gets an AI estimate. Both count from the receipt's date, or from today. An opened package gets no date and is marked use soon. Correct a date if the package says otherwise.",
   "receipt.noItems": "No food items found in receipt.",
   "receipt.qty": "Qty (g)",
-  "receipt.expires": "Expires",
+  "receipt.expires": "Date",
   "receipt.useSoon": "use soon",
   "receipt.remove": "Remove",
   "receipt.add": "Add to Fridge",
@@ -981,7 +1002,7 @@ export const en = {
   "receipt.resultNew": "{grams}g (new)",
   "receipt.itemName": "Item {n} name",
   "receipt.itemQty": "Item {n} quantity",
-  "receipt.itemExpiration": "Item {n} expiration date",
+  "receipt.itemExpiration": "Item {n} date",
   "receipt.itemNeedToUse": "Item {n} need to use soon",
   "receipt.cameraDenied": "Camera permission denied — you can upload a photo instead.",
   "receipt.cameraNotFound": "No camera found — you can upload a photo instead.",

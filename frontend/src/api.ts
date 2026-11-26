@@ -1,6 +1,7 @@
 // frontend/src/api.ts
 import type {
   CookTemperatures,
+  KeepTime,
   IngredientAmount,
   PlanNutrition,
   AccessRequestItem,
@@ -312,6 +313,19 @@ export async function fetchPlanNutrition(planId: number): Promise<PlanNutrition>
   const res = await authFetch(`/plan/${planId}/nutrition`);
   if (!res.ok) throw new Error(`Failed to load nutrition: ${res.status}`);
   return res.json();
+}
+
+/** The FoodKeeper fridge time for an item added by hand, or null when the
+ *  table gives none. A POST body, so food names stay out of URLs. */
+export async function lookupKeepTime(name: string, signal?: AbortSignal): Promise<KeepTime | null> {
+  const res = await authFetch("/fridge/keep-time", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Failed to look up the fridge time: ${res.status}`);
+  const body: { keeps: KeepTime | null } = await res.json();
+  return body.keeps;
 }
 
 /** The cooking-temperature lines for a dish in cook mode. Only the fields

@@ -5,6 +5,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { DateKind, ScanSource, ScannedItemType, StockItem } from "../types";
 import { InfoHint } from "./InfoHint";
+import { DateKindHint } from "./DateKindHint";
+import { MUTED_PAGE_TEXT } from "../constants/theme";
 import demoReceiptUrl from "../assets/demo-receipt.svg";
 import { useI18n, type TranslationKey } from "../i18n";
 import { isExpired } from "../utils/expiry";
@@ -30,7 +32,7 @@ interface ReviewItem {
   expirationDate: string | null;
   // "estimated_table" or "estimated_ai" from the scan, null for an opened
   // pack (no date). A date the user retypes becomes null (unknown): it may
-  // come from the pack, but not which kind it is.
+  // come from the pack, but not which kind it is. A rename makes it null too.
   dateKind: DateKind | null;
   // Set for an opened package from a food photo: its full size in grams. The
   // row asks how much is left, and addedQty starts empty until answered.
@@ -428,6 +430,14 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
     setReviewItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
   };
 
+  // A rename drops an estimate's kind: the table or the AI dated the old
+  // name. A pack kind would survive, but a scan never sets one.
+  const updateReviewName = (index: number, value: string) => {
+    setReviewItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, name: value, dateKind: null } : item)),
+    );
+  };
+
   const updateReviewDate = (index: number, value: string | null) => {
     setReviewItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, expirationDate: value, dateKind: null } : item)),
@@ -642,6 +652,18 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                   </div>
                 );
               };
+              // Which estimate a row's date is, next to its date input: the
+              // intro hint explains the dates in general, this says per row
+              // whether the table or the AI set it. A retyped date and an
+              // opened pack have no kind and show nothing. The hint sits
+              // outside the muted text, whose opacity would fade its bubble.
+              const estimateTag = (item: ReviewItem) =>
+                item.dateKind === "estimated_table" || item.dateKind === "estimated_ai" ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", marginLeft: "0.3rem", whiteSpace: "nowrap" }}>
+                    <span style={{ ...MUTED_PAGE_TEXT, fontSize: "0.75rem" }}>{t("storage.kindEstimate")}</span>
+                    <DateKindHint kind={item.dateKind} />
+                  </span>
+                ) : null;
               const onQtyChange = (index: number) => (e: ChangeEvent<HTMLInputElement>) => {
                 const v = e.target.value;
                 if (v === "" || /^\d*\.?\d*$/.test(v)) {
@@ -660,7 +682,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                           <input
                             type="text"
                             value={item.name}
-                            onChange={(e) => updateReviewItem(index, "name", e.target.value)}
+                            onChange={(e) => updateReviewName(index, e.target.value)}
                             aria-label={t("receipt.itemName", { n: index + 1 })}
                             style={{ width: "100%", boxSizing: "border-box" }}
                           />
@@ -695,6 +717,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                                 aria-label={t("receipt.itemExpiration", { n: index + 1 })}
                               />
                             </label>
+                            {estimateTag(item)}
                             <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem" }}>
                               <input
                                 type="checkbox"
@@ -738,7 +761,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                             <input
                               type="text"
                               value={item.name}
-                              onChange={(e) => updateReviewItem(index, "name", e.target.value)}
+                              onChange={(e) => updateReviewName(index, e.target.value)}
                             />
                             {flags(item)}
                           </td>
@@ -765,6 +788,7 @@ export function ReceiptScanner({ currentFridge, onSave, saveLabel, disabled = fa
                               onChange={(e) => updateReviewDate(index, e.target.value || null)}
                               style={{ width: "130px" }}
                             />
+                            {estimateTag(item)}
                           </td>
                           <td style={{ color: isNew && !isInvalid ? "#4ade80" : "inherit" }}>
                             {resultLabel}

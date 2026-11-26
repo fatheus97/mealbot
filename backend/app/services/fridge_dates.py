@@ -13,12 +13,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import Depends
 
 from app.core.nutrition_reference import NutritionReference, nutrition_reference
 from app.core.storage_reference import FridgeTime, StorageReference, storage_reference
-from app.models.plan_models import DateKind
+from app.models.plan_models import DateKind, KeepTime
 from app.services.nutrition import item_key
 
 #: A scan's own guess longer than this many times the table's long end means
@@ -85,6 +86,19 @@ def scan_date(base: date, time: FridgeTime | None, shelf_life_days: int) -> date
     if high is not None and shelf_life_days > STATE_FACTOR * high:
         return None
     return suggested_date(None, base, time)
+
+
+_DAY_UNITS: dict[str, Literal["Days", "Weeks"]] = {"Days": "Days", "Weeks": "Weeks"}
+
+
+def keep_time_of(time: FridgeTime | None) -> KeepTime | None:
+    """The figures a manual add shows next to its prefilled date, or None
+    when the time gives no date (the same rule as suggested_date)."""
+    days = time.low_days() if time is not None else None
+    unit = _DAY_UNITS.get(time.unit) if time is not None else None
+    if time is None or days is None or unit is None or time.low is None or time.high is None:
+        return None
+    return KeepTime(low=time.low, high=time.high, unit=unit, low_days=days)
 
 
 def fridge_dates(

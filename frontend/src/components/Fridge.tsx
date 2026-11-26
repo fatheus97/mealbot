@@ -11,6 +11,7 @@ import type { FridgeItemValues } from "./FridgeItemModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FloatingAlert } from "./FloatingAlert";
 import { InfoHint } from "./InfoHint";
+import { DateKindHint } from "./DateKindHint";
 import { MUTED_PAGE_TEXT, PAGE_TEXT } from "../constants/theme";
 import { useI18n } from "../i18n";
 import { isExpired } from "../utils/expiry";
@@ -427,6 +428,23 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
     return inDate.some((i) => i.need_to_use) ? t("fridge.yes") : t("fridge.no");
   };
 
+  // A row's date with its kind: the pack's own words, or "Estimate" with a
+  // hint saying whose. An unknown kind (legacy, or typed by hand) and an
+  // undated row keep `plain`. The multi-batch summaries stay plain: their
+  // batches carry the kinds.
+  const datePhrase = (item: StockItem, plain: string): string => {
+    if (!item.expiration_date) return plain;
+    const date = formatDate(item.expiration_date);
+    switch (item.date_kind) {
+      case "use_by": return t("storage.rowUseBy", { date });
+      case "best_before": return t("storage.rowBestBefore", { date });
+      case "estimated_table":
+      case "estimated_ai": return t("storage.rowEstimate", { date });
+      default: return plain;
+    }
+  };
+  const dateHint = (item: StockItem) => (item.expiration_date ? <DateKindHint kind={item.date_kind} /> : null);
+
   const renderSingleRow = (group: GroupedItem) => {
     const idx = group.flatIndices[0];
     const item = fridge[idx];
@@ -434,7 +452,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
       <tr key={item._editId} style={{ borderBottom: "1px solid #eee" }}>
         <td>{item.name}</td>
         <td>{Math.round(item.quantity_grams)}</td>
-        <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}{isExpired(item) && <span style={{ ...useSoonBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
+        <td style={{ fontSize: "0.85rem" }}>{datePhrase(item, formatDate(item.expiration_date))}{dateHint(item)}{isExpired(item) && <span style={{ ...useSoonBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
         {needToUseEnabled && <td>{needToUseLabel([item])}</td>}
         <td style={{ display: "flex", gap: "0.25rem" }}>
           <button onClick={() => openEditModal(idx)}>{t("meal.edit")}</button>
@@ -522,7 +540,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
               </span>
             </td>
             <td>{Math.round(item.quantity_grams)}</td>
-            <td style={{ fontSize: "0.85rem" }}>{formatDate(item.expiration_date)}{isExpired(item) && <span style={{ ...onDarkBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
+            <td style={{ fontSize: "0.85rem" }}>{datePhrase(item, formatDate(item.expiration_date))}{dateHint(item)}{isExpired(item) && <span style={{ ...onDarkBadge, marginLeft: "0.4rem" }}>{t("receipt.pastDate")}</span>}</td>
             {needToUseEnabled && <td>{needToUseLabel([item])}</td>}
             <td style={{ display: "flex", gap: "0.25rem" }}>
               <button onClick={() => openEditModal(flatIdx)}>{t("meal.edit")}</button>
@@ -587,7 +605,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
         </div>
         <div style={cardMeta}>
           <span>{Math.round(item.quantity_grams)} g</span>
-          <span>{t("fridge.expires", { date: formatDate(item.expiration_date) })}</span>
+          <span>{datePhrase(item, t("fridge.expires", { date: formatDate(item.expiration_date) }))}{dateHint(item)}</span>
         </div>
         <div style={cardActions}>
           <button style={cardActionBtn} onClick={() => openEditModal(idx)}>{t("meal.edit")}</button>
@@ -637,7 +655,7 @@ export function Fridge({ onStartRestock }: { onStartRestock?: () => void }) {
                   1.7:1. Fixed surface, fixed foreground. */}
               <div style={{ ...cardMeta, color: ON_DARK_MUTED }}>
                 <span>{Math.round(item.quantity_grams)} g</span>
-                <span>{t("fridge.expires", { date: formatDate(item.expiration_date) })}</span>
+                <span>{datePhrase(item, t("fridge.expires", { date: formatDate(item.expiration_date) }))}{dateHint(item)}</span>
               </div>
               <div style={cardActions}>
                 <button style={cardActionBtn} onClick={() => openEditModal(flatIdx)}>{t("meal.edit")}</button>
