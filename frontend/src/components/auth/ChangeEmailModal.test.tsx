@@ -34,7 +34,45 @@ describe("ChangeEmailModal", () => {
     await user.type(screen.getByLabelText(/current password/i), "Secret123");
     await user.click(screen.getByRole("button", { name: /change address/i }));
 
-    await waitFor(() => expect(change).toHaveBeenCalledWith("Secret123", "right@example.com"));
+    await waitFor(() =>
+      expect(change).toHaveBeenCalledWith(
+        "Secret123",
+        "right@example.com",
+        "Could not change your email address.",
+      ),
+    );
+  });
+
+  it("cannot be closed while the request runs, and can again once it has an answer", async () => {
+    // Once sent, the change lands whatever the modal does and signs out every
+    // other device; closing mid-request would read as a cancel.
+    const user = userEvent.setup();
+    vi.spyOn(AuthCtx, "useAuth").mockReturnValue(authState());
+    let fail: (err: Error) => void = () => {};
+    vi.spyOn(api, "changeEmail").mockReturnValue(new Promise<void>((_, rej) => { fail = rej; }));
+    const onClose = vi.fn();
+
+    renderWithProviders(<ChangeEmailModal onClose={onClose} />);
+    await user.type(screen.getByLabelText(/new email address/i), "right@example.com");
+    await user.type(screen.getByLabelText(/current password/i), "Secret123");
+    await user.click(screen.getByRole("button", { name: /change address/i }));
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveStyle({ opacity: "0.6", cursor: "not-allowed" });
+    await user.click(cancel);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    expect(onClose).not.toHaveBeenCalled();
+
+    fail(new Error("Current password is incorrect"));
+    await screen.findByRole("alert");
+    expect(cancel).toBeEnabled();
+    expect(cancel).toHaveStyle({ opacity: "1", cursor: "pointer" });
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    await user.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("refreshes the profile before confirming", async () => {

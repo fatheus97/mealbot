@@ -25,6 +25,13 @@ interface ModalShellProps {
    */
   closeOnEscape?: boolean;
   /**
+   * While true, Escape and a backdrop click do nothing. For a modal whose
+   * request cannot be called back once sent (password, email, account
+   * deletion): closing mid-request would let the user believe they cancelled
+   * a change that still lands. The consumer disables its own Cancel too.
+   */
+  busy?: boolean;
+  /**
    * Freeze background scroll while open (save + restore `body.overflow`).
    * Defaults true — a full-screen mobile modal with the page scrolling behind
    * it is a bug. Opt out if the consumer already manages this itself.
@@ -56,6 +63,7 @@ export function ModalShell({
   ariaLabel,
   mobileFullScreen = true,
   closeOnEscape = true,
+  busy = false,
   lockBodyScroll = true,
   zIndex = 1000,
   children,
@@ -63,14 +71,19 @@ export function ModalShell({
   const isMobile = useIsMobile();
   const fullScreen = isMobile && mobileFullScreen;
 
+  // ponytail: busy has no client timeout, so a stalled request keeps the modal
+  // open until nginx's proxy_read_timeout (120 s, frontend/nginx.conf) answers,
+  // and a network blackhole holds it indefinitely. Aborting instead would
+  // report failure for a change that may already have landed. Upgrade path: a
+  // timeout that re-reads the profile (GET /users) and reports what happened.
   useEffect(() => {
-    if (!closeOnEscape) return;
+    if (!closeOnEscape || busy) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeOnEscape, onClose]);
+  }, [closeOnEscape, busy, onClose]);
 
   useEffect(() => {
     if (!lockBodyScroll) return;
@@ -89,7 +102,7 @@ export function ModalShell({
       onClick={(e) => {
         // Only a click on the backdrop itself dismisses; clicks on the child
         // (or its descendants) have a different target and are ignored.
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !busy) onClose();
       }}
       style={{
         position: "fixed",

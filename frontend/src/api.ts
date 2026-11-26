@@ -86,25 +86,40 @@ function readCsrfCookie(): string | null {
 // Without this, the very first action after access expiry would issue N
 // refreshes in parallel — every one rotates the chain, all but the last
 // look like reuse, and the user gets force-logged-out.
-let refreshPromise: Promise<boolean> | null = null;
+//
+// What a refresh learned about the session:
+// - "ok": fresh cookies are set.
+// - "ended": the server answered 401, so this session is over (expired,
+//   revoked, or a password change on another device bumped token_version).
+// - "unreachable": no verdict on the session. The request failed, or something
+//   other than the auth code answered (a 502 while the backend restarts, a 429).
+type RefreshOutcome = "ok" | "ended" | "unreachable";
 
-async function refreshAccessToken(): Promise<boolean> {
+let refreshPromise: Promise<RefreshOutcome> | null = null;
+
+function refreshSession(): Promise<RefreshOutcome> {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
+  refreshPromise = (async (): Promise<RefreshOutcome> => {
     try {
       const resp = await fetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
         credentials: "include",
       });
-      return resp.ok;
+      if (resp.ok) return "ok";
+      return resp.status === 401 ? "ended" : "unreachable";
     } catch {
-      return false;
+      return "unreachable";
     } finally {
       // Reset AFTER the awaiters have resolved so a new burst can start fresh.
       refreshPromise = null;
     }
   })();
   return refreshPromise;
+}
+
+/** authFetch's view: anything but "ok" is a dead session, as it always was. */
+async function refreshAccessToken(): Promise<boolean> {
+  return (await refreshSession()) === "ok";
 }
 
 export async function authFetch(
@@ -170,8 +185,8 @@ export async function authFetch(
 }
 
 /**
- * authFetch for the /auth/* endpoints that re-check the current password
- * (change password, change email, delete account).
+ * authFetch for the signed-in /auth/* endpoints (change password, change email,
+ * delete account, resend the confirmation link).
  *
  * authFetch never refreshes on a 401 from /auth/*, so an access cookie that
  * expired while the user was typing came back as "Not authenticated" on every
@@ -179,15 +194,30 @@ export async function authFetch(
  * cannot tell it from a wrong current password, and retrying THAT verifies it
  * twice against the endpoint's 5/minute limit. So the session is refreshed
  * BEFORE the request: the access cookie is then fresh, and the only 401 left
- * is the one the user can fix. A failed refresh is not handled here; the
- * request still goes out and the server's answer is what the caller shows.
+ * is the one the user can fix.
+ *
+ * - Refresh "ended": the session is gone, so the request is NOT sent (it could
+ *   only earn get_current_user's unlocalized 401). The SPA is logged out with
+ *   the same event authFetch raises, and this throws `fallback`.
+ * - Refresh "unreachable": the request goes out anyway; the server's answer,
+ *   or the network failure below, is what the caller shows.
+ * - A network failure throws `fallback` (already translated by the caller)
+ *   instead of the browser's English "Failed to fetch".
  */
 async function authFetchWithFreshSession(
   endpoint: string,
   options: RequestInit,
+  fallback: string,
 ): Promise<Response> {
-  await refreshAccessToken();
-  return authFetch(endpoint, options);
+  if ((await refreshSession()) === "ended") {
+    window.dispatchEvent(new Event("mealbot:logout"));
+    throw new Error(fallback);
+  }
+  try {
+    return await authFetch(endpoint, options);
+  } catch {
+    throw new Error(fallback);
+  }
 }
 
 export async function createCheckoutSession(plan: BillingPlan = "monthly"): Promise<string> {
@@ -695,8 +725,15 @@ export async function withdrawHealthConsentRequest(): Promise<AuthLoginResponse>
 }
 
 export async function resendVerificationEmail(): Promise<void> {
-  const res = await authFetch("/auth/resend-verification", { method: "POST" });
-  if (!res.ok) throw new Error("Could not resend the confirmation email.");
+  // English on purpose: the banner never shows this message, only its own
+  // translated "couldn't resend" line.
+  const failed = "Could not resend the confirmation email.";
+  const res = await authFetchWithFreshSession(
+    "/auth/resend-verification",
+    { method: "POST" },
+    failed,
+  );
+  if (!res.ok) throw new Error(failed);
 }
 
 /**
@@ -709,13 +746,22 @@ export async function resendVerificationEmail(): Promise<void> {
  * Errors are surfaced verbatim through extractErrorDetail because every one of
  * them is something the user must act on differently — 401 wrong password, 409
  * address already registered, 400 that is already your address — and a generic
- * "couldn't change it" would leave them guessing which.
+ * "couldn't change it" would leave them guessing which. `fallback` (already
+ * translated) covers the failures that carry no `detail` at all.
  */
-export async function changeEmail(currentPassword: string, newEmail: string): Promise<void> {
-  const res = await authFetchWithFreshSession("/auth/email", {
-    method: "POST",
-    body: JSON.stringify({ current_password: currentPassword, new_email: newEmail }),
-  });
+export async function changeEmail(
+  currentPassword: string,
+  newEmail: string,
+  fallback: string,
+): Promise<void> {
+  const res = await authFetchWithFreshSession(
+    "/auth/email",
+    {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_email: newEmail }),
+    },
+    fallback,
+  );
   if (res.ok) return;
   // Two statuses carry no usable `detail` and would otherwise reach the user as
   // a bare code. 422 is Pydantic's EmailStr rejection — a LIST detail, which
@@ -726,7 +772,7 @@ export async function changeEmail(currentPassword: string, newEmail: string): Pr
   if (res.status === 429) {
     throw new Error("Too many attempts. Please wait a minute and try again.");
   }
-  throw new Error(await extractErrorDetail(res, "Could not change your email address"));
+  throw new Error(await extractErrorDetail(res, fallback));
 }
 
 /**
@@ -795,10 +841,11 @@ export async function deleteAccount(
   currentPassword: string,
   copy: RequestCopy,
 ): Promise<void> {
-  const res = await authFetchWithFreshSession("/auth/delete-account", {
-    method: "POST",
-    body: JSON.stringify({ current_password: currentPassword }),
-  });
+  const res = await authFetchWithFreshSession(
+    "/auth/delete-account",
+    { method: "POST", body: JSON.stringify({ current_password: currentPassword }) },
+    copy.fallback,
+  );
   if (res.ok) return;
   if (res.status === 429) throw new Error(copy.rateLimited);
   throw new Error(await extractErrorDetail(res, copy.fallback));
@@ -822,16 +869,14 @@ export async function changePassword(
   newPassword: string,
   copy: RequestCopy,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await authFetchWithFreshSession("/auth/password", {
+  const res = await authFetchWithFreshSession(
+    "/auth/password",
+    {
       method: "POST",
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
-    });
-  } catch {
-    // The browser's own "Failed to fetch" is English and tells the user nothing.
-    throw new Error(copy.fallback);
-  }
+    },
+    copy.fallback,
+  );
   if (res.ok) return;
   if (res.status === 429) throw new Error(copy.rateLimited);
   throw new Error(await extractErrorDetail(res, copy.fallback));

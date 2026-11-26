@@ -168,6 +168,8 @@ describe("ChangePasswordModal", () => {
 
     const cancel = screen.getByRole("button", { name: "Cancel" });
     expect(cancel).toBeDisabled();
+    // Its inline colours would otherwise make it look clickable.
+    expect(cancel).toHaveStyle({ opacity: "0.6", cursor: "not-allowed" });
     await user.click(cancel);
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("dialog"));
@@ -176,6 +178,33 @@ describe("ChangePasswordModal", () => {
     release();
     expect(await screen.findByText("Password changed")).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+    // Answered: Escape and the backdrop close it again.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-enables Cancel, Escape and the backdrop once a request fails", async () => {
+    const user = userEvent.setup();
+    let fail: (err: Error) => void = () => {};
+    vi.spyOn(api, "changePassword").mockReturnValue(
+      new Promise<void>((_, rej) => { fail = rej; }),
+    );
+    const onClose = vi.fn();
+
+    render(<ChangePasswordModal onClose={onClose} />);
+    await fill(user);
+    await user.click(submit());
+    fail(new Error("Current password is incorrect"));
+    await screen.findByRole("alert");
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeEnabled();
+    expect(cancel).toHaveStyle({ opacity: "1", cursor: "pointer" });
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("dialog"));
+    await user.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("closes on Escape and Cancel when no request is running", async () => {

@@ -42,7 +42,7 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
     setBusy(true);
     const target = newEmail.trim();
     try {
-      await changeEmail(password, target);
+      await changeEmail(password, target, t("auth.changeEmail.failed"));
       // The server rotated this device's cookies and cleared email_verified, so
       // the cached profile is now wrong in two ways. Refresh before showing the
       // confirmation, or the banner keeps naming the old address.
@@ -63,7 +63,14 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell onClose={onClose} ariaLabel={t("auth.changeEmail.title")} zIndex={1200}>
+    // busy: once sent, the change lands whatever the modal does, and it signs
+    // out every other device. Closing mid-request would read as a cancel.
+    <ModalShell
+      onClose={onClose}
+      busy={busy}
+      ariaLabel={t("auth.changeEmail.title")}
+      zIndex={1200}
+    >
       <div style={card}>
         {done ? (
           <>
@@ -127,7 +134,17 @@ export function ChangeEmailModal({ onClose }: { onClose: () => void }) {
                 marginTop: "1.25rem",
               }}
             >
-              <button type="button" onClick={onClose} style={secondaryBtn}>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                style={{
+                  ...secondaryBtn,
+                  // The inline colours would otherwise hide that it is disabled.
+                  opacity: busy ? 0.6 : 1,
+                  cursor: busy ? "not-allowed" : "pointer",
+                }}
+              >
                 {t("auth.changeEmail.cancel")}
               </button>
               <button

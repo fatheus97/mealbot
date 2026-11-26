@@ -28,12 +28,6 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const [done, setDone] = useState(false);
   const { t } = useI18n();
   const { email } = useAuth();
-  // The request cannot be called back once sent, and a 204 means every other
-  // device is already signed out. Closing the modal mid-request would hide
-  // that, so Cancel, Escape and a backdrop click all wait for the answer.
-  const close = () => {
-    if (!busy) onClose();
-  };
 
   const problem = passwordProblem(next);
   const mismatch = confirm.length > 0 && confirm !== next;
@@ -68,7 +62,15 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell onClose={close} ariaLabel={t("auth.changePassword.title")} zIndex={1200}>
+    // busy: the request cannot be called back once sent, and a 204 means every
+    // other device is already signed out. Closing mid-request would hide that,
+    // so Cancel, Escape and a backdrop click all wait for the answer.
+    <ModalShell
+      onClose={onClose}
+      busy={busy}
+      ariaLabel={t("auth.changePassword.title")}
+      zIndex={1200}
+    >
       <div style={card}>
         {done ? (
           <>
@@ -143,7 +145,17 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
             </p>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-              <button type="button" onClick={close} style={secondaryBtn} disabled={busy}>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                style={{
+                  ...secondaryBtn,
+                  // The inline colours would otherwise hide that it is disabled.
+                  opacity: busy ? 0.6 : 1,
+                  cursor: busy ? "not-allowed" : "pointer",
+                }}
+              >
                 {t("auth.changePassword.cancel")}
               </button>
               <button
