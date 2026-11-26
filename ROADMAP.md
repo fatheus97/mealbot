@@ -77,14 +77,15 @@
 >
 > **Re-reconciled 2026-11-26** against the merged PR list and the code, again
 > mostly for shipped work the document did not show. The **food storage thrust**
-> (#630 to #649, live 2026-11-26) had no row at all; the **household** row still
+> (design #630, then #632 to #637, #643 to #646, #648 and #649, live 2026-11-26)
+> had no row at all; the **household** row still
 > read 🟡 "PR 0-2" although phase 1 has been live since 2026-11-09 (phase 2,
 > shared billing, is still unbuilt); the **nutrition** row still called the Open
-> Food Facts rows "next" after #607 to #614 shipped them; and the LLM entries
+> Food Facts rows "next" after #609 to #611, #613 and #614 shipped them; and the LLM entries
 > still described the chain as all-Gemini and the luna fallback as pending. Also
-> folded in the evals scorecard with Claude as an eval provider (#503 to #508),
-> the CI job timeouts (#647) and six smaller PRs with no entry anywhere. No plan or
-> priority changed.
+> folded in the evals scorecard (#503, #505), Claude as an eval provider (#508),
+> the dark A/B arms (#504), the CI job timeouts (#647) and seven smaller PRs with
+> no entry anywhere. No plan or priority changed.
 
 ## How to read this
 
@@ -147,8 +148,10 @@ Shipped and verified in the codebase:
   the review did not actually complete — #184, rewritten in #230 after it was
   caught passing an errored review; unit-tested by the `review-guard` CI job),
   Dependabot auto-merge. Every `ci.yml` job has a `timeout-minutes` limit since
-  #647 (2026-11-25), about five times its normal run, after a hung backend test
-  job ran past 30 minutes with nothing to stop it short of GitHub's 6-hour default.
+  #647 (2026-11-25), after a hung backend test job ran past 30 minutes with
+  nothing to stop it short of GitHub's 6-hour default. #647 sized the six jobs
+  that had no limit at about five times their run on #645; the five that already
+  had one kept their old 5 minutes, which were not sized that way.
 - **Hardening** (two `/review-for-prod` passes: #79–84 Apr, #165–173 Jul, 0
   CRITICAL): bcrypt offloaded off the event loop + constant-time login, all LLM
   templates prompt-injection fenced, untrusted input bounded, untrusted-parse
@@ -178,7 +181,8 @@ Shipped and verified in the codebase:
   VAT-threshold** tracking in the admin dashboard, operator email alerts at
   80%/100% (Resend, daily systemd timer), existing alpha users **grandfathered**
   (`is_comped`) so nobody was surprise-paywalled, and cancel-at-period-end UX. On
-  stripe SDK 15.3. See the Monetization / Billing milestone below.
+  stripe SDK 17 (`stripe~=17.0` since #618, 2026-11-21, after #551 took it to
+  16.1). See the Monetization / Billing milestone below.
 - **Calendar & scheduling** (shipped 2026-07-17, #220–222 + #224): plans carry an
   optional `MealPlan.start_date` (nullable; day N = `start_date + (N-1)`, legacy
   plans backfill to NULL/unscheduled), set at generation / overridable at confirm
@@ -236,8 +240,10 @@ Shipped and verified in the codebase:
   promised with nothing to send it; **#535** a deploy retries a migration that
   lost a lock race to a live request instead of going red; **#539** a daily
   `mealbot-embedding-backfill` timer embeds cookbook favourites left without a
-  vector; **#606** every database session runs in UTC, and #627/#628 then made
-  every timestamp `timestamptz`; **#612** the migrate image is built on every
+  vector; **#606** every database session runs in UTC, followed by #627 (every
+  timestamp column `timestamptz`) and #628 (sqlmodel 0.0.50, binding every
+  timestamp timezone-aware), both covered in the Held dependency
+  upgrades row; **#612** the migrate image is built on every
   deploy, after every deploy from #606 on had failed at the migrate step; and
   **#629** google-genai 3.6 pinned to the `v1beta` API, because the `-latest`
   model aliases in the prod chain do not exist on `v1`.
