@@ -874,9 +874,18 @@ jobs:
           want_fail "past the privacy policy" "14 is one day too many" \
             OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
             OFFSITE_GPG_RECIPIENT=nobody@example.com OFFSITE_RETENTION_DAYS=14
-          want_fail "past the privacy policy" "a retention that is not a number" \
+          want_fail "not a number of days" "a retention that is not a number" \
             OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
             OFFSITE_GPG_RECIPIENT=nobody@example.com OFFSITE_RETENTION_DAYS=two
+          # 0 would prune every copy, tonight's included.
+          want_fail "not a number of days" "a zero retention keeps nothing" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com OFFSITE_RETENTION_DAYS=0
+          # Past int64, `[ -gt ]` errors with status 2, which an `if` reads as
+          # false: this value used to pass the guard.
+          want_fail "not a number of days" "a retention too long for test(1)" \
+            OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
+            OFFSITE_GPG_RECIPIENT=nobody@example.com OFFSITE_RETENTION_DAYS=99999999999999999999
 
           want_fail "no completed dump" "nothing to upload" \
             OFFSITE_BACKUP_ENABLED=true OFFSITE_RCLONE_REMOTE=b2:bucket/x \
