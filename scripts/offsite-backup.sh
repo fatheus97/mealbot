@@ -31,9 +31,12 @@
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-/opt/mealbot/backups}"
-# Days of history to keep at the destination. Longer than the local 14 because
-# off-site storage is the copy that survives a compromise noticed late, and at
-# ~170 KB a dump this costs nothing.
+# Days of history to keep at the destination. Longer than the local dumps
+# because off-site storage is the copy that survives a compromise noticed late,
+# and at ~170 KB a dump this costs nothing. BUT the privacy policy promises a
+# deleted account is out of every backup within 14 days (see db-backup.sh,
+# above BACKUP_RETENTION_DAYS): 90 breaks that, so before this is switched on,
+# lower it or change the policy (deploy/systemd/README.md §6.2 g).
 OFFSITE_RETENTION_DAYS="${OFFSITE_RETENTION_DAYS:-90}"
 
 if [ "${OFFSITE_BACKUP_ENABLED:-false}" != "true" ]; then
