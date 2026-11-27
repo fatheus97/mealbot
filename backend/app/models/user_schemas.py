@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from sqlmodel import SQLModel
@@ -43,6 +44,55 @@ class UserBase(SQLModel):
 
 _ATTRIBUTION_CAPS = {"referrer": 500}
 _ATTRIBUTION_DEFAULT_CAP = 200
+
+
+def _referrer_origin(v: str) -> str | None:
+    """Only the referring site's scheme and host. Its path and query can carry
+    an ad platform's per-click id (``?fbclid=``) or anything else the other
+    site puts in its URLs, and the privacy policy promises we never store
+    those with an account or request. The site is all attribution needs."""
+    # .hostname and .port are lazy and raise too (a port of 99999 or "abc"),
+    # so every read sits inside the guard: an error escaping this before-
+    # validator would 422 a signup or an access request over a junk header.
+    try:
+        parts = urlsplit(v)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.scheme or not host:
+        return None
+    if ":" in host:  # IPv6: .hostname drops the brackets the URL needs
+        host = f"[{host}]"
+    suffix = f":{port}" if port else ""
+    return f"{parts.scheme.lower()}://{host}{suffix}"
+
+
+def clean_attribution(v: object, field_name: str) -> str | None:
+    """Trim, null out empties, normalise, then TRUNCATE to the column bound.
+    Shared by every write that records first-touch attribution (a signup, an
+    access request) so the two can never clean it differently.
+
+    Truncation (not rejection) is deliberate: these come from the URL, so an
+    over-long value must never 422 an otherwise-valid request, and it must fit
+    the String(n) column or the INSERT would 500. That is why truncation comes
+    LAST: lower-casing can lengthen a string (``"İ".lower()`` is two code
+    points), so slicing first let a crafted tag overflow VARCHAR(200). NUL is
+    dropped because Postgres rejects it in text. Non-strings are dropped
+    defensively (a crafted body could send a list/number).
+
+    The utm_* tags are lower-cased so ``Google`` and ``google`` don't fragment
+    into separate funnel rows; the referrer is cut to its origin
+    (``_referrer_origin``)."""
+    if not isinstance(v, str):
+        return None
+    v = v.replace("\x00", "").strip()
+    if not v:
+        return None
+    cleaned = _referrer_origin(v) if field_name == "referrer" else v.lower()
+    if not cleaned:
+        return None
+    return cleaned[: _ATTRIBUTION_CAPS.get(field_name, _ATTRIBUTION_DEFAULT_CAP)]
 
 
 def validate_terms_accepted(v: bool) -> bool:
@@ -95,30 +145,17 @@ class UserCreate(Credentials):
     utm_source: str | None = None
     utm_medium: str | None = None
     utm_campaign: str | None = None
+    # Which ad or link variant (the marketing pipeline sets it per creative).
+    utm_content: str | None = None
     referrer: str | None = None
 
-    @field_validator("utm_source", "utm_medium", "utm_campaign", "referrer", mode="before")
+    @field_validator(
+        "utm_source", "utm_medium", "utm_campaign", "utm_content", "referrer", mode="before"
+    )
     @classmethod
     def _clean_attribution(cls, v: object, info: ValidationInfo) -> str | None:
-        """Trim, null out empties, TRUNCATE to the column bound, and lower-case
-        the UTM tags.
-
-        Truncation (not rejection) is deliberate: these come from the URL, so an
-        over-long referrer must never 422 an otherwise-valid signup — and it
-        must fit the String(n) column or the INSERT would error. Non-strings are
-        dropped defensively (a crafted body could send a list/number).
-
-        The three utm_* tags are lower-cased so ``Google`` and ``google`` don't
-        fragment into separate funnel rows; the referrer is a URL (path/query
-        case can be significant) and is kept verbatim."""
-        if not isinstance(v, str):
-            return None
-        v = v.strip()
-        if not v:
-            return None
-        cap = _ATTRIBUTION_CAPS.get(info.field_name or "", _ATTRIBUTION_DEFAULT_CAP)
-        cleaned = v[:cap]
-        return cleaned if info.field_name == "referrer" else cleaned.lower()
+        """See clean_attribution."""
+        return clean_attribution(v, info.field_name or "")
 
 
 class InviteRedeem(BaseModel):

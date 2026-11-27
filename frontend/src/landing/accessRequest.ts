@@ -1,4 +1,5 @@
 import { landingCopy, landingLocale } from "./copy";
+import { getStoredAttribution } from "../utils/attribution";
 // The landing page's "Request access" form.
 //
 // Replaces the old mailto: link so requests land in a queue the admin can act
@@ -44,7 +45,9 @@ export async function submitAccessRequest(email: string, message: string): Promi
       method: "POST",
       // The page's language, so the backend's reply matches it (see authApi.ts).
       headers: { "Content-Type": "application/json", "Accept-Language": landingLocale() },
-      body: JSON.stringify({ email, message }),
+      // First-touch attribution, as a signup sends it (authApi.ts): while
+      // registration is closed this form is the only conversion a campaign has.
+      body: JSON.stringify({ email, message, ...getStoredAttribution() }),
     });
   } catch {
     throw new Error(landingCopy().accessGenericFailure);

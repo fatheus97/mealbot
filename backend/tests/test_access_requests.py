@@ -40,6 +40,72 @@ async def _rows(db_session: AsyncSession) -> list[AccessRequest]:
 
 
 class TestPublicSubmit:
+    async def test_stores_the_first_touch_tags_cleaned_like_a_signup(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # While registration is closed this is the only conversion an ad
+        # campaign has, so it records what a signup records, cleaned the same.
+        resp = await unauthed_client.post(
+            ENDPOINT,
+            json={
+                "email": "ad@example.com",
+                "utm_source": " Meta ",
+                "utm_medium": ["not", "a", "string"],
+                "utm_campaign": "MB-W49",
+                "utm_content": "c" * 300,
+                "referrer": "https://Example.com/Post?fbclid=IwAR0abc",
+            },
+        )
+        assert resp.status_code == 201
+        row = (await _rows(db_session))[0]
+        assert row.utm_source == "meta"
+        assert row.utm_medium is None
+        assert row.utm_campaign == "mb-w49"
+        assert row.utm_content == "c" * 200
+        assert row.referrer == "https://example.com"  # origin only, no click id
+
+    async def test_a_tag_that_lengthens_when_lowercased_still_fits_its_column(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # "İ" lower-cases to two code points; truncating before lower-casing
+        # overflowed VARCHAR(200) and 500ed this unauthenticated endpoint.
+        resp = await unauthed_client.post(
+            ENDPOINT, json={"email": "i@example.com", "utm_source": "İ" * 300}
+        )
+        assert resp.status_code == 201
+        assert len((await _rows(db_session))[0].utm_source or "") == 200
+
+    async def test_a_referrer_with_a_bad_port_is_dropped_not_a_422(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # urllib's .port raises on these; it must not reject the request.
+        for n, ref in enumerate(("http://a.com:99999/x", "http://a.com:abc")):
+            resp = await unauthed_client.post(
+                ENDPOINT, json={"email": f"port{n}@example.com", "referrer": ref}
+            )
+            assert resp.status_code == 201, ref
+        assert [r.referrer for r in await _rows(db_session)] == [None, None]
+
+    async def test_tags_are_optional(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        resp = await unauthed_client.post(ENDPOINT, json={"email": "plain@example.com"})
+        assert resp.status_code == 201
+        row = (await _rows(db_session))[0]
+        assert (row.utm_source, row.utm_campaign, row.utm_content, row.referrer) == (
+            None, None, None, None,
+        )
+
+    async def test_a_repeat_request_does_not_rewrite_the_stored_tags(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # Same rule as the message: an unauthenticated caller must not be able
+        # to re-credit a queued request to another campaign.
+        await unauthed_client.post(ENDPOINT, json={"email": "t@example.com", "utm_campaign": "first"})
+        await unauthed_client.post(ENDPOINT, json={"email": "t@example.com", "utm_campaign": "second"})
+        rows = await _rows(db_session)
+        assert [r.utm_campaign for r in rows] == ["first"]
+
     async def test_stores_the_request_and_acknowledges(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
     ) -> None:

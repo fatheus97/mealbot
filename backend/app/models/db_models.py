@@ -356,6 +356,7 @@ class User(SQLModel, table=True):
     signup_utm_source: str | None = Field(default=None, max_length=200)
     signup_utm_medium: str | None = Field(default=None, max_length=200)
     signup_utm_campaign: str | None = Field(default=None, max_length=200)
+    signup_utm_content: str | None = Field(default=None, max_length=200)
     signup_referrer: str | None = Field(default=None, max_length=500)
 
     # --- Deleting a user: the rule, enforced by the DATABASE ---
@@ -671,7 +672,8 @@ class AccessRequest(SQLModel, table=True):
     queue the admin can act on (Invites tab) instead of an inbox. The intended
     close-out is "generate an invite from this request", which is why this
     table deliberately stores nothing more than what's needed to contact the
-    person and decide.
+    person and decide, plus the first-touch campaign tags (the only conversion
+    an ad campaign has while registration is closed).
 
     **This is the only UNAUTHENTICATED WRITE surface in the app**, so the
     hazards are spam and PII rather than privilege:
@@ -723,6 +725,13 @@ class AccessRequest(SQLModel, table=True):
     )
     handled_at: datetime | None = Field(default=None)
     handled_by_admin_id: int | None = Field(default=None)
+    # First-touch attribution, as on User.signup_utm_*: which campaign link
+    # brought them. Disclosed in the privacy policy ("Which link brought you").
+    utm_source: str | None = Field(default=None, max_length=200)
+    utm_medium: str | None = Field(default=None, max_length=200)
+    utm_campaign: str | None = Field(default=None, max_length=200)
+    utm_content: str | None = Field(default=None, max_length=200)
+    referrer: str | None = Field(default=None, max_length=500)
 
 
 class StockItem(SQLModel, table=True):
