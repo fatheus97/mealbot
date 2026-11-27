@@ -234,6 +234,15 @@ jobs:
           for p in "reset_token" "verify_token" "invite"; do
             curl -s -o /dev/null --connect-timeout 2 --max-time 5 \
               "http://localhost:8080/?${p}=${canary}"
+            # The same secret as a Referer, as browsers sent it on every
+            # asset app.html loads while the policy was
+            # strict-origin-when-cross-origin (full URL to same-origin). A
+            # client may still send one, so the log must drop it regardless.
+            for asset in "/favicon.svg" "/site.webmanifest" "/app"; do
+              curl -s -o /dev/null --connect-timeout 2 --max-time 5 \
+                -H "Referer: http://localhost:8080/app?${p}=${canary}" \
+                "http://localhost:8080${asset}"
+            done
           done
           # Give nginx a moment to flush its buffered access log.
           sleep 2
@@ -243,6 +252,13 @@ jobs:
             exit 1
           fi
           echo "access log kept the secrets out"
+          # The source fix: a page never hands its full URL to its own assets.
+          policy=$(curl -sI --max-time 5 http://localhost:8080/app | tr -d '\r' \
+            | awk -F': ' 'tolower($1)=="referrer-policy"{print $2}')
+          if [ "$policy" != "strict-origin" ]; then
+            echo "::error::Referrer-Policy on /app is '${policy}', expected strict-origin"
+            exit 1
+          fi
 
       - name: Language routing matches the shared browser cases
         # Who gets the Czech pages is decided twice: by nginx on a visitor's
