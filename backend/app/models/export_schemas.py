@@ -123,6 +123,17 @@ class ExportedConsentEvent(BaseModel):
     created_at: datetime
 
 
+class ExportedSignupAttribution(BaseModel):
+    """Which campaign link brought this account (privacy policy: "Which link
+    brought you"). Stored with the account at signup, so it is theirs to see."""
+
+    utm_source: str | None
+    utm_medium: str | None
+    utm_campaign: str | None
+    utm_content: str | None
+    referrer: str | None
+
+
 class UserDataExport(BaseModel):
     """The whole export, as downloaded.
 
@@ -142,6 +153,8 @@ class UserDataExport(BaseModel):
     invoices: list[ExportedInvoice]
     refunds: list[ExportedRefund]
     health_consent_history: list[ExportedConsentEvent]
+    # Null when the signup carried no campaign tags or referrer.
+    signup_attribution: ExportedSignupAttribution | None
     waste_records: list[ExportedWasteRecord]
     # Saved diets, allergens and ingredients to avoid (shared households);
     # null when there is none.

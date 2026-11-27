@@ -34,6 +34,16 @@ PENDING = "pending"
 _SUBMIT_LOCK_KEY = 8_240_117
 
 
+class Attribution(NamedTuple):
+    """First-touch tags for a request, already cleaned by AccessRequestCreate."""
+
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    utm_content: str | None = None
+    referrer: str | None = None
+
+
 class SubmitOutcome(NamedTuple):
     """What the caller needs to know without learning anything it can leak."""
 
@@ -44,7 +54,12 @@ class SubmitOutcome(NamedTuple):
 
 
 async def submit_access_request(
-    session: AsyncSession, *, email: str, message: str, now: datetime | None = None
+    session: AsyncSession,
+    *,
+    email: str,
+    message: str,
+    attribution: Attribution = Attribution(),
+    now: datetime | None = None,
 ) -> SubmitOutcome:
     """Record a request, or report that one is already pending.
 
@@ -96,6 +111,7 @@ async def submit_access_request(
         normalized_email=normalized,
         message=message,
         created_at=now or datetime.now(UTC),
+        **attribution._asdict(),
     )
     session.add(request)
     # Flush here so a lost race surfaces as IntegrityError NOW, where the

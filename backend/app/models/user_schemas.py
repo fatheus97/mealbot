@@ -45,6 +45,28 @@ _ATTRIBUTION_CAPS = {"referrer": 500}
 _ATTRIBUTION_DEFAULT_CAP = 200
 
 
+def clean_attribution(v: object, field_name: str) -> str | None:
+    """Trim, null out empties, TRUNCATE to the column bound, and lower-case the
+    UTM tags. Shared by every write that records first-touch attribution (a
+    signup, an access request) so the two can never clean it differently.
+
+    Truncation (not rejection) is deliberate: these come from the URL, so an
+    over-long referrer must never 422 an otherwise-valid request, and it must
+    fit the String(n) column or the INSERT would error. Non-strings are dropped
+    defensively (a crafted body could send a list/number).
+
+    The utm_* tags are lower-cased so ``Google`` and ``google`` don't fragment
+    into separate funnel rows; the referrer is a URL (path/query case can be
+    significant) and is kept verbatim."""
+    if not isinstance(v, str):
+        return None
+    v = v.strip()
+    if not v:
+        return None
+    cleaned = v[: _ATTRIBUTION_CAPS.get(field_name, _ATTRIBUTION_DEFAULT_CAP)]
+    return cleaned if field_name == "referrer" else cleaned.lower()
+
+
 def validate_terms_accepted(v: bool) -> bool:
     """Shared rule for every path where the user is present to consent.
 
@@ -95,30 +117,17 @@ class UserCreate(Credentials):
     utm_source: str | None = None
     utm_medium: str | None = None
     utm_campaign: str | None = None
+    # Which ad or link variant (the marketing pipeline sets it per creative).
+    utm_content: str | None = None
     referrer: str | None = None
 
-    @field_validator("utm_source", "utm_medium", "utm_campaign", "referrer", mode="before")
+    @field_validator(
+        "utm_source", "utm_medium", "utm_campaign", "utm_content", "referrer", mode="before"
+    )
     @classmethod
     def _clean_attribution(cls, v: object, info: ValidationInfo) -> str | None:
-        """Trim, null out empties, TRUNCATE to the column bound, and lower-case
-        the UTM tags.
-
-        Truncation (not rejection) is deliberate: these come from the URL, so an
-        over-long referrer must never 422 an otherwise-valid signup — and it
-        must fit the String(n) column or the INSERT would error. Non-strings are
-        dropped defensively (a crafted body could send a list/number).
-
-        The three utm_* tags are lower-cased so ``Google`` and ``google`` don't
-        fragment into separate funnel rows; the referrer is a URL (path/query
-        case can be significant) and is kept verbatim."""
-        if not isinstance(v, str):
-            return None
-        v = v.strip()
-        if not v:
-            return None
-        cap = _ATTRIBUTION_CAPS.get(info.field_name or "", _ATTRIBUTION_DEFAULT_CAP)
-        cleaned = v[:cap]
-        return cleaned if info.field_name == "referrer" else cleaned.lower()
+        """See clean_attribution."""
+        return clean_attribution(v, info.field_name or "")
 
 
 class InviteRedeem(BaseModel):

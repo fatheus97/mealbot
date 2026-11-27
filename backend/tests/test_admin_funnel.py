@@ -458,6 +458,7 @@ class TestSignupAttributionCapture:
                     "utm_source": "google",
                     "utm_medium": "cpc",
                     "utm_campaign": "launch",
+                    "utm_content": "C-0012",
                     "referrer": "https://news.example.com/article",
                 },
             )
@@ -468,6 +469,7 @@ class TestSignupAttributionCapture:
         assert user.signup_utm_source == "google"
         assert user.signup_utm_medium == "cpc"
         assert user.signup_utm_campaign == "launch"
+        assert user.signup_utm_content == "c-0012"  # lower-cased like the other tags
         assert user.signup_referrer == "https://news.example.com/article"
 
     async def test_register_without_utm_leaves_attribution_null(

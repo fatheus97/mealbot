@@ -50,6 +50,16 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
       expect(html).toMatch(/do not send your email address/i);
     });
 
+    it("discloses the campaign tags stored with a sign-up or access request", () => {
+      // Signups have stored utm_* and the referrer since the funnel shipped, and
+      // since Q50 access requests and utm_content too. Losing this paragraph
+      // would leave stored data undisclosed again.
+      expect(html).toMatch(/Which link brought you/);
+      expect(html).toMatch(/utm_/);
+      expect(html).toMatch(/never store the click identifiers/i);
+      expect(html).toMatch(/which of our campaigns and ads bring people/i);
+    });
+
     it("names every third party that receives data", () => {
       for (const party of ["Google", "OpenAI", "Stripe", "Resend", "GitHub", "Hetzner", "Cloudflare"]) {
         expect(html).toContain(party);
