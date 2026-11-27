@@ -322,6 +322,12 @@ class LLMClient:
                         "completion:response",
                         functools.partial(_warn_if_no_tool_call, entry.model),
                     )
+                # Declared, not inferred: instructor 1.18 types the parsed half
+                # of create_with_completion as Any (1.17 gave T), and returning
+                # an Any from this T-typed function fails mypy strict
+                # (no-any-return). An annotation holds on both versions where a
+                # cast(T, ...) would be a redundant cast on 1.17.
+                result: T
                 try:
                     async with cut:
                         result, _ = await client.chat.completions.create_with_completion(
