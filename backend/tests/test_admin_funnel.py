@@ -571,12 +571,27 @@ class TestAttributionCleaning:
     def test_referrer_that_is_not_a_url_is_dropped(self) -> None:
         from app.models.user_schemas import UserCreate
 
-        for junk in ("not a url", "//no-scheme.example.com", "https://"):
+        for junk in (
+            "not a url",
+            "//no-scheme.example.com",
+            "https://",
+            "http://a.com:99999/x",  # .port raises "Port out of range"
+            "http://a.com:abc",      # .port raises on a non-number
+        ):
             u = UserCreate.model_validate(
                 {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
                  "referrer": junk}
             )
             assert u.referrer is None, junk
+
+    def test_ipv6_referrer_keeps_its_brackets(self) -> None:
+        from app.models.user_schemas import UserCreate
+
+        u = UserCreate.model_validate(
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
+             "referrer": "http://[::1]:8080/path?q=1"}
+        )
+        assert u.referrer == "http://[::1]:8080"
 
     def test_nul_is_dropped(self) -> None:
         """Postgres rejects NUL in text, which would be a 500."""

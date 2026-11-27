@@ -75,6 +75,17 @@ class TestPublicSubmit:
         assert resp.status_code == 201
         assert len((await _rows(db_session))[0].utm_source or "") == 200
 
+    async def test_a_referrer_with_a_bad_port_is_dropped_not_a_422(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # urllib's .port raises on these; it must not reject the request.
+        for n, ref in enumerate(("http://a.com:99999/x", "http://a.com:abc")):
+            resp = await unauthed_client.post(
+                ENDPOINT, json={"email": f"port{n}@example.com", "referrer": ref}
+            )
+            assert resp.status_code == 201, ref
+        assert [r.referrer for r in await _rows(db_session)] == [None, None]
+
     async def test_tags_are_optional(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
     ) -> None:

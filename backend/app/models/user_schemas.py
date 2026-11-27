@@ -51,14 +51,21 @@ def _referrer_origin(v: str) -> str | None:
     an ad platform's per-click id (``?fbclid=``) or anything else the other
     site puts in its URLs, and the privacy policy promises we never store
     those with an account or request. The site is all attribution needs."""
+    # .hostname and .port are lazy and raise too (a port of 99999 or "abc"),
+    # so every read sits inside the guard: an error escaping this before-
+    # validator would 422 a signup or an access request over a junk header.
     try:
         parts = urlsplit(v)
+        host = parts.hostname
+        port = parts.port
     except ValueError:
         return None
-    if not parts.scheme or not parts.hostname:
+    if not parts.scheme or not host:
         return None
-    port = f":{parts.port}" if parts.port else ""
-    return f"{parts.scheme.lower()}://{parts.hostname}{port}"
+    if ":" in host:  # IPv6: .hostname drops the brackets the URL needs
+        host = f"[{host}]"
+    suffix = f":{port}" if port else ""
+    return f"{parts.scheme.lower()}://{host}{suffix}"
 
 
 def clean_attribution(v: object, field_name: str) -> str | None:
