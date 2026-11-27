@@ -672,7 +672,8 @@ class AccessRequest(SQLModel, table=True):
     queue the admin can act on (Invites tab) instead of an inbox. The intended
     close-out is "generate an invite from this request", which is why this
     table deliberately stores nothing more than what's needed to contact the
-    person and decide.
+    person and decide, plus the first-touch campaign tags (the only conversion
+    an ad campaign has while registration is closed).
 
     **This is the only UNAUTHENTICATED WRITE surface in the app**, so the
     hazards are spam and PII rather than privilege:

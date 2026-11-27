@@ -53,7 +53,7 @@ class TestPublicSubmit:
                 "utm_medium": ["not", "a", "string"],
                 "utm_campaign": "MB-W49",
                 "utm_content": "c" * 300,
-                "referrer": "https://Example.com/Post",
+                "referrer": "https://Example.com/Post?fbclid=IwAR0abc",
             },
         )
         assert resp.status_code == 201
@@ -62,7 +62,18 @@ class TestPublicSubmit:
         assert row.utm_medium is None
         assert row.utm_campaign == "mb-w49"
         assert row.utm_content == "c" * 200
-        assert row.referrer == "https://Example.com/Post"
+        assert row.referrer == "https://example.com"  # origin only, no click id
+
+    async def test_a_tag_that_lengthens_when_lowercased_still_fits_its_column(
+        self, unauthed_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # "İ" lower-cases to two code points; truncating before lower-casing
+        # overflowed VARCHAR(200) and 500ed this unauthenticated endpoint.
+        resp = await unauthed_client.post(
+            ENDPOINT, json={"email": "i@example.com", "utm_source": "İ" * 300}
+        )
+        assert resp.status_code == 201
+        assert len((await _rows(db_session))[0].utm_source or "") == 200
 
     async def test_tags_are_optional(
         self, unauthed_client: AsyncClient, db_session: AsyncSession

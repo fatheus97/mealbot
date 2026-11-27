@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from sqlmodel import SQLModel
@@ -45,26 +46,46 @@ _ATTRIBUTION_CAPS = {"referrer": 500}
 _ATTRIBUTION_DEFAULT_CAP = 200
 
 
+def _referrer_origin(v: str) -> str | None:
+    """Only the referring site's scheme and host. Its path and query can carry
+    an ad platform's per-click id (``?fbclid=``) or anything else the other
+    site puts in its URLs, and the privacy policy promises we never store
+    those with an account or request. The site is all attribution needs."""
+    try:
+        parts = urlsplit(v)
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.hostname:
+        return None
+    port = f":{parts.port}" if parts.port else ""
+    return f"{parts.scheme.lower()}://{parts.hostname}{port}"
+
+
 def clean_attribution(v: object, field_name: str) -> str | None:
-    """Trim, null out empties, TRUNCATE to the column bound, and lower-case the
-    UTM tags. Shared by every write that records first-touch attribution (a
-    signup, an access request) so the two can never clean it differently.
+    """Trim, null out empties, normalise, then TRUNCATE to the column bound.
+    Shared by every write that records first-touch attribution (a signup, an
+    access request) so the two can never clean it differently.
 
     Truncation (not rejection) is deliberate: these come from the URL, so an
-    over-long referrer must never 422 an otherwise-valid request, and it must
-    fit the String(n) column or the INSERT would error. Non-strings are dropped
+    over-long value must never 422 an otherwise-valid request, and it must fit
+    the String(n) column or the INSERT would 500. That is why truncation comes
+    LAST: lower-casing can lengthen a string (``"İ".lower()`` is two code
+    points), so slicing first let a crafted tag overflow VARCHAR(200). NUL is
+    dropped because Postgres rejects it in text. Non-strings are dropped
     defensively (a crafted body could send a list/number).
 
     The utm_* tags are lower-cased so ``Google`` and ``google`` don't fragment
-    into separate funnel rows; the referrer is a URL (path/query case can be
-    significant) and is kept verbatim."""
+    into separate funnel rows; the referrer is cut to its origin
+    (``_referrer_origin``)."""
     if not isinstance(v, str):
         return None
-    v = v.strip()
+    v = v.replace("\x00", "").strip()
     if not v:
         return None
-    cleaned = v[: _ATTRIBUTION_CAPS.get(field_name, _ATTRIBUTION_DEFAULT_CAP)]
-    return cleaned if field_name == "referrer" else cleaned.lower()
+    cleaned = _referrer_origin(v) if field_name == "referrer" else v.lower()
+    if not cleaned:
+        return None
+    return cleaned[: _ATTRIBUTION_CAPS.get(field_name, _ATTRIBUTION_DEFAULT_CAP)]
 
 
 def validate_terms_accepted(v: bool) -> bool:
