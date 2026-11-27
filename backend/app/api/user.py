@@ -117,6 +117,7 @@ async def register_user(
         signup_utm_source=user.utm_source,
         signup_utm_medium=user.utm_medium,
         signup_utm_campaign=user.utm_campaign,
+        signup_utm_content=user.utm_content,
         signup_referrer=user.referrer,
     )
     session.add(db_user)

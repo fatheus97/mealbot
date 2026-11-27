@@ -458,6 +458,7 @@ class TestSignupAttributionCapture:
                     "utm_source": "google",
                     "utm_medium": "cpc",
                     "utm_campaign": "launch",
+                    "utm_content": "C-0012",
                     "referrer": "https://news.example.com/article",
                 },
             )
@@ -468,7 +469,9 @@ class TestSignupAttributionCapture:
         assert user.signup_utm_source == "google"
         assert user.signup_utm_medium == "cpc"
         assert user.signup_utm_campaign == "launch"
-        assert user.signup_referrer == "https://news.example.com/article"
+        assert user.signup_utm_content == "c-0012"  # lower-cased like the other tags
+        # Only the referring site: a path or query can carry a per-click id.
+        assert user.signup_referrer == "https://news.example.com"
 
     async def test_register_without_utm_leaves_attribution_null(
         self, unauthed_client: AsyncClient, db_session: AsyncSession
@@ -507,9 +510,9 @@ class TestAttributionCleaning:
         )
         assert u.utm_source == "google"
 
-    def test_utm_is_lowercased_but_referrer_is_not(self) -> None:
+    def test_utm_is_lowercased_and_referrer_cut_to_its_origin(self) -> None:
         """UTM tags are case-normalized so Google/google don't fragment the
-        funnel; the referrer is a URL and kept verbatim."""
+        funnel; the referrer keeps only its scheme and host."""
         from app.models.user_schemas import UserCreate
 
         u = UserCreate.model_validate(
@@ -524,7 +527,7 @@ class TestAttributionCleaning:
         )
         assert u.utm_source == "google"
         assert u.utm_campaign == "summer-launch"
-        assert u.referrer == "https://News.example.com/Article"  # unchanged
+        assert u.referrer == "https://news.example.com"
 
     def test_overlong_values_are_truncated_not_rejected(self) -> None:
         """An attacker controls the URL, so an over-long referrer must never 422
@@ -537,11 +540,68 @@ class TestAttributionCleaning:
                 "password": TEST_PASSWORD,
                 "accept_terms": True,
                 "utm_source": "s" * 500,       # cap 200
-                "referrer": "r" * 900,         # cap 500
+                "referrer": "https://" + "r" * 900 + ".com/x",  # cap 500
             }
         )
         assert len(u.utm_source or "") == 200
         assert len(u.referrer or "") == 500
+
+    def test_truncation_comes_after_lowercasing(self) -> None:
+        """"İ".lower() is two code points, so slicing first let a crafted
+        tag come out 400 long and overflow VARCHAR(200): a 500 on the public
+        access-request endpoint."""
+        from app.models.user_schemas import UserCreate
+
+        u = UserCreate.model_validate(
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
+             "utm_source": "İ" * 300}
+        )
+        assert len(u.utm_source or "") == 200
+
+    def test_referrer_never_keeps_a_path_or_query(self) -> None:
+        """The privacy policy promises no per-click id (fbclid) is stored."""
+        from app.models.user_schemas import UserCreate
+
+        u = UserCreate.model_validate(
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
+             "referrer": "https://blog.example.com:8443/post?fbclid=IwAR0abc#x"}
+        )
+        assert u.referrer == "https://blog.example.com:8443"
+
+    def test_referrer_that_is_not_a_url_is_dropped(self) -> None:
+        from app.models.user_schemas import UserCreate
+
+        for junk in (
+            "not a url",
+            "//no-scheme.example.com",
+            "https://",
+            "http://a.com:99999/x",  # .port raises "Port out of range"
+            "http://a.com:abc",      # .port raises on a non-number
+        ):
+            u = UserCreate.model_validate(
+                {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
+                 "referrer": junk}
+            )
+            assert u.referrer is None, junk
+
+    def test_ipv6_referrer_keeps_its_brackets(self) -> None:
+        from app.models.user_schemas import UserCreate
+
+        u = UserCreate.model_validate(
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
+             "referrer": "http://[::1]:8080/path?q=1"}
+        )
+        assert u.referrer == "http://[::1]:8080"
+
+    def test_nul_is_dropped(self) -> None:
+        """Postgres rejects NUL in text, which would be a 500."""
+        from app.models.user_schemas import UserCreate
+
+        u = UserCreate.model_validate(
+            {"email": "a@b.com", "password": TEST_PASSWORD, "accept_terms": True,
+             "utm_campaign": "mb\x00-w49"}
+        )
+        assert u.utm_campaign == "mb-w49"
 
     def test_non_string_is_dropped(self) -> None:
         from app.models.user_schemas import UserCreate

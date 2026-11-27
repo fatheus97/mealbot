@@ -37,6 +37,26 @@ describe("captureAttribution", () => {
     });
   });
 
+  it("captures utm_content, the per-ad tag", () => {
+    setUrl("?utm_source=meta&utm_campaign=mb-w49&utm_content=c-0012");
+    captureAttribution();
+    expect(getStoredAttribution()).toEqual({
+      utm_source: "meta",
+      utm_campaign: "mb-w49",
+      utm_content: "c-0012",
+    });
+  });
+
+  it("never keeps an ad platform's per-click id", () => {
+    // fbclid / gclid single out one person's click; the privacy policy
+    // ("Which link brought you") promises they are not stored.
+    setUrl("?utm_source=meta&fbclid=IwAR0abc&gclid=Cj0xyz&msclkid=m1");
+    captureAttribution();
+    const held = getStoredAttribution();
+    expect(held).toEqual({ utm_source: "meta" });
+    expect(JSON.stringify(held)).not.toMatch(/IwAR0abc|Cj0xyz|m1/);
+  });
+
   it("captures the referrer even with no utm params", () => {
     setReferrer("https://news.example.com/post");
     captureAttribution();

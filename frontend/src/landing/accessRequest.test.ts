@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { __resetAttributionForTests, captureAttribution } from "../utils/attribution";
 import {
   createAccessForm,
   submitAccessRequest,
@@ -66,6 +67,33 @@ describe("submitAccessRequest", () => {
       email: "a@b.com",
       message: "let me in",
     });
+  });
+
+  it("sends the first-touch campaign tags with the request", async () => {
+    // While registration is closed this form is the only conversion an ad
+    // campaign has, so it carries the same tags a signup does.
+    window.history.replaceState(null, "", "/?utm_source=meta&utm_campaign=mb-w49&utm_content=c-0012");
+    __resetAttributionForTests();
+    captureAttribution();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () => Promise.resolve({ message: "ok" }),
+    } as unknown as Response);
+    try {
+      await submitAccessRequest("a@b.com", "");
+      const [, init] = vi.mocked(fetch).mock.calls[0];
+      expect(JSON.parse(init!.body as string)).toEqual({
+        email: "a@b.com",
+        message: "",
+        utm_source: "meta",
+        utm_campaign: "mb-w49",
+        utm_content: "c-0012",
+      });
+    } finally {
+      __resetAttributionForTests();
+      window.history.replaceState(null, "", "/");
+    }
   });
 
   it("ignores the server's English ack on a Czech page", async () => {

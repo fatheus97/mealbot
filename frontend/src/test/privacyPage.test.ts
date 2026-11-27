@@ -14,6 +14,7 @@ import { resolve } from "node:path";
 
 const DIST = resolve(import.meta.dirname, "../../dist/privacy.html");
 const DIST_INDEX = resolve(import.meta.dirname, "../../dist/index.html");
+const DIST_CS = resolve(import.meta.dirname, "../../dist/cs/privacy.html");
 const built = existsSync(DIST);
 
 // Unconditional, so `describe.skipIf` below can never silently report zero
@@ -48,6 +49,27 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
       // The mitigating half of the same fact — the content is pseudonymous at
       // the provider. Keeping one without the other misrepresents the risk.
       expect(html).toMatch(/do not send your email address/i);
+    });
+
+    it("discloses the campaign tags stored with a sign-up or access request", () => {
+      // Signups have stored utm_* and the referrer since the funnel shipped, and
+      // since Q50 access requests and utm_content too. Losing this paragraph
+      // would leave stored data undisclosed again.
+      expect(html).toMatch(/Which link brought you/);
+      expect(html).toMatch(/utm_/);
+      expect(html).toMatch(/never store the click identifiers/i);
+      expect(html).toMatch(/which of our campaigns and ads bring people/i);
+    });
+
+    it("discloses the same in the Czech edition, which has equal authority", () => {
+      // cs/privacy.html is hand-edited source, not a translation build step,
+      // so nothing else would notice the section going missing there.
+      expect(existsSync(DIST_CS)).toBe(true);
+      const cs = readFileSync(DIST_CS, "utf8");
+      expect(cs).toMatch(/Který odkaz vás k nám přivedl/);
+      expect(cs).toMatch(/utm_/);
+      expect(cs).toMatch(/nikdy neukládáme/);
+      expect(cs).toMatch(/oprávněný zájem vědět, které naše kampaně a reklamy/);
     });
 
     it("names every third party that receives data", () => {

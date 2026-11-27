@@ -8,7 +8,9 @@ moderation queue; neither has anything to do with user profiles.
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
+
+from app.models.user_schemas import clean_attribution
 
 # Free text from an anonymous stranger. Long enough for a real explanation,
 # short enough that the row (and the admin's screen) can't be flooded.
@@ -41,6 +43,22 @@ class AccessRequestCreate(BaseModel):
         if len(v) > 254:
             raise ValueError("Email address is too long")
         return v
+
+    # First-touch attribution, the same tags a signup records (UserCreate) and
+    # cleaned by the same function, so a campaign's access requests and its
+    # signups count in the same buckets. Optional: the form works without them.
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    utm_content: str | None = None
+    referrer: str | None = None
+
+    @field_validator(
+        "utm_source", "utm_medium", "utm_campaign", "utm_content", "referrer", mode="before"
+    )
+    @classmethod
+    def _clean_attribution(cls, v: object, info: ValidationInfo) -> str | None:
+        return clean_attribution(v, info.field_name or "")
 
 
 class AccessRequestRead(BaseModel):

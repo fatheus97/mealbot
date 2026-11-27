@@ -17,6 +17,7 @@ from app.db import get_session
 from app.models.access_request_schemas import AccessRequestCreate
 from app.models.user_schemas import MessageResponse
 from app.services.access_request import (
+    Attribution,
     SubmitOutcome,
     notify_operator,
     submit_access_request,
@@ -59,7 +60,18 @@ async def create_access_request(
         raise RequestValidationError(exc.errors()) from exc
 
     try:
-        outcome = await submit_access_request(session, email=body.email, message=body.message)
+        outcome = await submit_access_request(
+            session,
+            email=body.email,
+            message=body.message,
+            attribution=Attribution(
+                utm_source=body.utm_source,
+                utm_medium=body.utm_medium,
+                utm_campaign=body.utm_campaign,
+                utm_content=body.utm_content,
+                referrer=body.referrer,
+            ),
+        )
         await session.commit()
     except IntegrityError:
         # Lost the race to the partial unique index — a concurrent submit for

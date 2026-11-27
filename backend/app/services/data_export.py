@@ -39,6 +39,7 @@ from app.models.export_schemas import (
     ExportedMeal,
     ExportedPlan,
     ExportedRefund,
+    ExportedSignupAttribution,
     ExportedWasteRecord,
     UserDataExport,
 )
@@ -292,6 +293,23 @@ async def build_export(session: AsyncSession, user: User, profile: UserRead) -> 
             ExportedConsentEvent(granted=e.granted, version=e.version, created_at=e.created_at)
             for e in consent_events
         ],
+        signup_attribution=(
+            ExportedSignupAttribution(
+                utm_source=user.signup_utm_source,
+                utm_medium=user.signup_utm_medium,
+                utm_campaign=user.signup_utm_campaign,
+                utm_content=user.signup_utm_content,
+                referrer=user.signup_referrer,
+            )
+            if any((
+                user.signup_utm_source,
+                user.signup_utm_medium,
+                user.signup_utm_campaign,
+                user.signup_utm_content,
+                user.signup_referrer,
+            ))
+            else None
+        ),
         waste_records=[
             ExportedWasteRecord(
                 name=w.name,

@@ -40,6 +40,8 @@ export interface Attribution {
   utm_source?: string;
   utm_medium?: string;
   utm_campaign?: string;
+  /** Which ad or link variant: the marketing pipeline sets one per creative. */
+  utm_content?: string;
   referrer?: string;
 }
 
@@ -100,10 +102,15 @@ export function captureAttribution(): void {
   const source = clean(params.get("utm_source"), UTM_CAP);
   const medium = clean(params.get("utm_medium"), UTM_CAP);
   const campaign = clean(params.get("utm_campaign"), UTM_CAP);
+  const content = clean(params.get("utm_content"), UTM_CAP);
+  // Only the five names above, never a whole query string: ad platforms append
+  // per-click ids (fbclid, gclid) that single out one person's click, and the
+  // privacy policy promises we do not store them.
   const referrer = clean(externalReferrer(), REFERRER_CAP);
   if (source) next.utm_source = source;
   if (medium) next.utm_medium = medium;
   if (campaign) next.utm_campaign = campaign;
+  if (content) next.utm_content = content;
   if (referrer) next.referrer = referrer;
 
   // Nothing worth recording (direct visit, no referrer) → leave it unset so a

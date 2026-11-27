@@ -210,6 +210,32 @@ class TestExportContents:
             }
         ]
 
+    async def test_contains_the_signup_attribution(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ) -> None:
+        # Stored with the account at signup and disclosed in the privacy policy
+        # ("Which link brought you"), so it belongs in "a copy of your data".
+        test_user.signup_utm_source = "meta"
+        test_user.signup_utm_campaign = "mb-w49"
+        test_user.signup_utm_content = "c-0012"
+        test_user.signup_referrer = "https://example.com/post"
+        db_session.add(test_user)
+        await db_session.flush()
+        body, _ = await _fetch(client)
+        assert body["signup_attribution"] == {
+            "utm_source": "meta",
+            "utm_medium": None,
+            "utm_campaign": "mb-w49",
+            "utm_content": "c-0012",
+            "referrer": "https://example.com/post",
+        }
+
+    async def test_signup_attribution_is_null_when_nothing_was_recorded(
+        self, client: AsyncClient, test_user: User
+    ) -> None:
+        body, _ = await _fetch(client)
+        assert body["signup_attribution"] is None
+
     async def test_names_what_it_leaves_out(
         self, client: AsyncClient, test_user: User
     ) -> None:
