@@ -9,7 +9,7 @@ EXPECTED_HEADERS: dict[str, str] = {
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Referrer-Policy": "strict-origin",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=(self), payment=()",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-site",

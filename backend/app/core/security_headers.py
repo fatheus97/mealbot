@@ -12,7 +12,10 @@ _HEADERS: dict[str, str] = {
     "Content-Security-Policy": _API_CSP,
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
+    # Parity with frontend/nginx.conf, which says why it is not the
+    # ...-when-cross-origin variant (a same-origin Referer would carry the
+    # full URL, emailed single-use tokens included).
+    "Referrer-Policy": "strict-origin",
     # camera=(self): same-origin camera for the frontend's receipt-scan getUserMedia
     # flow (an empty camera=() blocked the browser prompt — mealbot-tickets#4). Kept
     # in parity with the frontend nginx header; inert on these JSON-only responses,
