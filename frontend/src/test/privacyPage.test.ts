@@ -72,6 +72,14 @@ describe.skipIf(!built)("privacy policy (built dist/privacy.html)", () => {
       expect(cs).toMatch(/oprávněný zájem vědět, které naše kampaně a reklamy/);
     });
 
+    it("states the 30-day retention of access requests the daily sweep enforces", () => {
+      // CLOSED_RETENTION_DAYS in backend/app/services/access_request.py; the
+      // mealbot-accessrequest-cleanup timer runs it daily.
+      expect(html).toMatch(/Access requests from the landing page<\/td><td>Deleted 30 days after/);
+      const cs = readFileSync(DIST_CS, "utf8");
+      expect(cs).toMatch(/Žádosti o přístup z úvodní stránky<\/td><td>Smazány 30 dní/);
+    });
+
     it("names every third party that receives data", () => {
       for (const party of ["Google", "OpenAI", "Stripe", "Resend", "GitHub", "Hetzner", "Cloudflare"]) {
         expect(html).toContain(party);

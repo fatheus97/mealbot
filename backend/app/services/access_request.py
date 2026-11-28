@@ -12,12 +12,12 @@ rules it exists to enforce live here rather than in the route:
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import escape
 from typing import NamedTuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, func, select
+from sqlmodel import col, delete, func, select
 
 from app.core.email_normalize import normalize_email
 from app.models.db_models import AccessRequest, User
@@ -32,6 +32,36 @@ PENDING = "pending"
 #: database, so this must not collide with another feature's key — keep it
 #: unique if a second advisory lock is ever introduced.
 _SUBMIT_LOCK_KEY = 8_240_117
+
+
+#: How long a handled or dismissed request is kept after it was dealt with
+#: (owner, Q51). The privacy policy's retention table states this number in
+#: English and Czech; change both with it.
+CLOSED_RETENTION_DAYS = 30
+
+
+async def sweep_closed_access_requests(session: AsyncSession, now: datetime) -> int:
+    """Delete every handled or dismissed request closed more than
+    CLOSED_RETENTION_DAYS ago; the caller commits. A row holds a stranger's
+    email, message and campaign tags, and once it is dealt with (an invite
+    sent, or dismissed) nothing reads it again. Pending requests are never
+    touched, however old: they are still waiting for us. ``now`` must be
+    timezone-aware.
+
+    ``handled_at`` is stamped on every move out of pending (admin
+    update_access_request). A closed row without one would be a data anomaly;
+    it falls back to ``created_at`` so it cannot be kept forever."""
+    cutoff = now - timedelta(days=CLOSED_RETENTION_DAYS)
+    closed_at = func.coalesce(col(AccessRequest.handled_at), col(AccessRequest.created_at))
+    deleted = (
+        await session.execute(
+            delete(AccessRequest)
+            .where(col(AccessRequest.status) != PENDING)
+            .where(closed_at <= cutoff)
+            .returning(col(AccessRequest.id))
+        )
+    ).scalars().all()
+    return len(deleted)
 
 
 class Attribution(NamedTuple):
