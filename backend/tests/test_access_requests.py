@@ -4,7 +4,7 @@ The public endpoint is the app's only unauthenticated write, so the emphasis
 here is on the two properties that make it safe to expose: it never discloses
 whether an address has an account, and one address can't flood the queue.
 """
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -12,7 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.models.db_models import AccessRequest, AdminAuditLog, User
-from app.services.access_request import alert_html, submit_access_request
+from app.services.access_request import (
+    CLOSED_RETENTION_DAYS,
+    alert_html,
+    submit_access_request,
+    sweep_closed_access_requests,
+)
 
 ENDPOINT = "/api/access-requests"
 NEUTRAL = "Thanks — we've got your request and will be in touch by email."
@@ -498,3 +503,59 @@ class TestAdminDelete:
     ) -> None:
         await _make_admin(db_session, test_user)
         assert (await client.delete("/api/admin/access-requests/9999")).status_code == 404
+
+
+class TestRetentionSweep:
+    """The privacy policy promises closed requests go 30 days after we deal
+    with them (Q51); this is the job that keeps the promise."""
+
+    NOW = datetime(2026, 12, 31, 6, 0, tzinfo=UTC)
+
+    async def _add(
+        self,
+        db_session: AsyncSession,
+        email: str,
+        status: str,
+        handled_days_ago: float | None,
+        created_days_ago: float = 90,
+    ) -> None:
+        db_session.add(AccessRequest(
+            email=email,
+            normalized_email=email,
+            status=status,
+            created_at=self.NOW - timedelta(days=created_days_ago),
+            handled_at=(
+                None if handled_days_ago is None
+                else self.NOW - timedelta(days=handled_days_ago)
+            ),
+        ))
+        await db_session.flush()
+
+    async def test_deletes_only_requests_closed_longer_than_the_window(
+        self, db_session: AsyncSession
+    ) -> None:
+        assert CLOSED_RETENTION_DAYS == 30  # the number both privacy pages print
+        await self._add(db_session, "old-handled@x.com", "handled", 31)
+        await self._add(db_session, "old-dismissed@x.com", "dismissed", 30)
+        await self._add(db_session, "recent@x.com", "handled", 29)
+        await self._add(db_session, "waiting@x.com", "pending", None, created_days_ago=400)
+
+        assert await sweep_closed_access_requests(db_session, self.NOW) == 2
+        left = sorted(r.email for r in await _rows(db_session))
+        # A pending request is never swept, however old: it still waits for us.
+        assert left == ["recent@x.com", "waiting@x.com"]
+
+    async def test_a_closed_row_without_handled_at_falls_back_to_created_at(
+        self, db_session: AsyncSession
+    ) -> None:
+        # handled_at is stamped on every move out of pending; a row without it
+        # is an anomaly that must not be kept forever.
+        await self._add(db_session, "anomaly@x.com", "dismissed", None, created_days_ago=31)
+        await self._add(db_session, "anomaly-new@x.com", "dismissed", None, created_days_ago=5)
+        assert await sweep_closed_access_requests(db_session, self.NOW) == 1
+        assert [r.email for r in await _rows(db_session)] == ["anomaly-new@x.com"]
+
+    async def test_is_idempotent(self, db_session: AsyncSession) -> None:
+        await self._add(db_session, "old@x.com", "handled", 60)
+        assert await sweep_closed_access_requests(db_session, self.NOW) == 1
+        assert await sweep_closed_access_requests(db_session, self.NOW) == 0

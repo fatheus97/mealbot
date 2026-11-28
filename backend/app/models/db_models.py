@@ -695,8 +695,9 @@ class AccessRequest(SQLModel, table=True):
       ``AdminAuditLog``).
 
     GDPR: rows hold a third party's email + free text, so the admin API
-    exposes a real DELETE (not just a status flip) — retention is a
-    deliberate admin decision, and a handled request can be erased outright.
+    exposes a real DELETE (not just a status flip), and a handled or
+    dismissed request is deleted 30 days after it was closed
+    (``sweep_closed_access_requests``, mealbot-accessrequest-cleanup timer).
     """
 
     # Mirrors uq_accessrequest_pending_email in migration access_request_01 —

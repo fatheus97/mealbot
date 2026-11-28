@@ -1,0 +1,23 @@
+# Schedules mealbot-accessrequest-cleanup.service once a day.
+#
+# This is the unit you enable:
+#   systemctl enable --now mealbot-accessrequest-cleanup.timer
+#
+# (In practice sync-systemd-units.sh enables it for you the first time the file
+# lands on the box. The command above is for a box rebuild.)
+#
+# See deploy/systemd/README.md.
+
+[Unit]
+Description=Schedule the mealbot daily closed-access-request cleanup job
+Documentation=https://github.com/fatheus97/mealbot/blob/main/deploy/systemd/README.md
+
+[Timer]
+# 06:00, keeping the 30-minute stagger: invite cleanup 05:30, billing 08:00.
+OnCalendar=*-*-* 06:00:00
+# If the box was off at 06:00, run as soon as it is back up.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
