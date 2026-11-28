@@ -40,7 +40,7 @@ the daemon's build cache / images, so it has no reason to enter a container).
 
 The schedules are staggered (02:30, 03:00, 03:30, 04:00, Sun 04:30, 05:00, 05:30, 06:00,
 08:00, plus the hourly disk check) so they never contend for the small Hetzner box at once.
-The backup deliberately runs *before* every row sweep: if either ever deletes
+The backup deliberately runs *before* every row sweep: if any ever deletes
 something it shouldn't, the night's dump predates it.
 
 ## Failure alerting (`mealbot-alert@.service`)
